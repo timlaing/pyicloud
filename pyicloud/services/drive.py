@@ -343,7 +343,7 @@ class DriveNode:
             raise KeyError(f"No child named '{key}' exists") from i
 
     def __str__(self):
-        return rf"\{type: {self.type}, name: {self.name}\}"
+        return "{" + f"type: {self.type}, name: {self.name}" + "}"
 
     def __repr__(self):
         return f"<{type(self).__name__}: {str(self)}>"
