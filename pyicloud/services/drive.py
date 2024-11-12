@@ -200,7 +200,7 @@ class DriveService:
 
     def move_items_to_trash(self, node_id, etag):
         """Moves an iCloud Drive node to the trash bin"""
-        # when creating a folder on icloud.com, the clientID is set to the node_id:
+        # when moving a node to the trash on icloud.com, the clientID is set to the node_id:
         temp_client_id = node_id
         request = self.session.post(
             self._service_root + "/moveItemsToTrash",
