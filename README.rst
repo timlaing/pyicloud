@@ -369,6 +369,7 @@ You can also interact with files in the ``trash``:
     ['DSC08116.JPG']
 
     >>> delete_output = api.drive['Holiday Photos']['2013']['Sicily']['DSC08117.JPG'].delete()
+    >>> api.drive.refresh_trash()
     >>> api.drive.trash.dir()
     ['DSC08116.JPG', 'DSC08117.JPG']
 
@@ -387,6 +388,7 @@ You can interact with the ``trash`` similar to a standard directory, with some r
     ['DSC08117.JPG']
 
     >>> purge_output = api.drive.trash['DSC08117.JPG'].delete_forever()
+    >>> api.drive.refresh_trash()
     >>> api.drive.trash.dir()
     []
 
