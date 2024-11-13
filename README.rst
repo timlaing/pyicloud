@@ -360,6 +360,36 @@ The ``upload`` method can be used to send a file-like object to the iCloud Drive
 It is strongly suggested to open file handles as binary rather than text to prevent decoding errors
 further down the line.
 
+You can also interact with files in the ``trash``:
+
+.. code-block:: pycon
+
+    >>> delete_output = api.drive['Holiday Photos']['2013']['Sicily']['DSC08116.JPG'].delete()
+    >>> api.drive.trash.dir()
+    ['DSC08116.JPG']
+
+    >>> delete_output = api.drive['Holiday Photos']['2013']['Sicily']['DSC08117.JPG'].delete()
+    >>> api.drive.trash.dir()
+    ['DSC08116.JPG', 'DSC08117.JPG']
+
+You can interact with the ``trash`` similar to a standard directory, with some restrictions. In addition, files in the ``trash`` can be recovered back to their original location, or deleted forever:
+
+.. code-block:: pycon
+
+    >>> api.drive['Holiday Photos']['2013']['Sicily'].dir()
+    []
+
+    >>> recover_output = api.drive.trash['DSC08116.JPG'].recover()
+    >>> api.drive['Holiday Photos']['2013']['Sicily'].dir()
+    ['DSC08116.JPG']
+
+    >>> api.drive.trash.dir()
+    ['DSC08117.JPG']
+
+    >>> purge_output = api.drive.trash['DSC08117.JPG'].delete_forever()
+    >>> api.drive.trash.dir()
+    []
+
 Photo Library
 =======================
 
