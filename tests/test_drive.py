@@ -19,13 +19,42 @@ class DriveServiceTest(TestCase):
     def test_root(self):
         """Test the root folder."""
         drive = self.service.drive
-        assert drive.name == ""
+        # root name is now extracted from drivewsid.
+        assert drive.name == "root"
         assert drive.type == "folder"
         assert drive.size is None
         assert drive.date_changed is None
         assert drive.date_modified is None
         assert drive.date_last_open is None
         assert drive.dir() == ["Keynote", "Numbers", "Pages", "Preview", "pyiCloud"]
+
+    def test_trash(self):
+        """Test the root folder."""
+        trash = self.service.drive.trash
+        assert trash.name == "TRASH_ROOT"
+        assert trash.type == "trash"
+        assert trash.size is None
+        assert trash.date_changed is None
+        assert trash.date_modified is None
+        assert trash.date_last_open is None
+        assert trash.dir() == ["dead-file.download", "test_create_folder", "test_delete_forever_and_ever",
+                               "test_files_1", "test_random_uuid", "test12345"]
+
+    def test_trash_recover(self):
+        """Test recovering a file from the Trash."""
+        recover_result = self.service.drive.trash["test_random_uuid"].recover()
+        recover_result_items = recover_result["items"][0]
+        assert recover_result_items["status"] == "OK"
+        assert recover_result_items["parentId"] == "FOLDER::com.apple.CloudDocs::root"
+        assert recover_result_items["name"] == "test_random_uuid"
+
+    def test_trash_delete_forever(self):
+        """Test permanently deleting a file from the Trash."""
+        recover_result = self.service.drive.trash["test_delete_forever_and_ever"].delete_forever()
+        recover_result_items = recover_result["items"][0]
+        assert recover_result_items["status"] == "OK"
+        assert recover_result_items["parentId"] == "FOLDER::com.apple.CloudDocs::43D7C666-6E6E-4522-8999-0B519C3A1F4B"
+        assert recover_result_items["name"] == "test_delete_forever_and_ever"
 
     def test_folder_app(self):
         """Test the /Preview folder."""
