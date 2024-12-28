@@ -1,4 +1,4 @@
-name: CI
+name: Tests
 
 on:
   push:
@@ -32,8 +32,3 @@ jobs:
           pip install tox tox-gh-actions
       - name: Test with tox
         run: tox
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Needed to get PR information, if any
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
