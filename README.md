@@ -1,18 +1,11 @@
 # pyiCloud
 
-[![Check out our test status at https://travis-ci.org/picklepete/pyicloud](https://travis-ci.org/picklepete/pyicloud.svg?branch=master)](https://travis-ci.org/picklepete/pyicloud)
-
+![Build Status](https://github.com/timlaing/pyicloud/actions/workflows/ci/badge.svg)
 [![Library version](https://img.shields.io/pypi/v/pyicloud)](https://pypi.org/project/pyicloud)
-
 [![Supported versions](https://img.shields.io/pypi/pyversions/pyicloud)](https://pypi.org/project/pyicloud)
-
 [![Downloads](https://pepy.tech/badge/pyicloud)](https://pypi.org/project/pyicloud)
-
 [![Requirements Status](https://requires.io/github/Quentame/pyicloud/requirements.svg?branch=master)](https://requires.io/github/Quentame/pyicloud/requirements/?branch=master)
-
 [![Formated with Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-
-
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
