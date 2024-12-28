@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-"""pyiCloud setup."""
+"""PyiCloud setup."""
 
 from setuptools import setup, find_packages
 
-REPO_URL = "https://github.com/picklepete/pyicloud"
+REPO_URL = "https://github.com/timlaing/pyicloud"
 VERSION = "1.0.0"
 
 with open("requirements.txt") as f:
     required = f.read().splitlines()
 
-with open("README.rst", encoding="utf-8") as f:
+with open("README.md", encoding="utf-8") as f:
     long_description = f.read()
 
 setup(
@@ -36,6 +36,9 @@ setup(
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
         "Topic :: Software Development :: Libraries",
     ],
     entry_points={"console_scripts": ["icloud = pyicloud.cmdline:main"]},
