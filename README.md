@@ -1,6 +1,6 @@
 # pyiCloud
 
-![Build Status](https://github.com/timlaing/pyicloud/actions/workflows/ci/badge.svg)
+![Build Status](https://github.com/timlaing/pyicloud/actions/workflows/ci.yml/badge.svg)
 [![Library version](https://img.shields.io/pypi/v/pyicloud)](https://pypi.org/project/pyicloud)
 [![Supported versions](https://img.shields.io/pypi/pyversions/pyicloud)](https://pypi.org/project/pyicloud)
 [![Downloads](https://pepy.tech/badge/pyicloud)](https://pypi.org/project/pyicloud)
