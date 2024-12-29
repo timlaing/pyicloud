@@ -32,6 +32,9 @@ from .const_drive import (
     DRIVE_SUBFOLDER_WORKING,
     DRIVE_ROOT_WORKING,
     DRIVE_FILE_DOWNLOAD_WORKING,
+    DRIVE_TRASH_WORKING,
+    DRIVE_TRASH_RECOVER_WORKING,
+    DRIVE_TRASH_DELETE_FOREVER_WORKING
 )
 from .const_findmyiphone import FMI_FAMILY_WORKING
 
@@ -133,6 +136,8 @@ class PyiCloudSessionMock(base.PyiCloudSession):
                 return ResponseMock(DRIVE_ROOT_WORKING)
             if data[0].get("drivewsid") == "FOLDER::com.apple.CloudDocs::documents":
                 return ResponseMock(DRIVE_ROOT_INVALID)
+            if data[0].get("drivewsid") == "FOLDER::com.apple.CloudDocs::TRASH_ROOT":
+                return ResponseMock(DRIVE_TRASH_WORKING)
             if (
                 data[0].get("drivewsid")
                 == "FOLDER::com.apple.CloudDocs::1C7F1760-D940-480F-8C4F-005824A4E05B"
@@ -143,6 +148,27 @@ class PyiCloudSessionMock(base.PyiCloudSession):
                 == "FOLDER::com.apple.CloudDocs::D5AA0425-E84F-4501-AF5D-60F1D92648CF"
             ):
                 return ResponseMock(DRIVE_SUBFOLDER_WORKING)
+
+        # Drive Trash Recover
+        if (
+            "putBackItemsFromTrash" in url
+            and method == "POST"
+            and data.get("items")[0].get("drivewsid")
+        ):
+            if (data.get("items")[0].get("drivewsid") ==
+                    "FOLDER::com.apple.CloudDocs::2BF8600B-5DCC-4421-805A-1C28D07197D5"):
+                return ResponseMock(DRIVE_TRASH_RECOVER_WORKING)
+
+        # Drive Trash Delete Forever
+        if (
+            "deleteItems" in url
+            and method == "POST"
+            and data.get("items")[0].get("drivewsid")
+        ):
+            if (data.get("items")[0].get("drivewsid") ==
+                    "FOLDER::com.apple.CloudDocs::478AEA23-42A2-468A-ABC1-1A04BC07F738"):
+                return ResponseMock(DRIVE_TRASH_DELETE_FOREVER_WORKING)
+
         # Drive download
         if "com.apple.CloudDocs/download/by_id" in url and method == "GET":
             if params.get("document_id") == "516C896C-6AA5-4A30-B30E-5502C2333DAE":

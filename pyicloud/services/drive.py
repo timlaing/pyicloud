@@ -6,6 +6,7 @@ import io
 import mimetypes
 import os
 import time
+import uuid
 from re import search
 from requests import Response
 
@@ -24,6 +25,7 @@ class DriveService:
         self.session = session
         self.params = dict(params)
         self._root = None
+        self._trash = None
 
     def _get_token_from_cookie(self):
         for cookie in self.session.cookies:
@@ -50,6 +52,17 @@ class DriveService:
         )
         self._raise_if_error(request)
         return request.json()[0]
+
+    def custom_request(self, method, path, data=None):
+        """Raw function to allow for custom requests"""
+        request = self.session.request(
+            method,
+            self._service_root + f"/{path}",
+            params=self.params,
+            data=json.dumps(data) if data else None,
+        )
+        self._raise_if_error(request)
+        return request.json()
 
     def get_file(self, file_id, **kwargs):
         """Returns iCloud Drive file."""
@@ -220,12 +233,67 @@ class DriveService:
         self._raise_if_error(request)
         return request.json()
 
+    def recover_items_from_trash(self, node_id, etag):
+        """Restores an iCloud Drive node from the trash bin"""
+        request = self.session.post(
+            self._service_root + "/putBackItemsFromTrash",
+            params=self.params,
+            data=json.dumps(
+                {
+                    "items": [
+                        {
+                            "drivewsid": node_id,
+                            "etag": etag
+                        }
+                    ],
+                }
+            ),
+        )
+        self._raise_if_error(request)
+        return request.json()
+
+    def delete_forever_from_trash(self, node_id, etag):
+        """Permanently deletes an iCloud Drive node from the trash bin"""
+        request = self.session.post(
+            self._service_root + "/deleteItems",
+            params=self.params,
+            data=json.dumps(
+                {
+                    "items": [
+                        {
+                            "drivewsid": node_id,
+                            "etag": etag
+                        }
+                    ],
+                }
+            ),
+        )
+        self._raise_if_error(request)
+        return request.json()
+
     @property
     def root(self):
         """Returns the root node."""
         if not self._root:
             self._root = DriveNode(self, self.get_node_data("root"))
         return self._root
+
+    @property
+    def trash(self):
+        """Returns the trash node."""
+        if not self._trash:
+            self._trash = DriveNode(self, self.get_node_data("TRASH_ROOT"))
+        return self._trash
+
+    def refresh_root(self):
+        """Refreshes and returns a fresh root node."""
+        self._root = DriveNode(self, self.get_node_data("root"))
+        return self._root
+
+    def refresh_trash(self):
+        """Refreshes and returns a fresh trash node."""
+        self._trash = DriveNode(self, self.get_node_data("TRASH_ROOT"))
+        return self._trash
 
     def __getattr__(self, attr):
         return getattr(self.root, attr)
@@ -253,14 +321,29 @@ class DriveNode:
     @property
     def name(self):
         """Gets the node name."""
+        # check if name is undefined, return drivewsid instead if so.
+        node_name = self.data.get("name")
+        if not node_name:
+            # use drivewsid as name if no name present.
+            node_name = self.data.get("drivewsid")
+            # Clean up well-known drivewsid names
+            if node_name == "FOLDER::com.apple.CloudDocs::root":
+                node_name = "root"
+            # if no name still, return unknown string.
+            if not node_name:
+                node_name = "<UNKNOWN>"
+
         if "extension" in self.data:
-            return "{}.{}".format(self.data["name"], self.data["extension"])
-        return self.data["name"]
+            return f"{node_name}.{self.data["extension"]}"
+        return node_name
 
     @property
     def type(self):
         """Gets the node type."""
         node_type = self.data.get("type")
+        # handle trash which has no node type
+        if not node_type and self.data.get("drivewsid") == "TRASH_ROOT":
+            node_type = "trash"
         return node_type and node_type.lower()
 
     def get_children(self):
@@ -333,6 +416,27 @@ class DriveNode:
         return self.connection.move_items_to_trash(
             self.data["drivewsid"], self.data["etag"]
         )
+
+    def recover(self):
+        """Recovers an iCloud Drive item from trash."""
+        # check to ensure item is in the trash - it should have a "restorePath" property
+        if self.data.get("restorePath"):
+            return self.connection.recover_items_from_trash(
+                self.data["drivewsid"], self.data["etag"]
+            )
+        else:
+            raise ValueError(f"'{self.name}' does not appear to be in the Trash.")
+
+    def delete_forever(self):
+        """Permanently deletes an iCloud Drive item from trash."""
+        # check to ensure item is in the trash - it should have a "restorePath" property
+        if self.data.get("restorePath"):
+            return self.connection.delete_forever_from_trash(
+                self.data["drivewsid"], self.data["etag"]
+            )
+        else:
+            raise ValueError(f"'{self.name}' does not appear to be in the Trash. Please 'delete()' it first before "
+                             f"trying to 'delete_forever()'.")
 
     def get(self, name):
         """Gets the node child."""
