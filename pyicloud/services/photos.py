@@ -1,11 +1,15 @@
 """Photo service."""
+
+import base64
 import json
 import os
-import base64
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 
-from datetime import datetime, timezone
-from pyicloud.exceptions import PyiCloudServiceNotActivatedException, PyiCloudAPIResponseException
+from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
+    PyiCloudServiceNotActivatedException,
+)
 
 
 class PhotoLibrary:
@@ -13,6 +17,7 @@ class PhotoLibrary:
 
     This provides access to all the albums as well as the photos.
     """
+
     SMART_FOLDERS = {
         "All Photos": {
             "obj_type": "CPLAssetByAssetDateWithoutHiddenOrDeleted",
@@ -137,10 +142,9 @@ class PhotoLibrary:
         self._albums = None
 
         url = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
-        json_data = json.dumps({
-            "query": {"recordType": "CheckIndexingState"},
-            "zoneID": self.zone_id
-        })
+        json_data = json.dumps(
+            {"query": {"recordType": "CheckIndexingState"}, "zoneID": self.zone_id}
+        )
         request = self.service.session.post(
             url, data=json_data, headers={"Content-type": "text/plain"}
         )
@@ -168,10 +172,13 @@ class PhotoLibrary:
                     continue
 
                 # TODO: Handle subfolders  # pylint: disable=fixme
-                if folder['recordName'] in ('----Root-Folder----',
-                    '----Project-Root-Folder----') or \
-                    (folder['fields'].get('isDeleted') and
-                     folder['fields']['isDeleted']['value']):
+                if folder["recordName"] in (
+                    "----Root-Folder----",
+                    "----Project-Root-Folder----",
+                ) or (
+                    folder["fields"].get("isDeleted")
+                    and folder["fields"]["isDeleted"]["value"]
+                ):
                     continue
 
                 folder_id = folder["recordName"]
@@ -204,10 +211,9 @@ class PhotoLibrary:
 
     def _fetch_folders(self):
         url = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
-        json_data = json.dumps({
-            "query": {"recordType": "CPLAlbumByPositionLive"},
-            "zoneID": self.zone_id
-        })
+        json_data = json.dumps(
+            {"query": {"recordType": "CPLAlbumByPositionLive"}, "zoneID": self.zone_id}
+        )
 
         request = self.service.session.post(
             url, data=json_data, headers={"Content-type": "text/plain"}
@@ -222,21 +228,29 @@ class PhotoLibrary:
         return self.albums["All Photos"]
 
     def upload_file(self, path):
-        ''' Upload a photo from path, returns a recordName'''
+        """Upload a photo from path, returns a recordName"""
 
         filename = os.path.basename(path)
-        url = '{}/upload'.format(self._upload_url)
+        url = "{}/upload".format(self._upload_url)
 
-        with open(path, 'rb') as file_obj:
-            request = self.session.post(url, data=file_obj.read(), params={
-                'filename': filename,
-                'dsid': self.params['dsid'],
-            })
+        with open(path, "rb") as file_obj:
+            request = self.session.post(
+                url,
+                data=file_obj.read(),
+                params={
+                    "filename": filename,
+                    "dsid": self.params["dsid"],
+                },
+            )
 
-        if 'errors' in request.json():
-            raise PyiCloudAPIResponseException('', request.json()['errors'])
+        if "errors" in request.json():
+            raise PyiCloudAPIResponseException("", request.json()["errors"])
 
-        return [x['recordName'] for x in request.json()['records'] if x['recordType'] == 'CPLAsset'][0]
+        return [
+            x["recordName"]
+            for x in request.json()["records"]
+            if x["recordType"] == "CPLAsset"
+        ][0]
 
 
 class PhotosService(PhotoLibrary):
@@ -270,13 +284,10 @@ class PhotosService(PhotoLibrary):
     @property
     def libraries(self):
         if not self._libraries:
-            url = ("%s/changes/database" %
-                (self.service_endpoint, ))
+            url = "%s/changes/database" % (self.service_endpoint,)
 
             request = self.session.post(
-                url,
-                data="{}",
-                headers={"Content-type": "text/plain"}
+                url, data="{}", headers={"Content-type": "text/plain"}
             )
             response = request.json()
             zones = response["zones"]
@@ -379,7 +390,9 @@ class PhotoAlbum:
 
         while True:
             numResults = 0
-            for photo in self._get_photos_at(offset, self.direction, self.page_size * 2):
+            for photo in self._get_photos_at(
+                offset, self.direction, self.page_size * 2
+            ):
                 numResults += 1
                 yield photo
             if numResults == 0:
@@ -434,7 +447,9 @@ class PhotoAlbum:
                     self.service, master_record, asset_records[record_name]
                 )
 
-    def _list_query_gen(self, offset, list_type, direction, numResults, query_filter=None):
+    def _list_query_gen(
+        self, offset, list_type, direction, numResults, query_filter=None
+    ):
         query = {
             "query": {
                 "filterBy": [
@@ -577,10 +592,10 @@ class PhotoAsset:
         self._versions = None
 
     ITEM_TYPES = {
-        u"public.heic": u"image",
-        u"public.jpeg": u"image",
-        u"public.png": u"image",
-        u"com.apple.quicktime-movie": u"movie"
+        "public.heic": "image",
+        "public.jpeg": "image",
+        "public.png": "image",
+        "com.apple.quicktime-movie": "movie",
     }
 
     PHOTO_VERSION_LOOKUP = {
@@ -619,7 +634,6 @@ class PhotoAsset:
 
     @property
     def asset_date(self):
-
         """Gets the photo asset date."""
         try:
             return datetime.fromtimestamp(
@@ -646,12 +660,12 @@ class PhotoAsset:
 
     @property
     def item_type(self):
-        item_type = self._master_record['fields']['itemType']['value']
+        item_type = self._master_record["fields"]["itemType"]["value"]
         if item_type in self.ITEM_TYPES:
             return self.ITEM_TYPES[item_type]
-        if self.filename.lower().endswith(('.heic', '.png', '.jpg', '.jpeg')):
-            return 'image'
-        return 'movie'
+        if self.filename.lower().endswith((".heic", ".png", ".jpg", ".jpeg")):
+            return "image"
+        return "movie"
 
     @property
     def versions(self):

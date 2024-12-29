@@ -1,8 +1,9 @@
 """Reminders service."""
-from datetime import datetime
+
+import json
 import time
 import uuid
-import json
+from datetime import datetime
 
 from tzlocal import get_localzone_name
 

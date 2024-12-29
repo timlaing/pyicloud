@@ -68,7 +68,10 @@ class AccountServiceTest(TestCase):
             assert repr(member) == "<FamilyMember: {name: "+member.full_name+", age_classification: "+member.age_classification+"}>"
             # fmt: on
 
-    @skipIf(sys.version_info >= (3, 12), "OrderedDict repr format changes at python3.12 and higher")
+    @skipIf(
+        sys.version_info >= (3, 12),
+        "OrderedDict repr format changes at python3.12 and higher",
+    )
     def test_storage(self):
         """Tests storage."""
         assert self.service.storage
