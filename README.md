@@ -4,7 +4,7 @@
 [![Library version](https://img.shields.io/pypi/v/pyicloud)](https://pypi.org/project/pyicloud)
 [![Supported versions](https://img.shields.io/pypi/pyversions/pyicloud)](https://pypi.org/project/pyicloud)
 [![Downloads](https://pepy.tech/badge/pyicloud)](https://pypi.org/project/pyicloud)
-[![Formated with Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Formatted with Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
@@ -51,7 +51,7 @@ command-line tool:
 
 ``` console
 $ icloud --username=jappleseed@apple.com
-ICloud Password for jappleseed@apple.com:
+Enter iCloud password for jappleseed@apple.com:
 Save password in keyring? (y/N)
 ```
 
@@ -329,7 +329,7 @@ response object:
 
 You can access your iCloud Drive using an API identical to the Ubiquity
 one described in the previous section, except that it is rooted at
-`` `api.drive ``\`:
+`api.drive`:
 
 ``` pycon
 >>> api.drive.dir()
@@ -394,10 +394,10 @@ Individual albums are available through the `albums` property:
 <PhotoAlbum: 'Screenshots'>
 ```
 
-Which you can iterate to access the photo assets. The \'All Photos\'
-album is sorted by [added_date]{.title-ref} so the most recently added
+Which you can iterate to access the photo assets. The "All Photos"
+album is sorted by `added_date` so the most recently added
 photos are returned first. All other albums are sorted by
-[asset_date]{.title-ref} (which represents the exif date) :
+`asset_date` (which represents the exif date) :
 
 ``` pycon
 >>> for photo in api.photos.albums['Screenshots']:
@@ -405,9 +405,9 @@ photos are returned first. All other albums are sorted by
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
 ```
 
-To download a photo use the [download]{.title-ref} method, which will
-return a [response
-object](http://www.python-requests.org/en/latest/api/#classes),
+To download a photo use the `download` method, which will
+return a [Response
+object](https://requests.readthedocs.io/en/latest/api/#requests.Response),
 initialized with `stream` set to `True`, so you can read from the raw
 response object:
 
@@ -418,9 +418,15 @@ with open(photo.filename, 'wb') as opened_file:
     opened_file.write(download.raw.read())
 ```
 
-Note: Consider using `shutil.copyfile` or another buffered strategy for
-downloading the file so that the whole file isn\'t read into memory
-before writing.
+Consider using ``shutil.copyfileobj`` or another buffered strategy for downloading so that the whole file isn't read into memory before writing.
+
+``` python
+import shutil
+photo = next(iter(api.photos.albums['Screenshots']), None)
+response_obj = photo.download()
+with open(photo.filename, 'wb') as f:
+    shutil.copyfileobj(response_obj.raw, f)
+```
 
 Information about each version can be accessed through the `versions`
 property:
