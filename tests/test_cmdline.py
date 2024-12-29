@@ -1,10 +1,12 @@
 """Cmdline tests."""
+
 import os
 import pickle
 from unittest import TestCase
 from unittest.mock import patch
 
 import pytest
+
 from pyicloud import cmdline
 
 from . import PyiCloudServiceMock
