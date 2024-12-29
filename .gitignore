@@ -52,6 +52,9 @@ desktop.ini
 !.vscode/cSpell.json
 !.vscode/extensions.json
 !.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/launch.json
+
 
 # IntelliJ IDEA
 .idea

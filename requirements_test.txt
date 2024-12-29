@@ -1,4 +1,7 @@
 black==24.3.0
+isort
+pre-commit
 pylint==2.12.2
 pylint-strict-informational==0.1
 pytest==7.0.1
+pytest-cov
