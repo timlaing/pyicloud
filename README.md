@@ -242,7 +242,7 @@ if `as_objs` is set to `True`, the returned list will be of CalendarObjects; els
 api = login("username", "pass")
 
 calendar_service = api.calendar
-cal = calendar_service.CalendarObject(title="My Calendar", shareType="published")
+cal = calendar_service.CalendarObject(title="My Calendar", share_type="published")
 cal.color = "#FF0000"
 calendar_service.add_calendar(cal)
 ```

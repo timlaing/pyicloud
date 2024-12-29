@@ -1,7 +1,7 @@
 """Calendar service."""
 
 import json
-from typing import List
+from typing import List, Optional
 from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -86,7 +86,7 @@ class CalendarService:
     class CalendarObject:
         title: str = "Untitled"
         guid: str = ""
-        shareType: str = (
+        share_type: Optional[str] = (
             None  # can be (None, 'published', 'shared') where 'published' gens a public caldav link in the response.  Shared is not supported here as it is rather complex.
         )
         symbolicColor: str = "__custom__"
@@ -301,16 +301,16 @@ class CalendarService:
             else:
                 today = datetime.today()
 
-            if period == "day":
-                if not from_dt:
-                    from_dt = datetime(today.year, today.month, today.day)
-                to_dt = from_dt + timedelta(days=1)
-            elif period == "week":
-                if not from_dt:
-                    from_dt = datetime(today.year, today.month, today.day) - timedelta(
-                        days=today.weekday() + 1
-                    )
-                to_dt = from_dt + timedelta(days=6)
+        if period == "day":
+            if not from_dt:
+                from_dt = datetime(today.year, today.month, today.day)
+            to_dt = from_dt + timedelta(days=1)
+        elif period == "week":
+            if not from_dt:
+                from_dt = datetime(today.year, today.month, today.day) - timedelta(
+                    days=today.weekday() + 1
+                )
+            to_dt = from_dt + timedelta(days=6)
 
         self.refresh_client(from_dt, to_dt)
         events = self.response.get("Event")

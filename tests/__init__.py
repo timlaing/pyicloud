@@ -156,24 +156,20 @@ class PyiCloudSessionMock(base.PyiCloudSession):
             "putBackItemsFromTrash" in url
             and method == "POST"
             and data.get("items")[0].get("drivewsid")
+            and data.get("items")[0].get("drivewsid")
+            == "FOLDER::com.apple.CloudDocs::2BF8600B-5DCC-4421-805A-1C28D07197D5"
         ):
-            if (
-                data.get("items")[0].get("drivewsid")
-                == "FOLDER::com.apple.CloudDocs::2BF8600B-5DCC-4421-805A-1C28D07197D5"
-            ):
-                return ResponseMock(DRIVE_TRASH_RECOVER_WORKING)
+            return ResponseMock(DRIVE_TRASH_RECOVER_WORKING)
 
         # Drive Trash Delete Forever
         if (
             "deleteItems" in url
             and method == "POST"
             and data.get("items")[0].get("drivewsid")
+            and data.get("items")[0].get("drivewsid")
+            == "FOLDER::com.apple.CloudDocs::478AEA23-42A2-468A-ABC1-1A04BC07F738"
         ):
-            if (
-                data.get("items")[0].get("drivewsid")
-                == "FOLDER::com.apple.CloudDocs::478AEA23-42A2-468A-ABC1-1A04BC07F738"
-            ):
-                return ResponseMock(DRIVE_TRASH_DELETE_FOREVER_WORKING)
+            return ResponseMock(DRIVE_TRASH_DELETE_FOREVER_WORKING)
 
         # Drive download
         if "com.apple.CloudDocs/download/by_id" in url and method == "GET":

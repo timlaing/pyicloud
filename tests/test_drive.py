@@ -78,7 +78,7 @@ class DriveServiceTest(TestCase):
         assert folder.date_modified is None
         assert folder.date_last_open is None
         with pytest.raises(KeyError, match="No items in folder, status: ID_INVALID"):
-            assert folder.dir()
+            folder.dir()
 
     def test_folder_not_exists(self):
         """Test the /not_exists folder."""

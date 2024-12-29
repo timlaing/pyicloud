@@ -129,16 +129,10 @@ class PhotoLibrary:
         },
     }
 
-    def __init__(self, service_root, session, params, upload_url):
-        self.session = session
-        self.params = dict(params)
-        self._service_root = service_root
-        self.service_endpoint = (
-            "%s/database/1/com.apple.photos.cloud/production/private"
-            % self._service_root
-        )
-
+    def __init__(self, service, zone_id, upload_url=None) -> None:
+        self.service = service
         self._upload_url = upload_url
+        self.zone_id = zone_id
         self._albums = None
 
         url = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
@@ -234,12 +228,12 @@ class PhotoLibrary:
         url = "{}/upload".format(self._upload_url)
 
         with open(path, "rb") as file_obj:
-            request = self.session.post(
+            request = self.service.session.post(
                 url,
                 data=file_obj.read(),
                 params={
                     "filename": filename,
-                    "dsid": self.params["dsid"],
+                    "dsid": self.service.params["dsid"],
                 },
             )
 
@@ -258,7 +252,7 @@ class PhotosService(PhotoLibrary):
 
     This also acts as a way to access the user's primary library."""
 
-    def __init__(self, service_root, session, params):
+    def __init__(self, service_root, session, params, upload_url):
         self.session = session
         self.params = dict(params)
         self._service_root = service_root
@@ -279,7 +273,11 @@ class PhotosService(PhotoLibrary):
 
         self._photo_assets = {}
 
-        super().__init__(service=self, zone_id={"zoneName": "PrimarySync"})
+        super().__init__(
+            service=self,
+            upload_url=upload_url,
+            zone_id={"zoneName": "PrimarySync"},
+        )
 
     @property
     def libraries(self):
@@ -389,18 +387,18 @@ class PhotoAlbum:
             offset = 0
 
         while True:
-            numResults = 0
+            num_results = 0
             for photo in self._get_photos_at(
                 offset, self.direction, self.page_size * 2
             ):
-                numResults += 1
+                num_results += 1
                 yield photo
-            if numResults == 0:
+            if num_results == 0:
                 break
             if self.direction == "DESCENDING":
-                offset = offset - numResults
+                offset = offset - num_results
             else:
-                offset = offset + numResults
+                offset = offset + num_results
 
     def photo(self, index):
         return self._get_photos_at(index, self.direction, 2)
@@ -448,7 +446,7 @@ class PhotoAlbum:
                 )
 
     def _list_query_gen(
-        self, offset, list_type, direction, numResults, query_filter=None
+        self, offset, list_type, direction, num_results, query_filter=None
     ):
         query = {
             "query": {
@@ -466,7 +464,7 @@ class PhotoAlbum:
                 ],
                 "recordType": list_type,
             },
-            "resultsLimit": self.page_size * 2,
+            "resultsLimit": num_results,
             "desiredKeys": [
                 "resJPEGFullWidth",
                 "resJPEGFullHeight",
@@ -682,7 +680,7 @@ class PhotoAsset:
 
                 if "%sRes" % prefix in self._master_record["fields"]:
                     fields = self._master_record["fields"]
-                    version = {"filename": self.filename}
+                    version: dict = {"filename": self.filename}
 
                     width_entry = fields.get("%sWidth" % prefix)
                     if width_entry:
