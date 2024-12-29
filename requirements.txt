@@ -4,3 +4,4 @@ keyring==24.1.1
 keyrings.alt==4.2.0
 requests>=2.31.0
 tzlocal==5.1
+srp>=1.0.21
