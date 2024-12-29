@@ -673,3 +673,170 @@ DRIVE_FILE_DOWNLOAD_WORKING = {
     },
     "double_etag": "32::2x",
 }
+
+DRIVE_TRASH_WORKING = [
+    {
+        "items": [
+            {
+                "dateCreated": "2022-06-23T20:58:35Z",
+                "drivewsid": "FILE::com.apple.CloudDocs::C2AD01E4-E625-47FE-AE83-4DF311A05A48",
+                "docwsid": "C2AD01E4-E625-47FE-AE83-4DF311A05A48",
+                "zone": "com.apple.CloudDocs",
+                "name": "dead-file",
+                "extension": "download",
+                "parentId": "TRASH_ROOT",
+                "dateExpiration": "2024-12-12T02:17:55Z",
+                "isChainedToParent": True,
+                "dateModified": "2022-06-23T20:43:02Z",
+                "dateChanged": "2024-11-12T02:17:55Z",
+                "size": 11364977,
+                "etag": "o72::o6y",
+                "restorePath": "Downloads/dead-file.download",
+                "lastOpenTime": "2024-11-12T02:15:18Z",
+                "type": "FILE"
+            },
+            {
+                "dateCreated": "2024-11-12T04:41:18Z",
+                "drivewsid": "FOLDER::com.apple.CloudDocs::31102B37-D62F-4322-862C-EDE2030C8AFA",
+                "docwsid": "31102B37-D62F-4322-862C-EDE2030C8AFA",
+                "zone": "com.apple.CloudDocs",
+                "name": "test_create_folder",
+                "parentId": "TRASH_ROOT",
+                "dateExpiration": "2024-12-12T04:48:22Z",
+                "isChainedToParent": True,
+                "restorePath": "test_create_folder",
+                "etag": "o96",
+                "type": "FOLDER",
+                "assetQuota": 0,
+                "fileCount": 0,
+                "shareCount": 0,
+                "shareAliasCount": 0,
+                "directChildrenCount": 0
+            },
+            {
+                "dateCreated": "2024-11-12T04:18:13Z",
+                "drivewsid": "FOLDER::com.apple.CloudDocs::478AEA23-42A2-468A-ABC1-1A04BC07F738",
+                "docwsid": "478AEA23-42A2-468A-ABC1-1A04BC07F738",
+                "zone": "com.apple.CloudDocs",
+                "name": "test_delete_forever_and_ever",
+                "parentId": "TRASH_ROOT",
+                "dateExpiration": "2024-12-12T04:18:20Z",
+                "isChainedToParent": True,
+                "restorePath": "test_delete_forever_and_ever",
+                "etag": "o8h",
+                "type": "FOLDER",
+                "assetQuota": 0,
+                "fileCount": 0,
+                "shareCount": 0,
+                "shareAliasCount": 0,
+                "directChildrenCount": 0
+            },
+            {
+                "dateCreated": "2024-11-12T03:41:18Z",
+                "drivewsid": "FOLDER::com.apple.CloudDocs::E63A9193-4428-4AE1-A334-83B880C75379",
+                "docwsid": "E63A9193-4428-4AE1-A334-83B880C75379",
+                "zone": "com.apple.CloudDocs",
+                "name": "test_files_1",
+                "parentId": "TRASH_ROOT",
+                "dateExpiration": "2024-12-12T03:42:07Z",
+                "isChainedToParent": True,
+                "restorePath": "test_files_1",
+                "etag": "o7s",
+                "type": "FOLDER",
+                "assetQuota": 7,
+                "fileCount": 1,
+                "shareCount": 0,
+                "shareAliasCount": 0,
+                "directChildrenCount": 1
+            },
+            {
+                "dateCreated": "2024-11-12T03:37:13Z",
+                "drivewsid": "FOLDER::com.apple.CloudDocs::2BF8600B-5DCC-4421-805A-1C28D07197D5",
+                "docwsid": "2BF8600B-5DCC-4421-805A-1C28D07197D5",
+                "zone": "com.apple.CloudDocs",
+                "name": "test_random_uuid",
+                "parentId": "TRASH_ROOT",
+                "dateExpiration": "2024-12-12T03:57:30Z",
+                "isChainedToParent": True,
+                "restorePath": "test_random_uuid",
+                "etag": "o9a",
+                "type": "FOLDER",
+                "assetQuota": 0,
+                "fileCount": 0,
+                "shareCount": 0,
+                "shareAliasCount": 0,
+                "directChildrenCount": 0
+            },
+            {
+                "dateCreated": "2024-11-12T04:25:27Z",
+                "drivewsid": "FOLDER::com.apple.CloudDocs::B9B90B8D-CCC2-4BDB-A58D-289F746C3478",
+                "docwsid": "B9B90B8D-CCC2-4BDB-A58D-289F746C3478",
+                "zone": "com.apple.CloudDocs",
+                "name": "test12345",
+                "parentId": "TRASH_ROOT",
+                "dateExpiration": "2024-12-12T04:31:46Z",
+                "isChainedToParent": True,
+                "restorePath": "test12345",
+                "etag": "o8y",
+                "type": "FOLDER",
+                "assetQuota": 0,
+                "fileCount": 0,
+                "shareCount": 0,
+                "shareAliasCount": 0,
+                "directChildrenCount": 0
+            }
+        ],
+        "numberOfItems": 6,
+        "drivewsid": "TRASH_ROOT"
+    }
+]
+
+DRIVE_TRASH_RECOVER_WORKING = {
+    "items": [
+        {
+            "dateCreated": "2024-11-12T03:37:13Z",
+            "drivewsid": "FOLDER::com.apple.CloudDocs::2BF8600B-5DCC-4421-805A-1C28D07197D5",
+            "docwsid": "2BF8600B-5DCC-4421-805A-1C28D07197D5",
+            "zone": "com.apple.CloudDocs",
+            "name": "test_random_uuid",
+            "parentId": "FOLDER::com.apple.CloudDocs::root",
+            "isChainedToParent": True,
+            "item_id": "CJC_vaYFEAAiEH8Y2nkmm0bfntz-AmIQWC4",
+            "etag": "o9g",
+            "type": "FOLDER",
+            "assetQuota": 0,
+            "fileCount": 0,
+            "shareCount": 0,
+            "shareAliasCount": 0,
+            "directChildrenCount": 0,
+            "status": "OK"
+        }
+    ]
+}
+
+DRIVE_TRASH_DELETE_FOREVER_WORKING = {
+    "items": [
+        {
+            "dateCreated": "2024-11-12T04:18:14Z",
+            "drivewsid": "FOLDER::com.apple.CloudDocs::478AEA23-42A2-468A-ABC1-1A04BC07F738",
+            "docwsid": "478AEA23-42A2-468A-ABC1-1A04BC07F738",
+            "zone": "com.apple.CloudDocs",
+            "name": "test_delete_forever_and_ever",
+            "isDeleted": True,
+            "parentId": "FOLDER::com.apple.CloudDocs::43D7C666-6E6E-4522-8999-0B519C3A1F4B",
+            "dateExpiration": "2024-12-12T04:18:20Z",
+            "isChainedToParent": True,
+            "item_id": "CJqQty4QACIQjiS90WklSeGExLvHPWWruzgB",
+            "restorePath": "test_delete_forever_and_ever",
+            "etag": "null",
+            "type": "FOLDER",
+            "assetQuota": 0,
+            "fileCount": 0,
+            "shareCount": 0,
+            "shareAliasCount": 0,
+            "directChildrenCount": 0,
+            "status": "OK"
+        }
+    ]
+}
+
