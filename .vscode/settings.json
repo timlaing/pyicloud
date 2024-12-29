@@ -1,0 +1,24 @@
+{
+  "editor.formatOnPaste": false,
+  "editor.formatOnSave": true,
+  "editor.formatOnType": true,
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+  "python.testing.pytestEnabled": true,
+  "python.analysis.inlayHints.pytestParameters": true,
+  "isort.check": true,
+  "isort.importStrategy": "fromEnvironment",
+  "python.analysis.autoFormatStrings": true,
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.completeFunctionParens": true,
+  "python.createEnvironment.contentButton": "show",
+  "black-formatter.importStrategy": "fromEnvironment",
+  "python.terminal.focusAfterLaunch": true,
+  "sonarlint.connectedMode.project": {
+    "connectionId": "timlaing",
+    "projectKey": "timlaing_pyicloud"
+  }
+}

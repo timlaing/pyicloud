@@ -5,7 +5,7 @@ import json
 import logging
 from requests import Session
 from tempfile import gettempdir
-from os import path, mkdir
+from os import environ, path, mkdir
 from re import match
 import http.cookiejar as cookielib
 import getpass
@@ -26,6 +26,7 @@ from pyicloud.services import (
     AccountService,
     DriveService,
 )
+from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.utils import get_password_from_keyring
 
 
@@ -201,8 +202,10 @@ class PyiCloudService:
     """
 
     AUTH_ENDPOINT = "https://idmsa.apple.com/appleauth/auth"
-    HOME_ENDPOINT = "https://www.icloud.com"
-    SETUP_ENDPOINT = "https://setup.icloud.com/setup/ws/1"
+
+    icloud_china = environ.get("icloud_china", "0") == "1"
+    HOME_ENDPOINT = f"https://www.icloud.com{icloud_china * '.cn'}"
+    SETUP_ENDPOINT = f"https://setup.icloud.com{icloud_china * '.cn'}/setup/ws/1"
 
     def __init__(
         self,
@@ -212,12 +215,21 @@ class PyiCloudService:
         verify=True,
         client_id=None,
         with_family=True,
+        china_mainland=False,
     ):
+        # If the country or region setting of your Apple ID is China mainland.
+        # See https://support.apple.com/en-us/HT208351
+        if china_mainland:
+            self.AUTH_ENDPOINT = "https://idmsa.apple.com.cn/appleauth/auth"
+            self.HOME_ENDPOINT = "https://www.icloud.com.cn"
+            self.SETUP_ENDPOINT = "https://setup.icloud.com.cn/setup/ws/1"
+
         if password is None:
             password = get_password_from_keyring(apple_id)
 
         self.user = {"accountName": apple_id, "password": password}
         self.data = {}
+
         self.params = {}
         self.client_id = client_id or ("auth-%s" % str(uuid1()).lower())
         self.with_family = with_family
@@ -543,7 +555,12 @@ class PyiCloudService:
         return FindMyiPhoneServiceManager(
             service_root, self.session, self.params, self.with_family
         )
-
+    @property
+    def hidemyemail(self):
+        """Gets the 'HME' service."""
+        service_root = self._get_webservice_url("premiummailsettings")
+        return HideMyEmailService(
+            service_root, self.session, self.params)
     @property
     def iphone(self):
         """Returns the iPhone."""
