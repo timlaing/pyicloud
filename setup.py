@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """PyiCloud setup."""
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 REPO_URL = "https://github.com/timlaing/pyicloud"
 VERSION = "1.0.0"

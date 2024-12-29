@@ -1,12 +1,13 @@
 """Login test constants."""
+
 from .const_account_family import (
+    APPLE_ID_EMAIL,
     FIRST_NAME,
+    FULL_NAME,
+    ICLOUD_ID_EMAIL,
     LAST_NAME,
     PERSON_ID,
-    FULL_NAME,
     PRIMARY_EMAIL,
-    APPLE_ID_EMAIL,
-    ICLOUD_ID_EMAIL,
 )
 
 PERSON_ID = (FIRST_NAME + LAST_NAME).lower()
@@ -95,7 +96,10 @@ LOGIN_WORKING = {
         "schoolwork": {},
         "cksharews": {"url": "https://p31-ckshare.icloud.com:443", "status": "active"},
         "findme": {"url": "https://p31-fmipweb.icloud.com:443", "status": "active"},
-        "premiummailsettings": {"url": "https://p42-maildomainws.icloud.com:443", "status": "active"},
+        "premiummailsettings": {
+            "url": "https://p42-maildomainws.icloud.com:443",
+            "status": "active",
+        },
         "ckdeviceservice": {"url": "https://p31-ckdevice.icloud.com:443"},
         "iworkthumbnailws": {
             "url": "https://p31-iworkthumbnailws.icloud.com:443",
@@ -143,7 +147,7 @@ LOGIN_WORKING = {
         "contacts": {
             "url": "https://p31-contactsws.icloud.com:443",
             "status": "active",
-        },    
+        },
     },
     "pcsEnabled": True,
     "configBag": {
@@ -289,7 +293,10 @@ LOGIN_2FA = {
         "schoolwork": {},
         "cksharews": {"url": "https://p31-ckshare.icloud.com:443", "status": "active"},
         "findme": {"url": "https://p31-fmipweb.icloud.com:443", "status": "active"},
-        "premiummailsettings": {"url": "https://p42-maildomainws.icloud.com:443", "status": "active"},
+        "premiummailsettings": {
+            "url": "https://p42-maildomainws.icloud.com:443",
+            "status": "active",
+        },
         "ckdeviceservice": {"url": "https://p31-ckdevice.icloud.com:443"},
         "iworkthumbnailws": {
             "url": "https://p31-iworkthumbnailws.icloud.com:443",

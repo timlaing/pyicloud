@@ -1,6 +1,5 @@
 """Hide my email service."""
 
-
 import json
 
 
@@ -27,18 +26,10 @@ class HideMyEmailService:
         self.response = req.json()
         return self.response.get("result").get("hme")
 
-
     def reserve(self, email, label, note="Generated"):
         """
         Reserve alias for the emails
         """
-        data = json.dumps(
-            {
-                "hme": email,
-                "label": label,
-                "note": note
-            }
-        )
- 
-        self.session.post(self._hidemyemail_reserve, params=self.params, data=data)
+        data = json.dumps({"hme": email, "label": label, "note": note})
 
+        self.session.post(self._hidemyemail_reserve, params=self.params, data=data)

@@ -11,6 +11,7 @@ from click import confirm
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudFailedLoginException
+
 from . import utils
 
 DEVICE_ERROR = "Please use the --device switch to indicate which device to use."
@@ -57,7 +58,7 @@ def main(args=None):
         action="store_true",
         dest="china_mainland",
         default=False,
-        help="If the country/region setting of the Apple ID is China mainland"
+        help="If the country/region setting of the Apple ID is China mainland",
     )
     parser.add_argument(
         "-n",
@@ -196,7 +197,9 @@ def main(args=None):
             parser.error("No password supplied")
 
         try:
-            api = PyiCloudService(username.strip(), password.strip(), china_mainland=china_mainland)
+            api = PyiCloudService(
+                username.strip(), password.strip(), china_mainland=china_mainland
+            )
             if (
                 not utils.password_exists_in_keyring(username)
                 and command_line.interactive
