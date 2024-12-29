@@ -389,18 +389,18 @@ class PhotoAlbum:
             offset = 0
 
         while True:
-            numResults = 0
+            num_results = 0
             for photo in self._get_photos_at(
                 offset, self.direction, self.page_size * 2
             ):
-                numResults += 1
+                num_results += 1
                 yield photo
-            if numResults == 0:
+            if num_results == 0:
                 break
             if self.direction == "DESCENDING":
-                offset = offset - numResults
+                offset = offset - num_results
             else:
-                offset = offset + numResults
+                offset = offset + num_results
 
     def photo(self, index):
         return self._get_photos_at(index, self.direction, 2)
@@ -448,7 +448,7 @@ class PhotoAlbum:
                 )
 
     def _list_query_gen(
-        self, offset, list_type, direction, numResults, query_filter=None
+        self, offset, list_type, direction, num_results, query_filter=None
     ):
         query = {
             "query": {
@@ -466,7 +466,7 @@ class PhotoAlbum:
                 ],
                 "recordType": list_type,
             },
-            "resultsLimit": self.page_size * 2,
+            "resultsLimit": num_results,
             "desiredKeys": [
                 "resJPEGFullWidth",
                 "resJPEGFullHeight",
