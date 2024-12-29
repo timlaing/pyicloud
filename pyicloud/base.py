@@ -8,6 +8,8 @@ import logging
 from os import environ, mkdir, path
 from re import match
 from tempfile import gettempdir
+from typing import cast
+from requests.cookies import RequestsCookieJar
 from uuid import uuid1
 
 from requests import Session
@@ -41,6 +43,8 @@ HEADER_DATA = {
     "scnt": "scnt",
 }
 
+CONTENT_TYPE_JSON = "application/json"
+
 
 class PyiCloudPasswordFilter(logging.Filter):
     """Password log hider."""
@@ -52,7 +56,7 @@ class PyiCloudPasswordFilter(logging.Filter):
         message = record.getMessage()
         if self.name in message:
             record.msg = message.replace(self.name, "*" * 8)
-            record.args = []
+            record.args = ()
 
         return True
 
@@ -64,23 +68,25 @@ class PyiCloudSession(Session):
         self.service = service
         super().__init__()
 
-    def request(self, method, url, **kwargs):  # pylint: disable=arguments-differ
+    def request(self, method, url, **kwargs):  # type: ignore # pylint: disable=arguments-differ
+        request_logger = logging.getLogger()
 
         # Charge logging to the right service endpoint
         callee = inspect.stack()[2]
         module = inspect.getmodule(callee[0])
-        request_logger = logging.getLogger(module.__name__).getChild("http")
-        if self.service.password_filter not in request_logger.filters:
-            request_logger.addFilter(self.service.password_filter)
+        if module:
+            request_logger = logging.getLogger(module.__name__).getChild("http")
+            if self.service.password_filter not in request_logger.filters:
+                request_logger.addFilter(self.service.password_filter)
 
-        request_logger.debug("%s %s %s", method, url, kwargs.get("data", ""))
+            request_logger.debug("%s %s %s", method, url, kwargs.get("data", ""))
 
         has_retried = kwargs.get("retried")
         kwargs.pop("retried", None)
         response = super().request(method, url, **kwargs)
 
         content_type = response.headers.get("Content-Type", "").split(";")[0]
-        json_mimetypes = ["application/json", "text/json"]
+        json_mimetypes = [CONTENT_TYPE_JSON, "text/json"]
 
         for header, value in HEADER_DATA.items():
             if response.headers.get(header):
@@ -95,7 +101,9 @@ class PyiCloudSession(Session):
             LOGGER.debug("Saved session data to file")
 
         # Save cookies to file
-        self.cookies.save(ignore_discard=True, ignore_expires=True)
+        cast(cookielib.LWPCookieJar, self.cookies).save(
+            ignore_discard=True, ignore_expires=True
+        )
         LOGGER.debug("Cookies saved to %s", self.service.cookiejar_path)
 
         if not response.ok and (
@@ -139,7 +147,7 @@ class PyiCloudSession(Session):
 
         try:
             data = response.json()
-        except:  # pylint: disable=bare-except
+        except json.JSONDecodeError:
             request_logger.warning("Failed to parse response with JSON mimetype")
             return response
 
@@ -270,10 +278,11 @@ class PyiCloudService(object):
         )
 
         cookiejar_path = self.cookiejar_path
-        self.session.cookies = cookielib.LWPCookieJar(filename=cookiejar_path)
         if path.exists(cookiejar_path):
             try:
-                self.session.cookies.load(ignore_discard=True, ignore_expires=True)
+                cookies = cookielib.LWPCookieJar(filename=cookiejar_path)
+                cookies.load(ignore_discard=True, ignore_expires=True)
+                self.session.cookies = cast(RequestsCookieJar, cookies)
                 LOGGER.debug("Read cookies from %s", cookiejar_path)
             except:  # pylint: disable=bare-except
                 # Most likely a pickled cookiejar from earlier versions.
@@ -347,7 +356,12 @@ class PyiCloudService(object):
 
             self._authenticate_with_token()
 
-        self.params.update({"dsid": self.data.get("dsInfo").get("dsid")})
+        if (
+            "dsInfo" in self.data
+            and isinstance(self.data["dsInfo"], dict)
+            and "dsid" in self.data["dsInfo"]
+        ):
+            self.params.update({"dsid": self.data["dsInfo"]["dsid"]})
 
         self._webservices = self.data["webservices"]
 
@@ -403,7 +417,7 @@ class PyiCloudService(object):
     def _get_auth_headers(self, overrides=None):
         headers = {
             "Accept": "*/*",
-            "Content-Type": "application/json",
+            "Content-Type": CONTENT_TYPE_JSON,
             "X-Apple-OAuth-Client-Id": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
             "X-Apple-OAuth-Client-Type": "firstPartyAuth",
             "X-Apple-OAuth-Redirect-URI": "https://www.icloud.com",
@@ -422,7 +436,7 @@ class PyiCloudService(object):
         """Get path for cookiejar file."""
         return path.join(
             self._cookie_directory,
-            "".join([c for c in self.user.get("accountName") if match(r"\w", c)]),
+            "".join([c for c in self.user.get("accountName", "") if match(r"\w", c)]),
         )
 
     @property
@@ -430,7 +444,7 @@ class PyiCloudService(object):
         """Get path for session data file."""
         return path.join(
             self._cookie_directory,
-            "".join([c for c in self.user.get("accountName") if match(r"\w", c)])
+            "".join([c for c in self.user.get("accountName", "") if match(r"\w", c)])
             + ".session",
         )
 
@@ -496,7 +510,7 @@ class PyiCloudService(object):
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
         data = {"securityCode": {"code": code}}
 
-        headers = self._get_auth_headers({"Accept": "application/json"})
+        headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
         if self.session_data.get("scnt"):
             headers["scnt"] = self.session_data.get("scnt")
