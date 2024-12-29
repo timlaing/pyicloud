@@ -157,6 +157,8 @@ class DriveService:
 
     def create_folders(self, parent, name):
         """Creates a new iCloud Drive folder"""
+        # when creating a folder on icloud.com, the clientID is set to the following:
+        temp_client_id = f"FOLDER::UNKNOWN_ZONE::TempId-{uuid.uuid4()}"
         request = self.session.post(
             self._service_root + "/createFolders",
             params=self.params,
@@ -166,7 +168,7 @@ class DriveService:
                     "destinationDrivewsId": parent,
                     "folders": [
                         {
-                            "clientId": self.params["clientId"],
+                            "clientId": temp_client_id,
                             "name": name,
                         }
                     ],
@@ -198,6 +200,8 @@ class DriveService:
 
     def move_items_to_trash(self, node_id, etag):
         """Moves an iCloud Drive node to the trash bin"""
+        # when moving a node to the trash on icloud.com, the clientID is set to the node_id:
+        temp_client_id = node_id
         request = self.session.post(
             self._service_root + "/moveItemsToTrash",
             params=self.params,
@@ -207,7 +211,7 @@ class DriveService:
                         {
                             "drivewsid": node_id,
                             "etag": etag,
-                            "clientId": self.params["clientId"],
+                            "clientId": temp_client_id,
                         }
                     ],
                 }
