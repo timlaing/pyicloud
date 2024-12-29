@@ -411,13 +411,13 @@ LOGIN_2FA = {
     },
 }
 
-TRUSTED_DEVICE_1 = {
+TRUSTED_DEVICE_1: dict = {
     "deviceType": "SMS",
     "areaCode": "",
     "phoneNumber": "*******58",
     "deviceId": "1",
 }
-TRUSTED_DEVICES = {"devices": [TRUSTED_DEVICE_1]}
+TRUSTED_DEVICES: dict = {"devices": [TRUSTED_DEVICE_1]}
 
-VERIFICATION_CODE_OK = {"success": True}
-VERIFICATION_CODE_KO = {"success": False}
+VERIFICATION_CODE_OK: dict = {"success": True}
+VERIFICATION_CODE_KO: dict = {"success": False}

@@ -129,16 +129,10 @@ class PhotoLibrary:
         },
     }
 
-    def __init__(self, service_root, session, params, upload_url):
-        self.session = session
-        self.params = dict(params)
-        self._service_root = service_root
-        self.service_endpoint = (
-            "%s/database/1/com.apple.photos.cloud/production/private"
-            % self._service_root
-        )
-
+    def __init__(self, service, zone_id, upload_url=None) -> None:
+        self.service = service
         self._upload_url = upload_url
+        self.zone_id = zone_id
         self._albums = None
 
         url = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
@@ -234,12 +228,12 @@ class PhotoLibrary:
         url = "{}/upload".format(self._upload_url)
 
         with open(path, "rb") as file_obj:
-            request = self.session.post(
+            request = self.service.session.post(
                 url,
                 data=file_obj.read(),
                 params={
                     "filename": filename,
-                    "dsid": self.params["dsid"],
+                    "dsid": self.service.params["dsid"],
                 },
             )
 
@@ -258,7 +252,7 @@ class PhotosService(PhotoLibrary):
 
     This also acts as a way to access the user's primary library."""
 
-    def __init__(self, service_root, session, params):
+    def __init__(self, service_root, session, params, upload_url):
         self.session = session
         self.params = dict(params)
         self._service_root = service_root
@@ -279,7 +273,11 @@ class PhotosService(PhotoLibrary):
 
         self._photo_assets = {}
 
-        super().__init__(service=self, zone_id={"zoneName": "PrimarySync"})
+        super().__init__(
+            service=self,
+            upload_url=upload_url,
+            zone_id={"zoneName": "PrimarySync"},
+        )
 
     @property
     def libraries(self):
@@ -682,7 +680,7 @@ class PhotoAsset:
 
                 if "%sRes" % prefix in self._master_record["fields"]:
                     fields = self._master_record["fields"]
-                    version = {"filename": self.filename}
+                    version: dict = {"filename": self.filename}
 
                     width_entry = fields.get("%sWidth" % prefix)
                     if width_entry:
