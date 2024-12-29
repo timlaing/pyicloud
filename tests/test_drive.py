@@ -1,4 +1,5 @@
 """Drive service tests."""
+
 from unittest import TestCase
 
 import pytest
@@ -37,8 +38,14 @@ class DriveServiceTest(TestCase):
         assert trash.date_changed is None
         assert trash.date_modified is None
         assert trash.date_last_open is None
-        assert trash.dir() == ["dead-file.download", "test_create_folder", "test_delete_forever_and_ever",
-                               "test_files_1", "test_random_uuid", "test12345"]
+        assert trash.dir() == [
+            "dead-file.download",
+            "test_create_folder",
+            "test_delete_forever_and_ever",
+            "test_files_1",
+            "test_random_uuid",
+            "test12345",
+        ]
 
     def test_trash_recover(self):
         """Test recovering a file from the Trash."""
@@ -50,10 +57,15 @@ class DriveServiceTest(TestCase):
 
     def test_trash_delete_forever(self):
         """Test permanently deleting a file from the Trash."""
-        recover_result = self.service.drive.trash["test_delete_forever_and_ever"].delete_forever()
+        recover_result = self.service.drive.trash[
+            "test_delete_forever_and_ever"
+        ].delete_forever()
         recover_result_items = recover_result["items"][0]
         assert recover_result_items["status"] == "OK"
-        assert recover_result_items["parentId"] == "FOLDER::com.apple.CloudDocs::43D7C666-6E6E-4522-8999-0B519C3A1F4B"
+        assert (
+            recover_result_items["parentId"]
+            == "FOLDER::com.apple.CloudDocs::43D7C666-6E6E-4522-8999-0B519C3A1F4B"
+        )
         assert recover_result_items["name"] == "test_delete_forever_and_ever"
 
     def test_folder_app(self):

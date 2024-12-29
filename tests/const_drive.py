@@ -1,6 +1,5 @@
 """Drive test constants."""
 
-
 # Data
 DRIVE_ROOT_WORKING = [
     {
@@ -693,7 +692,7 @@ DRIVE_TRASH_WORKING = [
                 "etag": "o72::o6y",
                 "restorePath": "Downloads/dead-file.download",
                 "lastOpenTime": "2024-11-12T02:15:18Z",
-                "type": "FILE"
+                "type": "FILE",
             },
             {
                 "dateCreated": "2024-11-12T04:41:18Z",
@@ -711,7 +710,7 @@ DRIVE_TRASH_WORKING = [
                 "fileCount": 0,
                 "shareCount": 0,
                 "shareAliasCount": 0,
-                "directChildrenCount": 0
+                "directChildrenCount": 0,
             },
             {
                 "dateCreated": "2024-11-12T04:18:13Z",
@@ -729,7 +728,7 @@ DRIVE_TRASH_WORKING = [
                 "fileCount": 0,
                 "shareCount": 0,
                 "shareAliasCount": 0,
-                "directChildrenCount": 0
+                "directChildrenCount": 0,
             },
             {
                 "dateCreated": "2024-11-12T03:41:18Z",
@@ -747,7 +746,7 @@ DRIVE_TRASH_WORKING = [
                 "fileCount": 1,
                 "shareCount": 0,
                 "shareAliasCount": 0,
-                "directChildrenCount": 1
+                "directChildrenCount": 1,
             },
             {
                 "dateCreated": "2024-11-12T03:37:13Z",
@@ -765,7 +764,7 @@ DRIVE_TRASH_WORKING = [
                 "fileCount": 0,
                 "shareCount": 0,
                 "shareAliasCount": 0,
-                "directChildrenCount": 0
+                "directChildrenCount": 0,
             },
             {
                 "dateCreated": "2024-11-12T04:25:27Z",
@@ -783,11 +782,11 @@ DRIVE_TRASH_WORKING = [
                 "fileCount": 0,
                 "shareCount": 0,
                 "shareAliasCount": 0,
-                "directChildrenCount": 0
-            }
+                "directChildrenCount": 0,
+            },
         ],
         "numberOfItems": 6,
-        "drivewsid": "TRASH_ROOT"
+        "drivewsid": "TRASH_ROOT",
     }
 ]
 
@@ -809,7 +808,7 @@ DRIVE_TRASH_RECOVER_WORKING = {
             "shareCount": 0,
             "shareAliasCount": 0,
             "directChildrenCount": 0,
-            "status": "OK"
+            "status": "OK",
         }
     ]
 }
@@ -835,8 +834,7 @@ DRIVE_TRASH_DELETE_FOREVER_WORKING = {
             "shareCount": 0,
             "shareAliasCount": 0,
             "directChildrenCount": 0,
-            "status": "OK"
+            "status": "OK",
         }
     ]
 }
-

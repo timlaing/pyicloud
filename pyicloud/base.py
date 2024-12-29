@@ -1,34 +1,35 @@
 """Library base file."""
-from uuid import uuid1
+
+import getpass
+import http.cookiejar as cookielib
 import inspect
 import json
 import logging
-from requests import Session
-from tempfile import gettempdir
-from os import environ, path, mkdir
+from os import environ, mkdir, path
 from re import match
-import http.cookiejar as cookielib
-import getpass
+from tempfile import gettempdir
+from uuid import uuid1
+
+from requests import Session
 
 from pyicloud.exceptions import (
-    PyiCloudFailedLoginException,
-    PyiCloudAPIResponseException,
     PyiCloud2SARequiredException,
+    PyiCloudAPIResponseException,
+    PyiCloudFailedLoginException,
     PyiCloudServiceNotActivatedException,
 )
 from pyicloud.services import (
-    FindMyiPhoneServiceManager,
-    CalendarService,
-    UbiquityService,
-    ContactsService,
-    RemindersService,
-    PhotosService,
     AccountService,
+    CalendarService,
+    ContactsService,
     DriveService,
+    FindMyiPhoneServiceManager,
+    PhotosService,
+    RemindersService,
+    UbiquityService,
 )
 from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.utils import get_password_from_keyring
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -555,12 +556,13 @@ class PyiCloudService:
         return FindMyiPhoneServiceManager(
             service_root, self.session, self.params, self.with_family
         )
+
     @property
     def hidemyemail(self):
         """Gets the 'HME' service."""
         service_root = self._get_webservice_url("premiummailsettings")
-        return HideMyEmailService(
-            service_root, self.session, self.params)
+        return HideMyEmailService(service_root, self.session, self.params)
+
     @property
     def iphone(self):
         """Returns the iPhone."""
@@ -588,7 +590,9 @@ class PyiCloudService:
             upload_url = self._get_webservice_url("uploadimagews")
             self.params["dsid"] = self.data["dsInfo"]["dsid"]
 
-            self._photos = PhotosService(service_root, self.session, self.params, upload_url)
+            self._photos = PhotosService(
+                service_root, self.session, self.params, upload_url
+            )
         return self._photos
 
     @property

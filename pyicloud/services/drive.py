@@ -1,17 +1,18 @@
 """Drive service."""
-from datetime import datetime, timedelta
+
+import io
 import json
 import logging
-import io
 import mimetypes
 import os
 import time
 import uuid
+from datetime import datetime, timedelta
 from re import search
+
 from requests import Response
 
 from pyicloud.exceptions import PyiCloudAPIResponseException
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -240,12 +241,7 @@ class DriveService:
             params=self.params,
             data=json.dumps(
                 {
-                    "items": [
-                        {
-                            "drivewsid": node_id,
-                            "etag": etag
-                        }
-                    ],
+                    "items": [{"drivewsid": node_id, "etag": etag}],
                 }
             ),
         )
@@ -259,12 +255,7 @@ class DriveService:
             params=self.params,
             data=json.dumps(
                 {
-                    "items": [
-                        {
-                            "drivewsid": node_id,
-                            "etag": etag
-                        }
-                    ],
+                    "items": [{"drivewsid": node_id, "etag": etag}],
                 }
             ),
         )
@@ -435,8 +426,10 @@ class DriveNode:
                 self.data["drivewsid"], self.data["etag"]
             )
         else:
-            raise ValueError(f"'{self.name}' does not appear to be in the Trash. Please 'delete()' it first before "
-                             f"trying to 'delete_forever()'.")
+            raise ValueError(
+                f"'{self.name}' does not appear to be in the Trash. Please 'delete()' it first before "
+                f"trying to 'delete_forever()'."
+            )
 
     def get(self, name):
         """Gets the node child."""
