@@ -166,7 +166,6 @@ class PhotoLibrary:
             }
 
             for folder in self._fetch_folders():
-
                 # Skiping albums having null name, that can happen sometime
                 if "albumNameEnc" not in folder["fields"]:
                     continue
@@ -673,13 +672,11 @@ class PhotoAsset:
         if not self._versions:
             self._versions = {}
             if self.item_type == "movie":
-
                 typed_version_lookup = self.VIDEO_VERSION_LOOKUP
             else:
                 typed_version_lookup = self.PHOTO_VERSION_LOOKUP
 
             for key, prefix in typed_version_lookup.items():
-
                 if "%sRes" % prefix in self._master_record["fields"]:
                     fields = self._master_record["fields"]
                     version = {"filename": self.filename}
