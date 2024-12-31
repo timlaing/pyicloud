@@ -1,19 +1,32 @@
 """Find My iPhone service tests."""
 
 from unittest import TestCase
+from unittest.mock import patch
 
 from . import PyiCloudServiceMock
 from .const import AUTHENTICATED_USER, VALID_PASSWORD
+from .const_login import LOGIN_WORKING
 
 
 class FindMyiPhoneServiceTest(TestCase):
     """Find My iPhone service tests."""
 
-    service = None
-
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up tests."""
-        self.service = PyiCloudServiceMock(AUTHENTICATED_USER, VALID_PASSWORD)
+        self.apple_id = "test@example.com"
+        self.password = "password"
+        self.service = self.create_service_with_mock_authenticate()
+
+    def create_service_with_mock_authenticate(self):
+        with patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate:
+            # Mock the authenticate method during initialization
+            mock_authenticate.return_value = None
+
+            service = PyiCloudServiceMock(self.apple_id, self.password)
+            service.data = LOGIN_WORKING
+            service._webservices = service.data["webservices"]
+
+        return service
 
     def test_devices(self):
         """Tests devices."""

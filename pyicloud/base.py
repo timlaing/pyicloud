@@ -1,6 +1,8 @@
 """Library base file."""
 
+import base64
 import getpass
+import hashlib
 import http.cookiejar as cookielib
 import inspect
 import json
@@ -9,10 +11,8 @@ from os import environ, mkdir, path
 from re import match
 from tempfile import gettempdir
 from uuid import uuid1
-import srp
-import base64
-import hashlib
 
+import srp
 from requests import Session
 
 from pyicloud.exceptions import (
@@ -68,7 +68,6 @@ class PyiCloudSession(Session):
         super().__init__()
 
     def request(self, method, url, **kwargs):  # pylint: disable=arguments-differ
-
         # Charge logging to the right service endpoint
         callee = inspect.stack()[2]
         module = inspect.getmodule(callee[0])
@@ -205,11 +204,11 @@ class PyiCloudService(object):
         pyicloud.iphone.location()
     """
 
-    AUTH_ENDPOINT = "https://idmsa.apple.com/appleauth/auth"
+    AUTH_ENDPOINT: str = "https://idmsa.apple.com/appleauth/auth"
 
-    icloud_china = environ.get("icloud_china", "0") == "1"
-    HOME_ENDPOINT = f"https://www.icloud.com{icloud_china * '.cn'}"
-    SETUP_ENDPOINT = f"https://setup.icloud.com{icloud_china * '.cn'}/setup/ws/1"
+    icloud_china: bool = environ.get("icloud_china", "0") == "1"
+    HOME_ENDPOINT: str = f"https://www.icloud.com{icloud_china * '.cn'}"
+    SETUP_ENDPOINT: str = f"https://setup.icloud.com{icloud_china * '.cn'}/setup/ws/1"
 
     def __init__(
         self,
@@ -273,7 +272,7 @@ class PyiCloudService(object):
         )
 
         cookiejar_path = self.cookiejar_path
-        self.session.cookies = cookielib.LWPCookieJar(filename=cookiejar_path)
+        self.session.cookies = cookielib.LWPCookieJar(filename=cookiejar_path)  # type: ignore
         if path.exists(cookiejar_path):
             try:
                 self.session.cookies.load(ignore_discard=True, ignore_expires=True)
@@ -329,43 +328,60 @@ class PyiCloudService(object):
             if self.session_data.get("session_id"):
                 headers["X-Apple-ID-Session-Id"] = self.session_data.get("session_id")
 
-            class SrpPassword():
+            class SrpPassword:
                 def __init__(self, password: str):
                     self.password = password
-                def set_encrypt_info(self, salt: bytes, iterations: int, key_length: int):
+
+                def set_encrypt_info(
+                    self, salt: bytes, iterations: int, key_length: int
+                ):
                     self.salt = salt
                     self.iterations = iterations
                     self.key_length = key_length
+
                 def encode(self):
-                    password_hash = hashlib.sha256(self.password.encode('utf-8')).digest()
-                    return hashlib.pbkdf2_hmac('sha256', password_hash, salt, iterations, key_length)
+                    password_hash = hashlib.sha256(
+                        self.password.encode("utf-8")
+                    ).digest()
+                    return hashlib.pbkdf2_hmac(
+                        "sha256", password_hash, salt, iterations, key_length
+                    )
 
             srp_password = SrpPassword(self.user["password"])
             srp.rfc5054_enable()
             srp.no_username_in_x()
-            usr = srp.User(self.user["accountName"], srp_password, hash_alg=srp.SHA256, ng_type=srp.NG_2048)
+            usr = srp.User(
+                self.user["accountName"],
+                srp_password,
+                hash_alg=srp.SHA256,
+                ng_type=srp.NG_2048,
+            )
             uname, A = usr.start_authentication()
             data = {
-                'a': base64.b64encode(A).decode(),
-                'accountName': uname,
-                'protocols': ['s2k', 's2k_fo']
+                "a": base64.b64encode(A).decode(),
+                "accountName": uname,
+                "protocols": ["s2k", "s2k_fo"],
             }
 
             try:
-                response = self.session.post("%s/signin/init" % self.AUTH_ENDPOINT, data=json.dumps(data), headers=headers)
+                response = self.session.post(
+                    "%s/signin/init" % self.AUTH_ENDPOINT,
+                    data=json.dumps(data),
+                    headers=headers,
+                )
                 response.raise_for_status()
             except PyiCloudAPIResponseException as error:
                 msg = "Failed to initiate srp authentication."
                 raise PyiCloudFailedLoginException(msg, error) from error
 
             body = response.json()
-            salt = base64.b64decode(body['salt'])
-            b = base64.b64decode(body['b'])
-            c = body['c']
-            iterations = body['iteration']
+            salt = base64.b64decode(body["salt"])
+            b = base64.b64decode(body["b"])
+            c = body["c"]
+            iterations = body["iteration"]
             key_length = 32
             srp_password.set_encrypt_info(salt, iterations, key_length)
-            m1 = usr.process_challenge( salt, b )
+            m1 = usr.process_challenge(salt, b)
             m2 = usr.H_AMK
             data = {
                 "accountName": uname,

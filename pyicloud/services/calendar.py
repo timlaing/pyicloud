@@ -5,6 +5,7 @@ from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from random import randint
+from typing import List
 from uuid import uuid4
 
 from tzlocal import get_localzone_name
@@ -205,7 +206,7 @@ class CalendarService:
         allDay: bool = False
         isJunk: bool = False
 
-        invitees: list[str] = field(init=False, default_factory=list)
+        invitees: List[str] = field(init=False, default_factory=list)
 
         def __post_init__(self) -> None:
             if not self.localStartDate:
