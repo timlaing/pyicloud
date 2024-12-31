@@ -166,7 +166,6 @@ class PhotoLibrary:
                 if "albumNameEnc" not in folder["fields"]:
                     continue
 
-                # TODO: Handle subfolders  # pylint: disable=fixme
                 if folder["recordName"] in (
                     "----Root-Folder----",
                     "----Project-Root-Folder----",
@@ -265,12 +264,6 @@ class PhotosService(PhotoLibrary):
         self._libraries = None
 
         self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
-
-        # TODO: Does syncToken ever change?  # pylint: disable=fixme
-        # self.params.update({
-        #     'syncToken': response['syncToken'],
-        #     'clientInstanceId': self.params.pop('clientId')
-        # })
 
         self._photo_assets = {}
 
@@ -678,38 +671,40 @@ class PhotoAsset:
 
             for key, prefix in typed_version_lookup.items():
                 if "%sRes" % prefix in self._master_record["fields"]:
-                    fields = self._master_record["fields"]
-                    version: dict = {"filename": self.filename}
-
-                    width_entry = fields.get("%sWidth" % prefix)
-                    if width_entry:
-                        version["width"] = width_entry["value"]
-                    else:
-                        version["width"] = None
-
-                    height_entry = fields.get("%sHeight" % prefix)
-                    if height_entry:
-                        version["height"] = height_entry["value"]
-                    else:
-                        version["height"] = None
-
-                    size_entry = fields.get("%sRes" % prefix)
-                    if size_entry:
-                        version["size"] = size_entry["value"]["size"]
-                        version["url"] = size_entry["value"]["downloadURL"]
-                    else:
-                        version["size"] = None
-                        version["url"] = None
-
-                    type_entry = fields.get("%sFileType" % prefix)
-                    if type_entry:
-                        version["type"] = type_entry["value"]
-                    else:
-                        version["type"] = None
-
-                    self._versions[key] = version
+                    self._versions[key] = self._get_photo_version(prefix)
 
         return self._versions
+
+    def _get_photo_version(self, prefix):
+        version: dict = {"filename": self.filename}
+        fields = self._master_record["fields"]
+        width_entry = fields.get("%sWidth" % prefix)
+        if width_entry:
+            version["width"] = width_entry["value"]
+        else:
+            version["width"] = None
+
+        height_entry = fields.get("%sHeight" % prefix)
+        if height_entry:
+            version["height"] = height_entry["value"]
+        else:
+            version["height"] = None
+
+        size_entry = fields.get("%sRes" % prefix)
+        if size_entry:
+            version["size"] = size_entry["value"]["size"]
+            version["url"] = size_entry["value"]["downloadURL"]
+        else:
+            version["size"] = None
+            version["url"] = None
+
+        type_entry = fields.get("%sFileType" % prefix)
+        if type_entry:
+            version["type"] = type_entry["value"]
+        else:
+            version["type"] = None
+
+        return version
 
     def download(self, version="original", **kwargs):
         """Returns the photo file."""
@@ -722,11 +717,6 @@ class PhotoAsset:
 
     def delete(self):
         """Deletes the photo."""
-        json_data = (
-            '{"query":{"recordType":"CheckIndexingState"},'
-            '"zoneID":{"zoneName":"PrimarySync"}}'
-        )
-
         json_data = (
             '{"operations":[{'
             '"operationType":"update",'
