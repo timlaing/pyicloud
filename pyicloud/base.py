@@ -17,6 +17,7 @@ import srp
 from requests import Session
 from requests.cookies import RequestsCookieJar
 
+from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_JSON, HEADER_DATA
 from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
     PyiCloudAPIResponseException,
@@ -35,7 +36,6 @@ from pyicloud.services import (
 )
 from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.utils import get_password_from_keyring
-from pyicloud.const import CONTENT_TYPE_JSON, HEADER_DATA, CONTENT_TYPE
 
 LOGGER = logging.getLogger(__name__)
 

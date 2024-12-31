@@ -1,8 +1,8 @@
 """Cmdline tests."""
 
 import pickle
-from io import BytesIO
 import re
+from io import BytesIO
 from typing import Callable
 from unittest import TestCase
 from unittest.mock import mock_open, patch

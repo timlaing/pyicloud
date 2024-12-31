@@ -6,11 +6,12 @@ import os
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
-from ..const import CONTENT_TYPE_TEXT, CONTENT_TYPE
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudServiceNotActivatedException,
 )
+
+from ..const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 
 
 class PhotoLibrary:
