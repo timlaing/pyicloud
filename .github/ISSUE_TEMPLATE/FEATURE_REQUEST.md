@@ -6,7 +6,7 @@ about: Request a feature
   Make sure you are running the latest version of pyiCloud before requesting a feature: https://github.com/picklepete/pyicloud/releases
 -->
 ## The request
-<!-- 
+<!--
   Describe the request you are wondering here to communicate to the maintainers.
   Tell us what you are trying to do and why you can't now.
 -->
@@ -17,9 +17,9 @@ about: Request a feature
   Provide details about the versions you are using, which helps us to find a quicker way to help you.
 -->
 
-- pyiCloud version (`pip show pyicloud`): 
-- Python version (`python -V`): 
-- Operating environment (project deps/Docker/Windows/etc.): 
+- pyiCloud version (`pip show pyicloud`):
+- Python version (`python -V`):
+- Operating environment (project deps/Docker/Windows/etc.):
 
 ## Checklist
 <!--
@@ -31,4 +31,3 @@ about: Request a feature
 - [ ] I've looked informations into the pyiCloud's code.
 
 ## Additional information
-

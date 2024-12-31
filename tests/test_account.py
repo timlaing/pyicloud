@@ -17,8 +17,8 @@ class AccountServiceTest(TestCase):
         self.password = "password"
         self.service = self.create_service_with_mock_authenticate()
 
-    @patch("builtins.open", mock_open)
-    def create_service_with_mock_authenticate(self):
+    @patch("builtins.open", new_callable=mock_open)
+    def create_service_with_mock_authenticate(self, mock_open):
         with patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate:
             # Mock the authenticate method during initialization
             mock_authenticate.return_value = None
