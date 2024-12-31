@@ -70,9 +70,8 @@ class RemindersService:
     def post(self, title, description="", collection=None, due_date=None):
         """Adds a new reminder."""
         pguid = "tasks"
-        if collection:
-            if collection in self.collections:
-                pguid = self.collections[collection]["guid"]
+        if collection and collection in self.collections:
+            pguid = self.collections[collection]["guid"]
 
         params_reminders = dict(self._params)
         params_reminders.update(

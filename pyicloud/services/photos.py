@@ -11,6 +11,8 @@ from pyicloud.exceptions import (
     PyiCloudServiceNotActivatedException,
 )
 
+from ..const import CONTENT_TYPE, CONTENT_TYPE_TEXT
+
 
 class PhotoLibrary:
     """Represents a library in the user's photos.
@@ -140,7 +142,7 @@ class PhotoLibrary:
             {"query": {"recordType": "CheckIndexingState"}, "zoneID": self.zone_id}
         )
         request = self.service.session.post(
-            url, data=json_data, headers={"Content-type": "text/plain"}
+            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
         response = request.json()
         indexing_state = response["records"][0]["fields"]["state"]["value"]
@@ -164,7 +166,6 @@ class PhotoLibrary:
                 if "albumNameEnc" not in folder["fields"]:
                     continue
 
-                # TODO: Handle subfolders  # pylint: disable=fixme
                 if folder["recordName"] in (
                     "----Root-Folder----",
                     "----Project-Root-Folder----",
@@ -209,7 +210,7 @@ class PhotoLibrary:
         )
 
         request = self.service.session.post(
-            url, data=json_data, headers={"Content-type": "text/plain"}
+            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
         response = request.json()
 
@@ -264,12 +265,6 @@ class PhotosService(PhotoLibrary):
 
         self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
 
-        # TODO: Does syncToken ever change?  # pylint: disable=fixme
-        # self.params.update({
-        #     'syncToken': response['syncToken'],
-        #     'clientInstanceId': self.params.pop('clientId')
-        # })
-
         self._photo_assets = {}
 
         super().__init__(
@@ -284,7 +279,7 @@ class PhotosService(PhotoLibrary):
             url = "%s/changes/database" % (self.service_endpoint,)
 
             request = self.session.post(
-                url, data="{}", headers={"Content-type": "text/plain"}
+                url, data="{}", headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
             )
             response = request.json()
             zones = response["zones"]
@@ -367,7 +362,7 @@ class PhotoAlbum:
                         ]
                     }
                 ),
-                headers={"Content-type": "text/plain"},
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
 
@@ -418,7 +413,7 @@ class PhotoAlbum:
                     index, self.list_type, direction, page_size, self.query_filter
                 )
             ),
-            headers={"Content-type": "text/plain"},
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response = request.json()
 
@@ -676,38 +671,40 @@ class PhotoAsset:
 
             for key, prefix in typed_version_lookup.items():
                 if "%sRes" % prefix in self._master_record["fields"]:
-                    fields = self._master_record["fields"]
-                    version: dict = {"filename": self.filename}
-
-                    width_entry = fields.get("%sWidth" % prefix)
-                    if width_entry:
-                        version["width"] = width_entry["value"]
-                    else:
-                        version["width"] = None
-
-                    height_entry = fields.get("%sHeight" % prefix)
-                    if height_entry:
-                        version["height"] = height_entry["value"]
-                    else:
-                        version["height"] = None
-
-                    size_entry = fields.get("%sRes" % prefix)
-                    if size_entry:
-                        version["size"] = size_entry["value"]["size"]
-                        version["url"] = size_entry["value"]["downloadURL"]
-                    else:
-                        version["size"] = None
-                        version["url"] = None
-
-                    type_entry = fields.get("%sFileType" % prefix)
-                    if type_entry:
-                        version["type"] = type_entry["value"]
-                    else:
-                        version["type"] = None
-
-                    self._versions[key] = version
+                    self._versions[key] = self._get_photo_version(prefix)
 
         return self._versions
+
+    def _get_photo_version(self, prefix):
+        version: dict = {"filename": self.filename}
+        fields = self._master_record["fields"]
+        width_entry = fields.get("%sWidth" % prefix)
+        if width_entry:
+            version["width"] = width_entry["value"]
+        else:
+            version["width"] = None
+
+        height_entry = fields.get("%sHeight" % prefix)
+        if height_entry:
+            version["height"] = height_entry["value"]
+        else:
+            version["height"] = None
+
+        size_entry = fields.get("%sRes" % prefix)
+        if size_entry:
+            version["size"] = size_entry["value"]["size"]
+            version["url"] = size_entry["value"]["downloadURL"]
+        else:
+            version["size"] = None
+            version["url"] = None
+
+        type_entry = fields.get("%sFileType" % prefix)
+        if type_entry:
+            version["type"] = type_entry["value"]
+        else:
+            version["type"] = None
+
+        return version
 
     def download(self, version="original", **kwargs):
         """Returns the photo file."""
@@ -720,11 +717,6 @@ class PhotoAsset:
 
     def delete(self):
         """Deletes the photo."""
-        json_data = (
-            '{"query":{"recordType":"CheckIndexingState"},'
-            '"zoneID":{"zoneName":"PrimarySync"}}'
-        )
-
         json_data = (
             '{"operations":[{'
             '"operationType":"update",'
@@ -749,7 +741,7 @@ class PhotoAsset:
         url = f"{endpoint}/records/modify?{params}"
 
         return self._service.session.post(
-            url, data=json_data, headers={"Content-type": "text/plain"}
+            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
 
     def __repr__(self):

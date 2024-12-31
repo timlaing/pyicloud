@@ -5,10 +5,175 @@ from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from random import randint
-from typing import List, Optional
+from typing import List, Optional, cast
 from uuid import uuid4
 
 from tzlocal import get_localzone_name
+
+
+@dataclass
+class EventObject:
+    pguid: str
+    title: str = "New Event"
+    start_date: datetime = datetime.today()
+    end_date: datetime = datetime.today() + timedelta(minutes=60)
+    local_start_date = None
+    local_end_date = None
+    duration: int = field(init=False)
+    icon: int = 0
+    change_recurring: Optional[str] = None
+    tz: str = "US/Pacific"
+    guid: str = ""  # event identifier
+    location: str = ""
+    extended_details_are_included: bool = True
+    recurrence_exception: bool = False
+    recurrence_master: bool = False
+    has_attachments: bool = False
+    all_day: bool = False
+    is_junk: bool = False
+    etag: Optional[str] = None
+
+    invitees: List[str] = field(init=False, default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.local_start_date:
+            self.local_start_date = self.start_date
+        if not self.local_end_date:
+            self.local_end_date = self.end_date
+
+        if not self.guid:
+            self.guid = str(uuid4()).upper()
+
+        self.duration = int(
+            (self.end_date.timestamp() - self.start_date.timestamp()) / 60
+        )
+
+    @property
+    def request_data(self) -> dict:
+        event_dict = asdict(self)
+        event_dict["startDate"] = self.dt_to_list(self.start_date)
+        event_dict["endDate"] = self.dt_to_list(self.end_date, False)
+        if self.local_start_date:
+            event_dict["localStartDate"] = self.dt_to_list(self.local_start_date)
+        if self.local_end_date:
+            event_dict["localEndDate"] = self.dt_to_list(self.local_end_date, False)
+
+        data = {
+            "Event": event_dict,
+            "ClientState": {
+                "Collection": [{"guid": self.guid, "ctag": None}],
+                "fullState": False,
+                "userTime": 1234567890,
+                "alarmRange": 60,
+            },
+        }
+
+        if self.invitees:
+            data["Invitee"] = [
+                {
+                    "guid": email_guid,
+                    "pGuid": self.pguid,
+                    "role": "REQ-PARTICIPANT",
+                    "isOrganizer": False,
+                    "email": email_guid.split(":")[-1],
+                    "inviteeStatus": "NEEDS-ACTION",
+                    "commonName": "",
+                    "isMyId": False,
+                }
+                for email_guid in self.invitees
+            ]
+
+        return data
+
+    def dt_to_list(self, dt: datetime, start: bool = True) -> list:
+        """
+        Converts python datetime object into a list format used
+        by Apple's calendar.
+        """
+        if start:
+            minutes = dt.hour * 60 + dt.minute
+        else:
+            minutes = (24 - dt.hour) * 60 + (60 - dt.minute)
+
+        return [
+            dt.strftime("%Y%m%d"),
+            dt.year,
+            dt.month,
+            dt.day,
+            dt.hour,
+            dt.minute,
+            minutes,
+        ]
+
+    def add_invitees(self, _invitees: list = []) -> None:
+        """
+        Adds a list of emails to invitees in the correct format
+        """
+        self.invitees += ["{}:{}".format(self.guid, email) for email in _invitees]
+
+    def get(self, var: str):
+        return getattr(self, var, None)
+
+
+@dataclass
+class CalendarObject:
+    title: str = "Untitled"
+    guid: str = ""
+    share_type: Optional[str] = (
+        None  # can be (None, 'published', 'shared') where 'published' gens a public caldav link in the response.  Shared is not supported here as it is rather complex.
+    )
+    symbolic_color: str = "__custom__"
+    supported_type: str = "Event"
+    object_type: str = "personal"
+    share_title: str = ""
+    shared_url: str = ""
+    color: str = ""
+    order: int = 7
+    extended_details_are_included: bool = True
+    read_only: bool = False
+    enabled: bool = True
+    ignore_event_updates = None
+    email_notification = None
+    last_modified_date = None
+    me_as_participant = None
+    pre_published_url = None
+    participants = None
+    defer_loading = None
+    published_url = None
+    remove_alarms = None
+    ignore_alarms = None
+    description = None
+    remove_todos = None
+    is_default = None
+    is_family = None
+    etag = None
+    ctag = None
+
+    def __post_init__(self) -> None:
+        if not self.guid:
+            self.guid = str(uuid4()).upper()
+
+        if not self.color:
+            self.color = self.gen_random_color()
+
+    def gen_random_color(self) -> str:
+        """
+        Creates a random rgbhex color.
+        """
+        return "#%02x%02x%02x" % tuple([randint(0, 255) for _ in range(3)])
+
+    @property
+    def request_data(self) -> dict:
+        data = {
+            "Collection": asdict(self),
+            "ClientState": {
+                "Collection": [],
+                "fullState": False,
+                "userTime": 1234567890,
+                "alarmRange": 60,
+            },
+        }
+        return data
 
 
 class CalendarService:
@@ -56,6 +221,7 @@ class CalendarService:
         for cal in self.get_calendars(as_objs=False):
             if cal.get("guid") == guid:
                 return cal.get("ctag")
+        raise ValueError("ctag not found.")
 
     def refresh_client(self, from_dt=None, to_dt=None):
         """
@@ -82,66 +248,6 @@ class CalendarService:
         req = self.session.get(self._calendar_refresh_url, params=params)
         self.response = req.json()
 
-    @dataclass
-    class CalendarObject:
-        title: str = "Untitled"
-        guid: str = ""
-        share_type: Optional[str] = (
-            None  # can be (None, 'published', 'shared') where 'published' gens a public caldav link in the response.  Shared is not supported here as it is rather complex.
-        )
-        symbolicColor: str = "__custom__"
-        supportedType: str = "Event"
-        objectType: str = "personal"
-        shareTitle: str = ""
-        sharedUrl: str = ""
-        color: str = ""
-        order: int = 7
-        extendedDetailsAreIncluded: bool = True
-        readOnly: bool = False
-        enabled: bool = True
-        ignoreEventUpdates = None
-        emailNotification = None
-        lastModifiedDate = None
-        meAsParticipant = None
-        prePublishedUrl = None
-        participants = None
-        deferLoading = None
-        publishedUrl = None
-        removeAlarms = None
-        ignoreAlarms = None
-        description = None
-        removeTodos = None
-        isDefault = None
-        isFamily = None
-        etag = None
-        ctag = None
-
-        def __post_init__(self) -> None:
-            if not self.guid:
-                self.guid = str(uuid4()).upper()
-
-            if not self.color:
-                self.color = self.gen_random_color()
-
-        def gen_random_color(self) -> str:
-            """
-            Creates a random rgbhex color.
-            """
-            return "#%02x%02x%02x" % tuple([randint(0, 255) for _ in range(3)])
-
-        @property
-        def request_data(self) -> dict:
-            data = {
-                "Collection": asdict(self),
-                "ClientState": {
-                    "Collection": [],
-                    "fullState": False,
-                    "userTime": 1234567890,
-                    "alarmRange": 60,
-                },
-            }
-            return data
-
     def get_calendars(self, as_objs: bool = False) -> list:
         """
         Retrieves calendars of this month.
@@ -153,7 +259,7 @@ class CalendarService:
 
         if as_objs and calendars:
             for idx, cal in enumerate(calendars):
-                calendars[idx] = self.obj_from_dict(self.CalendarObject(), cal)
+                calendars[idx] = self.obj_from_dict(CalendarObject(), cal)
 
         return calendars
 
@@ -185,121 +291,19 @@ class CalendarService:
         )
         self.response = req.json()
 
-    @dataclass
-    class EventObject:
-        pGuid: str
-        title: str = "New Event"
-        startDate: datetime = datetime.today()
-        endDate: datetime = datetime.today() + timedelta(minutes=60)
-        localStartDate = None
-        localEndDate = None
-        duration: int = field(init=False)
-        icon: int = 0
-        changeRecurring: str = None
-        tz: str = "US/Pacific"
-        guid: str = ""  # event identifier
-        location: str = ""
-        extendedDetailsAreIncluded: bool = True
-        recurrenceException: bool = False
-        recurrenceMaster: bool = False
-        hasAttachments: bool = False
-        allDay: bool = False
-        isJunk: bool = False
-
-        invitees: List[str] = field(init=False, default_factory=list)
-
-        def __post_init__(self) -> None:
-            if not self.localStartDate:
-                self.localStartDate = self.startDate
-            if not self.localEndDate:
-                self.localEndDate = self.endDate
-
-            if not self.guid:
-                self.guid = str(uuid4()).upper()
-
-            self.duration = int(
-                (self.endDate.timestamp() - self.startDate.timestamp()) / 60
-            )
-
-        @property
-        def request_data(self) -> dict:
-            event_dict = asdict(self)
-            event_dict["startDate"] = self.dt_to_list(self.startDate)
-            event_dict["endDate"] = self.dt_to_list(self.endDate, False)
-            event_dict["localStartDate"] = self.dt_to_list(self.localStartDate)
-            event_dict["localEndDate"] = self.dt_to_list(self.localEndDate, False)
-
-            data = {
-                "Event": event_dict,
-                "ClientState": {
-                    "Collection": [{"guid": self.guid, "ctag": None}],
-                    "fullState": False,
-                    "userTime": 1234567890,
-                    "alarmRange": 60,
-                },
-            }
-
-            if self.invitees:
-                data["Invitee"] = [
-                    {
-                        "guid": email_guid,
-                        "pGuid": self.pGuid,
-                        "role": "REQ-PARTICIPANT",
-                        "isOrganizer": False,
-                        "email": email_guid.split(":")[-1],
-                        "inviteeStatus": "NEEDS-ACTION",
-                        "commonName": "",
-                        "isMyId": False,
-                    }
-                    for email_guid in self.invitees
-                ]
-
-            return data
-
-        def dt_to_list(self, dt: datetime, start: bool = True) -> list:
-            """
-            Converts python datetime object into a list format used
-            by Apple's calendar.
-            """
-            if start:
-                minutes = dt.hour * 60 + dt.minute
-            else:
-                minutes = (24 - dt.hour) * 60 + (60 - dt.minute)
-
-            return [
-                dt.strftime("%Y%m%d"),
-                dt.year,
-                dt.month,
-                dt.day,
-                dt.hour,
-                dt.minute,
-                minutes,
-            ]
-
-        def add_invitees(self, _invitees: list = []) -> None:
-            """
-            Adds a list of emails to invitees in the correct format
-            """
-            self.invitees += ["{}:{}".format(self.guid, email) for email in _invitees]
-
-        def get(self, var: str):
-            return getattr(self, var, None)
-
     def get_events(
         self,
-        from_dt: datetime = None,
-        to_dt: datetime = None,
+        from_dt: Optional[datetime] = None,
+        to_dt: Optional[datetime] = None,
         period: str = "month",
         as_objs: bool = False,
-    ) -> list:
+    ) -> Optional[list]:
         """
         Retrieves events for a given date range, by default, this month.
         """
-        if period != "month":
-            if from_dt:
-                today = datetime(from_dt.year, from_dt.month, from_dt.day)
-            else:
-                today = datetime.today()
+        today = datetime.today()
+        if period != "month" and from_dt:
+            today = datetime(from_dt.year, from_dt.month, from_dt.day)
 
         if period == "day":
             if not from_dt:
@@ -317,11 +321,11 @@ class CalendarService:
 
         if as_objs and events:
             for idx, event in enumerate(events):
-                events[idx] = self.obj_from_dict(self.EventObject(""), event)
+                events[idx] = self.obj_from_dict(EventObject(""), event)
 
         return events
 
-    def get_event_detail(self, pguid, guid, as_obj: bool = False):
+    def get_event_detail(self, pguid, guid, as_obj: bool = False) -> EventObject:
         """
         Fetches a single event's details by specifying a pguid
         (a calendar) and a guid (an event's ID).
@@ -340,7 +344,10 @@ class CalendarService:
         event = self.response["Event"][0]
 
         if as_obj and event:
-            event = self.obj_from_dict(self.EventObject(), event)
+            event: EventObject = cast(
+                EventObject,
+                self.obj_from_dict(EventObject(pguid=pguid), event),
+            )
 
         return event
 
@@ -353,7 +360,7 @@ class CalendarService:
         params = self.default_params
 
         req = self.session.post(
-            self._calendar_refresh_url + f"/{event.pGuid}/{event.guid}",
+            self._calendar_refresh_url + f"/{event.pguid}/{event.guid}",
             params=params,
             data=json.dumps(data),
         )
@@ -369,14 +376,14 @@ class CalendarService:
 
         params = self.default_params
         params["methodOverride"] = "DELETE"
-        if not getattr(event, "etag", ""):
+        if not getattr(event, "etag", None):
             event.etag = self.get_event_detail(
-                event.pGuid, event.guid, as_obj=False
+                event.pguid, event.guid, as_obj=False
             ).get("etag")
         params["ifMatch"] = event.etag
 
         req = self.session.post(
-            self._calendar_refresh_url + f"/{event.pGuid}/{event.guid}",
+            self._calendar_refresh_url + f"/{event.pguid}/{event.guid}",
             params=params,
             data=json.dumps(data),
         )

@@ -1,0 +1,27 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v5.0.0
+      hooks:
+          - id: trailing-whitespace
+          - id: detect-private-key
+          - id: check-docstring-first
+          - id: end-of-file-fixer
+          - id: check-yaml
+            args:
+                - --unsafe
+          - id: check-added-large-files
+          - id: requirements-txt-fixer
+          - id: name-tests-test
+            exclude: ^tests/const.*\.py$
+            args:
+                - --pytest-test-first
+    - repo: https://github.com/psf/black-pre-commit-mirror
+      rev: 24.8.0
+      hooks:
+          - id: black
+    - repo: https://github.com/pycqa/isort
+      rev: 5.13.2
+      hooks:
+          - id: isort
