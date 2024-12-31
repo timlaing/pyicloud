@@ -149,9 +149,8 @@ class PyiCloudSession(Session):
         self._save_session_data()
 
         # Save cookies to file
-        cast(cookielib.LWPCookieJar, self.cookies).save(
-            ignore_discard=True, ignore_expires=True
-        )
+        if isinstance(self.cookies, cookielib.LWPCookieJar):
+            self.cookies.save(ignore_discard=True, ignore_expires=True)
         LOGGER.debug("Cookies saved to %s", self.service.cookiejar_path)
 
         if not response.ok and (
@@ -511,8 +510,8 @@ class PyiCloudService(object):
 
     def _get_auth_headers(self, overrides=None):
         headers = {
-            "Accept": "*/*",
-            CONTENT_TYPE: CONTENT_TYPE_JSON,
+            "Accept": f"{CONTENT_TYPE_JSON}, text/javascript",
+            "Content-Type": CONTENT_TYPE_JSON,
             "X-Apple-OAuth-Client-Id": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
             "X-Apple-OAuth-Client-Type": "firstPartyAuth",
             "X-Apple-OAuth-Redirect-URI": "https://www.icloud.com",
