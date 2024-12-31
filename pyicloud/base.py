@@ -35,18 +35,9 @@ from pyicloud.services import (
 )
 from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.utils import get_password_from_keyring
+from pyicloud.const import CONTENT_TYPE_JSON, HEADER_DATA, CONTENT_TYPE
 
 LOGGER = logging.getLogger(__name__)
-
-HEADER_DATA = {
-    "X-Apple-ID-Account-Country": "account_country",
-    "X-Apple-ID-Session-Id": "session_id",
-    "X-Apple-Session-Token": "session_token",
-    "X-Apple-TwoSV-Trust-Token": "trust_token",
-    "scnt": "scnt",
-}
-
-CONTENT_TYPE_JSON = "application/json"
 
 
 class PyiCloudPasswordFilter(logging.Filter):
@@ -88,7 +79,7 @@ class PyiCloudSession(Session):
         kwargs.pop("retried", None)
         response = super().request(method, url, **kwargs)
 
-        content_type = response.headers.get("Content-Type", "").split(";")[0]
+        content_type = response.headers.get(CONTENT_TYPE, "").split(";")[0]
         json_mimetypes = [CONTENT_TYPE_JSON, "text/json"]
 
         for header, value in HEADER_DATA.items():
@@ -267,7 +258,7 @@ class PyiCloudService(object):
         try:
             with open(self.session_path, encoding="utf-8") as session_f:
                 self.session_data = json.load(session_f)
-        except:  # pylint: disable=bare-except
+        except (json.JSONDecodeError, FileNotFoundError):  # pylint: disable=bare-except
             LOGGER.info("Session file does not exist")
         if self.session_data.get("client_id"):
             self.client_id = self.session_data.get("client_id")
@@ -479,7 +470,7 @@ class PyiCloudService(object):
     def _get_auth_headers(self, overrides=None):
         headers = {
             "Accept": "*/*",
-            "Content-Type": CONTENT_TYPE_JSON,
+            CONTENT_TYPE: CONTENT_TYPE_JSON,
             "X-Apple-OAuth-Client-Id": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
             "X-Apple-OAuth-Client-Type": "firstPartyAuth",
             "X-Apple-OAuth-Redirect-URI": "https://www.icloud.com",

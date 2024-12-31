@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
+from ..const import CONTENT_TYPE_TEXT, CONTENT_TYPE
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudServiceNotActivatedException,
@@ -140,7 +141,7 @@ class PhotoLibrary:
             {"query": {"recordType": "CheckIndexingState"}, "zoneID": self.zone_id}
         )
         request = self.service.session.post(
-            url, data=json_data, headers={"Content-type": "text/plain"}
+            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
         response = request.json()
         indexing_state = response["records"][0]["fields"]["state"]["value"]
@@ -209,7 +210,7 @@ class PhotoLibrary:
         )
 
         request = self.service.session.post(
-            url, data=json_data, headers={"Content-type": "text/plain"}
+            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
         response = request.json()
 
@@ -284,7 +285,7 @@ class PhotosService(PhotoLibrary):
             url = "%s/changes/database" % (self.service_endpoint,)
 
             request = self.session.post(
-                url, data="{}", headers={"Content-type": "text/plain"}
+                url, data="{}", headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
             )
             response = request.json()
             zones = response["zones"]
@@ -367,7 +368,7 @@ class PhotoAlbum:
                         ]
                     }
                 ),
-                headers={"Content-type": "text/plain"},
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
 
@@ -418,7 +419,7 @@ class PhotoAlbum:
                     index, self.list_type, direction, page_size, self.query_filter
                 )
             ),
-            headers={"Content-type": "text/plain"},
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response = request.json()
 
@@ -749,7 +750,7 @@ class PhotoAsset:
         url = f"{endpoint}/records/modify?{params}"
 
         return self._service.session.post(
-            url, data=json_data, headers={"Content-type": "text/plain"}
+            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
 
     def __repr__(self):

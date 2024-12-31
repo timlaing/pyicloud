@@ -2,6 +2,7 @@
 
 import pickle
 from io import BytesIO
+import re
 from typing import Callable
 from unittest import TestCase
 from unittest.mock import mock_open, patch
@@ -53,10 +54,11 @@ class TestCmdline(TestCase):
                 ]
             )
 
+    @patch("builtins.open", new_callable=mock_open)
     @patch("keyring.get_password", return_value=None)
     @patch("getpass.getpass")
     def test_username_password_invalid(
-        self, mock_getpass, mock_get_password
+        self, mock_getpass, mock_get_password, mock_open
     ):  # pylint: disable=unused-argument
         """Test username and password commands."""
         # No password supplied
@@ -94,11 +96,11 @@ class TestCmdline(TestCase):
                 ]
             )
 
-    @patch("builtins.open", mock_open)
+    @patch("builtins.open", new_callable=mock_open)
     @patch("keyring.get_password", return_value=None)
     @patch("pyicloud.cmdline.input")
     def test_username_password_requires_2fa(
-        self, mock_input, mock_get_password
+        self, mock_input, mock_get_password, mock_open
     ):  # pylint: disable=unused-argument
         """Test username and password commands."""
         # Valid connection for the first time
@@ -138,6 +140,8 @@ class TestCmdline(TestCase):
                 mock_file = mock_open().return_value
                 mock_file.write = mock_write
                 return mock_file
+            elif "r" in mode:
+                raise FileNotFoundError(f"No such file or directory: '{filepath}'")
             else:
                 raise ValueError(f"Unsupported mode: {mode}")
 
