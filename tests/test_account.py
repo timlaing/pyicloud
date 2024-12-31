@@ -2,19 +2,32 @@
 
 import sys
 from unittest import TestCase, skipIf
+from unittest.mock import mock_open, patch
 
 from . import PyiCloudServiceMock
-from .const import AUTHENTICATED_USER, VALID_PASSWORD
+from .const_login import LOGIN_WORKING
 
 
 class AccountServiceTest(TestCase):
     """Account service tests."""
 
-    service = None
-
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up tests."""
-        self.service = PyiCloudServiceMock(AUTHENTICATED_USER, VALID_PASSWORD).account
+        self.apple_id = "test@example.com"
+        self.password = "password"
+        self.service = self.create_service_with_mock_authenticate()
+
+    @patch("builtins.open", mock_open)
+    def create_service_with_mock_authenticate(self):
+        with patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate:
+            # Mock the authenticate method during initialization
+            mock_authenticate.return_value = None
+
+            service = PyiCloudServiceMock(self.apple_id, self.password)
+            service.data = LOGIN_WORKING
+            service._webservices = service.data["webservices"]
+
+        return service.account
 
     def test_repr(self):
         """Tests representation."""

@@ -80,6 +80,9 @@ class FindMyiPhoneServiceManager:
     def __repr__(self):
         return f"{self}"
 
+    def __iter__(self):
+        return iter(self._devices.values())
+
 
 class AppleDevice:
     """Apple device."""

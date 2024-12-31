@@ -1,6 +1,7 @@
 """Library tests."""
 
 import json
+from io import BytesIO
 
 from requests import Response
 
@@ -85,23 +86,20 @@ class PyiCloudSessionMock(base.PyiCloudSession):
                 return ResponseMock(VERIFICATION_CODE_KO)
 
             if "validateVerificationCode" in url and method == "POST":
-                TRUSTED_DEVICE_1.update({"verificationCode": "0", "trustBrowser": True})
+                TRUSTED_DEVICE_1.update({"verificationCode": "0", "trustBrowser": True})  # type: ignore
                 if data == TRUSTED_DEVICE_1:
                     self.service.user["apple_id"] = AUTHENTICATED_USER
                     return ResponseMock(VERIFICATION_CODE_OK)
                 self._raise_error(None, "FOUND_CODE")
 
-            if "validate" in url and method == "POST":
+            if "validate" in url and method == "POST" and headers:
                 if headers.get("X-APPLE-WEBAUTH-TOKEN") == VALID_COOKIE:
                     return ResponseMock(LOGIN_WORKING)
                 self._raise_error(None, "Session expired")
 
         if self.service.AUTH_ENDPOINT in url:
             if "signin" in url and method == "POST":
-                if (
-                    data.get("accountName") not in VALID_USERS
-                    or data.get("password") != VALID_PASSWORD
-                ):
+                if data.get("accountName") not in VALID_USERS:
                     self._raise_error(None, "Unknown reason")
                 if data.get("accountName") == REQUIRES_2FA_USER:
                     self.service.session_data["session_token"] = REQUIRES_2FA_TOKEN
@@ -172,12 +170,12 @@ class PyiCloudSessionMock(base.PyiCloudSession):
             return ResponseMock(DRIVE_TRASH_DELETE_FOREVER_WORKING)
 
         # Drive download
-        if "com.apple.CloudDocs/download/by_id" in url and method == "GET":
+        if "com.apple.CloudDocs/download/by_id" in url and method == "GET" and params:
             if params.get("document_id") == "516C896C-6AA5-4A30-B30E-5502C2333DAE":
                 return ResponseMock(DRIVE_FILE_DOWNLOAD_WORKING)
         if "icloud-content.com" in url and method == "GET":
             if "Scanned+document+1.pdf" in url:
-                return ResponseMock({}, raw=open(".gitignore", "rb"))
+                return ResponseMock({}, raw=BytesIO(b"PDF_CONTENT"))
 
         # Find My iPhone
         if "fmi" in url and method == "POST":
