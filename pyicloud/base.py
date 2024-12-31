@@ -16,7 +16,15 @@ from uuid import uuid1
 import srp
 from requests import Session
 from requests.cookies import RequestsCookieJar
+from requests.models import Response
 
+from pyicloud.const import (
+    ACCOUNT_NAME,
+    CONTENT_TYPE,
+    CONTENT_TYPE_JSON,
+    CONTENT_TYPE_TEXT_JSON,
+    HEADER_DATA,
+)
 from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
     PyiCloudAPIResponseException,
@@ -38,15 +46,31 @@ from pyicloud.utils import get_password_from_keyring
 
 LOGGER = logging.getLogger(__name__)
 
-HEADER_DATA = {
-    "X-Apple-ID-Account-Country": "account_country",
-    "X-Apple-ID-Session-Id": "session_id",
-    "X-Apple-Session-Token": "session_token",
-    "X-Apple-TwoSV-Trust-Token": "trust_token",
-    "scnt": "scnt",
-}
+KEY_RETRIED = "retried"
 
-CONTENT_TYPE_JSON = "application/json"
+
+class SrpPassword:
+    """SRP password."""
+
+    def __init__(self, password: str) -> None:
+        self.password: str = password
+
+    def set_encrypt_info(self, salt: bytes, iterations: int, key_length: int) -> None:
+        """Set encrypt info."""
+        self.salt: bytes = salt
+        self.iterations: int = iterations
+        self.key_length: int = key_length
+
+    def encode(self) -> bytes:
+        """Encode password."""
+        password_hash: bytes = hashlib.sha256(self.password.encode("utf-8")).digest()
+        return hashlib.pbkdf2_hmac(
+            "sha256",
+            password_hash,
+            self.salt,
+            self.iterations,
+            self.key_length,
+        )
 
 
 class PyiCloudPasswordFilter(logging.Filter):
@@ -71,26 +95,25 @@ class PyiCloudSession(Session):
         self.service = service
         super().__init__()
 
-    def request(self, method, url, **kwargs):  # type: ignore # pylint: disable=arguments-differ
-        request_logger = logging.getLogger()
-
-        # Charge logging to the right service endpoint
-        callee = inspect.stack()[2]
+    def _get_request_logger(self, stack):
+        """Charge logging to the right service endpoint."""
+        callee = stack[2]
         module = inspect.getmodule(callee[0])
         if module:
             request_logger = logging.getLogger(module.__name__).getChild("http")
             if self.service.password_filter not in request_logger.filters:
                 request_logger.addFilter(self.service.password_filter)
+            return request_logger
+        return logging.getLogger()
 
-            request_logger.debug("%s %s %s", method, url, kwargs.get("data", ""))
+    def _save_session_data(self):
+        """Save session_data to file."""
+        with open(self.service.session_path, "w", encoding="utf-8") as outfile:
+            json.dump(self.service.session_data, outfile)
+            LOGGER.debug("Saved session data to file")
 
-        has_retried = kwargs.get("retried")
-        kwargs.pop("retried", None)
-        response = super().request(method, url, **kwargs)
-
-        content_type = response.headers.get("Content-Type", "").split(";")[0]
-        json_mimetypes = [CONTENT_TYPE_JSON, "text/json"]
-
+    def _update_session_data(self, response) -> None:
+        """Update session_data with new data."""
         for header, value in HEADER_DATA.items():
             if response.headers.get(header):
                 session_arg = value
@@ -98,10 +121,32 @@ class PyiCloudSession(Session):
                     {session_arg: response.headers.get(header)}
                 )
 
-        # Save session_data to file
-        with open(self.service.session_path, "w", encoding="utf-8") as outfile:
-            json.dump(self.service.session_data, outfile)
-            LOGGER.debug("Saved session data to file")
+    def _is_json_response(self, response) -> bool:
+        content_type = response.headers.get(CONTENT_TYPE, "")
+        json_mimetypes = [
+            CONTENT_TYPE_JSON,
+            CONTENT_TYPE_TEXT_JSON,
+        ]
+        return content_type in json_mimetypes
+
+    def _reauthenticate_find_my_iphone(self, response) -> None:
+        LOGGER.debug("Re-authenticating Find My iPhone service")
+        try:
+            service = None if response.status_code == 450 else "find"
+            self.service.authenticate(True, service)
+        except PyiCloudAPIResponseException:
+            LOGGER.debug("Re-authentication failed")
+
+    def request(self, method, url, **kwargs):  # type: ignore
+        """Request method."""
+        request_logger: logging.Logger = self._get_request_logger(inspect.stack())
+        request_logger.debug("%s %s %s", method, url, kwargs.get("data", ""))
+
+        has_retried: bool = kwargs.pop(KEY_RETRIED, False)
+        response: Response = super().request(method, url, **kwargs)
+
+        self._update_session_data(response)
+        self._save_session_data()
 
         # Save cookies to file
         if isinstance(self.cookies, cookielib.LWPCookieJar):
@@ -109,69 +154,61 @@ class PyiCloudSession(Session):
         LOGGER.debug("Cookies saved to %s", self.service.cookiejar_path)
 
         if not response.ok and (
-            content_type not in json_mimetypes
-            or response.status_code in [421, 450, 500]
+            self._is_json_response(response) or response.status_code in [421, 450, 500]
         ):
             try:
                 # pylint: disable=protected-access
                 fmip_url = self.service._get_webservice_url("findme")
                 if (
-                    has_retried is None
+                    not has_retried
                     and response.status_code in [421, 450, 500]
                     and fmip_url in url
                 ):
-                    # Handle re-authentication for Find My iPhone
-                    LOGGER.debug("Re-authenticating Find My iPhone service")
-                    try:
-                        # If 450, authentication requires a full sign in to the account
-                        service = None if response.status_code == 450 else "find"
-                        self.service.authenticate(True, service)
-
-                    except PyiCloudAPIResponseException:
-                        LOGGER.debug("Re-authentication failed")
-                    kwargs["retried"] = True
+                    self._reauthenticate_find_my_iphone(response)
+                    kwargs[KEY_RETRIED] = True
                     return self.request(method, url, **kwargs)
             except Exception:
                 pass
 
-            if has_retried is None and response.status_code in [421, 450, 500]:
+            if not has_retried and response.status_code in [421, 450, 500]:
                 api_error = PyiCloudAPIResponseException(
                     response.reason, response.status_code, retry=True
                 )
                 request_logger.debug(api_error)
-                kwargs["retried"] = True
+                kwargs[KEY_RETRIED] = True
                 return self.request(method, url, **kwargs)
 
             self._raise_error(response.status_code, response.reason)
 
-        if content_type not in json_mimetypes:
+        if not self._is_json_response(response):
             return response
 
-        try:
-            data = response.json()
-        except json.JSONDecodeError:
-            request_logger.warning("Failed to parse response with JSON mimetype")
-            return response
-
-        request_logger.debug(data)
-
-        if isinstance(data, dict):
-            reason = data.get("errorMessage")
-            reason = reason or data.get("reason")
-            reason = reason or data.get("errorReason")
-            if not reason and isinstance(data.get("error"), str):
-                reason = data.get("error")
-            if not reason and data.get("error"):
-                reason = "Unknown reason"
-
-            code = data.get("errorCode")
-            if not code and data.get("serverErrorCode"):
-                code = data.get("serverErrorCode")
-
-            if reason:
-                self._raise_error(code, reason)
+        self._decode_json_response(response, request_logger)
 
         return response
+
+    def _decode_json_response(self, response, logger):
+        try:
+            data = response.json()
+            logger.debug(data)
+
+            if isinstance(data, dict):
+                reason = data.get("errorMessage")
+                reason = reason or data.get("reason")
+                reason = reason or data.get("errorReason")
+                if not reason and isinstance(data.get("error"), str):
+                    reason = data.get("error")
+                if not reason and data.get("error"):
+                    reason = "Unknown reason"
+
+                code = data.get("errorCode")
+                if not code and data.get("serverErrorCode"):
+                    code = data.get("serverErrorCode")
+
+                if reason:
+                    self._raise_error(code, reason)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse response with JSON mimetype")
 
     def _raise_error(self, code, reason):
         if (
@@ -212,42 +249,21 @@ class PyiCloudService(object):
         pyicloud.iphone.location()
     """
 
-    AUTH_ENDPOINT: str = "https://idmsa.apple.com/appleauth/auth"
-
-    icloud_china: bool = environ.get("icloud_china", "0") == "1"
-    HOME_ENDPOINT: str = f"https://www.icloud.com{icloud_china * '.cn'}"
-    SETUP_ENDPOINT: str = f"https://setup.icloud.com{icloud_china * '.cn'}/setup/ws/1"
-
-    def __init__(
-        self,
-        apple_id,
-        password=None,
-        cookie_directory=None,
-        verify=True,
-        client_id=None,
-        with_family=True,
-        china_mainland=False,
-    ):
+    def _setup_endpoints(self, china_mainland) -> None:
+        """Set up the endpoints for the service."""
         # If the country or region setting of your Apple ID is China mainland.
         # See https://support.apple.com/en-us/HT208351
-        if china_mainland:
-            self.AUTH_ENDPOINT = "https://idmsa.apple.com.cn/appleauth/auth"
-            self.HOME_ENDPOINT = "https://www.icloud.com.cn"
-            self.SETUP_ENDPOINT = "https://setup.icloud.com.cn/setup/ws/1"
+        icloud_china: str = (
+            ".cn" if china_mainland or environ.get("icloud_china", "0") == "1" else ""
+        )
+        self.AUTH_ENDPOINT: str = (
+            f"https://idmsa.apple.com{icloud_china}/appleauth/auth"
+        )
+        self.HOME_ENDPOINT: str = f"https://www.icloud.com{icloud_china}"
+        self.SETUP_ENDPOINT: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
 
-        if password is None:
-            password = get_password_from_keyring(apple_id)
-
-        self.user = {"accountName": apple_id, "password": password}
-        self.data = {}
-
-        self.params = {}
-        self.client_id = client_id or ("auth-%s" % str(uuid1()).lower())
-        self.with_family = with_family
-
-        self.password_filter = PyiCloudPasswordFilter(password)
-        LOGGER.addFilter(self.password_filter)
-
+    def _setup_cookie_directory(self, cookie_directory) -> None:
+        """Set up the cookie directory for the service."""
         if cookie_directory:
             self._cookie_directory = path.expanduser(path.normpath(cookie_directory))
             if not path.exists(self._cookie_directory):
@@ -260,13 +276,43 @@ class PyiCloudService(object):
             if not path.exists(self._cookie_directory):
                 mkdir(self._cookie_directory, 0o700)
 
+    def __init__(
+        self,
+        apple_id,
+        password=None,
+        cookie_directory=None,
+        verify=True,
+        client_id=None,
+        with_family=True,
+        china_mainland=False,
+    ) -> None:
+        self._setup_endpoints(china_mainland)
+
+        if password is None:
+            password = get_password_from_keyring(apple_id)
+
+        self.user = {ACCOUNT_NAME: apple_id, "password": password}
+        self.data = {}
+
+        self.params = {}
+        self.client_id = client_id or ("auth-%s" % str(uuid1()).lower())
+        self.with_family = with_family
+
+        self.password_filter = PyiCloudPasswordFilter(password)
+        LOGGER.addFilter(self.password_filter)
+
+        self._setup_cookie_directory(cookie_directory)
+
         LOGGER.debug("Using session file %s", self.session_path)
 
         self.session_data = {}
         try:
             with open(self.session_path, encoding="utf-8") as session_f:
                 self.session_data = json.load(session_f)
-        except:  # pylint: disable=bare-except
+        except (
+            json.JSONDecodeError,
+            OSError,
+        ):  # pylint: disable=bare-except
             LOGGER.info("Session file does not exist")
         if self.session_data.get("client_id"):
             self.client_id = self.session_data.get("client_id")
@@ -286,7 +332,7 @@ class PyiCloudService(object):
                 cookies.load(ignore_discard=True, ignore_expires=True)
                 self.session.cookies = cast(RequestsCookieJar, cookies)
                 LOGGER.debug("Read cookies from %s", cookiejar_path)
-            except:  # pylint: disable=bare-except
+            except (ValueError, OSError):
                 # Most likely a pickled cookiejar from earlier versions.
                 # The cookiejar will get replaced with a valid one after
                 # successful authentication.
@@ -317,7 +363,7 @@ class PyiCloudService(object):
             app = self.data["apps"][service]
             if "canLaunchWithOneFactor" in app and app["canLaunchWithOneFactor"]:
                 LOGGER.debug(
-                    "Authenticating as %s for %s", self.user["accountName"], service
+                    "Authenticating as %s for %s", self.user[ACCOUNT_NAME], service
                 )
                 try:
                     self._authenticate_with_credentials_service(service)
@@ -328,94 +374,7 @@ class PyiCloudService(object):
                     )
 
         if not login_successful:
-            LOGGER.debug("Authenticating as %s", self.user["accountName"])
-
-            headers = self._get_auth_headers()
-            if self.session_data.get("scnt"):
-                headers["scnt"] = self.session_data.get("scnt")
-
-            if self.session_data.get("session_id"):
-                headers["X-Apple-ID-Session-Id"] = self.session_data.get("session_id")
-
-            class SrpPassword:
-                def __init__(self, password: str):
-                    self.password = password
-
-                def set_encrypt_info(
-                    self, salt: bytes, iterations: int, key_length: int
-                ):
-                    self.salt = salt
-                    self.iterations = iterations
-                    self.key_length = key_length
-
-                def encode(self):
-                    password_hash = hashlib.sha256(
-                        self.password.encode("utf-8")
-                    ).digest()
-                    return hashlib.pbkdf2_hmac(
-                        "sha256", password_hash, salt, iterations, key_length
-                    )
-
-            srp_password = SrpPassword(self.user["password"])
-            srp.rfc5054_enable()
-            srp.no_username_in_x()
-            usr = srp.User(
-                self.user["accountName"],
-                srp_password,
-                hash_alg=srp.SHA256,
-                ng_type=srp.NG_2048,
-            )
-            uname, A = usr.start_authentication()
-            data = {
-                "a": base64.b64encode(A).decode(),
-                "accountName": uname,
-                "protocols": ["s2k", "s2k_fo"],
-            }
-
-            try:
-                response = self.session.post(
-                    "%s/signin/init" % self.AUTH_ENDPOINT,
-                    data=json.dumps(data),
-                    headers=headers,
-                )
-                response.raise_for_status()
-            except PyiCloudAPIResponseException as error:
-                msg = "Failed to initiate srp authentication."
-                raise PyiCloudFailedLoginException(msg, error) from error
-
-            body = response.json()
-            salt = base64.b64decode(body["salt"])
-            b = base64.b64decode(body["b"])
-            c = body["c"]
-            iterations = body["iteration"]
-            key_length = 32
-            srp_password.set_encrypt_info(salt, iterations, key_length)
-            m1 = usr.process_challenge(salt, b)
-            m2 = usr.H_AMK
-            if m1 and m2:
-                data = {
-                    "accountName": uname,
-                    "c": c,
-                    "m1": base64.b64encode(m1).decode(),
-                    "m2": base64.b64encode(m2).decode(),
-                    "rememberMe": True,
-                    "trustTokens": [],
-                }
-            if self.session_data.get("trust_token"):
-                data["trustTokens"] = [self.session_data.get("trust_token")]
-
-            try:
-                self.session.post(
-                    "%s/signin/complete" % self.AUTH_ENDPOINT,
-                    params={"isRememberMeEnabled": "true"},
-                    data=json.dumps(data),
-                    headers=headers,
-                )
-            except PyiCloudAPIResponseException as error:
-                msg = "Invalid email/password combination."
-                raise PyiCloudFailedLoginException(msg, error) from error
-
-            self._authenticate_with_token()
+            self._authenticate()
 
         if (
             "dsInfo" in self.data
@@ -427,6 +386,80 @@ class PyiCloudService(object):
         self._webservices = self.data["webservices"]
 
         LOGGER.debug("Authentication completed successfully")
+
+    def _authenticate(self):
+        LOGGER.debug("Authenticating as %s", self.user[ACCOUNT_NAME])
+
+        headers = self._get_auth_headers()
+        if self.session_data.get("scnt"):
+            headers["scnt"] = self.session_data.get("scnt")
+
+        if self.session_data.get("session_id"):
+            headers["X-Apple-ID-Session-Id"] = self.session_data.get("session_id")
+
+        self._srp_authentication(headers)
+        self._authenticate_with_token()
+
+    def _srp_authentication(self, headers):
+        """SRP authentication."""
+        srp_password = SrpPassword(self.user["password"])
+        srp.rfc5054_enable()
+        srp.no_username_in_x()
+        usr = srp.User(
+            self.user[ACCOUNT_NAME],
+            srp_password,
+            hash_alg=srp.SHA256,
+            ng_type=srp.NG_2048,
+        )
+        uname, A = usr.start_authentication()
+        data = {
+            "a": base64.b64encode(A).decode(),
+            ACCOUNT_NAME: uname,
+            "protocols": ["s2k", "s2k_fo"],
+        }
+
+        try:
+            response = self.session.post(
+                "%s/signin/init" % self.AUTH_ENDPOINT,
+                data=json.dumps(data),
+                headers=headers,
+            )
+            response.raise_for_status()
+        except PyiCloudAPIResponseException as error:
+            msg = "Failed to initiate srp authentication."
+            raise PyiCloudFailedLoginException(msg, error) from error
+
+        body = response.json()
+        salt = base64.b64decode(body["salt"])
+        b = base64.b64decode(body["b"])
+        c = body["c"]
+        iterations = body["iteration"]
+        key_length = 32
+        srp_password.set_encrypt_info(salt, iterations, key_length)
+        m1 = usr.process_challenge(salt, b)
+        m2 = usr.H_AMK
+        if m1 and m2:
+            data = {
+                ACCOUNT_NAME: uname,
+                "c": c,
+                "m1": base64.b64encode(m1).decode(),
+                "m2": base64.b64encode(m2).decode(),
+                "rememberMe": True,
+                "trustTokens": [],
+            }
+        if self.session_data.get("trust_token"):
+            data["trustTokens"] = [self.session_data.get("trust_token")]
+
+        try:
+            self.session.post(
+                "%s/signin/complete" % self.AUTH_ENDPOINT,
+                params={"isRememberMeEnabled": "true"},
+                data=json.dumps(data),
+                headers=headers,
+            )
+        except PyiCloudAPIResponseException as error:
+            msg = "Invalid email/password combination."
+            raise PyiCloudFailedLoginException(msg, error) from error
 
     def _authenticate_with_token(self):
         """Authenticate using session token."""
@@ -450,7 +483,7 @@ class PyiCloudService(object):
         """Authenticate to a specific service using credentials."""
         data = {
             "appName": service,
-            "apple_id": self.user["accountName"],
+            "apple_id": self.user[ACCOUNT_NAME],
             "password": self.user["password"],
         }
 
@@ -497,7 +530,7 @@ class PyiCloudService(object):
         """Get path for cookiejar file."""
         return path.join(
             self._cookie_directory,
-            "".join([c for c in self.user.get("accountName", "") if match(r"\w", c)]),
+            "".join([c for c in self.user.get(ACCOUNT_NAME, "") if match(r"\w", c)]),
         )
 
     @property
@@ -505,7 +538,7 @@ class PyiCloudService(object):
         """Get path for session data file."""
         return path.join(
             self._cookie_directory,
-            "".join([c for c in self.user.get("accountName", "") if match(r"\w", c)])
+            "".join([c for c in self.user.get(ACCOUNT_NAME, "") if match(r"\w", c)])
             + ".session",
         )
 

@@ -5,6 +5,10 @@ class PyiCloudException(Exception):
     """Generic iCloud exception."""
 
 
+class TokenException(PyiCloudException):
+    """Token exception."""
+
+
 # API
 class PyiCloudAPIResponseException(PyiCloudException):
     """iCloud response exception."""
