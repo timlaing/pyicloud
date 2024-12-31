@@ -13,7 +13,7 @@ from re import search
 from requests import Response
 
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
-from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.exceptions import PyiCloudAPIResponseException, TokenException
 
 LOGGER = logging.getLogger(__name__)
 
@@ -37,9 +37,9 @@ class DriveService:
             if cookie.name == COOKIE_APPLE_WEBAUTH_VALIDATE:
                 match = search(r"\bt=([^:]+)", cookie.value)
                 if match is None:
-                    raise Exception("Can't extract token from %r" % cookie.value)
+                    raise TokenException("Can't extract token from %r" % cookie.value)
                 return {"token": match.group(1)}
-        raise Exception("Token cookie not found")
+        raise TokenException("Token cookie not found")
 
     def get_node_data(self, node_id):
         """Returns the node data."""

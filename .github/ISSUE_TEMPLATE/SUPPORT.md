@@ -8,7 +8,7 @@ about: Need help
   DO NOT DELETE ANY TEXT from this template! Otherwise, your request may be closed without comment.
 -->
 ## The problem
-<!-- 
+<!--
   Describe the issue you are experiencing here to communicate to the maintainers.
   Tell us what you were trying to do and what happened instead.
 -->
@@ -20,11 +20,11 @@ about: Need help
   and find the issue quickly.
 -->
 
-- pyiCloud release with the issue (`pip show pyicloud`): 
-- Last working pyiCloud release (if known): 
-- Service causing this issue: 
-- Python version (`python -V`): 
-- Operating environment (project deps/Docker/Windows/etc.): 
+- pyiCloud release with the issue (`pip show pyicloud`):
+- Last working pyiCloud release (if known):
+- Service causing this issue:
+- Python version (`python -V`):
+- Operating environment (project deps/Docker/Windows/etc.):
 
 
 ## Traceback/Error logs
@@ -47,4 +47,3 @@ about: Need help
 - [ ] I've looked informations in Google.
 
 ## Additional information
-
