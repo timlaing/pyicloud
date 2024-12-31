@@ -12,9 +12,13 @@ from re import search
 
 from requests import Response
 
-from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
+from pyicloud.exceptions import PyiCloudAPIResponseException, TokenException
 
 LOGGER = logging.getLogger(__name__)
+
+COOKIE_APPLE_WEBAUTH_VALIDATE = "X-APPLE-WEBAUTH-VALIDATE"
+CLOUD_DOCS = "/ws/com.apple.CloudDocs"
 
 
 class DriveService:
@@ -30,12 +34,12 @@ class DriveService:
 
     def _get_token_from_cookie(self):
         for cookie in self.session.cookies:
-            if cookie.name == "X-APPLE-WEBAUTH-VALIDATE":
+            if cookie.name == COOKIE_APPLE_WEBAUTH_VALIDATE:
                 match = search(r"\bt=([^:]+)", cookie.value)
                 if match is None:
-                    raise Exception("Can't extract token from %r" % cookie.value)
+                    raise TokenException("Can't extract token from %r" % cookie.value)
                 return {"token": match.group(1)}
-        raise Exception("Token cookie not found")
+        raise TokenException("Token cookie not found")
 
     def get_node_data(self, node_id):
         """Returns the node data."""
@@ -70,7 +74,7 @@ class DriveService:
         file_params = dict(self.params)
         file_params.update({"document_id": file_id})
         response = self.session.get(
-            self._document_root + "/ws/com.apple.CloudDocs/download/by_id",
+            self._document_root + f"{CLOUD_DOCS}/download/by_id",
             params=file_params,
         )
         self._raise_if_error(response)
@@ -107,9 +111,9 @@ class DriveService:
         file_params.update(self._get_token_from_cookie())
 
         request = self.session.post(
-            self._document_root + "/ws/com.apple.CloudDocs/upload/web",
+            self._document_root + f"{CLOUD_DOCS}/upload/web",
             params=file_params,
-            headers={"Content-Type": "text/plain"},
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
                 {
                     "filename": file_object.name,
@@ -152,9 +156,9 @@ class DriveService:
             data["data"].update({"receipt": sf_info["receipt"]})
 
         request = self.session.post(
-            self._document_root + "/ws/com.apple.CloudDocs/update/documents",
+            self._document_root + f"{CLOUD_DOCS}/update/documents",
             params=self.params,
-            headers={"Content-Type": "text/plain"},
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(data),
         )
         self._raise_if_error(request)
@@ -176,7 +180,7 @@ class DriveService:
         request = self.session.post(
             self._service_root + "/createFolders",
             params=self.params,
-            headers={"Content-Type": "text/plain"},
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
                 {
                     "destinationDrivewsId": parent,

@@ -14,7 +14,8 @@ class TestPyiCloudService(unittest.TestCase):
         self.apple_id = "test@example.com"
         self.password = "password"
 
-    def create_service_with_mock_authenticate(self):
+    @patch("builtins.open", new_callable=mock_open)
+    def create_service_with_mock_authenticate(self, mock_open):
         with patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate:
             # Mock the authenticate method during initialization
             mock_authenticate.return_value = None
@@ -72,9 +73,8 @@ class TestPyiCloudService(unittest.TestCase):
         service.session.post = mock_session.post
         self.assertTrue(service.validate_2fa_code("123456"))
 
-    @patch("builtins.open", new_callable=mock_open)
     @patch("pyicloud.base.PyiCloudSession")
-    def test_validate_2fa_code_failure(self, mock_session, mock_open):
+    def test_validate_2fa_code_failure(self, mock_session):
         service = self.create_service_with_mock_authenticate()
         exception = PyiCloudAPIResponseException("Invalid code")
         exception.code = -21669
