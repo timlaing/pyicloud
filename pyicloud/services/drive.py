@@ -12,8 +12,8 @@ from re import search
 
 from requests import Response
 
+from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import PyiCloudAPIResponseException
-from pyicloud.const import CONTENT_TYPE_TEXT, CONTENT_TYPE
 
 LOGGER = logging.getLogger(__name__)
 
