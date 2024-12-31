@@ -396,9 +396,8 @@ def _show_devices(api):
     """Show devices."""
     devices = api.trusted_devices
     for i, device in enumerate(devices):
-        print(
-            f"    {i}: {device.get("deviceName", f"SMS to {device.get("phoneNumber")}")}"
-        )
+        phone_number: str = f'SMS to {device.get("phoneNumber")}'
+        print(f'    {i}: {device.get("deviceName", phone_number)}')
 
     return devices
 
