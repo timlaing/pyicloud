@@ -1,21 +1,35 @@
 """Drive service tests."""
 
 from unittest import TestCase
+from unittest.mock import mock_open, patch
 
 import pytest
 
 from . import PyiCloudServiceMock
 from .const import AUTHENTICATED_USER, VALID_PASSWORD
+from .const_login import LOGIN_WORKING
 
 
 class DriveServiceTest(TestCase):
     """Drive service tests."""
 
-    service = None
-
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up tests."""
-        self.service = PyiCloudServiceMock(AUTHENTICATED_USER, VALID_PASSWORD)
+        self.apple_id = "test@example.com"
+        self.password = "password"
+        self.service = self.create_service_with_mock_authenticate()
+
+    @patch("builtins.open", mock_open)
+    def create_service_with_mock_authenticate(self):
+        with patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate:
+            # Mock the authenticate method during initialization
+            mock_authenticate.return_value = None
+
+            service = PyiCloudServiceMock(self.apple_id, self.password)
+            service.data = LOGIN_WORKING
+            service._webservices = service.data["webservices"]
+
+        return service
 
     def test_root(self):
         """Test the root folder."""
@@ -49,7 +63,7 @@ class DriveServiceTest(TestCase):
 
     def test_trash_recover(self):
         """Test recovering a file from the Trash."""
-        recover_result = self.service.drive.trash["test_random_uuid"].recover()
+        recover_result = self.service.drive.trash["test_random_uuid"].recover()  # type: ignore
         recover_result_items = recover_result["items"][0]
         assert recover_result_items["status"] == "OK"
         assert recover_result_items["parentId"] == "FOLDER::com.apple.CloudDocs::root"
@@ -59,7 +73,7 @@ class DriveServiceTest(TestCase):
         """Test permanently deleting a file from the Trash."""
         recover_result = self.service.drive.trash[
             "test_delete_forever_and_ever"
-        ].delete_forever()
+        ].delete_forever()  # type: ignore
         recover_result_items = recover_result["items"][0]
         assert recover_result_items["status"] == "OK"
         assert (
@@ -71,6 +85,7 @@ class DriveServiceTest(TestCase):
     def test_folder_app(self):
         """Test the /Preview folder."""
         folder = self.service.drive["Preview"]
+        assert folder
         assert folder.name == "Preview"
         assert folder.type == "app_library"
         assert folder.size is None
@@ -88,6 +103,7 @@ class DriveServiceTest(TestCase):
     def test_folder(self):
         """Test the /pyiCloud folder."""
         folder = self.service.drive["pyiCloud"]
+        assert folder
         assert folder.name == "pyiCloud"
         assert folder.type == "folder"
         assert folder.size is None
@@ -98,7 +114,8 @@ class DriveServiceTest(TestCase):
 
     def test_subfolder(self):
         """Test the /pyiCloud/Test folder."""
-        folder = self.service.drive["pyiCloud"]["Test"]
+        folder = self.service.drive["pyiCloud"]["Test"]  # type: ignore
+        assert folder
         assert folder.name == "Test"
         assert folder.type == "folder"
         assert folder.size is None
@@ -109,8 +126,10 @@ class DriveServiceTest(TestCase):
 
     def test_subfolder_file(self):
         """Test the /pyiCloud/Test/Scanned document 1.pdf file."""
-        folder = self.service.drive["pyiCloud"]["Test"]
+        folder = self.service.drive["pyiCloud"]["Test"]  # type: ignore
+        assert folder
         file_test = folder["Scanned document 1.pdf"]
+        assert file_test
         assert file_test.name == "Scanned document 1.pdf"
         assert file_test.type == "file"
         assert file_test.size == 21644358
@@ -119,8 +138,10 @@ class DriveServiceTest(TestCase):
         assert str(file_test.date_last_open) == "2020-05-03 00:24:25"
         assert file_test.dir() is None
 
+    @patch("builtins.open", mock_open)
     def test_file_open(self):
         """Test the /pyiCloud/Test/Scanned document 1.pdf file open."""
-        file_test = self.service.drive["pyiCloud"]["Test"]["Scanned document 1.pdf"]
+        file_test = self.service.drive["pyiCloud"]["Test"]["Scanned document 1.pdf"]  # type: ignore
+        assert file_test
         with file_test.open(stream=True) as response:
             assert response.raw

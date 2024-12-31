@@ -1,11 +1,11 @@
 """Calendar service."""
 
 import json
-from typing import List, Optional
 from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from random import randint
+from typing import List, Optional
 from uuid import uuid4
 
 from tzlocal import get_localzone_name

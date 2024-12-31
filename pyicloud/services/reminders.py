@@ -44,7 +44,6 @@ class RemindersService:
                 "ctag": collection["ctag"],
             }
             for reminder in data["Reminders"]:
-
                 if reminder["pGuid"] != collection["guid"]:
                     continue
 
