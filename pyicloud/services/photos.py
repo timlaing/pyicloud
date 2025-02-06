@@ -695,19 +695,24 @@ class SharedStream:
         asset_records = {}
         master_records = []
         names = set()
-        for rec in response["records"]:
-            if rec["recordType"] == "CPLAsset":
-                master_id = rec["fields"]["masterRef"]["value"]["recordName"]
-                asset_records[master_id] = rec
-            elif rec["recordType"] == "CPLMaster":
-                if rec["recordName"] not in names:
+        for rec in response.get("records", {}):
+            if rec.get("recordType", "") == "CPLAsset":
+                master_id = rec.get("fields", {}).get("masterRef",{}).get("value",{}).get("recordName", None)
+                if master_id:
+                    asset_records[master_id] = rec
+            elif rec.get("recordType", "") == "CPLMaster":
+                name = rec.get("recordName", None)
+                if name and (name not in names):
                     master_records.append(rec)
-                    names.add(rec["recordName"])
+                    names.add(name)
 
         for master_record in master_records:
-            record_name = master_record["recordName"]
-            asset_record = asset_records[record_name]
-            yield PhotoStreamAsset(self.service, master_record, asset_record)
+            record_name = master_record.get("recordName", None)
+            asset_record = asset_records.get(record_name, None)
+            if record_name and asset_record:
+                yield PhotoStreamAsset(self.service, master_record, asset_record)
+            else:
+                continue
 
     def __iter__(self):
         return self.photos
