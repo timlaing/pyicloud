@@ -281,7 +281,6 @@ class PhotosService(PhotoLibrary):
         if not self._shared_streams:
             self._shared_streams = dict()
             url = f"{self.shared_streams_url}?{urlencode(self.service.params)}"
-            # print(url)
             json_data = json.dumps({})
             request = self.service.session.post(
                 url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
@@ -696,11 +695,11 @@ class SharedStream:
         master_records = []
         names = set()
         for rec in response.get("records", {}):
-            if rec.get("recordType", "") == "CPLAsset":
+            if rec.get("recordType") == "CPLAsset":
                 master_id = rec.get("fields", {}).get("masterRef",{}).get("value",{}).get("recordName", None)
                 if master_id:
                     asset_records[master_id] = rec
-            elif rec.get("recordType", "") == "CPLMaster":
+            elif rec.get("recordType") == "CPLMaster":
                 name = rec.get("recordName", None)
                 if name and (name not in names):
                     master_records.append(rec)
