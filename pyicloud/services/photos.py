@@ -924,8 +924,8 @@ class PhotoStreamAsset(PhotoAsset):
 
     @property
     def like_count(self):
-        return self._asset_record["pluginFields"]["likeCount"]["value"]
+        return self._asset_record.get("pluginFields", {}).get("likeCount", {}).get("value", 0)
 
     @property
     def liked(self):
-        return bool(self._asset_record["pluginFields"]["likedByCaller"]["value"])
+        return bool(self._asset_record.get("pluginFields", {}).get("likedByCaller", {}).get("value", False))
