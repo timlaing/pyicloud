@@ -286,20 +286,22 @@ class PhotosService(PhotoLibrary):
                 url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
             )
             response = request.json()
-            for album in response['albums']:
-                shared_stream = SharedStream(service=self.service,
-                                             name=album["attributes"]["name"],
-                                             album_location=album["albumlocation"],
-                                             album_ctag=album["albumctag"],
-                                             album_guid=album["albumguid"],
-                                             owner_dsid=album["ownerdsid"],
-                                             creation_date=album["attributes"]["creationDate"],
-                                             sharing_type=album["sharingtype"],
-                                             allow_contributions=album["attributes"]["allowcontributions"],
-                                             is_public=album["attributes"]["ispublic"],
-                                             is_web_upload_supported=album["iswebuploadsupported"],
-                                             public_url=album.get("publicurl", None))
-                self._shared_streams[album['attributes']['name']] = shared_stream
+            for album in response["albums"]:
+                shared_stream = SharedStream(
+                    service=self.service,
+                    name=album["attributes"]["name"],
+                    album_location=album["albumlocation"],
+                    album_ctag=album["albumctag"],
+                    album_guid=album["albumguid"],
+                    owner_dsid=album["ownerdsid"],
+                    creation_date=album["attributes"]["creationDate"],
+                    sharing_type=album["sharingtype"],
+                    allow_contributions=album["attributes"]["allowcontributions"],
+                    is_public=album["attributes"]["ispublic"],
+                    is_web_upload_supported=album["iswebuploadsupported"],
+                    public_url=album.get("publicurl", None),
+                )
+                self._shared_streams[album["attributes"]["name"]] = shared_stream
         return self._shared_streams
 
     @property
@@ -606,20 +608,20 @@ class SharedStream:
     """A Shared Stream Photo Album."""
 
     def __init__(
-            self,
-            service,
-            name,
-            album_location,
-            album_ctag,
-            album_guid,
-            owner_dsid,
-            creation_date,
-            sharing_type="owned",
-            allow_contributions=False,
-            is_public=False,
-            is_web_upload_supported=False,
-            public_url=None,
-            page_size = 100,
+        self,
+        service,
+        name,
+        album_location,
+        album_ctag,
+        album_guid,
+        owner_dsid,
+        creation_date,
+        sharing_type="owned",
+        allow_contributions=False,
+        is_public=False,
+        is_web_upload_supported=False,
+        public_url=None,
+        page_size=100,
     ):
         self.name = name
         self.service = service
@@ -629,9 +631,11 @@ class SharedStream:
         self.album_guid = album_guid
         self._owner_dsid = owner_dsid
         try:
-            self.creation_date = datetime.fromtimestamp(int(creation_date) / 1000.0, timezone.utc)
+            self.creation_date = datetime.fromtimestamp(
+                int(creation_date) / 1000.0, timezone.utc
+            )
         except ValueError:
-            self.creation_date = datetime.fromtimestamp(0,timezone.utc)
+            self.creation_date = datetime.fromtimestamp(0, timezone.utc)
 
         # Read only properties
         self._sharing_type = sharing_type
@@ -668,9 +672,7 @@ class SharedStream:
         offset = 0
         while True:
             num_results = 0
-            for photo in self._get_photos_at(
-                    offset, self.page_size
-            ):
+            for photo in self._get_photos_at(offset, self.page_size):
                 num_results += 1
                 yield photo
             if num_results == 0:
@@ -679,11 +681,13 @@ class SharedStream:
 
     def _get_photos_at(self, offset, page_size=100):
         url = f"{self._album_location}webgetassets?{urlencode(self.service.params)}"
-        limit = min(offset+page_size, len(self))
-        payload = {"albumguid": self.album_guid,
-                 "albumctag": self._album_ctag,
-                 "limit": str(limit),
-                 "offset": str(offset)}
+        limit = min(offset + page_size, len(self))
+        payload = {
+            "albumguid": self.album_guid,
+            "albumctag": self._album_ctag,
+            "limit": str(limit),
+            "offset": str(offset),
+        }
         request = self.service.session.post(
             url,
             data=json.dumps(payload),
@@ -696,7 +700,12 @@ class SharedStream:
         names = set()
         for rec in response.get("records", {}):
             if rec.get("recordType") == "CPLAsset":
-                master_id = rec.get("fields", {}).get("masterRef",{}).get("value",{}).get("recordName", None)
+                master_id = (
+                    rec.get("fields", {})
+                    .get("masterRef", {})
+                    .get("value", {})
+                    .get("recordName", None)
+                )
                 if master_id:
                     asset_records[master_id] = rec
             elif rec.get("recordType") == "CPLMaster":
@@ -721,9 +730,7 @@ class SharedStream:
             url = f"{self._album_location}webgetassetcount?{urlencode(self.service.params)}"
             request = self.service.session.post(
                 url,
-                data=json.dumps(
-                    {"albumguid": self.album_guid}
-                ),
+                data=json.dumps({"albumguid": self.album_guid}),
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
@@ -822,7 +829,9 @@ class PhotoAsset:
             item_type = self._master_record["fields"]["itemType"]["value"]
         except KeyError:
             try:
-                item_type = self._master_record["fields"]["resOriginalFileType"]["value"]
+                item_type = self._master_record["fields"]["resOriginalFileType"][
+                    "value"
+                ]
             except KeyError:
                 return "image"
         if item_type in self.ITEM_TYPES:
@@ -928,8 +937,16 @@ class PhotoStreamAsset(PhotoAsset):
 
     @property
     def like_count(self):
-        return self._asset_record.get("pluginFields", {}).get("likeCount", {}).get("value", 0)
+        return (
+            self._asset_record.get("pluginFields", {})
+            .get("likeCount", {})
+            .get("value", 0)
+        )
 
     @property
     def liked(self):
-        return bool(self._asset_record.get("pluginFields", {}).get("likedByCaller", {}).get("value", False))
+        return bool(
+            self._asset_record.get("pluginFields", {})
+            .get("likedByCaller", {})
+            .get("value", False)
+        )
