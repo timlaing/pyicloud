@@ -252,7 +252,7 @@ class PhotosService(PhotoLibrary):
 
     This also acts as a way to access the user's primary library."""
 
-    def __init__(self, service_root, session, params, upload_url):
+    def __init__(self, service_root, session, params, upload_url, shared_streams_url):
         self.session = session
         self.params = dict(params)
         self._service_root = service_root
@@ -260,6 +260,9 @@ class PhotosService(PhotoLibrary):
             "%s/database/1/com.apple.photos.cloud/production/private"
             % self._service_root
         )
+        self._shared_streams_url = shared_streams_url
+        self.shared_streams_url = f"{self._shared_streams_url}/{self.params['dsid']}/sharedstreams/webgetalbumslist"
+        self._shared_streams = None
 
         self._libraries = None
 
@@ -272,6 +275,34 @@ class PhotosService(PhotoLibrary):
             upload_url=upload_url,
             zone_id={"zoneName": "PrimarySync"},
         )
+
+    @property
+    def shared_streams(self):
+        if not self._shared_streams:
+            self._shared_streams = dict()
+            url = f"{self.shared_streams_url}?{urlencode(self.service.params)}"
+            json_data = json.dumps({})
+            request = self.service.session.post(
+                url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+            )
+            response = request.json()
+            for album in response["albums"]:
+                shared_stream = SharedStream(
+                    service=self.service,
+                    name=album["attributes"]["name"],
+                    album_location=album["albumlocation"],
+                    album_ctag=album["albumctag"],
+                    album_guid=album["albumguid"],
+                    owner_dsid=album["ownerdsid"],
+                    creation_date=album["attributes"]["creationDate"],
+                    sharing_type=album["sharingtype"],
+                    allow_contributions=album["attributes"]["allowcontributions"],
+                    is_public=album["attributes"]["ispublic"],
+                    is_web_upload_supported=album["iswebuploadsupported"],
+                    public_url=album.get("publicurl", None),
+                )
+                self._shared_streams[album["attributes"]["name"]] = shared_stream
+        return self._shared_streams
 
     @property
     def libraries(self):
@@ -573,6 +604,148 @@ class PhotoAlbum:
         return f"<{type(self).__name__}: '{self}'>"
 
 
+class SharedStream:
+    """A Shared Stream Photo Album."""
+
+    def __init__(
+        self,
+        service,
+        name,
+        album_location,
+        album_ctag,
+        album_guid,
+        owner_dsid,
+        creation_date,
+        sharing_type="owned",
+        allow_contributions=False,
+        is_public=False,
+        is_web_upload_supported=False,
+        public_url=None,
+        page_size=100,
+    ):
+        self.name = name
+        self.service = service
+        self.page_size = page_size
+        self._album_location = album_location
+        self._album_ctag = album_ctag
+        self.album_guid = album_guid
+        self._owner_dsid = owner_dsid
+        try:
+            self.creation_date = datetime.fromtimestamp(
+                int(creation_date) / 1000.0, timezone.utc
+            )
+        except ValueError:
+            self.creation_date = datetime.fromtimestamp(0, timezone.utc)
+
+        # Read only properties
+        self._sharing_type = sharing_type
+        self._allow_contributions = allow_contributions
+        self._is_public = is_public
+        self._is_web_upload_supported = is_web_upload_supported
+        self._public_url = public_url
+        self._photos = None
+
+        self._len = None
+
+    @property
+    def sharing_type(self):
+        return self._sharing_type
+
+    @property
+    def allow_contributions(self):
+        return self._allow_contributions
+
+    @property
+    def is_public(self):
+        return self._is_public
+
+    @property
+    def is_web_upload_supported(self):
+        return self._is_web_upload_supported
+
+    @property
+    def public_url(self):
+        return self._public_url
+
+    @property
+    def photos(self):
+        offset = 0
+        while True:
+            num_results = 0
+            for photo in self._get_photos_at(offset, self.page_size):
+                num_results += 1
+                yield photo
+            if num_results == 0:
+                break
+            offset = offset + num_results
+
+    def _get_photos_at(self, offset, page_size=100):
+        url = f"{self._album_location}webgetassets?{urlencode(self.service.params)}"
+        limit = min(offset + page_size, len(self))
+        payload = {
+            "albumguid": self.album_guid,
+            "albumctag": self._album_ctag,
+            "limit": str(limit),
+            "offset": str(offset),
+        }
+        request = self.service.session.post(
+            url,
+            data=json.dumps(payload),
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+        )
+        response = request.json()
+
+        asset_records = {}
+        master_records = []
+        names = set()
+        for rec in response.get("records", {}):
+            if rec.get("recordType") == "CPLAsset":
+                master_id = (
+                    rec.get("fields", {})
+                    .get("masterRef", {})
+                    .get("value", {})
+                    .get("recordName", None)
+                )
+                if master_id:
+                    asset_records[master_id] = rec
+            elif rec.get("recordType") == "CPLMaster":
+                name = rec.get("recordName", None)
+                if name and (name not in names):
+                    master_records.append(rec)
+                    names.add(name)
+
+        for master_record in master_records:
+            record_name = master_record.get("recordName", None)
+            asset_record = asset_records.get(record_name, None)
+            if record_name and asset_record:
+                yield PhotoStreamAsset(self.service, master_record, asset_record)
+            else:
+                continue
+
+    def __iter__(self):
+        return self.photos
+
+    def __len__(self):
+        if self._len is None:
+            url = f"{self._album_location}webgetassetcount?{urlencode(self.service.params)}"
+            request = self.service.session.post(
+                url,
+                data=json.dumps({"albumguid": self.album_guid}),
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+            )
+            response = request.json()
+
+            self._len = response["albumassetcount"]
+
+        return self._len
+
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return f"<{type(self).__name__}: '{self}'>"
+
+
 class PhotoAsset:
     """A photo."""
 
@@ -652,7 +825,15 @@ class PhotoAsset:
 
     @property
     def item_type(self):
-        item_type = self._master_record["fields"]["itemType"]["value"]
+        try:
+            item_type = self._master_record["fields"]["itemType"]["value"]
+        except KeyError:
+            try:
+                item_type = self._master_record["fields"]["resOriginalFileType"][
+                    "value"
+                ]
+            except KeyError:
+                return "image"
         if item_type in self.ITEM_TYPES:
             return self.ITEM_TYPES[item_type]
         if self.filename.lower().endswith((".heic", ".png", ".jpg", ".jpeg")):
@@ -746,3 +927,26 @@ class PhotoAsset:
 
     def __repr__(self):
         return f"<{type(self).__name__}: id={self.id}>"
+
+
+class PhotoStreamAsset(PhotoAsset):
+    """A Shared Stream Photo Asset"""
+
+    def __init__(self, service, master_record, asset_record):
+        super().__init__(service, master_record, asset_record)
+
+    @property
+    def like_count(self):
+        return (
+            self._asset_record.get("pluginFields", {})
+            .get("likeCount", {})
+            .get("value", 0)
+        )
+
+    @property
+    def liked(self):
+        return bool(
+            self._asset_record.get("pluginFields", {})
+            .get("likedByCaller", {})
+            .get("value", False)
+        )
