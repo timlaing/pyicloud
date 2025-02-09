@@ -698,10 +698,11 @@ class PyiCloudService(object):
         if not self._photos:
             service_root = self._get_webservice_url("ckdatabasews")
             upload_url = self._get_webservice_url("uploadimagews")
+            shared_streams_url = self._get_webservice_url("sharedstreams")
             self.params["dsid"] = self.data["dsInfo"]["dsid"]
 
             self._photos = PhotosService(
-                service_root, self.session, self.params, upload_url
+                service_root, self.session, self.params, upload_url, shared_streams_url
             )
         return self._photos
 
