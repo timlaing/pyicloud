@@ -467,7 +467,7 @@ class PyiCloudService(object):
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg, error) from error
-        
+
     def _authenticate_with_token(self):
         """Authenticate using session token."""
         data = {
