@@ -329,7 +329,7 @@ class DriveNode:
                 node_name = "<UNKNOWN>"
 
         if "extension" in self.data:
-            return f'{node_name}.{self.data["extension"]}'
+            return f"{node_name}.{self.data['extension']}"
         return node_name
 
     @property

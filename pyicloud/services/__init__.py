@@ -9,3 +9,15 @@ from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.services.photos import PhotosService
 from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
+
+__all__ = [
+    "AccountService",
+    "CalendarService",
+    "ContactsService",
+    "DriveService",
+    "FindMyiPhoneServiceManager",
+    "HideMyEmailService",
+    "PhotosService",
+    "RemindersService",
+    "UbiquityService",
+]

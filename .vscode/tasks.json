@@ -17,7 +17,7 @@
     {
       "label": "Reformat code",
       "type": "shell",
-      "command": "isort . &&  black .",
+      "command": "isort . &&  ruff format",
       "problemMatcher": [],
       "dependsOn": "Install requirements"
     }

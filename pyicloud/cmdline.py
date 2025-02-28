@@ -3,6 +3,7 @@
 A Command Line Wrapper to allow easy use of pyicloud for
 command line scripts, and related.
 """
+
 import argparse
 import pickle
 import sys
@@ -396,8 +397,8 @@ def _show_devices(api):
     """Show devices."""
     devices = api.trusted_devices
     for i, device in enumerate(devices):
-        phone_number: str = f'SMS to {device.get("phoneNumber")}'
-        print(f'    {i}: {device.get("deviceName", phone_number)}')
+        phone_number: str = f"SMS to {device.get('phoneNumber')}"
+        print(f"    {i}: {device.get('deviceName', phone_number)}")
 
     return devices
 
