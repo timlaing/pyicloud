@@ -13,7 +13,6 @@ from .const import (
     REQUIRES_2FA_USER,
     VALID_2FA_CODE,
     VALID_COOKIE,
-    VALID_PASSWORD,
     VALID_TOKEN,
     VALID_TOKENS,
     VALID_USERS,

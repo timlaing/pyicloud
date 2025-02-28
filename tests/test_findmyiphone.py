@@ -4,7 +4,6 @@ from unittest import TestCase
 from unittest.mock import mock_open, patch
 
 from . import PyiCloudServiceMock
-from .const import AUTHENTICATED_USER, VALID_PASSWORD
 from .const_login import LOGIN_WORKING
 
 

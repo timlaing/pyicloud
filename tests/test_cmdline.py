@@ -2,8 +2,6 @@
 
 import argparse
 import pickle
-import re
-import unittest
 from io import BytesIO
 from typing import Callable
 from unittest import TestCase
@@ -155,9 +153,7 @@ class TestCmdline(TestCase):
             )
 
     @patch("keyring.get_password", return_value=None)
-    def test_device_outputfile(
-        self, mock_get_password
-    ):  # pylint: disable=unused-argument
+    def test_device_outputfile(self, mock_get_password):  # pylint: disable=unused-argument
         """Test the outputfile command."""
 
         with patch("builtins.open", mock_file_open):

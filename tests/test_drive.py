@@ -6,7 +6,6 @@ from unittest.mock import mock_open, patch
 import pytest
 
 from . import PyiCloudServiceMock
-from .const import AUTHENTICATED_USER, VALID_PASSWORD
 from .const_login import LOGIN_WORKING
 
 
