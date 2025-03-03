@@ -1,19 +1,19 @@
 """Contacts service."""
 
+from .base import BaseService
 
-class ContactsService:
+
+class ContactsService(BaseService):
     """
     The 'Contacts' iCloud service, connects to iCloud and returns contacts.
     """
 
-    def __init__(self, service_root, session, params):
-        self.session = session
-        self.params = params
-        self._service_root = service_root
-        self._contacts_endpoint = "%s/co" % self._service_root
-        self._contacts_refresh_url = "%s/startup" % self._contacts_endpoint
-        self._contacts_next_url = "%s/contacts" % self._contacts_endpoint
-        self._contacts_changeset_url = "%s/changeset" % self._contacts_endpoint
+    def __init__(self, service_root, session, params) -> None:
+        super().__init__(service_root, session, params)
+        self._contacts_endpoint: str = f"{self.service_root}/co"
+        self._contacts_refresh_url: str = f"{self._contacts_endpoint}/startup"
+        self._contacts_next_url: str = f"{self._contacts_endpoint}/contacts"
+        self._contacts_changeset_url: str = f"{self._contacts_endpoint}/changeset"
 
         self.response = {}
 

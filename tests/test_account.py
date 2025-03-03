@@ -4,6 +4,8 @@ import sys
 from unittest import TestCase, skipIf
 from unittest.mock import mock_open, patch
 
+from pyicloud.services.account import AccountService
+
 from . import PyiCloudServiceMock
 from .const_login import LOGIN_WORKING
 
@@ -15,10 +17,10 @@ class AccountServiceTest(TestCase):
         """Set up tests."""
         self.apple_id = "test@example.com"
         self.password = "password"
-        self.service = self.create_service_with_mock_authenticate()
+        self.service: AccountService = self.create_service_with_mock_authenticate()
 
     @patch("builtins.open", new_callable=mock_open)
-    def create_service_with_mock_authenticate(self, mock_open):
+    def create_service_with_mock_authenticate(self, mock_open) -> AccountService:
         with patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate:
             # Mock the authenticate method during initialization
             mock_authenticate.return_value = None
@@ -29,13 +31,13 @@ class AccountServiceTest(TestCase):
 
         return service.account
 
-    def test_repr(self):
+    def test_repr(self) -> None:
         """Tests representation."""
         # fmt: off
         assert repr(self.service) == "<AccountService: {devices: 2, family: 3, storage: 3020076244 bytes free}>"
         # fmt: on
 
-    def test_devices(self):
+    def test_devices(self) -> None:
         """Tests devices."""
         assert self.service.devices
         assert len(self.service.devices) == 2
@@ -59,7 +61,7 @@ class AccountServiceTest(TestCase):
             assert repr(device) == "<AccountDevice: {model: "+device.model_display_name+", name: "+device.name+"}>"
             # fmt: on
 
-    def test_family(self):
+    def test_family(self) -> None:
         """Tests family members."""
         assert self.service.family
         assert len(self.service.family) == 3
@@ -85,14 +87,14 @@ class AccountServiceTest(TestCase):
         sys.version_info >= (3, 12),
         "OrderedDict repr format changes at python3.12 and higher",
     )
-    def test_storage(self):
+    def test_storage(self) -> None:
         """Tests storage."""
         assert self.service.storage
         # fmt: off
         assert repr(self.service.storage) == "<AccountStorage: {usage: 43.75% used of 5368709120 bytes, usages_by_media: OrderedDict([('photos', <AccountStorageUsageForMedia: {key: photos, usage: 0 bytes}>), ('backup', <AccountStorageUsageForMedia: {key: backup, usage: 799008186 bytes}>), ('docs', <AccountStorageUsageForMedia: {key: docs, usage: 449092146 bytes}>), ('mail', <AccountStorageUsageForMedia: {key: mail, usage: 1101522944 bytes}>)])}>"
         # fmt: on
 
-    def test_storage_usage(self):
+    def test_storage_usage(self) -> None:
         """Tests storage usage."""
         assert self.service.storage.usage
         usage = self.service.storage.usage
@@ -111,7 +113,7 @@ class AccountServiceTest(TestCase):
         assert repr(usage) == "<AccountStorageUsage: "+str(usage.used_storage_in_percent)+"% used of "+str(usage.total_storage_in_bytes)+" bytes>"
         # fmt: on
 
-    def test_storage_usages_by_media(self):
+    def test_storage_usages_by_media(self) -> None:
         """Tests storage usages by media."""
         assert self.service.storage.usages_by_media
 

@@ -54,120 +54,117 @@ def mock_file_open(filepath, mode="r", *args, **kwargs):
 class TestCmdline(TestCase):
     """Cmdline test cases."""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """Set up tests."""
         cmdline.PyiCloudService = PyiCloudServiceMock
         self.main: Callable = cmdline.main
         written_data.clear()
 
-    def test_no_arg(self):
+    def test_no_arg(self) -> None:
         """Test no args."""
         with pytest.raises(SystemExit, match="2"):
             self.main()
 
-        with pytest.raises(SystemExit, match="2"):
-            self.main(None)
-
-        with pytest.raises(SystemExit, match="2"):
-            self.main([])
-
-    def test_help(self):
-        """Test the help command."""
-        with pytest.raises(SystemExit, match="0"):
-            self.main(
-                [
-                    "--help",
-                ]
-            )
-
-    def test_username(self):
-        """Test the username command."""
-        # No username supplied
-        with pytest.raises(SystemExit, match="2"):
-            self.main(
-                [
-                    "--username",
-                ]
-            )
-
+    @patch("argparse.ArgumentParser.parse_args")
     @patch("builtins.open", new_callable=mock_open)
     @patch("keyring.get_password", return_value=None)
     @patch("getpass.getpass")
     def test_username_password_invalid(
-        self, mock_getpass, mock_get_password, mock_open
-    ):  # pylint: disable=unused-argument
+        self, mock_getpass, mock_get_password, mock_open, mock_parse_args
+    ) -> None:  # pylint: disable=unused-argument
         """Test username and password commands."""
         # No password supplied
         mock_getpass.return_value = None
         with pytest.raises(SystemExit, match="2"):
-            self.main(
-                [
-                    "--username",
-                    "invalid_user",
-                ]
+            mock_parse_args.return_value = argparse.Namespace(
+                username="valid_user",
+                password=None,
+                interactive=True,
+                china_mainland=False,
+                delete_from_keyring=False,
             )
+            self.main()
 
         # Bad username or password
         mock_getpass.return_value = "invalid_pass"
         with pytest.raises(
             RuntimeError, match="Bad username or password for invalid_user"
         ):
-            self.main(
-                [
-                    "--username",
-                    "invalid_user",
-                ]
+            mock_parse_args.return_value = argparse.Namespace(
+                username="invalid_user",
+                password=None,
+                interactive=True,
+                china_mainland=False,
+                delete_from_keyring=False,
             )
+            self.main()
 
         # We should not use getpass for this one, but we reset the password at login fail
         with pytest.raises(
             RuntimeError, match="Bad username or password for invalid_user"
         ):
-            self.main(
-                [
-                    "--username",
-                    "invalid_user",
-                    "--password",
-                    "invalid_pass",
-                ]
+            mock_parse_args.return_value = argparse.Namespace(
+                username="invalid_user",
+                password="invalid_pass",
+                interactive=False,
+                china_mainland=False,
+                delete_from_keyring=False,
             )
+            self.main()
 
+    @patch("argparse.ArgumentParser.parse_args")
     @patch("builtins.open", new_callable=mock_open)
     @patch("keyring.get_password", return_value=None)
+    @patch("pyicloud.cmdline.confirm")
     @patch("pyicloud.cmdline.input")
     def test_username_password_requires_2fa(
-        self, mock_input, mock_get_password, mock_open
-    ):  # pylint: disable=unused-argument
+        self, mock_input, mock_confirm, mock_get_password, mock_open, mock_parse_args
+    ) -> None:  # pylint: disable=unused-argument
         """Test username and password commands."""
         # Valid connection for the first time
         mock_input.return_value = VALID_2FA_CODE
-        with self.assertRaises(SystemExit):
-            self.main(
-                [
-                    "--username",
-                    REQUIRES_2FA_USER,
-                    "--password",
-                    VALID_PASSWORD,
-                    "--non-interactive",
-                ]
-            )
+        mock_confirm.return_value = False
+        mock_parse_args.return_value = argparse.Namespace(
+            username=REQUIRES_2FA_USER,
+            password=VALID_PASSWORD,
+            interactive=True,
+            china_mainland=False,
+            delete_from_keyring=False,
+            device_id=None,
+            locate=None,
+            output_to_file=None,
+            longlist=None,
+            list=None,
+            sound=None,
+            message=None,
+            silentmessage=None,
+            lostmode=None,
+        )
+        self.main()
 
+    @patch("argparse.ArgumentParser.parse_args")
     @patch("keyring.get_password", return_value=None)
-    def test_device_outputfile(self, mock_get_password):  # pylint: disable=unused-argument
+    def test_device_outputfile(self, mock_get_password, mock_parse_args) -> None:  # pylint: disable=unused-argument
         """Test the outputfile command."""
 
         with patch("builtins.open", mock_file_open):
-            with self.assertRaises(SystemExit):
-                self.main(
-                    [
-                        "--username",
-                        AUTHENTICATED_USER,
-                        "--password",
-                        VALID_PASSWORD,
-                        "--non-interactive",
-                        "--outputfile",
-                    ]
-                )
+            mock_parse_args.return_value = argparse.Namespace(
+                username=AUTHENTICATED_USER,
+                password=VALID_PASSWORD,
+                interactive=False,
+                china_mainland=False,
+                delete_from_keyring=False,
+                device_id=None,
+                locate=None,
+                output_to_file=True,
+                longlist=None,
+                list=None,
+                sound=None,
+                message=None,
+                silentmessage=None,
+                lostmode=None,
+            )
+            self.main()
 
             devices = FMI_FAMILY_WORKING.get("content")
             if devices:

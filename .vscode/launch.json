@@ -5,6 +5,19 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: PyiCloud List",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pyicloud.cmdline",
+            "args": [
+                "--username",
+                "${input:username}",
+                "--password",
+                "${input:password}",
+                "--list",
+            ]
+        },
+        {
             "name": "Python: Debug Tests",
             "type": "debugpy",
             "request": "launch",
@@ -22,6 +35,19 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false
+        }
+    ],
+    "inputs": [
+        {
+            "id": "username",
+            "type": "promptString",
+            "description": "Enter your iCloud username",
+        },
+        {
+            "id": "password",
+            "type": "promptString",
+            "description": "Enter your password",
+            "password": true
         }
     ]
 }

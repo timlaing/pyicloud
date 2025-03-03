@@ -1,35 +1,39 @@
 """Account service."""
 
 from collections import OrderedDict
+from typing import Any, Optional
 
+from requests import Response
+
+from pyicloud.services.base import BaseService
 from pyicloud.utils import underscore_to_camelcase
 
 
-class AccountService:
+class AccountService(BaseService):
     """The 'Account' iCloud service."""
 
-    def __init__(self, service_root, session, params):
-        self.session = session
-        self.params = params
-        self._service_root = service_root
+    def __init__(self, service_root, session, params) -> None:
+        super().__init__(service_root, session, params)
 
-        self._devices = []
-        self._family = []
-        self._storage = None
+        self._devices: list = []
+        self._family: list = []
+        self._storage: Optional[AccountStorage] = None
 
-        self._acc_endpoint = "%s/setup/web" % self._service_root
-        self._acc_devices_url = "%s/device/getDevices" % self._acc_endpoint
-        self._acc_family_details_url = "%s/family/getFamilyDetails" % self._acc_endpoint
-        self._acc_family_member_photo_url = (
-            "%s/family/getMemberPhoto" % self._acc_endpoint
+        self._acc_endpoint: str = f"{self.service_root}/setup/web"
+        self._acc_devices_url: str = f"{self._acc_endpoint}/device/getDevices"
+        self._acc_family_details_url: str = (
+            f"{self._acc_endpoint}/family/getFamilyDetails"
+        )
+        self._acc_family_member_photo_url: str = (
+            f"{self._acc_endpoint}/family/getMemberPhoto"
         )
         self._acc_storage_url = "https://setup.icloud.com/setup/ws/1/storageUsageInfo"
 
     @property
-    def devices(self):
+    def devices(self) -> list["AccountDevice"]:
         """Returns current paired devices."""
         if not self._devices:
-            req = self.session.get(self._acc_devices_url, params=self.params)
+            req: Response = self.session.get(self._acc_devices_url, params=self.params)
             response = req.json()
 
             for device_info in response["devices"]:
@@ -38,10 +42,12 @@ class AccountService:
         return self._devices
 
     @property
-    def family(self):
+    def family(self) -> list["FamilyMember"]:
         """Returns family members."""
         if not self._family:
-            req = self.session.get(self._acc_family_details_url, params=self.params)
+            req: Response = self.session.get(
+                self._acc_family_details_url, params=self.params
+            )
             response = req.json()
 
             for member_info in response["familyMembers"]:
@@ -57,24 +63,24 @@ class AccountService:
         return self._family
 
     @property
-    def storage(self):
+    def storage(self) -> "AccountStorage":
         """Returns storage infos."""
         if not self._storage:
-            req = self.session.get(self._acc_storage_url, params=self.params)
+            req: Response = self.session.get(self._acc_storage_url, params=self.params)
             response = req.json()
 
             self._storage = AccountStorage(response)
 
         return self._storage
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "{{devices: {}, family: {}, storage: {} bytes free}}".format(
             len(self.devices),
             len(self.family),
             self.storage.usage.available_storage_in_bytes,
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: {self}>"
 
 
@@ -84,21 +90,27 @@ class AccountDevice(dict):
     def __getattr__(self, key):
         return self[underscore_to_camelcase(key)]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{{model: {self.model_display_name}, name: {self.name}}}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: {self}>"
 
 
 class FamilyMember:
     """A family member."""
 
-    def __init__(self, member_info, session, params, acc_family_member_photo_url):
-        self._attrs = member_info
+    def __init__(
+        self,
+        member_info: dict[str, Any],
+        session,
+        params: dict[str, Any],
+        acc_family_member_photo_url: str,
+    ) -> None:
+        self._attrs: dict[str, Any] = member_info
         self._session = session
-        self._params = params
-        self._acc_family_member_photo_url = acc_family_member_photo_url
+        self._params: dict[str, Any] = params
+        self._acc_family_member_photo_url: str = acc_family_member_photo_url
 
     @property
     def last_name(self):
@@ -193,21 +205,21 @@ class FamilyMember:
             return self._attrs[key]
         return getattr(self, key)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "{{name: {}, age_classification: {}}}".format(
             self.full_name,
             self.age_classification,
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: {self}>"
 
 
 class AccountStorageUsageForMedia:
     """Storage used for a specific media type into the account."""
 
-    def __init__(self, usage_data):
-        self.usage_data = usage_data
+    def __init__(self, usage_data) -> None:
+        self.usage_data: dict[str, Any] = usage_data
 
     @property
     def key(self):
@@ -229,19 +241,19 @@ class AccountStorageUsageForMedia:
         """Gets the usage in bytes."""
         return self.usage_data["usageInBytes"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{{key: {self.key}, usage: {self.usage_in_bytes} bytes}}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: {self}>"
 
 
 class AccountStorageUsage:
     """Storage used for a specific media type into the account."""
 
-    def __init__(self, usage_data, quota_data):
-        self.usage_data = usage_data
-        self.quota_data = quota_data
+    def __init__(self, usage_data, quota_data) -> None:
+        self.usage_data: dict[str, Any] = usage_data
+        self.quota_data: dict[str, Any] = quota_data
 
     @property
     def comp_storage_in_bytes(self):
@@ -300,20 +312,20 @@ class AccountStorageUsage:
         """Gets the paid quota."""
         return self.quota_data["paidQuota"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "{}% used of {} bytes".format(
             self.used_storage_in_percent,
             self.total_storage_in_bytes,
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: {self}>"
 
 
 class AccountStorage:
     """Storage of the account."""
 
-    def __init__(self, storage_data):
+    def __init__(self, storage_data) -> None:
         self.usage = AccountStorageUsage(
             storage_data.get("storageUsageInfo"), storage_data.get("quotaStatus")
         )
@@ -324,8 +336,8 @@ class AccountStorage:
                 usage_media
             )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{{usage: {self.usage}, usages_by_media: {self.usages_by_media}}}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: {self}>"

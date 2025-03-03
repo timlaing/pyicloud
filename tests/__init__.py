@@ -2,6 +2,7 @@
 
 import json
 from io import BytesIO
+from typing import Any
 
 from requests import Response
 
@@ -44,7 +45,7 @@ from .const_login import (
 class ResponseMock(Response):
     """Mocked Response."""
 
-    def __init__(self, result, status_code=200, **kwargs):
+    def __init__(self, result, status_code=200, **kwargs) -> None:
         """Set up response mock."""
         Response.__init__(self)
         self.result = result
@@ -53,7 +54,7 @@ class ResponseMock(Response):
         self.headers = kwargs.get("headers", {})
 
     @property
-    def text(self):
+    def text(self) -> str:
         """Return text."""
         return json.dumps(self.result)
 
@@ -61,14 +62,16 @@ class ResponseMock(Response):
 class PyiCloudSessionMock(base.PyiCloudSession):
     """Mocked PyiCloudSession."""
 
-    def request(self, method, url, **kwargs):
+    def _request(self, method, url, **kwargs) -> ResponseMock:
         """Make the request."""
         params = kwargs.get("params")
         headers = kwargs.get("headers")
-        data = json.loads(kwargs.get("data", "{}"))
+        data: Any = {}
+        if kwargs.get("data"):
+            data = json.loads(kwargs.get("data", "{}"))
 
         # Login
-        if self.service.SETUP_ENDPOINT in url:
+        if self._service.SETUP_ENDPOINT in url:
             if "accountLogin" in url and method == "POST":
                 if data.get("dsWebAuthToken") not in VALID_TOKENS:
                     self._raise_error(None, "Unknown reason")
@@ -85,9 +88,14 @@ class PyiCloudSessionMock(base.PyiCloudSession):
                 return ResponseMock(VERIFICATION_CODE_KO)
 
             if "validateVerificationCode" in url and method == "POST":
-                TRUSTED_DEVICE_1.update({"verificationCode": "0", "trustBrowser": True})  # type: ignore
+                TRUSTED_DEVICE_1.update(
+                    {
+                        "verificationCode": "0",
+                        "trustBrowser": True,
+                    }
+                )
                 if data == TRUSTED_DEVICE_1:
-                    self.service.user["apple_id"] = AUTHENTICATED_USER
+                    self._service._apple_id = AUTHENTICATED_USER
                     return ResponseMock(VERIFICATION_CODE_OK)
                 self._raise_error(None, "FOUND_CODE")
 
@@ -96,22 +104,22 @@ class PyiCloudSessionMock(base.PyiCloudSession):
                     return ResponseMock(LOGIN_WORKING)
                 self._raise_error(None, "Session expired")
 
-        if self.service.AUTH_ENDPOINT in url:
+        if self._service.AUTH_ENDPOINT in url:
             if "signin" in url and method == "POST":
                 if data.get("accountName") not in VALID_USERS:
                     self._raise_error(None, "Unknown reason")
                 if data.get("accountName") == REQUIRES_2FA_USER:
-                    self.service.session_data["session_token"] = REQUIRES_2FA_TOKEN
+                    self._service.session_data["session_token"] = REQUIRES_2FA_TOKEN
                     return ResponseMock(AUTH_OK)
 
-                self.service.session_data["session_token"] = VALID_TOKEN
+                self._service.session_data["session_token"] = VALID_TOKEN
                 return ResponseMock(AUTH_OK)
 
             if "securitycode" in url and method == "POST":
                 if data.get("securityCode", {}).get("code") != VALID_2FA_CODE:
                     self._raise_error(None, "Incorrect code")
 
-                self.service.session_data["session_token"] = VALID_TOKEN
+                self._service.session_data["session_token"] = VALID_TOKEN
                 return ResponseMock("", status_code=204)
 
             if "trust" in url and method == "GET":
@@ -180,7 +188,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if "fmi" in url and method == "POST":
             return ResponseMock(FMI_FAMILY_WORKING)
 
-        return None
+        raise Exception("No valid response")
 
 
 class PyiCloudServiceMock(base.PyiCloudService):

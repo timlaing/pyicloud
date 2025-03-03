@@ -5,10 +5,13 @@ from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from random import randint
-from typing import List, Optional, cast
+from typing import Any, List, Optional, cast
 from uuid import uuid4
 
+from requests import Response
 from tzlocal import get_localzone_name
+
+from .base import BaseService
 
 
 @dataclass
@@ -17,8 +20,8 @@ class EventObject:
     title: str = "New Event"
     start_date: datetime = datetime.today()
     end_date: datetime = datetime.today() + timedelta(minutes=60)
-    local_start_date = None
-    local_end_date = None
+    local_start_date: Optional[datetime] = None
+    local_end_date: Optional[datetime] = None
     duration: int = field(init=False)
     icon: int = 0
     change_recurring: Optional[str] = None
@@ -50,7 +53,7 @@ class EventObject:
 
     @property
     def request_data(self) -> dict:
-        event_dict = asdict(self)
+        event_dict: dict[str, Any] = asdict(self)
         event_dict["startDate"] = self.dt_to_list(self.start_date)
         event_dict["endDate"] = self.dt_to_list(self.end_date, False)
         if self.local_start_date:
@@ -58,7 +61,7 @@ class EventObject:
         if self.local_end_date:
             event_dict["localEndDate"] = self.dt_to_list(self.local_end_date, False)
 
-        data = {
+        data: dict[str, Any] = {
             "Event": event_dict,
             "ClientState": {
                 "Collection": [{"guid": self.guid, "ctag": None}],
@@ -91,7 +94,7 @@ class EventObject:
         by Apple's calendar.
         """
         if start:
-            minutes = dt.hour * 60 + dt.minute
+            minutes: int = dt.hour * 60 + dt.minute
         else:
             minutes = (24 - dt.hour) * 60 + (60 - dt.minute)
 
@@ -132,22 +135,22 @@ class CalendarObject:
     extended_details_are_included: bool = True
     read_only: bool = False
     enabled: bool = True
-    ignore_event_updates = None
-    email_notification = None
-    last_modified_date = None
-    me_as_participant = None
-    pre_published_url = None
-    participants = None
-    defer_loading = None
-    published_url = None
-    remove_alarms = None
-    ignore_alarms = None
-    description = None
-    remove_todos = None
-    is_default = None
-    is_family = None
-    etag = None
-    ctag = None
+    ignore_event_updates: Optional[str] = None
+    email_notification: Optional[str] = None
+    last_modified_date: Optional[str] = None
+    me_as_participant: Optional[str] = None
+    pre_published_url: Optional[str] = None
+    participants: Optional[str] = None
+    defer_loading: Optional[str] = None
+    published_url: Optional[str] = None
+    remove_alarms: Optional[str] = None
+    ignore_alarms: Optional[str] = None
+    description: Optional[str] = None
+    remove_todos: Optional[str] = None
+    is_default: Optional[bool] = None
+    is_family: Optional[bool] = None
+    etag: Optional[str] = None
+    ctag: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not self.guid:
@@ -163,8 +166,8 @@ class CalendarObject:
         return "#%02x%02x%02x" % tuple([randint(0, 255) for _ in range(3)])
 
     @property
-    def request_data(self) -> dict:
-        data = {
+    def request_data(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
             "Collection": asdict(self),
             "ClientState": {
                 "Collection": [],
@@ -176,26 +179,24 @@ class CalendarObject:
         return data
 
 
-class CalendarService:
+class CalendarService(BaseService):
     """
     The 'Calendar' iCloud service, connects to iCloud and returns events.
     """
 
-    def __init__(self, service_root, session, params):
-        self.session = session
-        self.params = params
-        self._service_root = service_root
-        self._calendar_endpoint = "%s/ca" % self._service_root
-        self._calendar_refresh_url = "%s/events" % self._calendar_endpoint
-        self._calendar_event_detail_url = f"{self._calendar_endpoint}/eventdetail"
-        self._calendar_collections_url = f"{self._calendar_endpoint}/collections"
-        self._calendars_url = "%s/startup" % self._calendar_endpoint
+    def __init__(self, service_root: str, session, params) -> None:
+        super().__init__(service_root, session, params)
+        self._calendar_endpoint: str = f"{self.service_root}/ca"
+        self._calendar_refresh_url: str = f"{self._calendar_endpoint}/events"
+        self._calendar_event_detail_url: str = f"{self._calendar_endpoint}/eventdetail"
+        self._calendar_collections_url: str = f"{self._calendar_endpoint}/collections"
+        self._calendars_url: str = f"{self._calendar_endpoint}/startup"
 
         self.response = {}
 
     @property
     def default_params(self) -> dict:
-        today = datetime.today()
+        today: datetime = datetime.today()
         first_day, last_day = monthrange(today.year, today.month)
         from_dt = datetime(today.year, today.month, first_day)
         to_dt = datetime(today.year, today.month, last_day)
@@ -223,13 +224,13 @@ class CalendarService:
                 return cal.get("ctag")
         raise ValueError("ctag not found.")
 
-    def refresh_client(self, from_dt=None, to_dt=None):
+    def refresh_client(self, from_dt=None, to_dt=None) -> None:
         """
         Refreshes the CalendarService endpoint, ensuring that the
         event data is up-to-date. If no 'from_dt' or 'to_dt' datetimes
         have been given, the range becomes this month.
         """
-        today = datetime.today()
+        today: datetime = datetime.today()
         first_day, last_day = monthrange(today.year, today.month)
         if not from_dt:
             from_dt = datetime(today.year, today.month, first_day)
@@ -245,7 +246,7 @@ class CalendarService:
                 "dsid": self.session.service.data["dsInfo"]["dsid"],
             }
         )
-        req = self.session.get(self._calendar_refresh_url, params=params)
+        req: Response = self.session.get(self._calendar_refresh_url, params=params)
         self.response = req.json()
 
     def get_calendars(self, as_objs: bool = False) -> list:
@@ -253,7 +254,7 @@ class CalendarService:
         Retrieves calendars of this month.
         """
         params = self.default_params
-        req = self.session.get(self._calendars_url, params=params)
+        req: Response = self.session.get(self._calendars_url, params=params)
         self.response = req.json()
         calendars = self.response["Collection"]
 
@@ -270,7 +271,7 @@ class CalendarService:
         data = calendar.request_data
         params = self.default_params
 
-        req = self.session.post(
+        req: Response = self.session.post(
             self._calendar_collections_url + f"/{calendar.guid}",
             params=params,
             data=json.dumps(data),
@@ -284,7 +285,7 @@ class CalendarService:
         params = self.default_params
         params["methodOverride"] = "DELETE"
 
-        req = self.session.post(
+        req: Response = self.session.post(
             self._calendar_collections_url + f"/{cal_guid}",
             params=params,
             data=json.dumps({}),
@@ -301,7 +302,7 @@ class CalendarService:
         """
         Retrieves events for a given date range, by default, this month.
         """
-        today = datetime.today()
+        today: datetime = datetime.today()
         if period != "month" and from_dt:
             today = datetime(from_dt.year, from_dt.month, from_dt.day)
 
@@ -338,8 +339,8 @@ class CalendarService:
                 "dsid": self.session.service.data["dsInfo"]["dsid"],
             }
         )
-        url = f"{self._calendar_event_detail_url}/{pguid}/{guid}"
-        req = self.session.get(url, params=params)
+        url: str = f"{self._calendar_event_detail_url}/{pguid}/{guid}"
+        req: Response = self.session.get(url, params=params)
         self.response = req.json()
         event = self.response["Event"][0]
 
@@ -359,7 +360,7 @@ class CalendarService:
         data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.guid)
         params = self.default_params
 
-        req = self.session.post(
+        req: Response = self.session.post(
             self._calendar_refresh_url + f"/{event.pguid}/{event.guid}",
             params=params,
             data=json.dumps(data),
@@ -382,7 +383,7 @@ class CalendarService:
             ).get("etag")
         params["ifMatch"] = event.etag
 
-        req = self.session.post(
+        req: Response = self.session.post(
             self._calendar_refresh_url + f"/{event.pguid}/{event.guid}",
             params=params,
             data=json.dumps(data),

@@ -7,30 +7,34 @@ from datetime import datetime
 
 from tzlocal import get_localzone_name
 
+from .base import BaseService
 
-class RemindersService:
+
+class RemindersService(BaseService):
     """The 'Reminders' iCloud service."""
 
-    def __init__(self, service_root, session, params):
-        self.session = session
-        self._params = params
-        self._service_root = service_root
+    def __init__(self, service_root, session, params) -> None:
+        super().__init__(service_root, session, params)
 
         self.lists = {}
         self.collections = {}
 
         self.refresh()
 
-    def refresh(self):
+    def refresh(self) -> None:
         """Refresh data."""
-        params_reminders = dict(self._params)
+        params_reminders = dict(self.params)
         params_reminders.update(
-            {"clientVersion": "4.0", "lang": "en-us", "usertz": get_localzone_name()}
+            {
+                "clientVersion": "4.0",
+                "lang": "en-us",
+                "usertz": get_localzone_name(),
+            }
         )
 
         # Open reminders
         req = self.session.get(
-            self._service_root + "/rd/startup", params=params_reminders
+            f"{self.service_root}/rd/startup", params=params_reminders
         )
 
         data = req.json()
@@ -73,7 +77,7 @@ class RemindersService:
         if collection and collection in self.collections:
             pguid = self.collections[collection]["guid"]
 
-        params_reminders = dict(self._params)
+        params_reminders = dict(self.params)
         params_reminders.update(
             {"clientVersion": "4.0", "lang": "en-us", "usertz": get_localzone_name()}
         )
@@ -90,7 +94,7 @@ class RemindersService:
             ]
 
         req = self.session.post(
-            self._service_root + "/rd/reminders/tasks",
+            f"{self.service_root}/rd/reminders/tasks",
             data=json.dumps(
                 {
                     "Reminders": {

@@ -1,38 +1,41 @@
 """Find my iPhone service."""
 
 import json
+from typing import Any, Iterator
+
+from requests import Response
 
 from pyicloud.exceptions import PyiCloudNoDevicesException
+from pyicloud.services.base import BaseService
 
 
-class FindMyiPhoneServiceManager:
+class FindMyiPhoneServiceManager(BaseService):
     """The 'Find my iPhone' iCloud service
 
     This connects to iCloud and return phone data including the near-realtime
     latitude and longitude.
     """
 
-    def __init__(self, service_root, session, params, with_family=False):
-        self.session = session
-        self.params = params
-        self.with_family = with_family
+    def __init__(self, service_root, session, params, with_family=False) -> None:
+        super().__init__(service_root, session, params)
+        self.with_family: bool = with_family
 
-        fmip_endpoint = "%s/fmipservice/client/web" % service_root
-        self._fmip_refresh_url = "%s/refreshClient" % fmip_endpoint
-        self._fmip_sound_url = "%s/playSound" % fmip_endpoint
-        self._fmip_message_url = "%s/sendMessage" % fmip_endpoint
-        self._fmip_lost_url = "%s/lostDevice" % fmip_endpoint
+        fmip_endpoint: str = f"{service_root}/fmipservice/client/web"
+        self._fmip_refresh_url: str = f"{fmip_endpoint}/refreshClient"
+        self._fmip_sound_url: str = f"{fmip_endpoint}/playSound"
+        self._fmip_message_url: str = f"{fmip_endpoint}/sendMessage"
+        self._fmip_lost_url: str = f"{fmip_endpoint}/lostDevice"
 
-        self._devices = {}
+        self._devices: dict[str, AppleDevice] = {}
         self.refresh_client()
 
-    def refresh_client(self):
+    def refresh_client(self) -> None:
         """Refreshes the FindMyiPhoneService endpoint,
 
         This ensures that the location data is up-to-date.
 
         """
-        req = self.session.post(
+        req: Response = self.session.post(
             self._fmip_refresh_url,
             params=self.params,
             data=json.dumps(
@@ -46,14 +49,13 @@ class FindMyiPhoneServiceManager:
                 }
             ),
         )
-        self.response = req.json()
+        self.response: dict[str, Any] = req.json()
 
         for device_info in self.response["content"]:
-            device_id = device_info["id"]
+            device_id: str = device_info["id"]
             if device_id not in self._devices:
                 self._devices[device_id] = AppleDevice(
                     device_info,
-                    self.session,
                     self.params,
                     manager=self,
                     sound_url=self._fmip_sound_url,
@@ -66,21 +68,21 @@ class FindMyiPhoneServiceManager:
         if not self._devices:
             raise PyiCloudNoDevicesException()
 
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> "AppleDevice":
         if isinstance(key, int):
             key = list(self.keys())[key]
         return self._devices[key]
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr: str) -> Any:
         return getattr(self._devices, attr)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self._devices}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self}"
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator["AppleDevice"]:
         return iter(self._devices.values())
 
 
@@ -89,24 +91,26 @@ class AppleDevice:
 
     def __init__(
         self,
-        content,
-        session,
-        params,
-        manager,
-        sound_url=None,
-        lost_url=None,
-        message_url=None,
-    ):
-        self.content = content
-        self.manager = manager
-        self.session = session
-        self.params = params
+        content: dict[str, Any],
+        params: dict[str, Any],
+        manager: FindMyiPhoneServiceManager,
+        sound_url: str,
+        lost_url: str,
+        message_url: str,
+    ) -> None:
+        self.content: dict[str, Any] = content
+        self.manager: FindMyiPhoneServiceManager = manager
+        self.params: dict[str, Any] = params
 
-        self.sound_url = sound_url
-        self.lost_url = lost_url
-        self.message_url = message_url
+        self.sound_url: str = sound_url
+        self.lost_url: str = lost_url
+        self.message_url: str = message_url
 
-    def update(self, data):
+    @property
+    def session(self):
+        return self.manager.session
+
+    def update(self, data) -> None:
         """Updates the device data."""
         self.content = data
 
@@ -115,25 +119,30 @@ class AppleDevice:
         self.manager.refresh_client()
         return self.content["location"]
 
-    def status(self, additional=[]):  # pylint: disable=dangerous-default-value
+    def status(self, additional=[]) -> dict[str, Any]:  # pylint: disable=dangerous-default-value
         """Returns status information for device.
 
         This returns only a subset of possible properties.
         """
         self.manager.refresh_client()
-        fields = ["batteryLevel", "deviceDisplayName", "deviceStatus", "name"]
+        fields: list[str] = [
+            "batteryLevel",
+            "deviceDisplayName",
+            "deviceStatus",
+            "name",
+        ]
         fields += additional
-        properties = {}
+        properties: dict[str, Any] = {}
         for field in fields:
             properties[field] = self.content.get(field)
         return properties
 
-    def play_sound(self, subject="Find My iPhone Alert"):
+    def play_sound(self, subject="Find My iPhone Alert") -> None:
         """Send a request to the device to play a sound.
 
         It's possible to pass a custom message by changing the `subject`.
         """
-        data = json.dumps(
+        data: str = json.dumps(
             {
                 "device": self.content["id"],
                 "subject": subject,
@@ -144,12 +153,12 @@ class AppleDevice:
 
     def display_message(
         self, subject="Find My iPhone Alert", message="This is a note", sounds=False
-    ):
+    ) -> None:
         """Send a request to the device to play a sound.
 
         It's possible to pass a custom message by changing the `subject`.
         """
-        data = json.dumps(
+        data: str = json.dumps(
             {
                 "device": self.content["id"],
                 "subject": subject,
@@ -162,14 +171,14 @@ class AppleDevice:
 
     def lost_device(
         self, number, text="This iPhone has been lost. Please call me.", newpasscode=""
-    ):
+    ) -> None:
         """Send a request to the device to trigger 'lost mode'.
 
         The device will show the message in `text`, and if a number has
         been passed, then the person holding the device can call
         the number without entering the passcode.
         """
-        data = json.dumps(
+        data: str = json.dumps(
             {
                 "text": text,
                 "userText": True,
@@ -183,18 +192,18 @@ class AppleDevice:
         self.session.post(self.lost_url, params=self.params, data=data)
 
     @property
-    def data(self):
+    def data(self) -> dict[str, Any]:
         """Gets the device data."""
         return self.content
 
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> Any:
         return self.content[key]
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr) -> Any:
         return getattr(self.content, attr)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self['deviceDisplayName']}: {self['name']}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<AppleDevice({self})>"
