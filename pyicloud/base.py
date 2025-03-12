@@ -3,17 +3,15 @@
 import base64
 import getpass
 import hashlib
-import http.cookiejar as cookielib
 import json
 import logging
 from os import environ, mkdir, path
 from re import match
 from tempfile import gettempdir
-from typing import Any, Optional, cast
+from typing import Any, Optional
 from uuid import uuid1
 
 import srp
-from requests.cookies import RequestsCookieJar
 from requests.models import Response
 
 from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON
@@ -46,6 +44,9 @@ class SrpPassword:
 
     def __init__(self, password: str) -> None:
         self.password: str = password
+        self.salt: bytes
+        self.iterations: int
+        self.key_length: int
 
     def set_encrypt_info(self, salt: bytes, iterations: int, key_length: int) -> None:
         """Set encrypt info."""
@@ -98,11 +99,11 @@ class PyiCloudService(object):
         icloud_china: str = (
             ".cn" if china_mainland or environ.get("icloud_china", "0") == "1" else ""
         )
-        self.AUTH_ENDPOINT: str = (
+        self.auth_endpoint: str = (
             f"https://idmsa.apple.com{icloud_china}/appleauth/auth"
         )
-        self.HOME_ENDPOINT: str = f"https://www.icloud.com{icloud_china}"
-        self.SETUP_ENDPOINT: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
+        self.home_endpoint: str = f"https://www.icloud.com{icloud_china}"
+        self.setup_endpoint: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
 
     def _setup_cookie_directory(self, cookie_directory) -> None:
         """Set up the cookie directory for the service."""
@@ -142,6 +143,7 @@ class PyiCloudService(object):
         self.params: dict[str, Any] = {}
         self._client_id: str = client_id or (f"auth-{str(uuid1()).lower()}")
         self._with_family: bool = with_family
+        self._password_filter: Optional[PyiCloudPasswordFilter] = None
 
         self._setup_cookie_directory(cookie_directory)
 
@@ -165,24 +167,11 @@ class PyiCloudService(object):
         self.session.verify = verify
         self.session.headers.update(
             {
-                "Origin": self.HOME_ENDPOINT,
-                "Referer": f"{self.HOME_ENDPOINT}/",
+                "Origin": self.home_endpoint,
+                "Referer": f"{self.home_endpoint}/",
                 "User-Agent": "Opera/9.52 (X11; Linux i686; U; en)",
             }
         )
-
-        cookiejar_path: str = self.cookiejar_path
-        if path.exists(cookiejar_path):
-            try:
-                cookies = cookielib.LWPCookieJar(filename=cookiejar_path)
-                cookies.load(ignore_discard=True, ignore_expires=True)
-                self.session.cookies = cast(RequestsCookieJar, cookies)
-                LOGGER.debug("Read cookies from %s", cookiejar_path)
-            except (ValueError, OSError):
-                # Most likely a pickled cookiejar from earlier versions.
-                # The cookiejar will get replaced with a valid one after
-                # successful authentication.
-                LOGGER.warning("Failed to read cookiejar %s", cookiejar_path)
 
         # Unsure if this is still needed
         self.params = {
@@ -239,6 +228,10 @@ class PyiCloudService(object):
         if not login_successful:
             self._authenticate()
 
+        self._update_state()
+
+    def _update_state(self) -> None:
+        """Update the state of the service."""
         if (
             "dsInfo" in self.data
             and isinstance(self.data["dsInfo"], dict)
@@ -262,10 +255,13 @@ class PyiCloudService(object):
             headers["X-Apple-ID-Session-Id"] = self.session_data.get("session_id", "")
 
         try:
-            self._srp_authentication(headers)
-            self._authenticate_with_token()
-        except PasswordException:
-            raise PyiCloudFailedLoginException("Password not provided")
+            try:
+                self._authenticate_with_token()
+            except PyiCloudFailedLoginException:
+                self._srp_authentication(headers)
+                self._authenticate_with_token()
+        except PasswordException as error:
+            raise PyiCloudFailedLoginException("Password not provided") from error
 
     def _srp_authentication(self, headers: dict[str, Any]) -> None:
         """SRP authentication."""
@@ -278,7 +274,7 @@ class PyiCloudService(object):
             hash_alg=srp.SHA256,
             ng_type=srp.NG_2048,
         )
-        uname, A = usr.start_authentication()
+        uname, A = usr.start_authentication()  # pylint: disable=invalid-name
         data: dict[str, Any] = {
             "a": base64.b64encode(A).decode(),
             ACCOUNT_NAME: uname,
@@ -287,7 +283,7 @@ class PyiCloudService(object):
 
         try:
             response: Response = self.session.post(
-                f"{self.AUTH_ENDPOINT}/signin/init",
+                f"{self.auth_endpoint}/signin/init",
                 data=json.dumps(data),
                 headers=headers,
             )
@@ -319,7 +315,7 @@ class PyiCloudService(object):
 
         try:
             self.session.post(
-                f"{self.AUTH_ENDPOINT}/signin/complete",
+                f"{self.auth_endpoint}/signin/complete",
                 params={
                     "isRememberMeEnabled": "true",
                 },
@@ -341,7 +337,7 @@ class PyiCloudService(object):
 
         try:
             req: Response = self.session.post(
-                f"{self.SETUP_ENDPOINT}/accountLogin", data=json.dumps(data)
+                f"{self.setup_endpoint}/accountLogin", data=json.dumps(data)
             )
             self.data = req.json()
         except PyiCloudAPIResponseException as error:
@@ -358,7 +354,7 @@ class PyiCloudService(object):
 
         try:
             self.session.post(
-                f"{self.SETUP_ENDPOINT}/accountLogin", data=json.dumps(data)
+                f"{self.setup_endpoint}/accountLogin", data=json.dumps(data)
             )
 
             self.data = self._validate_token()
@@ -371,10 +367,9 @@ class PyiCloudService(object):
         LOGGER.debug("Checking session token validity")
         try:
             req: Response = self.session.post(
-                f"{self.SETUP_ENDPOINT}/validate", data="null"
+                f"{self.setup_endpoint}/validate", data="null"
             )
             LOGGER.debug("Session token is still valid")
-            LOGGER.debug(req.json())
             return req.json()
         except PyiCloudAPIResponseException as err:
             LOGGER.debug("Invalid authentication token")
@@ -404,7 +399,7 @@ class PyiCloudService(object):
         """Get path for cookiejar file."""
         return path.join(
             self._cookie_directory,
-            "".join([c for c in self.account_name if match(r"\w", c)]),
+            "".join([c for c in self.account_name if match(r"\w", c)]) + ".cookiejar",
         )
 
     @property
@@ -425,7 +420,7 @@ class PyiCloudService(object):
     @property
     def requires_2fa(self) -> bool:
         """Returns True if two-factor authentication is required."""
-        return self.data["dsInfo"].get("hsaVersion", 0) == 2 and (
+        return self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2 and (
             self.data.get("hsaChallengeRequired", False) or not self.is_trusted_session
         )
 
@@ -438,7 +433,7 @@ class PyiCloudService(object):
     def trusted_devices(self) -> list[dict[str, Any]]:
         """Returns devices trusted for two-step authentication."""
         request: Response = self.session.get(
-            f"{self.SETUP_ENDPOINT}/listDevices", params=self.params
+            f"{self.setup_endpoint}/listDevices", params=self.params
         )
         return request.json().get("devices")
 
@@ -446,7 +441,7 @@ class PyiCloudService(object):
         """Requests that a verification code is sent to the given device."""
         data: str = json.dumps(device)
         request: Response = self.session.post(
-            f"{self.SETUP_ENDPOINT}/sendVerificationCode",
+            f"{self.setup_endpoint}/sendVerificationCode",
             params=self.params,
             data=data,
         )
@@ -459,7 +454,7 @@ class PyiCloudService(object):
 
         try:
             self.session.post(
-                f"{self.SETUP_ENDPOINT}/validateVerificationCode",
+                f"{self.setup_endpoint}/validateVerificationCode",
                 params=self.params,
                 data=data,
             )
@@ -491,7 +486,7 @@ class PyiCloudService(object):
 
         try:
             self.session.post(
-                f"{self.AUTH_ENDPOINT}/verify/trusteddevice/securitycode",
+                f"{self.auth_endpoint}/verify/trusteddevice/securitycode",
                 data=json.dumps(data),
                 headers=headers,
             )
@@ -519,7 +514,7 @@ class PyiCloudService(object):
 
         try:
             self.session.get(
-                f"{self.AUTH_ENDPOINT}/2sv/trust",
+                f"{self.auth_endpoint}/2sv/trust",
                 headers=headers,
             )
             self._authenticate_with_token()
@@ -538,13 +533,16 @@ class PyiCloudService(object):
         return self._webservices[ws_key]["url"]
 
     @property
-    def devices(self) -> FindMyiPhoneServiceManager:
+    def devices(self) -> FindMyiPhoneServiceManager | list:
         """Returns all devices."""
         if not self._devices:
-            service_root: str = self._get_webservice_url("findme")
-            self._devices = FindMyiPhoneServiceManager(
-                service_root, self.session, self.params, self._with_family
-            )
+            try:
+                service_root: str = self._get_webservice_url("findme")
+                self._devices = FindMyiPhoneServiceManager(
+                    service_root, self.session, self.params, self._with_family
+                )
+            except PyiCloudServiceNotActivatedException:
+                return []
         return self._devices
 
     @property
@@ -630,10 +628,13 @@ class PyiCloudService(object):
 
     @property
     def account_name(self) -> str:
+        """Retrieves the account name associated with the Apple ID."""
+
         return self._apple_id
 
     @property
     def password(self) -> str:
+        """Retrieves the password associated with the Apple ID."""
         if self._password is None:
             raise PasswordException()
         self._password_filter = PyiCloudPasswordFilter(self._password)
@@ -641,8 +642,9 @@ class PyiCloudService(object):
         return self._password
 
     @property
-    def password_filter(self) -> PyiCloudPasswordFilter:
-        return self._password_filter
+    def password_filter(self) -> Optional[PyiCloudPasswordFilter]:
+        """Retrieves the password filter"""
+        return self._password_filter if self._password_filter else None
 
     def __str__(self) -> str:
         return f"iCloud API: {self.account_name}"

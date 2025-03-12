@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: PyiCloud List",
+            "name": "Python Debugger: PyiCloud List (password)",
             "type": "debugpy",
             "request": "launch",
             "module": "pyicloud.cmdline",
@@ -15,6 +15,21 @@
                 "--password",
                 "${input:password}",
                 "--list",
+                "-n",
+                "--debug"
+            ]
+        },
+        {
+            "name": "Python Debugger: PyiCloud List (no passoword)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pyicloud.cmdline",
+            "args": [
+                "--username",
+                "${input:username}",
+                "--list",
+                "-n",
+                "--debug"
             ]
         },
         {

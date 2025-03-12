@@ -5,17 +5,16 @@ command line scripts, and related.
 """
 
 import argparse
+import logging
 import pickle
 import sys
 from typing import Any, Optional
 
 from click import confirm
 
-from pyicloud import PyiCloudService
+from pyicloud import PyiCloudService, utils
 from pyicloud.exceptions import PyiCloudFailedLoginException
-
-from . import utils
-from .services.findmyiphone import AppleDevice
+from pyicloud.services.findmyiphone import AppleDevice
 
 DEVICE_ERROR = "Please use the --device switch to indicate which device to use."
 
@@ -172,6 +171,12 @@ def _create_parser() -> argparse.ArgumentParser:
         help="Save device data to a file in the current directory.",
     )
 
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="enable debug logging",
+    )
+
     return parser
 
 
@@ -196,6 +201,8 @@ def main() -> None:
     """Main commandline entrypoint."""
     parser: argparse.ArgumentParser = _create_parser()
     command_line: argparse.Namespace = parser.parse_args()
+
+    logging.basicConfig(level=logging.DEBUG if command_line.debug else logging.INFO)
 
     username: str = command_line.username.strip()
     china_mainland: bool = command_line.china_mainland

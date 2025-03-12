@@ -71,7 +71,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
             data = json.loads(kwargs.get("data", "{}"))
 
         # Login
-        if self._service.SETUP_ENDPOINT in url:
+        if self._service.setup_endpoint in url:
             if "accountLogin" in url and method == "POST":
                 if data.get("dsWebAuthToken") not in VALID_TOKENS:
                     self._raise_error(None, "Unknown reason")
@@ -104,7 +104,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
                     return ResponseMock(LOGIN_WORKING)
                 self._raise_error(None, "Session expired")
 
-        if self._service.AUTH_ENDPOINT in url:
+        if self._service.auth_endpoint in url:
             if "signin" in url and method == "POST":
                 if data.get("accountName") not in VALID_USERS:
                     self._raise_error(None, "Unknown reason")
@@ -191,28 +191,28 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         raise Exception("No valid response")
 
 
-class PyiCloudServiceMock(base.PyiCloudService):
-    """Mocked PyiCloudService."""
+# class PyiCloudServiceMock(base.PyiCloudService):
+#     """Mocked PyiCloudService."""
 
-    def __init__(
-        self,
-        apple_id,
-        password=None,
-        cookie_directory=None,
-        verify=True,
-        client_id=None,
-        with_family=True,
-        china_mainland=False,
-    ):
-        """Set up pyicloud service mock."""
-        base.PyiCloudSession = PyiCloudSessionMock
-        base.PyiCloudService.__init__(
-            self,
-            apple_id,
-            password,
-            cookie_directory,
-            verify,
-            client_id,
-            with_family,
-            china_mainland,
-        )
+#     def __init__(
+#         self,
+#         apple_id,
+#         password=None,
+#         cookie_directory=None,
+#         verify=True,
+#         client_id=None,
+#         with_family=True,
+#         china_mainland=False,
+#     ):
+#         """Set up pyicloud service mock."""
+#         base.PyiCloudSession = PyiCloudSessionMock
+#         base.PyiCloudService.__init__(
+#             self,
+#             apple_id,
+#             password,
+#             cookie_directory,
+#             verify,
+#             client_id,
+#             with_family,
+#             china_mainland,
+#         )
