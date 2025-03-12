@@ -451,12 +451,19 @@ class PyiCloudService(object):
             data["trustTokens"] = [self.session_data.get("trust_token")]
 
         try:
-            self.session.post(
+            req = self.session.post(
                 "%s/signin/complete" % self.AUTH_ENDPOINT,
                 params={"isRememberMeEnabled": "true"},
                 data=json.dumps(data),
                 headers=headers,
             )
+            self.data = req.json()
+
+            if req.status_code == 403 and self.data["serviceErrors"]:
+                error = self.data["serviceErrors"][0]
+                LOGGER.debug("srp_authentication signin/complete has Service Error %s", error)
+                raise PyiCloudFailedLoginException(error["message"], error["code"])
+
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg, error) from error

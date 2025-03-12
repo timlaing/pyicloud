@@ -32,7 +32,14 @@ class PyiCloudServiceNotActivatedException(PyiCloudAPIResponseException):
 # Login
 class PyiCloudFailedLoginException(PyiCloudException):
     """iCloud failed login exception."""
-
+    
+    def __init__(self, reason, code=None):
+        message = "Login Failed"
+        if code:
+            message += " Code: (%s)" % code
+        if reason:
+            message += " Reason: %s" % reason
+        super().__init__(message)
 
 class PyiCloud2SARequiredException(PyiCloudException):
     """iCloud 2SA required exception."""
