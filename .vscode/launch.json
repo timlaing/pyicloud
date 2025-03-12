@@ -56,7 +56,7 @@
         {
             "id": "username",
             "type": "promptString",
-            "description": "Enter your iCloud username",
+            "description": "Enter your iCloud username"
         },
         {
             "id": "password",

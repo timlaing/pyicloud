@@ -42,7 +42,9 @@ def test_trash(pyicloud_service_working: PyiCloudService) -> None:
 
 def test_trash_recover(pyicloud_service_working: PyiCloudService) -> None:
     """Test recovering a file from the Trash."""
-    recover_result = pyicloud_service_working.drive.trash["test_random_uuid"].recover()  # type: ignore
+    trash_node = pyicloud_service_working.drive.trash["test_random_uuid"]
+    assert trash_node is not None
+    recover_result = trash_node.recover()
     recover_result_items = recover_result["items"][0]
     assert recover_result_items["status"] == "OK"
     assert recover_result_items["parentId"] == "FOLDER::com.apple.CloudDocs::root"

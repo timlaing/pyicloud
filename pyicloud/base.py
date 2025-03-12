@@ -8,7 +8,7 @@ import logging
 from os import environ, mkdir, path
 from re import match
 from tempfile import gettempdir
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from uuid import uuid1
 
 import srp
@@ -533,7 +533,7 @@ class PyiCloudService(object):
         return self._webservices[ws_key]["url"]
 
     @property
-    def devices(self) -> FindMyiPhoneServiceManager | list:
+    def devices(self) -> Union[FindMyiPhoneServiceManager, list]:
         """Returns all devices."""
         if not self._devices:
             try:

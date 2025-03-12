@@ -10,20 +10,15 @@ KEYRING_SYSTEM = "pyicloud://icloud-password"
 
 
 def get_password(username: str, interactive=sys.stdout.isatty()) -> Optional[str]:
-    """Get the password from a username."""
+    """Get the password from a username.
+    Returns the password if found in keyring or if interactive is True.
+    Returns None if no password is found and interactive is False."""
     result: Optional[str] = get_password_from_keyring(username)
     if result:
         return result
 
     if interactive:
         return getpass.getpass(f"Enter iCloud password for {username}: ")
-
-    # raise PyiCloudNoStoredPasswordAvailableException(
-    #     f"No pyicloud password for {username} could be found "
-    #     "in the system keychain.  Use the `--store-in-keyring` "
-    #     "command-line option for storing a password for this "
-    #     "username."
-    # )
 
 
 def password_exists_in_keyring(username: str) -> bool:
