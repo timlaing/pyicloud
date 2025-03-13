@@ -9,14 +9,13 @@ from urllib.parse import urlencode
 
 from requests import Response
 
+from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudServiceNotActivatedException,
 )
-
-from ..const import CONTENT_TYPE, CONTENT_TYPE_TEXT
-from ..session import PyiCloudSession
-from .base import BaseService
+from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 
 
 class PhotoLibrary:
@@ -297,6 +296,7 @@ class PhotosService(PhotoLibrary, BaseService):
 
     @property
     def shared_streams(self) -> dict[str, "SharedStream"]:
+        """Returns shared streams."""
         if not self._shared_streams:
             self._shared_streams = dict()
             url: str = f"{self.shared_streams_url}?{urlencode(self.service.params)}"
@@ -325,6 +325,7 @@ class PhotosService(PhotoLibrary, BaseService):
 
     @property
     def libraries(self) -> dict[str, PhotoLibrary]:
+        """Returns photo libraries."""
         if not self._libraries:
             url: str = f"{self.service_endpoint}/changes/database"
 
@@ -442,15 +443,13 @@ class PhotoAlbum:
                 offset = offset + num_results
 
     def photo(self, index) -> Generator["PhotoAsset", None, None]:
+        """Returns a photo at the given index."""
         return self._get_photos_at(index, self.direction, 2)
 
     def _get_photos_at(
-        self, index, direction, page_size=100
+        self, index: int, direction: str, page_size=100
     ) -> Generator["PhotoAsset", None, None]:
-        if direction == "DESCENDING":
-            offset: int = len(self) - index - 1
-        else:
-            offset = index
+        offset: int = len(self) - index - 1 if direction == "DESCENDING" else index
 
         url: str = f"{self.service.service_endpoint}/records/query?" + urlencode(
             self.service.params
@@ -459,37 +458,39 @@ class PhotoAlbum:
             url,
             data=json.dumps(
                 self._list_query_gen(
-                    index, self.list_type, direction, page_size, self.query_filter
+                    offset, self.list_type, direction, page_size, self.query_filter
                 )
             ),
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, list[dict[str, Any]]] = request.json()
 
-        asset_records: dict[str, Any] = {}
-        master_records: list[dict[str, Any]] = []
+        asset_records, master_records = self._parse_response(response)
+
+        for master_record in master_records:
+            record_name: str = master_record["recordName"]
+            yield PhotoAsset(self.service, master_record, asset_records[record_name])
+
+    def _parse_response(
+        self, response: dict[str, list[dict[str, Any]]]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        asset_records = {}
+        master_records = []
         for rec in response["records"]:
             if rec["recordType"] == "CPLAsset":
-                master_id: str = rec["fields"]["masterRef"]["value"]["recordName"]
+                master_id = rec["fields"]["masterRef"]["value"]["recordName"]
                 asset_records[master_id] = rec
             elif rec["recordType"] == "CPLMaster":
                 master_records.append(rec)
-
-        master_records_len: int = len(master_records)
-        if master_records_len:
-            if direction == "DESCENDING":
-                offset = offset - master_records_len
-            else:
-                offset = offset + master_records_len
-
-            for master_record in master_records:
-                record_name: str = master_record["recordName"]
-                yield PhotoAsset(
-                    self.service, master_record, asset_records[record_name]
-                )
+        return asset_records, master_records
 
     def _list_query_gen(
-        self, offset, list_type, direction, num_results, query_filter=None
+        self,
+        offset: int,
+        list_type: str,
+        direction: str,
+        num_results: int,
+        query_filter=None,
     ) -> dict[str, Any]:
         query: dict[str, Any] = {
             "query": {
@@ -667,26 +668,32 @@ class SharedStream:
 
     @property
     def sharing_type(self) -> str:
+        """Gets the sharing type."""
         return self._sharing_type
 
     @property
     def allow_contributions(self) -> bool:
+        """Gets if contributions are allowed."""
         return self._allow_contributions
 
     @property
     def is_public(self) -> bool:
+        """Gets if the album is public."""
         return self._is_public
 
     @property
     def is_web_upload_supported(self) -> bool:
+        """Gets if web uploads are supported."""
         return self._is_web_upload_supported
 
     @property
     def public_url(self) -> Optional[str]:
+        """Gets the public URL."""
         return self._public_url
 
     @property
     def photos(self) -> Generator["PhotoStreamAsset", None, None]:
+        """Returns the album photos."""
         offset: int = 0
         while True:
             num_results = 0
@@ -697,9 +704,24 @@ class SharedStream:
                 break
             offset = offset + num_results
 
+    def _parse_response(
+        self, response: dict[str, list[dict[str, Any]]]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Parses the response."""
+        asset_records = {}
+        master_records = []
+        for rec in response["records"]:
+            if rec["recordType"] == "CPLAsset":
+                master_id = rec["fields"]["masterRef"]["value"]["recordName"]
+                asset_records[master_id] = rec
+            elif rec["recordType"] == "CPLMaster":
+                master_records.append(rec)
+        return asset_records, master_records
+
     def _get_photos_at(
         self, offset, page_size=100
     ) -> Generator["PhotoStreamAsset", None, None]:
+        """Returns the photos at the given offset."""
         url: str = (
             f"{self._album_location}webgetassets?{urlencode(self.service.params)}"
         )
@@ -710,43 +732,19 @@ class SharedStream:
             "limit": str(limit),
             "offset": str(offset),
         }
-        request: Response = self.service.session.post(
+        response: Response = self.service.session.post(
             url,
             data=json.dumps(payload),
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
-        response: dict[str, Any] = request.json()
-
-        asset_records: dict[str, Any] = {}
-        master_records: list[dict[str, Any]] = []
-        names = set()
-        for rec in response.get("records", {}):
-            if rec.get("recordType") == "CPLAsset":
-                master_id: Optional[str] = (
-                    rec.get("fields", {})
-                    .get("masterRef", {})
-                    .get("value", {})
-                    .get("recordName", None)
-                )
-                if master_id:
-                    asset_records[master_id] = rec
-            elif rec.get("recordType") == "CPLMaster":
-                name: Optional[str] = rec.get("recordName", None)
-                if name and (name not in names):
-                    master_records.append(rec)
-                    names.add(name)
+        json_response: dict[str, Any] = response.json()
+        asset_records, master_records = self._parse_response(json_response)
 
         for master_record in master_records:
-            record_name: Optional[str] = master_record.get("recordName", None)
-            if record_name is None:
-                continue
-            asset_record: Optional[dict[str, Any]] = asset_records.get(
-                record_name, None
+            record_name: str = master_record["recordName"]
+            yield PhotoStreamAsset(
+                self.service, master_record, asset_records[record_name]
             )
-            if asset_record:
-                yield PhotoStreamAsset(self.service, master_record, asset_record)
-            else:
-                continue
 
     def __iter__(self) -> Generator["PhotoStreamAsset", None, None]:
         return self.photos
@@ -856,6 +854,7 @@ class PhotoAsset:
 
     @property
     def item_type(self) -> str:
+        """Gets the photo item type."""
         try:
             item_type: str = self._master_record["fields"]["itemType"]["value"]
         except KeyError:
@@ -963,16 +962,9 @@ class PhotoAsset:
 class PhotoStreamAsset(PhotoAsset):
     """A Shared Stream Photo Asset"""
 
-    def __init__(
-        self,
-        service: PhotosService,
-        master_record: dict[str, Any],
-        asset_record: dict[str, Any],
-    ) -> None:
-        super().__init__(service, master_record, asset_record)
-
     @property
     def like_count(self) -> int:
+        """Gets the photo like count."""
         return (
             self._asset_record.get("pluginFields", {})
             .get("likeCount", {})
@@ -981,6 +973,7 @@ class PhotoStreamAsset(PhotoAsset):
 
     @property
     def liked(self) -> bool:
+        """Gets if the photo is liked."""
         return bool(
             self._asset_record.get("pluginFields", {})
             .get("likedByCaller", {})

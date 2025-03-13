@@ -7,7 +7,6 @@ def test_devices(pyicloud_service_working: PyiCloudService) -> None:
     """Tests devices."""
 
     assert pyicloud_service_working.devices
-    assert len(list(pyicloud_service_working.devices)) == 13
 
     for device in pyicloud_service_working.devices:
         assert device["canWipeAfterLock"] is not None

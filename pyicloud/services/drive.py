@@ -15,8 +15,8 @@ from requests import Response
 
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import PyiCloudAPIResponseException, TokenException
-
-from .base import BaseService
+from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
 
@@ -28,7 +28,11 @@ class DriveService(BaseService):
     """The 'Drive' iCloud service."""
 
     def __init__(
-        self, service_root: str, document_root: str, session, params: dict[str, Any]
+        self,
+        service_root: str,
+        document_root: str,
+        session: PyiCloudSession,
+        params: dict[str, Any],
     ) -> None:
         super().__init__(service_root, session, params)
         self._document_root: str = document_root
@@ -301,7 +305,8 @@ class DriveService(BaseService):
     def __getitem__(self, key) -> Optional["DriveNode"]:
         return self.root[key]
 
-    def _raise_if_error(self, response: Response) -> None:  # pylint: disable=no-self-use
+    @staticmethod
+    def _raise_if_error(response: Response) -> None:
         if not response.ok:
             api_error = PyiCloudAPIResponseException(
                 response.reason, response.status_code

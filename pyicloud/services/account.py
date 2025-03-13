@@ -6,17 +6,20 @@ from typing import Any, Optional
 from requests import Response
 
 from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 from pyicloud.utils import underscore_to_camelcase
 
 
 class AccountService(BaseService):
     """The 'Account' iCloud service."""
 
-    def __init__(self, service_root, session, params) -> None:
+    def __init__(
+        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+    ) -> None:
         super().__init__(service_root, session, params)
 
-        self._devices: list = []
-        self._family: list = []
+        self._devices: list["AccountDevice"] = []
+        self._family: list["FamilyMember"] = []
         self._storage: Optional[AccountStorage] = None
 
         self._acc_endpoint: str = f"{self.service_root}/setup/web"
@@ -27,7 +30,9 @@ class AccountService(BaseService):
         self._acc_family_member_photo_url: str = (
             f"{self._acc_endpoint}/family/getMemberPhoto"
         )
-        self._acc_storage_url = "https://setup.icloud.com/setup/ws/1/storageUsageInfo"
+        self._acc_storage_url: str = (
+            "https://setup.icloud.com/setup/ws/1/storageUsageInfo"
+        )
 
     @property
     def devices(self) -> list["AccountDevice"]:
@@ -87,7 +92,7 @@ class AccountService(BaseService):
 class AccountDevice(dict):
     """Account device."""
 
-    def __getattr__(self, key):
+    def __getattr__(self, key: str):
         return self[underscore_to_camelcase(key)]
 
     def __str__(self) -> str:
@@ -103,32 +108,32 @@ class FamilyMember:
     def __init__(
         self,
         member_info: dict[str, Any],
-        session,
+        session: PyiCloudSession,
         params: dict[str, Any],
         acc_family_member_photo_url: str,
     ) -> None:
         self._attrs: dict[str, Any] = member_info
-        self._session = session
+        self._session: PyiCloudSession = session
         self._params: dict[str, Any] = params
         self._acc_family_member_photo_url: str = acc_family_member_photo_url
 
     @property
-    def last_name(self):
+    def last_name(self) -> Optional[str]:
         """Gets the last name."""
         return self._attrs.get("lastName")
 
     @property
-    def dsid(self):
+    def dsid(self) -> Optional[str]:
         """Gets the dsid."""
         return self._attrs.get("dsid")
 
     @property
-    def original_invitation_email(self):
+    def original_invitation_email(self) -> Optional[str]:
         """Gets the original invitation."""
         return self._attrs.get("originalInvitationEmail")
 
     @property
-    def full_name(self):
+    def full_name(self) -> Optional[str]:
         """Gets the full name."""
         return self._attrs.get("fullName")
 
@@ -138,12 +143,12 @@ class FamilyMember:
         return self._attrs.get("ageClassification")
 
     @property
-    def apple_id_for_purchases(self):
+    def apple_id_for_purchases(self) -> Optional[str]:
         """Gets the apple id for purchases."""
         return self._attrs.get("appleIdForPurchases")
 
     @property
-    def apple_id(self):
+    def apple_id(self) -> Optional[str]:
         """Gets the apple id."""
         return self._attrs.get("appleId")
 
@@ -153,7 +158,7 @@ class FamilyMember:
         return self._attrs.get("familyId")
 
     @property
-    def first_name(self):
+    def first_name(self) -> Optional[str]:
         """Gets the first name."""
         return self._attrs.get("firstName")
 

@@ -11,11 +11,16 @@ from uuid import uuid4
 from requests import Response
 from tzlocal import get_localzone_name
 
-from .base import BaseService
+from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 
 
 @dataclass
 class EventObject:
+    """
+    An EventObject represents an event in the Apple Calendar.
+    """
+
     pguid: str
     title: str = "New Event"
     start_date: datetime = datetime.today()
@@ -52,7 +57,10 @@ class EventObject:
         )
 
     @property
-    def request_data(self) -> dict:
+    def request_data(self) -> dict[str, Any]:
+        """
+        Returns the event data in the format required by Apple's calendar.
+        """
         event_dict: dict[str, Any] = asdict(self)
         event_dict["startDate"] = self.dt_to_list(self.start_date)
         event_dict["endDate"] = self.dt_to_list(self.end_date, False)
@@ -108,18 +116,24 @@ class EventObject:
             minutes,
         ]
 
-    def add_invitees(self, _invitees: list = []) -> None:
+    def add_invitees(self, _invitees: Optional[list] = None) -> None:
         """
         Adds a list of emails to invitees in the correct format
         """
-        self.invitees += ["{}:{}".format(self.guid, email) for email in _invitees]
+        if _invitees:
+            self.invitees += ["{}:{}".format(self.guid, email) for email in _invitees]
 
     def get(self, var: str):
+        """Get a variable"""
         return getattr(self, var, None)
 
 
 @dataclass
 class CalendarObject:
+    """
+    A CalendarObject represents a calendar in the Apple Calendar.
+    """
+
     title: str = "Untitled"
     guid: str = ""
     share_type: Optional[str] = (
@@ -167,6 +181,7 @@ class CalendarObject:
 
     @property
     def request_data(self) -> dict[str, Any]:
+        """Returns the calendar data in the format required by Apple's calendar."""
         data: dict[str, Any] = {
             "Collection": asdict(self),
             "ClientState": {
@@ -184,7 +199,9 @@ class CalendarService(BaseService):
     The 'Calendar' iCloud service, connects to iCloud and returns events.
     """
 
-    def __init__(self, service_root: str, session, params) -> None:
+    def __init__(
+        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+    ) -> None:
         super().__init__(service_root, session, params)
         self._calendar_endpoint: str = f"{self.service_root}/ca"
         self._calendar_refresh_url: str = f"{self._calendar_endpoint}/events"
@@ -192,10 +209,9 @@ class CalendarService(BaseService):
         self._calendar_collections_url: str = f"{self._calendar_endpoint}/collections"
         self._calendars_url: str = f"{self._calendar_endpoint}/startup"
 
-        self.response = {}
-
     @property
-    def default_params(self) -> dict:
+    def default_params(self) -> dict[str, Any]:
+        """Returns the default parameters for the calendar service."""
         today: datetime = datetime.today()
         first_day, last_day = monthrange(today.year, today.month)
         from_dt = datetime(today.year, today.month, first_day)
@@ -213,18 +229,20 @@ class CalendarService(BaseService):
         return params
 
     def obj_from_dict(self, obj, _dict) -> object:
+        """Creates an object from a dictionary"""
         for key, value in _dict.items():
             setattr(obj, key, value)
 
         return obj
 
     def get_ctag(self, guid) -> str:
+        """Returns the ctag for a given calendar guid"""
         for cal in self.get_calendars(as_objs=False):
             if cal.get("guid") == guid:
                 return cal.get("ctag")
         raise ValueError("ctag not found.")
 
-    def refresh_client(self, from_dt=None, to_dt=None) -> None:
+    def refresh_client(self, from_dt=None, to_dt=None) -> dict[str, Any]:
         """
         Refreshes the CalendarService endpoint, ensuring that the
         event data is up-to-date. If no 'from_dt' or 'to_dt' datetimes
@@ -247,16 +265,16 @@ class CalendarService(BaseService):
             }
         )
         req: Response = self.session.get(self._calendar_refresh_url, params=params)
-        self.response = req.json()
+        return req.json()
 
     def get_calendars(self, as_objs: bool = False) -> list:
         """
         Retrieves calendars of this month.
         """
-        params = self.default_params
+        params: dict[str, Any] = self.default_params
         req: Response = self.session.get(self._calendars_url, params=params)
-        self.response = req.json()
-        calendars = self.response["Collection"]
+        response = req.json()
+        calendars = response["Collection"]
 
         if as_objs and calendars:
             for idx, cal in enumerate(calendars):
@@ -264,25 +282,25 @@ class CalendarService(BaseService):
 
         return calendars
 
-    def add_calendar(self, calendar: CalendarObject) -> None:
+    def add_calendar(self, calendar: CalendarObject) -> dict[str, Any]:
         """
         Adds a Calendar to the apple calendar.
         """
-        data = calendar.request_data
-        params = self.default_params
+        data: dict[str, Any] = calendar.request_data
+        params: dict[str, Any] = self.default_params
 
         req: Response = self.session.post(
             self._calendar_collections_url + f"/{calendar.guid}",
             params=params,
             data=json.dumps(data),
         )
-        self.response = req.json()
+        return req.json()
 
-    def remove_calendar(self, cal_guid: str) -> None:
+    def remove_calendar(self, cal_guid: str) -> dict[str, Any]:
         """
         Removes a Calendar from the apple calendar.
         """
-        params = self.default_params
+        params: dict[str, Any] = self.default_params
         params["methodOverride"] = "DELETE"
 
         req: Response = self.session.post(
@@ -290,7 +308,7 @@ class CalendarService(BaseService):
             params=params,
             data=json.dumps({}),
         )
-        self.response = req.json()
+        return req.json()
 
     def get_events(
         self,
@@ -317,8 +335,8 @@ class CalendarService(BaseService):
                 )
             to_dt = from_dt + timedelta(days=6)
 
-        self.refresh_client(from_dt, to_dt)
-        events = self.response.get("Event")
+        response: dict[str, Any] = self.refresh_client(from_dt, to_dt)
+        events = response.get("Event")
 
         if as_objs and events:
             for idx, event in enumerate(events):
@@ -341,8 +359,8 @@ class CalendarService(BaseService):
         )
         url: str = f"{self._calendar_event_detail_url}/{pguid}/{guid}"
         req: Response = self.session.get(url, params=params)
-        self.response = req.json()
-        event = self.response["Event"][0]
+        response = req.json()
+        event = response["Event"][0]
 
         if as_obj and event:
             event: EventObject = cast(
@@ -352,7 +370,7 @@ class CalendarService(BaseService):
 
         return event
 
-    def add_event(self, event: EventObject) -> None:
+    def add_event(self, event: EventObject) -> dict[str, Any]:
         """
         Adds an Event to a calendar.
         """
@@ -365,9 +383,9 @@ class CalendarService(BaseService):
             params=params,
             data=json.dumps(data),
         )
-        self.response = req.json()
+        return req.json()
 
-    def remove_event(self, event: EventObject) -> None:
+    def remove_event(self, event: EventObject) -> dict[str, Any]:
         """
         Removes an Event from a calendar. The calendar's guid corresponds to the EventObject's pGuid
         """
@@ -375,7 +393,7 @@ class CalendarService(BaseService):
         data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.guid)
         data["Event"] = {}
 
-        params = self.default_params
+        params: dict[str, Any] = self.default_params
         params["methodOverride"] = "DELETE"
         if not getattr(event, "etag", None):
             event.etag = self.get_event_detail(
@@ -388,4 +406,4 @@ class CalendarService(BaseService):
             params=params,
             data=json.dumps(data),
         )
-        self.response = req.json()
+        return req.json()

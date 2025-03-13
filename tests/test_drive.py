@@ -22,7 +22,7 @@ def test_root(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_trash(pyicloud_service_working: PyiCloudService) -> None:
-    """Test the root folder."""
+    """Test the trash folder."""
     trash: DriveNode = pyicloud_service_working.drive.trash
     assert trash.name == "TRASH_ROOT"
     assert trash.type == "trash"
@@ -53,9 +53,9 @@ def test_trash_recover(pyicloud_service_working: PyiCloudService) -> None:
 
 def test_trash_delete_forever(pyicloud_service_working: PyiCloudService) -> None:
     """Test permanently deleting a file from the Trash."""
-    recover_result = pyicloud_service_working.drive.trash[
-        "test_delete_forever_and_ever"
-    ].delete_forever()  # type: ignore
+    node = pyicloud_service_working.drive.trash["test_delete_forever_and_ever"]
+    assert node is not None, "Expected a valid trash node before deleting forever."
+    recover_result = node.delete_forever()
     recover_result_items = recover_result["items"][0]
     assert recover_result_items["status"] == "OK"
     assert (
@@ -100,7 +100,9 @@ def test_folder(pyicloud_service_working: PyiCloudService) -> None:
 
 def test_subfolder(pyicloud_service_working: PyiCloudService) -> None:
     """Test the /pyiCloud/Test folder."""
-    folder: Optional[DriveNode] = pyicloud_service_working.drive["pyiCloud"]["Test"]  # type: ignore
+    parent_folder: Optional[DriveNode] = pyicloud_service_working.drive["pyiCloud"]
+    assert parent_folder is not None, "Expected to find 'pyiCloud' folder."
+    folder: Optional[DriveNode] = parent_folder["Test"]
     assert folder
     assert folder.name == "Test"
     assert folder.type == "folder"

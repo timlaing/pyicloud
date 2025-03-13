@@ -69,7 +69,7 @@ class SrpPassword:
 class PyiCloudPasswordFilter(logging.Filter):
     """Password log hider."""
 
-    def __init__(self, password) -> None:
+    def __init__(self, password: str) -> None:
         super().__init__(password)
 
     def filter(self, record) -> bool:
@@ -173,7 +173,6 @@ class PyiCloudService(object):
             }
         )
 
-        # Unsure if this is still needed
         self.params = {
             "clientBuildNumber": "17DHotfix5",
             "clientMasteringNumber": "17DHotfix5",

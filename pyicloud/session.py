@@ -13,6 +13,9 @@ from pyicloud.const import (
     CONTENT_TYPE,
     CONTENT_TYPE_JSON,
     CONTENT_TYPE_TEXT_JSON,
+    ERROR_ACCESS_DENIED,
+    ERROR_AUTHENTICATION_FAILED,
+    ERROR_ZONE_NOT_FOUND,
     HEADER_DATA,
 )
 from pyicloud.exceptions import (
@@ -34,7 +37,7 @@ class PyiCloudSession(requests.Session):
         self._lwp_cookies = LWPCookieJar(self.service.cookiejar_path)
         if os.path.exists(self.service.cookiejar_path):
             self._lwp_cookies.load()
-            self.cookies._cookies = self._lwp_cookies._cookies  # type: ignore
+        self.cookies._cookies = self._lwp_cookies._cookies  # pylint: disable=protected-access # type: ignore
 
     @property
     def logger(self) -> logging.Logger:
@@ -215,7 +218,7 @@ class PyiCloudSession(requests.Session):
             and reason == "Missing X-APPLE-WEBAUTH-TOKEN cookie"
         ):
             raise PyiCloud2SARequiredException(self.service.account_name)
-        if code in ("ZONE_NOT_FOUND", "AUTHENTICATION_FAILED"):
+        if code in (ERROR_ZONE_NOT_FOUND, ERROR_AUTHENTICATION_FAILED):
             reason = (
                 "Please log into https://icloud.com/ to manually "
                 "finish setting up your iCloud service"
@@ -224,7 +227,7 @@ class PyiCloudSession(requests.Session):
             self.logger.error(api_error)
 
             raise (api_error)
-        if code == "ACCESS_DENIED":
+        if code == ERROR_ACCESS_DENIED:
             reason = (
                 reason + ".  Please wait a few minutes then try again."
                 "The remote servers might be trying to throttle requests."

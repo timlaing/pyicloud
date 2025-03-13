@@ -3,6 +3,7 @@
 import argparse
 import pickle
 from io import BytesIO
+from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
@@ -29,11 +30,12 @@ from tests.const import (
 from tests.const_findmyiphone import FMI_FAMILY_WORKING
 
 # Dictionary to store written data
-written_data = {}
+written_data: dict[str, Any] = {}
 
 
 # Custom side effect function for open
-def mock_file_open(filepath, mode="r", *args, **kwargs):
+def mock_file_open(filepath: str, mode="r", **_):
+    """Mock file open function."""
     if "w" in mode or "a" in mode:
         # Writing or appending mode
         def mock_write(content):
@@ -115,11 +117,6 @@ def test_username_password_invalid() -> None:
         main()
 
 
-# @patch("argparse.ArgumentParser.parse_args")
-# @patch("builtins.open", new_callable=mock_open)
-# @patch("keyring.get_password", return_value=None)
-# @patch("pyicloud.cmdline.confirm")
-# @patch("pyicloud.cmdline.input")
 def test_username_password_requires_2fa() -> None:
     """Test username and password commands."""
     # Valid connection for the first time

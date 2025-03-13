@@ -4,5 +4,5 @@ pylint>=3.3.4
 pylint-strict-informational>=0.1
 pytest>=8.3.5
 pytest-cov>=4.1.0
-pytest-socket
+pytest-socket>=0.6.0
 ruff>=0.9.9

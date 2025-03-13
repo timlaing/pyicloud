@@ -4,16 +4,20 @@ import json
 import time
 import uuid
 from datetime import datetime
+from typing import Any
 
 from tzlocal import get_localzone_name
 
-from .base import BaseService
+from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 
 
 class RemindersService(BaseService):
     """The 'Reminders' iCloud service."""
 
-    def __init__(self, service_root, session, params) -> None:
+    def __init__(
+        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+    ) -> None:
         super().__init__(service_root, session, params)
 
         self.lists = {}

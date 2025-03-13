@@ -1,6 +1,9 @@
 """Contacts service."""
 
-from .base import BaseService
+from typing import Any
+
+from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 
 
 class ContactsService(BaseService):
@@ -8,7 +11,9 @@ class ContactsService(BaseService):
     The 'Contacts' iCloud service, connects to iCloud and returns contacts.
     """
 
-    def __init__(self, service_root, session, params) -> None:
+    def __init__(
+        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+    ) -> None:
         super().__init__(service_root, session, params)
         self._contacts_endpoint: str = f"{self.service_root}/co"
         self._contacts_refresh_url: str = f"{self._contacts_endpoint}/startup"

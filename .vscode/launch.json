@@ -20,7 +20,7 @@
             ]
         },
         {
-            "name": "Python Debugger: PyiCloud List (no passoword)",
+            "name": "Python Debugger: PyiCloud List (no password)",
             "type": "debugpy",
             "request": "launch",
             "module": "pyicloud.cmdline",
@@ -40,7 +40,6 @@
             "purpose": [
                 "debug-test"
             ],
-            // "console": "integratedTerminal",
             "justMyCode": false
         },
         {

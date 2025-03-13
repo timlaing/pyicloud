@@ -2,11 +2,12 @@
 
 import os
 import secrets
-from unittest.mock import mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
 from pyicloud.base import PyiCloudService
+from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
 from tests.const_login import LOGIN_WORKING
 
@@ -48,7 +49,7 @@ def mock_open_fixture():
 
 
 @pytest.fixture
-def pyicloud_service():
+def pyicloud_service() -> PyiCloudService:
     """Create a PyiCloudService instance with mocked authenticate method."""
     with (
         patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate,
@@ -61,15 +62,20 @@ def pyicloud_service():
 
 
 @pytest.fixture
-def pyicloud_service_working(pyicloud_service: PyiCloudService):
+def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudService:  # pylint: disable=redefined-outer-name
     """Set the service to a working state."""
     pyicloud_service.data = LOGIN_WORKING
-    pyicloud_service._webservices = LOGIN_WORKING["webservices"]
+    pyicloud_service._webservices = LOGIN_WORKING["webservices"]  # pylint: disable=protected-access
     pyicloud_service.session = PyiCloudSessionMock(pyicloud_service)
-    yield pyicloud_service
+    return pyicloud_service
 
 
 @pytest.fixture
-def mock_session(pyicloud_service_working: PyiCloudService):
+def pyicloud_session(pyicloud_service_working: PyiCloudService) -> PyiCloudSession:  # pylint: disable=redefined-outer-name
     """Mock the PyiCloudSession class."""
-    yield pyicloud_service_working.session
+    pyicloud_service_working.session_data = {"session_token": "valid_token"}
+    pyicloud_service_working.session.cookies = MagicMock()
+    pyicloud_service_working.session._lwp_cookies = (  # pylint: disable=protected-access
+        pyicloud_service_working.session.cookies
+    )
+    return pyicloud_service_working.session

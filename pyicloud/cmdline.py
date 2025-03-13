@@ -378,7 +378,7 @@ def _list_devices_option(command_line: argparse.Namespace, dev: AppleDevice) -> 
         print(f"Device Model   - {contents['deviceModel']}")
 
 
-def _handle_2fa(api) -> None:
+def _handle_2fa(api: PyiCloudService) -> None:
     print("\nTwo-step authentication required.", "\nPlease enter validation code")
     # fmt: on
 

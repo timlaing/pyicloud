@@ -1,12 +1,13 @@
 """Find my iPhone service."""
 
 import json
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 from requests import Response
 
 from pyicloud.exceptions import PyiCloudNoDevicesException
 from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 
 
 class FindMyiPhoneServiceManager(BaseService):
@@ -16,7 +17,13 @@ class FindMyiPhoneServiceManager(BaseService):
     latitude and longitude.
     """
 
-    def __init__(self, service_root, session, params, with_family=False) -> None:
+    def __init__(
+        self,
+        service_root: str,
+        session: PyiCloudSession,
+        params: dict[str, Any],
+        with_family=False,
+    ) -> None:
         super().__init__(service_root, session, params)
         self.with_family: bool = with_family
 
@@ -107,7 +114,8 @@ class AppleDevice:
         self.message_url: str = message_url
 
     @property
-    def session(self):
+    def session(self) -> PyiCloudSession:
+        """Gets the session."""
         return self.manager.session
 
     def update(self, data) -> None:
@@ -119,7 +127,7 @@ class AppleDevice:
         self.manager.refresh_client()
         return self.content["location"]
 
-    def status(self, additional=[]) -> dict[str, Any]:  # pylint: disable=dangerous-default-value
+    def status(self, additional: Optional[list[str]] = None) -> dict[str, Any]:
         """Returns status information for device.
 
         This returns only a subset of possible properties.
@@ -131,7 +139,9 @@ class AppleDevice:
             "deviceStatus",
             "name",
         ]
-        fields += additional
+        if additional is not None:
+            fields += additional
+
         properties: dict[str, Any] = {}
         for field in fields:
             properties[field] = self.content.get(field)

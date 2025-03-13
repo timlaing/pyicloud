@@ -1,15 +1,18 @@
 """File service."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
-from .base import BaseService
+from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 
 
 class UbiquityService(BaseService):
     """The 'Ubiquity' iCloud service."""
 
-    def __init__(self, service_root, session, params) -> None:
+    def __init__(
+        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+    ) -> None:
         super().__init__(service_root, session, params)
 
         self._root: Optional["UbiquityNode"] = None
