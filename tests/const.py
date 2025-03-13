@@ -1,6 +1,6 @@
 """Test constants."""
 
-from .const_account_family import APPLE_ID_EMAIL, ICLOUD_ID_EMAIL, PRIMARY_EMAIL
+from tests.const_account_family import APPLE_ID_EMAIL, ICLOUD_ID_EMAIL, PRIMARY_EMAIL
 
 # Base
 AUTHENTICATED_USER = PRIMARY_EMAIL

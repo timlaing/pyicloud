@@ -1,8 +1,14 @@
 """Library exceptions."""
 
+from typing import Optional
+
 
 class PyiCloudException(Exception):
     """Generic iCloud exception."""
+
+
+class PasswordException(PyiCloudException):
+    """Password exception."""
 
 
 class TokenException(PyiCloudException):
@@ -13,12 +19,12 @@ class TokenException(PyiCloudException):
 class PyiCloudAPIResponseException(PyiCloudException):
     """iCloud response exception."""
 
-    def __init__(self, reason, code=None, retry=False):
-        self.reason = reason
-        self.code = code
-        message = reason or ""
+    def __init__(self, reason, code=None, retry=False) -> None:
+        self.reason: str = reason
+        self.code: Optional[int] = code
+        message: str = reason or ""
         if code:
-            message += " (%s)" % code
+            message += f" ({code})"
         if retry:
             message += ". Retrying ..."
 
@@ -37,8 +43,8 @@ class PyiCloudFailedLoginException(PyiCloudException):
 class PyiCloud2SARequiredException(PyiCloudException):
     """iCloud 2SA required exception."""
 
-    def __init__(self, apple_id):
-        message = "Two-step authentication required for account: %s" % apple_id
+    def __init__(self, apple_id) -> None:
+        message: str = f"Two-step authentication required for account: {apple_id}"
         super().__init__(message)
 
 
