@@ -9,9 +9,10 @@ from pyicloud.services.account import AccountStorageUsage
 
 def test_repr(pyicloud_service_working: PyiCloudService) -> None:
     """Tests representation."""
-    # fmt: off
-    assert repr(pyicloud_service_working.account) == "<AccountService: {devices: 2, family: 3, storage: 3020076244 bytes free}>"
-    # fmt: on
+    assert (
+        repr(pyicloud_service_working.account)
+        == "<AccountService: {devices: 2, family: 3, storage: 3020076244 bytes free}>"
+    )
 
 
 def test_devices(pyicloud_service_working: PyiCloudService) -> None:
@@ -34,9 +35,14 @@ def test_devices(pyicloud_service_working: PyiCloudService) -> None:
         assert device["modelSmallPhotoURL2x"]
         assert device["modelSmallPhotoURL1x"]
         assert device["modelDisplayName"]
-        # fmt: off
-        assert repr(device) == "<AccountDevice: {model: "+device.model_display_name+", name: "+device.name+"}>"
-        # fmt: on
+        assert (
+            repr(device)
+            == "<AccountDevice: {model: "
+            + device.model_display_name
+            + ", name: "
+            + device.name
+            + "}>"
+        )
 
 
 def test_family(pyicloud_service_working: PyiCloudService) -> None:
@@ -57,9 +63,14 @@ def test_family(pyicloud_service_working: PyiCloudService) -> None:
         assert not member.has_ask_to_buy_enabled
         assert not member.share_my_location_enabled_family_members
         assert member.dsid_for_purchases
-        # fmt: off
-        assert repr(member) == "<FamilyMember: {name: "+member.full_name+", age_classification: "+member.age_classification+"}>"
-        # fmt: on
+        assert (
+            repr(member)
+            == "<FamilyMember: {name: "
+            + member.full_name
+            + ", age_classification: "
+            + member.age_classification
+            + "}>"
+        )
 
 
 @skipIf(
@@ -69,9 +80,10 @@ def test_family(pyicloud_service_working: PyiCloudService) -> None:
 def test_storage(pyicloud_service_working: PyiCloudService) -> None:
     """Tests storage."""
     assert pyicloud_service_working.account.storage
-    # fmt: off
-    assert repr(pyicloud_service_working.account.storage) == "<AccountStorage: {usage: 43.75% used of 5368709120 bytes, usages_by_media: OrderedDict([('photos', <AccountStorageUsageForMedia: {key: photos, usage: 0 bytes}>), ('backup', <AccountStorageUsageForMedia: {key: backup, usage: 799008186 bytes}>), ('docs', <AccountStorageUsageForMedia: {key: docs, usage: 449092146 bytes}>), ('mail', <AccountStorageUsageForMedia: {key: mail, usage: 1101522944 bytes}>)])}>"
-    # fmt: on
+    assert (
+        repr(pyicloud_service_working.account.storage)
+        == "<AccountStorage: {usage: 43.75% used of 5368709120 bytes, usages_by_media: OrderedDict([('photos', <AccountStorageUsageForMedia: {key: photos, usage: 0 bytes}>), ('backup', <AccountStorageUsageForMedia: {key: backup, usage: 799008186 bytes}>), ('docs', <AccountStorageUsageForMedia: {key: docs, usage: 449092146 bytes}>), ('mail', <AccountStorageUsageForMedia: {key: mail, usage: 1101522944 bytes}>)])}>"
+    )
 
 
 def test_storage_usage(pyicloud_service_working: PyiCloudService) -> None:
@@ -89,9 +101,14 @@ def test_storage_usage(pyicloud_service_working: PyiCloudService) -> None:
     assert not usage.quota_tier_max
     assert not usage.quota_almost_full
     assert not usage.quota_paid
-    # fmt: off
-    assert repr(usage) == "<AccountStorageUsage: "+str(usage.used_storage_in_percent)+"% used of "+str(usage.total_storage_in_bytes)+" bytes>"
-    # fmt: on
+    assert (
+        repr(usage)
+        == "<AccountStorageUsage: "
+        + str(usage.used_storage_in_percent)
+        + "% used of "
+        + str(usage.total_storage_in_bytes)
+        + " bytes>"
+    )
 
 
 def test_storage_usages_by_media(pyicloud_service_working: PyiCloudService) -> None:
@@ -105,6 +122,11 @@ def test_storage_usages_by_media(pyicloud_service_working: PyiCloudService) -> N
         assert usage_media.label
         assert usage_media.color
         assert usage_media.usage_in_bytes or usage_media.usage_in_bytes == 0
-        # fmt: off
-        assert repr(usage_media) == "<AccountStorageUsageForMedia: {key: "+usage_media.key+", usage: "+str(usage_media.usage_in_bytes)+" bytes}>"
-        # fmt: on
+        assert (
+            repr(usage_media)
+            == "<AccountStorageUsageForMedia: {key: "
+            + usage_media.key
+            + ", usage: "
+            + str(usage_media.usage_in_bytes)
+            + " bytes}>"
+        )

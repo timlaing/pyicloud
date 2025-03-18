@@ -42,6 +42,7 @@
 				"ms-azuretools.vscode-docker"
 			],
 			"settings": {
+				"sonarlint.ls.javaHome": "/usr/lib/jvm/java-17-openjdk-${{devcontainer.architecture}}",
 				"editor.tabSize": 4,
 				"terminal.integrated.profiles.linux": {
 					"zsh": {

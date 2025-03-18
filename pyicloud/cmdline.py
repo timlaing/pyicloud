@@ -238,6 +238,7 @@ def _authenticate(
     command_line: argparse.Namespace,
     failures: int = 0,
 ) -> Optional[PyiCloudService]:
+    api = None
     try:
         api = PyiCloudService(username, password, china_mainland=china_mainland)
         if (
@@ -380,7 +381,6 @@ def _list_devices_option(command_line: argparse.Namespace, dev: AppleDevice) -> 
 
 def _handle_2fa(api: PyiCloudService) -> None:
     print("\nTwo-step authentication required.", "\nPlease enter validation code")
-    # fmt: on
 
     code: str = input("(string) --> ")
     if not api.validate_2fa_code(code):
@@ -392,7 +392,6 @@ def _handle_2fa(api: PyiCloudService) -> None:
 
 def _handle_2sa(api: PyiCloudService) -> None:
     print("\nTwo-step authentication required.", "\nYour trusted devices are:")
-    # fmt: on
 
     devices: list[dict[str, Any]] = _show_devices(api)
 

@@ -30,7 +30,8 @@
                 "--list",
                 "-n",
                 "--debug"
-            ]
+            ],
+            "justMyCode": false
         },
         {
             "name": "Python: Debug Tests",

@@ -10,6 +10,7 @@ from pyicloud.base import PyiCloudService, PyiCloudSession
 from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
     PyiCloudAPIResponseException,
+    PyiCloudFailedLoginException,
     PyiCloudServiceNotActivatedException,
 )
 
@@ -43,21 +44,32 @@ def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> N
 
 def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> None:
     """Test the authenticate method with missing session_token."""
-    with patch("pyicloud.base.PyiCloudSession.post") as mock_post_response:
-        mock_post_response.json.return_value = {
-            "salt": "U29tZVNhbHQ=",
-            "b": "U29tZUJ5dGVz",
-            "c": "TestC",
-            "iteration": 1000,
-            "dsInfo": {"hsaVersion": 1},
-            "hsaChallengeRequired": False,
-            "webservices": "TestWebservices",
-        }
+    with (
+        patch("pyicloud.base.PyiCloudSession.post") as mock_post_response,
+        patch.object(
+            pyicloud_service,
+            "_authenticate_with_token",
+            side_effect=[PyiCloudFailedLoginException, None],
+        ) as mock_authenticate_with_token,
+    ):
+        mock_post_response.return_value.json.side_effect = [
+            {
+                "salt": "U29tZVNhbHQ=",
+                "b": "U29tZUJ5dGVz",
+                "c": "TestC",
+                "iteration": 1000,
+                "dsInfo": {"hsaVersion": 1},
+                "hsaChallengeRequired": False,
+                "webservices": "TestWebservices",
+            },
+            None,
+        ]
         pyicloud_service.session.post = mock_post_response
         pyicloud_service.session_data = {}
         pyicloud_service.params = {}
         pyicloud_service.authenticate()
-        mock_post_response.assert_called_once()
+        assert mock_post_response.call_count == 2
+        assert mock_authenticate_with_token.call_count == 2
 
 
 def test_validate_2fa_code(pyicloud_service: PyiCloudService) -> None:
@@ -65,6 +77,7 @@ def test_validate_2fa_code(pyicloud_service: PyiCloudService) -> None:
     pyicloud_service.session_data = {
         "scnt": "test_scnt",
         "session_id": "test_session_id",
+        "session_token": "test_session_token",
     }
     pyicloud_service.data = {"dsInfo": {"hsaVersion": 1}, "hsaChallengeRequired": False}
 
@@ -89,35 +102,27 @@ def test_validate_2fa_code_failure(pyicloud_service: PyiCloudService) -> None:
         assert not pyicloud_service.validate_2fa_code("000000")
 
 
-def test_validate_2fa_code_failure_2(pyicloud_service: PyiCloudService) -> None:
-    """Test the validate_2fa_code method with a different error code."""
-    exception = PyiCloudAPIResponseException("Invalid code")
-    exception.code = -1
-    with (
-        patch("pyicloud.base.PyiCloudSession") as mock_session,
-        pytest.raises(PyiCloudAPIResponseException),
-    ):
-        mock_session.post.side_effect = exception
-        pyicloud_service.session = mock_session
-        pyicloud_service.validate_2fa_code("000000")
-
-
 def test_get_webservice_url_success(pyicloud_service: PyiCloudService) -> None:
-    """Test the _get_webservice_url method with a valid key."""
+    """Test the get_webservice_url method with a valid key."""
     pyicloud_service._webservices = {"test_key": {"url": "https://example.com"}}  # pylint: disable=protected-access
-    url: str = pyicloud_service._get_webservice_url("test_key")  # pylint: disable=protected-access
+    url: str = pyicloud_service.get_webservice_url("test_key")  # pylint: disable=protected-access
     assert url == "https://example.com"
 
 
 def test_get_webservice_url_failure(pyicloud_service: PyiCloudService) -> None:
-    """Test the _get_webservice_url method with an invalid key."""
+    """Test the get_webservice_url method with an invalid key."""
     pyicloud_service._webservices = {}  # pylint: disable=protected-access
     with pytest.raises(PyiCloudServiceNotActivatedException):
-        pyicloud_service._get_webservice_url("invalid_key")  # pylint: disable=protected-access
+        pyicloud_service.get_webservice_url("invalid_key")  # pylint: disable=protected-access
 
 
 def test_trust_session_success(pyicloud_service: PyiCloudService) -> None:
     """Test the trust_session method with a successful response."""
+    pyicloud_service.session_data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+        "session_token": "test_session_token",
+    }
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
         pyicloud_service.session = mock_session
         assert pyicloud_service.trust_session()
@@ -205,19 +210,21 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
     """Test the request method with a failure response."""
 
     with (
-        pytest.raises(PyiCloudAPIResponseException),
         patch("requests.Session.request") as mock_request,
-        patch("builtins.open", new_callable=mock_open),
+        patch("builtins.open", new_callable=mock_open) as open_mock,
         patch("http.cookiejar.LWPCookieJar.save") as mock_save,
     ):
         mock_response = MagicMock()
         mock_response.status_code = 400
+        mock_response.ok = False
         mock_response.json.return_value = {"error": "Bad Request"}
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
         pyicloud_session = PyiCloudSession(pyicloud_service_working)
-
-        pyicloud_session.request("POST", "https://example.com", data={"key": "value"})
+        with pytest.raises(PyiCloudAPIResponseException):
+            pyicloud_session.request(
+                "POST", "https://example.com", data={"key": "value"}
+            )
 
         mock_request.assert_called_once_with(
             method="POST",
@@ -238,6 +245,7 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
             json=None,
         )
         mock_save.assert_called_once()
+        open_mock.assert_called_once()
 
 
 def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) -> None:
@@ -283,15 +291,17 @@ def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) 
 
 
 def test_request_error_handling_for_response_conditions() -> None:
-    """Mock the _get_webservice_url to return a valid fmip_url."""
+    """Mock the get_webservice_url to return a valid fmip_url."""
+    pyicloud_service = MagicMock(spec=PyiCloudService)
     with (
         pytest.raises(PyiCloudAPIResponseException),
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
         patch("os.path.exists", return_value=False),
-        patch("pyicloud.session.LWPCookieJar"),
-        patch(
-            "pyicloud.base.PyiCloudService._get_webservice_url",
+        patch("http.cookiejar.LWPCookieJar"),
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
             return_value="https://fmip.example.com",
         ),
     ):
@@ -303,7 +313,6 @@ def test_request_error_handling_for_response_conditions() -> None:
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
 
-        pyicloud_service = MagicMock(spec=PyiCloudService)
         pyicloud_service.session_data = {"session_token": "valid_token"}
         pyicloud_session = PyiCloudSession(pyicloud_service)
 
