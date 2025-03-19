@@ -227,7 +227,7 @@ class PyiCloudSession(requests.Session):
                 **kwargs,
             )
 
-        self._raise_error(response.status_code, response.reason)
+        return self._raise_error(response.status_code, response.reason)
 
     def _decode_json_response(self, response: Response) -> None:
         """Decode JSON response."""
@@ -249,7 +249,7 @@ class PyiCloudSession(requests.Session):
                 code = data.get("serverErrorCode")
 
             if reason:
-                self._raise_error(code, reason)
+                return self._raise_error(code, reason)
 
         except JSONDecodeError:
             self.logger.warning(

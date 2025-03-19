@@ -213,7 +213,11 @@ class PyiCloudService(object):
             except PyiCloudAPIResponseException:
                 LOGGER.debug("Invalid authentication token, will log in from scratch.")
 
-        if not login_successful and service is not None:
+        if (
+            not login_successful
+            and service is not None
+            and service in self.data["apps"]
+        ):
             app: dict[str, Any] = self.data["apps"][service]
             if "canLaunchWithOneFactor" in app and app["canLaunchWithOneFactor"]:
                 LOGGER.debug("Authenticating as %s for %s", self.account_name, service)
