@@ -2,8 +2,12 @@
 
 import logging
 
-from pyicloud.base import PyiCloudService
+from pyicloud.base import AppleDevice, PyiCloudService
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-__all__ = ["PyiCloudService"]
+
+__all__: list[str] = [
+    "PyiCloudService",
+    "AppleDevice",
+]

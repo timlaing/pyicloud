@@ -4,14 +4,18 @@ import base64
 import json
 import os
 from datetime import datetime, timezone
+from typing import Any, Generator, Optional
 from urllib.parse import urlencode
 
+from requests import Response
+
+from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudServiceNotActivatedException,
 )
-
-from ..const import CONTENT_TYPE, CONTENT_TYPE_TEXT
+from pyicloud.services.base import BaseService
+from pyicloud.session import PyiCloudSession
 
 
 class PhotoLibrary:
@@ -131,21 +135,26 @@ class PhotoLibrary:
         },
     }
 
-    def __init__(self, service, zone_id, upload_url=None) -> None:
-        self.service = service
-        self._upload_url = upload_url
-        self.zone_id = zone_id
-        self._albums = None
+    def __init__(
+        self,
+        service: "PhotosService",
+        zone_id: dict[str, str],
+        upload_url: Optional[str] = None,
+    ) -> None:
+        self.service: PhotosService = service
+        self._upload_url: Optional[str] = upload_url
+        self.zone_id: dict[str, str] = zone_id
+        self._albums: Optional[dict[str, PhotoAlbum]] = None
 
-        url = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
-        json_data = json.dumps(
+        url: str = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
+        json_data: str = json.dumps(
             {"query": {"recordType": "CheckIndexingState"}, "zoneID": self.zone_id}
         )
-        request = self.service.session.post(
+        request: Response = self.service.session.post(
             url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
-        response = request.json()
-        indexing_state = response["records"][0]["fields"]["state"]["value"]
+        response: dict[str, Any] = request.json()
+        indexing_state: str = response["records"][0]["fields"]["state"]["value"]
         if indexing_state != "FINISHED":
             raise PyiCloudServiceNotActivatedException(
                 "iCloud Photo Library not finished indexing. "
@@ -153,7 +162,7 @@ class PhotoLibrary:
             )
 
     @property
-    def albums(self):
+    def albums(self) -> dict[str, "PhotoAlbum"]:
         """Returns photo albums."""
         if not self._albums:
             self._albums = {
@@ -175,14 +184,14 @@ class PhotoLibrary:
                 ):
                     continue
 
-                folder_id = folder["recordName"]
-                folder_obj_type = (
-                    "CPLContainerRelationNotDeletedByAssetDate:%s" % folder_id
+                folder_id: str = folder["recordName"]
+                folder_obj_type: str = (
+                    f"CPLContainerRelationNotDeletedByAssetDate:{folder_id}"
                 )
-                folder_name = base64.b64decode(
+                folder_name: str = base64.b64decode(
                     folder["fields"]["albumNameEnc"]["value"]
                 ).decode("utf-8")
-                query_filter = [
+                query_filter: list[dict[str, Any]] = [
                     {
                         "fieldName": "parentId",
                         "comparator": "EQUALS",
@@ -203,32 +212,32 @@ class PhotoLibrary:
 
         return self._albums
 
-    def _fetch_folders(self):
-        url = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
-        json_data = json.dumps(
+    def _fetch_folders(self) -> list[dict[str, Any]]:
+        url: str = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
+        json_data: str = json.dumps(
             {"query": {"recordType": "CPLAlbumByPositionLive"}, "zoneID": self.zone_id}
         )
 
-        request = self.service.session.post(
+        request: Response = self.service.session.post(
             url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
-        response = request.json()
+        response: dict[str, list[dict[str, Any]]] = request.json()
 
         return response["records"]
 
     @property
-    def all(self):
+    def all(self) -> "PhotoAlbum":
         """Returns all photos."""
         return self.albums["All Photos"]
 
     def upload_file(self, path):
         """Upload a photo from path, returns a recordName"""
 
-        filename = os.path.basename(path)
-        url = "{}/upload".format(self._upload_url)
+        filename: str = os.path.basename(path)
+        url: str = f"{self._upload_url}/upload"
 
         with open(path, "rb") as file_obj:
-            request = self.service.session.post(
+            request: Response = self.service.session.post(
                 url,
                 data=file_obj.read(),
                 params={
@@ -247,45 +256,55 @@ class PhotoLibrary:
         ][0]
 
 
-class PhotosService(PhotoLibrary):
+class PhotosService(PhotoLibrary, BaseService):
     """The 'Photos' iCloud service.
 
     This also acts as a way to access the user's primary library."""
 
-    def __init__(self, service_root, session, params, upload_url, shared_streams_url):
-        self.session = session
-        self.params = dict(params)
-        self._service_root = service_root
-        self.service_endpoint = (
-            "%s/database/1/com.apple.photos.cloud/production/private"
-            % self._service_root
+    def __init__(
+        self,
+        service_root: str,
+        session: PyiCloudSession,
+        params: dict[str, Any],
+        upload_url: str,
+        shared_streams_url: str,
+    ) -> None:
+        BaseService.__init__(
+            self,
+            service_root=service_root,
+            session=session,
+            params=params,
         )
-        self._shared_streams_url = shared_streams_url
-        self.shared_streams_url = f"{self._shared_streams_url}/{self.params['dsid']}/sharedstreams/webgetalbumslist"
-        self._shared_streams = None
-
-        self._libraries = None
-
-        self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
-
-        self._photo_assets = {}
-
         super().__init__(
             service=self,
             upload_url=upload_url,
             zone_id={"zoneName": "PrimarySync"},
         )
 
+        self.service_endpoint: str = (
+            f"{self.service_root}/database/1/com.apple.photos.cloud/production/private"
+        )
+        self._shared_streams_url: str = shared_streams_url
+        self.shared_streams_url: str = f"{self._shared_streams_url}/{self.params['dsid']}/sharedstreams/webgetalbumslist"
+        self._shared_streams: Optional[dict[str, SharedStream]] = None
+
+        self._libraries: Optional[dict[str, PhotoLibrary]] = None
+
+        self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
+
+        self._photo_assets: dict = {}
+
     @property
-    def shared_streams(self):
+    def shared_streams(self) -> dict[str, "SharedStream"]:
+        """Returns shared streams."""
         if not self._shared_streams:
             self._shared_streams = dict()
-            url = f"{self.shared_streams_url}?{urlencode(self.service.params)}"
-            json_data = json.dumps({})
-            request = self.service.session.post(
+            url: str = f"{self.shared_streams_url}?{urlencode(self.service.params)}"
+            json_data: str = json.dumps({})
+            request: Response = self.service.session.post(
                 url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
             )
-            response = request.json()
+            response: dict[str, list] = request.json()
             for album in response["albums"]:
                 shared_stream = SharedStream(
                     service=self.service,
@@ -305,20 +324,21 @@ class PhotosService(PhotoLibrary):
         return self._shared_streams
 
     @property
-    def libraries(self):
+    def libraries(self) -> dict[str, PhotoLibrary]:
+        """Returns photo libraries."""
         if not self._libraries:
-            url = "%s/changes/database" % (self.service_endpoint,)
+            url: str = f"{self.service_endpoint}/changes/database"
 
-            request = self.session.post(
+            request: Response = self.session.post(
                 url, data="{}", headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
             )
-            response = request.json()
-            zones = response["zones"]
+            response: dict[str, Any] = request.json()
+            zones: list[dict[str, Any]] = response["zones"]
 
-            libraries = {}
+            libraries: dict[str, PhotoLibrary] = {}
             for zone in zones:
                 if not zone.get("deleted"):
-                    zone_name = zone["zoneID"]["zoneName"]
+                    zone_name: str = zone["zoneID"]["zoneName"]
                     libraries[zone_name] = PhotoLibrary(self, zone["zoneID"])
 
             self._libraries = libraries
@@ -331,45 +351,42 @@ class PhotoAlbum:
 
     def __init__(
         self,
-        service,
-        name,
-        list_type,
-        obj_type,
-        direction,
-        query_filter=None,
-        page_size=100,
-        zone_id=None,
-    ):
-        self.name = name
-        self.service = service
-        self.list_type = list_type
-        self.obj_type = obj_type
-        self.direction = direction
-        self.query_filter = query_filter
-        self.page_size = page_size
+        service: PhotosService,
+        name: str,
+        list_type: str,
+        obj_type: str,
+        direction: str,
+        query_filter: Optional[list[dict[str, Any]]] = None,
+        page_size: int = 100,
+        zone_id: Optional[dict[str, str]] = None,
+    ) -> None:
+        self.name: str = name
+        self.service: PhotosService = service
+        self.list_type: str = list_type
+        self.obj_type: str = obj_type
+        self.direction: str = direction
+        self.query_filter: Optional[list[dict[str, Any]]] = query_filter
+        self.page_size: int = page_size
 
         if zone_id:
-            self.zone_id = zone_id
+            self.zone_id: dict[str, str] = zone_id
         else:
             self.zone_id = {"zoneName": "PrimarySync"}
 
-        self._len = None
+        self._len: Optional[int] = None
 
     @property
-    def title(self):
+    def title(self) -> str:
         """Gets the album name."""
         return self.name
 
-    def __iter__(self):
+    def __iter__(self) -> Generator["PhotoAsset", None, None]:
         return self.photos
 
-    def __len__(self):
+    def __len__(self) -> int:
         if self._len is None:
-            url = "{}/internal/records/query/batch?{}".format(
-                self.service.service_endpoint,
-                urlencode(self.service.params),
-            )
-            request = self.service.session.post(
+            url: str = f"{self.service.service_endpoint}/internal/records/query/batch?{urlencode(self.service.params)}"
+            request: Response = self.service.session.post(
                 url,
                 data=json.dumps(
                     {
@@ -395,19 +412,19 @@ class PhotoAlbum:
                 ),
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            response = request.json()
+            response: dict[str, Any] = request.json()
 
             self._len = response["batch"][0]["records"][0]["fields"]["itemCount"][
                 "value"
             ]
 
-        return self._len
+        return self._len if self._len else 0
 
     @property
-    def photos(self):
+    def photos(self) -> Generator["PhotoAsset", None, None]:
         """Returns the album photos."""
         if self.direction == "DESCENDING":
-            offset = len(self) - 1
+            offset: int = len(self) - 1
         else:
             offset = 0
 
@@ -425,29 +442,38 @@ class PhotoAlbum:
             else:
                 offset = offset + num_results
 
-    def photo(self, index):
+    def photo(self, index) -> Generator["PhotoAsset", None, None]:
+        """Returns a photo at the given index."""
         return self._get_photos_at(index, self.direction, 2)
 
-    def _get_photos_at(self, index, direction, page_size=100):
-        if direction == "DESCENDING":
-            offset = len(self) - index - 1
-        else:
-            offset = index
+    def _get_photos_at(
+        self, index: int, direction: str, page_size=100
+    ) -> Generator["PhotoAsset", None, None]:
+        offset: int = len(self) - index - 1 if direction == "DESCENDING" else index
 
-        url = ("%s/records/query?" % self.service.service_endpoint) + urlencode(
+        url: str = f"{self.service.service_endpoint}/records/query?" + urlencode(
             self.service.params
         )
-        request = self.service.session.post(
+        request: Response = self.service.session.post(
             url,
             data=json.dumps(
                 self._list_query_gen(
-                    index, self.list_type, direction, page_size, self.query_filter
+                    offset, self.list_type, direction, page_size, self.query_filter
                 )
             ),
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
-        response = request.json()
+        response: dict[str, list[dict[str, Any]]] = request.json()
 
+        asset_records, master_records = self._parse_response(response)
+
+        for master_record in master_records:
+            record_name: str = master_record["recordName"]
+            yield PhotoAsset(self.service, master_record, asset_records[record_name])
+
+    def _parse_response(
+        self, response: dict[str, list[dict[str, Any]]]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         asset_records = {}
         master_records = []
         for rec in response["records"]:
@@ -456,24 +482,17 @@ class PhotoAlbum:
                 asset_records[master_id] = rec
             elif rec["recordType"] == "CPLMaster":
                 master_records.append(rec)
-
-        master_records_len = len(master_records)
-        if master_records_len:
-            if direction == "DESCENDING":
-                offset = offset - master_records_len
-            else:
-                offset = offset + master_records_len
-
-            for master_record in master_records:
-                record_name = master_record["recordName"]
-                yield PhotoAsset(
-                    self.service, master_record, asset_records[record_name]
-                )
+        return asset_records, master_records
 
     def _list_query_gen(
-        self, offset, list_type, direction, num_results, query_filter=None
-    ):
-        query = {
+        self,
+        offset: int,
+        list_type: str,
+        direction: str,
+        num_results: int,
+        query_filter=None,
+    ) -> dict[str, Any]:
+        query: dict[str, Any] = {
             "query": {
                 "filterBy": [
                     {
@@ -597,10 +616,10 @@ class PhotoAlbum:
 
         return query
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.title
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: '{self}'>"
 
 
@@ -609,67 +628,73 @@ class SharedStream:
 
     def __init__(
         self,
-        service,
-        name,
-        album_location,
-        album_ctag,
-        album_guid,
-        owner_dsid,
-        creation_date,
-        sharing_type="owned",
-        allow_contributions=False,
-        is_public=False,
-        is_web_upload_supported=False,
-        public_url=None,
-        page_size=100,
-    ):
-        self.name = name
-        self.service = service
-        self.page_size = page_size
-        self._album_location = album_location
-        self._album_ctag = album_ctag
-        self.album_guid = album_guid
-        self._owner_dsid = owner_dsid
+        service: PhotosService,
+        name: str,
+        album_location: str,
+        album_ctag: str,
+        album_guid: str,
+        owner_dsid: str,
+        creation_date: str,
+        sharing_type: str = "owned",
+        allow_contributions: bool = False,
+        is_public: bool = False,
+        is_web_upload_supported: bool = False,
+        public_url: Optional[str] = None,
+        page_size: int = 100,
+    ) -> None:
+        self.name: str = name
+        self.service: PhotosService = service
+        self.page_size: int = page_size
+        self._album_location: str = album_location
+        self._album_ctag: str = album_ctag
+        self.album_guid: str = album_guid
+        self._owner_dsid: str = owner_dsid
         try:
-            self.creation_date = datetime.fromtimestamp(
+            self.creation_date: datetime = datetime.fromtimestamp(
                 int(creation_date) / 1000.0, timezone.utc
             )
         except ValueError:
             self.creation_date = datetime.fromtimestamp(0, timezone.utc)
 
         # Read only properties
-        self._sharing_type = sharing_type
-        self._allow_contributions = allow_contributions
-        self._is_public = is_public
-        self._is_web_upload_supported = is_web_upload_supported
-        self._public_url = public_url
-        self._photos = None
+        self._sharing_type: str = sharing_type
+        self._allow_contributions: bool = allow_contributions
+        self._is_public: bool = is_public
+        self._is_web_upload_supported: bool = is_web_upload_supported
+        self._public_url: Optional[str] = public_url
+        self._photos: Optional[Generator[PhotoStreamAsset, None, None]] = None
 
-        self._len = None
+        self._len: Optional[int] = None
 
     @property
-    def sharing_type(self):
+    def sharing_type(self) -> str:
+        """Gets the sharing type."""
         return self._sharing_type
 
     @property
-    def allow_contributions(self):
+    def allow_contributions(self) -> bool:
+        """Gets if contributions are allowed."""
         return self._allow_contributions
 
     @property
-    def is_public(self):
+    def is_public(self) -> bool:
+        """Gets if the album is public."""
         return self._is_public
 
     @property
-    def is_web_upload_supported(self):
+    def is_web_upload_supported(self) -> bool:
+        """Gets if web uploads are supported."""
         return self._is_web_upload_supported
 
     @property
-    def public_url(self):
+    def public_url(self) -> Optional[str]:
+        """Gets the public URL."""
         return self._public_url
 
     @property
-    def photos(self):
-        offset = 0
+    def photos(self) -> Generator["PhotoStreamAsset", None, None]:
+        """Returns the album photos."""
+        offset: int = 0
         while True:
             num_results = 0
             for photo in self._get_photos_at(offset, self.page_size):
@@ -679,109 +704,113 @@ class SharedStream:
                 break
             offset = offset + num_results
 
-    def _get_photos_at(self, offset, page_size=100):
-        url = f"{self._album_location}webgetassets?{urlencode(self.service.params)}"
-        limit = min(offset + page_size, len(self))
-        payload = {
+    def _parse_response(
+        self, response: dict[str, list[dict[str, Any]]]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Parses the response."""
+        asset_records = {}
+        master_records = []
+        for rec in response["records"]:
+            if rec["recordType"] == "CPLAsset":
+                master_id = rec["fields"]["masterRef"]["value"]["recordName"]
+                asset_records[master_id] = rec
+            elif rec["recordType"] == "CPLMaster":
+                master_records.append(rec)
+        return asset_records, master_records
+
+    def _get_photos_at(
+        self, offset, page_size=100
+    ) -> Generator["PhotoStreamAsset", None, None]:
+        """Returns the photos at the given offset."""
+        url: str = (
+            f"{self._album_location}webgetassets?{urlencode(self.service.params)}"
+        )
+        limit: int = min(offset + page_size, len(self))
+        payload: dict[str, str] = {
             "albumguid": self.album_guid,
             "albumctag": self._album_ctag,
             "limit": str(limit),
             "offset": str(offset),
         }
-        request = self.service.session.post(
+        response: Response = self.service.session.post(
             url,
             data=json.dumps(payload),
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
-        response = request.json()
-
-        asset_records = {}
-        master_records = []
-        names = set()
-        for rec in response.get("records", {}):
-            if rec.get("recordType") == "CPLAsset":
-                master_id = (
-                    rec.get("fields", {})
-                    .get("masterRef", {})
-                    .get("value", {})
-                    .get("recordName", None)
-                )
-                if master_id:
-                    asset_records[master_id] = rec
-            elif rec.get("recordType") == "CPLMaster":
-                name = rec.get("recordName", None)
-                if name and (name not in names):
-                    master_records.append(rec)
-                    names.add(name)
+        json_response: dict[str, Any] = response.json()
+        asset_records, master_records = self._parse_response(json_response)
 
         for master_record in master_records:
-            record_name = master_record.get("recordName", None)
-            asset_record = asset_records.get(record_name, None)
-            if record_name and asset_record:
-                yield PhotoStreamAsset(self.service, master_record, asset_record)
-            else:
-                continue
+            record_name: str = master_record["recordName"]
+            yield PhotoStreamAsset(
+                self.service, master_record, asset_records[record_name]
+            )
 
-    def __iter__(self):
+    def __iter__(self) -> Generator["PhotoStreamAsset", None, None]:
         return self.photos
 
-    def __len__(self):
+    def __len__(self) -> int:
         if self._len is None:
-            url = f"{self._album_location}webgetassetcount?{urlencode(self.service.params)}"
-            request = self.service.session.post(
+            url: str = f"{self._album_location}webgetassetcount?{urlencode(self.service.params)}"
+            request: Response = self.service.session.post(
                 url,
                 data=json.dumps({"albumguid": self.album_guid}),
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            response = request.json()
+            response: dict[str, Any] = request.json()
 
             self._len = response["albumassetcount"]
 
-        return self._len
+        return self._len if self._len else 0
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: '{self}'>"
 
 
 class PhotoAsset:
     """A photo."""
 
-    def __init__(self, service, master_record, asset_record):
-        self._service = service
-        self._master_record = master_record
-        self._asset_record = asset_record
+    def __init__(
+        self,
+        service: PhotosService,
+        master_record: dict[str, Any],
+        asset_record: dict[str, Any],
+    ) -> None:
+        self._service: PhotosService = service
+        self._master_record: dict[str, Any] = master_record
+        self._asset_record: dict[str, Any] = asset_record
 
-        self._versions = None
+        self._versions: Optional[dict[str, dict[str, Any]]] = None
 
-    ITEM_TYPES = {
+    ITEM_TYPES: dict[str, str] = {
         "public.heic": "image",
         "public.jpeg": "image",
         "public.png": "image",
         "com.apple.quicktime-movie": "movie",
     }
 
-    PHOTO_VERSION_LOOKUP = {
+    PHOTO_VERSION_LOOKUP: dict[str, str] = {
         "original": "resOriginal",
         "medium": "resJPEGMed",
         "thumb": "resJPEGThumb",
     }
 
-    VIDEO_VERSION_LOOKUP = {
+    VIDEO_VERSION_LOOKUP: dict[str, str] = {
         "original": "resOriginal",
         "medium": "resVidMed",
         "thumb": "resVidSmall",
     }
 
     @property
-    def id(self):
+    def id(self) -> str:
         """Gets the photo id."""
         return self._master_record["recordName"]
 
     @property
-    def filename(self):
+    def filename(self) -> str:
         """Gets the photo file name."""
         return base64.b64decode(
             self._master_record["fields"]["filenameEnc"]["value"]
@@ -793,12 +822,12 @@ class PhotoAsset:
         return self._master_record["fields"]["resOriginalRes"]["value"]["size"]
 
     @property
-    def created(self):
+    def created(self) -> datetime:
         """Gets the photo created date."""
         return self.asset_date
 
     @property
-    def asset_date(self):
+    def asset_date(self) -> datetime:
         """Gets the photo asset date."""
         try:
             return datetime.fromtimestamp(
@@ -809,7 +838,7 @@ class PhotoAsset:
             return datetime.fromtimestamp(0, timezone.utc)
 
     @property
-    def added_date(self):
+    def added_date(self) -> datetime:
         """Gets the photo added date."""
         return datetime.fromtimestamp(
             self._asset_record["fields"]["addedDate"]["value"] / 1000.0, timezone.utc
@@ -824,9 +853,10 @@ class PhotoAsset:
         )
 
     @property
-    def item_type(self):
+    def item_type(self) -> str:
+        """Gets the photo item type."""
         try:
-            item_type = self._master_record["fields"]["itemType"]["value"]
+            item_type: str = self._master_record["fields"]["itemType"]["value"]
         except KeyError:
             try:
                 item_type = self._master_record["fields"]["resOriginalFileType"][
@@ -841,37 +871,37 @@ class PhotoAsset:
         return "movie"
 
     @property
-    def versions(self):
+    def versions(self) -> dict[str, dict[str, Any]]:
         """Gets the photo versions."""
         if not self._versions:
             self._versions = {}
             if self.item_type == "movie":
-                typed_version_lookup = self.VIDEO_VERSION_LOOKUP
+                typed_version_lookup: dict[str, str] = self.VIDEO_VERSION_LOOKUP
             else:
                 typed_version_lookup = self.PHOTO_VERSION_LOOKUP
 
             for key, prefix in typed_version_lookup.items():
-                if "%sRes" % prefix in self._master_record["fields"]:
+                if f"{prefix}Res" in self._master_record["fields"]:
                     self._versions[key] = self._get_photo_version(prefix)
 
         return self._versions
 
-    def _get_photo_version(self, prefix):
+    def _get_photo_version(self, prefix: str) -> dict[str, Any]:
         version: dict = {"filename": self.filename}
-        fields = self._master_record["fields"]
-        width_entry = fields.get("%sWidth" % prefix)
+        fields: dict[str, dict[str, Any]] = self._master_record["fields"]
+        width_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Width")
         if width_entry:
             version["width"] = width_entry["value"]
         else:
             version["width"] = None
 
-        height_entry = fields.get("%sHeight" % prefix)
+        height_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Height")
         if height_entry:
             version["height"] = height_entry["value"]
         else:
             version["height"] = None
 
-        size_entry = fields.get("%sRes" % prefix)
+        size_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Res")
         if size_entry:
             version["size"] = size_entry["value"]["size"]
             version["url"] = size_entry["value"]["downloadURL"]
@@ -879,7 +909,7 @@ class PhotoAsset:
             version["size"] = None
             version["url"] = None
 
-        type_entry = fields.get("%sFileType" % prefix)
+        type_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}FileType")
         if type_entry:
             version["type"] = type_entry["value"]
         else:
@@ -887,7 +917,7 @@ class PhotoAsset:
 
         return version
 
-    def download(self, version="original", **kwargs):
+    def download(self, version="original", **kwargs) -> Optional[Response]:
         """Returns the photo file."""
         if version not in self.versions:
             return None
@@ -896,9 +926,9 @@ class PhotoAsset:
             self.versions[version]["url"], stream=True, **kwargs
         )
 
-    def delete(self):
+    def delete(self) -> Response:
         """Deletes the photo."""
-        json_data = (
+        json_data: str = (
             '{"operations":[{'
             '"operationType":"update",'
             '"record":{'
@@ -917,26 +947,24 @@ class PhotoAsset:
             )
         )
 
-        endpoint = self._service.service_endpoint
-        params = urlencode(self._service.params)
-        url = f"{endpoint}/records/modify?{params}"
+        endpoint: str = self._service.service_endpoint
+        params: str = urlencode(self._service.params)
+        url: str = f"{endpoint}/records/modify?{params}"
 
         return self._service.session.post(
             url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{type(self).__name__}: id={self.id}>"
 
 
 class PhotoStreamAsset(PhotoAsset):
     """A Shared Stream Photo Asset"""
 
-    def __init__(self, service, master_record, asset_record):
-        super().__init__(service, master_record, asset_record)
-
     @property
-    def like_count(self):
+    def like_count(self) -> int:
+        """Gets the photo like count."""
         return (
             self._asset_record.get("pluginFields", {})
             .get("likeCount", {})
@@ -944,7 +972,8 @@ class PhotoStreamAsset(PhotoAsset):
         )
 
     @property
-    def liked(self):
+    def liked(self) -> bool:
+        """Gets if the photo is liked."""
         return bool(
             self._asset_record.get("pluginFields", {})
             .get("likedByCaller", {})

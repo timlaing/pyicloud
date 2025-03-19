@@ -35,11 +35,10 @@ indent-width = 4
 # Assume Python 3.9
 target-version = "py39"
 
-
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = [".git", ".tox", "build", "lib"]
+addopts = ["--disable-socket", "--allow-unix-socket"]
 
 [tool.isort]
 profile = "black"

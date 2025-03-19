@@ -69,3 +69,8 @@ desktop.ini
 .project
 .pydevproject
 .pyvenv
+*.session
+*.cookiejar
+.ruff_cache
+.pytest_cache
+.python-version
