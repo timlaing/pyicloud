@@ -298,7 +298,7 @@ def test_request_error_handling_for_response_conditions() -> None:
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
         patch("os.path.exists", return_value=False),
-        patch("http.cookiejar.LWPCookieJar"),
+        patch("http.cookiejar.LWPCookieJar.save"),
         patch.object(
             pyicloud_service,
             "get_webservice_url",
