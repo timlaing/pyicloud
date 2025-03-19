@@ -227,7 +227,7 @@ class PyiCloudSession(requests.Session):
                 **kwargs,
             )
 
-        return self._raise_error(response.status_code, response.reason)
+        self._raise_error(response.status_code, response.reason)
 
     def _decode_json_response(self, response: Response) -> None:
         """Decode JSON response."""
@@ -249,7 +249,7 @@ class PyiCloudSession(requests.Session):
                 code = data.get("serverErrorCode")
 
             if reason:
-                return self._raise_error(code, reason)
+                self._raise_error(code, reason)
 
         except JSONDecodeError:
             self.logger.warning(
@@ -267,8 +267,7 @@ class PyiCloudSession(requests.Session):
                 "Please log into https://icloud.com/ to manually "
                 "finish setting up your iCloud service"
             )
-            api_error = PyiCloudServiceNotActivatedException(reason, code)
-            raise api_error
+            raise PyiCloudServiceNotActivatedException(reason, code)
         if code == ERROR_ACCESS_DENIED:
             reason = (
                 reason + ".  Please wait a few minutes then try again."
@@ -277,8 +276,7 @@ class PyiCloudSession(requests.Session):
         if code in [421, 450, 500]:
             reason = "Authentication required for Account."
 
-        api_error = PyiCloudAPIResponseException(reason, code)
-        raise api_error
+        raise PyiCloudAPIResponseException(reason, code)
 
     @property
     def service(self):
