@@ -60,7 +60,7 @@
                 "--username",
                 "${input:username}",
                 "--password",
-                "${input:password}",
+                "${input:password}"
             ],
             "cwd": "${workspaceFolder}"
         }

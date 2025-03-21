@@ -288,7 +288,8 @@ class PhotosService(PhotoLibrary, BaseService):
 
         self._photo_assets: dict = {}
 
-        super().__init__(
+        PhotoLibrary.__init__(
+            self,
             service=self,
             upload_url=upload_url,
             zone_id={"zoneName": "PrimarySync"},
