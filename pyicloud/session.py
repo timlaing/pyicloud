@@ -171,6 +171,8 @@ class PyiCloudSession(requests.Session):
                 **kwargs,
             )
 
+        response.raise_for_status()
+
         if not self._is_json_response(response):
             return response
 
@@ -235,21 +237,22 @@ class PyiCloudSession(requests.Session):
             if len(response.content) == 0:
                 return
 
-            data: dict[str, Any] = response.json()
-            reason: Optional[str] = data.get("errorMessage")
-            reason = reason or data.get("reason")
-            reason = reason or data.get("errorReason")
-            if not reason and isinstance(data.get("error"), str):
-                reason = data.get("error")
-            if not reason and data.get("error"):
-                reason = "Unknown reason"
+            data: Union[list[dict[str, Any]], dict[str, Any]] = response.json()
+            if isinstance(data, dict):
+                reason: Optional[str] = data.get("errorMessage")
+                reason = reason or data.get("reason")
+                reason = reason or data.get("errorReason")
+                if not reason and isinstance(data.get("error"), str):
+                    reason = data.get("error")
+                if not reason and data.get("error"):
+                    reason = "Unknown reason"
 
-            code: Optional[Union[int, str]] = data.get("errorCode")
-            if not code and data.get("serverErrorCode"):
-                code = data.get("serverErrorCode")
+                code: Optional[Union[int, str]] = data.get("errorCode")
+                if not code and data.get("serverErrorCode"):
+                    code = data.get("serverErrorCode")
 
-            if reason:
-                self._raise_error(code, reason)
+                if reason:
+                    self._raise_error(code, reason)
 
         except JSONDecodeError:
             self.logger.warning(

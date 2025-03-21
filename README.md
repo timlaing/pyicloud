@@ -543,8 +543,7 @@ api.photos.upload_file(file_path)
 
 Note: Only limited media type is accepted, upload not support types (e.g. png) will get TYPE_UNSUPPORTED error.
 
-## Code samples
+## Examples
 
-If you wanna see some code samples see the [code samples
-file](/CODE_SAMPLES.md).
+If you wanna see some code samples see the [examples](/examples.py).
 `

@@ -275,12 +275,6 @@ class PhotosService(PhotoLibrary, BaseService):
             session=session,
             params=params,
         )
-        super().__init__(
-            service=self,
-            upload_url=upload_url,
-            zone_id={"zoneName": "PrimarySync"},
-        )
-
         self.service_endpoint: str = (
             f"{self.service_root}/database/1/com.apple.photos.cloud/production/private"
         )
@@ -293,6 +287,12 @@ class PhotosService(PhotoLibrary, BaseService):
         self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
 
         self._photo_assets: dict = {}
+
+        super().__init__(
+            service=self,
+            upload_url=upload_url,
+            zone_id={"zoneName": "PrimarySync"},
+        )
 
     @property
     def shared_streams(self) -> dict[str, "SharedStream"]:
