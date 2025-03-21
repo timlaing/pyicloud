@@ -50,6 +50,19 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: End to End",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "examples.py",
+            "args": [
+                "--username",
+                "${input:username}",
+                "--password",
+                "${input:password}"
+            ],
+            "cwd": "${workspaceFolder}"
         }
     ],
     "inputs": [

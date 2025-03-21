@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from requests import Response
+from requests import HTTPError, Response
 
+from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 
@@ -18,7 +19,13 @@ class UbiquityService(BaseService):
         super().__init__(service_root, session, params)
 
         self._root: Optional["UbiquityNode"] = None
-        self._node_url: str = service_root + "/ws/%s/%s/%s"
+
+        try:
+            self.root
+        except HTTPError as error:
+            if error.response.status_code == 503:
+                raise PyiCloudServiceUnavailable(error.response.text) from error
+            raise
 
     @property
     def root(self) -> "UbiquityNode":
@@ -29,17 +36,17 @@ class UbiquityService(BaseService):
 
     def get_node_url(self, node_id, variant="item") -> str:
         """Returns a node URL."""
-        return self._node_url % (self.params["dsid"], variant, node_id)
+        return f"{self.service_root}/ws/{self.params['dsid']}/{variant}/{node_id}"
 
     def get_node(self, node_id) -> "UbiquityNode":
         """Returns a node."""
-        request: Response = self.session.get(self.get_node_url(node_id))
-        return UbiquityNode(self, request.json())
+        response: Response = self.session.get(self.get_node_url(node_id))
+        return UbiquityNode(self, response.json())
 
     def get_children(self, node_id) -> list["UbiquityNode"]:
         """Returns a node children."""
-        request: Response = self.session.get(self.get_node_url(node_id, "parent"))
-        items: list[dict[str, str]] = request.json()["item_list"]
+        response: Response = self.session.get(self.get_node_url(node_id, "parent"))
+        items: list[dict[str, str]] = response.json()["item_list"]
         return [UbiquityNode(self, item) for item in items]
 
     def get_file(self, node_id, **kwargs) -> Response:

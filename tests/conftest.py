@@ -75,7 +75,4 @@ def pyicloud_session(pyicloud_service_working: PyiCloudService) -> PyiCloudSessi
     """Mock the PyiCloudSession class."""
     pyicloud_service_working.session_data = {"session_token": "valid_token"}
     pyicloud_service_working.session.cookies = MagicMock()
-    pyicloud_service_working.session._lwp_cookies = (  # pylint: disable=protected-access
-        pyicloud_service_working.session.cookies
-    )
     return pyicloud_service_working.session

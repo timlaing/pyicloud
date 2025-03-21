@@ -127,7 +127,8 @@ def test_subfolder_file(pyicloud_service_working: PyiCloudService) -> None:
     assert str(file_test.date_changed) == "2020-05-03 00:16:17"
     assert str(file_test.date_modified) == "2020-05-03 00:15:17"
     assert str(file_test.date_last_open) == "2020-05-03 00:24:25"
-    assert file_test.dir() is None
+    with pytest.raises(NotADirectoryError):
+        file_test.dir()
 
 
 def test_file_open(pyicloud_service_working: PyiCloudService) -> None:

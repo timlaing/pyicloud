@@ -1,6 +1,8 @@
 """Contacts service."""
 
-from typing import Any
+from typing import Any, Optional
+
+from requests import Response
 
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
@@ -20,9 +22,9 @@ class ContactsService(BaseService):
         self._contacts_next_url: str = f"{self._contacts_endpoint}/contacts"
         self._contacts_changeset_url: str = f"{self._contacts_endpoint}/changeset"
 
-        self.response = {}
+        self._contacts: Optional[list] = None
 
-    def refresh_client(self):
+    def refresh_client(self) -> None:
         """
         Refreshes the ContactsService endpoint, ensuring that the
         contacts data is up-to-date.
@@ -35,24 +37,28 @@ class ContactsService(BaseService):
                 "order": "last,first",
             }
         )
-        req = self.session.get(self._contacts_refresh_url, params=params_contacts)
-        self.response = req.json()
+        req: Response = self.session.get(
+            self._contacts_refresh_url, params=params_contacts
+        )
+        response: dict[str, Any] = req.json()
 
         params_next = dict(params_contacts)
         params_next.update(
             {
-                "prefToken": self.response["prefToken"],
-                "syncToken": self.response["syncToken"],
+                "prefToken": response["prefToken"],
+                "syncToken": response["syncToken"],
                 "limit": "0",
                 "offset": "0",
             }
         )
         req = self.session.get(self._contacts_next_url, params=params_next)
-        self.response = req.json()
+        response = req.json()
+        self._contacts = response.get("contacts")
 
+    @property
     def all(self):
         """
         Retrieves all contacts.
         """
         self.refresh_client()
-        return self.response.get("contacts")
+        return self._contacts
