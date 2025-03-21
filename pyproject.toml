@@ -72,14 +72,13 @@ name = "pyicloud"
 dynamic = ["version", "readme", "dependencies", "optional-dependencies"]
 description = "PyiCloud is a module which allows pythonistas to interact with iCloud webservices."
 requires-python = ">=3.9"
-license = {text = "MIT"}
+license-files = ["LICENSE.txt"]
 authors = [
     {name = "The PyiCloud Authors"}
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3 :: Only",
@@ -93,6 +92,7 @@ classifiers = [
 ]
 keywords = ["icloud", "find-my-iphone"]
 
+
 [project.urls]
 homepage = "https://github.com/timlaing/pyicloud"
 download = "https://github.com/timlaing/pyicloud/releases/latest"
@@ -101,6 +101,9 @@ repository = "https://github.com/timlaing/pyicloud"
 
 [project.scripts]
 icloud = "pyicloud.cmdline:main"
+
+[tool.setuptools]
+packages = ["pyicloud", "pyicloud.services"]
 
 [tool.setuptools.dynamic]
 readme = {file = "README.md"}
