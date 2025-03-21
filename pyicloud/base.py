@@ -151,29 +151,18 @@ class PyiCloudService(object):
 
         LOGGER.debug("Using session file %s", self.session_path)
 
-        self.session_data: dict[str, Any] = {}
-        try:
-            with open(self.session_path, encoding="utf-8") as session_f:
-                self.session_data = json.load(session_f)
-        except (
-            json.JSONDecodeError,
-            OSError,
-        ):
-            LOGGER.info("Session file does not exist")
-        if self.session_data.get("client_id"):
-            self._client_id = self.session_data.get("client_id", "")
-        else:
-            self.session_data.update({"client_id": self._client_id})
-
-        self.session = PyiCloudSession(self)
-        self.session.verify = verify
-        self.session.headers.update(
-            {
+        self.session: PyiCloudSession = PyiCloudSession(
+            self,
+            verify=verify,
+            headers={
                 "Origin": self.home_endpoint,
                 "Referer": f"{self.home_endpoint}/",
                 "User-Agent": "Opera/9.52 (X11; Linux i686; U; en)",
-            }
+            },
+            client_id=self._client_id,
         )
+
+        self._client_id = self.session.data.get("client_id", self._client_id)
 
         self.params = {
             "clientBuildNumber": "17DHotfix5",
@@ -206,7 +195,7 @@ class PyiCloudService(object):
         """
 
         login_successful = False
-        if self.session_data.get("session_token") and not force_refresh:
+        if self.session.data.get("session_token") and not force_refresh:
             try:
                 self.data = self._validate_token()
                 login_successful = True
@@ -258,11 +247,11 @@ class PyiCloudService(object):
             self._authenticate_with_token()
         except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
             headers: dict[str, str] = self._get_auth_headers()
-            if self.session_data.get("scnt"):
-                headers["scnt"] = self.session_data.get("scnt", "")
+            if self.session.data.get("scnt"):
+                headers["scnt"] = self.session.data.get("scnt", "")
 
-            if self.session_data.get("session_id"):
-                headers["X-Apple-ID-Session-Id"] = self.session_data.get(
+            if self.session.data.get("session_id"):
+                headers["X-Apple-ID-Session-Id"] = self.session.data.get(
                     "session_id", ""
                 )
             self._srp_authentication(headers)
@@ -318,8 +307,8 @@ class PyiCloudService(object):
                 "rememberMe": True,
                 "trustTokens": [],
             }
-        if self.session_data.get("trust_token"):
-            data["trustTokens"] = [self.session_data.get("trust_token")]
+        if self.session.data.get("trust_token"):
+            data["trustTokens"] = [self.session.data.get("trust_token")]
 
         try:
             self.session.post(
@@ -338,16 +327,17 @@ class PyiCloudService(object):
 
     def _authenticate_with_token(self) -> None:
         """Authenticate using session token."""
-        if not self.session_data.get("session_token"):
+        if not self.session.data.get("session_token"):
             raise PyiCloudFailedLoginException("No session token available")
 
         try:
             data: dict[str, Any] = {
-                "accountCountryCode": self.session_data.get("account_country"),
-                "dsWebAuthToken": self.session_data.get("session_token"),
+                "accountCountryCode": self.session.data.get("account_country"),
+                "dsWebAuthToken": self.session.data.get("session_token"),
                 "extended_login": True,
-                "trustToken": self.session_data.get("trust_token", ""),
+                "trustToken": self.session.data.get("trust_token", ""),
             }
+            print(data)
 
             resp: Response = self.session.post(
                 f"{self.setup_endpoint}/accountLogin", data=json.dumps(data)
@@ -499,11 +489,11 @@ class PyiCloudService(object):
 
         headers: dict[str, Any] = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
-        if self.session_data.get("scnt"):
-            headers["scnt"] = self.session_data.get("scnt")
+        if self.session.data.get("scnt"):
+            headers["scnt"] = self.session.data.get("scnt")
 
-        if self.session_data.get("session_id"):
-            headers["X-Apple-ID-Session-Id"] = self.session_data.get("session_id")
+        if self.session.data.get("session_id"):
+            headers["X-Apple-ID-Session-Id"] = self.session.data.get("session_id")
 
         try:
             self.session.post(
@@ -525,11 +515,11 @@ class PyiCloudService(object):
         """Request session trust to avoid user log in going forward."""
         headers: dict[str, Any] = self._get_auth_headers()
 
-        if self.session_data.get("scnt"):
-            headers["scnt"] = self.session_data.get("scnt")
+        if self.session.data.get("scnt"):
+            headers["scnt"] = self.session.data.get("scnt")
 
-        if self.session_data.get("session_id"):
-            headers["X-Apple-ID-Session-Id"] = self.session_data.get("session_id")
+        if self.session.data.get("session_id"):
+            headers["X-Apple-ID-Session-Id"] = self.session.data.get("session_id")
 
         try:
             self.session.get(

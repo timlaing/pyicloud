@@ -1,6 +1,7 @@
 """Pyicloud Session handling"""
 
 import http.cookiejar
+import json
 import logging
 import os
 from json import JSONDecodeError, dump
@@ -38,13 +39,40 @@ class PyiCloudCookieJar(
 class PyiCloudSession(requests.Session):
     """iCloud session."""
 
-    def __init__(self, service) -> None:
+    def __init__(
+        self,
+        service,
+        client_id: str,
+        verify: bool = False,
+        headers: Optional[dict[str, str]] = None,
+    ) -> None:
         super().__init__()
         self._service = service
         self._logger: logging.Logger = logging.getLogger(__name__)
+        self.verify = verify
+        if headers:
+            self.headers.update(headers)
         self.cookies = PyiCloudCookieJar(self.service.cookiejar_path)
         if os.path.exists(self.service.cookiejar_path):
             self.cookies.load(ignore_discard=True, ignore_expires=True)
+
+        self._data: dict[str, Any] = {}
+        try:
+            with open(service.session_path, encoding="utf-8") as session_f:
+                self._data = json.load(session_f)
+        except (
+            json.JSONDecodeError,
+            OSError,
+        ):
+            self._logger.info("Session file does not exist")
+
+        if not self._data.get("client_id"):
+            self._data.update({"client_id": client_id})
+
+    @property
+    def data(self) -> dict[str, Any]:
+        """Gets the session data"""
+        return self._data
 
     @property
     def logger(self) -> logging.Logger:
@@ -59,7 +87,7 @@ class PyiCloudSession(requests.Session):
     def _save_session_data(self) -> None:
         """Save session_data to file."""
         with open(self.service.session_path, "w", encoding="utf-8") as outfile:
-            dump(self.service.session_data, outfile)
+            dump(self._data, outfile)
             self.logger.debug(
                 "Saved session data to file: %s", self.service.session_path
             )
@@ -74,9 +102,7 @@ class PyiCloudSession(requests.Session):
         for header, value in HEADER_DATA.items():
             if response.headers.get(header):
                 session_arg: str = value
-                self.service.session_data.update(
-                    {session_arg: response.headers.get(header)}
-                )
+                self._data.update({session_arg: response.headers.get(header)})
 
     def _is_json_response(self, response: Response) -> bool:
         content_type: str = response.headers.get(CONTENT_TYPE, "")

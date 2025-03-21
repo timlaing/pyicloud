@@ -21,7 +21,7 @@ def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> N
         patch("pyicloud.base.PyiCloudSession.post") as mock_post_response,
         patch("pyicloud.base.PyiCloudService._validate_token") as validate_token,
     ):
-        pyicloud_service.session_data = {"session_token": "valid_token"}
+        pyicloud_service.session._data = {"session_token": "valid_token"}
         mock_post_response.json.return_value = {
             "apps": {"test_service": {"canLaunchWithOneFactor": True}},
             "status": "success",
@@ -65,7 +65,7 @@ def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> N
             None,
         ]
         pyicloud_service.session.post = mock_post_response
-        pyicloud_service.session_data = {}
+        pyicloud_service.session._data = {}
         pyicloud_service.params = {}
         pyicloud_service.authenticate()
         assert mock_post_response.call_count == 2
@@ -74,15 +74,16 @@ def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> N
 
 def test_validate_2fa_code(pyicloud_service: PyiCloudService) -> None:
     """Test the validate_2fa_code method with a valid code."""
-    pyicloud_service.session_data = {
-        "scnt": "test_scnt",
-        "session_id": "test_session_id",
-        "session_token": "test_session_token",
-    }
+
     pyicloud_service.data = {"dsInfo": {"hsaVersion": 1}, "hsaChallengeRequired": False}
 
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
         pyicloud_service.session = mock_session
+        mock_session.data = {
+            "scnt": "test_scnt",
+            "session_id": "test_session_id",
+            "session_token": "test_session_token",
+        }
 
         mock_post_response = MagicMock()
         mock_post_response.status_code = 200
@@ -118,12 +119,13 @@ def test_get_webservice_url_failure(pyicloud_service: PyiCloudService) -> None:
 
 def test_trust_session_success(pyicloud_service: PyiCloudService) -> None:
     """Test the trust_session method with a successful response."""
-    pyicloud_service.session_data = {
-        "scnt": "test_scnt",
-        "session_id": "test_session_id",
-        "session_token": "test_session_token",
-    }
+
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
+        mock_session.data = {
+            "scnt": "test_scnt",
+            "session_id": "test_session_id",
+            "session_token": "test_session_token",
+        }
         pyicloud_service.session = mock_session
         assert pyicloud_service.trust_session()
 
@@ -178,7 +180,7 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
         mock_response.json.return_value = {"success": True}
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
-        pyicloud_session = PyiCloudSession(pyicloud_service_working)
+        pyicloud_session = PyiCloudSession(pyicloud_service_working, "")
 
         response: Response = pyicloud_session.request(
             "POST", "https://example.com", data={"key": "value"}
@@ -220,7 +222,7 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
         mock_response.json.return_value = {"error": "Bad Request"}
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
-        pyicloud_session = PyiCloudSession(pyicloud_service_working)
+        pyicloud_session = PyiCloudSession(pyicloud_service_working, "")
         with pytest.raises(PyiCloudAPIResponseException):
             pyicloud_session.request(
                 "POST", "https://example.com", data={"key": "value"}
@@ -245,7 +247,7 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
             json=None,
         )
         mock_save.assert_called_once()
-        open_mock.assert_called_once()
+        assert open_mock.call_count == 2
 
 
 def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) -> None:
@@ -260,7 +262,7 @@ def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) 
         mock_response.json.return_value = {"data": "header test"}
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
-        pyicloud_session = PyiCloudSession(pyicloud_service_working)
+        pyicloud_session = PyiCloudSession(pyicloud_service_working, "")
 
         response: Response = pyicloud_session.request(
             "GET",
@@ -313,8 +315,8 @@ def test_request_error_handling_for_response_conditions() -> None:
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
 
-        pyicloud_service.session_data = {"session_token": "valid_token"}
-        pyicloud_session = PyiCloudSession(pyicloud_service)
+        pyicloud_session = PyiCloudSession(pyicloud_service, "")
+        pyicloud_service._data = {"session_token": "valid_token"}
 
         # Use the mocked fmip_url in the request.
         pyicloud_session.request("GET", "https://fmip.example.com/path")
