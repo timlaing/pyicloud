@@ -233,25 +233,22 @@ class PyiCloudSession(requests.Session):
 
     def _decode_json_response(self, response: Response) -> None:
         """Decode JSON response."""
-        try:
-            if len(response.content) == 0:
-                return
+        if len(response.content) == 0:
+            return
 
+        try:
             data: Union[list[dict[str, Any]], dict[str, Any]] = response.json()
             if isinstance(data, dict):
                 reason: Optional[str] = data.get("errorMessage")
                 reason = reason or data.get("reason")
                 reason = reason or data.get("errorReason")
-                if not reason and isinstance(data.get("error"), str):
-                    reason = data.get("error")
-                if not reason and data.get("error"):
+                reason = reason or data.get("error")
+                if reason and not isinstance(reason, str):
                     reason = "Unknown reason"
 
-                code: Optional[Union[int, str]] = data.get("errorCode")
-                if not code and data.get("serverErrorCode"):
-                    code = data.get("serverErrorCode")
-
                 if reason:
+                    code: Optional[Union[int, str]] = data.get("errorCode")
+                    code = code or data.get("serverErrorCode")
                     self._raise_error(code, reason)
 
         except JSONDecodeError:
