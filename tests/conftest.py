@@ -66,13 +66,14 @@ def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudServi
     """Set the service to a working state."""
     pyicloud_service.data = LOGIN_WORKING
     pyicloud_service._webservices = LOGIN_WORKING["webservices"]  # pylint: disable=protected-access
-    pyicloud_service.session = PyiCloudSessionMock(pyicloud_service)
+    with patch("builtins.open", new_callable=mock_open):
+        pyicloud_service.session = PyiCloudSessionMock(pyicloud_service, "")
+        pyicloud_service.session._data = {"session_token": "valid_token"}  # pylint: disable=protected-access
     return pyicloud_service
 
 
 @pytest.fixture
 def pyicloud_session(pyicloud_service_working: PyiCloudService) -> PyiCloudSession:  # pylint: disable=redefined-outer-name
     """Mock the PyiCloudSession class."""
-    pyicloud_service_working.session_data = {"session_token": "valid_token"}
     pyicloud_service_working.session.cookies = MagicMock()
     return pyicloud_service_working.session
