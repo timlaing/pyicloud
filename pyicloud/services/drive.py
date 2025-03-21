@@ -302,7 +302,7 @@ class DriveService(BaseService):
     def __getattr__(self, attr):
         return getattr(self.root, attr)
 
-    def __getitem__(self, key) -> Optional["DriveNode"]:
+    def __getitem__(self, key: str) -> "DriveNode":
         return self.root[key]
 
     @staticmethod
@@ -343,13 +343,17 @@ class DriveNode:
         return node_name
 
     @property
-    def type(self) -> Optional[str]:
+    def type(self) -> str:
         """Gets the node type."""
         node_type: Optional[str] = self.data.get("type")
         # handle trash which has no node type
         if not node_type and self.data.get("drivewsid") == "TRASH_ROOT":
             node_type = "trash"
-        return node_type and node_type.lower()
+
+        if not node_type:
+            node_type = "unknown"
+
+        return node_type.lower()
 
     def get_children(self) -> list["DriveNode"]:
         """Gets the node children."""
@@ -400,17 +404,17 @@ class DriveNode:
         """Upload a new file."""
         return self.connection.send_file(self.data["docwsid"], file_object, **kwargs)
 
-    def dir(self) -> Optional[list[str]]:
+    def dir(self) -> list[str]:
         """Gets the node list of directories."""
         if self.type == "file":
-            return None
+            raise NotADirectoryError(self.name)
         return [child.name for child in self.get_children()]
 
-    def mkdir(self, folder):
+    def mkdir(self, folder: str):
         """Create a new directory directory."""
         return self.connection.create_folders(self.data["drivewsid"], folder)
 
-    def rename(self, name):
+    def rename(self, name: str):
         """Rename an iCloud Drive item."""
         return self.connection.rename_items(
             self.data["drivewsid"], self.data["etag"], name
@@ -445,13 +449,13 @@ class DriveNode:
                 f"trying to 'delete_forever()'."
             )
 
-    def get(self, name) -> Optional["DriveNode"]:
+    def get(self, name: str) -> "DriveNode":
         """Gets the node child."""
         if self.type == "file":
-            return None
+            raise NotADirectoryError(name)
         return [child for child in self.get_children() if child.name == name][0]
 
-    def __getitem__(self, key) -> Optional["DriveNode"]:
+    def __getitem__(self, key: str) -> "DriveNode":
         try:
             return self.get(key)
         except IndexError as i:

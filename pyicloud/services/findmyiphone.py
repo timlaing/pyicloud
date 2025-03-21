@@ -92,6 +92,9 @@ class FindMyiPhoneServiceManager(BaseService):
     def __iter__(self) -> Iterator["AppleDevice"]:
         return iter(self._devices.values())
 
+    def __len__(self) -> int:
+        return len(self._devices)
+
 
 class AppleDevice:
     """Apple device."""
@@ -122,6 +125,7 @@ class AppleDevice:
         """Updates the device data."""
         self.content = data
 
+    @property
     def location(self):
         """Updates the device location."""
         self.manager.refresh_client()

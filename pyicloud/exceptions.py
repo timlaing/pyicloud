@@ -13,6 +13,10 @@ class PyiCloudPasswordException(PyiCloudException):
     """Password exception."""
 
 
+class PyiCloudServiceUnavailable(PyiCloudException):
+    """Service unavailable exception."""
+
+
 class TokenException(PyiCloudException):
     """Token exception."""
 
