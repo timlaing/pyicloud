@@ -139,7 +139,7 @@ def display_photos(api: PyiCloudService) -> None:
             break
     print(END_LIST)
 
-    if album:
+    if album and api.photos.shared_streams:
         print(
             f"List of shared photos [{album}] ({len(api.photos.shared_streams[album])}):"
         )

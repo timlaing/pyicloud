@@ -14,7 +14,7 @@ class PyiCloudPasswordException(PyiCloudException):
 
 
 class PyiCloudServiceUnavailable(PyiCloudException):
-    """Service unavilable exception."""
+    """Service unavailable exception."""
 
 
 class TokenException(PyiCloudException):

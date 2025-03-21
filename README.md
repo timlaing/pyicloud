@@ -545,5 +545,5 @@ Note: Only limited media type is accepted, upload not support types (e.g. png) w
 
 ## Examples
 
-If you wanna see some code samples see the [examples](/examples.py).
+If you want to see some code samples, see the [examples](/examples.py).
 `
