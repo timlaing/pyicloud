@@ -316,7 +316,7 @@ def test_request_error_handling_for_response_conditions() -> None:
         mock_request.return_value = mock_response
 
         pyicloud_session = PyiCloudSession(pyicloud_service, "")
-        pyicloud_service._data = {"session_token": "valid_token"}
+        pyicloud_service.data = {"session_token": "valid_token"}
 
         # Use the mocked fmip_url in the request.
         pyicloud_session.request("GET", "https://fmip.example.com/path")
