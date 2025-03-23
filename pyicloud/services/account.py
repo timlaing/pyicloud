@@ -1,6 +1,5 @@
 """Account service."""
 
-from collections import OrderedDict
 from typing import Any, Optional
 
 from requests import Response
@@ -334,7 +333,7 @@ class AccountStorage:
         self.usage = AccountStorageUsage(
             storage_data.get("storageUsageInfo"), storage_data.get("quotaStatus")
         )
-        self.usages_by_media = OrderedDict()
+        self.usages_by_media: dict[str, AccountStorageUsageForMedia] = {}
 
         for usage_media in storage_data.get("storageUsageByMedia"):
             self.usages_by_media[usage_media["mediaKey"]] = AccountStorageUsageForMedia(
