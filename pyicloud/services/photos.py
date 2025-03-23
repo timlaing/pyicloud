@@ -492,6 +492,10 @@ class BasePhotoAlbum:
                 self.service, master_record, asset_records[record_name]
             )
 
+    def photo(self, index) -> Generator["PhotoAsset", None, None]:
+        """Returns a photo at the given index."""
+        return self._get_photos_at(index, self.direction, 2)
+
     @property
     def title(self) -> str:
         """Gets the album name."""
@@ -616,32 +620,6 @@ class PhotoAlbum(BasePhotoAlbum):
         response: dict[str, Any] = request.json()
 
         return response["batch"][0]["records"][0]["fields"]["itemCount"]["value"]
-
-    @property
-    def photos(self) -> Generator["PhotoAsset", None, None]:
-        """Returns the album photos."""
-        if self.direction == DirectionEnum.DESCENDING:
-            offset: int = len(self) - 1
-        else:
-            offset = 0
-
-        while True:
-            num_results = 0
-            for photo in self._get_photos_at(
-                offset, self.direction, self.page_size * 2
-            ):
-                num_results += 1
-                yield photo
-            if num_results == 0:
-                break
-            if self.direction == DirectionEnum.DESCENDING:
-                offset = offset - num_results
-            else:
-                offset = offset + num_results
-
-    def photo(self, index) -> Generator["PhotoAsset", None, None]:
-        """Returns a photo at the given index."""
-        return self._get_photos_at(index, self.direction, 2)
 
     def _get_payload(
         self, offset: int, page_size: int, direction: str
