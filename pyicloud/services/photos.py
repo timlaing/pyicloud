@@ -193,12 +193,15 @@ class PhotoLibrary(BasePhotoLibrary):
         super().__init__(service, upload_url)
         self.zone_id: dict[str, str] = zone_id
 
-        url: str = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
+        self.url: str = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
         json_data: str = json.dumps(
-            {"query": {"recordType": "CheckIndexingState"}, "zoneID": self.zone_id}
+            {
+                "query": {"recordType": "CheckIndexingState"},
+                "zoneID": self.zone_id,
+            }
         )
         request: Response = self.service.session.post(
-            url,
+            url=self.url,
             data=json_data,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
@@ -212,7 +215,6 @@ class PhotoLibrary(BasePhotoLibrary):
 
     def _fetch_folders(self) -> list[dict[str, Any]]:
         """Fetches folders."""
-        url: str = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
         json_data: str = json.dumps(
             {
                 "query": {"recordType": "CPLAlbumByPositionLive"},
@@ -221,7 +223,9 @@ class PhotoLibrary(BasePhotoLibrary):
         )
 
         request: Response = self.service.session.post(
-            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+            url=self.url,
+            data=json_data,
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, list[dict[str, Any]]] = request.json()
 
@@ -230,7 +234,13 @@ class PhotoLibrary(BasePhotoLibrary):
     def _get_albums(self) -> dict[str, "BasePhotoAlbum"]:
         """Returns photo albums."""
         albums: dict[str, BasePhotoAlbum] = {
-            name: PhotoAlbum(self.service, name, zone_id=self.zone_id, **props)
+            name: PhotoAlbum(
+                service=self.service,
+                name=name,
+                zone_id=self.zone_id,
+                url=self.url,
+                **props,
+            )
             for (name, props) in self.SMART_FOLDERS.items()
         }
 
@@ -264,12 +274,13 @@ class PhotoLibrary(BasePhotoLibrary):
             ]
 
             album = PhotoAlbum(
-                self.service,
-                folder_name,
-                "CPLContainerRelationLiveByAssetDate",
-                folder_obj_type,
-                DirectionEnum.ASCENDING,
-                query_filter,
+                service=self.service,
+                name=folder_name,
+                list_type="CPLContainerRelationLiveByAssetDate",
+                obj_type=folder_obj_type,
+                direction=DirectionEnum.ASCENDING,
+                url=self.url,
+                query_filter=query_filter,
                 zone_id=self.zone_id,
             )
             albums[folder_name] = album
@@ -551,6 +562,7 @@ class PhotoAlbum(BasePhotoAlbum):
         list_type: str,
         obj_type: str,
         direction: str,
+        url: str,
         query_filter: Optional[list[dict[str, Any]]] = None,
         zone_id: Optional[dict[str, str]] = None,
         page_size: int = 100,
@@ -566,6 +578,7 @@ class PhotoAlbum(BasePhotoAlbum):
 
         self.obj_type: str = obj_type
         self.query_filter: Optional[list[dict[str, Any]]] = query_filter
+        self.url: str = url
 
         if zone_id:
             self.zone_id: dict[str, str] = zone_id
@@ -642,9 +655,7 @@ class PhotoAlbum(BasePhotoAlbum):
         )
 
     def _get_url(self) -> str:
-        return "{self.service.service_endpoint}/records/query?" + urlencode(
-            self.service.params
-        )
+        return self.url
 
     def _list_query_gen(
         self,
