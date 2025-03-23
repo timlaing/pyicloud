@@ -245,7 +245,7 @@ class PhotoLibrary(BasePhotoLibrary):
         }
 
         for folder in self._fetch_folders():
-            # Skiping albums having null name, that can happen sometime
+            # Skipping albums having null name, that can happen sometime
             if "albumNameEnc" not in folder["fields"]:
                 continue
 
