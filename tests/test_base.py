@@ -21,7 +21,7 @@ def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> N
         patch("pyicloud.base.PyiCloudSession.post") as mock_post_response,
         patch("pyicloud.base.PyiCloudService._validate_token") as validate_token,
     ):
-        pyicloud_service.session._data = {"session_token": "valid_token"}
+        pyicloud_service.session._data = {"session_token": "valid_token"}  # pylint: disable=protected-access
         mock_post_response.json.return_value = {
             "apps": {"test_service": {"canLaunchWithOneFactor": True}},
             "status": "success",
@@ -65,7 +65,7 @@ def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> N
             None,
         ]
         pyicloud_service.session.post = mock_post_response
-        pyicloud_service.session._data = {}
+        pyicloud_service.session._data = {}  # pylint: disable=protected-access
         pyicloud_service.params = {}
         pyicloud_service.authenticate()
         assert mock_post_response.call_count == 2
@@ -138,15 +138,15 @@ def test_trust_session_failure(pyicloud_service: PyiCloudService) -> None:
         assert not pyicloud_service.trust_session()
 
 
-def test_cookiejar_path_property(pyicloud_service: PyiCloudService) -> None:
+def test_cookiejar_path_property(pyicloud_session: PyiCloudSession) -> None:
     """Test the cookiejar_path property."""
-    path: str = pyicloud_service.cookiejar_path
+    path: str = pyicloud_session.cookiejar_path
     assert isinstance(path, str)
 
 
-def test_session_path_property(pyicloud_service: PyiCloudService) -> None:
+def test_session_path_property(pyicloud_session: PyiCloudSession) -> None:
     """Test the session_path property."""
-    path: str = pyicloud_service.session_path
+    path: str = pyicloud_session.session_path
     assert isinstance(path, str)
 
 
@@ -180,7 +180,9 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
         mock_response.json.return_value = {"success": True}
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
-        pyicloud_session = PyiCloudSession(pyicloud_service_working, "")
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
 
         response: Response = pyicloud_session.request(
             "POST", "https://example.com", data={"key": "value"}
@@ -222,7 +224,9 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
         mock_response.json.return_value = {"error": "Bad Request"}
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
-        pyicloud_session = PyiCloudSession(pyicloud_service_working, "")
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
         with pytest.raises(PyiCloudAPIResponseException):
             pyicloud_session.request(
                 "POST", "https://example.com", data={"key": "value"}
@@ -262,7 +266,9 @@ def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) 
         mock_response.json.return_value = {"data": "header test"}
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
-        pyicloud_session = PyiCloudSession(pyicloud_service_working, "")
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
 
         response: Response = pyicloud_session.request(
             "GET",
@@ -315,7 +321,7 @@ def test_request_error_handling_for_response_conditions() -> None:
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
 
-        pyicloud_session = PyiCloudSession(pyicloud_service, "")
+        pyicloud_session = PyiCloudSession(pyicloud_service, "", cookie_directory="")
         pyicloud_service.data = {"session_token": "valid_token"}
 
         # Use the mocked fmip_url in the request.
