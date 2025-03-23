@@ -1,10 +1,11 @@
 """Pyicloud Session handling"""
 
 import http.cookiejar
-import json
 import logging
 import os
-from json import JSONDecodeError, dump
+import os.path as path
+from json import JSONDecodeError, dump, load
+from re import match
 from typing import Any, NoReturn, Optional, Union, cast
 
 import requests
@@ -43,28 +44,24 @@ class PyiCloudSession(requests.Session):
         self,
         service,
         client_id: str,
+        cookie_directory: str,
         verify: bool = False,
         headers: Optional[dict[str, str]] = None,
     ) -> None:
         super().__init__()
+
         self._service = service
-        self._logger: logging.Logger = logging.getLogger(__name__)
         self.verify = verify
+        self._cookie_directory: str = cookie_directory
+        self.cookies = PyiCloudCookieJar(self.cookiejar_path)
+        self._data: dict[str, Any] = {}
+
+        self._logger: logging.Logger = logging.getLogger(__name__)
+
         if headers:
             self.headers.update(headers)
-        self.cookies = PyiCloudCookieJar(self.service.cookiejar_path)
-        if os.path.exists(self.service.cookiejar_path):
-            self.cookies.load(ignore_discard=True, ignore_expires=True)
 
-        self._data: dict[str, Any] = {}
-        try:
-            with open(service.session_path, encoding="utf-8") as session_f:
-                self._data = json.load(session_f)
-        except (
-            json.JSONDecodeError,
-            OSError,
-        ):
-            self._logger.info("Session file does not exist")
+        self._load_session_data()
 
         if not self._data.get("client_id"):
             self._data.update({"client_id": client_id})
@@ -84,18 +81,34 @@ class PyiCloudSession(requests.Session):
             self._logger.addFilter(self.service.password_filter)
         return self._logger
 
+    def _load_session_data(self) -> None:
+        """Load session_data from file."""
+        if os.path.exists(self.cookiejar_path):
+            cast(PyiCloudCookieJar, self.cookies).load(
+                ignore_discard=True, ignore_expires=True
+            )
+
+        self._logger.debug("Using session file %s", self.session_path)
+        self._data: dict[str, Any] = {}
+        try:
+            with open(self.session_path, encoding="utf-8") as session_f:
+                self._data = load(session_f)
+        except (
+            JSONDecodeError,
+            OSError,
+        ):
+            self._logger.info("Session file does not exist")
+
     def _save_session_data(self) -> None:
         """Save session_data to file."""
-        with open(self.service.session_path, "w", encoding="utf-8") as outfile:
+        with open(self.session_path, "w", encoding="utf-8") as outfile:
             dump(self._data, outfile)
-            self.logger.debug(
-                "Saved session data to file: %s", self.service.session_path
-            )
+            self.logger.debug("Saved session data to file: %s", self.session_path)
 
         cast(PyiCloudCookieJar, self.cookies).save(
             ignore_discard=True, ignore_expires=True
         )
-        self.logger.debug("Saved cookies data to file: %s", self.service.cookiejar_path)
+        self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
 
     def _update_session_data(self, response: Response) -> None:
         """Update session_data with new data."""
@@ -308,3 +321,21 @@ class PyiCloudSession(requests.Session):
     def service(self):
         """Gets the service."""
         return self._service
+
+    @property
+    def cookiejar_path(self) -> str:
+        """Get path for cookiejar file."""
+        return path.join(
+            self._cookie_directory,
+            "".join([c for c in self.service.account_name if match(r"\w", c)])
+            + ".cookiejar",
+        )
+
+    @property
+    def session_path(self) -> str:
+        """Get path for session data file."""
+        return path.join(
+            self._cookie_directory,
+            "".join([c for c in self.service.account_name if match(r"\w", c)])
+            + ".session",
+        )

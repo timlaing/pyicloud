@@ -67,7 +67,11 @@ def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudServi
     pyicloud_service.data = LOGIN_WORKING
     pyicloud_service._webservices = LOGIN_WORKING["webservices"]  # pylint: disable=protected-access
     with patch("builtins.open", new_callable=mock_open):
-        pyicloud_service.session = PyiCloudSessionMock(pyicloud_service, "")
+        pyicloud_service.session = PyiCloudSessionMock(
+            pyicloud_service,
+            "",
+            cookie_directory="",
+        )
         pyicloud_service.session._data = {"session_token": "valid_token"}  # pylint: disable=protected-access
     return pyicloud_service
 
