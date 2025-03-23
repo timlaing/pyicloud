@@ -1,8 +1,5 @@
 """Account service tests."""
 
-import sys
-from unittest import skipIf
-
 from pyicloud.base import PyiCloudService
 from pyicloud.services.account import AccountStorageUsage
 
@@ -73,16 +70,12 @@ def test_family(pyicloud_service_working: PyiCloudService) -> None:
         )
 
 
-@skipIf(
-    sys.version_info >= (3, 12),
-    "OrderedDict repr format changes at python3.12 and higher",
-)
 def test_storage(pyicloud_service_working: PyiCloudService) -> None:
     """Tests storage."""
     assert pyicloud_service_working.account.storage
     assert (
         repr(pyicloud_service_working.account.storage)
-        == "<AccountStorage: {usage: 43.75% used of 5368709120 bytes, usages_by_media: OrderedDict([('photos', <AccountStorageUsageForMedia: {key: photos, usage: 0 bytes}>), ('backup', <AccountStorageUsageForMedia: {key: backup, usage: 799008186 bytes}>), ('docs', <AccountStorageUsageForMedia: {key: docs, usage: 449092146 bytes}>), ('mail', <AccountStorageUsageForMedia: {key: mail, usage: 1101522944 bytes}>)])}>"
+        == "<AccountStorage: {usage: 43.75% used of 5368709120 bytes, usages_by_media: {'photos': <AccountStorageUsageForMedia: {key: photos, usage: 0 bytes}>, 'backup': <AccountStorageUsageForMedia: {key: backup, usage: 799008186 bytes}>, 'docs': <AccountStorageUsageForMedia: {key: docs, usage: 449092146 bytes}>, 'mail': <AccountStorageUsageForMedia: {key: mail, usage: 1101522944 bytes}>}}>"
     )
 
 
