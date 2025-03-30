@@ -21,6 +21,7 @@ class ContactsService(BaseService):
         self._contacts_refresh_url: str = f"{self._contacts_endpoint}/startup"
         self._contacts_next_url: str = f"{self._contacts_endpoint}/contacts"
         self._contacts_changeset_url: str = f"{self._contacts_endpoint}/changeset"
+        self._contacts_me_card_url: str = f"{self._contacts_endpoint}/mecard"
 
         self._contacts: Optional[list] = None
 
@@ -62,3 +63,63 @@ class ContactsService(BaseService):
         """
         self.refresh_client()
         return self._contacts
+
+    @property
+    def me(self):
+        """
+        Retrieves the user's own contact information.
+        """
+        params_contacts = dict(self.params)
+        params_contacts.update(
+            {
+                "clientVersion": "2.1",
+                "locale": "en_US",
+                "order": "last,first",
+            }
+        )
+        req = self.session.get(self._contacts_me_card_url, params=params_contacts)
+        response = req.json()
+        return MeCard(response)
+
+
+class MeCard:
+    """
+    The 'MeCard' class represents the user's own contact information.
+    """
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self.data = data
+
+    @property
+    def first_name(self) -> str:
+        """
+        The user's first name.
+        """
+        return self.data.get("contacts")[0]["firstName"]
+
+    @property
+    def last_name(self) -> str:
+        """
+        The user's last name.
+        """
+        return self.data.get("contacts")[0]["lastName"]
+
+    @property
+    def photo(self):
+        """
+        The user's photo.
+        """
+        return self.data.get("contacts")[0]["photo"]
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name}"
+
+    def __repr__(self):
+        return f"<MeCard({self.first_name}-{self.last_name})>"
+
+    @property
+    def raw_data(self) -> dict[str, Any]:
+        """
+        The raw data of the mecard.
+        """
+        return self.data
