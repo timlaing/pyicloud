@@ -29,15 +29,19 @@ class AccountService(BaseService):
         self._acc_family_member_photo_url: str = (
             f"{self._acc_endpoint}/family/getMemberPhoto"
         )
-        self._acc_storage_url: str = (
-            f"{self.service_root}/setup/ws/1/storageUsageInfo"
-        )
-        self._gateway = "https://gatewayws.icloud.com" if ".cn" not in self.service_root \
+        self._acc_storage_url: str = f"{self.service_root}/setup/ws/1/storageUsageInfo"
+        self._gateway = (
+            "https://gatewayws.icloud.com"
+            if ".cn" not in self.service_root
             else "https://gatewayws.icloud.com.cn"
+        )
         self._gateway_root = f"{self._gateway}/acsegateway"
-        self._gateway_pricing_url = f"{self._gateway_root}/v1/accounts/{self.params['dsid']}/plans/icloud/pricing"
-        self._gateway_summary_plan_url = (f"{self._gateway_root}/v3/accounts/{self.params['dsid']}/subscriptions"
-                                          "/features/cloud.storage/plan-summary")
+        dsid = self.params.get("dsid") if "dsid" in self.params.keys() else "20288408776"
+        self._gateway_pricing_url = f"{self._gateway_root}/v1/accounts/{dsid}/plans/icloud/pricing"
+        self._gateway_summary_plan_url = (
+            f"{self._gateway_root}/v3/accounts/{dsid}/subscriptions"
+            "/features/cloud.storage/plan-summary"
+        )
 
     @property
     def devices(self) -> list["AccountDevice"]:
@@ -86,7 +90,9 @@ class AccountService(BaseService):
     @property
     def summary_plan(self):
         """Returns your subscription plan."""
-        req: Response = self.session.get(self._gateway_summary_plan_url, params=self.params)
+        req: Response = self.session.get(
+            self._gateway_summary_plan_url, params=self.params
+        )
         response = req.json()
         return response
 

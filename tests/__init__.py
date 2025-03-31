@@ -88,7 +88,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
             return ResponseMock(ACCOUNT_DEVICES_WORKING)
         if "family/getFamilyDetails" in url and method == "GET":
             return ResponseMock(ACCOUNT_FAMILY_WORKING)
-        if "setup/ws/1/storageUsageInfo" in url and method == "GET":
+        if "setup/ws/1/storageUsageInfo" in url and method == "POST":
             return ResponseMock(ACCOUNT_STORAGE_WORKING)
 
         resp: Optional[ResponseMock] = None
