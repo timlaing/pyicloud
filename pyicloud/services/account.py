@@ -41,11 +41,7 @@ class AccountService(BaseService):
             f"https://gatewayws.icloud.com{'' if not china_mainland else '.cn'}"
         )
         self._gateway_root: str = f"{self._gateway}/acsegateway"
-        dsid: str = (
-            self.params.get("dsid", DEFAULT_DSID)
-            if "dsid" in self.params.keys()
-            else DEFAULT_DSID
-        )
+        dsid: str = self.params.get("dsid", DEFAULT_DSID)
         self._gateway_pricing_url: str = (
             f"{self._gateway_root}/v1/accounts/{dsid}/plans/icloud/pricing"
         )
@@ -226,7 +222,7 @@ class FamilyMember:
         """Gets the dsid for purchases."""
         return self._attrs.get("dsidForPurchases")
 
-    def get_photo(self):
+    def get_photo(self) -> Response:
         """Returns the photo."""
         params_photo = dict(self._params)
         params_photo.update({"memberId": self.dsid})
