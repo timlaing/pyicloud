@@ -8,12 +8,18 @@ from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 from pyicloud.utils import underscore_to_camelcase
 
+DEFAULT_DSID = "20288408776"
+
 
 class AccountService(BaseService):
     """The 'Account' iCloud service."""
 
     def __init__(
-        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+        self,
+        service_root: str,
+        session: PyiCloudSession,
+        china_mainland: bool,
+        params: dict[str, Any],
     ) -> None:
         super().__init__(service_root, session, params)
 
@@ -29,8 +35,19 @@ class AccountService(BaseService):
         self._acc_family_member_photo_url: str = (
             f"{self._acc_endpoint}/family/getMemberPhoto"
         )
-        self._acc_storage_url: str = (
-            "https://setup.icloud.com/setup/ws/1/storageUsageInfo"
+        self._acc_storage_url: str = f"{self.service_root}/setup/ws/1/storageUsageInfo"
+
+        self._gateway: str = (
+            f"https://gatewayws.icloud.com{'' if not china_mainland else '.cn'}"
+        )
+        self._gateway_root: str = f"{self._gateway}/acsegateway"
+        dsid: str = self.params.get("dsid", DEFAULT_DSID)
+        self._gateway_pricing_url: str = (
+            f"{self._gateway_root}/v1/accounts/{dsid}/plans/icloud/pricing"
+        )
+        self._gateway_summary_plan_url: str = (
+            f"{self._gateway_root}/v3/accounts/{dsid}/subscriptions"
+            "/features/cloud.storage/plan-summary"
         )
 
     @property
@@ -70,12 +87,21 @@ class AccountService(BaseService):
     def storage(self) -> "AccountStorage":
         """Returns storage infos."""
         if not self._storage:
-            req: Response = self.session.get(self._acc_storage_url, params=self.params)
+            req: Response = self.session.post(self._acc_storage_url, params=self.params)
             response = req.json()
 
             self._storage = AccountStorage(response)
 
         return self._storage
+
+    @property
+    def summary_plan(self):
+        """Returns your subscription plan."""
+        req: Response = self.session.get(
+            self._gateway_summary_plan_url, params=self.params
+        )
+        response = req.json()
+        return response
 
     def __str__(self) -> str:
         return "{{devices: {}, family: {}, storage: {} bytes free}}".format(
@@ -196,7 +222,7 @@ class FamilyMember:
         """Gets the dsid for purchases."""
         return self._attrs.get("dsidForPurchases")
 
-    def get_photo(self):
+    def get_photo(self) -> Response:
         """Returns the photo."""
         params_photo = dict(self._params)
         params_photo.update({"memberId": self.dsid})

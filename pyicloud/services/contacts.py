@@ -21,6 +21,7 @@ class ContactsService(BaseService):
         self._contacts_refresh_url: str = f"{self._contacts_endpoint}/startup"
         self._contacts_next_url: str = f"{self._contacts_endpoint}/contacts"
         self._contacts_changeset_url: str = f"{self._contacts_endpoint}/changeset"
+        self._contacts_me_card_url: str = f"{self._contacts_endpoint}/mecard"
 
         self._contacts: Optional[list] = None
 
@@ -62,3 +63,70 @@ class ContactsService(BaseService):
         """
         self.refresh_client()
         return self._contacts
+
+    @property
+    def me(self) -> "MeCard":
+        """
+        Retrieves the user's own contact information.
+        """
+        params_contacts = dict(self.params)
+        params_contacts.update(
+            {
+                "clientVersion": "2.1",
+                "locale": "en_US",
+                "order": "last,first",
+            }
+        )
+        req: Response = self.session.get(
+            self._contacts_me_card_url, params=params_contacts
+        )
+        response = req.json()
+        return MeCard(response)
+
+
+class MeCard:
+    """
+    The 'MeCard' class represents the user's own contact information.
+    """
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._data: dict[str, Any] = data
+        contacts = data.get("contacts")
+        if isinstance(contacts, list) and isinstance(contacts[0], dict):
+            self._contact: dict[str, Any] = contacts[0]
+        else:
+            raise KeyError("contacts not found in data")
+
+    @property
+    def first_name(self) -> str:
+        """
+        The user's first name.
+        """
+        return self._contact["firstName"]
+
+    @property
+    def last_name(self) -> str:
+        """
+        The user's last name.
+        """
+        return self._contact["lastName"]
+
+    @property
+    def photo(self):
+        """
+        The user's photo.
+        """
+        return self._contact["photo"]
+
+    def __str__(self) -> str:
+        return f"{self.first_name} {self.last_name}"
+
+    def __repr__(self) -> str:
+        return f"<MeCard({self.first_name}-{self.last_name})>"
+
+    @property
+    def raw_data(self) -> dict[str, Any]:
+        """
+        The raw data of the mecard.
+        """
+        return self._data

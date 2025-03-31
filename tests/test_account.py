@@ -1,5 +1,7 @@
 """Account service tests."""
 
+from unittest.mock import MagicMock
+
 from pyicloud.base import PyiCloudService
 from pyicloud.services.account import AccountStorageUsage
 
@@ -123,3 +125,27 @@ def test_storage_usages_by_media(pyicloud_service_working: PyiCloudService) -> N
             + str(usage_media.usage_in_bytes)
             + " bytes}>"
         )
+
+
+def test_summary_plan(
+    pyicloud_service_working: PyiCloudService, mock_session: MagicMock
+) -> None:
+    """Tests the summary_plan property."""
+    # Mock the response for the summary plan endpoint
+    mock_response = {
+        "planName": "iCloud+",
+        "storageCapacity": "200GB",
+        "price": "$2.99/month",
+    }
+    mock_session.get.return_value.json.return_value = mock_response
+    pyicloud_service_working.session = mock_session
+
+    # Access the summary_plan property
+    summary_plan = pyicloud_service_working.account.summary_plan
+
+    # Assertions
+    assert summary_plan == mock_response
+    mock_session.get.assert_called_once_with(
+        pyicloud_service_working.account._gateway_summary_plan_url,
+        params=pyicloud_service_working.account.params,
+    )
