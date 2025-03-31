@@ -65,7 +65,7 @@ class ContactsService(BaseService):
         return self._contacts
 
     @property
-    def me(self):
+    def me(self) -> "MeCard":
         """
         Retrieves the user's own contact information.
         """
@@ -77,7 +77,9 @@ class ContactsService(BaseService):
                 "order": "last,first",
             }
         )
-        req = self.session.get(self._contacts_me_card_url, params=params_contacts)
+        req: Response = self.session.get(
+            self._contacts_me_card_url, params=params_contacts
+        )
         response = req.json()
         return MeCard(response)
 
@@ -88,33 +90,38 @@ class MeCard:
     """
 
     def __init__(self, data: dict[str, Any]) -> None:
-        self.data = data
+        self._data: dict[str, Any] = data
+        contacts = data.get("contacts")
+        if isinstance(contacts, list) and isinstance(contacts[0], dict):
+            self._contact: dict[str, Any] = contacts[0]
+        else:
+            raise KeyError("contacts not found in data")
 
     @property
     def first_name(self) -> str:
         """
         The user's first name.
         """
-        return self.data.get("contacts")[0]["firstName"]
+        return self._contact["firstName"]
 
     @property
     def last_name(self) -> str:
         """
         The user's last name.
         """
-        return self.data.get("contacts")[0]["lastName"]
+        return self._contact["lastName"]
 
     @property
     def photo(self):
         """
         The user's photo.
         """
-        return self.data.get("contacts")[0]["photo"]
+        return self._contact["photo"]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.first_name} {self.last_name}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<MeCard({self.first_name}-{self.last_name})>"
 
     @property
@@ -122,4 +129,4 @@ class MeCard:
         """
         The raw data of the mecard.
         """
-        return self.data
+        return self._data

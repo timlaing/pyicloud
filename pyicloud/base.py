@@ -93,13 +93,11 @@ class PyiCloudService(object):
         pyicloud.iphone.location()
     """
 
-    def _setup_endpoints(self, china_mainland: bool = False) -> None:
+    def _setup_endpoints(self) -> None:
         """Set up the endpoints for the service."""
         # If the country or region setting of your Apple ID is China mainland.
         # See https://support.apple.com/en-us/HT208351
-        icloud_china: str = (
-            ".cn" if china_mainland or environ.get("icloud_china", "0") == "1" else ""
-        )
+        icloud_china: str = ".cn" if self._is_china_mainland else ""
         self.auth_endpoint: str = (
             f"https://idmsa.apple.com{icloud_china}/appleauth/auth"
         )
@@ -133,7 +131,10 @@ class PyiCloudService(object):
         with_family: bool = True,
         china_mainland: bool = False,
     ) -> None:
-        self._setup_endpoints(china_mainland)
+        self._is_china_mainland: bool = (
+            china_mainland or environ.get("icloud_china", "0") == "1"
+        )
+        self._setup_endpoints()
         self._password: Optional[str] = password
         self._apple_id: str = apple_id
 
@@ -557,7 +558,12 @@ class PyiCloudService(object):
         """Gets the 'Account' service."""
         if not self._account:
             service_root: str = self.get_webservice_url("account")
-            self._account = AccountService(service_root, self.session, self.params)
+            self._account = AccountService(
+                service_root=service_root,
+                session=self.session,
+                china_mainland=self._is_china_mainland,
+                params=self.params,
+            )
         return self._account
 
     @property

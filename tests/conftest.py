@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 
 from pyicloud.base import PyiCloudService
+from pyicloud.services.contacts import ContactsService
 from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
 from tests.const_login import LOGIN_WORKING
@@ -81,3 +82,19 @@ def pyicloud_session(pyicloud_service_working: PyiCloudService) -> PyiCloudSessi
     """Mock the PyiCloudSession class."""
     pyicloud_service_working.session.cookies = MagicMock()
     return pyicloud_service_working.session
+
+
+@pytest.fixture
+def mock_session() -> MagicMock:
+    """Fixture to create a mock PyiCloudSession."""
+    return MagicMock(spec=PyiCloudSession)
+
+
+@pytest.fixture
+def contacts_service(mock_session: MagicMock) -> ContactsService:
+    """Fixture to create a ContactsService instance."""
+    return ContactsService(
+        service_root="https://example.com",
+        session=mock_session,
+        params={"test_param": "value"},
+    )

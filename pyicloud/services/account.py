@@ -8,12 +8,18 @@ from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 from pyicloud.utils import underscore_to_camelcase
 
+DEFAULT_DSID = "20288408776"
+
 
 class AccountService(BaseService):
     """The 'Account' iCloud service."""
 
     def __init__(
-        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+        self,
+        service_root: str,
+        session: PyiCloudSession,
+        china_mainland: bool,
+        params: dict[str, Any],
     ) -> None:
         super().__init__(service_root, session, params)
 
@@ -30,15 +36,20 @@ class AccountService(BaseService):
             f"{self._acc_endpoint}/family/getMemberPhoto"
         )
         self._acc_storage_url: str = f"{self.service_root}/setup/ws/1/storageUsageInfo"
-        self._gateway = (
-            "https://gatewayws.icloud.com"
-            if ".cn" not in self.service_root
-            else "https://gatewayws.icloud.com.cn"
+
+        self._gateway: str = (
+            f"https://gatewayws.icloud.com{'' if not china_mainland else '.cn'}"
         )
-        self._gateway_root = f"{self._gateway}/acsegateway"
-        dsid = self.params.get("dsid") if "dsid" in self.params.keys() else "20288408776"
-        self._gateway_pricing_url = f"{self._gateway_root}/v1/accounts/{dsid}/plans/icloud/pricing"
-        self._gateway_summary_plan_url = (
+        self._gateway_root: str = f"{self._gateway}/acsegateway"
+        dsid: str = (
+            self.params.get("dsid", DEFAULT_DSID)
+            if "dsid" in self.params.keys()
+            else DEFAULT_DSID
+        )
+        self._gateway_pricing_url: str = (
+            f"{self._gateway_root}/v1/accounts/{dsid}/plans/icloud/pricing"
+        )
+        self._gateway_summary_plan_url: str = (
             f"{self._gateway_root}/v3/accounts/{dsid}/subscriptions"
             "/features/cloud.storage/plan-summary"
         )
