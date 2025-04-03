@@ -1,6 +1,7 @@
-requests>=2.24.0
-keyring>=21.4.0
-keyrings.alt>=3.5.2
-click>=7.1.2
-tzlocal>=4.0
-certifi>=2020.6.20
+certifi>=2024.12.14
+click==8.1.8
+keyring==25.6.0
+keyrings.alt==5.0.2
+requests>=2.31.0
+srp>=1.0.21
+tzlocal==5.3.1

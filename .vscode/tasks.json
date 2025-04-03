@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install requirements",
+      "type": "shell",
+      "command": "pip3 install --user -r requirements_all.txt",
+      "problemMatcher": []
+    },
+    {
+      "label": "Unit tests",
+      "type": "shell",
+      "command": "pytest --cov=. --cov-report xml:coverage.xml",
+      "problemMatcher": [],
+      "dependsOn": "Install requirements"
+    },
+    {
+      "label": "Reformat code",
+      "type": "shell",
+      "command": "isort . &&  ruff format",
+      "problemMatcher": [],
+      "dependsOn": "Install requirements"
+    }
+  ]
+}

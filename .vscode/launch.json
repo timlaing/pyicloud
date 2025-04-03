@@ -1,0 +1,81 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: PyiCloud List (password)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pyicloud.cmdline",
+            "args": [
+                "--username",
+                "${input:username}",
+                "--password",
+                "${input:password}",
+                "--list",
+                "-n",
+                "--debug"
+            ]
+        },
+        {
+            "name": "Python Debugger: PyiCloud List (no password)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pyicloud.cmdline",
+            "args": [
+                "--username",
+                "${input:username}",
+                "--list",
+                "-n",
+                "--debug"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Python: Debug Tests",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "purpose": [
+                "debug-test"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Python: Debug Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Python Debugger: End to End",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "examples.py",
+            "args": [
+                "--username",
+                "${input:username}",
+                "--password",
+                "${input:password}"
+            ],
+            "cwd": "${workspaceFolder}"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "username",
+            "type": "promptString",
+            "description": "Enter your iCloud username"
+        },
+        {
+            "id": "password",
+            "type": "promptString",
+            "description": "Enter your password",
+            "password": true
+        }
+    ]
+}

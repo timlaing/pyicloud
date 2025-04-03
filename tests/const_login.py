@@ -1,23 +1,36 @@
 """Login test constants."""
-from .const_account_family import (
+
+from typing import Any
+
+from tests.const_account_family import (
+    APPLE_ID_EMAIL,
     FIRST_NAME,
+    FULL_NAME,
+    ICLOUD_ID_EMAIL,
     LAST_NAME,
     PERSON_ID,
-    FULL_NAME,
     PRIMARY_EMAIL,
-    APPLE_ID_EMAIL,
-    ICLOUD_ID_EMAIL,
 )
 
-PERSON_ID = (FIRST_NAME + LAST_NAME).lower()
-NOTIFICATION_ID = "12345678-1234-1234-1234-123456789012" + PERSON_ID
-A_DS_ID = "123456-12-12345678-1234-1234-1234-123456789012" + PERSON_ID
-WIDGET_KEY = "widget_key" + PERSON_ID
+NOTIFICATION_ID: str = "12345678-1234-1234-1234-123456789012" + PERSON_ID
+A_DS_ID: str = "123456-12-12345678-1234-1234-1234-123456789012" + PERSON_ID
+WIDGET_KEY: str = "widget_key" + PERSON_ID
 
 # Data
-AUTH_OK = {"authType": "hsa2"}
+AUTH_OK: dict[str, Any] = {
+    "authType": "hsa2",
+    "salt": "U29tZVNhbHQ=",
+    "b": "U29tZUJ5dGVz",
+    "c": "TestC",
+    "iteration": 1000,
+    "dsInfo": {"hsaVersion": 1},
+    "hsaChallengeRequired": False,
+    "webservices": "TestWebservices",
+}
 
-LOGIN_WORKING = {
+ICLOUD_UPLOAD_PHOTOS_WS_URL = "https://p31-uploadphotosws.icloud.com:443"
+ICLOUD_WIDGET_ACCOUNT_URL = "https://appleid.apple.com/widget/account/?widgetKey="
+LOGIN_WORKING: dict[str, Any] = {
     "dsInfo": {
         "lastName": LAST_NAME,
         "iCDPEnabled": False,
@@ -74,12 +87,12 @@ LOGIN_WORKING = {
         },
         "photosupload": {
             "pcsRequired": True,
-            "url": "https://p31-uploadphotosws.icloud.com:443",
+            "url": ICLOUD_UPLOAD_PHOTOS_WS_URL,
             "status": "active",
         },
         "photos": {
             "pcsRequired": True,
-            "uploadUrl": "https://p31-uploadphotosws.icloud.com:443",
+            "uploadUrl": ICLOUD_UPLOAD_PHOTOS_WS_URL,
             "url": "https://p31-photosws.icloud.com:443",
             "status": "active",
         },
@@ -95,6 +108,10 @@ LOGIN_WORKING = {
         "schoolwork": {},
         "cksharews": {"url": "https://p31-ckshare.icloud.com:443", "status": "active"},
         "findme": {"url": "https://p31-fmipweb.icloud.com:443", "status": "active"},
+        "premiummailsettings": {
+            "url": "https://p42-maildomainws.icloud.com:443",
+            "status": "active",
+        },
         "ckdeviceservice": {"url": "https://p31-ckdevice.icloud.com:443"},
         "iworkthumbnailws": {
             "url": "https://p31-iworkthumbnailws.icloud.com:443",
@@ -147,15 +164,11 @@ LOGIN_WORKING = {
     "pcsEnabled": True,
     "configBag": {
         "urls": {
-            "accountCreateUI": "https://appleid.apple.com/widget/account/?widgetKey="
-            + WIDGET_KEY
-            + "#!create",
+            "accountCreateUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!create",
             "accountLoginUI": "https://idmsa.apple.com/appleauth/auth/signin?widgetKey="
             + WIDGET_KEY,
             "accountLogin": "https://setup.icloud.com/setup/ws/1/accountLogin",
-            "accountRepairUI": "https://appleid.apple.com/widget/account/?widgetKey="
-            + WIDGET_KEY
-            + "#!repair",
+            "accountRepairUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!repair",
             "downloadICloudTerms": "https://setup.icloud.com/setup/ws/1/downloadLiteTerms",
             "repairDone": "https://setup.icloud.com/setup/ws/1/repairDone",
             "accountAuthorizeUI": "https://idmsa.apple.com/appleauth/auth/authorize/signin?client_id="
@@ -267,12 +280,12 @@ LOGIN_2FA = {
         },
         "photosupload": {
             "pcsRequired": True,
-            "url": "https://p31-uploadphotosws.icloud.com:443",
+            "url": ICLOUD_UPLOAD_PHOTOS_WS_URL,
             "status": "active",
         },
         "photos": {
             "pcsRequired": True,
-            "uploadUrl": "https://p31-uploadphotosws.icloud.com:443",
+            "uploadUrl": ICLOUD_UPLOAD_PHOTOS_WS_URL,
             "url": "https://p31-photosws.icloud.com:443",
             "status": "active",
         },
@@ -288,6 +301,10 @@ LOGIN_2FA = {
         "schoolwork": {},
         "cksharews": {"url": "https://p31-ckshare.icloud.com:443", "status": "active"},
         "findme": {"url": "https://p31-fmipweb.icloud.com:443", "status": "active"},
+        "premiummailsettings": {
+            "url": "https://p42-maildomainws.icloud.com:443",
+            "status": "active",
+        },
         "ckdeviceservice": {"url": "https://p31-ckdevice.icloud.com:443"},
         "iworkthumbnailws": {
             "url": "https://p31-iworkthumbnailws.icloud.com:443",
@@ -340,15 +357,11 @@ LOGIN_2FA = {
     "pcsEnabled": True,
     "configBag": {
         "urls": {
-            "accountCreateUI": "https://appleid.apple.com/widget/account/?widgetKey="
-            + WIDGET_KEY
-            + "#!create",
+            "accountCreateUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!create",
             "accountLoginUI": "https://idmsa.apple.com/appleauth/auth/signin?widgetKey="
             + WIDGET_KEY,
             "accountLogin": "https://setup.icloud.com/setup/ws/1/accountLogin",
-            "accountRepairUI": "https://appleid.apple.com/widget/account/?widgetKey="
-            + WIDGET_KEY
-            + "#!repair",
+            "accountRepairUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!repair",
             "downloadICloudTerms": "https://setup.icloud.com/setup/ws/1/downloadLiteTerms",
             "repairDone": "https://setup.icloud.com/setup/ws/1/repairDone",
             "accountAuthorizeUI": "https://idmsa.apple.com/appleauth/auth/authorize/signin?client_id="
@@ -402,13 +415,13 @@ LOGIN_2FA = {
     },
 }
 
-TRUSTED_DEVICE_1 = {
+TRUSTED_DEVICE_1: dict = {
     "deviceType": "SMS",
     "areaCode": "",
     "phoneNumber": "*******58",
     "deviceId": "1",
 }
-TRUSTED_DEVICES = {"devices": [TRUSTED_DEVICE_1]}
+TRUSTED_DEVICES: dict = {"devices": [TRUSTED_DEVICE_1]}
 
-VERIFICATION_CODE_OK = {"success": True}
-VERIFICATION_CODE_KO = {"success": False}
+VERIFICATION_CODE_OK: dict = {"success": True}
+VERIFICATION_CODE_KO: dict = {"success": False}

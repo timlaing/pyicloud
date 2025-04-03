@@ -3,23 +3,23 @@
 A Command Line Wrapper to allow easy use of pyicloud for
 command line scripts, and related.
 """
+
 import argparse
+import logging
 import pickle
 import sys
-import logging
+from typing import Any, Optional
 
 from click import confirm
 
-from pyicloud import PyiCloudService
+from pyicloud import PyiCloudService, utils
 from pyicloud.exceptions import PyiCloudFailedLoginException
-import pyicloud.utils as utils
+from pyicloud.services.findmyiphone import AppleDevice
 
 DEVICE_ERROR = "Please use the --device switch to indicate which device to use."
 
-logger = logging.getLogger("pyicloud")
 
-
-def create_pickled_data(idevice, filename):
+def create_pickled_data(idevice: AppleDevice, filename: str) -> None:
     """
     This helper will output the idevice to a pickled file named
     after the passed filename.
@@ -31,11 +31,8 @@ def create_pickled_data(idevice, filename):
         pickle.dump(idevice.content, pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def main(args=None):
-    """Main commandline entrypoint."""
-    if args is None:
-        args = sys.argv[1:]
-
+def _create_parser() -> argparse.ArgumentParser:
+    """Create the parser."""
     parser = argparse.ArgumentParser(description="Find My iPhone CommandLine Tool")
 
     parser.add_argument(
@@ -54,6 +51,13 @@ def main(args=None):
             "Apple ID Password to Use; if unspecified, password will be "
             "fetched from the system keyring."
         ),
+    )
+    parser.add_argument(
+        "--china-mainland",
+        action="store_true",
+        dest="china_mainland",
+        default=False,
+        help="If the country/region setting of the Apple ID is China mainland",
     )
     parser.add_argument(
         "-n",
@@ -170,219 +174,273 @@ def main(args=None):
         "--log-level",
         action="store",
         dest="loglevel",
-        default="none",
-        help="set loglevel debug/info/error",
+        choices=["error", "warning", "info", "none"],
+        default="info",
+        help="Set the logging level",
     )
 
-    command_line = parser.parse_args(args)
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
+    )
 
-    username = command_line.username
-    password = command_line.password
-    loglevel = command_line.loglevel
+    return parser
 
-    if not loglevel == "none":
-        formatter = logging.Formatter(fmt="%(asctime)s %(levelname)-8s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-        stdout_handler = logging.StreamHandler(stream=sys.stdout)
-        stdout_handler.setFormatter(formatter)
-        logger.addHandler(stdout_handler)
 
-    if loglevel == "info":
-        logger.setLevel(logging.INFO)
-        logger.info("log-level INFO")
-    elif loglevel == "debug":
-        logger.setLevel(logging.DEBUG)
-        logger.info("log-level DEBUG")
-    elif loglevel == "error":
-        logger.setLevel(logging.ERROR)
-        logger.info("log-level ERROR")
+def _get_password(
+    username: str,
+    parser: argparse.ArgumentParser,
+    command_line: argparse.Namespace,
+) -> Optional[str]:
+    """Which password we use is determined by your username, so we
+    do need to check for this first and separately."""
+    if not username:
+        parser.error("No username supplied")
+
+    password: Optional[str] = command_line.password
+    if not password:
+        password = utils.get_password(username, interactive=command_line.interactive)
+
+    return password
+
+
+def main() -> None:
+    """Main commandline entrypoint."""
+    parser: argparse.ArgumentParser = _create_parser()
+    command_line: argparse.Namespace = parser.parse_args()
+    level = logging.INFO
+
+    if command_line.loglevel == "error":
+        level = logging.ERROR
+    elif command_line.loglevel == "warning":
+        level = logging.WARNING
+    elif command_line.loglevel == "info":
+        level = logging.INFO
+    elif command_line.loglevel == "none":
+        level = None
+
+    if command_line.debug:
+        level = logging.DEBUG
+
+    if level:
+        logging.basicConfig(level=level)
+
+    username: str = command_line.username.strip()
+    china_mainland: bool = command_line.china_mainland
 
     if username and command_line.delete_from_keyring:
         utils.delete_password_in_keyring(username)
 
     failure_count = 0
     while True:
-        # Which password we use is determined by your username, so we
-        # do need to check for this first and separately.
-        if not username:
-            parser.error("No username supplied")
+        password: Optional[str] = _get_password(username, parser, command_line)
 
-        if not password:
-            password = utils.get_password(
-                username, interactive=command_line.interactive
-            )
+        api: Optional[PyiCloudService] = _authenticate(
+            username,
+            password,
+            china_mainland,
+            parser,
+            command_line,
+            failures=failure_count,
+        )
+        if not api:
+            failure_count += 1
+        else:
+            break
 
+    _print_devices(api, command_line)
+
+
+def _authenticate(
+    username: str,
+    password: Optional[str],
+    china_mainland: bool,
+    parser: argparse.ArgumentParser,
+    command_line: argparse.Namespace,
+    failures: int = 0,
+) -> Optional[PyiCloudService]:
+    api = None
+    try:
+        api = PyiCloudService(username, password, china_mainland=china_mainland)
+        if (
+            not utils.password_exists_in_keyring(username)
+            and command_line.interactive
+            and confirm("Save password in keyring?")
+            and password
+        ):
+            utils.store_password_in_keyring(username, password)
+
+        if api.requires_2fa:
+            _handle_2fa(api)
+
+        elif api.requires_2sa:
+            _handle_2sa(api)
+        return api
+    except PyiCloudFailedLoginException as err:
+        # If they have a stored password; we just used it and
+        # it did not work; let's delete it if there is one.
         if not password:
             parser.error("No password supplied")
 
-        try:
-            api = PyiCloudService(username.strip(), password.strip())
-            if (
-                not utils.password_exists_in_keyring(username)
-                and command_line.interactive
-                and confirm("Save password in keyring?")
-            ):
-                utils.store_password_in_keyring(username, password)
+        if utils.password_exists_in_keyring(username):
+            utils.delete_password_in_keyring(username)
 
-            if api.requires_2fa:
-                # fmt: off
-                print(
-                    "\nTwo-step authentication required.",
-                    "\nPlease enter validation code"
-                )
-                # fmt: on
+        message: str = f"Bad username or password for {username}"
 
-                code = input("(string) --> ")
-                if not api.validate_2fa_code(code):
-                    print("Failed to verify verification code")
-                    sys.exit(1)
+        failures += 1
+        if failures >= 3:
+            raise RuntimeError(message) from err
 
-                print("")
+        print(message, file=sys.stderr)
 
-            elif api.requires_2sa:
-                # fmt: off
-                print(
-                    "\nTwo-step authentication required.",
-                    "\nYour trusted devices are:"
-                )
-                # fmt: on
 
-                devices = api.trusted_devices
-                for i, device in enumerate(devices):
-                    print(
-                        "    %s: %s"
-                        % (
-                            i,
-                            device.get(
-                                "deviceName", "SMS to %s" % device.get("phoneNumber")
-                            ),
-                        )
-                    )
-
-                print("\nWhich device would you like to use?")
-                device = int(input("(number) --> "))
-                device = devices[device]
-                if not api.send_verification_code(device):
-                    print("Failed to send verification code")
-                    sys.exit(1)
-
-                print("\nPlease enter validation code")
-                code = input("(string) --> ")
-                if not api.validate_verification_code(device, code):
-                    print("Failed to verify verification code")
-                    sys.exit(1)
-
-                print("")
-            break
-        except PyiCloudFailedLoginException as err:
-            # If they have a stored password; we just used it and
-            # it did not work; let's delete it if there is one.
-            if utils.password_exists_in_keyring(username):
-                utils.delete_password_in_keyring(username)
-
-            message = "Bad username or password for {username}".format(
-                username=username,
-            )
-            password = None
-
-            failure_count += 1
-            if failure_count >= 3:
-                raise RuntimeError(message) from err
-
-            print(message, file=sys.stderr)
-
+def _print_devices(api: PyiCloudService, command_line: argparse.Namespace) -> None:
     for dev in api.devices:
         if not command_line.device_id or (
             command_line.device_id.strip().lower() == dev.content["id"].strip().lower()
         ):
             # List device(s)
-            if command_line.locate:
-                dev.location()
-
-            if command_line.output_to_file:
-                create_pickled_data(
-                    dev,
-                    filename=(dev.content["name"].strip().lower() + ".fmip_snapshot"),
-                )
-
-            contents = dev.content
-            if command_line.longlist:
-                print("-" * 30)
-                print(contents["name"])
-                for key in contents:
-                    print("%20s - %s" % (key, contents[key]))
-            elif command_line.list:
-                print("-" * 30)
-                print("Name - %s" % contents["name"])
-                print("Display Name  - %s" % contents["deviceDisplayName"])
-                print("Location      - %s" % contents["location"])
-                print("Battery Level - %s" % contents["batteryLevel"])
-                print("Battery Status- %s" % contents["batteryStatus"])
-                print("Device Class  - %s" % contents["deviceClass"])
-                print("Device Model  - %s" % contents["deviceModel"])
+            _list_devices_option(command_line, dev)
 
             # Play a Sound on a device
-            if command_line.sound:
-                if command_line.device_id:
-                    dev.play_sound()
-                else:
-                    raise RuntimeError(
-                        "\n\n\t\t%s %s\n\n"
-                        % (
-                            "Sounds can only be played on a singular device.",
-                            DEVICE_ERROR,
-                        )
-                    )
+            _play_device_sound_option(command_line, dev)
 
             # Display a Message on the device
-            if command_line.message:
-                if command_line.device_id:
-                    dev.display_message(
-                        subject="A Message", message=command_line.message, sounds=True
-                    )
-                else:
-                    raise RuntimeError(
-                        "%s %s"
-                        % (
-                            "Messages can only be played on a singular device.",
-                            DEVICE_ERROR,
-                        )
-                    )
+            _display_device_message_option(command_line, dev)
 
             # Display a Silent Message on the device
-            if command_line.silentmessage:
-                if command_line.device_id:
-                    dev.display_message(
-                        subject="A Silent Message",
-                        message=command_line.silentmessage,
-                        sounds=False,
-                    )
-                else:
-                    raise RuntimeError(
-                        "%s %s"
-                        % (
-                            "Silent Messages can only be played "
-                            "on a singular device.",
-                            DEVICE_ERROR,
-                        )
-                    )
+            _display_device_silent_message_option(command_line, dev)
 
             # Enable Lost mode
-            if command_line.lostmode:
-                if command_line.device_id:
-                    dev.lost_device(
-                        number=command_line.lost_phone.strip(),
-                        text=command_line.lost_message.strip(),
-                        newpasscode=command_line.lost_password.strip(),
-                    )
-                else:
-                    raise RuntimeError(
-                        "%s %s"
-                        % (
-                            "Lost Mode can only be activated on a singular device.",
-                            DEVICE_ERROR,
-                        )
-                    )
-    sys.exit(0)
+            _enable_lost_mode_option(command_line, dev)
+
+
+def _enable_lost_mode_option(
+    command_line: argparse.Namespace, dev: AppleDevice
+) -> None:
+    if command_line.lostmode:
+        if command_line.device_id:
+            dev.lost_device(
+                number=command_line.lost_phone.strip(),
+                text=command_line.lost_message.strip(),
+                newpasscode=command_line.lost_password.strip(),
+            )
+        else:
+            raise RuntimeError(
+                f"Lost Mode can only be activated on a singular device. {DEVICE_ERROR}"
+            )
+
+
+def _display_device_silent_message_option(
+    command_line: argparse.Namespace, dev: AppleDevice
+) -> None:
+    if command_line.silentmessage:
+        if command_line.device_id:
+            dev.display_message(
+                subject="A Silent Message",
+                message=command_line.silentmessage,
+                sounds=False,
+            )
+        else:
+            raise RuntimeError(
+                f"Silent Messages can only be played on a singular device. {DEVICE_ERROR}"
+            )
+
+
+def _display_device_message_option(
+    command_line: argparse.Namespace, dev: AppleDevice
+) -> None:
+    if command_line.message:
+        if command_line.device_id:
+            dev.display_message(
+                subject="A Message", message=command_line.message, sounds=True
+            )
+        else:
+            raise RuntimeError(
+                f"Messages can only be played on a singular device. {DEVICE_ERROR}"
+            )
+
+
+def _play_device_sound_option(
+    command_line: argparse.Namespace, dev: AppleDevice
+) -> None:
+    if command_line.sound:
+        if command_line.device_id:
+            dev.play_sound()
+        else:
+            raise RuntimeError(
+                f"\n\n\t\tSounds can only be played on a singular device. {DEVICE_ERROR}\n\n"
+            )
+
+
+def _list_devices_option(command_line: argparse.Namespace, dev: AppleDevice) -> None:
+    if command_line.locate:
+        dev.location()
+
+    if command_line.output_to_file:
+        create_pickled_data(
+            dev,
+            filename=(dev.content["name"].strip().lower() + ".fmip_snapshot"),
+        )
+
+    contents: dict[str, Any] = dev.content
+    if command_line.longlist:
+        print("-" * 30)
+        print(contents["name"])
+        for key in contents:
+            print(f"{key:>20} - {contents[key]}")
+    elif command_line.list:
+        print("-" * 30)
+        print(f"Name           - {contents['name']}")
+        print(f"Display Name   - {contents['deviceDisplayName']}")
+        print(f"Location       - {contents['location']}")
+        print(f"Battery Level  - {contents['batteryLevel']}")
+        print(f"Battery Status - {contents['batteryStatus']}")
+        print(f"Device Class   - {contents['deviceClass']}")
+        print(f"Device Model   - {contents['deviceModel']}")
+
+
+def _handle_2fa(api: PyiCloudService) -> None:
+    print("\nTwo-step authentication required.", "\nPlease enter validation code")
+
+    code: str = input("(string) --> ")
+    if not api.validate_2fa_code(code):
+        print("Failed to verify verification code")
+        sys.exit(1)
+
+    print("")
+
+
+def _handle_2sa(api: PyiCloudService) -> None:
+    print("\nTwo-step authentication required.", "\nYour trusted devices are:")
+
+    devices: list[dict[str, Any]] = _show_devices(api)
+
+    print("\nWhich device would you like to use?")
+    device_idx = int(input("(number) --> "))
+    device: dict[str, Any] = devices[device_idx]
+    if not api.send_verification_code(device):
+        print("Failed to send verification code")
+        sys.exit(1)
+
+    print("\nPlease enter validation code")
+    code: str = input("(string) --> ")
+    if not api.validate_verification_code(device, code):
+        print("Failed to verify verification code")
+        sys.exit(1)
+
+    print("")
+
+
+def _show_devices(api: PyiCloudService) -> list[dict[str, Any]]:
+    """Show devices."""
+    devices: list[dict[str, Any]] = api.trusted_devices
+    for i, device in enumerate(devices):
+        phone_number: str = f"SMS to {device.get('phoneNumber')}"
+        print(f"    {i}: {device.get('deviceName', phone_number)}")
+
+    return devices
 
 
 if __name__ == "__main__":

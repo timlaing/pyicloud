@@ -1,0 +1,28 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: detect-private-key
+      - id: check-docstring-first
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args:
+          - --unsafe
+      - id: check-added-large-files
+      - id: requirements-txt-fixer
+      - id: name-tests-test
+        exclude: ^tests/const.*\.py$
+        args:
+          - --pytest-test-first
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.9
+    hooks:
+      - id: ruff
+      - id: ruff-format
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.1
+    hooks:
+      - id: isort

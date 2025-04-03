@@ -1,18 +1,21 @@
 """Find my iPhone test constants."""
-from .const import CLIENT_ID
-from .const_account_family import (
+
+from typing import Any
+
+from tests.const import CLIENT_ID
+from tests.const_account_family import (
     FIRST_NAME,
-    LAST_NAME,
-    PERSON_ID,
     FULL_NAME,
-    MEMBER_1_FIRST_NAME,
+    LAST_NAME,
     MEMBER_1_APPLE_ID,
+    MEMBER_1_FIRST_NAME,
     MEMBER_1_LAST_NAME,
     MEMBER_1_PERSON_ID,
     MEMBER_2_APPLE_ID,
     MEMBER_2_FIRST_NAME,
     MEMBER_2_LAST_NAME,
     MEMBER_2_PERSON_ID,
+    PERSON_ID,
 )
 
 # Fakers
@@ -20,12 +23,20 @@ UUID = "ABCDEFGH-1234-5678-1234-ABCDEFGHIJKL"
 LOCATION_LATITUDE = 45.123456789012345
 LOCATION_LONGITUDE = 6.1234567890123456
 
+IPHONE4_1 = "iPhone4,1"
+IPHONE12_1 = "iPhone12,1"
+MACBOOKPRO10_1 = "MacBookPro10,1"
+IPAD7_3 = "iPad7,3"
+MACBOOKPRO15_1 = "MacBookPro15,1"
+MACBOOK_PRO_15 = "MacBook Pro 15"
+MACBOOK_PRO = "MacBook Pro"
+
 # Data
 # Re-generated device :
 # id = rawDeviceModel + prsId (if not None)
 # baUUID = UUID + id
 # So they can still be faked and unique
-FMI_FAMILY_WORKING = {
+FMI_FAMILY_WORKING: dict[str, Any] = {
     "userInfo": {
         "accountFormatter": 0,
         "firstName": FIRST_NAME,
@@ -95,7 +106,7 @@ FMI_FAMILY_WORKING = {
     "userPreferences": {
         "webPrefs": {
             "id": "web_prefs",
-            "selectedDeviceId": "iPhone4,1",
+            "selectedDeviceId": IPHONE4_1,
         }
     },
     "content": [
@@ -109,7 +120,7 @@ FMI_FAMILY_WORKING = {
                 "statusCode": "200",
             },
             "canWipeAfterLock": True,
-            "baUUID": UUID + "iPhone12,1",
+            "baUUID": UUID + IPHONE12_1,
             "wipeInProgress": False,
             "lostModeEnabled": False,
             "activationLocked": True,
@@ -144,8 +155,8 @@ FMI_FAMILY_WORKING = {
                 "WIP": True,
             },
             "lowPowerMode": True,
-            "rawDeviceModel": "iPhone12,1",
-            "id": "iPhone12,1",
+            "rawDeviceModel": IPHONE12_1,
+            "id": IPHONE12_1,
             "remoteLock": None,
             "isLocating": True,
             "modelDisplayName": "iPhone",
@@ -234,8 +245,8 @@ FMI_FAMILY_WORKING = {
                 "WIP": True,
             },
             "lowPowerMode": False,
-            "rawDeviceModel": "iPhone4,1",
-            "id": "iPhone4,1",
+            "rawDeviceModel": IPHONE4_1,
+            "id": IPHONE4_1,
             "remoteLock": None,
             "isLocating": False,
             "modelDisplayName": "iPhone",
@@ -397,11 +408,11 @@ FMI_FAMILY_WORKING = {
                 "WIP": True,
             },
             "lowPowerMode": False,
-            "rawDeviceModel": "MacBookPro10,1",
-            "id": "MacBookPro10,1",
+            "rawDeviceModel": MACBOOKPRO10_1,
+            "id": MACBOOKPRO10_1,
             "remoteLock": None,
             "isLocating": False,
-            "modelDisplayName": "MacBook Pro",
+            "modelDisplayName": MACBOOK_PRO,
             "lostTimestamp": "",
             "batteryLevel": 0.0,
             "mesg": None,
@@ -413,7 +424,7 @@ FMI_FAMILY_WORKING = {
             "lostDevice": None,
             "lostModeCapable": False,
             "wipedTimestamp": None,
-            "deviceDisplayName": 'MacBook Pro 15"',
+            "deviceDisplayName": MACBOOK_PRO_15,
             "prsId": None,
             "audioChannels": [],
             "locationCapable": True,
@@ -478,7 +489,7 @@ FMI_FAMILY_WORKING = {
             "id": "MacBookPro11,3",
             "remoteLock": {"createTimestamp": 1433338956786, "statusCode": "2201"},
             "isLocating": False,
-            "modelDisplayName": "MacBook Pro",
+            "modelDisplayName": MACBOOK_PRO,
             "lostTimestamp": "",
             "batteryLevel": 0.0,
             "mesg": {"createTimestamp": 1583057432463, "statusCode": "200"},
@@ -490,7 +501,7 @@ FMI_FAMILY_WORKING = {
             "lostDevice": None,
             "lostModeCapable": False,
             "wipedTimestamp": None,
-            "deviceDisplayName": 'MacBook Pro 15"',
+            "deviceDisplayName": MACBOOK_PRO_15,
             "prsId": None,
             "audioChannels": [],
             "locationCapable": True,
@@ -516,7 +527,7 @@ FMI_FAMILY_WORKING = {
                 "statusCode": "200",
             },
             "canWipeAfterLock": False,
-            "baUUID": UUID + "MacBookPro15,1",
+            "baUUID": UUID + MACBOOKPRO15_1,
             "wipeInProgress": False,
             "lostModeEnabled": False,
             "activationLocked": True,
@@ -551,11 +562,11 @@ FMI_FAMILY_WORKING = {
                 "WIP": True,
             },
             "lowPowerMode": False,
-            "rawDeviceModel": "MacBookPro15,1",
-            "id": "MacBookPro15,1",
+            "rawDeviceModel": MACBOOKPRO15_1,
+            "id": MACBOOKPRO15_1,
             "remoteLock": None,
             "isLocating": False,
-            "modelDisplayName": "MacBook Pro",
+            "modelDisplayName": MACBOOK_PRO,
             "lostTimestamp": "",
             "batteryLevel": 0.26968246698379517,
             "mesg": {"createTimestamp": 1583057432463, "statusCode": "200"},
@@ -567,7 +578,7 @@ FMI_FAMILY_WORKING = {
             "lostDevice": None,
             "lostModeCapable": False,
             "wipedTimestamp": None,
-            "deviceDisplayName": 'MacBook Pro 15"',
+            "deviceDisplayName": MACBOOK_PRO_15,
             "prsId": None,
             "audioChannels": [],
             "locationCapable": True,
@@ -720,11 +731,11 @@ FMI_FAMILY_WORKING = {
                 "WIP": True,
             },
             "lowPowerMode": False,
-            "rawDeviceModel": "MacBookPro10,1",
-            "id": "MacBookPro10,1" + MEMBER_2_PERSON_ID,
+            "rawDeviceModel": MACBOOKPRO10_1,
+            "id": MACBOOKPRO10_1 + MEMBER_2_PERSON_ID,
             "remoteLock": None,
             "isLocating": False,
-            "modelDisplayName": "MacBook Pro",
+            "modelDisplayName": MACBOOK_PRO,
             "lostTimestamp": "",
             "batteryLevel": 0.0,
             "mesg": None,
@@ -736,7 +747,7 @@ FMI_FAMILY_WORKING = {
             "lostDevice": None,
             "lostModeCapable": False,
             "wipedTimestamp": None,
-            "deviceDisplayName": 'MacBook Pro 15"',
+            "deviceDisplayName": MACBOOK_PRO_15,
             "prsId": MEMBER_2_PERSON_ID,
             "audioChannels": [],
             "locationCapable": True,
@@ -755,7 +766,7 @@ FMI_FAMILY_WORKING = {
         {
             "msg": None,
             "canWipeAfterLock": True,
-            "baUUID": UUID + "iPhone12,1" + MEMBER_2_PERSON_ID,
+            "baUUID": UUID + IPHONE12_1 + MEMBER_2_PERSON_ID,
             "wipeInProgress": False,
             "lostModeEnabled": False,
             "activationLocked": True,
@@ -790,8 +801,8 @@ FMI_FAMILY_WORKING = {
                 "WIP": True,
             },
             "lowPowerMode": False,
-            "rawDeviceModel": "iPhone12,1",
-            "id": "iPhone12,1" + MEMBER_2_PERSON_ID,
+            "rawDeviceModel": IPHONE12_1,
+            "id": IPHONE12_1 + MEMBER_2_PERSON_ID,
             "remoteLock": None,
             "isLocating": False,
             "modelDisplayName": "iPhone",
@@ -902,7 +913,7 @@ FMI_FAMILY_WORKING = {
         {
             "msg": None,
             "canWipeAfterLock": True,
-            "baUUID": UUID + "iPad7,3" + MEMBER_1_PERSON_ID,
+            "baUUID": UUID + IPAD7_3 + MEMBER_1_PERSON_ID,
             "wipeInProgress": False,
             "lostModeEnabled": False,
             "activationLocked": True,
@@ -937,8 +948,8 @@ FMI_FAMILY_WORKING = {
                 "WIP": True,
             },
             "lowPowerMode": False,
-            "rawDeviceModel": "iPad7,3",
-            "id": "iPad7,3" + MEMBER_1_PERSON_ID,
+            "rawDeviceModel": IPAD7_3,
+            "id": IPAD7_3 + MEMBER_1_PERSON_ID,
             "remoteLock": None,
             "isLocating": False,
             "modelDisplayName": "iPad",
@@ -1014,8 +1025,8 @@ FMI_FAMILY_WORKING = {
                 "WIP": True,
             },
             "lowPowerMode": False,
-            "rawDeviceModel": "iPhone4,1",
-            "id": "iPhone4,1" + MEMBER_1_PERSON_ID,
+            "rawDeviceModel": IPHONE4_1,
+            "id": IPHONE4_1 + MEMBER_1_PERSON_ID,
             "remoteLock": None,
             "isLocating": False,
             "modelDisplayName": "iPhone",

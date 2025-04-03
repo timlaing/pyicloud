@@ -1,0 +1,31 @@
+{
+  "editor.formatOnPaste": false,
+  "editor.formatOnSave": true,
+  "editor.formatOnType": true,
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "python.testing.pytestEnabled": true,
+  "python.analysis.inlayHints.pytestParameters": true,
+  "isort.check": true,
+  "isort.importStrategy": "useBundled",
+  "python.analysis.autoFormatStrings": true,
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.completeFunctionParens": true,
+  "python.createEnvironment.contentButton": "show",
+  "python.terminal.focusAfterLaunch": true,
+  "sonarlint.connectedMode.project": {
+    "connectionId": "timlaing",
+    "projectKey": "timlaing_pyicloud"
+  },
+  "python.terminal.activateEnvInCurrentTerminal": true,
+  "python.defaultInterpreterPath": "./.venv/bin/python",
+  "git.autofetch": true,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  "[dockerfile]": {
+    "editor.defaultFormatter": "ms-azuretools.vscode-docker"
+  },
+  "pylint.importStrategy": "useBundled",
+  "python.analysis.diagnosticMode": "workspace"
+}

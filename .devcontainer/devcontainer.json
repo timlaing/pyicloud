@@ -1,0 +1,59 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+	"name": "PyiCloud Dev",
+	"build": {
+		"dockerfile": "Dockerfile"
+	},
+	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	"features": {
+		"ghcr.io/devcontainers/features/github-cli:1": {
+			"installDirectlyFromGitHubRelease": true,
+			"version": "latest"
+		},
+		"ghcr.io/devcontainers/features/node": "latest",
+		"ghcr.io/va-h/devcontainers-features/uv": "latest"
+	},
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [],
+	// Use 'postCreateCommand' to run commands after the container is created.
+	"postCreateCommand": "uv venv && uv pip install -r requirements_all.txt && curl https://pyenv.run | bash && cat .devcontainer/pyenv >> ~/.bashrc",
+	// Configure tool-specific properties.
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"donjayamanne.python-extension-pack",
+				"shyykoserhiy.git-autoconfig",
+				"ms-python.vscode-pylance",
+				"visualstudioexptteam.vscodeintellicode",
+				"redhat.vscode-yaml",
+				"esbenp.prettier-vscode",
+				"GitHub.vscode-pull-request-github",
+				"ms-python.pylint",
+				"ms-python.isort",
+				"ms-python.python",
+				"ryanluker.vscode-coverage-gutters",
+				"donjayamanne.git-extension-pack",
+				"github.vscode-github-actions",
+				"elagil.pre-commit-helper",
+				"sonarsource.sonarlint-vscode",
+				"charliermarsh.ruff",
+				"ms-azuretools.vscode-docker"
+			],
+			"settings": {
+				"sonarlint.ls.javaHome": "/usr/lib/jvm/java-17-openjdk-${{devcontainer.architecture}}",
+				"editor.tabSize": 4,
+				"terminal.integrated.profiles.linux": {
+					"zsh": {
+						"path": "/usr/bin/zsh"
+					}
+				},
+				"terminal.integrated.defaultProfile.linux": "zsh"
+			}
+		}
+	},
+	"mounts": [
+		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+	]
+}

@@ -8,7 +8,7 @@
 *.egg
 *.egg-info
 dist
-build/*
+build
 eggs
 .eggs
 parts
@@ -52,6 +52,9 @@ desktop.ini
 !.vscode/cSpell.json
 !.vscode/extensions.json
 !.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/launch.json
+
 
 # IntelliJ IDEA
 .idea
@@ -65,3 +68,10 @@ desktop.ini
 .mr.developer.cfg
 .project
 .pydevproject
+.pyvenv
+.venv
+*.session
+*.cookiejar
+.ruff_cache
+.pytest_cache
+.python-version

@@ -1,21 +1,111 @@
-[tool.black]
-line-length = 88
-target-version = ["py37", "py38", "py39", "py310"]
-exclude = '''
+[tool.ruff]
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
 
-(
-  /(
-      \.eggs
-    | \.git
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | buck-out
-    | build
-    | dist
-  )/
-  | exceptions.py
-)
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.9
+target-version = "py39"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".git", ".tox", "build", "lib"]
+addopts = ["--disable-socket", "--allow-unix-socket"]
+
+[tool.isort]
+profile = "black"
+
+[tool.tox]
+requires = ["tox>=4.24.1"]
+env_list = ["lint", "3.13", "3.12", "3.11", "3.10", "3.9"]
+
+[tool.tox.env_run_base]
+description = "Run test under {base_python}"
+commands = [["pytest"]]
+deps = ["-r requirements_test.txt"]
+
+[tool.tox.gh-actions]
+python = '''
+    3.9: 3.9, lint
+    3.10: 3.10
+    3.11: 3.11
+    3.12: 3.12
+    3.13: 3.13
 '''
+
+[tool.setuptools_scm]
+
+[build-system]
+requires = ["setuptools >= 77.0,< 78.2", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyicloud"
+dynamic = ["version", "readme", "dependencies", "optional-dependencies"]
+description = "PyiCloud is a module which allows pythonistas to interact with iCloud webservices."
+requires-python = ">=3.9"
+license-files = ["LICENSE.txt"]
+authors = [
+    {name = "The PyiCloud Authors"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries"
+]
+keywords = ["icloud", "find-my-iphone"]
+
+
+[project.urls]
+homepage = "https://github.com/timlaing/pyicloud"
+download = "https://github.com/timlaing/pyicloud/releases/latest"
+bug_tracker = "https://github.com/timlaing/pyicloud/issues"
+repository = "https://github.com/timlaing/pyicloud"
+
+[project.scripts]
+icloud = "pyicloud.cmdline:main"
+
+[tool.setuptools]
+packages = ["pyicloud", "pyicloud.services"]
+
+[tool.setuptools.dynamic]
+readme = {file = "README.md"}
+dependencies = {file = ["requirements.txt"]}
+optional-dependencies = {test = {file = ["requirements_test.txt"]}}
