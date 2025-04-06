@@ -219,34 +219,25 @@ class PhotoLibrary(BasePhotoLibrary):
 
     def _fetch_folders(self) -> list[dict[str, Any]]:
         """Fetches folders."""
-        json_data: str = json.dumps(
-            {
-                "query": {"recordType": "CPLAlbumByPositionLive"},
-                "zoneID": self.zone_id,
-            }
-        )
+        query: dict[str, Any] = {
+            "query": {"recordType": "CPLAlbumByPositionLive"},
+            "zoneID": self.zone_id,
+        }
 
         request: Response = self.service.session.post(
             url=self.url,
-            data=json_data,
+            data=json.dumps(query),
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, list[dict[str, Any]]] = request.json()
-
-        response = request.json()
-
         records: list[dict[str, Any]] = response["records"]
+
         while "continuationMarker" in response:
-            json_data = json.dumps(
-                {
-                    "query": {"recordType": "CPLAlbumByPositionLive"},
-                    "zoneID": {"zoneName": "PrimarySync"},
-                    "continuationMarker": response["continuationMarker"],
-                }
-            )
+            query["continuationMarker"] = response["continuationMarker"]
+
             request: Response = self.service.session.post(
                 url=self.url,
-                data=json_data,
+                data=json.dumps(query),
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()

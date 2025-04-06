@@ -227,6 +227,26 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
+    def delete_items(self, node_id: str, etag: str):
+        """Deletes an iCloud Drive node"""
+        request: Response = self.session.post(
+            self.service_root + "/deleteItems",
+            params=self.params,
+            data=json.dumps(
+                {
+                    "items": [
+                        {
+                            "drivewsid": node_id,
+                            "etag": etag,
+                            "clientId": self.params["clientId"],
+                        }
+                    ],
+                }
+            ),
+        )
+        self._raise_if_error(request)
+        return request.json()
+
     def rename_items(self, node_id: str, etag: str, name: str):
         """Renames an iCloud Drive node"""
         request: Response = self.session.post(
