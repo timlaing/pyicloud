@@ -146,6 +146,6 @@ def test_summary_plan(
     # Assertions
     assert summary_plan == mock_response
     mock_session.get.assert_called_once_with(
-        pyicloud_service_working.account._gateway_summary_plan_url,
+        pyicloud_service_working.account._gateway_summary_plan_url,  # pylint: disable=protected-access
         params=pyicloud_service_working.account.params,
     )

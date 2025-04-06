@@ -100,7 +100,6 @@ class DriveService(BaseService):
         self,
         file_object: IO,
         zone: str = CLOUD_DOCS_ZONE,
-        **kwargs,
     ) -> tuple[str, str]:
         """Get the contentWS endpoint URL to add a new file."""
 
@@ -188,7 +187,7 @@ class DriveService(BaseService):
     ) -> None:
         """Send new file to iCloud Drive."""
         document_id, content_url = self._get_upload_contentws_url(
-            file_object, zone, **kwargs
+            file_object=file_object, zone=zone
         )
 
         request: Response = self.session.post(

@@ -235,7 +235,7 @@ class PhotoLibrary(BasePhotoLibrary):
 
         response = request.json()
 
-        records = response["records"]
+        records: list[dict[str, Any]] = response["records"]
         while "continuationMarker" in response:
             json_data = json.dumps(
                 {
@@ -318,7 +318,7 @@ class PhotoLibrary(BasePhotoLibrary):
 
         with open(path, "rb") as file_obj:
             request: Response = self.service.session.post(
-                url,
+                url=url,
                 data=file_obj.read(),
                 params={
                     "filename": filename,
