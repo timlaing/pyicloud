@@ -78,6 +78,7 @@ def test_username_password_invalid() -> None:
             interactive=True,
             china_mainland=False,
             delete_from_keyring=False,
+            loglevel="info",
         )
         main()
 
@@ -96,6 +97,7 @@ def test_username_password_invalid() -> None:
             interactive=True,
             china_mainland=False,
             delete_from_keyring=False,
+            loglevel="error",
         )
         main()
 
@@ -113,6 +115,7 @@ def test_username_password_invalid() -> None:
             interactive=False,
             china_mainland=False,
             delete_from_keyring=False,
+            loglevel="warning",
         )
         main()
 
@@ -144,6 +147,7 @@ def test_username_password_requires_2fa() -> None:
             message=None,
             silentmessage=None,
             lostmode=None,
+            loglevel="warning",
         )
         main()
 
@@ -173,6 +177,7 @@ def test_device_outputfile() -> None:
             message=None,
             silentmessage=None,
             lostmode=None,
+            loglevel="none",
         )
         main()
 

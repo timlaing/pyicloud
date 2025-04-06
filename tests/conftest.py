@@ -91,10 +91,20 @@ def mock_session() -> MagicMock:
 
 
 @pytest.fixture
-def contacts_service(mock_session: MagicMock) -> ContactsService:
+def contacts_service(mock_session: MagicMock) -> ContactsService:  # pylint: disable=redefined-outer-name
     """Fixture to create a ContactsService instance."""
     return ContactsService(
         service_root="https://example.com",
         session=mock_session,
         params={"test_param": "value"},
     )
+
+
+@pytest.fixture
+def mock_photos_service() -> MagicMock:
+    """Fixture for mocking PhotosService."""
+    service = MagicMock()
+    service.service_endpoint = "https://example.com"
+    service.params = {"dsid": "12345"}
+    service.session = MagicMock()
+    return service

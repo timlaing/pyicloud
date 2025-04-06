@@ -5,7 +5,7 @@ from typing import Optional
 import pytest
 
 from pyicloud.base import PyiCloudService
-from pyicloud.services.drive import DriveNode, DriveService
+from pyicloud.services.drive import NODE_TRASH, DriveNode, DriveService
 
 
 def test_root(pyicloud_service_working: PyiCloudService) -> None:
@@ -24,8 +24,8 @@ def test_root(pyicloud_service_working: PyiCloudService) -> None:
 def test_trash(pyicloud_service_working: PyiCloudService) -> None:
     """Test the trash folder."""
     trash: DriveNode = pyicloud_service_working.drive.trash
-    assert trash.name == "TRASH_ROOT"
-    assert trash.type == "trash"
+    assert trash.name == NODE_TRASH
+    assert trash.type == DriveNode.TYPE_TRASH
     assert trash.size is None
     assert trash.date_changed is None
     assert trash.date_modified is None
