@@ -650,7 +650,7 @@ def test_base_photo_album_repr() -> None:
 
 def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
     """Tests initialization of PhotosService."""
-    mock_photos_service.post.return_value.json.return_value = {
+    mock_photos_service.session.post.return_value.json.return_value = {
         "records": [
             {
                 "fields": {
@@ -661,7 +661,7 @@ def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
     }
     photos_service = PhotosService(
         service_root="https://example.com",
-        session=mock_photos_service,
+        session=mock_photos_service.session,
         params={"dsid": "12345"},
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
@@ -677,7 +677,7 @@ def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
 
 def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
     """Tests the libraries property."""
-    mock_photos_service.post.return_value.json.side_effect = [
+    mock_photos_service.session.post.return_value.json.side_effect = [
         {
             "records": [
                 {
@@ -704,7 +704,7 @@ def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
     ]
     photos_service = PhotosService(
         service_root="https://example.com",
-        session=mock_photos_service,
+        session=mock_photos_service.session,
         params={"dsid": "12345"},
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
@@ -716,7 +716,7 @@ def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
     assert isinstance(libraries["root"], PhotoLibrary)
     assert isinstance(libraries["shared"], PhotoStreamLibrary)
     assert isinstance(libraries["CustomZone"], PhotoLibrary)
-    mock_photos_service.post.assert_called_with(
+    mock_photos_service.session.post.assert_called_with(
         url="https://example.com/database/1/com.apple.photos.cloud/production/private/records/query?dsid=12345&remapEnums=True&getCurrentSyncToken=True",
         data=json.dumps(
             {
@@ -730,7 +730,7 @@ def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
 
 def test_photos_service_libraries_cached(mock_photos_service: MagicMock) -> None:
     """Tests that libraries are cached after the first access."""
-    mock_photos_service.post.return_value.json.return_value = {
+    mock_photos_service.session.post.return_value.json.return_value = {
         "records": [
             {
                 "fields": {
@@ -741,7 +741,7 @@ def test_photos_service_libraries_cached(mock_photos_service: MagicMock) -> None
     }
     photos_service = PhotosService(
         service_root="https://example.com",
-        session=mock_photos_service,
+        session=mock_photos_service.session,
         params={"dsid": "12345"},
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
@@ -750,12 +750,12 @@ def test_photos_service_libraries_cached(mock_photos_service: MagicMock) -> None
     photos_service._libraries = mock_libraries  # type: ignore # pylint: disable=protected-access
     libraries: dict[str, BasePhotoLibrary] = photos_service.libraries
     assert libraries == mock_libraries
-    mock_photos_service.post.assert_called_once()
+    mock_photos_service.session.post.assert_called_once()
 
 
 def test_photos_service_albums(mock_photos_service: MagicMock) -> None:
     """Tests the albums property."""
-    mock_photos_service.post.return_value.json.return_value = {
+    mock_photos_service.session.post.return_value.json.return_value = {
         "records": [
             {
                 "fields": {
@@ -766,7 +766,7 @@ def test_photos_service_albums(mock_photos_service: MagicMock) -> None:
     }
     photos_service = PhotosService(
         service_root="https://example.com",
-        session=mock_photos_service,
+        session=mock_photos_service.session,
         params={"dsid": "12345"},
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
@@ -774,12 +774,12 @@ def test_photos_service_albums(mock_photos_service: MagicMock) -> None:
     albums = photos_service.albums
     assert isinstance(albums, dict)
     assert SmartFolderEnum.ALL_PHOTOS in albums
-    mock_photos_service.post.assert_called()
+    mock_photos_service.session.post.assert_called()
 
 
 def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
     """Tests the shared_streams property."""
-    mock_photos_service.post.return_value.json.side_effect = [
+    mock_photos_service.session.post.return_value.json.side_effect = [
         {
             "records": [
                 {
@@ -810,7 +810,7 @@ def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
     ]
     photos_service = PhotosService(
         service_root="https://example.com",
-        session=mock_photos_service,
+        session=mock_photos_service.session,
         params={"dsid": "12345"},
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
@@ -819,4 +819,4 @@ def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
     assert isinstance(shared_streams, dict)
     assert "Shared Album" in shared_streams
     assert isinstance(shared_streams["Shared Album"], SharedPhotoStreamAlbum)
-    mock_photos_service.post.assert_called()
+    mock_photos_service.session.post.assert_called()
