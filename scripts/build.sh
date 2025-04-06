@@ -2,5 +2,5 @@
 set -euo pipefail
 
 mkdir -p dist
-rm -f dist/*
+rm -rf dist/*
 python -m build

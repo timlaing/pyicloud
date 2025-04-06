@@ -61,7 +61,7 @@ class DriveService(BaseService):
             data=json.dumps(
                 [
                     {
-                        "drivewsid": f"{drivewsid}",
+                        "drivewsid": drivewsid,
                         "partialData": False,
                     }
                 ]

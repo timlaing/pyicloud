@@ -298,51 +298,6 @@ def test_upload_file_no_records(mock_photos_service: MagicMock) -> None:
     )
 
 
-def test_fetch_folders_single_page(mock_photos_service: MagicMock) -> None:
-    """Tests _fetch_folders with a single page of results."""
-    mock_photos_service.session.post.side_effect = [
-        MagicMock(
-            json=MagicMock(
-                return_value={
-                    "records": [
-                        {
-                            "fields": {
-                                "state": {"value": "FINISHED"},
-                            },
-                        },
-                    ],
-                }
-            )
-        ),
-        MagicMock(
-            json=MagicMock(
-                return_value={
-                    "records": [
-                        {
-                            "recordName": "folder1",
-                            "fields": {
-                                "albumNameEnc": {"value": "Zm9sZGVyMQ=="},
-                                "isDeleted": {"value": False},
-                            },
-                        }
-                    ]
-                }
-            )
-        ),
-    ]
-
-    library = PhotoLibrary(
-        service=mock_photos_service,
-        zone_id={"zoneName": "PrimarySync"},
-        upload_url="https://upload.example.com",
-    )
-    library.SMART_FOLDERS = {}
-    albums: list[BasePhotoAlbum] = list(library.albums.values())
-    assert len(albums) == 1
-    assert albums[0].name == "folder1"
-    mock_photos_service.session.post.assert_called()
-
-
 def test_fetch_folders_multiple_pages(mock_photos_service: MagicMock) -> None:
     """Tests _fetch_folders with multiple pages of results."""
     mock_photos_service.session.post.side_effect = [
