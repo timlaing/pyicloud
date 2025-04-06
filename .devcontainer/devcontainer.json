@@ -9,16 +9,30 @@
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	"features": {
 		"ghcr.io/devcontainers/features/github-cli:1": {
-			"installDirectlyFromGitHubRelease": true,
 			"version": "latest"
 		},
-		"ghcr.io/devcontainers/features/node": "latest",
-		"ghcr.io/va-h/devcontainers-features/uv": "latest"
+		"ghcr.io/devcontainers/features/java:1": {
+			"version": "latest",
+			"jdkDistro": "open",
+			"gradleVersion": "latest",
+			"mavenVersion": "latest",
+			"antVersion": "latest",
+			"groovyVersion": "latest"
+		},
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "lts",
+			"pnpmVersion": "latest",
+			"nvmVersion": "latest"
+		},
+		"ghcr.io/va-h/devcontainers-features/uv:1": {
+			"shellautocompletion": true,
+			"version": "latest"
+		}
 	},
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "uv venv && uv pip install -r requirements_all.txt && curl https://pyenv.run | bash && cat .devcontainer/pyenv >> ~/.bashrc",
+	"postCreateCommand": "uv venv && uv pip install -r requirements_all.txt && cat .devcontainer/pyenv >> ~/.zshrc && curl https://pyenv.run | bash",
 	// Configure tool-specific properties.
 	"customizations": {
 		"vscode": {
@@ -29,7 +43,6 @@
 				"visualstudioexptteam.vscodeintellicode",
 				"redhat.vscode-yaml",
 				"esbenp.prettier-vscode",
-				"GitHub.vscode-pull-request-github",
 				"ms-python.pylint",
 				"ms-python.isort",
 				"ms-python.python",
@@ -42,7 +55,7 @@
 				"ms-azuretools.vscode-docker"
 			],
 			"settings": {
-				"sonarlint.ls.javaHome": "/usr/lib/jvm/java-17-openjdk-${{devcontainer.architecture}}",
+				"sonarlint.ls.javaHome": "/usr/local/sdkman/candidates/java/current",
 				"editor.tabSize": 4,
 				"terminal.integrated.profiles.linux": {
 					"zsh": {
