@@ -34,7 +34,7 @@ htmlcov/
 test-reports/
 test-results.xml
 test-output.xml
-
+test.py
 # Translations
 *.mo
 
@@ -69,6 +69,7 @@ desktop.ini
 .project
 .pydevproject
 .pyvenv
+.venv
 *.session
 *.cookiejar
 .ruff_cache

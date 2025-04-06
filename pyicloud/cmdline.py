@@ -170,11 +170,19 @@ def _create_parser() -> argparse.ArgumentParser:
         default="",
         help="Save device data to a file in the current directory.",
     )
+    parser.add_argument(
+        "--log-level",
+        action="store",
+        dest="loglevel",
+        choices=["error", "warning", "info", "none"],
+        default="info",
+        help="Set the logging level",
+    )
 
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="enable debug logging",
+        help="Enable debug logging",
     )
 
     return parser
@@ -201,8 +209,22 @@ def main() -> None:
     """Main commandline entrypoint."""
     parser: argparse.ArgumentParser = _create_parser()
     command_line: argparse.Namespace = parser.parse_args()
+    level = logging.INFO
 
-    logging.basicConfig(level=logging.DEBUG if command_line.debug else logging.INFO)
+    if command_line.loglevel == "error":
+        level = logging.ERROR
+    elif command_line.loglevel == "warning":
+        level = logging.WARNING
+    elif command_line.loglevel == "info":
+        level = logging.INFO
+    elif command_line.loglevel == "none":
+        level = None
+
+    if command_line.debug:
+        level = logging.DEBUG
+
+    if level:
+        logging.basicConfig(level=level)
 
     username: str = command_line.username.strip()
     china_mainland: bool = command_line.china_mainland

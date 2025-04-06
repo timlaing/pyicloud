@@ -217,7 +217,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         drivewsid = data[0].get("drivewsid")
         if drivewsid == "FOLDER::com.apple.CloudDocs::root":
             return ResponseMock(DRIVE_ROOT_WORKING)
-        if drivewsid == "FOLDER::com.apple.CloudDocs::documents":
+        if drivewsid == "FOLDER::com.apple.Preview::documents":
             return ResponseMock(DRIVE_ROOT_INVALID)
         if drivewsid == "FOLDER::com.apple.CloudDocs::TRASH_ROOT":
             return ResponseMock(DRIVE_TRASH_WORKING)

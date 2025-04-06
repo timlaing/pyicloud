@@ -2,6 +2,7 @@
 
 import base64
 import json
+import logging
 import os
 from abc import abstractmethod
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from pyicloud.exceptions import (
 )
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
+
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 class SmartFolderEnum:
@@ -208,6 +211,7 @@ class PhotoLibrary(BasePhotoLibrary):
         response: dict[str, Any] = request.json()
         indexing_state: str = response["records"][0]["fields"]["state"]["value"]
         if indexing_state != "FINISHED":
+            _LOGGER.debug("iCloud Photo Library not finished indexing")
             raise PyiCloudServiceNotActivatedException(
                 "iCloud Photo Library not finished indexing. "
                 "Please try again in a few minutes."
@@ -215,21 +219,31 @@ class PhotoLibrary(BasePhotoLibrary):
 
     def _fetch_folders(self) -> list[dict[str, Any]]:
         """Fetches folders."""
-        json_data: str = json.dumps(
-            {
-                "query": {"recordType": "CPLAlbumByPositionLive"},
-                "zoneID": self.zone_id,
-            }
-        )
+        query: dict[str, Any] = {
+            "query": {"recordType": "CPLAlbumByPositionLive"},
+            "zoneID": self.zone_id,
+        }
 
         request: Response = self.service.session.post(
             url=self.url,
-            data=json_data,
+            data=json.dumps(query),
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, list[dict[str, Any]]] = request.json()
+        records: list[dict[str, Any]] = response["records"]
 
-        return response["records"]
+        while "continuationMarker" in response:
+            query["continuationMarker"] = response["continuationMarker"]
+
+            request: Response = self.service.session.post(
+                url=self.url,
+                data=json.dumps(query),
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+            )
+            response = request.json()
+            records.extend(response["records"])
+
+        return records
 
     def _get_albums(self) -> dict[str, "BasePhotoAlbum"]:
         """Returns photo albums."""
@@ -295,7 +309,7 @@ class PhotoLibrary(BasePhotoLibrary):
 
         with open(path, "rb") as file_obj:
             request: Response = self.service.session.post(
-                url,
+                url=url,
                 data=file_obj.read(),
                 params={
                     "filename": filename,
