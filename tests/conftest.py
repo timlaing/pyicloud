@@ -8,6 +8,7 @@ import pytest
 
 from pyicloud.base import PyiCloudService
 from pyicloud.services.contacts import ContactsService
+from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
 from tests.const_login import LOGIN_WORKING
@@ -118,3 +119,9 @@ def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:  # pylint: 
     library = MagicMock()
     library.service = mock_photos_service
     return library
+
+
+@pytest.fixture
+def hidemyemail_service(mock_session: MagicMock) -> HideMyEmailService:
+    """Fixture for initializing HideMyEmailService."""
+    return HideMyEmailService("https://example.com", mock_session, {"dsid": "12345"})
