@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from requests import Response
@@ -22,7 +23,7 @@ def test_event_object_initialization() -> None:
 def test_event_object_request_data() -> None:
     """Test EventObject request_data property."""
     event = EventObject(pguid="calendar123")
-    data = event.request_data
+    data: dict[str, Any] = event.request_data
     assert "Event" in data
     assert "ClientState" in data
     assert data["Event"]["title"] == "New Event"
@@ -36,12 +37,13 @@ def test_event_object_dt_to_list() -> None:
     assert result == ["20230101", 2023, 1, 1, 12, 30, 750]
 
 
-def test_event_object_add_invitees():
+def test_event_object_add_invitees() -> None:
     """Test EventObject add_invitees method."""
     event = EventObject(pguid="calendar123")
     event.add_invitees(["test@example.com", "user@example.com"])
     assert len(event.invitees) == 2
-    assert "test@example.com" in event.invitees[0]
+    assert f"{event.guid}:test@example.com" == event.invitees[0]
+    assert f"{event.guid}:user@example.com" == event.invitees[1]
 
 
 def test_calendar_object_initialization() -> None:
@@ -55,7 +57,7 @@ def test_calendar_object_initialization() -> None:
 def test_calendar_object_request_data() -> None:
     """Test CalendarObject request_data property."""
     calendar = CalendarObject(title="My Calendar")
-    data = calendar.request_data
+    data: dict[str, Any] = calendar.request_data
     assert "Collection" in data
     assert data["Collection"]["title"] == "My Calendar"
 
@@ -72,7 +74,7 @@ def test_calendar_service_get_calendars() -> None:
         )
         calendars = service.get_calendars()
         assert len(calendars) == 1
-        assert calendars[0]["title"] == "Test Calendar"
+        assert calendars[0]["title"] == "Test Calendar"  # type: ignore[union-attr]
 
 
 def test_calendar_service_add_calendar() -> None:
