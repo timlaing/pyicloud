@@ -226,9 +226,7 @@ class PyiCloudSession(requests.Session):
                 code=err.response.status_code,
             ) from err
         except requests.exceptions.RequestException as err:
-            raise PyiCloudAPIResponseException(
-                err.strerror or "Request failed to iCloud"
-            ) from err
+            raise PyiCloudAPIResponseException("Request failed to iCloud") from err
 
     def _handle_request_error(
         self,
