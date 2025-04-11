@@ -25,8 +25,8 @@ def test_event_object_request_data() -> None:
     assert "Event" in data
     assert "ClientState" in data
     assert data["Event"]["title"] == "New Event"
-    assert "pGuid" in data["Event"]
-    assert data["Event"]["pGuid"] == "calendar123"
+    assert "pguid" in data["Event"]
+    assert data["Event"]["pguid"] == "calendar123"
     assert "guid" in data["Event"]
     assert "Collection" in data["ClientState"]
 
