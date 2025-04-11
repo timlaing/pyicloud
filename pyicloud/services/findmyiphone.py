@@ -48,10 +48,13 @@ class FindMyiPhoneServiceManager(BaseService):
             data=json.dumps(
                 {
                     "clientContext": {
-                        "fmly": self.with_family,
-                        "shouldLocate": True,
-                        "selectedDevice": "all",
+                        "appName": "iCloud Find (Web)",
+                        "appVersion": "2.0",
+                        "apiVersion": "3.0",
                         "deviceListVersion": 1,
+                        "fmly": self.with_family,
+                        # "shouldLocate": True,
+                        # "selectedDevice": "all",
                     }
                 }
             ),

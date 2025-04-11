@@ -1,6 +1,12 @@
 """End to End System test"""
 
 import argparse
+import json
+import sys
+from typing import Any
+
+import click
+from requests import Response
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
@@ -41,11 +47,57 @@ def get_api() -> PyiCloudService:
 
     args: argparse.Namespace = parser.parse_args()
 
-    return PyiCloudService(
+    api = PyiCloudService(
         apple_id=args.username,
         password=args.password,
         china_mainland=args.china_mainland,
     )
+
+    if api.requires_2fa:
+        print("Two-factor authentication required.")
+        code: str = input(
+            "Enter the code you received of one of your approved devices: "
+        )
+        result: bool = api.validate_2fa_code(code)
+        print("Code validation result: %s" % result)
+
+        if not result:
+            print("Failed to verify security code")
+            sys.exit(1)
+
+        if not api.is_trusted_session:
+            print("Session is not trusted. Requesting trust...")
+            result = api.trust_session()
+            print("Session trust result %s" % result)
+
+            if not result:
+                print(
+                    "Failed to request trust. You will likely be prompted for the code again in the coming weeks"
+                )
+    elif api.requires_2sa:
+        print("Two-step authentication required. Your trusted devices are:")
+
+        devices: list[dict[str, Any]] = api.trusted_devices
+        for i, device in enumerate(devices):
+            print(
+                "  %s: %s"
+                % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
+            )
+
+        device_index: int = click.prompt(
+            "Which device would you like to use?", default=0
+        )
+        device: dict[str, Any] = devices[device_index]
+        if not api.send_verification_code(device):
+            print("Failed to send verification code")
+            sys.exit(1)
+
+        code = click.prompt("Please enter validation code")
+        if not api.validate_verification_code(device, code):
+            print("Failed to verify verification code")
+            sys.exit(1)
+
+    return api
 
 
 def display_devices(api: PyiCloudService) -> None:
@@ -59,7 +111,7 @@ def display_devices(api: PyiCloudService) -> None:
 
     print("First device:")
     print(f"\t Name: {api.iphone}")
-    print(f"\t Location: {api.iphone.location}\n")
+    print(f"\t Location: {json.dumps(api.iphone.location, indent=4)}\n")
 
 
 def display_calendars(api: PyiCloudService) -> None:
@@ -124,15 +176,30 @@ def display_photos(api: PyiCloudService) -> None:
             break
     print(END_LIST)
 
-    print(f"List of videos ({len(api.photos.albums['Videos'])}):")
+    print(f"List of ALL PHOTOS ({len(api.photos.all)}):")
+    for idx, photo in enumerate(api.photos.all):
+        print(f"\t{idx}: {photo.filename} ({photo.item_type})")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+
+def display_videos(api: PyiCloudService) -> None:
+    """Display video info"""
+
+    print(f"List of Videos ({len(api.photos.albums['Videos'])}):")
     for idx, photo in enumerate(api.photos.albums["Videos"]):
         print(f"\t{idx}: {photo.filename} ({photo.item_type})")
         if idx >= MAX_DISPLAY - 1:
             break
     print(END_LIST)
 
+
+def display_shared_photos(api: PyiCloudService) -> None:
+    """Display shared photo info"""
+
     album = None
-    print(f"List of shared albums ({len(api.photos.shared_streams)}):")
+    print(f"List of Shared Albums ({len(api.photos.shared_streams)}):")
     for idx, album in enumerate(api.photos.shared_streams):
         print(f"\t{idx}: {album}")
         if idx >= MAX_DISPLAY - 1:
@@ -141,7 +208,7 @@ def display_photos(api: PyiCloudService) -> None:
 
     if album and api.photos.shared_streams:
         print(
-            f"List of shared photos [{album}] ({len(api.photos.shared_streams[album])}):"
+            f"List of Shared Photos [{album}] ({len(api.photos.shared_streams[album])}):"
         )
         for idx, photo in enumerate(api.photos.shared_streams[album]):
             print(f"\t{idx}: {photo.filename} ({photo.item_type})")
@@ -151,15 +218,50 @@ def display_photos(api: PyiCloudService) -> None:
         print(END_LIST)
 
 
+def display_account(api: PyiCloudService) -> None:
+    """Display account info"""
+    print(f"Account name: {api.account_name}")
+    print(f"Account plan: {json.dumps(api.account.summary_plan, indent=4)}")
+    print(f"List of Family Member ({len(api.account.family)}):")
+    for idx, member in enumerate(api.account.family):
+        print(f"\t{idx}: {member}")
+        photo: Response = member.get_photo()
+        print(f"\t\tPhoto: {photo}")
+        print(f"\t\tPhoto type: {photo.headers['Content-Type']}")
+        print(f"\t\tPhoto size: {photo.headers['Content-Length']}")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+
+def display_hidemyemail(api: PyiCloudService) -> None:
+    """Display Hide My Email info"""
+    print(f"List of Hide My Email ({len(api.hidemyemail)}):")
+    for idx, email in enumerate(api.hidemyemail):
+        print(
+            f"\t{idx}: {email['hme']} ({email['domain']}) Active = {email['isActive']}"
+        )
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+
 def main() -> None:
     """main function"""
     api: PyiCloudService = get_api()
+    display_hidemyemail(api)
+    display_account(api)
+    try:
+        display_calendars(api)
+    except PyiCloudServiceUnavailable as error:
+        print(f"Calendar service not available: {error}\n")
+    display_files(api)
     display_devices(api)
-    display_calendars(api)
     display_contacts(api)
     display_drive(api)
-    display_files(api)
     display_photos(api)
+    display_videos(api)
+    display_shared_photos(api)
 
 
 if __name__ == "__main__":

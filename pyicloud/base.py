@@ -21,6 +21,7 @@ from pyicloud.exceptions import (
     PyiCloudFailedLoginException,
     PyiCloudPasswordException,
     PyiCloudServiceNotActivatedException,
+    PyiCloudServiceUnavailable,
 )
 from pyicloud.services import (
     AccountService,
@@ -156,7 +157,7 @@ class PyiCloudService(object):
             headers={
                 "Origin": self.home_endpoint,
                 "Referer": f"{self.home_endpoint}/",
-                "User-Agent": "Opera/9.52 (X11; Linux i686; U; en)",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15",
             },
             client_id=self._client_id,
             cookie_directory=_cookie_directory,
@@ -165,10 +166,10 @@ class PyiCloudService(object):
         self._client_id = self.session.data.get("client_id", self._client_id)
 
         self.params = {
-            "clientBuildNumber": "17DHotfix5",
-            "clientMasteringNumber": "17DHotfix5",
-            "ckjsBuildVersion": "17DProjectDev77",
-            "ckjsVersion": "2.0.5",
+            "clientBuildNumber": "2512Hotfix21",
+            "clientMasteringNumber": "2512Hotfix21",
+            "ckjsBuildVersion": "2310ProjectDev27",
+            "ckjsVersion": "2.6.4",
             "clientId": self._client_id,
         }
 
@@ -543,9 +544,14 @@ class PyiCloudService(object):
         """Gets the 'HME' service."""
         if not self._hidemyemail:
             service_root: str = self.get_webservice_url("premiummailsettings")
-            self._hidemyemail = HideMyEmailService(
-                service_root, self.session, self.params
-            )
+            try:
+                self._hidemyemail = HideMyEmailService(
+                    service_root, self.session, self.params
+                )
+            except (PyiCloudAPIResponseException,) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Hide My Email service not available"
+                ) from error
         return self._hidemyemail
 
     @property
@@ -558,12 +564,17 @@ class PyiCloudService(object):
         """Gets the 'Account' service."""
         if not self._account:
             service_root: str = self.get_webservice_url("account")
-            self._account = AccountService(
-                service_root=service_root,
-                session=self.session,
-                china_mainland=self._is_china_mainland,
-                params=self.params,
-            )
+            try:
+                self._account = AccountService(
+                    service_root=service_root,
+                    session=self.session,
+                    china_mainland=self._is_china_mainland,
+                    params=self.params,
+                )
+            except (PyiCloudAPIResponseException,) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Account service not available"
+                ) from error
         return self._account
 
     @property
@@ -571,7 +582,12 @@ class PyiCloudService(object):
         """Gets the 'File' service."""
         if not self._files:
             service_root: str = self.get_webservice_url("ubiquity")
-            self._files = UbiquityService(service_root, self.session, self.params)
+            try:
+                self._files = UbiquityService(service_root, self.session, self.params)
+            except (PyiCloudAPIResponseException,) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Files service not available"
+                ) from error
         return self._files
 
     @property
@@ -583,9 +599,18 @@ class PyiCloudService(object):
             shared_streams_url: str = self.get_webservice_url("sharedstreams")
             self.params["dsid"] = self.data["dsInfo"]["dsid"]
 
-            self._photos = PhotosService(
-                service_root, self.session, self.params, upload_url, shared_streams_url
-            )
+            try:
+                self._photos = PhotosService(
+                    service_root,
+                    self.session,
+                    self.params,
+                    upload_url,
+                    shared_streams_url,
+                )
+            except (PyiCloudAPIResponseException,) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Photos service not available"
+                ) from error
         return self._photos
 
     @property
@@ -593,7 +618,14 @@ class PyiCloudService(object):
         """Gets the 'Calendar' service."""
         if not self._calendar:
             service_root: str = self.get_webservice_url("calendar")
-            self._calendar = CalendarService(service_root, self.session, self.params)
+            try:
+                self._calendar = CalendarService(
+                    service_root, self.session, self.params
+                )
+            except (PyiCloudAPIResponseException,) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Calendar service not available"
+                ) from error
         return self._calendar
 
     @property
@@ -601,7 +633,14 @@ class PyiCloudService(object):
         """Gets the 'Contacts' service."""
         if not self._contacts:
             service_root: str = self.get_webservice_url("contacts")
-            self._contacts = ContactsService(service_root, self.session, self.params)
+            try:
+                self._contacts = ContactsService(
+                    service_root, self.session, self.params
+                )
+            except (PyiCloudAPIResponseException,) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Contacts service not available"
+                ) from error
         return self._contacts
 
     @property
@@ -609,19 +648,31 @@ class PyiCloudService(object):
         """Gets the 'Reminders' service."""
         if not self._reminders:
             service_root: str = self.get_webservice_url("reminders")
-            self._reminders = RemindersService(service_root, self.session, self.params)
+            try:
+                self._reminders = RemindersService(
+                    service_root, self.session, self.params
+                )
+            except (PyiCloudAPIResponseException,) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Reminders service not available"
+                ) from error
         return self._reminders
 
     @property
     def drive(self) -> DriveService:
         """Gets the 'Drive' service."""
         if not self._drive:
-            self._drive = DriveService(
-                service_root=self.get_webservice_url("drivews"),
-                document_root=self.get_webservice_url("docws"),
-                session=self.session,
-                params=self.params,
-            )
+            try:
+                self._drive = DriveService(
+                    service_root=self.get_webservice_url("drivews"),
+                    document_root=self.get_webservice_url("docws"),
+                    session=self.session,
+                    params=self.params,
+                )
+            except (PyiCloudAPIResponseException,) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Drive service not available"
+                ) from error
         return self._drive
 
     @property

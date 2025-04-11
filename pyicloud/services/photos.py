@@ -6,7 +6,8 @@ import logging
 import os
 from abc import abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Generator, Optional, cast
+from enum import IntEnum, unique
+from typing import Any, Generator, Iterable, Iterator, Optional, cast
 from urllib.parse import urlencode
 
 from requests import Response
@@ -22,20 +23,29 @@ from pyicloud.session import PyiCloudSession
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-class SmartFolderEnum:
-    """Smart folder names."""
+@unique
+class AlbumTypeEnum(IntEnum):
+    """Album types"""
 
-    ALL_PHOTOS = "All Photos"
-    TIME_LAPSE = "Time-lapse"
-    VIDEOS = "Videos"
-    SLO_MO = "Slo-mo"
+    ALBUM = 0
+    FOLDER = 3
+    SMART_ALBUM = 6
+
+
+class SmartAlbumEnum:
+    """Smart albums names."""
+
+    ALL_PHOTOS = "Library"
     BURSTS = "Bursts"
     FAVORITES = "Favorites"
-    PANORAMAS = "Panoramas"
-    SCREENSHOTS = "Screenshots"
-    LIVE = "Live"
-    RECENTLY_DELETED = "Recently Deleted"
     HIDDEN = "Hidden"
+    LIVE = "Live"
+    PANORAMAS = "Panoramas"
+    RECENTLY_DELETED = "Recently Deleted"
+    SCREENSHOTS = "Screenshots"
+    SLO_MO = "Slo-mo"
+    TIME_LAPSE = "Time-lapse"
+    VIDEOS = "Videos"
 
 
 class DirectionEnum:
@@ -43,6 +53,68 @@ class DirectionEnum:
 
     ASCENDING = "ASCENDING"
     DESCENDING = "DESCENDING"
+
+
+class ListTypeEnum:
+    """List type names."""
+
+    DEFAULT: str = "CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted"
+    DELETED: str = "CPLAssetAndMasterDeletedByExpungedDate"
+    HIDDEN: str = "CPLAssetAndMasterHiddenByAssetDate"
+    SMART_ALBUM: str = "CPLAssetAndMasterInSmartAlbumByAssetDate"
+    STACK: str = "CPLBurstStackAssetAndMasterByAssetDate"
+
+
+class ObjectTypeEnum:
+    """Object type names."""
+
+    ALL: str = "CPLAssetByAssetDateWithoutHiddenOrDeleted"
+    BURST: str = "CPLAssetBurstStackAssetByAssetDate"
+    DELETED: str = "CPLAssetDeletedByExpungedDate"
+    FAVORITE: str = "CPLAssetInSmartAlbumByAssetDate:Favorite"
+    HIDDEN: str = "CPLAssetHiddenByAssetDate"
+    LIVE: str = "CPLAssetInSmartAlbumByAssetDate:Live"
+    PANORAMA: str = "CPLAssetInSmartAlbumByAssetDate:Panorama"
+    SCREENSHOT: str = "CPLAssetInSmartAlbumByAssetDate:Screenshot"
+    SLOMO: str = "CPLAssetInSmartAlbumByAssetDate:Slomo"
+    TIMELASPE: str = "CPLAssetInSmartAlbumByAssetDate:Timelapse"
+    VIDEO: str = "CPLAssetInSmartAlbumByAssetDate:Video"
+
+
+# The primary zone for the user's photo library
+PRIMARY_ZONE: dict[str, str] = {
+    "zoneName": "PrimarySync",
+    "zoneType": "REGULAR_CUSTOM_ZONE",
+}
+
+
+class AlbumContainer(Iterable):
+    """Container for photo albums.
+    This provides a way to access all the albums in the library.
+    """
+
+    def __init__(self, albums: dict[str, "BasePhotoAlbum"]) -> None:
+        self._albums: dict[str, "BasePhotoAlbum"] = albums
+
+    def __len__(self) -> int:
+        return len(self._albums)
+
+    def __getitem__(self, name) -> "BasePhotoAlbum":
+        if name in self._albums:
+            return self._albums[name]
+
+        for album in self._albums.values():
+            if name == album.fullname:
+                return album
+
+        raise KeyError(f"Photo album does not exist: {name}")
+
+    def __iter__(self) -> Iterator[str]:
+        return self._albums.__iter__()
+
+    def values(self):
+        """Returns the values of the albums."""
+        return self._albums.values()
 
 
 class BasePhotoLibrary:
@@ -57,7 +129,7 @@ class BasePhotoLibrary:
         upload_url: Optional[str] = None,
     ) -> None:
         self.service: PhotosService = service
-        self._albums: Optional[dict[str, BasePhotoAlbum]] = None
+        self._albums: Optional[AlbumContainer] = None
         self._upload_url: Optional[str] = upload_url
 
     @abstractmethod
@@ -66,26 +138,26 @@ class BasePhotoLibrary:
         raise NotImplementedError
 
     @property
-    def albums(self) -> dict[str, "BasePhotoAlbum"]:
+    def albums(self) -> AlbumContainer:
         """Returns the photo albums."""
         if self._albums is None:
-            self._albums = self._get_albums()
+            self._albums = AlbumContainer(self._get_albums())
         return self._albums
 
 
 class PhotoLibrary(BasePhotoLibrary):
     """Represents the user's primary photo libraries."""
 
-    SMART_FOLDERS: dict[str, dict[str, Any]] = {
-        SmartFolderEnum.ALL_PHOTOS: {
-            "obj_type": "CPLAssetByAssetDateWithoutHiddenOrDeleted",
-            "list_type": "CPLAssetAndMasterByAssetDateWithoutHiddenOrDeleted",
-            "direction": DirectionEnum.ASCENDING,
+    SMART_ALBUMS: dict[str, dict[str, Any]] = {
+        SmartAlbumEnum.ALL_PHOTOS: {
+            "obj_type": ObjectTypeEnum.ALL,
+            "list_type": ListTypeEnum.DEFAULT,
+            "direction": DirectionEnum.DESCENDING,
             "query_filter": None,
         },
-        SmartFolderEnum.TIME_LAPSE: {
-            "obj_type": "CPLAssetInSmartAlbumByAssetDate:Timelapse",
-            "list_type": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+        SmartAlbumEnum.TIME_LAPSE: {
+            "obj_type": ObjectTypeEnum.TIMELASPE,
+            "list_type": ListTypeEnum.SMART_ALBUM,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": [
                 {
@@ -95,9 +167,9 @@ class PhotoLibrary(BasePhotoLibrary):
                 }
             ],
         },
-        SmartFolderEnum.VIDEOS: {
-            "obj_type": "CPLAssetInSmartAlbumByAssetDate:Video",
-            "list_type": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+        SmartAlbumEnum.VIDEOS: {
+            "obj_type": ObjectTypeEnum.VIDEO,
+            "list_type": ListTypeEnum.SMART_ALBUM,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": [
                 {
@@ -107,9 +179,9 @@ class PhotoLibrary(BasePhotoLibrary):
                 }
             ],
         },
-        SmartFolderEnum.SLO_MO: {
-            "obj_type": "CPLAssetInSmartAlbumByAssetDate:Slomo",
-            "list_type": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+        SmartAlbumEnum.SLO_MO: {
+            "obj_type": ObjectTypeEnum.SLOMO,
+            "list_type": ListTypeEnum.SMART_ALBUM,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": [
                 {
@@ -119,15 +191,15 @@ class PhotoLibrary(BasePhotoLibrary):
                 }
             ],
         },
-        SmartFolderEnum.BURSTS: {
-            "obj_type": "CPLAssetBurstStackAssetByAssetDate",
-            "list_type": "CPLBurstStackAssetAndMasterByAssetDate",
+        SmartAlbumEnum.BURSTS: {
+            "obj_type": ObjectTypeEnum.BURST,
+            "list_type": ListTypeEnum.STACK,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": None,
         },
-        SmartFolderEnum.FAVORITES: {
-            "obj_type": "CPLAssetInSmartAlbumByAssetDate:Favorite",
-            "list_type": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+        SmartAlbumEnum.FAVORITES: {
+            "obj_type": ObjectTypeEnum.FAVORITE,
+            "list_type": ListTypeEnum.SMART_ALBUM,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": [
                 {
@@ -137,9 +209,9 @@ class PhotoLibrary(BasePhotoLibrary):
                 }
             ],
         },
-        SmartFolderEnum.PANORAMAS: {
-            "obj_type": "CPLAssetInSmartAlbumByAssetDate:Panorama",
-            "list_type": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+        SmartAlbumEnum.PANORAMAS: {
+            "obj_type": ObjectTypeEnum.PANORAMA,
+            "list_type": ListTypeEnum.SMART_ALBUM,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": [
                 {
@@ -149,9 +221,9 @@ class PhotoLibrary(BasePhotoLibrary):
                 }
             ],
         },
-        SmartFolderEnum.SCREENSHOTS: {
-            "obj_type": "CPLAssetInSmartAlbumByAssetDate:Screenshot",
-            "list_type": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+        SmartAlbumEnum.SCREENSHOTS: {
+            "obj_type": ObjectTypeEnum.SCREENSHOT,
+            "list_type": ListTypeEnum.SMART_ALBUM,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": [
                 {
@@ -161,9 +233,9 @@ class PhotoLibrary(BasePhotoLibrary):
                 }
             ],
         },
-        SmartFolderEnum.LIVE: {
-            "obj_type": "CPLAssetInSmartAlbumByAssetDate:Live",
-            "list_type": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+        SmartAlbumEnum.LIVE: {
+            "obj_type": ObjectTypeEnum.LIVE,
+            "list_type": ListTypeEnum.SMART_ALBUM,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": [
                 {
@@ -173,15 +245,15 @@ class PhotoLibrary(BasePhotoLibrary):
                 }
             ],
         },
-        SmartFolderEnum.RECENTLY_DELETED: {
-            "obj_type": "CPLAssetDeletedByExpungedDate",
-            "list_type": "CPLAssetAndMasterDeletedByExpungedDate",
+        SmartAlbumEnum.RECENTLY_DELETED: {
+            "obj_type": ObjectTypeEnum.DELETED,
+            "list_type": ListTypeEnum.DELETED,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": None,
         },
-        SmartFolderEnum.HIDDEN: {
-            "obj_type": "CPLAssetHiddenByAssetDate",
-            "list_type": "CPLAssetAndMasterHiddenByAssetDate",
+        SmartAlbumEnum.HIDDEN: {
+            "obj_type": ObjectTypeEnum.HIDDEN,
+            "list_type": ListTypeEnum.HIDDEN,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": None,
         },
@@ -199,7 +271,9 @@ class PhotoLibrary(BasePhotoLibrary):
         self.url: str = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
         json_data: str = json.dumps(
             {
-                "query": {"recordType": "CheckIndexingState"},
+                "query": {
+                    "recordType": "CheckIndexingState",
+                },
                 "zoneID": self.zone_id,
             }
         )
@@ -217,12 +291,26 @@ class PhotoLibrary(BasePhotoLibrary):
                 "Please try again in a few minutes."
             )
 
-    def _fetch_folders(self) -> list[dict[str, Any]]:
-        """Fetches folders."""
+    def _fetch_records(self, parent_id: Optional[str] = None) -> list[dict[str, Any]]:
+        """Fetches records."""
         query: dict[str, Any] = {
-            "query": {"recordType": "CPLAlbumByPositionLive"},
+            "query": {
+                "recordType": "CPLAlbumByPositionLive",
+            },
             "zoneID": self.zone_id,
         }
+
+        if parent_id:
+            query["query"]["filterBy"] = [
+                {
+                    "fieldName": "parentId",
+                    "comparator": "EQUALS",
+                    "fieldValue": {
+                        "value": parent_id,
+                        "type": "STRING",
+                    },
+                }
+            ]
 
         request: Response = self.service.session.post(
             url=self.url,
@@ -243,61 +331,72 @@ class PhotoLibrary(BasePhotoLibrary):
             response = request.json()
             records.extend(response["records"])
 
+        for record in records.copy():
+            if (
+                record["fields"].get("albumType")
+                and record["fields"]["albumType"]["value"] == AlbumTypeEnum.FOLDER.value
+            ):
+                records.extend(self._fetch_records(parent_id=record["recordName"]))
+
         return records
 
     def _get_albums(self) -> dict[str, "BasePhotoAlbum"]:
         """Returns photo albums."""
-        albums: dict[str, BasePhotoAlbum] = {
+        albums: dict[str, "BasePhotoAlbum"] = {
             name: PhotoAlbum(
-                service=self.service,
+                library=self,
                 name=name,
                 zone_id=self.zone_id,
                 url=self.url,
                 **props,
             )
-            for (name, props) in self.SMART_FOLDERS.items()
+            for (name, props) in self.SMART_ALBUMS.items()
         }
 
-        for folder in self._fetch_folders():
-            # Skipping albums having null name, that can happen sometime
-            if "albumNameEnc" not in folder["fields"]:
-                continue
-
-            if folder["recordName"] in (
-                "----Root-Folder----",
-                "----Project-Root-Folder----",
-            ) or (
-                folder["fields"].get("isDeleted")
-                and folder["fields"]["isDeleted"]["value"]
+        for record in self._fetch_records():
+            if (
+                # Skipping albums having null name, that can happen sometime
+                "albumNameEnc" not in record["fields"]
+                or (
+                    record["fields"].get("albumType")
+                    and record["fields"]["albumType"]["value"]
+                    == AlbumTypeEnum.FOLDER.value
+                )
+                or (
+                    record["fields"].get("isDeleted")
+                    and record["fields"]["isDeleted"]["value"]
+                )
             ):
                 continue
 
-            folder_id: str = folder["recordName"]
-            folder_obj_type: str = (
-                f"CPLContainerRelationNotDeletedByAssetDate:{folder_id}"
-            )
-            folder_name: str = base64.b64decode(
-                folder["fields"]["albumNameEnc"]["value"]
+            record_id: str = record["recordName"]
+            obj_type: str = f"CPLContainerRelationNotDeletedByAssetDate:{record_id}"
+            album_name: str = base64.b64decode(
+                record["fields"]["albumNameEnc"]["value"]
             ).decode("utf-8")
+
             query_filter: list[dict[str, Any]] = [
                 {
                     "fieldName": "parentId",
                     "comparator": "EQUALS",
-                    "fieldValue": {"type": "STRING", "value": folder_id},
+                    "fieldValue": {"type": "STRING", "value": record_id},
                 }
             ]
 
-            album = PhotoAlbum(
-                service=self.service,
-                name=folder_name,
+            parent_id: Optional[str] = record["fields"].get("parentId", {}).get("value")
+
+            photo_album = PhotoAlbum(
+                library=self,
+                name=album_name,
                 list_type="CPLContainerRelationLiveByAssetDate",
-                obj_type=folder_obj_type,
+                obj_type=obj_type,
                 direction=DirectionEnum.ASCENDING,
                 url=self.url,
                 query_filter=query_filter,
                 zone_id=self.zone_id,
+                parent_id=parent_id,
             )
-            albums[folder_name] = album
+            albums[record_id] = photo_album
 
         return albums
 
@@ -329,7 +428,7 @@ class PhotoLibrary(BasePhotoLibrary):
     @property
     def all(self) -> "PhotoAlbum":
         """Returns the All Photos album."""
-        return cast(PhotoAlbum, self.albums[SmartFolderEnum.ALL_PHOTOS])
+        return cast(PhotoAlbum, self.albums[SmartAlbumEnum.ALL_PHOTOS])
 
 
 class PhotoStreamLibrary(BasePhotoLibrary):
@@ -354,7 +453,7 @@ class PhotoStreamLibrary(BasePhotoLibrary):
         response: dict[str, list] = request.json()
         for album in response["albums"]:
             shared_stream = SharedPhotoStreamAlbum(
-                service=self.service,
+                library=self,
                 name=album["attributes"]["name"],
                 album_location=album["albumlocation"],
                 album_ctag=album["albumctag"],
@@ -401,7 +500,7 @@ class PhotosService(BaseService):
 
         self._root_library: PhotoLibrary = PhotoLibrary(
             self,
-            {"zoneName": "PrimarySync"},
+            PRIMARY_ZONE,
             upload_url=upload_url,
         )
 
@@ -436,12 +535,17 @@ class PhotosService(BaseService):
         return self._libraries
 
     @property
-    def albums(self) -> dict[str, "BasePhotoAlbum"]:
+    def all(self) -> "PhotoAlbum":
+        """Returns the primary photo library."""
+        return self._root_library.all
+
+    @property
+    def albums(self) -> AlbumContainer:
         """Returns the standard photo albums."""
         return self._root_library.albums
 
     @property
-    def shared_streams(self) -> dict[str, "BasePhotoAlbum"]:
+    def shared_streams(self) -> AlbumContainer:
         """Returns the shared photo albums."""
         return self._shared_library.albums
 
@@ -451,7 +555,7 @@ class BasePhotoAlbum:
 
     def __init__(
         self,
-        service: PhotosService,
+        library: BasePhotoLibrary,
         name: str,
         list_type: str,
         asset_type: type["PhotoAsset"],
@@ -459,12 +563,23 @@ class BasePhotoAlbum:
         direction: str = DirectionEnum.ASCENDING,
     ) -> None:
         self.name: str = name
-        self.service: PhotosService = service
+        self._library: BasePhotoLibrary = library
         self.page_size: int = page_size
         self.direction: str = direction
         self.list_type: str = list_type
         self.asset_type: type[PhotoAsset] = asset_type
         self._len: Optional[int] = None
+
+    @property
+    @abstractmethod
+    def fullname(self) -> str:
+        """Gets the full name of the album including path"""
+        raise NotImplementedError
+
+    @property
+    def service(self) -> PhotosService:
+        """Get the Photo service"""
+        return self._library.service
 
     def _parse_response(
         self, response: dict[str, list[dict[str, Any]]]
@@ -575,7 +690,7 @@ class PhotoAlbum(BasePhotoAlbum):
 
     def __init__(
         self,
-        service: PhotosService,
+        library: BasePhotoLibrary,
         name: str,
         list_type: str,
         obj_type: str,
@@ -584,9 +699,10 @@ class PhotoAlbum(BasePhotoAlbum):
         query_filter: Optional[list[dict[str, Any]]] = None,
         zone_id: Optional[dict[str, str]] = None,
         page_size: int = 100,
+        parent_id: Optional[str] = None,
     ) -> None:
         super().__init__(
-            service=service,
+            library=library,
             name=name,
             list_type=list_type,
             page_size=page_size,
@@ -597,11 +713,19 @@ class PhotoAlbum(BasePhotoAlbum):
         self.obj_type: str = obj_type
         self.query_filter: Optional[list[dict[str, Any]]] = query_filter
         self.url: str = url
+        self._parent_id: Optional[str] = parent_id
 
         if zone_id:
             self.zone_id: dict[str, str] = zone_id
         else:
-            self.zone_id = {"zoneName": "PrimarySync"}
+            self.zone_id = PRIMARY_ZONE
+
+    @property
+    def fullname(self) -> str:
+        if self._parent_id is not None:
+            return f"{self._library.albums[self._parent_id].fullname}/{self.name}"
+
+        return self.name
 
     def _get_len(self) -> int:
         url: str = f"{self.service.service_endpoint}/internal/records/query/batch?{urlencode(self.service.params)}"
@@ -613,15 +737,15 @@ class PhotoAlbum(BasePhotoAlbum):
                         {
                             "resultsLimit": 1,
                             "query": {
+                                "recordType": "HyperionIndexCountLookup",
                                 "filterBy": {
                                     "fieldName": "indexCountID",
+                                    "comparator": "IN",
                                     "fieldValue": {
                                         "type": "STRING_LIST",
                                         "value": [self.obj_type],
                                     },
-                                    "comparator": "IN",
                                 },
-                                "recordType": "HyperionIndexCountLookup",
                             },
                             "zoneWide": True,
                             "zoneID": self.zone_id,
@@ -659,19 +783,19 @@ class PhotoAlbum(BasePhotoAlbum):
     ) -> dict[str, Any]:
         query: dict[str, Any] = {
             "query": {
+                "recordType": list_type,
                 "filterBy": [
                     {
-                        "fieldName": "startRank",
-                        "fieldValue": {"type": "INT64", "value": offset},
+                        "fieldName": "direction",
                         "comparator": "EQUALS",
+                        "fieldValue": {"type": "STRING", "value": direction},
                     },
                     {
-                        "fieldName": "direction",
-                        "fieldValue": {"type": "STRING", "value": direction},
+                        "fieldName": "startRank",
                         "comparator": "EQUALS",
+                        "fieldValue": {"type": "INT64", "value": offset},
                     },
                 ],
-                "recordType": list_type,
             },
             "resultsLimit": num_results,
             "desiredKeys": [
@@ -787,7 +911,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
 
     def __init__(
         self,
-        service: PhotosService,
+        library: BasePhotoLibrary,
         name: str,
         album_location: str,
         album_ctag: str,
@@ -802,7 +926,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         page_size: int = 100,
     ) -> None:
         super().__init__(
-            service=service,
+            library=library,
             name=name,
             list_type="sharedstream",
             page_size=page_size,
@@ -826,6 +950,10 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         self._is_public: bool = is_public
         self._is_web_upload_supported: bool = is_web_upload_supported
         self._public_url: Optional[str] = public_url
+
+    @property
+    def fullname(self) -> str:
+        return self.name
 
     @property
     def sharing_type(self) -> str:
@@ -1037,31 +1165,28 @@ class PhotoAsset:
 
     def delete(self) -> Response:
         """Deletes the photo."""
-        json_data: str = (
-            '{"operations":[{'
-            '"operationType":"update",'
-            '"record":{'
-            '"recordName":"%s",'
-            '"recordType":"%s",'
-            '"recordChangeTag":"%s",'
-            '"fields":{"isDeleted":{"value":1}'
-            "}}}],"
-            '"zoneID":{'
-            '"zoneName":"PrimarySync"'
-            '},"atomic":true}'
-            % (
-                self._asset_record["recordName"],
-                self._asset_record["recordType"],
-                self._master_record["recordChangeTag"],
-            )
-        )
+        data: dict[str, Any] = {
+            "operations": [
+                {
+                    "operationType": "update",
+                    "record": {
+                        "recordName": self._asset_record["recordName"],
+                        "recordType": self._asset_record["recordType"],
+                        "recordChangeTag": self._master_record["recordChangeTag"],
+                        "fields": {"isDeleted": {"value": 1}},
+                    },
+                }
+            ],
+            "zoneID": self._asset_record["zoneID"],
+            "atomic": True,
+        }
 
         endpoint: str = self._service.service_endpoint
         params: str = urlencode(self._service.params)
         url: str = f"{endpoint}/records/modify?{params}"
 
         return self._service.session.post(
-            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+            url, data=json.dumps(data), headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
 
     def __repr__(self) -> str:
