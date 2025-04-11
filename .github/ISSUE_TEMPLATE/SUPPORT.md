@@ -3,7 +3,7 @@ name: Need help with pyiCloud
 about: Need help
 ---
 <!-- READ THIS FIRST:
-  - Make sure you are running the latest version of pyiCloud before requesting a support: https://github.com/picklepete/pyicloud/releases
+  - Make sure you are running the latest version of pyiCloud before requesting a support: https://github.com/timlaing/pyicloud/releases
   - Provide as many details as possible. Paste logs, configuration samples and code into the backticks.
   DO NOT DELETE ANY TEXT from this template! Otherwise, your request may be closed without comment.
 -->
