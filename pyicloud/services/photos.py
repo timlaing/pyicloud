@@ -331,7 +331,7 @@ class PhotoLibrary(BasePhotoLibrary):
             response = request.json()
             records.extend(response["records"])
 
-        for record in records:
+        for record in records.copy():
             if (
                 record["fields"].get("albumType")
                 and record["fields"]["albumType"]["value"] == AlbumTypeEnum.FOLDER.value
