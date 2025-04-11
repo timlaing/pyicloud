@@ -12,6 +12,8 @@ from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
 from tests.const_login import LOGIN_WORKING
 
+BUILTINS_OPEN: str = "builtins.open"
+
 
 class FileSystemAccessError(Exception):
     """Raised when a test tries to access the file system."""
@@ -45,7 +47,7 @@ def mock_open_fixture():
             )
         return builtins_open(path, *args, **kwargs)
 
-    with patch("builtins.open", my_open) as open_mock:
+    with patch(BUILTINS_OPEN, my_open) as open_mock:
         yield open_mock
 
 
@@ -54,7 +56,7 @@ def pyicloud_service() -> PyiCloudService:
     """Create a PyiCloudService instance with mocked authenticate method."""
     with (
         patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate,
-        patch("builtins.open", new_callable=mock_open),
+        patch(BUILTINS_OPEN, new_callable=mock_open),
     ):
         # Mock the authenticate method during initialization
         mock_authenticate.return_value = None
@@ -67,7 +69,7 @@ def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudServi
     """Set the service to a working state."""
     pyicloud_service.data = LOGIN_WORKING
     pyicloud_service._webservices = LOGIN_WORKING["webservices"]  # pylint: disable=protected-access
-    with patch("builtins.open", new_callable=mock_open):
+    with patch(BUILTINS_OPEN, new_callable=mock_open):
         pyicloud_service.session = PyiCloudSessionMock(
             pyicloud_service,
             "",
@@ -108,3 +110,11 @@ def mock_photos_service() -> MagicMock:
     service.params = {"dsid": "12345"}
     service.session = MagicMock()
     return service
+
+
+@pytest.fixture
+def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:  # pylint: disable=redefined-outer-name
+    """Fixture for mocking PhotoLibrary."""
+    library = MagicMock()
+    library.service = mock_photos_service
+    return library

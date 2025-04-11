@@ -188,36 +188,42 @@ class PyiCloudSession(requests.Session):
             data or "",
         )
 
-        response: Response = super().request(
-            method=method,
-            url=url,
-            data=data,
-            **kwargs,
-        )
-
-        self._update_session_data(response)
-        self._save_session_data()
-
-        if not response.ok and (
-            self._is_json_response(response) or response.status_code in [421, 450, 500]
-        ):
-            return self._handle_request_error(
-                response=response,
+        try:
+            response: Response = super().request(
                 method=method,
                 url=url,
                 data=data,
-                has_retried=has_retried,
                 **kwargs,
             )
 
-        response.raise_for_status()
+            self._update_session_data(response)
+            self._save_session_data()
 
-        if not self._is_json_response(response):
+            if not response.ok and (
+                self._is_json_response(response)
+                or response.status_code in [421, 450, 500]
+            ):
+                return self._handle_request_error(
+                    response=response,
+                    method=method,
+                    url=url,
+                    data=data,
+                    has_retried=has_retried,
+                    **kwargs,
+                )
+
+            response.raise_for_status()
+
+            if not self._is_json_response(response):
+                return response
+
+            self._decode_json_response(response)
+
             return response
-
-        self._decode_json_response(response)
-
-        return response
+        except requests.exceptions.RequestException as err:
+            raise PyiCloudAPIResponseException(
+                err.strerror or "Request failed to iCloud"
+            ) from err
 
     def _handle_request_error(
         self,

@@ -12,6 +12,7 @@ from pyicloud.exceptions import (
     PyiCloudServiceNotActivatedException,
 )
 from pyicloud.services.photos import (
+    AlbumContainer,
     BasePhotoAlbum,
     BasePhotoLibrary,
     DirectionEnum,
@@ -20,7 +21,7 @@ from pyicloud.services.photos import (
     PhotosService,
     PhotoStreamLibrary,
     SharedPhotoStreamAlbum,
-    SmartFolderEnum,
+    SmartAlbumEnum,
 )
 
 
@@ -107,7 +108,7 @@ def test_fetch_folders(mock_photos_service: MagicMock) -> None:
         zone_id={"zoneName": "PrimarySync"},
         upload_url="https://upload.example.com",
     )
-    library.SMART_FOLDERS = {}
+    library.SMART_ALBUMS = {}
     albums: list[BasePhotoAlbum] = list(library.albums.values())
 
     assert len(albums) == 1
@@ -152,8 +153,8 @@ def test_get_albums(mock_photos_service: MagicMock) -> None:
         zone_id={"zoneName": "PrimarySync"},
         upload_url="https://upload.example.com",
     )
-    albums: dict[str, BasePhotoAlbum] = library.albums
-    assert SmartFolderEnum.ALL_PHOTOS in albums
+    albums: AlbumContainer = library.albums
+    assert SmartAlbumEnum.ALL_PHOTOS in albums
     assert "folder1" in albums
     assert albums["folder1"].name == "folder1"
     assert albums["folder1"].direction == DirectionEnum.ASCENDING
@@ -352,7 +353,7 @@ def test_fetch_folders_multiple_pages(mock_photos_service: MagicMock) -> None:
         zone_id={"zoneName": "PrimarySync"},
         upload_url="https://upload.example.com",
     )
-    library.SMART_FOLDERS = {}
+    library.SMART_ALBUMS = {}
     albums: list[BasePhotoAlbum] = list(library.albums.values())
     assert len(albums) == 2
     assert albums[0].name == "folder1"
@@ -414,7 +415,7 @@ def test_fetch_folders_skips_deleted_folders(mock_photos_service: MagicMock) -> 
         zone_id={"zoneName": "PrimarySync"},
         upload_url="https://upload.example.com",
     )
-    library.SMART_FOLDERS = {}
+    library.SMART_ALBUMS = {}
     albums: list[BasePhotoAlbum] = list(library.albums.values())
 
     assert len(albums) == 1
@@ -452,8 +453,8 @@ def test_fetch_folders_no_records(mock_photos_service: MagicMock) -> None:
         zone_id={"zoneName": "PrimarySync"},
         upload_url="https://upload.example.com",
     )
-    library.SMART_FOLDERS = {}
-    albums: dict[str, BasePhotoAlbum] = library.albums
+    library.SMART_ALBUMS = {}
+    albums: AlbumContainer = library.albums
 
     assert len(albums) == 0
     mock_photos_service.session.post.assert_called()
@@ -496,17 +497,17 @@ def test_fetch_folders_handles_missing_fields(mock_photos_service: MagicMock) ->
         zone_id={"zoneName": "PrimarySync"},
         upload_url="https://upload.example.com",
     )
-    library.SMART_FOLDERS = {}
-    albums: dict[str, BasePhotoAlbum] = library.albums
+    library.SMART_ALBUMS = {}
+    albums: AlbumContainer = library.albums
 
     assert len(albums) == 0
     mock_photos_service.session.post.assert_called()
 
 
-def test_base_photo_album_initialization(mock_photos_service: MagicMock) -> None:
+def test_base_photo_album_initialization(mock_photo_library: MagicMock) -> None:
     """Tests initialization of BasePhotoAlbum."""
     album = BasePhotoAlbum(
-        service=mock_photos_service,
+        library=mock_photo_library,
         name="Test Album",
         list_type="CPLAssetAndMasterByAssetDate",
         asset_type=MagicMock,
@@ -514,7 +515,7 @@ def test_base_photo_album_initialization(mock_photos_service: MagicMock) -> None
         direction=DirectionEnum.ASCENDING,
     )
     assert album.name == "Test Album"
-    assert album.service == mock_photos_service
+    assert album.service == mock_photo_library.service
     assert album.page_size == 50
     assert album.direction == DirectionEnum.ASCENDING
     assert album.list_type == "CPLAssetAndMasterByAssetDate"
@@ -524,7 +525,7 @@ def test_base_photo_album_initialization(mock_photos_service: MagicMock) -> None
 def test_base_photo_album_parse_response() -> None:
     """Tests the _parse_response method."""
     album = BasePhotoAlbum(
-        service=MagicMock(),
+        library=MagicMock(),
         name="Test Album",
         list_type="CPLAssetAndMasterByAssetDate",
         asset_type=MagicMock,
@@ -547,9 +548,9 @@ def test_base_photo_album_parse_response() -> None:
     assert master_records[0]["recordName"] == "master1"
 
 
-def test_base_photo_album_get_photos_at(mock_photos_service: MagicMock) -> None:
+def test_base_photo_album_get_photos_at(mock_photo_library: MagicMock) -> None:
     """Tests the _get_photos_at method."""
-    mock_photos_service.session.post.return_value.json.side_effect = [
+    mock_photo_library.service.session.post.return_value.json.side_effect = [
         {
             "records": [
                 {
@@ -567,7 +568,7 @@ def test_base_photo_album_get_photos_at(mock_photos_service: MagicMock) -> None:
         },
     ]
     album = PhotoAlbum(
-        service=mock_photos_service,
+        library=mock_photo_library,
         name="Test Album",
         list_type="CPLAssetAndMasterByAssetDate",
         obj_type=MagicMock,
@@ -577,13 +578,13 @@ def test_base_photo_album_get_photos_at(mock_photos_service: MagicMock) -> None:
     )
     photos = list(album.photos)
     assert len(photos) == 1
-    mock_photos_service.session.post.assert_called()
+    mock_photo_library.service.session.post.assert_called()
 
 
 def test_base_photo_album_len(mock_photos_service: MagicMock) -> None:
     """Tests the __len__ method."""
     album = BasePhotoAlbum(
-        service=mock_photos_service,
+        library=mock_photos_service,
         name="Test Album",
         list_type="CPLAssetAndMasterByAssetDate",
         asset_type=MagicMock,
@@ -593,9 +594,9 @@ def test_base_photo_album_len(mock_photos_service: MagicMock) -> None:
     album._get_len.assert_called_once()  # pylint: disable=protected-access
 
 
-def test_base_photo_album_iter(mock_photos_service: MagicMock) -> None:
+def test_base_photo_album_iter(mock_photo_library: MagicMock) -> None:
     """Tests the __iter__ method."""
-    mock_photos_service.session.post.return_value.json.side_effect = [
+    mock_photo_library.service.session.post.return_value.json.side_effect = [
         {
             "records": [
                 {
@@ -613,7 +614,7 @@ def test_base_photo_album_iter(mock_photos_service: MagicMock) -> None:
         },
     ]
     album = PhotoAlbum(
-        service=mock_photos_service,
+        library=mock_photo_library,
         name="Test Album",
         list_type="CPLAssetAndMasterByAssetDate",
         obj_type=MagicMock,
@@ -623,13 +624,13 @@ def test_base_photo_album_iter(mock_photos_service: MagicMock) -> None:
     )
     photos = list(iter(album))
     assert len(photos) == 1
-    mock_photos_service.session.post.assert_called()
+    mock_photo_library.service.session.post.assert_called()
 
 
 def test_base_photo_album_str() -> None:
     """Tests the __str__ method."""
     album = BasePhotoAlbum(
-        service=MagicMock(),
+        library=MagicMock(),
         name="Test Album",
         list_type="CPLAssetAndMasterByAssetDate",
         asset_type=MagicMock,
@@ -640,7 +641,7 @@ def test_base_photo_album_str() -> None:
 def test_base_photo_album_repr() -> None:
     """Tests the __repr__ method."""
     album = BasePhotoAlbum(
-        service=MagicMock(),
+        library=MagicMock(),
         name="Test Album",
         list_type="CPLAssetAndMasterByAssetDate",
         asset_type=MagicMock,
@@ -771,9 +772,9 @@ def test_photos_service_albums(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
     )
-    albums = photos_service.albums
-    assert isinstance(albums, dict)
-    assert SmartFolderEnum.ALL_PHOTOS in albums
+    albums: AlbumContainer = photos_service.albums
+    assert isinstance(albums, AlbumContainer)
+    assert SmartAlbumEnum.ALL_PHOTOS in albums
     mock_photos_service.session.post.assert_called()
 
 
@@ -815,8 +816,8 @@ def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
     )
-    shared_streams: dict[str, BasePhotoAlbum] = photos_service.shared_streams
-    assert isinstance(shared_streams, dict)
+    shared_streams: AlbumContainer = photos_service.shared_streams
+    assert isinstance(shared_streams, AlbumContainer)
     assert "Shared Album" in shared_streams
     assert isinstance(shared_streams["Shared Album"], SharedPhotoStreamAlbum)
     mock_photos_service.session.post.assert_called()
