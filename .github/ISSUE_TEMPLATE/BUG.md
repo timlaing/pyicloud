@@ -3,7 +3,7 @@ name: Report a bug with pyiCloud
 about: Report an issue
 ---
 <!-- READ THIS FIRST:
-  - Make sure you are running the latest version of pyiCloud before reporting an issue: https://github.com/picklepete/pyicloud/releases
+  - Make sure you are running the latest version of pyiCloud before reporting an issue: https://github.com/timlaing/pyicloud/releases
   - Provide as many details as possible. Paste logs, configuration samples and code into the backticks.
   DO NOT DELETE ANY TEXT from this template! Otherwise, your issue may be closed without comment.
 -->
