@@ -69,6 +69,11 @@ class EventObject:
         if self.local_end_date:
             event_dict["localEndDate"] = self.dt_to_list(self.local_end_date, False)
 
+        event_dict.pop("start_date", None)
+        event_dict.pop("end_date", None)
+        event_dict.pop("local_start_date", None)
+        event_dict.pop("local_end_date", None)
+
         data: dict[str, Any] = {
             "Event": event_dict,
             "ClientState": {
@@ -316,7 +321,7 @@ class CalendarService(BaseService):
         to_dt: Optional[datetime] = None,
         period: str = "month",
         as_objs: bool = False,
-    ) -> Optional[list]:
+    ) -> list:
         """
         Retrieves events for a given date range, by default, this month.
         """
@@ -336,7 +341,7 @@ class CalendarService(BaseService):
             to_dt = from_dt + timedelta(days=6)
 
         response: dict[str, Any] = self.refresh_client(from_dt, to_dt)
-        events = response.get("Event")
+        events: list = response.get("Event", [])
 
         if as_objs and events:
             for idx, event in enumerate(events):
