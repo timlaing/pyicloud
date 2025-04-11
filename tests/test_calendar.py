@@ -79,7 +79,7 @@ def test_calendar_service_get_calendars() -> None:
         )
         calendars = service.get_calendars()
         assert len(calendars) == 1
-        assert calendars[0]["title"] == "Test Calendar"  # type: ignore[union-attr]
+        assert calendars[0]["title"] == "Test Calendar"
 
 
 def test_calendar_service_add_calendar() -> None:
