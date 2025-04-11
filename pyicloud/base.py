@@ -548,10 +548,7 @@ class PyiCloudService(object):
                 self._hidemyemail = HideMyEmailService(
                     service_root, self.session, self.params
                 )
-            except (
-                PyiCloudServiceNotActivatedException,
-                PyiCloudAPIResponseException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Hide My Email service not available"
                 ) from error
@@ -574,10 +571,7 @@ class PyiCloudService(object):
                     china_mainland=self._is_china_mainland,
                     params=self.params,
                 )
-            except (
-                PyiCloudServiceNotActivatedException,
-                PyiCloudAPIResponseException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Account service not available"
                 ) from error
@@ -590,10 +584,7 @@ class PyiCloudService(object):
             service_root: str = self.get_webservice_url("ubiquity")
             try:
                 self._files = UbiquityService(service_root, self.session, self.params)
-            except (
-                PyiCloudServiceNotActivatedException,
-                PyiCloudAPIResponseException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Files service not available"
                 ) from error
@@ -616,10 +607,7 @@ class PyiCloudService(object):
                     upload_url,
                     shared_streams_url,
                 )
-            except (
-                PyiCloudServiceNotActivatedException,
-                PyiCloudAPIResponseException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Photos service not available"
                 ) from error
@@ -634,10 +622,7 @@ class PyiCloudService(object):
                 self._calendar = CalendarService(
                     service_root, self.session, self.params
                 )
-            except (
-                PyiCloudServiceNotActivatedException,
-                PyiCloudAPIResponseException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Calendar service not available"
                 ) from error
@@ -652,10 +637,7 @@ class PyiCloudService(object):
                 self._contacts = ContactsService(
                     service_root, self.session, self.params
                 )
-            except (
-                PyiCloudServiceNotActivatedException,
-                PyiCloudAPIResponseException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Contacts service not available"
                 ) from error
@@ -670,10 +652,7 @@ class PyiCloudService(object):
                 self._reminders = RemindersService(
                     service_root, self.session, self.params
                 )
-            except (
-                PyiCloudServiceNotActivatedException,
-                PyiCloudAPIResponseException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Reminders service not available"
                 ) from error
@@ -690,10 +669,7 @@ class PyiCloudService(object):
                     session=self.session,
                     params=self.params,
                 )
-            except (
-                PyiCloudServiceNotActivatedException,
-                PyiCloudAPIResponseException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Drive service not available"
                 ) from error
