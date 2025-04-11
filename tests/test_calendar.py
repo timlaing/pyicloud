@@ -7,8 +7,6 @@ from requests import Response
 from pyicloud.services.calendar import CalendarObject, CalendarService, EventObject
 from pyicloud.session import PyiCloudSession
 
-# filepath: pyicloud/services/test_calendar.py
-
 
 def test_event_object_initialization() -> None:
     """Test EventObject initialization and default values."""
@@ -27,6 +25,10 @@ def test_event_object_request_data() -> None:
     assert "Event" in data
     assert "ClientState" in data
     assert data["Event"]["title"] == "New Event"
+    assert "pGuid" in data["Event"]
+    assert data["Event"]["pGuid"] == "calendar123"
+    assert "guid" in data["Event"]
+    assert "Collection" in data["ClientState"]
 
 
 def test_event_object_dt_to_list() -> None:
@@ -60,6 +62,9 @@ def test_calendar_object_request_data() -> None:
     data: dict[str, Any] = calendar.request_data
     assert "Collection" in data
     assert data["Collection"]["title"] == "My Calendar"
+    assert "ClientState" in data
+    assert "guid" in data["Collection"]
+    assert "color" in data["Collection"]
 
 
 def test_calendar_service_get_calendars() -> None:

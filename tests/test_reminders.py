@@ -53,8 +53,6 @@ def test_reminders_service_refresh() -> None:
 
         work_task = service.lists["Work"][0]
         assert work_task["title"] == "Task 1"
-        print(work_task["due"])
-        print(datetime.datetime(2023, 10, 1, 12, 0, 0))
         assert work_task["due"] == datetime.datetime(2023, 10, 1, 12, 0, 0)
 
         personal_task = service.lists["Personal"][0]
