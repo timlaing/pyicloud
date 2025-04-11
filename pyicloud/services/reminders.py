@@ -57,6 +57,7 @@ class RemindersService(BaseService):
 
                 if reminder.get("dueDate"):
                     due = datetime(
+                        reminder["dueDate"][0],
                         reminder["dueDate"][1],
                         reminder["dueDate"][2],
                         reminder["dueDate"][3],
@@ -89,7 +90,7 @@ class RemindersService(BaseService):
         due_dates = None
         if due_date:
             due_dates = [
-                int(str(due_date.year) + str(due_date.month) + str(due_date.day)),
+                int(f"{due_date.year}{due_date.month:02}{due_date.day:02}"),
                 due_date.year,
                 due_date.month,
                 due_date.day,

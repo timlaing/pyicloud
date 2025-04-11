@@ -5,7 +5,7 @@ from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from random import randint
-from typing import Any, List, Optional, cast
+from typing import Any, List, Optional, TypeVar, Union, cast
 from uuid import uuid4
 
 from requests import Response
@@ -13,6 +13,8 @@ from tzlocal import get_localzone_name
 
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -68,6 +70,11 @@ class EventObject:
             event_dict["localStartDate"] = self.dt_to_list(self.local_start_date)
         if self.local_end_date:
             event_dict["localEndDate"] = self.dt_to_list(self.local_end_date, False)
+
+        event_dict.pop("start_date", None)
+        event_dict.pop("end_date", None)
+        event_dict.pop("local_start_date", None)
+        event_dict.pop("local_end_date", None)
 
         data: dict[str, Any] = {
             "Event": event_dict,
@@ -228,18 +235,24 @@ class CalendarService(BaseService):
 
         return params
 
-    def obj_from_dict(self, obj, _dict) -> object:
+    def obj_from_dict(self, obj: T, _dict) -> T:
         """Creates an object from a dictionary"""
         for key, value in _dict.items():
             setattr(obj, key, value)
 
         return obj
 
-    def get_ctag(self, guid) -> str:
+    def get_ctag(self, guid: str) -> str:
         """Returns the ctag for a given calendar guid"""
+        ctag: Optional[str] = None
         for cal in self.get_calendars(as_objs=False):
-            if cal.get("guid") == guid:
-                return cal.get("ctag")
+            if isinstance(cal, CalendarObject) and cal.guid == guid:
+                ctag = cal.ctag
+            elif isinstance(cal, dict) and cal.get("guid") == guid:
+                ctag = cal.get("ctag")
+
+            if ctag:
+                return ctag
         raise ValueError("ctag not found.")
 
     def refresh_client(self, from_dt=None, to_dt=None) -> dict[str, Any]:
@@ -267,14 +280,16 @@ class CalendarService(BaseService):
         req: Response = self.session.get(self._calendar_refresh_url, params=params)
         return req.json()
 
-    def get_calendars(self, as_objs: bool = False) -> list:
+    def get_calendars(
+        self, as_objs: bool = False
+    ) -> list[Union[dict[str, Any], CalendarObject]]:
         """
         Retrieves calendars of this month.
         """
         params: dict[str, Any] = self.default_params
         req: Response = self.session.get(self._calendars_url, params=params)
         response = req.json()
-        calendars = response["Collection"]
+        calendars: list[Union[dict[str, Any], CalendarObject]] = response["Collection"]
 
         if as_objs and calendars:
             for idx, cal in enumerate(calendars):
@@ -316,7 +331,7 @@ class CalendarService(BaseService):
         to_dt: Optional[datetime] = None,
         period: str = "month",
         as_objs: bool = False,
-    ) -> Optional[list]:
+    ) -> list:
         """
         Retrieves events for a given date range, by default, this month.
         """
@@ -336,7 +351,7 @@ class CalendarService(BaseService):
             to_dt = from_dt + timedelta(days=6)
 
         response: dict[str, Any] = self.refresh_client(from_dt, to_dt)
-        events = response.get("Event")
+        events: list = response.get("Event", [])
 
         if as_objs and events:
             for idx, event in enumerate(events):
