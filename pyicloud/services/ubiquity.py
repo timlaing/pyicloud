@@ -3,9 +3,9 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from requests import HTTPError, Response
+from requests import Response
 
-from pyicloud.exceptions import PyiCloudServiceUnavailable
+from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudServiceUnavailable
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 
@@ -22,9 +22,9 @@ class UbiquityService(BaseService):
 
         try:
             self.root
-        except HTTPError as error:
-            if error.response.status_code == 503:
-                raise PyiCloudServiceUnavailable(error.response.text) from error
+        except PyiCloudAPIResponseException as error:
+            if error.code == 503:
+                raise PyiCloudServiceUnavailable(error.reason) from error
             raise
 
     @property

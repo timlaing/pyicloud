@@ -220,6 +220,11 @@ class PyiCloudSession(requests.Session):
             self._decode_json_response(response)
 
             return response
+        except requests.HTTPError as err:
+            raise PyiCloudAPIResponseException(
+                reason=err.response.text,
+                code=err.response.status_code,
+            ) from err
         except requests.exceptions.RequestException as err:
             raise PyiCloudAPIResponseException(
                 err.strerror or "Request failed to iCloud"

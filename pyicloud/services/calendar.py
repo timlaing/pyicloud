@@ -207,7 +207,7 @@ class CalendarService(BaseService):
         self._calendar_refresh_url: str = f"{self._calendar_endpoint}/events"
         self._calendar_event_detail_url: str = f"{self._calendar_endpoint}/eventdetail"
         self._calendar_collections_url: str = f"{self._calendar_endpoint}/collections"
-        self._calendars_url: str = f"{self._calendar_endpoint}/startup"
+        self._calendars_url: str = f"{self._calendar_endpoint}/allcollections"
 
     @property
     def default_params(self) -> dict[str, Any]:

@@ -21,6 +21,7 @@ from pyicloud.exceptions import (
     PyiCloudFailedLoginException,
     PyiCloudPasswordException,
     PyiCloudServiceNotActivatedException,
+    PyiCloudServiceUnavailable,
 )
 from pyicloud.services import (
     AccountService,
@@ -156,7 +157,7 @@ class PyiCloudService(object):
             headers={
                 "Origin": self.home_endpoint,
                 "Referer": f"{self.home_endpoint}/",
-                "User-Agent": "Opera/9.52 (X11; Linux i686; U; en)",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15",
             },
             client_id=self._client_id,
             cookie_directory=_cookie_directory,
@@ -165,10 +166,10 @@ class PyiCloudService(object):
         self._client_id = self.session.data.get("client_id", self._client_id)
 
         self.params = {
-            "clientBuildNumber": "17DHotfix5",
-            "clientMasteringNumber": "17DHotfix5",
-            "ckjsBuildVersion": "17DProjectDev77",
-            "ckjsVersion": "2.0.5",
+            "clientBuildNumber": "2512Hotfix21",
+            "clientMasteringNumber": "2512Hotfix21",
+            "ckjsBuildVersion": "2310ProjectDev27",
+            "ckjsVersion": "2.6.4",
             "clientId": self._client_id,
         }
 
@@ -551,7 +552,7 @@ class PyiCloudService(object):
                 PyiCloudServiceNotActivatedException,
                 PyiCloudAPIResponseException,
             ) as error:
-                raise PyiCloudServiceNotActivatedException(
+                raise PyiCloudServiceUnavailable(
                     "Hide My Email service not available"
                 ) from error
         return self._hidemyemail
@@ -577,7 +578,7 @@ class PyiCloudService(object):
                 PyiCloudServiceNotActivatedException,
                 PyiCloudAPIResponseException,
             ) as error:
-                raise PyiCloudServiceNotActivatedException(
+                raise PyiCloudServiceUnavailable(
                     "Account service not available"
                 ) from error
         return self._account
@@ -593,7 +594,7 @@ class PyiCloudService(object):
                 PyiCloudServiceNotActivatedException,
                 PyiCloudAPIResponseException,
             ) as error:
-                raise PyiCloudServiceNotActivatedException(
+                raise PyiCloudServiceUnavailable(
                     "Files service not available"
                 ) from error
         return self._files
@@ -619,7 +620,7 @@ class PyiCloudService(object):
                 PyiCloudServiceNotActivatedException,
                 PyiCloudAPIResponseException,
             ) as error:
-                raise PyiCloudServiceNotActivatedException(
+                raise PyiCloudServiceUnavailable(
                     "Photos service not available"
                 ) from error
         return self._photos
@@ -637,7 +638,7 @@ class PyiCloudService(object):
                 PyiCloudServiceNotActivatedException,
                 PyiCloudAPIResponseException,
             ) as error:
-                raise PyiCloudServiceNotActivatedException(
+                raise PyiCloudServiceUnavailable(
                     "Calendar service not available"
                 ) from error
         return self._calendar
@@ -655,7 +656,7 @@ class PyiCloudService(object):
                 PyiCloudServiceNotActivatedException,
                 PyiCloudAPIResponseException,
             ) as error:
-                raise PyiCloudServiceNotActivatedException(
+                raise PyiCloudServiceUnavailable(
                     "Contacts service not available"
                 ) from error
         return self._contacts
@@ -673,7 +674,7 @@ class PyiCloudService(object):
                 PyiCloudServiceNotActivatedException,
                 PyiCloudAPIResponseException,
             ) as error:
-                raise PyiCloudServiceNotActivatedException(
+                raise PyiCloudServiceUnavailable(
                     "Reminders service not available"
                 ) from error
         return self._reminders
@@ -693,7 +694,7 @@ class PyiCloudService(object):
                 PyiCloudServiceNotActivatedException,
                 PyiCloudAPIResponseException,
             ) as error:
-                raise PyiCloudServiceNotActivatedException(
+                raise PyiCloudServiceUnavailable(
                     "Drive service not available"
                 ) from error
         return self._drive

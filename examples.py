@@ -234,18 +234,28 @@ def display_account(api: PyiCloudService) -> None:
     print(END_LIST)
 
 
+def display_hidemyemail(api: PyiCloudService) -> None:
+    """Display Hide My Email info"""
+    print(f"List of Hide My Email ({len(api.hidemyemail)}):")
+    for idx, email in enumerate(api.hidemyemail):
+        print(
+            f"\t{idx}: {email['hme']} ({email['domain']}) Active = {email['isActive']}"
+        )
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+
 def main() -> None:
     """main function"""
     api: PyiCloudService = get_api()
+    display_hidemyemail(api)
     display_account(api)
     try:
         display_calendars(api)
     except PyiCloudServiceUnavailable as error:
         print(f"Calendar service not available: {error}\n")
-    try:
-        display_files(api)
-    except PyiCloudServiceUnavailable as error:
-        print(f"Files service not available: {error}\n")
+    display_files(api)
     display_devices(api)
     display_contacts(api)
     display_drive(api)

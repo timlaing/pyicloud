@@ -33,9 +33,10 @@ class ContactsService(BaseService):
         params_contacts = dict(self.params)
         params_contacts.update(
             {
-                "clientVersion": "2.1",
                 "locale": "en_US",
                 "order": "last,first",
+                "includePhoneNumbers": True,
+                "includePhotos": True,
             }
         )
         req: Response = self.session.get(
@@ -70,13 +71,6 @@ class ContactsService(BaseService):
         Retrieves the user's own contact information.
         """
         params_contacts = dict(self.params)
-        params_contacts.update(
-            {
-                "clientVersion": "2.1",
-                "locale": "en_US",
-                "order": "last,first",
-            }
-        )
         req: Response = self.session.get(
             self._contacts_me_card_url, params=params_contacts
         )
