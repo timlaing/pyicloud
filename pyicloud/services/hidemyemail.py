@@ -100,8 +100,7 @@ class HideMyEmailService(BaseService):
         response: dict[str, dict[str, str]] = req.json()
         result: Optional[dict[str, str]] = response.get("result")
         if result:
-            for item in result.get("hmeEmails", []):
-                yield item
+            yield from result.get("hmeEmails", [])
 
     def __getitem__(self, anonymous_id: str) -> dict[str, Any]:
         """

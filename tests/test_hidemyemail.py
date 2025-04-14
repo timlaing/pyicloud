@@ -1,3 +1,5 @@
+"""Tests for the Hide My Email service."""
+
 import json
 from typing import Any, Optional
 from unittest.mock import MagicMock
@@ -119,6 +121,23 @@ def test_delete(
     assert result == {"status": "deleted"}
     mock_session.post.assert_called_once_with(
         "https://example.com/v1/hme/delete",
+        params={"dsid": "12345"},
+        data=json.dumps({"anonymousId": "12345"}),
+    )
+
+
+def test_deactivate(
+    hidemyemail_service: HideMyEmailService, mock_session: MagicMock
+) -> None:
+    """Test the deactivate method."""
+    mock_response = MagicMock(spec=Response)
+    mock_response.json.return_value = {"result": {"status": "deactivated"}}
+    mock_session.post.return_value = mock_response
+
+    result: dict[str, Any] = hidemyemail_service.deactivate("12345")
+    assert result == {"status": "deactivated"}
+    mock_session.post.assert_called_once_with(
+        "https://example.com/v1/hme/deactivate",
         params={"dsid": "12345"},
         data=json.dumps({"anonymousId": "12345"}),
     )
