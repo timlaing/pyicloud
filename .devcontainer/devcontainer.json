@@ -32,7 +32,7 @@
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "uv venv && uv pip install -r requirements_all.txt && cat .devcontainer/pyenv >> ~/.zshrc && curl https://pyenv.run | bash",
+	"postCreateCommand": "uv venv && uv pip install -r requirements_all.txt",
 	// Configure tool-specific properties.
 	"customizations": {
 		"vscode": {
@@ -59,7 +59,8 @@
 				"editor.tabSize": 4,
 				"terminal.integrated.profiles.linux": {
 					"zsh": {
-						"path": "/usr/bin/zsh"
+						"path": "/usr/bin/zsh",
+						"args": ["-l"]
 					}
 				},
 				"terminal.integrated.defaultProfile.linux": "zsh"
