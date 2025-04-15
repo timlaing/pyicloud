@@ -32,7 +32,7 @@
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "uv venv && uv pip install -r requirements_all.txt && echo 'if [ -f \"/workspaces/pyicloud/.venv/bin/activate\" ]; then\\n  source /workspaces/pyicloud/.venv/bin/activate\\nfi' >> ~/.zshrc",
+	"postCreateCommand": "uv venv && uv pip install -r requirements_all.txt",
 	// Configure tool-specific properties.
 	"customizations": {
 		"vscode": {
