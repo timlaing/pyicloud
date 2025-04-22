@@ -20,6 +20,7 @@ class HideMyEmailService(BaseService):
     - Get alias details by ID
     - Update alias metadata (label, note)
     - Delete aliases
+    - Deactivate aliases
     """
 
     def __init__(
@@ -33,6 +34,7 @@ class HideMyEmailService(BaseService):
         self._reserve_endpoint: str = f"{self._v1_endpoint}/reserve"
         self._update_metadata_endpoint: str = f"{self._v1_endpoint}/updateMetaData"
         self._delete_endpoint: str = f"{self._v1_endpoint}/delete"
+        self._deactivate_endpoint: str = f"{self._v1_endpoint}/deactivate"
 
         # Define v2 endpoints
         self._v2_endpoint: str = f"{service_root}/v2/hme"
@@ -98,8 +100,7 @@ class HideMyEmailService(BaseService):
         response: dict[str, dict[str, str]] = req.json()
         result: Optional[dict[str, str]] = response.get("result")
         if result:
-            for item in result.get("hmeEmails", []):
-                yield item
+            yield from result.get("hmeEmails", [])
 
     def __getitem__(self, anonymous_id: str) -> dict[str, Any]:
         """
@@ -160,6 +161,27 @@ class HideMyEmailService(BaseService):
         """
         req: Response = self.session.post(
             self._delete_endpoint,
+            params=self.params,
+            data=json.dumps({"anonymousId": anonymous_id}),
+        )
+        response = req.json()
+        return response.get("result", {})
+
+    def deactivate(self, anonymous_id: str) -> dict[str, Any]:
+        """
+        Deactivate an alias email.
+
+        Deactivating an alias means emails sent to it will no longer be forwarded,
+        but the alias remains in your list and can be reactivated later.
+
+        Args:
+            anonymous_id: The unique identifier for the alias to deactivate.
+
+        Returns:
+            A dictionary containing the API response.
+        """
+        req: Response = self.session.post(
+            self._deactivate_endpoint,
             params=self.params,
             data=json.dumps({"anonymousId": anonymous_id}),
         )
