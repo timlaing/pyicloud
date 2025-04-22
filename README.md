@@ -652,6 +652,14 @@ updated = api.hidemyemail.update_metadata(
 )
 print(f"Updated alias: {updated}")
 
+# Deactivate an alias (stops email forwarding but keeps the alias for future reactivation)
+deactivated = api.hidemyemail.deactivate(anonymous_id)
+print(f"Deactivated alias: {deactivated}")
+
+# Reactivate a previously deactivated alias (resumes email forwarding)
+reactivated = api.hidemyemail.reactivate(anonymous_id)
+print(f"Reactivated alias: {reactivated}")
+
 # Delete the alias when no longer needed
 deleted = api.hidemyemail.delete(anonymous_id)
 print(f"Deleted alias: {deleted}")
