@@ -21,6 +21,7 @@ class HideMyEmailService(BaseService):
     - Update alias metadata (label, note)
     - Delete aliases
     - Deactivate aliases
+    - Reactivate aliases
     """
 
     def __init__(
@@ -35,6 +36,7 @@ class HideMyEmailService(BaseService):
         self._update_metadata_endpoint: str = f"{self._v1_endpoint}/updateMetaData"
         self._delete_endpoint: str = f"{self._v1_endpoint}/delete"
         self._deactivate_endpoint: str = f"{self._v1_endpoint}/deactivate"
+        self._reactivate_endpoint: str = f"{self._v1_endpoint}/reactivate"
 
         # Define v2 endpoints
         self._v2_endpoint: str = f"{service_root}/v2/hme"
@@ -182,6 +184,27 @@ class HideMyEmailService(BaseService):
         """
         req: Response = self.session.post(
             self._deactivate_endpoint,
+            params=self.params,
+            data=json.dumps({"anonymousId": anonymous_id}),
+        )
+        response = req.json()
+        return response.get("result", {})
+
+    def reactivate(self, anonymous_id: str) -> dict[str, Any]:
+        """
+        Reactivate a previously deactivated alias email.
+
+        Reactivating an alias means emails sent to it will be forwarded again
+        to your primary inbox.
+
+        Args:
+            anonymous_id: The unique identifier for the alias to reactivate.
+
+        Returns:
+            A dictionary containing the API response.
+        """
+        req: Response = self.session.post(
+            self._reactivate_endpoint,
             params=self.params,
             data=json.dumps({"anonymousId": anonymous_id}),
         )
