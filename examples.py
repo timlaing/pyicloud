@@ -10,7 +10,7 @@ from requests import Response
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
-from pyicloud.services.calendar import CalendarService
+from pyicloud.services.calendar import CalendarObject, CalendarService
 
 END_LIST = "End List\n"
 MAX_DISPLAY = 10
@@ -117,7 +117,7 @@ def display_devices(api: PyiCloudService) -> None:
 def display_calendars(api: PyiCloudService) -> None:
     """Display calendar info"""
     calendar_service: CalendarService = api.calendar
-    calendars = calendar_service.get_calendars(as_objs=True)
+    calendars: list[CalendarObject] = calendar_service.get_calendars(as_objs=True)
     print(f"List of calendars ({len(calendars)}):")
     for idx, calendar in enumerate(calendars):
         print(f"\t{idx}: {calendar.title}")
