@@ -5,7 +5,7 @@ from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from random import randint
-from typing import Any, List, Optional, TypeVar, Union, cast
+from typing import Any, List, Literal, Optional, TypeVar, Union, cast, overload
 from uuid import uuid4
 
 from requests import Response
@@ -280,22 +280,30 @@ class CalendarService(BaseService):
         req: Response = self.session.get(self._calendar_refresh_url, params=params)
         return req.json()
 
+    @overload
+    def get_calendars(self) -> list[dict[str, Any]]: ...
+
+    @overload
+    def get_calendars(self, as_objs: Literal[False]) -> list[dict[str, Any]]: ...
+
+    @overload
+    def get_calendars(self, as_objs: Literal[True]) -> list[CalendarObject]: ...
+
     def get_calendars(
-        self, as_objs: bool = False
-    ) -> list[Union[dict[str, Any], CalendarObject]]:
+        self, as_objs: Union[Literal[True], Literal[False]] = False
+    ) -> Union[list[dict[str, Any]], list[CalendarObject]]:
         """
         Retrieves calendars of this month.
         """
         params: dict[str, Any] = self.default_params
         req: Response = self.session.get(self._calendars_url, params=params)
         response = req.json()
-        calendars: list[Union[dict[str, Any], CalendarObject]] = response["Collection"]
+        calendars: list[dict[str, Any]] = response["Collection"]
 
-        if as_objs and calendars:
-            for idx, cal in enumerate(calendars):
-                calendars[idx] = self.obj_from_dict(CalendarObject(), cal)
+        if not as_objs and calendars:
+            return calendars
 
-        return calendars
+        return [self.obj_from_dict(CalendarObject(), cal) for cal in calendars]
 
     def add_calendar(self, calendar: CalendarObject) -> dict[str, Any]:
         """
