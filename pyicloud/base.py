@@ -537,7 +537,7 @@ class PyiCloudService(object):
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(
-                    "Hide My Email service not available"
+                    "Find My iPhone service not available"
                 ) from error
         return self._devices
 
