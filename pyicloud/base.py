@@ -7,7 +7,7 @@ import json
 import logging
 from os import environ, mkdir, path
 from tempfile import gettempdir
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from uuid import uuid1
 
 import srp
@@ -527,7 +527,7 @@ class PyiCloudService(object):
         return self._webservices[ws_key]["url"]
 
     @property
-    def devices(self) -> Union[FindMyiPhoneServiceManager, list]:
+    def devices(self) -> FindMyiPhoneServiceManager:
         """Returns all devices."""
         if not self._devices:
             try:
@@ -535,8 +535,10 @@ class PyiCloudService(object):
                 self._devices = FindMyiPhoneServiceManager(
                     service_root, self.session, self.params, self._with_family
                 )
-            except PyiCloudServiceNotActivatedException:
-                return []
+            except PyiCloudServiceNotActivatedException as error:
+                raise PyiCloudServiceUnavailable(
+                    "Hide My Email service not available"
+                ) from error
         return self._devices
 
     @property
@@ -548,7 +550,7 @@ class PyiCloudService(object):
                 self._hidemyemail = HideMyEmailService(
                     service_root, self.session, self.params
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Hide My Email service not available"
                 ) from error

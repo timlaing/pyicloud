@@ -8,6 +8,7 @@ import pytest
 
 from pyicloud.base import PyiCloudService
 from pyicloud.services.contacts import ContactsService
+from pyicloud.services.drive import COOKIE_APPLE_WEBAUTH_VALIDATE
 from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
@@ -125,3 +126,17 @@ def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:  # pylint: 
 def hidemyemail_service(mock_session: MagicMock) -> HideMyEmailService:
     """Fixture for initializing HideMyEmailService."""
     return HideMyEmailService("https://example.com", mock_session, {"dsid": "12345"})
+
+
+@pytest.fixture
+def mock_service_with_cookies(
+    pyicloud_service_working: PyiCloudService,  # pylint: disable=redefined-outer-name
+) -> PyiCloudService:
+    """Fixture to create a mock PyiCloudService with cookies."""
+    cookies: list[MagicMock] = [MagicMock()]
+
+    cookies[0].name = COOKIE_APPLE_WEBAUTH_VALIDATE
+    cookies[0].value = "t=768y9u"
+
+    pyicloud_service_working.session.cookies = cookies  # type: ignore
+    return pyicloud_service_working
