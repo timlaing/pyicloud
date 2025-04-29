@@ -15,6 +15,7 @@ from tests import PyiCloudSessionMock
 from tests.const_login import LOGIN_WORKING
 
 BUILTINS_OPEN: str = "builtins.open"
+EXAMPLE_DOMAIN: str = "https://example.com"
 
 
 class FileSystemAccessError(Exception):
@@ -98,7 +99,7 @@ def mock_session() -> MagicMock:
 def contacts_service(mock_session: MagicMock) -> ContactsService:  # pylint: disable=redefined-outer-name
     """Fixture to create a ContactsService instance."""
     return ContactsService(
-        service_root="https://example.com",
+        service_root=EXAMPLE_DOMAIN,
         session=mock_session,
         params={"test_param": "value"},
     )
@@ -108,7 +109,7 @@ def contacts_service(mock_session: MagicMock) -> ContactsService:  # pylint: dis
 def mock_photos_service() -> MagicMock:
     """Fixture for mocking PhotosService."""
     service = MagicMock()
-    service.service_endpoint = "https://example.com"
+    service.service_endpoint = EXAMPLE_DOMAIN
     service.params = {"dsid": "12345"}
     service.session = MagicMock()
     return service
@@ -123,9 +124,9 @@ def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:  # pylint: 
 
 
 @pytest.fixture
-def hidemyemail_service(mock_session: MagicMock) -> HideMyEmailService:
+def hidemyemail_service(mock_session: MagicMock) -> HideMyEmailService:  # pylint: disable=redefined-outer-name
     """Fixture for initializing HideMyEmailService."""
-    return HideMyEmailService("https://example.com", mock_session, {"dsid": "12345"})
+    return HideMyEmailService(EXAMPLE_DOMAIN, mock_session, {"dsid": "12345"})
 
 
 @pytest.fixture
