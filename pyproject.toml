@@ -64,7 +64,7 @@ python = '''
 [tool.setuptools_scm]
 
 [build-system]
-requires = ["setuptools >= 77.0,< 79.1", "setuptools-scm"]
+requires = ["setuptools >= 77.0,< 80.1", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
