@@ -5,6 +5,7 @@ import secrets
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
+from requests.cookies import RequestsCookieJar
 
 from pyicloud.base import PyiCloudService
 from pyicloud.services.contacts import ContactsService
@@ -134,10 +135,10 @@ def mock_service_with_cookies(
     pyicloud_service_working: PyiCloudService,  # pylint: disable=redefined-outer-name
 ) -> PyiCloudService:
     """Fixture to create a mock PyiCloudService with cookies."""
-    cookies: list[MagicMock] = [MagicMock()]
+    jar = RequestsCookieJar()
+    jar.set(COOKIE_APPLE_WEBAUTH_VALIDATE, "t=768y9u", domain="icloud.com", path="/")
 
-    cookies[0].name = COOKIE_APPLE_WEBAUTH_VALIDATE
-    cookies[0].value = "t=768y9u"
+    # Attach a real CookieJar so code that calls `.cookies.get()` keeps working.
+    pyicloud_service_working.session.cookies = jar
 
-    pyicloud_service_working.session.cookies = cookies  # type: ignore
     return pyicloud_service_working
