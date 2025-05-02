@@ -215,7 +215,9 @@ class AppleDevice:
         return self.content[key]
 
     def __getattr__(self, attr) -> Any:
-        return self.content[attr]
+        if attr in self.content:
+            return self.content[attr]
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
 
     def __str__(self) -> str:
         return f"{self['deviceDisplayName']}: {self['name']}"
