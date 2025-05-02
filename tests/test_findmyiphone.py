@@ -8,7 +8,11 @@ from pyicloud.services.findmyiphone import AppleDevice, FindMyiPhoneServiceManag
 
 
 def test_devices(pyicloud_service_working: PyiCloudService) -> None:
-    """Tests devices."""
+    """
+    Verifies that the devices list in a working PyiCloudService instance is populated and that each device contains expected attribute values.
+    
+    This test asserts the presence and expected values (including some expected to be None) of key device attributes accessed both via dictionary-style and `.data` property for each device.
+    """
 
     assert pyicloud_service_working.devices
 
@@ -83,7 +87,11 @@ def test_devices(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_apple_device_properties(pyicloud_service_working: PyiCloudService) -> None:
-    """Tests AppleDevice properties and methods."""
+    """
+    Verifies the properties and methods of an AppleDevice instance.
+    
+    Checks session and location properties, status retrieval with and without additional fields, data access via properties and special methods, and correct string representations.
+    """
     device: AppleDevice = pyicloud_service_working.devices[0]
 
     # Test session property
@@ -125,7 +133,13 @@ def test_apple_device_properties(pyicloud_service_working: PyiCloudService) -> N
 
 
 def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None:
-    """Tests AppleDevice actions like play_sound, display_message, and lost_device."""
+    """
+    Tests the action methods of AppleDevice for correct API call behaviour.
+    
+    Verifies that play_sound, display_message, and lost_device methods on an AppleDevice
+    instance generate the expected HTTP POST requests with appropriate parameters and
+    payloads by mocking the session's post method.
+    """
     device: AppleDevice = pyicloud_service_working.devices[0]
 
     # Mock session.post to avoid actual API calls
@@ -184,7 +198,12 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
 def test_findmyiphone_service_manager(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Tests FindMyiPhoneServiceManager methods."""
+    """
+    Tests the interface and collection behaviour of FindMyiPhoneServiceManager.
+    
+    Verifies client refresh, device retrieval, length, iteration, and string representation
+    for the FindMyiPhoneServiceManager accessed via a working PyiCloudService instance.
+    """
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
 
     # Test refresh_client

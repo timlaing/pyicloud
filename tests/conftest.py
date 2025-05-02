@@ -5,7 +5,6 @@ import secrets
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
-from requests.cookies import RequestsCookieJar
 
 from pyicloud.base import PyiCloudService
 from pyicloud.services.contacts import ContactsService
@@ -98,7 +97,15 @@ def mock_session() -> MagicMock:
 
 @pytest.fixture
 def contacts_service(mock_session: MagicMock) -> ContactsService:  # pylint: disable=redefined-outer-name
-    """Fixture to create a ContactsService instance."""
+    """
+    Provides a ContactsService instance with a mocked session and test parameters.
+    
+    Args:
+        mock_session: A MagicMock instance simulating the session.
+    
+    Returns:
+        A ContactsService configured with the example domain and dummy parameters for testing.
+    """
     return ContactsService(
         service_root=EXAMPLE_DOMAIN,
         session=mock_session,
@@ -108,7 +115,9 @@ def contacts_service(mock_session: MagicMock) -> ContactsService:  # pylint: dis
 
 @pytest.fixture
 def mock_photos_service() -> MagicMock:
-    """Fixture for mocking PhotosService."""
+    """
+    Provides a mock PhotosService instance with preset endpoint, parameters, and session for testing.
+    """
     service = MagicMock()
     service.service_endpoint = EXAMPLE_DOMAIN
     service.params = {"dsid": "12345"}
@@ -126,7 +135,12 @@ def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:  # pylint: 
 
 @pytest.fixture
 def hidemyemail_service(mock_session: MagicMock) -> HideMyEmailService:  # pylint: disable=redefined-outer-name
-    """Fixture for initializing HideMyEmailService."""
+    """
+    Provides a HideMyEmailService instance configured with a mock session and example parameters.
+    
+    Returns:
+        A HideMyEmailService initialised with the example domain, a mocked session, and a dummy dsid.
+    """
     return HideMyEmailService(EXAMPLE_DOMAIN, mock_session, {"dsid": "12345"})
 
 
@@ -134,11 +148,16 @@ def hidemyemail_service(mock_session: MagicMock) -> HideMyEmailService:  # pylin
 def mock_service_with_cookies(
     pyicloud_service_working: PyiCloudService,  # pylint: disable=redefined-outer-name
 ) -> PyiCloudService:
-    """Fixture to create a mock PyiCloudService with cookies."""
-    jar = RequestsCookieJar()
-    jar.set(COOKIE_APPLE_WEBAUTH_VALIDATE, "t=768y9u", domain="icloud.com", path="/")
+    """
+    Provides a PyiCloudService fixture with its session cookies set to include a mock cookie named COOKIE_APPLE_WEBAUTH_VALIDATE.
+    
+    Returns:
+        The modified PyiCloudService instance with the mock cookie applied.
+    """
+    cookies: list[MagicMock] = [MagicMock()]
 
-    # Attach a real CookieJar so code that calls `.cookies.get()` keeps working.
-    pyicloud_service_working.session.cookies = jar
+    cookies[0].name = COOKIE_APPLE_WEBAUTH_VALIDATE
+    cookies[0].value = "t=768y9u"
 
+    pyicloud_service_working.session.cookies = cookies  # type: ignore
     return pyicloud_service_working

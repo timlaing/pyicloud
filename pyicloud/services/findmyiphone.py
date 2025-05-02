@@ -37,10 +37,10 @@ class FindMyiPhoneServiceManager(BaseService):
         self.refresh_client()
 
     def refresh_client(self) -> None:
-        """Refreshes the FindMyiPhoneService endpoint,
-
-        This ensures that the location data is up-to-date.
-
+        """
+        Refreshes device data from the Find My iPhone service.
+        
+        Sends a request to the Find My iPhone endpoint to update the internal list of Apple devices and their latest information. Raises PyiCloudNoDevicesException if no devices are found after refresh.
         """
         req: Response = self.session.post(
             self._fmip_refresh_url,
@@ -212,14 +212,32 @@ class AppleDevice:
         return self.content
 
     def __getitem__(self, key) -> Any:
+        """
+        Enables dictionary-style access to the device's data fields.
+        
+        Args:
+            key: The key corresponding to a field in the device's data.
+        
+        Returns:
+            The value associated with the specified key.
+        """
         return self.content[key]
 
     def __getattr__(self, attr) -> Any:
+        """
+        Provides attribute-style access to device data fields.
+        
+        Returns the value associated with the given attribute name from the device's data.
+        Raises AttributeError if the attribute is not present.
+        """
         if attr in self.content:
             return self.content[attr]
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
 
     def __str__(self) -> str:
+        """
+        Returns a string representation of the device, combining its display name and name.
+        """
         return f"{self['deviceDisplayName']}: {self['name']}"
 
     def __repr__(self) -> str:

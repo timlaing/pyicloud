@@ -18,7 +18,9 @@ from pyicloud.services.drive import (
 
 
 def test_root(pyicloud_service_working: PyiCloudService) -> None:
-    """Test the root folder."""
+    """
+    Tests that the root folder of the iCloud Drive has correct attributes and directory listing.
+    """
     drive: DriveService = pyicloud_service_working.drive
     # root name is now extracted from drivewsid.
     assert drive.name == "root"
@@ -141,7 +143,9 @@ def test_subfolder_file(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_file_open(pyicloud_service_working: PyiCloudService) -> None:
-    """Test the /pyiCloud/Test/Scanned document 1.pdf file open."""
+    """
+    Tests opening a file in a subfolder and verifies that a raw response stream is returned.
+    """
     drive: Optional[DriveNode] = pyicloud_service_working.drive["pyiCloud"]
     assert drive
     folder: Optional[DriveNode] = drive["Test"]
@@ -153,7 +157,9 @@ def test_file_open(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_get_node_data(pyicloud_service_working: PyiCloudService) -> None:
-    """Test retrieving node data."""
+    """
+    Tests that DriveService.get_node_data retrieves node data by ID and sends the correct POST request.
+    """
     drive: DriveService = pyicloud_service_working.drive
     mock_response = {"drivewsid": "test_id", "name": "Test Node"}
     with patch.object(
@@ -169,7 +175,11 @@ def test_get_node_data(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_get_file(pyicloud_service_working: PyiCloudService) -> None:
-    """Test retrieving a file."""
+    """
+    Tests retrieving a file from iCloud Drive by mocking the download URL and file content responses.
+    
+    Asserts that the file content is correctly returned and that the expected HTTP requests are made.
+    """
     drive: DriveService = pyicloud_service_working.drive
     mock_response = {"data_token": {"url": "https://example.com/file"}}
     with patch.object(
@@ -190,7 +200,11 @@ def test_get_file(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_create_folders(pyicloud_service_working: PyiCloudService) -> None:
-    """Test creating a folder."""
+    """
+    Tests the creation of a new folder in iCloud Drive.
+    
+    Verifies that the `create_folders` method sends the correct POST request and returns the expected response when creating a folder under a specified parent.
+    """
     drive: DriveService = pyicloud_service_working.drive
     mock_response = {"folders": [{"name": "New Folder"}]}
     with patch.object(
@@ -207,7 +221,9 @@ def test_create_folders(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_delete_items(pyicloud_service_working: PyiCloudService) -> None:
-    """Test deleting an item."""
+    """
+    Tests that deleting an item via DriveService sends the correct request and returns the expected response.
+    """
     drive: DriveService = pyicloud_service_working.drive
     mock_response = {"status": "OK"}
     with patch.object(
@@ -233,7 +249,9 @@ def test_delete_items(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_rename_items(pyicloud_service_working: PyiCloudService) -> None:
-    """Test renaming an item."""
+    """
+    Tests renaming an item in iCloud Drive and verifies the correct API request and response.
+    """
     drive: DriveService = pyicloud_service_working.drive
     mock_response = {"status": "OK"}
     with patch.object(
@@ -257,7 +275,9 @@ def test_rename_items(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_move_items_to_trash(pyicloud_service_working: PyiCloudService) -> None:
-    """Test moving an item to trash."""
+    """
+    Tests that moving an item to the trash via DriveService sends the correct request and returns the expected response.
+    """
     drive: DriveService = pyicloud_service_working.drive
     mock_response = {"status": "OK"}
     with patch.object(
@@ -279,7 +299,9 @@ def test_move_items_to_trash(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_recover_items_from_trash(pyicloud_service_working: PyiCloudService) -> None:
-    """Test recovering an item from trash."""
+    """
+    Tests that recovering an item from the Trash via DriveService returns the expected response and sends the correct request payload.
+    """
     drive: DriveService = pyicloud_service_working.drive
     mock_response = {"status": "OK"}
     with patch.object(
@@ -301,7 +323,9 @@ def test_recover_items_from_trash(pyicloud_service_working: PyiCloudService) -> 
 
 
 def test_delete_forever_from_trash(pyicloud_service_working: PyiCloudService) -> None:
-    """Test permanently deleting an item from trash."""
+    """
+    Tests that permanently deleting an item from the Trash via DriveService returns the expected response and sends the correct request payload.
+    """
     drive: DriveService = pyicloud_service_working.drive
     mock_response = {"status": "OK"}
     with patch.object(
@@ -325,7 +349,11 @@ def test_delete_forever_from_trash(pyicloud_service_working: PyiCloudService) ->
 def test_get_upload_contentws_url_success(
     mock_service_with_cookies: PyiCloudService,
 ) -> None:
-    """Test successful retrieval of upload contentWS URL."""
+    """
+    Tests that the DriveService can successfully retrieve an upload URL and document ID for a file using the contentWS API.
+    
+    Simulates a file upload preparation by mocking the file object and HTTP response, then asserts that the returned document ID and URL match the expected values and that the correct POST request is made.
+    """
     drive: DriveService = mock_service_with_cookies.drive
     mock_file = Mock()
     mock_file.name = "test_file.txt"
@@ -365,7 +393,11 @@ def test_get_upload_contentws_url_success(
 def test_get_upload_contentws_url_no_content_type(
     mock_service_with_cookies: PyiCloudService,
 ) -> None:
-    """Test retrieval of upload contentWS URL when content type is None."""
+    """
+    Tests that the upload contentWS URL is retrieved correctly when the file's content type is unknown.
+    
+    Mocks the file and content type detection to ensure the request is sent with an empty content type and verifies the returned document ID and URL.
+    """
     drive: DriveService = mock_service_with_cookies.drive
     mock_file = Mock()
     mock_file.name = "test_file.unknown"
@@ -405,7 +437,11 @@ def test_get_upload_contentws_url_no_content_type(
 def test_get_upload_contentws_url_error_response(
     mock_service_with_cookies: PyiCloudService,
 ) -> None:
-    """Test retrieval of upload contentWS URL with an error response."""
+    """
+    Tests that retrieving an upload contentWS URL raises an exception when the server responds with an error.
+    
+    Asserts that a PyiCloudAPIResponseException is raised with the correct error message and that the POST request is made with the expected parameters.
+    """
     drive: DriveService = mock_service_with_cookies.drive
     mock_file = Mock()
     mock_file.name = "test_file.txt"
@@ -438,7 +474,9 @@ def test_get_upload_contentws_url_error_response(
 def test_get_upload_contentws_url_invalid_response_format(
     mock_service_with_cookies: PyiCloudService,
 ) -> None:
-    """Test retrieval of upload contentWS URL with an invalid response format."""
+    """
+    Tests that retrieving an upload contentWS URL raises an IndexError when the response format is invalid (empty list).
+    """
     drive: DriveService = mock_service_with_cookies.drive
     mock_file = Mock()
     mock_file.name = "test_file.txt"
@@ -472,7 +510,13 @@ def test_get_upload_contentws_url_invalid_response_format(
 
 
 def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
-    """Test successfully sending a file to iCloud Drive."""
+    """
+    Tests the successful upload of a file to iCloud Drive using the send_file method.
+    
+    Simulates the full upload workflow, including obtaining an upload URL, uploading the file,
+    and updating the document metadata. Asserts that all HTTP requests are made with the correct
+    parameters and that the process completes without errors.
+    """
     drive: DriveService = mock_service_with_cookies.drive
 
     mock_file = Mock()
@@ -539,7 +583,11 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
 
 
 def test_send_file_upload_error(mock_service_with_cookies: PyiCloudService) -> None:
-    """Test sending a file to iCloud Drive with an upload error."""
+    """
+    Tests that sending a file to iCloud Drive raises an exception when the upload step fails.
+    
+    Simulates a failed file upload by mocking the upload response to be unsuccessful, and asserts that a PyiCloudAPIResponseException is raised with the expected error message.
+    """
     drive: DriveService = mock_service_with_cookies.drive
     mock_file = Mock()
     mock_file.name = "test_file.txt"
@@ -588,7 +636,11 @@ def test_send_file_upload_error(mock_service_with_cookies: PyiCloudService) -> N
 
 
 def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> None:
-    """Test sending a file to iCloud Drive with an update error."""
+    """
+    Tests that sending a file to iCloud Drive raises an exception if the document update step fails after upload.
+    
+    Simulates a successful upload URL retrieval and file upload, followed by a failed update request, and asserts that a PyiCloudAPIResponseException is raised with the correct error message.
+    """
     drive: DriveService = mock_service_with_cookies.drive
     mock_file = Mock()
     mock_file.name = "test_file.txt"

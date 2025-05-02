@@ -518,7 +518,18 @@ class PyiCloudService(object):
             return False
 
     def get_webservice_url(self, ws_key: str) -> str:
-        """Get webservice URL, raise an exception if not exists."""
+        """
+        Retrieves the URL for a specified iCloud webservice.
+        
+        Args:
+            ws_key: The key identifying the desired webservice.
+        
+        Returns:
+            The URL associated with the specified webservice.
+        
+        Raises:
+            PyiCloudServiceNotActivatedException: If the requested webservice is not available.
+        """
         if self._webservices is None or self._webservices.get(ws_key) is None:
             raise PyiCloudServiceNotActivatedException(
                 f"Webservice not available: {ws_key}"
@@ -528,7 +539,15 @@ class PyiCloudService(object):
 
     @property
     def devices(self) -> FindMyiPhoneServiceManager:
-        """Returns all devices."""
+        """
+        Provides access to the Find My iPhone service manager for the authenticated account.
+        
+        Raises:
+            PyiCloudServiceUnavailable: If the Find My iPhone service is not activated for the account.
+        
+        Returns:
+            FindMyiPhoneServiceManager: The manager for interacting with registered devices.
+        """
         if not self._devices:
             try:
                 service_root: str = self.get_webservice_url("findme")
@@ -543,7 +562,15 @@ class PyiCloudService(object):
 
     @property
     def hidemyemail(self) -> HideMyEmailService:
-        """Gets the 'HME' service."""
+        """
+        Provides access to the Hide My Email service.
+        
+        Returns:
+            An instance of HideMyEmailService for managing email aliases.
+        
+        Raises:
+            PyiCloudServiceUnavailable: If the Hide My Email service is not available for the account.
+        """
         if not self._hidemyemail:
             service_root: str = self.get_webservice_url("premiummailsettings")
             try:
