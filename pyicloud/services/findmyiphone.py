@@ -53,8 +53,6 @@ class FindMyiPhoneServiceManager(BaseService):
                         "apiVersion": "3.0",
                         "deviceListVersion": 1,
                         "fmly": self.with_family,
-                        # "shouldLocate": True,
-                        # "selectedDevice": "all",
                     }
                 }
             ),
@@ -217,7 +215,11 @@ class AppleDevice:
         return self.content[key]
 
     def __getattr__(self, attr) -> Any:
-        return getattr(self.content, attr)
+        if attr in self.content:
+            return self.content[attr]
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{attr}'"
+        )
 
     def __str__(self) -> str:
         return f"{self['deviceDisplayName']}: {self['name']}"
