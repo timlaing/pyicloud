@@ -360,9 +360,7 @@ class PyiCloudService(object):
         }
 
         try:
-            self.session.post(
-                f"{self.setup_endpoint}/accountLogin", json=data
-            )
+            self.session.post(f"{self.setup_endpoint}/accountLogin", json=data)
 
             self.data = self._validate_token()
         except PyiCloudAPIResponseException as error:
@@ -437,7 +435,7 @@ class PyiCloudService(object):
         request: Response = self.session.post(
             f"{self.setup_endpoint}/sendVerificationCode",
             params=self.params,
-            json=device
+            json=device,
         )
         return request.json().get("success", False)
 
@@ -449,7 +447,7 @@ class PyiCloudService(object):
             self.session.post(
                 f"{self.setup_endpoint}/validateVerificationCode",
                 params=self.params,
-                json=device
+                json=device,
             )
         except PyiCloudAPIResponseException as error:
             if error.code == -21669:
