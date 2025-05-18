@@ -200,10 +200,10 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if data.get("accountName") not in VALID_USERS:
             self._raise_error(None, "Unknown reason")
         if data.get("accountName") == REQUIRES_2FA_USER:
-            self._service.session._data["session_token"] = REQUIRES_2FA_TOKEN
+            self._service.session._data["session_token"] = REQUIRES_2FA_TOKEN  # pylint: disable=protected-access
             return ResponseMock(AUTH_OK)
 
-        self._service.session._data["session_token"] = VALID_TOKEN
+        self._service.session._data["session_token"] = VALID_TOKEN  # pylint: disable=protected-access
         return ResponseMock(AUTH_OK)
 
     def _handle_security_code(self, data: dict[str, Any]) -> ResponseMock:
@@ -211,7 +211,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if data.get("securityCode", {}).get("code") != VALID_2FA_CODE:
             self._raise_error(None, "Incorrect code")
 
-        self._service.session._data["session_token"] = VALID_TOKEN
+        self._service.session._data["session_token"] = VALID_TOKEN  # pylint: disable=protected-access
         return ResponseMock("", status_code=204)
 
     def _handle_drive_retrieve(self, data: dict[Any, Any]) -> Optional[ResponseMock]:

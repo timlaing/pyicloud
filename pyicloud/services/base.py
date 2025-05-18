@@ -18,12 +18,15 @@ class BaseService(ABC):
 
     @property
     def session(self) -> PyiCloudSession:
+        """The session object."""
         return self.__session
 
     @property
     def params(self) -> dict[str, Any]:
+        """The request parameters."""
         return self.__params
 
     @property
     def service_root(self) -> str:
+        """The service root URL."""
         return self.__service_root

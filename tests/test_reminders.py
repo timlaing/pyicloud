@@ -1,3 +1,5 @@
+"""Unit tests for the RemindersService class."""
+
 import datetime
 import json
 from unittest.mock import MagicMock, patch
@@ -10,7 +12,6 @@ from pyicloud.session import PyiCloudSession
 
 def test_reminders_service_init(mock_session: MagicMock) -> None:
     """Test RemindersService initialization."""
-    mock_session = MagicMock(spec=PyiCloudSession)
     mock_session.get.return_value = MagicMock(
         spec=Response, json=lambda: {"Collections": [], "Reminders": []}
     )
@@ -21,8 +22,8 @@ def test_reminders_service_init(mock_session: MagicMock) -> None:
 
         assert service.service_root == "https://example.com"
         assert service.params == params
-        assert service.lists == {}
-        assert service.collections == {}
+        assert not service.lists
+        assert not service.collections
 
 
 def test_reminders_service_refresh() -> None:
@@ -79,7 +80,7 @@ def test_reminders_service_post() -> None:
 
         assert result is True
         mock_session.post.assert_called_once()
-        args, kwargs = mock_session.post.call_args
+        _, kwargs = mock_session.post.call_args
         assert kwargs["data"]
         data = json.loads(kwargs["data"])
         assert data["Reminders"]["title"] == "New Task"
@@ -93,7 +94,7 @@ def test_reminders_service_post() -> None:
 
         assert result is True
         mock_session.post.assert_called_once()
-        args, kwargs = mock_session.post.call_args
+        _, kwargs = mock_session.post.call_args
         data = json.loads(kwargs["data"])
         assert data["Reminders"]["title"] == "Task Without Due Date"
         assert data["Reminders"]["dueDate"] is None
@@ -114,7 +115,7 @@ def test_reminders_service_post_invalid_collection() -> None:
         result = service.post("Task", collection="NonExistent")
         assert result is True
         mock_session.post.assert_called_once()
-        args, kwargs = mock_session.post.call_args
+        _, kwargs = mock_session.post.call_args
         data = json.loads(kwargs["data"])
         assert data["Reminders"]["pGuid"] == "tasks"  # Default collection
 
@@ -131,5 +132,5 @@ def test_reminders_service_refresh_empty_response() -> None:
         )
         service.refresh()
 
-        assert service.lists == {}
-        assert service.collections == {}
+        assert not service.lists
+        assert not service.collections
