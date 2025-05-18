@@ -183,7 +183,7 @@ def test_get_file(pyicloud_service_working: PyiCloudService) -> None:
         file_response = drive.get_file("file_id")
         assert file_response.content == b"file content"
         mock_get.assert_any_call(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/download/by_id",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/download/by_id",
             params={**drive.params, "document_id": "file_id"},
         )
         mock_get.assert_any_call("https://example.com/file", params=drive.params)
@@ -348,7 +348,7 @@ def test_get_upload_contentws_url_success(
         assert url == "https://example.com/upload"
 
         mock_post.assert_called_once_with(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/upload/web",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
@@ -388,7 +388,7 @@ def test_get_upload_contentws_url_no_content_type(
         assert url == "https://example.com/upload"
 
         mock_post.assert_called_once_with(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/upload/web",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
@@ -421,7 +421,7 @@ def test_get_upload_contentws_url_error_response(
             drive._get_upload_contentws_url(mock_file)
 
         mock_post.assert_called_once_with(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/upload/web",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
@@ -457,7 +457,7 @@ def test_get_upload_contentws_url_invalid_response_format(
             drive._get_upload_contentws_url(mock_file)
 
         mock_post.assert_called_once_with(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/upload/web",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
@@ -510,7 +510,7 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
 
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/upload/web",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
@@ -531,7 +531,7 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
 
         # Assert _update_contentws call
         mock_post.assert_any_call(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/update/documents",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
             params=drive.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=ANY,
@@ -567,7 +567,7 @@ def test_send_file_upload_error(mock_service_with_cookies: PyiCloudService) -> N
 
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/upload/web",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
@@ -625,7 +625,7 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
 
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/upload/web",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
@@ -646,7 +646,7 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
 
         # Assert _update_contentws call
         mock_post.assert_any_call(
-            drive._document_root + f"{CLOUD_DOCS_ZONE}/update/documents",
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
             params=drive.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=ANY,
