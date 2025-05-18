@@ -3,7 +3,6 @@
 import base64
 import getpass
 import hashlib
-import json
 import logging
 from os import environ, mkdir, path
 from tempfile import gettempdir
@@ -282,7 +281,7 @@ class PyiCloudService(object):
         try:
             response: Response = self.session.post(
                 f"{self.auth_endpoint}/signin/init",
-                data=json.dumps(data),
+                json=data,
                 headers=headers,
             )
             response.raise_for_status()
@@ -317,7 +316,7 @@ class PyiCloudService(object):
                 params={
                     "isRememberMeEnabled": "true",
                 },
-                data=json.dumps(data),
+                json=data,
                 headers=headers,
             )
         except PyiCloud2FARequiredException:
@@ -341,7 +340,7 @@ class PyiCloudService(object):
             print(data)
 
             resp: Response = self.session.post(
-                f"{self.setup_endpoint}/accountLogin", data=json.dumps(data)
+                f"{self.setup_endpoint}/accountLogin", json=data
             )
             resp.raise_for_status()
 
@@ -361,9 +360,7 @@ class PyiCloudService(object):
         }
 
         try:
-            self.session.post(
-                f"{self.setup_endpoint}/accountLogin", data=json.dumps(data)
-            )
+            self.session.post(f"{self.setup_endpoint}/accountLogin", json=data)
 
             self.data = self._validate_token()
         except PyiCloudAPIResponseException as error:
@@ -435,24 +432,22 @@ class PyiCloudService(object):
 
     def send_verification_code(self, device: dict[str, Any]) -> bool:
         """Requests that a verification code is sent to the given device."""
-        data: str = json.dumps(device)
         request: Response = self.session.post(
             f"{self.setup_endpoint}/sendVerificationCode",
             params=self.params,
-            data=data,
+            json=device,
         )
         return request.json().get("success", False)
 
     def validate_verification_code(self, device: dict[str, Any], code: str) -> bool:
         """Verifies a verification code received on a trusted device."""
         device.update({"verificationCode": code, "trustBrowser": True})
-        data: str = json.dumps(device)
 
         try:
             self.session.post(
                 f"{self.setup_endpoint}/validateVerificationCode",
                 params=self.params,
-                data=data,
+                json=device,
             )
         except PyiCloudAPIResponseException as error:
             if error.code == -21669:
@@ -483,7 +478,7 @@ class PyiCloudService(object):
         try:
             self.session.post(
                 f"{self.auth_endpoint}/verify/trusteddevice/securitycode",
-                data=json.dumps(data),
+                json=data,
                 headers=headers,
             )
         except PyiCloudAPIResponseException:

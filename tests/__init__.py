@@ -65,7 +65,9 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         """Make the request."""
         params = kwargs.get("params")
         headers = kwargs.get("headers")
-        data: Any = json.loads(kwargs.get("data", "{}")) if kwargs.get("data") else {}
+        data = kwargs.get("json")
+        if not data:
+            data = json.loads(kwargs.get("data", "{}")) if kwargs.get("data") else {}
 
         if self._service.setup_endpoint in url:
             if resp := self._handle_setup_endpoint(url, method, data, headers):
