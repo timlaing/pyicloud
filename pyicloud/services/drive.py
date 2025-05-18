@@ -22,7 +22,6 @@ LOGGER: logging.Logger = logging.getLogger(__name__)
 
 COOKIE_APPLE_WEBAUTH_VALIDATE: str = "X-APPLE-WEBAUTH-VALIDATE"
 CLOUD_DOCS_ZONE: str = "com.apple.CloudDocs"
-CLOUD_DOCS: str = f"/ws/{CLOUD_DOCS_ZONE}"
 NODE_ROOT: str = "root"
 NODE_TRASH: str = "TRASH_ROOT"
 CLOUD_DOCS_ZONE_ID_ROOT: str = f"FOLDER::{CLOUD_DOCS_ZONE}::{NODE_ROOT}"
@@ -75,7 +74,7 @@ class DriveService(BaseService):
         file_params = dict(self.params)
         file_params.update({"document_id": file_id})
         response: Response = self.session.get(
-            self._document_root + f"{zone}/download/by_id",
+            self._document_root + f"/ws/{zone}/download/by_id",
             params=file_params,
         )
         self._raise_if_error(response)
@@ -117,7 +116,7 @@ class DriveService(BaseService):
         file_params.update(self._get_token_from_cookie())
 
         request: Response = self.session.post(
-            self._document_root + f"{zone}/upload/web",
+            self._document_root + f"/ws/{zone}/upload/web",
             params=file_params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(
@@ -170,7 +169,7 @@ class DriveService(BaseService):
             data["data"].update({"receipt": file_info["receipt"]})
 
         request: Response = self.session.post(
-            self._document_root + f"{zone}/update/documents",
+            self._document_root + f"/ws/{zone}/update/documents",
             params=self.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             data=json.dumps(data),
