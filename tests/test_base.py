@@ -103,7 +103,7 @@ def test_validate_2fa_code_failure(pyicloud_service: PyiCloudService) -> None:
         assert not pyicloud_service.validate_2fa_code("000000")
 
 
-@patch("pyicloud.base.CtapHidDevice.list_devices")
+@patch("pyicloud.base.CtapHidDevice.list_devices", return_value=[MagicMock()])
 @patch("pyicloud.base.Fido2Client")
 def test_confirm_security_key_success(
     mock_fido2_client_cls, mock_list_devices, pyicloud_service: PyiCloudService
@@ -115,10 +115,6 @@ def test_confirm_security_key_success(
     # Arrange
     pyicloud_service._submit_webauthn_assertion_response = MagicMock()
     pyicloud_service.trust_session = MagicMock()
-
-    # Simulated device
-    mock_device = MagicMock()
-    mock_list_devices.return_value = [mock_device]
 
     # Simulated WebAuthn options returned from backend
     pyicloud_service._get_webauthn_options = MagicMock(
