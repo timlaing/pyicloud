@@ -494,7 +494,7 @@ class PyiCloudService(object):
             f"{self.auth_endpoint}/verify/security/key", json=data, headers=headers
         )
 
-    def confirm_security_key(self):
+    def confirm_security_key(self) -> None:
         """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
         options = self._get_webauthn_options()
         challenge = options["fsaChallenge"]["challenge"]
