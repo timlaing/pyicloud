@@ -494,18 +494,27 @@ class PyiCloudService(object):
             f"{self.auth_endpoint}/verify/security/key", json=data, headers=headers
         )
 
-    def confirm_security_key(self) -> None:
+    @property
+    def fido2_devices(self) -> List[CtapHidDevice]:
+        """List the available FIDO2 devices."""
+        return list(CtapHidDevice.list_devices())
+
+    def confirm_security_key(self, device: Optional[CtapHidDevice] = None) -> None:
         """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
         options = self._get_webauthn_options()
         challenge = options["fsaChallenge"]["challenge"]
         allowed_credentials = options["fsaChallenge"]["keyHandles"]
         rp_id = options["fsaChallenge"]["rpId"]
-        devices = list(CtapHidDevice.list_devices())
 
-        if not devices:
-            raise RuntimeError("No FIDO devices found")
+        if not device:
+            devices = list(CtapHidDevice.list_devices())
 
-        client = Fido2Client(devices[0], "https://apple.com")
+            if not devices:
+                raise RuntimeError("No FIDO2 devices found")
+
+            device = devices[0]
+
+        client = Fido2Client(device, "https://apple.com")
         credentials = [
             PublicKeyCredentialDescriptor(id=b64url_decode(cred_id), type="public-key")
             for cred_id in allowed_credentials
@@ -514,6 +523,7 @@ class PyiCloudService(object):
             challenge=b64url_decode(challenge),
             rp_id=rp_id,
             allow_credentials=credentials,
+            timeout=30,
         )
         response = client.get_assertion(assertion_options).get_response(0)
 

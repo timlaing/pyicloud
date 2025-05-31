@@ -57,11 +57,28 @@ def get_api() -> PyiCloudService:
         security_key_names = api.security_key_names
 
         if security_key_names:
-            input(
+            print(
                 f"Security key confirmation is required. "
-                f"Please plug in one of the following keys, then press enter: {', '.join(security_key_names)}"
+                f"Please plug in one of the following keys: {', '.join(security_key_names)}"
             )
-            api.confirm_security_key()
+
+            devices = api.fido2_devices
+
+            print("Available FIDO2 devices:")
+
+            for idx, dev in enumerate(devices, start=1):
+                print(f"{idx}: {dev}")
+
+            choice = click.prompt(
+                "Select a FIDO2 device by number",
+                type=click.IntRange(1, len(devices)),
+                default=1,
+            )
+            selected_device = devices[choice - 1]
+
+            print("Please confirm the action using the security key")
+
+            api.confirm_security_key(selected_device)
 
         else:
             print("Two-factor authentication required.")
