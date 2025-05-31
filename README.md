@@ -86,29 +86,29 @@ account you will have to do some extra work:
 if api.requires_2fa:
     security_key_names = api.security_key_names
 
-        if security_key_names:
-            print(
-                f"Security key confirmation is required. "
-                f"Please plug in one of the following keys: {', '.join(security_key_names)}"
-            )
+    if security_key_names:
+        print(
+            f"Security key confirmation is required. "
+            f"Please plug in one of the following keys: {', '.join(security_key_names)}"
+        )
 
-            devices = api.fido2_devices
+        devices = api.fido2_devices
 
-            print("Available FIDO2 devices:")
+        print("Available FIDO2 devices:")
 
-            for idx, dev in enumerate(devices, start=1):
-                print(f"{idx}: {dev}")
+        for idx, dev in enumerate(devices, start=1):
+            print(f"{idx}: {dev}")
 
-            choice = click.prompt(
-                "Select a FIDO2 device by number",
-                type=click.IntRange(1, len(devices)),
-                default=1,
-            )
-            selected_device = devices[choice - 1]
+        choice = click.prompt(
+            "Select a FIDO2 device by number",
+            type=click.IntRange(1, len(devices)),
+            default=1,
+        )
+        selected_device = devices[choice - 1]
 
-            print("Please confirm the action using the security key")
+        print("Please confirm the action using the security key")
 
-            api.confirm_security_key(selected_device)
+        api.confirm_security_key(selected_device)
 
     else:
         print("Two-factor authentication required.")
