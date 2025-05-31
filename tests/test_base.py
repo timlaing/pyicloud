@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 from requests import Response
 
-from pyicloud.base import PyiCloudService, PyiCloudSession
+from pyicloud.base import PyiCloudService, PyiCloudSession, b64_encode
 from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
     PyiCloudAPIResponseException,
@@ -101,6 +101,71 @@ def test_validate_2fa_code_failure(pyicloud_service: PyiCloudService) -> None:
         mock_session.post.side_effect = exception
         pyicloud_service.session = mock_session
         assert not pyicloud_service.validate_2fa_code("000000")
+
+
+@patch("pyicloud.base.CtapHidDevice.list_devices")
+@patch("pyicloud.base.Fido2Client")
+def test_confirm_security_key_success(
+    mock_fido2_client_cls, mock_list_devices, pyicloud_service: PyiCloudService
+) -> None:
+    """Test that the FIDO2 WebAuthn flow works"""
+    rpi_id = "example.com"
+    challenge = "ZmFrZV9jaGFsbGVuZ2U"
+
+    # Arrange
+    pyicloud_service._submit_webauthn_assertion_response = MagicMock()
+    pyicloud_service.trust_session = MagicMock()
+
+    # Simulated device
+    mock_device = MagicMock()
+    mock_list_devices.return_value = [mock_device]
+
+    # Simulated WebAuthn options returned from backend
+    pyicloud_service._get_webauthn_options = MagicMock(
+        return_value={
+            "fsaChallenge": {
+                "challenge": challenge,  # base64url(fake_challenge)
+                "keyHandles": ["a2V5MQ", "a2V5Mg"],  # base64url(fake_key_ids)
+                "rpId": rpi_id,
+            }
+        }
+    )
+
+    # Simulated FIDO2 response
+    mock_response = MagicMock()
+    mock_response.client_data = b"client_data"
+    mock_response.signature = b"signature"
+    mock_response.authenticator_data = b"auth_data"
+    mock_response.user_handle = b"user_handle"
+    mock_response.credential_id = b"cred_id"
+
+    mock_fido2_client = MagicMock()
+    mock_fido2_client.get_assertion.return_value.get_response.return_value = (
+        mock_response
+    )
+    mock_fido2_client_cls.return_value = mock_fido2_client
+
+    # Act
+    pyicloud_service.confirm_security_key()
+
+    # Assert
+    mock_list_devices.assert_called_once()
+    mock_fido2_client.get_assertion.assert_called_once()
+
+    # Check if data was submitted correctly
+    pyicloud_service._submit_webauthn_assertion_response.assert_called_once_with(
+        {
+            "challenge": challenge,
+            "rpId": rpi_id,
+            "clientData": b64_encode(mock_response.client_data),
+            "signatureData": b64_encode(mock_response.signature),
+            "authenticatorData": b64_encode(mock_response.authenticator_data),
+            "userHandle": b64_encode(mock_response.user_handle),
+            "credentialID": b64_encode(mock_response.credential_id),
+        }
+    )
+
+    pyicloud_service.trust_session.assert_called_once()
 
 
 def test_get_webservice_url_success(pyicloud_service: PyiCloudService) -> None:

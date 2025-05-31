@@ -54,16 +54,26 @@ def get_api() -> PyiCloudService:
     )
 
     if api.requires_2fa:
-        print("Two-factor authentication required.")
-        code: str = input(
-            "Enter the code you received of one of your approved devices: "
-        )
-        result: bool = api.validate_2fa_code(code)
-        print("Code validation result: %s" % result)
+        security_key_names = api.security_key_names
 
-        if not result:
-            print("Failed to verify security code")
-            sys.exit(1)
+        if security_key_names:
+            input(
+                f"Security key confirmation is required. "
+                f"Please plug in one of the following keys, then press enter: {', '.join(security_key_names)}"
+            )
+            api.confirm_security_key()
+
+        else:
+            print("Two-factor authentication required.")
+            code = input(
+                "Enter the code you received of one of your approved devices: "
+            )
+            result = api.validate_2fa_code(code)
+            print("Code validation result: %s" % result)
+
+            if not result:
+                print("Failed to verify security code")
+                sys.exit(1)
 
         if not api.is_trusted_session:
             print("Session is not trusted. Requesting trust...")
@@ -72,8 +82,9 @@ def get_api() -> PyiCloudService:
 
             if not result:
                 print(
-                    "Failed to request trust. You will likely be prompted for the code again in the coming weeks"
+                    "Failed to request trust. You will likely be prompted for confirmation again in the coming weeks"
                 )
+
     elif api.requires_2sa:
         print("Two-step authentication required. Your trusted devices are:")
 
