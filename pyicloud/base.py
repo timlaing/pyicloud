@@ -523,7 +523,9 @@ class PyiCloudService(object):
                 "clientData": b64_encode(response.client_data),
                 "signatureData": b64_encode(response.signature),
                 "authenticatorData": b64_encode(response.authenticator_data),
-                "userHandle": b64_encode(response.user_handle),
+                "userHandle": b64_encode(response.user_handle)
+                if response.user_handle
+                else None,
                 "credentialID": b64_encode(response.credential_id),
                 "rpId": rp_id,
             }
