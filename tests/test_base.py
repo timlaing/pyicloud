@@ -109,7 +109,7 @@ def test_confirm_security_key_success(
     mock_fido2_client_cls, mock_list_devices, pyicloud_service: PyiCloudService
 ) -> None:
     """Test that the FIDO2 WebAuthn flow works"""
-    rpi_id = "example.com"
+    rp_id = "example.com"
     challenge = "ZmFrZV9jaGFsbGVuZ2U"
 
     # Arrange
@@ -126,7 +126,7 @@ def test_confirm_security_key_success(
             "fsaChallenge": {
                 "challenge": challenge,  # base64url(fake_challenge)
                 "keyHandles": ["a2V5MQ", "a2V5Mg"],  # base64url(fake_key_ids)
-                "rpId": rpi_id,
+                "rpId": rp_id,
             }
         }
     )
@@ -156,7 +156,7 @@ def test_confirm_security_key_success(
     pyicloud_service._submit_webauthn_assertion_response.assert_called_once_with(
         {
             "challenge": challenge,
-            "rpId": rpi_id,
+            "rpId": rp_id,
             "clientData": b64_encode(mock_response.client_data),
             "signatureData": b64_encode(mock_response.signature),
             "authenticatorData": b64_encode(mock_response.authenticator_data),
