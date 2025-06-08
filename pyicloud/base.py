@@ -16,7 +16,6 @@ from fido2.webauthn import (
     PublicKeyCredentialDescriptor,
     PublicKeyCredentialRequestOptions,
     PublicKeyCredentialType,
-    UserVerificationRequirement,
 )
 from requests import HTTPError
 from requests.models import Response
@@ -527,8 +526,6 @@ class PyiCloudService(object):
             challenge=b64url_decode(challenge),
             rp_id=rp_id,
             allow_credentials=credentials,
-            timeout=30,
-            user_verification=UserVerificationRequirement("required"),
         )
         response = client.get_assertion(assertion_options).get_response(0)
 
