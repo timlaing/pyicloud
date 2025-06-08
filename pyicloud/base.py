@@ -15,6 +15,8 @@ from fido2.hid import CtapHidDevice
 from fido2.webauthn import (
     PublicKeyCredentialDescriptor,
     PublicKeyCredentialRequestOptions,
+    PublicKeyCredentialType,
+    UserVerificationRequirement,
 )
 from requests import HTTPError
 from requests.models import Response
@@ -516,7 +518,9 @@ class PyiCloudService(object):
 
         client = Fido2Client(device, "https://apple.com")
         credentials = [
-            PublicKeyCredentialDescriptor(id=b64url_decode(cred_id), type="public-key")
+            PublicKeyCredentialDescriptor(
+                id=b64url_decode(cred_id), type=PublicKeyCredentialType("public-key")
+            )
             for cred_id in allowed_credentials
         ]
         assertion_options = PublicKeyCredentialRequestOptions(
@@ -524,6 +528,7 @@ class PyiCloudService(object):
             rp_id=rp_id,
             allow_credentials=credentials,
             timeout=30,
+            user_verification=UserVerificationRequirement("required"),
         )
         response = client.get_assertion(assertion_options).get_response(0)
 
