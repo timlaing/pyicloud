@@ -3,9 +3,10 @@
 import argparse
 import json
 import sys
-from typing import Any
+from typing import Any, List
 
 import click
+from fido2.hid import CtapHidDevice
 from requests import Response
 
 from pyicloud import PyiCloudService
@@ -16,8 +17,8 @@ END_LIST = "End List\n"
 MAX_DISPLAY = 10
 
 
-def get_api() -> PyiCloudService:
-    """Get the PyiCloud API"""
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments"""
     parser = argparse.ArgumentParser(description="End to End Test of Services")
 
     parser.add_argument(
@@ -45,7 +46,86 @@ def get_api() -> PyiCloudService:
         help="If the country/region setting of the Apple ID is China mainland",
     )
 
-    args: argparse.Namespace = parser.parse_args()
+    return parser.parse_args()
+
+
+def handle_2fa(api: PyiCloudService) -> None:
+    """Handle two-factor authentication"""
+    security_key_names: List[str] | None = api.security_key_names
+
+    if security_key_names:
+        print(
+            f"Security key confirmation is required. "
+            f"Please plug in one of the following keys: {', '.join(security_key_names)}"
+        )
+
+        fido2_devices: List[CtapHidDevice] = api.fido2_devices
+
+        print("Available FIDO2 devices:")
+
+        for idx, dev in enumerate(fido2_devices, start=1):
+            print(f"{idx}: {dev}")
+
+        choice = click.prompt(
+            "Select a FIDO2 device by number",
+            type=click.IntRange(1, len(fido2_devices)),
+            default=1,
+        )
+        selected_device: CtapHidDevice = fido2_devices[choice - 1]
+
+        print("Please confirm the action using the security key")
+
+        api.confirm_security_key(selected_device)
+
+    else:
+        print("Two-factor authentication required.")
+        code: str = input(
+            "Enter the code you received of one of your approved devices: "
+        )
+        result: bool = api.validate_2fa_code(code)
+        print(f"Code validation result: {result}")
+
+        if not result:
+            print("Failed to verify security code")
+            sys.exit(1)
+
+    if not api.is_trusted_session:
+        print("Session is not trusted. Requesting trust...")
+        result = api.trust_session()
+        print(f"Session trust result: {result}")
+
+        if not result:
+            print(
+                "Failed to request trust. You will likely be prompted for confirmation again in the coming weeks"
+            )
+
+
+def handle_2sa(api: PyiCloudService) -> None:
+    """Handle two-step authentication"""
+    print("Two-step authentication required. Your trusted devices are:")
+
+    trusted_devices: List[dict[str, Any]] = api.trusted_devices
+    for i, device in enumerate(trusted_devices):
+        print(
+            "  %s: %s"
+            % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
+        )
+
+    device_index: int = click.prompt("Which device would you like to use?", default=0)
+    device: dict[str, Any] = trusted_devices[device_index]
+    if not api.send_verification_code(device):
+        print("Failed to send verification code")
+        sys.exit(1)
+
+    code = click.prompt("Please enter validation code")
+    if not api.validate_verification_code(device, code):
+        print("Failed to verify verification code")
+        sys.exit(1)
+
+
+def get_api() -> PyiCloudService:
+    """Get the PyiCloud API"""
+    args: argparse.Namespace = parse_args()
 
     api = PyiCloudService(
         apple_id=args.username,
@@ -54,76 +134,10 @@ def get_api() -> PyiCloudService:
     )
 
     if api.requires_2fa:
-        security_key_names = api.security_key_names
-
-        if security_key_names:
-            print(
-                f"Security key confirmation is required. "
-                f"Please plug in one of the following keys: {', '.join(security_key_names)}"
-            )
-
-            devices = api.fido2_devices
-
-            print("Available FIDO2 devices:")
-
-            for idx, dev in enumerate(devices, start=1):
-                print(f"{idx}: {dev}")
-
-            choice = click.prompt(
-                "Select a FIDO2 device by number",
-                type=click.IntRange(1, len(devices)),
-                default=1,
-            )
-            selected_device = devices[choice - 1]
-
-            print("Please confirm the action using the security key")
-
-            api.confirm_security_key(selected_device)
-
-        else:
-            print("Two-factor authentication required.")
-            code = input(
-                "Enter the code you received of one of your approved devices: "
-            )
-            result = api.validate_2fa_code(code)
-            print("Code validation result: %s" % result)
-
-            if not result:
-                print("Failed to verify security code")
-                sys.exit(1)
-
-        if not api.is_trusted_session:
-            print("Session is not trusted. Requesting trust...")
-            result = api.trust_session()
-            print("Session trust result %s" % result)
-
-            if not result:
-                print(
-                    "Failed to request trust. You will likely be prompted for confirmation again in the coming weeks"
-                )
+        handle_2fa(api)
 
     elif api.requires_2sa:
-        print("Two-step authentication required. Your trusted devices are:")
-
-        devices: list[dict[str, Any]] = api.trusted_devices
-        for i, device in enumerate(devices):
-            print(
-                "  %s: %s"
-                % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
-            )
-
-        device_index: int = click.prompt(
-            "Which device would you like to use?", default=0
-        )
-        device: dict[str, Any] = devices[device_index]
-        if not api.send_verification_code(device):
-            print("Failed to send verification code")
-            sys.exit(1)
-
-        code = click.prompt("Please enter validation code")
-        if not api.validate_verification_code(device, code):
-            print("Failed to verify verification code")
-            sys.exit(1)
+        handle_2sa(api)
 
     return api
 

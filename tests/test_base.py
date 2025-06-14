@@ -1,6 +1,8 @@
 """
 Test the PyiCloudService and PyiCloudSession classes."""
 
+# pylint: disable=protected-access
+
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
@@ -21,7 +23,7 @@ def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> N
         patch("pyicloud.base.PyiCloudSession.post") as mock_post_response,
         patch("pyicloud.base.PyiCloudService._validate_token") as validate_token,
     ):
-        pyicloud_service.session._data = {"session_token": "valid_token"}  # pylint: disable=protected-access
+        pyicloud_service.session._data = {"session_token": "valid_token"}
         mock_post_response.json.return_value = {
             "apps": {"test_service": {"canLaunchWithOneFactor": True}},
             "status": "success",
@@ -36,7 +38,7 @@ def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> N
                 "webservices": "TestWebservices",
             }
         )
-        pyicloud_service._validate_token = validate_token  # pylint: disable=protected-access
+        pyicloud_service._validate_token = validate_token
         pyicloud_service.authenticate(force_refresh=True, service="test_service")
         mock_post_response.assert_called_once()
         validate_token.assert_called_once()
@@ -65,7 +67,7 @@ def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> N
             None,
         ]
         pyicloud_service.session.post = mock_post_response
-        pyicloud_service.session._data = {}  # pylint: disable=protected-access
+        pyicloud_service.session._data = {}
         pyicloud_service.params = {}
         pyicloud_service.authenticate()
         assert mock_post_response.call_count == 2
@@ -129,11 +131,12 @@ def test_confirm_security_key_success(
 
     # Simulated FIDO2 response
     mock_response = MagicMock()
-    mock_response.client_data = b"client_data"
-    mock_response.signature = b"signature"
-    mock_response.authenticator_data = b"auth_data"
-    mock_response.user_handle = b"user_handle"
-    mock_response.credential_id = b"cred_id"
+    mock_response.response = MagicMock()
+    mock_response.response.client_data = b"client_data"
+    mock_response.response.signature = b"signature"
+    mock_response.response.authenticator_data = b"auth_data"
+    mock_response.response.user_handle = b"user_handle"
+    mock_response.raw_id = b"cred_id"
 
     mock_fido2_client = MagicMock()
     mock_fido2_client.get_assertion.return_value.get_response.return_value = (
@@ -153,11 +156,11 @@ def test_confirm_security_key_success(
         {
             "challenge": challenge,
             "rpId": rp_id,
-            "clientData": b64_encode(mock_response.client_data),
-            "signatureData": b64_encode(mock_response.signature),
-            "authenticatorData": b64_encode(mock_response.authenticator_data),
-            "userHandle": b64_encode(mock_response.user_handle),
-            "credentialID": b64_encode(mock_response.credential_id),
+            "clientData": b64_encode(mock_response.response.client_data),
+            "signatureData": b64_encode(mock_response.response.signature),
+            "authenticatorData": b64_encode(mock_response.response.authenticator_data),
+            "userHandle": b64_encode(mock_response.response.user_handle),
+            "credentialID": b64_encode(mock_response.raw_id),
         }
     )
 
@@ -166,16 +169,16 @@ def test_confirm_security_key_success(
 
 def test_get_webservice_url_success(pyicloud_service: PyiCloudService) -> None:
     """Test the get_webservice_url method with a valid key."""
-    pyicloud_service._webservices = {"test_key": {"url": "https://example.com"}}  # pylint: disable=protected-access
-    url: str = pyicloud_service.get_webservice_url("test_key")  # pylint: disable=protected-access
+    pyicloud_service._webservices = {"test_key": {"url": "https://example.com"}}
+    url: str = pyicloud_service.get_webservice_url("test_key")
     assert url == "https://example.com"
 
 
 def test_get_webservice_url_failure(pyicloud_service: PyiCloudService) -> None:
     """Test the get_webservice_url method with an invalid key."""
-    pyicloud_service._webservices = {}  # pylint: disable=protected-access
+    pyicloud_service._webservices = {}
     with pytest.raises(PyiCloudServiceNotActivatedException):
-        pyicloud_service.get_webservice_url("invalid_key")  # pylint: disable=protected-access
+        pyicloud_service.get_webservice_url("invalid_key")
 
 
 def test_trust_session_success(pyicloud_service: PyiCloudService) -> None:
@@ -395,7 +398,7 @@ def test_raise_error_2sa_required(pyicloud_session: PyiCloudSession) -> None:
         pytest.raises(PyiCloud2SARequiredException),
         patch("pyicloud.base.PyiCloudService.requires_2sa", return_value=True),
     ):
-        pyicloud_session._raise_error(  # pylint: disable=protected-access
+        pyicloud_session._raise_error(
             401, reason="Missing X-APPLE-WEBAUTH-TOKEN cookie"
         )
 
@@ -403,10 +406,10 @@ def test_raise_error_2sa_required(pyicloud_session: PyiCloudSession) -> None:
 def test_raise_error_service_not_activated(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with a service not activated exception."""
     with pytest.raises(PyiCloudServiceNotActivatedException):
-        pyicloud_session._raise_error("ZONE_NOT_FOUND", reason="ServiceNotActivated")  # pylint: disable=protected-access
+        pyicloud_session._raise_error("ZONE_NOT_FOUND", reason="ServiceNotActivated")
 
 
 def test_raise_error_access_denied(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with an access denied exception."""
     with pytest.raises(PyiCloudAPIResponseException):
-        pyicloud_session._raise_error("ACCESS_DENIED", reason="ACCESS_DENIED")  # pylint: disable=protected-access
+        pyicloud_session._raise_error("ACCESS_DENIED", reason="ACCESS_DENIED")

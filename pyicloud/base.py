@@ -10,9 +10,10 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid1
 
 import srp
-from fido2.client import Fido2Client
+from fido2.client import DefaultClientDataCollector, Fido2Client
 from fido2.hid import CtapHidDevice
 from fido2.webauthn import (
+    AuthenticationResponse,
     PublicKeyCredentialDescriptor,
     PublicKeyCredentialRequestOptions,
     PublicKeyCredentialType,
@@ -48,10 +49,12 @@ LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 def b64url_decode(s: str) -> bytes:
+    """Decode a base64url encoded string."""
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
 def b64_encode(b: bytes) -> str:
+    """Encode bytes to a base64url encoded string."""
     return base64.b64encode(b).decode()
 
 
@@ -508,15 +511,18 @@ class PyiCloudService(object):
         rp_id = options["fsaChallenge"]["rpId"]
 
         if not device:
-            devices = list(CtapHidDevice.list_devices())
+            devices: List[CtapHidDevice] = list(CtapHidDevice.list_devices())
 
             if not devices:
                 raise RuntimeError("No FIDO2 devices found")
 
             device = devices[0]
 
-        client = Fido2Client(device, "https://apple.com")
-        credentials = [
+        client = Fido2Client(
+            device,
+            client_data_collector=DefaultClientDataCollector("https://apple.com"),
+        )
+        credentials: List[PublicKeyCredentialDescriptor] = [
             PublicKeyCredentialDescriptor(
                 id=b64url_decode(cred_id), type=PublicKeyCredentialType("public-key")
             )
@@ -527,18 +533,20 @@ class PyiCloudService(object):
             rp_id=rp_id,
             allow_credentials=credentials,
         )
-        response = client.get_assertion(assertion_options).get_response(0)
+        result: AuthenticationResponse = client.get_assertion(
+            assertion_options
+        ).get_response(0)
 
         self._submit_webauthn_assertion_response(
             {
                 "challenge": challenge,
-                "clientData": b64_encode(response.client_data),
-                "signatureData": b64_encode(response.signature),
-                "authenticatorData": b64_encode(response.authenticator_data),
-                "userHandle": b64_encode(response.user_handle)
-                if response.user_handle
+                "clientData": b64_encode(result.response.client_data),
+                "signatureData": b64_encode(result.response.signature),
+                "authenticatorData": b64_encode(result.response.authenticator_data),
+                "userHandle": b64_encode(result.response.user_handle)
+                if result.response.user_handle
                 else None,
-                "credentialID": b64_encode(response.credential_id),
+                "credentialID": b64_encode(result.raw_id),
                 "rpId": rp_id,
             }
         )
