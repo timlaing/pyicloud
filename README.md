@@ -351,12 +351,12 @@ The events functionality is based around the `EventObject` dataclass. `guid` is 
 
 #### Examples
 
-*Create, add, and remove an Event*
+*Create, add and remove an Event*
 
 ``` python
 calendar_service = api.calendar
 cal = calendar_service.get_calendars(as_objs=True)[0]
-event = calendar_service.EventObject("test", pGuid=cal.guid, startDate=datetime.today(), endDate=datetime.today() + timedelta(hours=1))
+event = EventObject(cal.guid, title="test", start_date=datetime.today(), end_date=datetime.today() + timedelta(hours=1))
 calendar_service.add_event(event)
 calendar_service.remove_event(event)
 ```

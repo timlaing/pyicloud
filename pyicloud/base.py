@@ -349,7 +349,6 @@ class PyiCloudService(object):
                 "extended_login": True,
                 "trustToken": self.session.data.get("trust_token", ""),
             }
-            print(data)
 
             resp: Response = self.session.post(
                 f"{self.setup_endpoint}/accountLogin", json=data
