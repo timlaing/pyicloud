@@ -75,3 +75,4 @@ desktop.ini
 .ruff_cache
 .pytest_cache
 .python-version
+uv.lock

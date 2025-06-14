@@ -10,10 +10,10 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid1
 
 import srp
-from fido2.client import DefaultClientDataCollector, Fido2Client
+from fido2.client import Fido2Client
 from fido2.hid import CtapHidDevice
 from fido2.webauthn import (
-    AuthenticationResponse,
+    AuthenticatorAssertionResponse,
     PublicKeyCredentialDescriptor,
     PublicKeyCredentialRequestOptions,
     PublicKeyCredentialType,
@@ -518,8 +518,8 @@ class PyiCloudService(object):
             device = devices[0]
 
         client = Fido2Client(
-            device,
-            client_data_collector=DefaultClientDataCollector("https://apple.com"),
+            device=device,
+            origin="https://apple.com",
         )
         credentials: List[PublicKeyCredentialDescriptor] = [
             PublicKeyCredentialDescriptor(
@@ -532,20 +532,22 @@ class PyiCloudService(object):
             rp_id=rp_id,
             allow_credentials=credentials,
         )
-        result: AuthenticationResponse = client.get_assertion(
+        response: AuthenticatorAssertionResponse = client.get_assertion(
             assertion_options
         ).get_response(0)
 
         self._submit_webauthn_assertion_response(
             {
                 "challenge": challenge,
-                "clientData": b64_encode(result.response.client_data),
-                "signatureData": b64_encode(result.response.signature),
-                "authenticatorData": b64_encode(result.response.authenticator_data),
-                "userHandle": b64_encode(result.response.user_handle)
-                if result.response.user_handle
+                "clientData": b64_encode(response.client_data),
+                "signatureData": b64_encode(response.signature),
+                "authenticatorData": b64_encode(response.authenticator_data),
+                "userHandle": b64_encode(response.user_handle)
+                if response.user_handle
                 else None,
-                "credentialID": b64_encode(result.raw_id),
+                "credentialID": b64_encode(response.credential_id)
+                if response.credential_id
+                else None,
                 "rpId": rp_id,
             }
         )

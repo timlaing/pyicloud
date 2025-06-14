@@ -3,7 +3,7 @@
 import argparse
 import json
 import sys
-from typing import Any, List
+from typing import Any, List, Optional
 
 import click
 from fido2.hid import CtapHidDevice
@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
 
 def handle_2fa(api: PyiCloudService) -> None:
     """Handle two-factor authentication"""
-    security_key_names: List[str] | None = api.security_key_names
+    security_key_names: Optional[List[str]] = api.security_key_names
 
     if security_key_names:
         print(
