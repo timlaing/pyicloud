@@ -22,10 +22,12 @@ jobs:
     steps:
       - name: Get PR number
         id: get_pr
+        env:
+          PULL_REQUESTS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
         run: |
-          echo "pr_number=$(jq -r '.pull_requests[0].number' <<< '${{ toJson(github.event.workflow_run.pull_requests) }}')" >> $GITHUB_OUTPUT
-          echo "head_ref=$(jq -r '.pull_requests[0].head.ref' <<< '${{ toJson(github.event.workflow_run.pull_requests) }}')" >> $GITHUB_OUTPUT
-          echo "base_ref=$(jq -r '.pull_requests[0].base.ref' <<< '${{ toJson(github.event.workflow_run.pull_requests) }}')" >> $GITHUB_OUTPUT
+          echo "pr_number=$(jq -r '.pull_requests[0].number' <<< \"$PULL_REQUESTS_JSON\")" >> $GITHUB_OUTPUT
+          echo "head_ref=$(jq -r '.pull_requests[0].head.ref' <<< \"$PULL_REQUESTS_JSON\")" >> $GITHUB_OUTPUT
+          echo "base_ref=$(jq -r '.pull_requests[0].base.ref' <<< \"$PULL_REQUESTS_JSON\")" >> $GITHUB_OUTPUT
 
   sonar:
     needs: check_pr
