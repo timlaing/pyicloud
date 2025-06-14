@@ -6,10 +6,18 @@ import hashlib
 import logging
 from os import environ, mkdir, path
 from tempfile import gettempdir
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid1
 
 import srp
+from fido2.client import DefaultClientDataCollector, Fido2Client
+from fido2.hid import CtapHidDevice
+from fido2.webauthn import (
+    AuthenticationResponse,
+    PublicKeyCredentialDescriptor,
+    PublicKeyCredentialRequestOptions,
+    PublicKeyCredentialType,
+)
 from requests import HTTPError
 from requests.models import Response
 
@@ -38,6 +46,16 @@ from pyicloud.session import PyiCloudSession
 from pyicloud.utils import get_password_from_keyring
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
+
+
+def b64url_decode(s: str) -> bytes:
+    """Decode a base64url encoded string."""
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def b64_encode(b: bytes) -> str:
+    """Encode bytes to a base64url encoded string."""
+    return base64.b64encode(b).decode()
 
 
 class SrpPassword:
@@ -247,13 +265,7 @@ class PyiCloudService(object):
             self._authenticate_with_token()
         except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
             headers: dict[str, str] = self._get_auth_headers()
-            if self.session.data.get("scnt"):
-                headers["scnt"] = self.session.data.get("scnt", "")
 
-            if self.session.data.get("session_id"):
-                headers["X-Apple-ID-Session-Id"] = self.session.data.get(
-                    "session_id", ""
-                )
             self._srp_authentication(headers)
             self._authenticate_with_token()
 
@@ -273,7 +285,7 @@ class PyiCloudService(object):
         )
         uname, A = usr.start_authentication()  # pylint: disable=invalid-name
         data: dict[str, Any] = {
-            "a": base64.b64encode(A).decode(),
+            "a": b64_encode(A),
             ACCOUNT_NAME: uname,
             "protocols": ["s2k", "s2k_fo"],
         }
@@ -302,8 +314,8 @@ class PyiCloudService(object):
             data = {
                 ACCOUNT_NAME: uname,
                 "c": c,
-                "m1": base64.b64encode(m1).decode(),
-                "m2": base64.b64encode(m2).decode(),
+                "m1": b64_encode(m1),
+                "m2": b64_encode(m2),
                 "rememberMe": True,
                 "trustTokens": [],
             }
@@ -398,8 +410,16 @@ class PyiCloudService(object):
             "X-Apple-OAuth-State": self._client_id,
             "X-Apple-Widget-Key": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
         }
+
+        if self.session.data.get("scnt"):
+            headers["scnt"] = self.session.data["scnt"]
+
+        if self.session.data.get("session_id"):
+            headers["X-Apple-ID-Session-Id"] = self.session.data["session_id"]
+
         if overrides:
             headers.update(overrides)
+
         return headers
 
     @property
@@ -458,21 +478,84 @@ class PyiCloudService(object):
 
         return not self.requires_2sa
 
+    def _get_webauthn_options(self) -> Dict:
+        """Retrieve WebAuthn request options (PublicKeyCredentialRequestOptions) for assertion."""
+        headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
+
+        return self.session.get(self.auth_endpoint, headers=headers).json()
+
+    @property
+    def security_key_names(self) -> Optional[List[str]]:
+        """Security key names which can be used for the WebAuthn assertion."""
+        return self._get_webauthn_options().get("keyNames")
+
+    def _submit_webauthn_assertion_response(self, data: Dict) -> None:
+        """Submit the WebAuthn assertion response for authentication."""
+        headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
+
+        self.session.post(
+            f"{self.auth_endpoint}/verify/security/key", json=data, headers=headers
+        )
+
+    @property
+    def fido2_devices(self) -> List[CtapHidDevice]:
+        """List the available FIDO2 devices."""
+        return list(CtapHidDevice.list_devices())
+
+    def confirm_security_key(self, device: Optional[CtapHidDevice] = None) -> None:
+        """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
+        options = self._get_webauthn_options()
+        challenge = options["fsaChallenge"]["challenge"]
+        allowed_credentials = options["fsaChallenge"]["keyHandles"]
+        rp_id = options["fsaChallenge"]["rpId"]
+
+        if not device:
+            devices: List[CtapHidDevice] = list(CtapHidDevice.list_devices())
+
+            if not devices:
+                raise RuntimeError("No FIDO2 devices found")
+
+            device = devices[0]
+
+        client = Fido2Client(
+            device,
+            client_data_collector=DefaultClientDataCollector("https://apple.com"),
+        )
+        credentials: List[PublicKeyCredentialDescriptor] = [
+            PublicKeyCredentialDescriptor(
+                id=b64url_decode(cred_id), type=PublicKeyCredentialType("public-key")
+            )
+            for cred_id in allowed_credentials
+        ]
+        assertion_options = PublicKeyCredentialRequestOptions(
+            challenge=b64url_decode(challenge),
+            rp_id=rp_id,
+            allow_credentials=credentials,
+        )
+        result: AuthenticationResponse = client.get_assertion(
+            assertion_options
+        ).get_response(0)
+
+        self._submit_webauthn_assertion_response(
+            {
+                "challenge": challenge,
+                "clientData": b64_encode(result.response.client_data),
+                "signatureData": b64_encode(result.response.signature),
+                "authenticatorData": b64_encode(result.response.authenticator_data),
+                "userHandle": b64_encode(result.response.user_handle)
+                if result.response.user_handle
+                else None,
+                "credentialID": b64_encode(result.raw_id),
+                "rpId": rp_id,
+            }
+        )
+
+        self.trust_session()
+
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
-        data: dict[str, Any] = {
-            "securityCode": {
-                "code": code,
-            },
-        }
-
+        data: dict[str, Any] = {"securityCode": {"code": code}}
         headers: dict[str, Any] = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
-
-        if self.session.data.get("scnt"):
-            headers["scnt"] = self.session.data.get("scnt")
-
-        if self.session.data.get("session_id"):
-            headers["X-Apple-ID-Session-Id"] = self.session.data.get("session_id")
 
         try:
             self.session.post(
@@ -493,12 +576,6 @@ class PyiCloudService(object):
     def trust_session(self) -> bool:
         """Request session trust to avoid user log in going forward."""
         headers: dict[str, Any] = self._get_auth_headers()
-
-        if self.session.data.get("scnt"):
-            headers["scnt"] = self.session.data.get("scnt")
-
-        if self.session.data.get("session_id"):
-            headers["X-Apple-ID-Session-Id"] = self.session.data.get("session_id")
 
         try:
             self.session.get(
