@@ -25,6 +25,8 @@ webservices. It\'s powered by the fantastic
 At its core, PyiCloud connects to iCloud using your username and
 password, then performs calendar and iPhone queries against their API.
 
+For support and discussions, join our Discord community: [Join our Discord community](https://discord.gg/YFvV8nbk)
+
 ## Authentication
 
 Authentication without using a saved password is as simple as passing
