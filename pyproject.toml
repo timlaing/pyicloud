@@ -32,8 +32,8 @@ exclude = [
 line-length = 88
 indent-width = 4
 
-# Assume Python 3.9
-target-version = "py39"
+# Assume Python 3.10
+target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -57,7 +57,7 @@ profile = "black"
 
 [tool.tox]
 requires = ["tox>=4.24.1"]
-env_list = ["lint", "3.13", "3.12", "3.11", "3.10", "3.9"]
+env_list = ["lint", "3.13", "3.12", "3.11", "3.10"]
 
 [tool.tox.env_run_base]
 description = "Run test under {base_python}"
@@ -66,7 +66,6 @@ deps = ["-r requirements_test.txt"]
 
 [tool.tox.gh-actions]
 python = '''
-    3.9:  3.9, lint
     3.10: 3.10
     3.11: 3.11
     3.12: 3.12
@@ -83,7 +82,7 @@ build-backend = "setuptools.build_meta"
 name = "pyicloud"
 dynamic = ["version", "readme", "dependencies", "optional-dependencies"]
 description = "PyiCloud is a module which allows pythonistas to interact with iCloud webservices."
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license-files = ["LICENSE.txt"]
 authors = [
     {name = "The PyiCloud Authors"}
@@ -95,7 +94,6 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
