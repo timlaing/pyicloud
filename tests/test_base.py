@@ -131,11 +131,12 @@ def test_confirm_security_key_success(
 
     # Simulated FIDO2 response
     mock_response = MagicMock()
-    mock_response.client_data = b"client_data"
-    mock_response.signature = b"signature"
-    mock_response.authenticator_data = b"auth_data"
-    mock_response.user_handle = b"user_handle"
-    mock_response.credential_id = b"cred_id"
+    mock_response.response = MagicMock()
+    mock_response.response.client_data = b"client_data"
+    mock_response.response.signature = b"signature"
+    mock_response.response.authenticator_data = b"auth_data"
+    mock_response.response.user_handle = b"user_handle"
+    mock_response.raw_id = b"cred_id"
 
     mock_fido2_client = MagicMock()
     mock_fido2_client.get_assertion.return_value.get_response.return_value = (
@@ -155,11 +156,11 @@ def test_confirm_security_key_success(
         {
             "challenge": challenge,
             "rpId": rp_id,
-            "clientData": b64_encode(mock_response.client_data),
-            "signatureData": b64_encode(mock_response.signature),
-            "authenticatorData": b64_encode(mock_response.authenticator_data),
-            "userHandle": b64_encode(mock_response.user_handle),
-            "credentialID": b64_encode(mock_response.credential_id),
+            "clientData": b64_encode(mock_response.response.client_data),
+            "signatureData": b64_encode(mock_response.response.signature),
+            "authenticatorData": b64_encode(mock_response.response.authenticator_data),
+            "userHandle": b64_encode(mock_response.response.user_handle),
+            "credentialID": b64_encode(mock_response.raw_id),
         }
     )
 
