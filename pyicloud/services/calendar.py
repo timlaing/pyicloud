@@ -1,6 +1,5 @@
 """Calendar service."""
 
-import json
 from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -315,7 +314,7 @@ class CalendarService(BaseService):
         req: Response = self.session.post(
             self._calendar_collections_url + f"/{calendar.guid}",
             params=params,
-            data=json.dumps(data),
+            json=data,
         )
         return req.json()
 
@@ -327,9 +326,7 @@ class CalendarService(BaseService):
         params["methodOverride"] = "DELETE"
 
         req: Response = self.session.post(
-            self._calendar_collections_url + f"/{cal_guid}",
-            params=params,
-            data=json.dumps({}),
+            self._calendar_collections_url + f"/{cal_guid}", params=params, json={}
         )
         return req.json()
 
@@ -404,7 +401,7 @@ class CalendarService(BaseService):
         req: Response = self.session.post(
             self._calendar_refresh_url + f"/{event.pguid}/{event.guid}",
             params=params,
-            data=json.dumps(data),
+            json=data,
         )
         return req.json()
 
@@ -427,6 +424,6 @@ class CalendarService(BaseService):
         req: Response = self.session.post(
             self._calendar_refresh_url + f"/{event.pguid}/{event.guid}",
             params=params,
-            data=json.dumps(data),
+            json=data,
         )
         return req.json()
