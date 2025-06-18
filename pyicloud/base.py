@@ -70,9 +70,9 @@ class SrpPassword:
 
     def set_encrypt_info(self, salt: bytes, iterations: int, key_length: int) -> None:
         """Set encrypt info."""
-        self.salt: bytes = salt
-        self.iterations: int = iterations
-        self.key_length: int = key_length
+        self.salt = salt
+        self.iterations = iterations
+        self.key_length = key_length
 
     def encode(self) -> bytes:
         """Encode password."""
