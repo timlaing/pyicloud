@@ -312,7 +312,7 @@ class CalendarService(BaseService):
         params: dict[str, Any] = self.default_params
 
         req: Response = self.session.post(
-            self._calendar_collections_url + f"/{calendar.guid}",
+            f"{self._calendar_collections_url}/{calendar.guid}",
             params=params,
             json=data,
         )
@@ -326,7 +326,7 @@ class CalendarService(BaseService):
         params["methodOverride"] = "DELETE"
 
         req: Response = self.session.post(
-            self._calendar_collections_url + f"/{cal_guid}", params=params, json={}
+            f"{self._calendar_collections_url}/{cal_guid}", params=params, json={}
         )
         return req.json()
 
@@ -399,7 +399,7 @@ class CalendarService(BaseService):
         params = self.default_params
 
         req: Response = self.session.post(
-            self._calendar_refresh_url + f"/{event.pguid}/{event.guid}",
+            f"{self._calendar_refresh_url}/{event.pguid}/{event.guid}",
             params=params,
             json=data,
         )
@@ -422,7 +422,7 @@ class CalendarService(BaseService):
         params["ifMatch"] = event.etag
 
         req: Response = self.session.post(
-            self._calendar_refresh_url + f"/{event.pguid}/{event.guid}",
+            f"{self._calendar_refresh_url}/{event.pguid}/{event.guid}",
             params=params,
             json=data,
         )
