@@ -4,6 +4,7 @@ import base64
 import getpass
 import hashlib
 import logging
+import time
 from os import environ, mkdir, path
 from tempfile import gettempdir
 from typing import Any, Dict, List, Optional
@@ -554,6 +555,66 @@ class PyiCloudService(object):
 
         self.trust_session()
 
+    def _check_pcs_consent(self) -> None:
+        LOGGER.debug("Querying web access state")
+        resp = self.session.post(
+            f"{self.setup_endpoint}/requestWebAccessState", params=self.params
+        ).json()
+
+        self._pcs_consented = resp.get("isDeviceConsentedForPCS", True)
+        self._icdrs_disabled = resp.get("isICDRSDisabled", False)
+
+    def _request_pcs_for_service(self, app_name: str) -> None:
+        def _send_pcs_request(derived_from_user_action: bool):
+            LOGGER.debug("Querying PCS status")
+
+            return self.session.post(
+                f"{self.setup_endpoint}/requestPCS",
+                json={
+                    "appName": app_name,
+                    "derivedFromUserAction": derived_from_user_action,
+                },
+                params=self.params,
+            ).json()
+
+        self._check_pcs_consent()
+
+        if not self._icdrs_disabled:
+            LOGGER.warning("ICDRS is not disabled")
+            return
+
+        if not self._pcs_consented:
+            LOGGER.debug("Requesting PCS consent")
+
+            resp = self.session.post(
+                f"{self.setup_endpoint}/enableDeviceConsentForPCS", params=self.params
+            ).json()
+
+            if not resp.get("isDeviceConsentNotificationSent"):
+                raise PyiCloudAPIResponseException("Unable to request PCS access!")
+
+        while not self._pcs_consented:
+            time.sleep(5)
+            self._check_pcs_consent()
+
+        resp = _send_pcs_request(derived_from_user_action=True)
+
+        while True:
+            if resp["status"] == "success":
+                LOGGER.debug("PCS access was granted")
+                break
+
+            if resp["message"] in (
+                "Requested the device to upload cookies.",
+                "Cookies not available yet on server.",
+            ):
+                LOGGER.debug("PCS access couldn't be obtained: %s", resp["message"])
+                time.sleep(5)
+                resp = _send_pcs_request(derived_from_user_action=False)
+            else:
+                LOGGER.error("Unknown PCS state: %s", resp["message"])
+                break
+
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
         data: dict[str, Any] = {"securityCode": {"code": code}}
@@ -668,6 +729,8 @@ class PyiCloudService(object):
     @property
     def photos(self) -> PhotosService:
         """Gets the 'Photo' service."""
+        self._request_pcs_for_service("photos")
+
         if not self._photos:
             service_root: str = self.get_webservice_url("ckdatabasews")
             upload_url: str = self.get_webservice_url("uploadimagews")
@@ -736,6 +799,8 @@ class PyiCloudService(object):
     @property
     def drive(self) -> DriveService:
         """Gets the 'Drive' service."""
+        self._request_pcs_for_service("iclouddrive")
+
         if not self._drive:
             try:
                 self._drive = DriveService(
