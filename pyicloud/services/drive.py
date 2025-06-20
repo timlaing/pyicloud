@@ -1,7 +1,6 @@
 """Drive service."""
 
 import io
-import json
 import logging
 import mimetypes
 import os
@@ -57,14 +56,12 @@ class DriveService(BaseService):
         request: Response = self.session.post(
             self.service_root + "/retrieveItemDetailsInFolders",
             params=self.params,
-            data=json.dumps(
-                [
-                    {
-                        "drivewsid": drivewsid,
-                        "partialData": False,
-                    }
-                ]
-            ),
+            json=[
+                {
+                    "drivewsid": drivewsid,
+                    "partialData": False,
+                }
+            ],
         )
         self._raise_if_error(request)
         return request.json()[0]
@@ -119,17 +116,15 @@ class DriveService(BaseService):
             self._document_root + f"/ws/{zone}/upload/web",
             params=file_params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "filename": file_object.name,
-                    "type": "FILE",
-                    "content_type": content_type,
-                    "size": file_size,
-                }
-            ),
+            json={
+                "filename": file_object.name,
+                "type": "FILE",
+                "content_type": content_type,
+                "size": file_size,
+            },
         )
         self._raise_if_error(request)
-        return (request.json()[0]["document_id"], request.json()[0]["url"])
+        return request.json()[0]["document_id"], request.json()[0]["url"]
 
     def _update_contentws(
         self,
@@ -172,7 +167,7 @@ class DriveService(BaseService):
             self._document_root + f"/ws/{zone}/update/documents",
             params=self.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(data),
+            json=data,
         )
         self._raise_if_error(request)
         return request.json()
@@ -211,17 +206,15 @@ class DriveService(BaseService):
             self.service_root + "/createFolders",
             params=self.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "destinationDrivewsId": parent,
-                    "folders": [
-                        {
-                            "clientId": temp_client_id,
-                            "name": name,
-                        }
-                    ],
-                }
-            ),
+            json={
+                "destinationDrivewsId": parent,
+                "folders": [
+                    {
+                        "clientId": temp_client_id,
+                        "name": name,
+                    }
+                ],
+            },
         )
         self._raise_if_error(request)
         return request.json()
@@ -231,17 +224,15 @@ class DriveService(BaseService):
         request: Response = self.session.post(
             self.service_root + "/deleteItems",
             params=self.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {
-                            "drivewsid": node_id,
-                            "etag": etag,
-                            "clientId": self.params["clientId"],
-                        }
-                    ],
-                }
-            ),
+            json={
+                "items": [
+                    {
+                        "drivewsid": node_id,
+                        "etag": etag,
+                        "clientId": self.params["clientId"],
+                    }
+                ],
+            },
         )
         self._raise_if_error(request)
         return request.json()
@@ -251,17 +242,15 @@ class DriveService(BaseService):
         request: Response = self.session.post(
             self.service_root + "/renameItems",
             params=self.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {
-                            "drivewsid": node_id,
-                            "etag": etag,
-                            "name": name,
-                        }
-                    ],
-                }
-            ),
+            json={
+                "items": [
+                    {
+                        "drivewsid": node_id,
+                        "etag": etag,
+                        "name": name,
+                    }
+                ],
+            },
         )
         self._raise_if_error(request)
         return request.json()
@@ -273,17 +262,15 @@ class DriveService(BaseService):
         request: Response = self.session.post(
             self.service_root + "/moveItemsToTrash",
             params=self.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {
-                            "drivewsid": node_id,
-                            "etag": etag,
-                            "clientId": temp_client_id,
-                        }
-                    ],
-                }
-            ),
+            json={
+                "items": [
+                    {
+                        "drivewsid": node_id,
+                        "etag": etag,
+                        "clientId": temp_client_id,
+                    }
+                ],
+            },
         )
         self._raise_if_error(request)
         return request.json()
@@ -293,16 +280,14 @@ class DriveService(BaseService):
         request: Response = self.session.post(
             self.service_root + "/putBackItemsFromTrash",
             params=self.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {
-                            "drivewsid": node_id,
-                            "etag": etag,
-                        }
-                    ],
-                }
-            ),
+            json={
+                "items": [
+                    {
+                        "drivewsid": node_id,
+                        "etag": etag,
+                    }
+                ],
+            },
         )
         self._raise_if_error(request)
         return request.json()
@@ -312,16 +297,14 @@ class DriveService(BaseService):
         request: Response = self.session.post(
             self.service_root + "/deleteItems",
             params=self.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {
-                            "drivewsid": node_id,
-                            "etag": etag,
-                        }
-                    ],
-                }
-            ),
+            json={
+                "items": [
+                    {
+                        "drivewsid": node_id,
+                        "etag": etag,
+                    }
+                ],
+            },
         )
         self._raise_if_error(request)
         return request.json()
