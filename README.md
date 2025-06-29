@@ -293,6 +293,15 @@ message = 'Thief! Return my phone immediately.'
 api.iphone.lost_device(phone_number, message)
 ```
 
+### Erase Device
+
+Erase Device functionality, forces the device to be erased when next connected to a network. It allows the person who picks up the phone to see a custom message which the device will display, if it\'s not overridden the custom message of \"This iPhone has been lost. Please call me.\" is used.
+
+``` python
+message = 'Thief! Return my phone immediately.'
+api.iphone.erase_device(message)
+```
+
 ## Calendar
 
 The calendar webservice now supports fethcing, creating, and removing calendars and events.

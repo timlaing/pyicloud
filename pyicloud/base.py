@@ -120,8 +120,8 @@ class PyiCloudService(object):
         self.auth_endpoint: str = (
             f"https://idmsa.apple.com{icloud_china}/appleauth/auth"
         )
-        self.home_endpoint: str = f"https://www.icloud.com{icloud_china}"
-        self.setup_endpoint: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
+        self._home_endpoint: str = f"https://www.icloud.com{icloud_china}"
+        self._setup_endpoint: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
 
     def _setup_cookie_directory(self, cookie_directory: Optional[str]) -> str:
         """Set up the cookie directory for the service."""
@@ -173,8 +173,8 @@ class PyiCloudService(object):
             self,
             verify=verify,
             headers={
-                "Origin": self.home_endpoint,
-                "Referer": f"{self.home_endpoint}/",
+                "Origin": self._home_endpoint,
+                "Referer": f"{self._home_endpoint}/",
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15",
             },
             client_id=self._client_id,
@@ -352,7 +352,7 @@ class PyiCloudService(object):
             }
 
             resp: Response = self.session.post(
-                f"{self.setup_endpoint}/accountLogin", json=data
+                f"{self._setup_endpoint}/accountLogin", json=data
             )
             resp.raise_for_status()
 
@@ -372,7 +372,7 @@ class PyiCloudService(object):
         }
 
         try:
-            self.session.post(f"{self.setup_endpoint}/accountLogin", json=data)
+            self.session.post(f"{self._setup_endpoint}/accountLogin", json=data)
 
             self.data = self._validate_token()
         except PyiCloudAPIResponseException as error:
@@ -388,7 +388,7 @@ class PyiCloudService(object):
             )
         try:
             req: Response = self.session.post(
-                f"{self.setup_endpoint}/validate", data="null"
+                f"{self._setup_endpoint}/validate", data="null"
             )
             LOGGER.debug("Session token is still valid")
             return req.json()
@@ -446,14 +446,14 @@ class PyiCloudService(object):
     def trusted_devices(self) -> list[dict[str, Any]]:
         """Returns devices trusted for two-step authentication."""
         request: Response = self.session.get(
-            f"{self.setup_endpoint}/listDevices", params=self.params
+            f"{self._setup_endpoint}/listDevices", params=self.params
         )
         return request.json().get("devices")
 
     def send_verification_code(self, device: dict[str, Any]) -> bool:
         """Requests that a verification code is sent to the given device."""
         request: Response = self.session.post(
-            f"{self.setup_endpoint}/sendVerificationCode",
+            f"{self._setup_endpoint}/sendVerificationCode",
             params=self.params,
             json=device,
         )
@@ -465,7 +465,7 @@ class PyiCloudService(object):
 
         try:
             self.session.post(
-                f"{self.setup_endpoint}/validateVerificationCode",
+                f"{self._setup_endpoint}/validateVerificationCode",
                 params=self.params,
                 json=device,
             )
@@ -606,7 +606,11 @@ class PyiCloudService(object):
             try:
                 service_root: str = self.get_webservice_url("findme")
                 self._devices = FindMyiPhoneServiceManager(
-                    service_root, self.session, self.params, self._with_family
+                    service_root=service_root,
+                    token_endpoint=self._setup_endpoint,
+                    session=self.session,
+                    params=self.params,
+                    with_family=self._with_family,
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(
@@ -621,7 +625,9 @@ class PyiCloudService(object):
             service_root: str = self.get_webservice_url("premiummailsettings")
             try:
                 self._hidemyemail = HideMyEmailService(
-                    service_root, self.session, self.params
+                    service_root=service_root,
+                    session=self.session,
+                    params=self.params,
                 )
             except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
@@ -658,7 +664,11 @@ class PyiCloudService(object):
         if not self._files:
             service_root: str = self.get_webservice_url("ubiquity")
             try:
-                self._files = UbiquityService(service_root, self.session, self.params)
+                self._files = UbiquityService(
+                    service_root=service_root,
+                    session=self.session,
+                    params=self.params,
+                )
             except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Files service not available"
@@ -676,11 +686,11 @@ class PyiCloudService(object):
 
             try:
                 self._photos = PhotosService(
-                    service_root,
-                    self.session,
-                    self.params,
-                    upload_url,
-                    shared_streams_url,
+                    service_root=service_root,
+                    session=self.session,
+                    params=self.params,
+                    upload_url=upload_url,
+                    shared_streams_url=shared_streams_url,
                 )
             except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
@@ -695,7 +705,7 @@ class PyiCloudService(object):
             service_root: str = self.get_webservice_url("calendar")
             try:
                 self._calendar = CalendarService(
-                    service_root, self.session, self.params
+                    service_root=service_root, session=self.session, params=self.params
                 )
             except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
@@ -710,7 +720,7 @@ class PyiCloudService(object):
             service_root: str = self.get_webservice_url("contacts")
             try:
                 self._contacts = ContactsService(
-                    service_root, self.session, self.params
+                    service_root=service_root, session=self.session, params=self.params
                 )
             except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
@@ -725,7 +735,7 @@ class PyiCloudService(object):
             service_root: str = self.get_webservice_url("reminders")
             try:
                 self._reminders = RemindersService(
-                    service_root, self.session, self.params
+                    service_root=service_root, session=self.session, params=self.params
                 )
             except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(

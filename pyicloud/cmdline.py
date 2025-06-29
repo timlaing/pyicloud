@@ -30,7 +30,11 @@ def create_pickled_data(idevice: AppleDevice, filename: str) -> None:
     scrapping.
     """
     with open(filename, "wb") as pickle_file:
-        pickle.dump(idevice._content, pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(
+            idevice.data,
+            pickle_file,
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
 
 
 def _create_parser() -> argparse.ArgumentParser:

@@ -1,4 +1,5 @@
 """Unit tests for the ContactsService and MeCard classes."""
+# pylint: disable=protected-access
 
 from unittest.mock import MagicMock, patch
 
@@ -9,14 +10,14 @@ from pyicloud.services.contacts import ContactsService, MeCard
 
 def test_contacts_service_initialization(contacts_service: ContactsService) -> None:
     """Test the initialization of ContactsService."""
-    assert contacts_service._contacts_endpoint == "https://example.com/co"  # pylint: disable=protected-access
-    assert contacts_service._contacts_refresh_url == "https://example.com/co/startup"  # pylint: disable=protected-access
-    assert contacts_service._contacts_next_url == "https://example.com/co/contacts"  # pylint: disable=protected-access
+    assert contacts_service._contacts_endpoint == "https://example.com/co"
+    assert contacts_service._contacts_refresh_url == "https://example.com/co/startup"
+    assert contacts_service._contacts_next_url == "https://example.com/co/contacts"
     assert (
-        contacts_service._contacts_changeset_url == "https://example.com/co/changeset"  # pylint: disable=protected-access
+        contacts_service._contacts_changeset_url == "https://example.com/co/changeset"
     )
-    assert contacts_service._contacts_me_card_url == "https://example.com/co/mecard"  # pylint: disable=protected-access
-    assert contacts_service._contacts is None  # pylint: disable=protected-access
+    assert contacts_service._contacts_me_card_url == "https://example.com/co/mecard"
+    assert contacts_service._contacts is None
 
 
 @patch("requests.Response")
@@ -34,7 +35,7 @@ def test_refresh_client(
     contacts_service.refresh_client()
 
     mock_session.get.assert_called()
-    assert contacts_service._contacts == [  # pylint: disable=protected-access
+    assert contacts_service._contacts == [
         {
             "firstName": "John",
             "lastName": "Doe",
