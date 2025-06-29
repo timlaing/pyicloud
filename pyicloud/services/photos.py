@@ -600,7 +600,7 @@ class BasePhotoAlbum:
         return asset_records, master_records
 
     def _get_photos_at(
-        self, index: int, direction: str, page_size
+        self, index: int, direction: str, page_size: int
     ) -> Generator["PhotoAsset", None, None]:
         offset: int = index
 
