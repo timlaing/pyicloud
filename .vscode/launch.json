@@ -5,6 +5,21 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python Debugger: PyiCloud Locate",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pyicloud.cmdline",
+            "args": [
+                "--username",
+                "${input:username}",
+                "--list",
+                "-n",
+                "--locate",
+                "--debug"
+            ],
+            "justMyCode": false
+        },
+        {
             "name": "Python Debugger: PyiCloud List (password)",
             "type": "debugpy",
             "request": "launch",
@@ -27,7 +42,7 @@
             "args": [
                 "--username",
                 "${input:username}",
-                "--list",
+                "--llist",
                 "-n",
                 "--debug"
             ],
