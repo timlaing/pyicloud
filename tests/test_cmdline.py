@@ -3,8 +3,9 @@
 import argparse
 import pickle
 from io import BytesIO
+from pprint import pformat
 from typing import Any
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
 
@@ -20,6 +21,7 @@ from pyicloud.cmdline import (
     create_pickled_data,
     main,
 )
+from pyicloud.services.findmyiphone import AppleDevice
 from tests import PyiCloudSessionMock
 from tests.const import (
     AUTHENTICATED_USER,
@@ -200,7 +202,7 @@ def test_device_outputfile() -> None:
 def test_create_pickled_data() -> None:
     """Test the creation of pickled data."""
     idevice = MagicMock()
-    idevice.content = {"key": "value"}
+    idevice._content = {"key": "value"}
     filename = "test.pkl"
     with (
         patch("builtins.open", new_callable=mock_open) as mock_file,
@@ -210,7 +212,7 @@ def test_create_pickled_data() -> None:
         create_pickled_data(idevice, filename)
         mock_file.assert_called_with(filename, "wb")
         mock_pickle_dump.assert_called_with(
-            idevice.content, mock_file(), protocol=pickle.HIGHEST_PROTOCOL
+            idevice._content, mock_file(), protocol=pickle.HIGHEST_PROTOCOL
         )
 
 
@@ -307,13 +309,16 @@ def test_list_devices_option_locate() -> None:
     )
 
     # Create a mock device object
+
     dev = MagicMock()
+    location = PropertyMock(return_value="Test Location")
+    type(dev).location = location
 
     # Call the function
     _list_devices_option(command_line, dev)
 
     # Verify that the location() method was called
-    dev.location.assert_called_once()
+    location.assert_called_once()
 
 
 def test_list_devices_option() -> None:
@@ -324,16 +329,22 @@ def test_list_devices_option() -> None:
         output_to_file=False,
         list=False,
     )
-    dev = MagicMock(
-        content={
-            "name": "Test Device",
-            "deviceDisplayName": "Test Display",
-            "location": "Test Location",
-            "batteryLevel": "100%",
-            "batteryStatus": "Charging",
-            "deviceClass": "Phone",
-            "deviceModel": "iPhone",
-        }
+    content: dict[str, str] = {
+        "name": "Test Device",
+        "deviceDisplayName": "Test Display",
+        "location": "Test Location",
+        "batteryLevel": "100%",
+        "batteryStatus": "Charging",
+        "deviceClass": "Phone",
+        "deviceModel": "iPhone",
+    }
+    dev = AppleDevice(
+        content=content,
+        params={},
+        manager=MagicMock(),
+        sound_url="",
+        lost_url="",
+        message_url="",
     )
 
     with patch("pyicloud.cmdline.create_pickled_data") as mock_create_pickled:
@@ -347,8 +358,8 @@ def test_list_devices_option() -> None:
         _list_devices_option(command_line, dev)
         mock_print.assert_any_call("-" * 30)
         mock_print.assert_any_call("Test Device")
-        for key, value in dev.content.items():
-            mock_print.assert_any_call(f"{key:>20} - {value}")
+        for key, value in content.items():
+            mock_print.assert_any_call(f"{key:>30} - {pformat(value)}")
 
 
 def test_list_devices_option_short_list() -> None:
@@ -362,16 +373,22 @@ def test_list_devices_option_short_list() -> None:
     )
 
     # Create a mock device with sample content
-    dev = MagicMock(
-        content={
-            "name": "Test Device",
-            "deviceDisplayName": "Test Display",
-            "location": "Test Location",
-            "batteryLevel": "100%",
-            "batteryStatus": "Charging",
-            "deviceClass": "Phone",
-            "deviceModel": "iPhone",
-        }
+    content: dict[str, str] = {
+        "name": "Test Device",
+        "deviceDisplayName": "Test Display",
+        "location": "Test Location",
+        "batteryLevel": "100%",
+        "batteryStatus": "Charging",
+        "deviceClass": "Phone",
+        "deviceModel": "iPhone",
+    }
+    dev = AppleDevice(
+        content=content,
+        params={},
+        manager=MagicMock(),
+        sound_url="",
+        lost_url="",
+        message_url="",
     )
 
     with patch("builtins.print") as mock_print:

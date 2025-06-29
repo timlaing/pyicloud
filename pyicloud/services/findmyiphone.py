@@ -109,7 +109,7 @@ class AppleDevice:
         lost_url: str,
         message_url: str,
     ) -> None:
-        self.content: dict[str, Any] = content
+        self._content: dict[str, Any] = content
         self.manager: FindMyiPhoneServiceManager = manager
         self.params: dict[str, Any] = params
 
@@ -124,13 +124,13 @@ class AppleDevice:
 
     def update(self, data) -> None:
         """Updates the device data."""
-        self.content = data
+        self._content = data
 
     @property
-    def location(self):
+    def location(self) -> Optional[dict[str, Any]]:
         """Updates the device location."""
         self.manager.refresh_client()
-        return self.content["location"]
+        return self._content["location"]
 
     def status(self, additional: Optional[list[str]] = None) -> dict[str, Any]:
         """Returns status information for device.
@@ -149,7 +149,7 @@ class AppleDevice:
 
         properties: dict[str, Any] = {}
         for field in fields:
-            properties[field] = self.content.get(field)
+            properties[field] = self._content.get(field)
         return properties
 
     def play_sound(self, subject="Find My iPhone Alert") -> None:
@@ -159,7 +159,7 @@ class AppleDevice:
         """
         data: str = json.dumps(
             {
-                "device": self.content["id"],
+                "device": self._content["id"],
                 "subject": subject,
                 "clientContext": {"fmly": True},
             }
@@ -175,7 +175,7 @@ class AppleDevice:
         """
         data: str = json.dumps(
             {
-                "device": self.content["id"],
+                "device": self._content["id"],
                 "subject": subject,
                 "sound": sounds,
                 "userText": True,
@@ -200,7 +200,7 @@ class AppleDevice:
                 "ownerNbr": number,
                 "lostModeEnabled": True,
                 "trackingEnabled": True,
-                "device": self.content["id"],
+                "device": self._content["id"],
                 "passcode": newpasscode,
             }
         )
@@ -209,14 +209,14 @@ class AppleDevice:
     @property
     def data(self) -> dict[str, Any]:
         """Gets the device data."""
-        return self.content
+        return self._content
 
     def __getitem__(self, key) -> Any:
-        return self.content[key]
+        return self._content[key]
 
     def __getattr__(self, attr) -> Any:
-        if attr in self.content:
-            return self.content[attr]
+        if attr in self._content:
+            return self._content[attr]
         raise AttributeError(
             f"'{type(self).__name__}' object has no attribute '{attr}'"
         )
