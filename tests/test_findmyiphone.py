@@ -132,8 +132,8 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
         # Test play_sound
         device.play_sound(subject="Test Alert")
         mock_post.assert_called_with(
-            device.sound_url,
-            params=device.params,
+            device._sound_url,
+            params=device._params,
             json={
                 "device": device.data["id"],
                 "subject": "Test Alert",
@@ -144,8 +144,8 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
         # Test display_message
         device.display_message(subject="Test Message", message="Hello", sounds=True)
         mock_post.assert_called_with(
-            device.message_url,
-            params=device.params,
+            device._message_url,
+            params=device._params,
             json={
                 "device": device.data["id"],
                 "subject": "Test Message",
@@ -160,8 +160,8 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
             number="1234567890", text="Lost device message", newpasscode="1234"
         )
         mock_post.assert_called_with(
-            device.lost_url,
-            params=device.params,
+            device._lost_url,
+            params=device._params,
             json={
                 "text": "Lost device message",
                 "userText": True,

@@ -1,4 +1,5 @@
 """Drive service tests."""
+# pylint: disable=protected-access
 
 from typing import Optional
 from unittest.mock import ANY, Mock, patch
@@ -90,7 +91,7 @@ def test_folder_app(pyicloud_service_working: PyiCloudService) -> None:
 def test_folder_not_exists(pyicloud_service_working: PyiCloudService) -> None:
     """Test the /not_exists folder."""
     with pytest.raises(KeyError, match="No child named 'not_exists' exists"):
-        pyicloud_service_working.drive["not_exists"]  # pylint: disable=pointless-statement
+        _ = pyicloud_service_working.drive["not_exists"]
 
 
 def test_folder(pyicloud_service_working: PyiCloudService) -> None:
@@ -182,7 +183,7 @@ def test_get_file(pyicloud_service_working: PyiCloudService) -> None:
         file_response = drive.get_file("file_id")
         assert file_response.content == b"file content"
         mock_get.assert_any_call(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/download/by_id",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/download/by_id",
             params={**drive.params, "document_id": "file_id"},
         )
         mock_get.assert_any_call("https://example.com/file", params=drive.params)
@@ -331,13 +332,13 @@ def test_get_upload_contentws_url_success(
         ) as mock_post,
         patch("mimetypes.guess_type", return_value=("text/plain", None)),
     ):
-        document_id, url = drive._get_upload_contentws_url(mock_file)  # pylint: disable=protected-access
+        document_id, url = drive._get_upload_contentws_url(mock_file)
 
         assert document_id == "mock_document_id"
         assert url == "https://example.com/upload"
 
         mock_post.assert_called_once_with(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -369,13 +370,13 @@ def test_get_upload_contentws_url_no_content_type(
         ) as mock_post,
         patch("mimetypes.guess_type", return_value=(None, None)),
     ):
-        document_id, url = drive._get_upload_contentws_url(mock_file)  # pylint: disable=protected-access
+        document_id, url = drive._get_upload_contentws_url(mock_file)
 
         assert document_id == "mock_document_id"
         assert url == "https://example.com/upload"
 
         mock_post.assert_called_once_with(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -403,10 +404,10 @@ def test_get_upload_contentws_url_error_response(
         patch("mimetypes.guess_type", return_value=("text/plain", None)),
     ):
         with pytest.raises(PyiCloudAPIResponseException, match="Bad Request"):
-            drive._get_upload_contentws_url(mock_file)  # pylint: disable=protected-access
+            drive._get_upload_contentws_url(mock_file)
 
         mock_post.assert_called_once_with(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -437,10 +438,10 @@ def test_get_upload_contentws_url_invalid_response_format(
         patch("mimetypes.guess_type", return_value=("text/plain", None)),
     ):
         with pytest.raises(IndexError):
-            drive._get_upload_contentws_url(mock_file)  # pylint: disable=protected-access
+            drive._get_upload_contentws_url(mock_file)
 
         mock_post.assert_called_once_with(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -491,7 +492,7 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
 
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -510,7 +511,7 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
 
         # Assert _update_contentws call
         mock_post.assert_any_call(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
             params=drive.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=ANY,
@@ -546,7 +547,7 @@ def test_send_file_upload_error(mock_service_with_cookies: PyiCloudService) -> N
 
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -602,7 +603,7 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
 
         # Assert _get_upload_contentws_url call
         mock_post.assert_any_call(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json={
@@ -621,7 +622,7 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
 
         # Assert _update_contentws call
         mock_post.assert_any_call(
-            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",  # pylint: disable=protected-access
+            drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
             params=drive.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=ANY,
