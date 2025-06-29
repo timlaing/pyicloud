@@ -19,6 +19,10 @@ BUILTINS_OPEN: str = "builtins.open"
 EXAMPLE_DOMAIN: str = "https://example.com"
 
 
+# pylint: disable=protected-access
+# pylint: disable=redefined-outer-name
+
+
 class FileSystemAccessError(Exception):
     """Raised when a test tries to access the file system."""
 
@@ -69,22 +73,30 @@ def pyicloud_service() -> PyiCloudService:
 
 
 @pytest.fixture
-def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudService:  # pylint: disable=redefined-outer-name
+def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudService:
     """Set the service to a working state."""
     pyicloud_service.data = LOGIN_WORKING
-    pyicloud_service._webservices = LOGIN_WORKING["webservices"]  # pylint: disable=protected-access
+    pyicloud_service._webservices = LOGIN_WORKING["webservices"]
     with patch(BUILTINS_OPEN, new_callable=mock_open):
         pyicloud_service.session = PyiCloudSessionMock(
             pyicloud_service,
             "",
             cookie_directory="",
         )
-        pyicloud_service.session._data = {"session_token": "valid_token"}  # pylint: disable=protected-access
+        pyicloud_service.session._data = {"session_token": "valid_token"}
+        check_pcs_consent = MagicMock(
+            return_value={
+                "isICDRSDisabled": False,
+                "isDeviceConsentedForPCS": True,
+            }
+        )
+        pyicloud_service._check_pcs_consent = check_pcs_consent
+
     return pyicloud_service
 
 
 @pytest.fixture
-def pyicloud_session(pyicloud_service_working: PyiCloudService) -> PyiCloudSession:  # pylint: disable=redefined-outer-name
+def pyicloud_session(pyicloud_service_working: PyiCloudService) -> PyiCloudSession:
     """Mock the PyiCloudSession class."""
     pyicloud_service_working.session.cookies = MagicMock()
     return pyicloud_service_working.session
@@ -97,7 +109,7 @@ def mock_session() -> MagicMock:
 
 
 @pytest.fixture
-def contacts_service(mock_session: MagicMock) -> ContactsService:  # pylint: disable=redefined-outer-name
+def contacts_service(mock_session: MagicMock) -> ContactsService:
     """Fixture to create a ContactsService instance."""
     return ContactsService(
         service_root=EXAMPLE_DOMAIN,
@@ -117,7 +129,7 @@ def mock_photos_service() -> MagicMock:
 
 
 @pytest.fixture
-def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:  # pylint: disable=redefined-outer-name
+def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:
     """Fixture for mocking PhotoLibrary."""
     library = MagicMock()
     library.service = mock_photos_service
@@ -125,14 +137,14 @@ def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:  # pylint: 
 
 
 @pytest.fixture
-def hidemyemail_service(mock_session: MagicMock) -> HideMyEmailService:  # pylint: disable=redefined-outer-name
+def hidemyemail_service(mock_session: MagicMock) -> HideMyEmailService:
     """Fixture for initializing HideMyEmailService."""
     return HideMyEmailService(EXAMPLE_DOMAIN, mock_session, {"dsid": "12345"})
 
 
 @pytest.fixture
 def mock_service_with_cookies(
-    pyicloud_service_working: PyiCloudService,  # pylint: disable=redefined-outer-name
+    pyicloud_service_working: PyiCloudService,
 ) -> PyiCloudService:
     """Fixture to create a mock PyiCloudService with cookies."""
     jar = RequestsCookieJar()

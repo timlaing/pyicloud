@@ -48,6 +48,8 @@ from pyicloud.session import PyiCloudSession
 from pyicloud.utils import get_password_from_keyring
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
+PCS_SLEEP_TIME: int = 5
+PCS_MAX_RETRIES: int = 10
 
 
 def b64url_decode(s: str) -> bytes:
@@ -555,35 +557,39 @@ class PyiCloudService(object):
 
         self.trust_session()
 
-    def _check_pcs_consent(self) -> None:
+    def _check_pcs_consent(self) -> dict[str, Any]:
+        """Check if the user has consented to PCS access."""
         LOGGER.debug("Querying web access state")
         resp = self.session.post(
             f"{self.setup_endpoint}/requestWebAccessState", params=self.params
         ).json()
 
-        self._pcs_consented = resp.get("isDeviceConsentedForPCS", True)
-        self._icdrs_disabled = resp.get("isICDRSDisabled", False)
+        return resp
+
+    def _send_pcs_request(
+        self, app_name: str, derived_from_user_action: bool
+    ) -> dict[str, Any]:
+        """Send a request to the PCS endpoint to check the status of PCS access."""
+        LOGGER.debug("Querying PCS status")
+
+        return self.session.post(
+            f"{self.setup_endpoint}/requestPCS",
+            json={
+                "appName": app_name,
+                "derivedFromUserAction": derived_from_user_action,
+            },
+            params=self.params,
+        ).json()
 
     def _request_pcs_for_service(self, app_name: str) -> None:
-        def _send_pcs_request(derived_from_user_action: bool):
-            LOGGER.debug("Querying PCS status")
+        """Request PCS access for a specific service."""
+        _check_pcs_resp: dict[str, Any] = self._check_pcs_consent()
 
-            return self.session.post(
-                f"{self.setup_endpoint}/requestPCS",
-                json={
-                    "appName": app_name,
-                    "derivedFromUserAction": derived_from_user_action,
-                },
-                params=self.params,
-            ).json()
-
-        self._check_pcs_consent()
-
-        if not self._icdrs_disabled:
+        if not _check_pcs_resp.get("isICDRSDisabled", False):
             LOGGER.warning("ICDRS is not disabled")
             return
 
-        if not self._pcs_consented:
+        if not _check_pcs_resp.get("isDeviceConsentedForPCS", True):
             LOGGER.debug("Requesting PCS consent")
 
             resp = self.session.post(
@@ -593,27 +599,35 @@ class PyiCloudService(object):
             if not resp.get("isDeviceConsentNotificationSent"):
                 raise PyiCloudAPIResponseException("Unable to request PCS access!")
 
-        while not self._pcs_consented:
-            time.sleep(5)
-            self._check_pcs_consent()
+        LOGGER.debug("Waiting for PCS consent")
+        for _ in range(PCS_MAX_RETRIES):
+            if _check_pcs_resp.get("isDeviceConsentedForPCS", True):
+                LOGGER.debug("PCS consent granted")
+                break
 
-        resp = _send_pcs_request(derived_from_user_action=True)
+            LOGGER.debug("PCS consent not granted yet, waiting...")
+            time.sleep(PCS_SLEEP_TIME)
+            _check_pcs_resp = self._check_pcs_consent()
 
-        while True:
+        for attempt in range(PCS_MAX_RETRIES):
+            resp: dict[str, Any] = self._send_pcs_request(
+                app_name,
+                derived_from_user_action=attempt == 0,
+            )
+
             if resp["status"] == "success":
                 LOGGER.debug("PCS access was granted")
-                break
+                return
 
             if resp["message"] in (
                 "Requested the device to upload cookies.",
                 "Cookies not available yet on server.",
             ):
                 LOGGER.debug("PCS access couldn't be obtained: %s", resp["message"])
-                time.sleep(5)
-                resp = _send_pcs_request(derived_from_user_action=False)
+                time.sleep(PCS_SLEEP_TIME)
             else:
                 LOGGER.error("Unknown PCS state: %s", resp["message"])
-                break
+                raise PyiCloudAPIResponseException("Unable to request PCS access!")
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
