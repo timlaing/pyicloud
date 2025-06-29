@@ -1,5 +1,7 @@
 """Find My iPhone service tests."""
 
+# pylint: disable=protected-access
+
 from unittest.mock import patch
 
 from pyicloud.base import PyiCloudService
