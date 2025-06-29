@@ -564,7 +564,7 @@ class BasePhotoAlbum:
     ) -> None:
         self.name: str = name
         self._library: BasePhotoLibrary = library
-        self.page_size: int = page_size
+        self._page_size: int = page_size
         self.direction: str = direction
         self.list_type: str = list_type
         self.asset_type: type[PhotoAsset] = asset_type
@@ -575,6 +575,11 @@ class BasePhotoAlbum:
     def fullname(self) -> str:
         """Gets the full name of the album including path"""
         raise NotImplementedError
+
+    @property
+    def page_size(self) -> int:
+        """Gets the page size."""
+        return self._page_size if self._page_size < 100 else 100
 
     @property
     def service(self) -> PhotosService:
@@ -595,26 +600,22 @@ class BasePhotoAlbum:
         return asset_records, master_records
 
     def _get_photos_at(
-        self, index: int, direction: str, page_size=100
+        self, index: int, direction: str, page_size: int
     ) -> Generator["PhotoAsset", None, None]:
-        offset: int = (
-            len(self) - index - 1 if direction == DirectionEnum.DESCENDING else index
-        )
+        offset: int = max(0, index)
 
         response: Response = self.service.session.post(
             url=self._get_url(),
-            data=json.dumps(
-                self._get_payload(
-                    offset=offset,
-                    page_size=page_size,
-                    direction=direction,
-                )
+            json=self._get_payload(
+                offset=offset,
+                page_size=page_size
+                * 2,  # Fetch double the page size to cater for master and asset records
+                direction=direction,
             ),
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         json_response: dict[str, list[dict[str, Any]]] = response.json()
         asset_records, master_records = self._parse_response(json_response)
-
         for master_record in master_records:
             record_name: str = master_record["recordName"]
             yield self.asset_type(
@@ -623,7 +624,7 @@ class BasePhotoAlbum:
 
     def photo(self, index) -> Generator["PhotoAsset", None, None]:
         """Returns a photo at the given index."""
-        return self._get_photos_at(index, self.direction, 2)
+        return self._get_photos_at(index, self.direction, 1)
 
     @property
     def title(self) -> str:
@@ -639,14 +640,22 @@ class BasePhotoAlbum:
         else:
             offset = 0
 
+        photos_ids: set[str] = set()
+
         while True:
             num_results = 0
-            for photo in self._get_photos_at(
-                offset, self.direction, self.page_size * 2
-            ):
+            for photo in self._get_photos_at(offset, self.direction, self.page_size):
                 num_results += 1
+                if photo.id in photos_ids:
+                    _LOGGER.debug("Duplicate photo found: %s, skipping", photo.id)
+                    continue
+                photos_ids.add(photo.id)
                 yield photo
-            if num_results == 0:
+            if num_results < self.page_size:
+                _LOGGER.debug("Less than page size returned: %d", num_results)
+            if (
+                num_results < self.page_size // 2
+            ):  # If less than half the page size is returned, we assume we're done
                 break
             if self.direction == DirectionEnum.DESCENDING:
                 offset = offset - num_results
