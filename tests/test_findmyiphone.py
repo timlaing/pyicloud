@@ -1,6 +1,7 @@
 """Find My iPhone service tests."""
 
-import json
+# pylint: disable=protected-access
+
 from unittest.mock import patch
 
 from pyicloud.base import PyiCloudService
@@ -133,31 +134,27 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
         # Test play_sound
         device.play_sound(subject="Test Alert")
         mock_post.assert_called_with(
-            device.sound_url,
-            params=device.params,
-            data=json.dumps(
-                {
-                    "device": device.data["id"],
-                    "subject": "Test Alert",
-                    "clientContext": {"fmly": True},
-                }
-            ),
+            device._sound_url,
+            params=device._params,
+            json={
+                "device": device.data["id"],
+                "subject": "Test Alert",
+                "clientContext": {"fmly": True},
+            },
         )
 
         # Test display_message
         device.display_message(subject="Test Message", message="Hello", sounds=True)
         mock_post.assert_called_with(
-            device.message_url,
-            params=device.params,
-            data=json.dumps(
-                {
-                    "device": device.data["id"],
-                    "subject": "Test Message",
-                    "sound": True,
-                    "userText": True,
-                    "text": "Hello",
-                }
-            ),
+            device._message_url,
+            params=device._params,
+            json={
+                "device": device.data["id"],
+                "subject": "Test Message",
+                "sound": True,
+                "userText": True,
+                "text": "Hello",
+            },
         )
 
         # Test lost_device
@@ -165,19 +162,17 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
             number="1234567890", text="Lost device message", newpasscode="1234"
         )
         mock_post.assert_called_with(
-            device.lost_url,
-            params=device.params,
-            data=json.dumps(
-                {
-                    "text": "Lost device message",
-                    "userText": True,
-                    "ownerNbr": "1234567890",
-                    "lostModeEnabled": True,
-                    "trackingEnabled": True,
-                    "device": device.data["id"],
-                    "passcode": "1234",
-                }
-            ),
+            device._lost_url,
+            params=device._params,
+            json={
+                "text": "Lost device message",
+                "userText": True,
+                "ownerNbr": "1234567890",
+                "lostModeEnabled": True,
+                "trackingEnabled": True,
+                "device": device.data["id"],
+                "passcode": "1234",
+            },
         )
 
 

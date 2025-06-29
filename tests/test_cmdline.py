@@ -1,4 +1,5 @@
 """Cmdline tests."""
+# pylint: disable=protected-access
 
 import argparse
 import pickle
@@ -202,7 +203,7 @@ def test_device_outputfile() -> None:
 def test_create_pickled_data() -> None:
     """Test the creation of pickled data."""
     idevice = MagicMock()
-    idevice._content = {"key": "value"}
+    idevice.data = {"key": "value"}
     filename = "test.pkl"
     with (
         patch("builtins.open", new_callable=mock_open) as mock_file,
@@ -212,7 +213,7 @@ def test_create_pickled_data() -> None:
         create_pickled_data(idevice, filename)
         mock_file.assert_called_with(filename, "wb")
         mock_pickle_dump.assert_called_with(
-            idevice._content, mock_file(), protocol=pickle.HIGHEST_PROTOCOL
+            idevice.data, mock_file(), protocol=pickle.HIGHEST_PROTOCOL
         )
 
 
@@ -345,6 +346,8 @@ def test_list_devices_option() -> None:
         sound_url="",
         lost_url="",
         message_url="",
+        erase_token_url="",
+        erase_url="",
     )
 
     with patch("pyicloud.cmdline.create_pickled_data") as mock_create_pickled:
@@ -389,6 +392,8 @@ def test_list_devices_option_short_list() -> None:
         sound_url="",
         lost_url="",
         message_url="",
+        erase_token_url="",
+        erase_url="",
     )
 
     with patch("builtins.print") as mock_print:

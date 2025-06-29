@@ -1,5 +1,7 @@
 """Library tests."""
 
+# pylint: disable=protected-access
+
 import json
 from io import BytesIO
 from typing import Any, Optional
@@ -69,7 +71,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if not data:
             data = json.loads(kwargs.get("data", "{}")) if kwargs.get("data") else {}
 
-        if self._service.setup_endpoint in url:
+        if self._service._setup_endpoint in url:
             if resp := self._handle_setup_endpoint(url, method, data, headers):
                 return resp
 
@@ -185,7 +187,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
             }
         )
         if data == TRUSTED_DEVICE_1:
-            self._service._apple_id = AUTHENTICATED_USER  # pylint: disable=protected-access
+            self._service._apple_id = AUTHENTICATED_USER
             return ResponseMock(VERIFICATION_CODE_OK)
         self._raise_error(None, "FOUND_CODE")
 
@@ -200,10 +202,10 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if data.get("accountName") not in VALID_USERS:
             self._raise_error(None, "Unknown reason")
         if data.get("accountName") == REQUIRES_2FA_USER:
-            self._service.session._data["session_token"] = REQUIRES_2FA_TOKEN  # pylint: disable=protected-access
+            self._service.session._data["session_token"] = REQUIRES_2FA_TOKEN
             return ResponseMock(AUTH_OK)
 
-        self._service.session._data["session_token"] = VALID_TOKEN  # pylint: disable=protected-access
+        self._service.session._data["session_token"] = VALID_TOKEN
         return ResponseMock(AUTH_OK)
 
     def _handle_security_code(self, data: dict[str, Any]) -> ResponseMock:
@@ -211,7 +213,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if data.get("securityCode", {}).get("code") != VALID_2FA_CODE:
             self._raise_error(None, "Incorrect code")
 
-        self._service.session._data["session_token"] = VALID_TOKEN  # pylint: disable=protected-access
+        self._service.session._data["session_token"] = VALID_TOKEN
         return ResponseMock("", status_code=204)
 
     def _handle_drive_retrieve(self, data: dict[Any, Any]) -> Optional[ResponseMock]:

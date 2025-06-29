@@ -1,5 +1,6 @@
 """PhotoLibrary tests."""
 
+# pylint: disable=protected-access
 import json
 from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
@@ -542,7 +543,7 @@ def test_base_photo_album_parse_response() -> None:
             },
         ]
     }
-    asset_records, master_records = album._parse_response(response)  # pylint: disable=protected-access
+    asset_records, master_records = album._parse_response(response)
     assert "master1" in asset_records
     assert len(master_records) == 1
     assert master_records[0]["recordName"] == "master1"
@@ -589,9 +590,9 @@ def test_base_photo_album_len(mock_photos_service: MagicMock) -> None:
         list_type="CPLAssetAndMasterByAssetDate",
         asset_type=MagicMock,
     )
-    album._get_len = MagicMock(return_value=42)  # pylint: disable=protected-access
+    album._get_len = MagicMock(return_value=42)
     assert len(album) == 42
-    album._get_len.assert_called_once()  # pylint: disable=protected-access
+    album._get_len.assert_called_once()
 
 
 def test_base_photo_album_iter(mock_photo_library: MagicMock) -> None:
@@ -670,8 +671,8 @@ def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
     assert photos_service.service_endpoint == (
         "https://example.com/database/1/com.apple.photos.cloud/production/private"
     )
-    assert isinstance(photos_service._root_library, PhotoLibrary)  # pylint: disable=protected-access
-    assert isinstance(photos_service._shared_library, PhotoStreamLibrary)  # pylint: disable=protected-access
+    assert isinstance(photos_service._root_library, PhotoLibrary)
+    assert isinstance(photos_service._shared_library, PhotoStreamLibrary)
     assert photos_service.params["remapEnums"] is True
     assert photos_service.params["getCurrentSyncToken"] is True
 
@@ -748,7 +749,7 @@ def test_photos_service_libraries_cached(mock_photos_service: MagicMock) -> None
         shared_streams_url="https://shared.example.com",
     )
     mock_libraries = {"cached": MagicMock(spec=PhotoLibrary)}
-    photos_service._libraries = mock_libraries  # type: ignore # pylint: disable=protected-access
+    photos_service._libraries = mock_libraries  # type: ignore
     libraries: dict[str, BasePhotoLibrary] = photos_service.libraries
     assert libraries == mock_libraries
     mock_photos_service.session.post.assert_called_once()

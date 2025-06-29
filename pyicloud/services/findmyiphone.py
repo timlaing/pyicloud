@@ -1,11 +1,10 @@
 """Find my iPhone service."""
 
-import json
 from typing import Any, Iterator, Optional
 
 from requests import Response
 
-from pyicloud.exceptions import PyiCloudNoDevicesException
+from pyicloud.exceptions import PyiCloudNoDevicesException, PyiCloudServiceUnavailable
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 
@@ -20,6 +19,7 @@ class FindMyiPhoneServiceManager(BaseService):
     def __init__(
         self,
         service_root: str,
+        token_endpoint: str,
         session: PyiCloudSession,
         params: dict[str, Any],
         with_family=False,
@@ -32,6 +32,8 @@ class FindMyiPhoneServiceManager(BaseService):
         self._fmip_sound_url: str = f"{fmip_endpoint}/playSound"
         self._fmip_message_url: str = f"{fmip_endpoint}/sendMessage"
         self._fmip_lost_url: str = f"{fmip_endpoint}/lostDevice"
+        self._fmip_erase_url: str = f"{fmip_endpoint}/remoteWipeWithUserAuth"
+        self._erase_token_url: str = f"{token_endpoint}/fmipWebAuthenticate"
 
         self._devices: dict[str, AppleDevice] = {}
         self.refresh_client()
@@ -45,17 +47,15 @@ class FindMyiPhoneServiceManager(BaseService):
         req: Response = self.session.post(
             self._fmip_refresh_url,
             params=self.params,
-            data=json.dumps(
-                {
-                    "clientContext": {
-                        "appName": "iCloud Find (Web)",
-                        "appVersion": "2.0",
-                        "apiVersion": "3.0",
-                        "deviceListVersion": 1,
-                        "fmly": self.with_family,
-                    }
+            json={
+                "clientContext": {
+                    "appName": "iCloud Find (Web)",
+                    "appVersion": "2.0",
+                    "apiVersion": "3.0",
+                    "deviceListVersion": 1,
+                    "fmly": self.with_family,
                 }
-            ),
+            },
         )
         self.response: dict[str, Any] = req.json()
 
@@ -69,6 +69,8 @@ class FindMyiPhoneServiceManager(BaseService):
                     sound_url=self._fmip_sound_url,
                     lost_url=self._fmip_lost_url,
                     message_url=self._fmip_message_url,
+                    erase_url=self._fmip_erase_url,
+                    erase_token_url=self._erase_token_url,
                 )
             else:
                 self._devices[device_id].update(device_info)
@@ -107,20 +109,24 @@ class AppleDevice:
         manager: FindMyiPhoneServiceManager,
         sound_url: str,
         lost_url: str,
+        erase_url: str,
+        erase_token_url: str,
         message_url: str,
     ) -> None:
         self._content: dict[str, Any] = content
-        self.manager: FindMyiPhoneServiceManager = manager
-        self.params: dict[str, Any] = params
+        self._manager: FindMyiPhoneServiceManager = manager
+        self._params: dict[str, Any] = params
 
-        self.sound_url: str = sound_url
-        self.lost_url: str = lost_url
-        self.message_url: str = message_url
+        self._sound_url: str = sound_url
+        self._lost_url: str = lost_url
+        self._erase_url: str = erase_url
+        self._erase_token_url: str = erase_token_url
+        self._message_url: str = message_url
 
     @property
     def session(self) -> PyiCloudSession:
         """Gets the session."""
-        return self.manager.session
+        return self._manager.session
 
     def update(self, data) -> None:
         """Updates the device data."""
@@ -129,7 +135,7 @@ class AppleDevice:
     @property
     def location(self) -> Optional[dict[str, Any]]:
         """Updates the device location."""
-        self.manager.refresh_client()
+        self._manager.refresh_client()
         return self._content["location"]
 
     def status(self, additional: Optional[list[str]] = None) -> dict[str, Any]:
@@ -137,7 +143,7 @@ class AppleDevice:
 
         This returns only a subset of possible properties.
         """
-        self.manager.refresh_client()
+        self._manager.refresh_client()
         fields: list[str] = [
             "batteryLevel",
             "deviceDisplayName",
@@ -157,14 +163,13 @@ class AppleDevice:
 
         It's possible to pass a custom message by changing the `subject`.
         """
-        data: str = json.dumps(
-            {
-                "device": self._content["id"],
-                "subject": subject,
-                "clientContext": {"fmly": True},
-            }
-        )
-        self.session.post(self.sound_url, params=self.params, data=data)
+        data: dict[str, Any] = {
+            "device": self._content["id"],
+            "subject": subject,
+            "clientContext": {"fmly": True},
+        }
+
+        self.session.post(self._sound_url, params=self._params, json=data)
 
     def display_message(
         self, subject="Find My iPhone Alert", message="This is a note", sounds=False
@@ -173,19 +178,21 @@ class AppleDevice:
 
         It's possible to pass a custom message by changing the `subject`.
         """
-        data: str = json.dumps(
-            {
-                "device": self._content["id"],
-                "subject": subject,
-                "sound": sounds,
-                "userText": True,
-                "text": message,
-            }
-        )
-        self.session.post(self.message_url, params=self.params, data=data)
+        data: dict[str, Any] = {
+            "device": self._content["id"],
+            "subject": subject,
+            "sound": sounds,
+            "userText": True,
+            "text": message,
+        }
+
+        self.session.post(self._message_url, params=self._params, json=data)
 
     def lost_device(
-        self, number, text="This iPhone has been lost. Please call me.", newpasscode=""
+        self,
+        number: str,
+        text: str = "This device has been lost. Please call me.",
+        newpasscode: str = "",
     ) -> None:
         """Send a request to the device to trigger 'lost mode'.
 
@@ -193,18 +200,43 @@ class AppleDevice:
         been passed, then the person holding the device can call
         the number without entering the passcode.
         """
-        data: str = json.dumps(
-            {
-                "text": text,
-                "userText": True,
-                "ownerNbr": number,
-                "lostModeEnabled": True,
-                "trackingEnabled": True,
-                "device": self._content["id"],
-                "passcode": newpasscode,
-            }
-        )
-        self.session.post(self.lost_url, params=self.params, data=data)
+        data: dict[str, Any] = {
+            "text": text,
+            "userText": True,
+            "ownerNbr": number,
+            "lostModeEnabled": True,
+            "trackingEnabled": True,
+            "device": self._content["id"],
+            "passcode": newpasscode,
+        }
+
+        self.session.post(self._lost_url, params=self._params, json=data)
+
+    def _get_erase_token(self) -> str:
+        """Get the erase token for the Find My iPhone service."""
+        data: dict[str, Any] = {
+            "dsWebAuthToken": self.session.data.get("session_token"),
+        }
+
+        data = self.session.post(url=self._erase_token_url, json=data).json()
+        if "tokens" not in data or "mmeFMIPWebEraseDeviceToken" not in data["tokens"]:
+            raise PyiCloudServiceUnavailable("Find My iPhone erase token not available")
+        return data["tokens"]["mmeFMIPWebEraseDeviceToken"]
+
+    def erase_device(
+        self,
+        text: str = "This device has been lost. Please call me.",
+        newpasscode: str = "",
+    ) -> None:
+        """Send a request to the device to start a remote erase."""
+        data: dict[str, Any] = {
+            "authToken": self._get_erase_token(),
+            "text": text,
+            "device": self._content["id"],
+            "passcode": newpasscode,
+        }
+
+        self.session.post(self._erase_url, params=self._params, json=data)
 
     @property
     def data(self) -> dict[str, Any]:
