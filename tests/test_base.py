@@ -453,7 +453,7 @@ def test_request_pcs_for_service_consent_needed_and_notification_sent(
     with patch("time.sleep"):
         pyicloud_service._request_pcs_for_service("photos")
     pyicloud_service.session.post.assert_any_call(
-        f"{pyicloud_service.setup_endpoint}/enableDeviceConsentForPCS",
+        f"{pyicloud_service._setup_endpoint}/enableDeviceConsentForPCS",
         params=pyicloud_service.params,
     )
     # Should not raise

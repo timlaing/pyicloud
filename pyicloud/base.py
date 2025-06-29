@@ -561,7 +561,7 @@ class PyiCloudService(object):
         """Check if the user has consented to PCS access."""
         LOGGER.debug("Querying web access state")
         resp = self.session.post(
-            f"{self.setup_endpoint}/requestWebAccessState", params=self.params
+            f"{self._setup_endpoint}/requestWebAccessState", params=self.params
         ).json()
 
         return resp
@@ -573,7 +573,7 @@ class PyiCloudService(object):
         LOGGER.debug("Querying PCS status")
 
         return self.session.post(
-            f"{self.setup_endpoint}/requestPCS",
+            f"{self._setup_endpoint}/requestPCS",
             json={
                 "appName": app_name,
                 "derivedFromUserAction": derived_from_user_action,
@@ -593,7 +593,7 @@ class PyiCloudService(object):
             LOGGER.debug("Requesting PCS consent")
 
             resp = self.session.post(
-                f"{self.setup_endpoint}/enableDeviceConsentForPCS", params=self.params
+                f"{self._setup_endpoint}/enableDeviceConsentForPCS", params=self.params
             ).json()
 
             if not resp.get("isDeviceConsentNotificationSent"):
