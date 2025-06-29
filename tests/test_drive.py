@@ -1,6 +1,5 @@
 """Drive service tests."""
 
-import json
 from typing import Optional
 from unittest.mock import ANY, Mock, patch
 
@@ -164,7 +163,7 @@ def test_get_node_data(pyicloud_service_working: PyiCloudService) -> None:
         mock_post.assert_called_once_with(
             drive.service_root + "/retrieveItemDetailsInFolders",
             params=drive.params,
-            data=json.dumps([{"drivewsid": "test_id", "partialData": False}]),
+            json=[{"drivewsid": "test_id", "partialData": False}],
         )
 
 
@@ -202,7 +201,7 @@ def test_create_folders(pyicloud_service_working: PyiCloudService) -> None:
             drive.service_root + "/createFolders",
             params=drive.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=ANY,
+            json=ANY,
         )
 
 
@@ -218,17 +217,15 @@ def test_delete_items(pyicloud_service_working: PyiCloudService) -> None:
         mock_post.assert_called_once_with(
             drive.service_root + "/deleteItems",
             params=drive.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {
-                            "drivewsid": "node_id",
-                            "etag": "etag",
-                            "clientId": drive.params["clientId"],
-                        },
-                    ]
-                }
-            ),
+            json={
+                "items": [
+                    {
+                        "drivewsid": "node_id",
+                        "etag": "etag",
+                        "clientId": drive.params["clientId"],
+                    },
+                ]
+            },
         )
 
 
@@ -246,13 +243,11 @@ def test_rename_items(pyicloud_service_working: PyiCloudService) -> None:
         mock_post.assert_called_once_with(
             drive.service_root + "/renameItems",
             params=drive.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {"drivewsid": "node_id", "etag": "etag", "name": "New Name"},
-                    ]
-                }
-            ),
+            json={
+                "items": [
+                    {"drivewsid": "node_id", "etag": "etag", "name": "New Name"},
+                ]
+            },
         )
 
 
@@ -268,13 +263,11 @@ def test_move_items_to_trash(pyicloud_service_working: PyiCloudService) -> None:
         mock_post.assert_called_once_with(
             drive.service_root + "/moveItemsToTrash",
             params=drive.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {"drivewsid": "node_id", "etag": "etag", "clientId": "node_id"},
-                    ]
-                }
-            ),
+            json={
+                "items": [
+                    {"drivewsid": "node_id", "etag": "etag", "clientId": "node_id"},
+                ]
+            },
         )
 
 
@@ -290,13 +283,11 @@ def test_recover_items_from_trash(pyicloud_service_working: PyiCloudService) -> 
         mock_post.assert_called_once_with(
             drive.service_root + "/putBackItemsFromTrash",
             params=drive.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {"drivewsid": "node_id", "etag": "etag"},
-                    ]
-                }
-            ),
+            json={
+                "items": [
+                    {"drivewsid": "node_id", "etag": "etag"},
+                ]
+            },
         )
 
 
@@ -312,13 +303,11 @@ def test_delete_forever_from_trash(pyicloud_service_working: PyiCloudService) ->
         mock_post.assert_called_once_with(
             drive.service_root + "/deleteItems",
             params=drive.params,
-            data=json.dumps(
-                {
-                    "items": [
-                        {"drivewsid": "node_id", "etag": "etag"},
-                    ]
-                }
-            ),
+            json={
+                "items": [
+                    {"drivewsid": "node_id", "etag": "etag"},
+                ]
+            },
         )
 
 
@@ -351,14 +340,12 @@ def test_get_upload_contentws_url_success(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "filename": "test_file.txt",
-                    "type": "FILE",
-                    "content_type": "text/plain",
-                    "size": 100,
-                }
-            ),
+            json={
+                "filename": "test_file.txt",
+                "type": "FILE",
+                "content_type": "text/plain",
+                "size": 100,
+            },
         )
 
 
@@ -391,14 +378,12 @@ def test_get_upload_contentws_url_no_content_type(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "filename": "test_file.unknown",
-                    "type": "FILE",
-                    "content_type": "",
-                    "size": 200,
-                }
-            ),
+            json={
+                "filename": "test_file.unknown",
+                "type": "FILE",
+                "content_type": "",
+                "size": 200,
+            },
         )
 
 
@@ -424,14 +409,12 @@ def test_get_upload_contentws_url_error_response(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "filename": "test_file.txt",
-                    "type": "FILE",
-                    "content_type": "text/plain",
-                    "size": 300,
-                }
-            ),
+            json={
+                "filename": "test_file.txt",
+                "type": "FILE",
+                "content_type": "text/plain",
+                "size": 300,
+            },
         )
 
 
@@ -460,14 +443,12 @@ def test_get_upload_contentws_url_invalid_response_format(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "filename": "test_file.txt",
-                    "type": "FILE",
-                    "content_type": "text/plain",
-                    "size": 400,
-                }
-            ),
+            json={
+                "filename": "test_file.txt",
+                "type": "FILE",
+                "content_type": "text/plain",
+                "size": 400,
+            },
         )
 
 
@@ -513,14 +494,12 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "filename": "test_file.txt",
-                    "type": "FILE",
-                    "content_type": "text/plain",
-                    "size": 100,
-                }
-            ),
+            json={
+                "filename": "test_file.txt",
+                "type": "FILE",
+                "content_type": "text/plain",
+                "size": 100,
+            },
         )
 
         # Assert file upload call
@@ -534,7 +513,7 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",  # pylint: disable=protected-access
             params=drive.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=ANY,
+            json=ANY,
         )
 
 
@@ -570,14 +549,12 @@ def test_send_file_upload_error(mock_service_with_cookies: PyiCloudService) -> N
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "filename": "test_file.txt",
-                    "type": "FILE",
-                    "content_type": "text/plain",
-                    "size": 100,
-                }
-            ),
+            json={
+                "filename": "test_file.txt",
+                "type": "FILE",
+                "content_type": "text/plain",
+                "size": 100,
+            },
         )
 
         # Assert file upload call
@@ -628,14 +605,12 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/upload/web",  # pylint: disable=protected-access
             params=ANY,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=json.dumps(
-                {
-                    "filename": "test_file.txt",
-                    "type": "FILE",
-                    "content_type": "text/plain",
-                    "size": 100,
-                }
-            ),
+            json={
+                "filename": "test_file.txt",
+                "type": "FILE",
+                "content_type": "text/plain",
+                "size": 100,
+            },
         )
 
         # Assert file upload call
@@ -649,5 +624,5 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",  # pylint: disable=protected-access
             params=drive.params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            data=ANY,
+            json=ANY,
         )
