@@ -602,13 +602,14 @@ class BasePhotoAlbum:
     def _get_photos_at(
         self, index: int, direction: str, page_size: int
     ) -> Generator["PhotoAsset", None, None]:
-        offset: int = index
+        offset: int = max(0, index)
 
         response: Response = self.service.session.post(
             url=self._get_url(),
             json=self._get_payload(
                 offset=offset,
-                page_size=page_size * 2,
+                page_size=page_size
+                * 2,  # Fetch double the page size to cater for master and asset records
                 direction=direction,
             ),
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
@@ -652,7 +653,9 @@ class BasePhotoAlbum:
                 yield photo
             if num_results < self.page_size:
                 _LOGGER.debug("Less than page size returned: %d", num_results)
-            if num_results < self.page_size // 2:
+            if (
+                num_results < self.page_size // 2
+            ):  # If less than half the page size is returned, we assume we're done
                 break
             if self.direction == DirectionEnum.DESCENDING:
                 offset = offset - num_results
