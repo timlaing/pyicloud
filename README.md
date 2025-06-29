@@ -248,7 +248,7 @@ Returns the device\'s last known location. The Find My iPhone app must
 have been installed and initialized.
 
 ``` pycon
->>> api.iphone.location()
+>>> api.iphone.location
 {'timeStamp': 1357753796553, 'locationFinished': True, 'longitude': -0.14189, 'positionType': 'GPS', 'locationType': None, 'latitude': 51.501364, 'isOld': False, 'horizontalAccuracy': 5.0}
 ```
 

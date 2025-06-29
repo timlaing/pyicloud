@@ -6,8 +6,10 @@ command line scripts, and related.
 
 import argparse
 import logging
+import os
 import pickle
 import sys
+from pprint import pformat
 from typing import Any, Optional
 
 from click import confirm
@@ -28,7 +30,7 @@ def create_pickled_data(idevice: AppleDevice, filename: str) -> None:
     scrapping.
     """
     with open(filename, "wb") as pickle_file:
-        pickle.dump(idevice.content, pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(idevice._content, pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -298,7 +300,7 @@ def _authenticate(
 def _print_devices(api: PyiCloudService, command_line: argparse.Namespace) -> None:
     for dev in api.devices:
         if not command_line.device_id or (
-            command_line.device_id.strip().lower() == dev.content["id"].strip().lower()
+            command_line.device_id.strip().lower() == dev.id.strip().lower()
         ):
             # List device(s)
             _list_devices_option(command_line, dev)
@@ -375,30 +377,30 @@ def _play_device_sound_option(
 
 
 def _list_devices_option(command_line: argparse.Namespace, dev: AppleDevice) -> None:
-    if command_line.locate:
-        dev.location()
+    location = dev.location if command_line.locate else None
 
     if command_line.output_to_file:
         create_pickled_data(
             dev,
-            filename=(dev.content["name"].strip().lower() + ".fmip_snapshot"),
+            filename=(dev.name.strip().lower() + ".fmip_snapshot"),
         )
 
-    contents: dict[str, Any] = dev.content
     if command_line.longlist:
         print("-" * 30)
-        print(contents["name"])
-        for key in contents:
-            print(f"{key:>20} - {contents[key]}")
+        print(dev.name)
+        for key in dev.data:
+            print(
+                f"{key:>30} - {pformat(dev.data[key]).replace(os.linesep, os.linesep + ' ' * 33)}"
+            )
     elif command_line.list:
         print("-" * 30)
-        print(f"Name           - {contents['name']}")
-        print(f"Display Name   - {contents['deviceDisplayName']}")
-        print(f"Location       - {contents['location']}")
-        print(f"Battery Level  - {contents['batteryLevel']}")
-        print(f"Battery Status - {contents['batteryStatus']}")
-        print(f"Device Class   - {contents['deviceClass']}")
-        print(f"Device Model   - {contents['deviceModel']}")
+        print(f"Name           - {dev.name}")
+        print(f"Display Name   - {dev.deviceDisplayName}")
+        print(f"Location       - {location or dev.location}")
+        print(f"Battery Level  - {dev.batteryLevel}")
+        print(f"Battery Status - {dev.batteryStatus}")
+        print(f"Device Class   - {dev.deviceClass}")
+        print(f"Device Model   - {dev.deviceModel}")
 
 
 def _handle_2fa(api: PyiCloudService) -> None:
