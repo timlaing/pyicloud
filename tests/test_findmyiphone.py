@@ -1,6 +1,5 @@
 """Find My iPhone service tests."""
 
-import json
 from unittest.mock import patch
 
 from pyicloud.base import PyiCloudService
@@ -135,13 +134,11 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
         mock_post.assert_called_with(
             device.sound_url,
             params=device.params,
-            data=json.dumps(
-                {
-                    "device": device.data["id"],
-                    "subject": "Test Alert",
-                    "clientContext": {"fmly": True},
-                }
-            ),
+            json={
+                "device": device.data["id"],
+                "subject": "Test Alert",
+                "clientContext": {"fmly": True},
+            },
         )
 
         # Test display_message
@@ -149,15 +146,13 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
         mock_post.assert_called_with(
             device.message_url,
             params=device.params,
-            data=json.dumps(
-                {
-                    "device": device.data["id"],
-                    "subject": "Test Message",
-                    "sound": True,
-                    "userText": True,
-                    "text": "Hello",
-                }
-            ),
+            json={
+                "device": device.data["id"],
+                "subject": "Test Message",
+                "sound": True,
+                "userText": True,
+                "text": "Hello",
+            },
         )
 
         # Test lost_device
@@ -167,17 +162,15 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
         mock_post.assert_called_with(
             device.lost_url,
             params=device.params,
-            data=json.dumps(
-                {
-                    "text": "Lost device message",
-                    "userText": True,
-                    "ownerNbr": "1234567890",
-                    "lostModeEnabled": True,
-                    "trackingEnabled": True,
-                    "device": device.data["id"],
-                    "passcode": "1234",
-                }
-            ),
+            json={
+                "text": "Lost device message",
+                "userText": True,
+                "ownerNbr": "1234567890",
+                "lostModeEnabled": True,
+                "trackingEnabled": True,
+                "device": device.data["id"],
+                "passcode": "1234",
+            },
         )
 
 
