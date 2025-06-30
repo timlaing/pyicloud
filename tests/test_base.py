@@ -413,3 +413,151 @@ def test_raise_error_access_denied(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with an access denied exception."""
     with pytest.raises(PyiCloudAPIResponseException):
         pyicloud_session._raise_error("ACCESS_DENIED", reason="ACCESS_DENIED")
+
+
+def test_request_pcs_for_service_icdrs_not_disabled(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _request_pcs_for_service when ICDRS is not disabled (should early return)."""
+    mock_logger = MagicMock()
+    pyicloud_service.session = MagicMock()
+    pyicloud_service.session.post = MagicMock(
+        return_value=MagicMock(json=MagicMock(return_value={"isICDRSDisabled": False}))
+    )
+    pyicloud_service.params = {}
+    with patch("pyicloud.base.LOGGER", mock_logger):
+        pyicloud_service._send_pcs_request = MagicMock()
+        pyicloud_service._request_pcs_for_service("photos")
+        mock_logger.warning.assert_called_once_with("ICDRS is not disabled")
+        pyicloud_service._send_pcs_request.assert_not_called()
+
+
+def test_request_pcs_for_service_consent_needed_and_notification_sent(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _request_pcs_for_service when device consent is needed and notification is sent."""
+    # First call: ICDRS disabled, device not consented
+    # Second call: device consented (simulate after waiting)
+    consent_states = [
+        {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
+        {"isICDRSDisabled": True, "isDeviceConsentedForPCS": True},
+    ]
+
+    pyicloud_service._check_pcs_consent = MagicMock(side_effect=consent_states)
+    pyicloud_service.session = MagicMock()
+    pyicloud_service.params = {}
+    pyicloud_service.session.post.return_value.json.side_effect = [
+        {"isDeviceConsentNotificationSent": True},
+        {"status": "success", "message": "ok"},
+    ]
+    with patch("time.sleep"):
+        pyicloud_service._request_pcs_for_service("photos")
+    pyicloud_service.session.post.assert_any_call(
+        f"{pyicloud_service._setup_endpoint}/enableDeviceConsentForPCS",
+        params=pyicloud_service.params,
+    )
+    # Should not raise
+
+
+def test_request_pcs_for_service_consent_needed_and_notification_not_sent(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _request_pcs_for_service when device consent notification is not sent (should raise)."""
+    pyicloud_service._check_pcs_consent = MagicMock(
+        return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": False}
+    )
+    pyicloud_service.session = MagicMock()
+    pyicloud_service.params = {}
+    pyicloud_service.session.post.return_value.json.return_value = {
+        "isDeviceConsentNotificationSent": False
+    }
+    with pytest.raises(
+        PyiCloudAPIResponseException, match="Unable to request PCS access!"
+    ):
+        pyicloud_service._request_pcs_for_service("photos")
+
+
+def test_request_pcs_for_service_pcs_consent_waits(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _request_pcs_for_service waits for PCS consent and then proceeds."""
+    # Simulate PCS consent not granted for first 2 tries, then granted
+    consent_states = [
+        {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
+        {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
+        {"isICDRSDisabled": True, "isDeviceConsentedForPCS": True},
+    ]
+    pyicloud_service._check_pcs_consent = MagicMock(side_effect=consent_states)
+    pyicloud_service.session = MagicMock()
+    pyicloud_service.params = {}
+    pyicloud_service.session.post.return_value.json.return_value = {
+        "isDeviceConsentNotificationSent": True
+    }
+    pyicloud_service._send_pcs_request = MagicMock(
+        return_value={"status": "success", "message": "ok"}
+    )
+    with patch("time.sleep"):
+        pyicloud_service._request_pcs_for_service("photos")
+    assert pyicloud_service._send_pcs_request.called
+
+
+def test_request_pcs_for_service_success_on_first_attempt(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _request_pcs_for_service grants PCS access on first attempt."""
+    pyicloud_service._check_pcs_consent = MagicMock(
+        return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": True}
+    )
+    pyicloud_service.session = MagicMock()
+    pyicloud_service.params = {}
+    pyicloud_service._send_pcs_request = MagicMock(
+        return_value={"status": "success", "message": "ok"}
+    )
+    pyicloud_service._request_pcs_for_service("photos")
+    pyicloud_service._send_pcs_request.assert_called_once_with(
+        "photos", derived_from_user_action=True
+    )
+
+
+def test_request_pcs_for_service_retries_on_cookie_messages(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _request_pcs_for_service retries on known cookie messages and succeeds."""
+    pyicloud_service._check_pcs_consent = MagicMock(
+        return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": True}
+    )
+    pyicloud_service.session = MagicMock()
+    pyicloud_service.params = {}
+    responses = [
+        {"status": "error", "message": "Requested the device to upload cookies."},
+        {"status": "error", "message": "Cookies not available yet on server."},
+        {"status": "success", "message": "ok"},
+    ]
+    pyicloud_service._send_pcs_request = MagicMock(side_effect=responses)
+    with patch("time.sleep"):
+        pyicloud_service._request_pcs_for_service("photos")
+    assert pyicloud_service._send_pcs_request.call_count == 3
+
+
+def test_request_pcs_for_service_raises_on_unknown_message(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _request_pcs_for_service raises on unknown PCS state message."""
+    pyicloud_service._check_pcs_consent = MagicMock(
+        return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": True}
+    )
+    pyicloud_service.session = MagicMock()
+    pyicloud_service.params = {}
+    pyicloud_service._send_pcs_request = MagicMock(
+        return_value={"status": "error", "message": "Some unknown error"}
+    )
+    mock_logger = MagicMock()
+
+    with (
+        pytest.raises(
+            PyiCloudAPIResponseException, match="Unable to request PCS access!"
+        ),
+        patch("pyicloud.base.LOGGER", mock_logger),
+    ):
+        pyicloud_service._request_pcs_for_service("photos")
+        mock_logger.error.assert_called()

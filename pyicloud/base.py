@@ -4,6 +4,7 @@ import base64
 import getpass
 import hashlib
 import logging
+import time
 from os import environ, mkdir, path
 from tempfile import gettempdir
 from typing import Any, Dict, List, Optional
@@ -47,6 +48,8 @@ from pyicloud.session import PyiCloudSession
 from pyicloud.utils import get_password_from_keyring
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
+PCS_SLEEP_TIME: int = 5
+PCS_MAX_RETRIES: int = 10
 
 
 def b64url_decode(s: str) -> bytes:
@@ -554,6 +557,78 @@ class PyiCloudService(object):
 
         self.trust_session()
 
+    def _check_pcs_consent(self) -> dict[str, Any]:
+        """Check if the user has consented to PCS access."""
+        LOGGER.debug("Querying web access state")
+        resp = self.session.post(
+            f"{self._setup_endpoint}/requestWebAccessState", params=self.params
+        ).json()
+
+        return resp
+
+    def _send_pcs_request(
+        self, app_name: str, derived_from_user_action: bool
+    ) -> dict[str, Any]:
+        """Send a request to the PCS endpoint to check the status of PCS access."""
+        LOGGER.debug("Querying PCS status")
+
+        return self.session.post(
+            f"{self._setup_endpoint}/requestPCS",
+            json={
+                "appName": app_name,
+                "derivedFromUserAction": derived_from_user_action,
+            },
+            params=self.params,
+        ).json()
+
+    def _request_pcs_for_service(self, app_name: str) -> None:
+        """Request PCS access for a specific service."""
+        _check_pcs_resp: dict[str, Any] = self._check_pcs_consent()
+
+        if not _check_pcs_resp.get("isICDRSDisabled", False):
+            LOGGER.warning("ICDRS is not disabled")
+            return
+
+        if not _check_pcs_resp.get("isDeviceConsentedForPCS", True):
+            LOGGER.debug("Requesting PCS consent")
+
+            resp = self.session.post(
+                f"{self._setup_endpoint}/enableDeviceConsentForPCS", params=self.params
+            ).json()
+
+            if not resp.get("isDeviceConsentNotificationSent"):
+                raise PyiCloudAPIResponseException("Unable to request PCS access!")
+
+        LOGGER.debug("Waiting for PCS consent")
+        for _ in range(PCS_MAX_RETRIES):
+            if _check_pcs_resp.get("isDeviceConsentedForPCS", True):
+                LOGGER.debug("PCS consent granted")
+                break
+
+            LOGGER.debug("PCS consent not granted yet, waiting...")
+            time.sleep(PCS_SLEEP_TIME)
+            _check_pcs_resp = self._check_pcs_consent()
+
+        for attempt in range(PCS_MAX_RETRIES):
+            resp: dict[str, Any] = self._send_pcs_request(
+                app_name,
+                derived_from_user_action=attempt == 0,
+            )
+
+            if resp["status"] == "success":
+                LOGGER.debug("PCS access was granted")
+                return
+
+            if resp["message"] in (
+                "Requested the device to upload cookies.",
+                "Cookies not available yet on server.",
+            ):
+                LOGGER.debug("PCS access couldn't be obtained: %s", resp["message"])
+                time.sleep(PCS_SLEEP_TIME)
+            else:
+                LOGGER.error("Unknown PCS state: %s", resp["message"])
+                raise PyiCloudAPIResponseException("Unable to request PCS access!")
+
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
         data: dict[str, Any] = {"securityCode": {"code": code}}
@@ -678,6 +753,8 @@ class PyiCloudService(object):
     @property
     def photos(self) -> PhotosService:
         """Gets the 'Photo' service."""
+        self._request_pcs_for_service("photos")
+
         if not self._photos:
             service_root: str = self.get_webservice_url("ckdatabasews")
             upload_url: str = self.get_webservice_url("uploadimagews")
@@ -746,6 +823,8 @@ class PyiCloudService(object):
     @property
     def drive(self) -> DriveService:
         """Gets the 'Drive' service."""
+        self._request_pcs_for_service("iclouddrive")
+
         if not self._drive:
             try:
                 self._drive = DriveService(

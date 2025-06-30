@@ -20,6 +20,10 @@ BUILTINS_OPEN: str = "builtins.open"
 EXAMPLE_DOMAIN: str = "https://example.com"
 
 
+# pylint: disable=protected-access
+# pylint: disable=redefined-outer-name
+
+
 class FileSystemAccessError(Exception):
     """Raised when a test tries to access the file system."""
 
@@ -81,6 +85,14 @@ def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudServi
             cookie_directory="",
         )
         pyicloud_service.session._data = {"session_token": "valid_token"}
+        check_pcs_consent = MagicMock(
+            return_value={
+                "isICDRSDisabled": False,
+                "isDeviceConsentedForPCS": True,
+            }
+        )
+        pyicloud_service._check_pcs_consent = check_pcs_consent
+
     return pyicloud_service
 
 
