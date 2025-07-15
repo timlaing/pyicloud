@@ -16,6 +16,8 @@ from pyicloud.services.calendar import CalendarObject, CalendarService
 END_LIST = "End List\n"
 MAX_DISPLAY = 10
 
+# Set where you'd like the COOKIES to be stored. Can also use command line argument --cookie-dir
+COOKIE_DIR     = ""   # location to store session information
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments"""
@@ -39,12 +41,23 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--cookie-dir",
+        action="store",
+        dest="cookie_directory",
+        default="",
+        help="Directory to store session information and cookies",
+    )
+    parser.add_argument(
         "--china-mainland",
         action="store_true",
         dest="china_mainland",
         default=False,
         help="If the country/region setting of the Apple ID is China mainland",
     )
+
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     return parser.parse_args()
 
@@ -127,11 +140,12 @@ def get_api() -> PyiCloudService:
     """Get the PyiCloud API"""
     args: argparse.Namespace = parse_args()
 
-    api = PyiCloudService(
-        apple_id=args.username,
-        password=args.password,
-        china_mainland=args.china_mainland,
-    )
+    if not args.username or not args.password:
+        print("Missing username or password")
+        sys.exit(1)
+    
+    if args.cookie_directory:
+        COOKIE_DIR = args.cookie_directory
 
     if api.requires_2fa:
         handle_2fa(api)
