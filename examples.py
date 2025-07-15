@@ -8,13 +8,36 @@ from typing import Any, List, Optional
 import click
 from fido2.hid import CtapHidDevice
 from requests import Response
+import logging
+import http.client
+import requests
+import contextlib
+import warnings
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.calendar import CalendarObject, CalendarService
+from urllib3.exceptions import InsecureRequestWarning
 
 END_LIST = "End List\n"
 MAX_DISPLAY = 10
+
+# Set the log level for HTTP commands
+# HTTP_LOG_LEVEL = logging.CRITICAL 
+HTTP_LOG_LEVEL = logging.ERROR
+# HTTP_LOG_LEVEL = logging.WARNING
+# HTTP_LOG_LEVEL = logging.INFO 
+# HTTP_LOG_LEVEL = logging.DEBUG
+
+# Set the log level for other commands
+# OTHER_LOG_LEVEL = logging.CRITICAL 
+OTHER_LOG_LEVEL = logging.ERROR
+# OTHER_LOG_LEVEL = logging.WARNING
+# OTHER_LOG_LEVEL = logging.INFO 
+# OTHER_LOG_LEVEL = logging.DEBUG
+
+# Set whether to show debug info for HTTPConnection
+HTTPCONNECTION_DEBUG_INFO = False
 
 # Set where you'd like the COOKIES to be stored. Can also use command line argument --cookie-dir
 COOKIE_DIR     = ""   # location to store session information
@@ -60,6 +83,22 @@ def parse_args() -> argparse.Namespace:
         sys.exit(1)
 
     return parser.parse_args()
+
+
+def httpclient_logging_patch(level=HTTP_LOG_LEVEL):
+    """Enable HTTPConnection debug logging to the logging framework"""
+
+    def httpclient_log(*args):
+        httpclient_logger.log(level, " ".join(args))
+
+    # mask the print() built-in in the http.client module to use
+    # logging instead
+    http.client.print = httpclient_log
+    # enable debugging
+    if HTTPCONNECTION_DEBUG_INFO:
+        http.client.HTTPConnection.debuglevel = 1
+    else:
+        http.client.HTTPConnection.debuglevel = 0
 
 
 def handle_2fa(api: PyiCloudService) -> None:
@@ -303,6 +342,18 @@ def display_hidemyemail(api: PyiCloudService) -> None:
 
 
 def main() -> None:
+    global httpclient_logger, old_merge_environment_settings
+
+    # Store the original merge_environment_settings
+    old_merge_environment_settings = requests.Session.merge_environment_settings
+
+    # Enable general debug logging
+    logging.basicConfig(level=OTHER_LOG_LEVEL)
+
+    # Enable httpclient logging
+    httpclient_logger = logging.getLogger("http.client")
+    httpclient_logging_patch()
+
     """main function"""
     api: PyiCloudService = get_api()
     display_hidemyemail(api)
