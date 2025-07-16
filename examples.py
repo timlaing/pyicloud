@@ -92,10 +92,15 @@ def parse_args() -> argparse.Namespace:
         help="Disable SSL verification",
     )
 
+    args = parser.parse_args()
+
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
 
+    if not args.username or not args.password:
+        parser.error("Both --username and --password are required")
+    
     return parser.parse_args()
 
 
@@ -243,10 +248,6 @@ def get_api() -> PyiCloudService:
     """Get the PyiCloud API"""
     args: argparse.Namespace = parse_args()
 
-    if not args.username or not args.password:
-        print("Missing username or password")
-        sys.exit(1)
-    
     if args.cookie_directory:
         COOKIE_DIR = args.cookie_directory
 
