@@ -114,7 +114,6 @@ def configurable_ssl_verification(verify_ssl=True):
         if not verify_ssl:
             settings["verify"] = False
             # You can also uncomment and use proxies here if needed,
-            # but it's outside the scope of SSL verification configuration.
             # proxies = {
             #     "http": "http://127.0.0.1:8888",
             #     "https": "http://127.0.0.1:8888"
@@ -251,8 +250,10 @@ def get_api() -> PyiCloudService:
     if args.cookie_directory:
         COOKIE_DIR = args.cookie_directory
 
-    if args.disable_ssl:
+    if args.disable_ssl or not ENABLE_SSL_VERIFICATION:
         ENABLE_SSL_VERIFICATION = False
+        print("WARNING: SSL verification disabled. This is insecure and should only be used for debugging!")
+        print("Your credentials and data may be exposed to attackers.\n")
 
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
         api = PyiCloudService(
