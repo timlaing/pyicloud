@@ -406,10 +406,13 @@ def display_account(api: PyiCloudService) -> None:
         print(f"List of Family Member ({len(api.account.family)}):")
         for idx, member in enumerate(api.account.family):
             print(f"\t{idx}: {member}")
-            # photo: Response = member.get_photo()
-            # print(f"\t\tPhoto: {photo}")
-            # print(f"\t\tPhoto type: {photo.headers['Content-Type']}")
-            # print(f"\t\tPhoto size: {photo.headers['Content-Length']}")
+            try:
+                photo: Response = member.get_photo()
+                print(f"\t\tPhoto: {photo}")
+                print(f"\t\tPhoto type: {photo.headers['Content-Type']}")
+                print(f"\t\tPhoto size: {photo.headers['Content-Length']}")
+            except Exception as e:
+                print(f"\t\tPhoto: Error retrieving user photo: {e}")
             if idx >= MAX_DISPLAY - 1:
                 break
         print(END_LIST)
