@@ -118,10 +118,14 @@ def parse_args() -> argparse.Namespace:
 
     if args.disable_ssl or not ENABLE_SSL_VERIFICATION:
         ENABLE_SSL_VERIFICATION = False
-        print("WARNING: SSL verification disabled. This is insecure and should only be used for debugging!")
-        print("Your credentials and data may be exposed to attackers.\n")
+        print("=" * 80)
+        print("⚠️  SECURITY WARNING: SSL VERIFICATION DISABLED ⚠️")
+        print("This is insecure and should ONLY be used for debugging!")
+        print("Your credentials and data may be exposed to attackers.")
+        print("=" * 80)
+        print()
 
-    return parser.parse_args()
+    return args
 
 
 @contextlib.contextmanager
