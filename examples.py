@@ -273,8 +273,8 @@ def get_api() -> PyiCloudService:
 
 
 def display_devices(api: PyiCloudService) -> None:
+    """Display device info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display device info"""
         print(f"List of devices ({len(api.devices)}):")
         for idx, device in enumerate(api.devices):
             print(f"\t{idx}: {device}")
@@ -288,8 +288,8 @@ def display_devices(api: PyiCloudService) -> None:
 
 
 def display_calendars(api: PyiCloudService) -> None:
+    """Display calendar info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display calendar info"""
         calendar_service: CalendarService = api.calendar
         calendars: list[CalendarObject] = calendar_service.get_calendars(as_objs=True)
         print(f"List of calendars ({len(calendars)}):")
@@ -301,8 +301,8 @@ def display_calendars(api: PyiCloudService) -> None:
 
 
 def display_contacts(api: PyiCloudService) -> None:
+    """Display contacts info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display contacts info"""
         contacts = api.contacts.all
         if contacts:
             print(f"List of contacts ({len(contacts)}):")
@@ -318,8 +318,8 @@ def display_contacts(api: PyiCloudService) -> None:
 
 
 def display_drive(api: PyiCloudService) -> None:
+    """Display drive info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display drive info"""
         drive_files: list[str] = api.drive.dir()
         print(f"List of files in iCloud Drive root ({len(drive_files)}):")
         for idx, filename in enumerate(drive_files):
@@ -330,8 +330,8 @@ def display_drive(api: PyiCloudService) -> None:
 
 
 def display_files(api: PyiCloudService) -> None:
+    """Display files info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display files info"""
         try:
             files: list[str] = api.files.dir()
             print(f"List of files in iCloud files root ({len(files)}):")
@@ -345,8 +345,8 @@ def display_files(api: PyiCloudService) -> None:
 
 
 def display_photos(api: PyiCloudService) -> None:
+    """Display photo info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display photo info"""
         print(f"List of photo albums ({len(api.photos.albums)}):")
         for idx, album in enumerate(api.photos.albums):
             print(f"\t{idx}: {album}")
@@ -363,9 +363,9 @@ def display_photos(api: PyiCloudService) -> None:
 
 
 def display_videos(api: PyiCloudService) -> None:
+    """Display video info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display video info"""
-
+    
         print(f"List of Videos ({len(api.photos.albums['Videos'])}):")
         for idx, photo in enumerate(api.photos.albums["Videos"]):
             print(f"\t{idx}: {photo.filename} ({photo.item_type})")
@@ -375,8 +375,8 @@ def display_videos(api: PyiCloudService) -> None:
 
 
 def display_shared_photos(api: PyiCloudService) -> None:
+    """Display shared photo info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display shared photo info"""
 
         album = None
         print(f"List of Shared Albums ({len(api.photos.shared_streams)}):")
@@ -399,8 +399,8 @@ def display_shared_photos(api: PyiCloudService) -> None:
 
 
 def display_account(api: PyiCloudService) -> None:
+    """Display account info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display account info"""
         print(f"Account name: {api.account_name}")
         print(f"Account plan: {json.dumps(api.account.summary_plan, indent=4)}")
         print(f"List of Family Member ({len(api.account.family)}):")
@@ -416,8 +416,8 @@ def display_account(api: PyiCloudService) -> None:
 
 
 def display_hidemyemail(api: PyiCloudService) -> None:
+    """Display Hide My Email info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        """Display Hide My Email info"""
         print(f"List of Hide My Email ({len(api.hidemyemail)}):")
         for idx, email in enumerate(api.hidemyemail):
             print(
