@@ -49,8 +49,14 @@ HTTPCONNECTION_DEBUG_INFO = False
 # Set where you'd like the COOKIES to be stored. Can also use command-line argument --cookie-dir
 COOKIE_DIR     = ""   # location to store session information
 
+# Other configurable variables
+APPLE_USERNAME  = ""
+APPLE_PASSWORD  = ""
+CHINA           = False
+
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments"""
+    global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME, CHINA
     parser = argparse.ArgumentParser(description="End to End Test of Services")
 
     parser.add_argument(
@@ -100,7 +106,21 @@ def parse_args() -> argparse.Namespace:
 
     if not args.username or not args.password:
         parser.error("Both --username and --password are required")
+    else:
+        APPLE_USERNAME = args.username
+        APPLE_PASSWORD = args.password
     
+    if args.cookie_directory:
+        COOKIE_DIR = args.cookie_directory
+
+    if args.china_mainland:
+        CHINA = args.china_mainland
+
+    if args.disable_ssl or not ENABLE_SSL_VERIFICATION:
+        ENABLE_SSL_VERIFICATION = False
+        print("WARNING: SSL verification disabled. This is insecure and should only be used for debugging!")
+        print("Your credentials and data may be exposed to attackers.\n")
+
     return parser.parse_args()
 
 
@@ -243,24 +263,13 @@ def handle_2sa(api: PyiCloudService) -> None:
 
 
 def get_api() -> PyiCloudService:
-    global ENABLE_SSL_VERIFICATION, COOKIE_DIR
-    
-    """Get the PyiCloud API"""
-    args: argparse.Namespace = parse_args()
-
-    if args.cookie_directory:
-        COOKIE_DIR = args.cookie_directory
-
-    if args.disable_ssl or not ENABLE_SSL_VERIFICATION:
-        ENABLE_SSL_VERIFICATION = False
-        print("WARNING: SSL verification disabled. This is insecure and should only be used for debugging!")
-        print("Your credentials and data may be exposed to attackers.\n")
+    parse_args()
 
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
         api = PyiCloudService(
-            apple_id=args.username,
-            password=args.password,
-            china_mainland=args.china_mainland,
+            apple_id=APPLE_USERNAME,
+            password=APPLE_PASSWORD,
+            china_mainland=CHINA,
             cookie_directory=COOKIE_DIR,
         )
 
