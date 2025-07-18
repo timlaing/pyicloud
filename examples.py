@@ -30,29 +30,30 @@ MAX_DISPLAY = 10
 ENABLE_SSL_VERIFICATION = True
 
 # Set the log level for HTTP commands
-# HTTP_LOG_LEVEL = logging.CRITICAL 
+# HTTP_LOG_LEVEL = logging.CRITICAL
 HTTP_LOG_LEVEL = logging.ERROR
 # HTTP_LOG_LEVEL = logging.WARNING
-# HTTP_LOG_LEVEL = logging.INFO 
+# HTTP_LOG_LEVEL = logging.INFO
 # HTTP_LOG_LEVEL = logging.DEBUG
 
 # Set the log level for other commands
-# OTHER_LOG_LEVEL = logging.CRITICAL 
+# OTHER_LOG_LEVEL = logging.CRITICAL
 OTHER_LOG_LEVEL = logging.ERROR
 # OTHER_LOG_LEVEL = logging.WARNING
-# OTHER_LOG_LEVEL = logging.INFO 
+# OTHER_LOG_LEVEL = logging.INFO
 # OTHER_LOG_LEVEL = logging.DEBUG
 
 # Set whether to show debug info for HTTPConnection
 HTTPCONNECTION_DEBUG_INFO = False
 
 # Set where you'd like the COOKIES to be stored. Can also use command-line argument --cookie-dir
-COOKIE_DIR     = ""   # location to store session information
+COOKIE_DIR = ""  # location to store session information
 
 # Other configurable variables
-APPLE_USERNAME  = ""
-APPLE_PASSWORD  = ""
-CHINA           = False
+APPLE_USERNAME = ""
+APPLE_PASSWORD = ""
+CHINA = False
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments"""
@@ -98,7 +99,6 @@ def parse_args() -> argparse.Namespace:
         help="Disable SSL verification",
     )
 
-
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
@@ -110,7 +110,7 @@ def parse_args() -> argparse.Namespace:
     else:
         APPLE_USERNAME = args.username
         APPLE_PASSWORD = args.password
-    
+
     if args.cookie_directory:
         COOKIE_DIR = args.cookie_directory
 
@@ -133,7 +133,9 @@ def parse_args() -> argparse.Namespace:
 def configurable_ssl_verification(verify_ssl=True):
     opened_adapters = set()
 
-    def merge_environment_settings_with_config(self, url, proxies, stream, verify, cert):
+    def merge_environment_settings_with_config(
+        self, url, proxies, stream, verify, cert
+    ):
         # Add opened adapters to a set so they can be closed later
         opened_adapters.add(self.get_adapter(url))
 
@@ -172,7 +174,7 @@ def configurable_ssl_verification(verify_ssl=True):
             try:
                 adapter.close()
             except Exception:
-                pass # Ignore errors during adapter closing
+                pass  # Ignore errors during adapter closing
 
 
 def httpclient_logging_patch(level=HTTP_LOG_LEVEL):
@@ -255,7 +257,9 @@ def handle_2sa(api: PyiCloudService) -> None:
                 % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
             )
 
-        device_index: int = click.prompt("Which device would you like to use?", default=0)
+        device_index: int = click.prompt(
+            "Which device would you like to use?", default=0
+        )
         device: dict[str, Any] = trusted_devices[device_index]
         if not api.send_verification_code(device):
             print("Failed to send verification code")
@@ -380,7 +384,6 @@ def display_photos(api: PyiCloudService) -> None:
 def display_videos(api: PyiCloudService) -> None:
     """Display video info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-    
         print(f"List of Videos ({len(api.photos.albums['Videos'])}):")
         for idx, photo in enumerate(api.photos.albums["Videos"]):
             print(f"\t{idx}: {photo.filename} ({photo.item_type})")
@@ -392,7 +395,6 @@ def display_videos(api: PyiCloudService) -> None:
 def display_shared_photos(api: PyiCloudService) -> None:
     """Display shared photo info"""
     with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-
         album = None
         print(f"List of Shared Albums ({len(api.photos.shared_streams)}):")
         for idx, album in enumerate(api.photos.shared_streams):
