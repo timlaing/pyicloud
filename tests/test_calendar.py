@@ -12,42 +12,68 @@ from pyicloud.session import PyiCloudSession
 
 def test_event_object_initialization() -> None:
     """Test EventObject initialization and default values."""
-    event = EventObject(pguid="calendar123")
-    assert event.pguid == "calendar123"
-    assert event.title == "New Event"
-    assert event.duration == 60
-    assert event.tz == "US/Pacific"
-    assert event.guid != ""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        event = EventObject(pguid="calendar123")
+        assert event.pguid == "calendar123"
+        assert event.title == "New Event"
+        assert event.duration == 60
+        assert event.tz == "UTC"  # Now tests dynamic timezone detection
+        assert event.guid != ""
 
 
 def test_event_object_request_data() -> None:
     """Test EventObject request_data property."""
-    event = EventObject(pguid="calendar123")
-    data: dict[str, Any] = event.request_data
-    assert "Event" in data
-    assert "ClientState" in data
-    assert data["Event"]["title"] == "New Event"
-    assert "pguid" in data["Event"]
-    assert data["Event"]["pguid"] == "calendar123"
-    assert "guid" in data["Event"]
-    assert "Collection" in data["ClientState"]
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        event = EventObject(pguid="calendar123")
+        data: dict[str, Any] = event.request_data
+        assert "Event" in data
+        assert "ClientState" in data
+        assert data["Event"]["title"] == "New Event"
+        assert "pGuid" in data["Event"]  # Note: camelCase in output
+        assert data["Event"]["pGuid"] == "calendar123"
+        assert "guid" in data["Event"]
+        assert "Collection" in data["ClientState"]
 
 
 def test_event_object_dt_to_list() -> None:
     """Test EventObject dt_to_list method."""
-    event = EventObject(pguid="calendar123")
-    dt = datetime(2023, 1, 1, 12, 30)
-    result = event.dt_to_list(dt)
-    assert result == ["20230101", 2023, 1, 1, 12, 30, 750]
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        event = EventObject(pguid="calendar123")
+        dt = datetime(2023, 1, 1, 12, 30)
+        result = event.dt_to_list(dt)
+        assert result == ["20230101", 2023, 1, 1, 12, 30, 750]
 
 
 def test_event_object_add_invitees() -> None:
     """Test EventObject add_invitees method."""
-    event = EventObject(pguid="calendar123")
-    event.add_invitees(["test@example.com", "user@example.com"])
-    assert len(event.invitees) == 2
-    assert f"{event.guid}:test@example.com" == event.invitees[0]
-    assert f"{event.guid}:user@example.com" == event.invitees[1]
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        event = EventObject(pguid="calendar123")
+        event.add_invitees(["test@example.com", "user@example.com"])
+        assert len(event.invitees) == 2
+        assert f"{event.guid}:test@example.com" == event.invitees[0]
+        assert f"{event.guid}:user@example.com" == event.invitees[1]
+
+
+def test_event_object_dynamic_timezone() -> None:
+    """Test that EventObject uses dynamic timezone detection based on user's locale."""
+    # Test with different timezones to ensure dynamic behavior
+    with patch(
+        "pyicloud.services.calendar.get_localzone_name", return_value="Europe/London"
+    ):
+        event = EventObject(pguid="calendar123")
+        assert event.tz == "Europe/London"
+
+    with patch(
+        "pyicloud.services.calendar.get_localzone_name", return_value="Asia/Tokyo"
+    ):
+        event = EventObject(pguid="calendar123")
+        assert event.tz == "Asia/Tokyo"
+
+    with patch(
+        "pyicloud.services.calendar.get_localzone_name", return_value="America/New_York"
+    ):
+        event = EventObject(pguid="calendar123")
+        assert event.tz == "America/New_York"
 
 
 def test_calendar_object_initialization() -> None:

@@ -1,5 +1,6 @@
 """Calendar service."""
 
+import time
 from calendar import monthrange
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
@@ -17,6 +18,89 @@ T = TypeVar("T")
 
 
 @dataclass
+class AppleEventInvitee:
+    """
+    Represents an invitee within the Event object in Apple's Calendar API.
+
+    This is the simpler invitee structure used inside the Event.invitees array.
+    """
+
+    email: str
+    role: str = "REQ-PARTICIPANT"
+    inviteeStatus: str = "NEEDS-ACTION"
+
+
+@dataclass
+class ApplePayloadInvitee:
+    """
+    Represents an invitee in the main payload's Invitee array in Apple's Calendar API.
+
+    This is the more detailed invitee structure used in the top-level Invitee array.
+    """
+
+    guid: str
+    pGuid: str  # Calendar GUID
+    role: str = "REQ-PARTICIPANT"
+    isOrganizer: bool = False
+    email: str = ""
+    inviteeStatus: str = "NEEDS-ACTION"
+    commonName: str = ""
+    isMyId: bool = False
+
+
+@dataclass
+class AppleCalendarEvent:
+    """
+    Represents an event in Apple's Calendar API format.
+
+    This dataclass exactly mirrors the structure expected by Apple's API,
+    using the correct camelCase field names and types.
+    """
+
+    # Core event fields (Apple's camelCase naming)
+    title: str
+    tz: str
+    icon: int
+    duration: int
+    allDay: bool
+    pGuid: str  # Calendar GUID
+    guid: str  # Event GUID
+
+    # Date fields (Apple's 7-element array format: [YYYYMMDD, YYYY, MM, DD, HH, MM, minutes])
+    startDate: List[int]
+    endDate: List[int]
+    localStartDate: List[int]
+    localEndDate: List[int]
+    createdDate: List[int]
+    lastModifiedDate: List[int]
+
+    # Boolean fields
+    extendedDetailsAreIncluded: bool
+    recurrenceException: bool
+    recurrenceMaster: bool
+    hasAttachments: bool
+    readOnly: bool = False
+    transparent: bool = False
+    birthdayIsYearlessBday: bool = False
+    birthdayShowAsCompany: bool = False
+    shouldShowJunkUIWhenAppropriate: bool = False
+
+    # String fields
+    location: str = ""
+    url: str = ""
+    description: str = ""
+    etag: str = ""
+
+    # Array fields (required by Apple API)
+    alarms: List[Any] = field(default_factory=list)
+    attachments: List[Any] = field(default_factory=list)
+    invitees: List[AppleEventInvitee] = field(default_factory=list)
+
+    # Optional fields
+    changeRecurring: Optional[str] = None
+
+
+@dataclass
 class EventObject:
     """
     An EventObject represents an event in the Apple Calendar.
@@ -31,7 +115,7 @@ class EventObject:
     duration: int = field(init=False)
     icon: int = 0
     change_recurring: Optional[str] = None
-    tz: str = "US/Pacific"
+    tz: str = ""
     guid: str = ""  # event identifier
     location: str = ""
     extended_details_are_included: bool = True
@@ -53,52 +137,120 @@ class EventObject:
         if not self.guid:
             self.guid = str(uuid4()).upper()
 
+        if not self.tz:
+            self.tz = get_localzone_name()
+
         self.duration = int(
             (self.end_date.timestamp() - self.start_date.timestamp()) / 60
+        )
+
+    def to_apple_event(self) -> AppleCalendarEvent:
+        """
+        Convert this EventObject to Apple's API format.
+
+        This method handles the conversion from our internal representation
+        to the exact structure expected by Apple's Calendar API.
+        """
+        # Convert Python datetime to Apple's date format
+        start_date_list = self.dt_to_list(self.start_date)
+        end_date_list = self.dt_to_list(self.end_date, False)
+        local_start_list = (
+            self.dt_to_list(self.local_start_date)
+            if self.local_start_date
+            else start_date_list
+        )
+        local_end_list = (
+            self.dt_to_list(self.local_end_date, False)
+            if self.local_end_date
+            else end_date_list
+        )
+
+        # Use current timestamp for created/modified dates
+        current_timestamp = time.time()
+        current_dt = datetime.fromtimestamp(current_timestamp)
+        created_date_list = self.dt_to_list(current_dt)
+        last_modified_list = self.dt_to_list(current_dt)
+
+        # Build invitees array for Apple API using dataclass
+        invitees_list: List[AppleEventInvitee] = []
+        if self.invitees:
+            invitees_list = [
+                AppleEventInvitee(
+                    email=email_guid.split(":")[-1],
+                    role="REQ-PARTICIPANT",
+                    inviteeStatus="NEEDS-ACTION",
+                )
+                for email_guid in self.invitees
+            ]
+
+        return AppleCalendarEvent(
+            # Core fields with direct mapping
+            title=self.title,
+            tz=self.tz,
+            icon=self.icon,
+            duration=self.duration,
+            allDay=self.all_day,
+            pGuid=self.pguid,  # Correct camelCase
+            guid=self.guid,
+            # Date fields (converted to Apple's format)
+            startDate=start_date_list,
+            endDate=end_date_list,
+            localStartDate=local_start_list,
+            localEndDate=local_end_list,
+            createdDate=created_date_list,
+            lastModifiedDate=last_modified_list,
+            # Boolean fields
+            extendedDetailsAreIncluded=self.extended_details_are_included,
+            recurrenceException=self.recurrence_exception,
+            recurrenceMaster=self.recurrence_master,
+            hasAttachments=self.has_attachments,
+            shouldShowJunkUIWhenAppropriate=self.is_junk,
+            # String fields
+            location=self.location,
+            etag=self.etag or "",
+            # Array fields
+            invitees=invitees_list,
+            # Optional fields
+            changeRecurring=self.change_recurring,
         )
 
     @property
     def request_data(self) -> dict[str, Any]:
         """
         Returns the event data in the format required by Apple's calendar.
+
+        Uses a dedicated AppleCalendarEvent dataclass for type safety and clarity.
         """
-        event_dict: dict[str, Any] = asdict(self)
-        event_dict["startDate"] = self.dt_to_list(self.start_date)
-        event_dict["endDate"] = self.dt_to_list(self.end_date, False)
-        if self.local_start_date:
-            event_dict["localStartDate"] = self.dt_to_list(self.local_start_date)
-        if self.local_end_date:
-            event_dict["localEndDate"] = self.dt_to_list(self.local_end_date, False)
+        # Convert to Apple's API format using dedicated dataclass
+        apple_event = self.to_apple_event()
+        event_dict = asdict(apple_event)
 
-        event_dict.pop("start_date", None)
-        event_dict.pop("end_date", None)
-        event_dict.pop("local_start_date", None)
-        event_dict.pop("local_end_date", None)
-
+        # Construct main payload structure
         data: dict[str, Any] = {
             "Event": event_dict,
+            "Invitee": [],
+            "Alarm": [],
             "ClientState": {
-                "Collection": [{"guid": self.guid, "ctag": None}],
-                "fullState": False,
-                "userTime": 1234567890,
-                "alarmRange": 60,
+                "Collection": [{"guid": self.pguid, "ctag": None}],
             },
         }
 
+        # Add invitees to the separate Invitee array if present
         if self.invitees:
-            data["Invitee"] = [
-                {
-                    "guid": email_guid,
-                    "pGuid": self.pguid,
-                    "role": "REQ-PARTICIPANT",
-                    "isOrganizer": False,
-                    "email": email_guid.split(":")[-1],
-                    "inviteeStatus": "NEEDS-ACTION",
-                    "commonName": "",
-                    "isMyId": False,
-                }
+            payload_invitees = [
+                ApplePayloadInvitee(
+                    guid=email_guid,
+                    pGuid=self.pguid,
+                    role="REQ-PARTICIPANT",
+                    isOrganizer=False,
+                    email=email_guid.split(":")[-1],
+                    inviteeStatus="NEEDS-ACTION",
+                    commonName="",
+                    isMyId=False,
+                )
                 for email_guid in self.invitees
             ]
+            data["Invitee"] = [asdict(invitee) for invitee in payload_invitees]
 
         return data
 
@@ -193,8 +345,6 @@ class CalendarObject:
             "ClientState": {
                 "Collection": [],
                 "fullState": False,
-                "userTime": 1234567890,
-                "alarmRange": 60,
             },
         }
         return data
@@ -395,7 +545,7 @@ class CalendarService(BaseService):
         Adds an Event to a calendar.
         """
         data = event.request_data
-        data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.guid)
+        data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.pguid)
         params = self.default_params
 
         req: Response = self.session.post(
@@ -410,7 +560,7 @@ class CalendarService(BaseService):
         Removes an Event from a calendar. The calendar's guid corresponds to the EventObject's pGuid
         """
         data = event.request_data
-        data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.guid)
+        data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.pguid)
         data["Event"] = {}
 
         params: dict[str, Any] = self.default_params
