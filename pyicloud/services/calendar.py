@@ -398,8 +398,6 @@ class EventObject:
         Adds an alarm at the time of the event.
         Returns the alarm GUID for reference.
         """
-        from uuid import uuid4
-
         alarm_guid = str(uuid4())
         alarm_full_guid = f"{self.guid}:{alarm_guid}"
         self.alarms.append(alarm_full_guid)
@@ -424,8 +422,6 @@ class EventObject:
         Returns:
             The alarm GUID for reference.
         """
-        from uuid import uuid4
-
         alarm_guid = str(uuid4())
         alarm_full_guid = f"{self.guid}:{alarm_guid}"
         self.alarms.append(alarm_full_guid)

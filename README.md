@@ -70,7 +70,9 @@ you can clear a stored password using the `--delete-from-keyring`
 command-line option:
 
 ``` console
-icloud --username=jappleseed@apple.com --delete-from-keyring
+$ icloud --username=jappleseed@apple.com --delete-from-keyring
+Enter iCloud password for jappleseed@apple.com:
+Save password in keyring? [y/N]: N
 ```
 
 **Note**: Authentication will expire after an interval set by Apple, at
