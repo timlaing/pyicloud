@@ -2,7 +2,7 @@
 
 import time
 from calendar import monthrange
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from random import randint
 from typing import Any, List, Literal, Optional, TypeVar, Union, cast, overload
@@ -13,8 +13,120 @@ from tzlocal import get_localzone_name
 
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
+from pyicloud.utils import camelcase_to_underscore
 
 T = TypeVar("T")
+
+
+# Constants for magic strings and formats
+class DateFormats:
+    """Date format constants."""
+
+    API_DATE = "%Y-%m-%d"
+    APPLE_DATE = "%Y%m%d"
+
+
+class CalendarDefaults:
+    """Default values for calendars."""
+
+    TITLE = "Untitled"
+    SYMBOLIC_COLOR = "__custom__"
+    SUPPORTED_TYPE = "Event"
+    OBJECT_TYPE = "personal"
+    ORDER = 7
+    SHARE_TITLE = ""
+    SHARED_URL = ""
+    COLOR = ""
+
+
+class InviteeDefaults:
+    """Default values for event invitees."""
+
+    ROLE = "REQ-PARTICIPANT"
+    STATUS = "NEEDS-ACTION"
+
+
+class AlarmDefaults:
+    """Default values for event alarms."""
+
+    MESSAGE_TYPE = "message"
+    IS_LOCATION_BASED = False
+
+
+@dataclass
+class AlarmMeasurement:
+    """
+    Represents the timing measurement for an alarm.
+    """
+
+    before: bool = True  # True for before event, False for at time of event
+    weeks: int = 0
+    days: int = 0
+    hours: int = 0
+    minutes: int = 0
+    seconds: int = 0
+
+
+@dataclass
+class AppleAlarm:
+    """
+    Represents an alarm in Apple's Calendar API format.
+
+    This is used in the main payload's Alarm array.
+    """
+
+    guid: str  # Format: "eventGuid:alarmGuid"
+    pGuid: str  # Event GUID (not Calendar GUID!)
+    messageType: str = AlarmDefaults.MESSAGE_TYPE
+    isLocationBased: bool = AlarmDefaults.IS_LOCATION_BASED
+    measurement: AlarmMeasurement = field(default_factory=AlarmMeasurement)
+
+
+@dataclass
+class AppleDateFormat:
+    """
+    Apple's 7-element date array format.
+
+    Format: [YYYYMMDD, YYYY, MM, DD, HH, MM, minutes_from_midnight]
+    """
+
+    date_string: str  # YYYYMMDD format
+    year: int
+    month: int
+    day: int
+    hour: int
+    minute: int
+    minutes_from_midnight: int
+
+    @classmethod
+    def from_datetime(cls, dt: datetime, is_start: bool = True) -> "AppleDateFormat":
+        """Convert Python datetime to Apple's date format."""
+        if is_start:
+            minutes_calc = dt.hour * 60 + dt.minute
+        else:
+            minutes_calc = (24 - dt.hour) * 60 + (60 - dt.minute)
+
+        return cls(
+            date_string=dt.strftime(DateFormats.APPLE_DATE),
+            year=dt.year,
+            month=dt.month,
+            day=dt.day,
+            hour=dt.hour,
+            minute=dt.minute,
+            minutes_from_midnight=minutes_calc,
+        )
+
+    def to_list(self) -> list[int]:
+        """Convert to Apple's expected list format."""
+        return [
+            self.date_string,
+            self.year,
+            self.month,
+            self.day,
+            self.hour,
+            self.minute,
+            self.minutes_from_midnight,
+        ]
 
 
 @dataclass
@@ -26,8 +138,8 @@ class AppleEventInvitee:
     """
 
     email: str
-    role: str = "REQ-PARTICIPANT"
-    inviteeStatus: str = "NEEDS-ACTION"
+    role: str = InviteeDefaults.ROLE
+    inviteeStatus: str = InviteeDefaults.STATUS
 
 
 @dataclass
@@ -39,13 +151,13 @@ class ApplePayloadInvitee:
     """
 
     guid: str
-    pGuid: str  # Calendar GUID
-    role: str = "REQ-PARTICIPANT"
+    pGuid: str  # Event GUID (not Calendar GUID!)
+    role: str = InviteeDefaults.ROLE
     isOrganizer: bool = False
     email: str = ""
-    inviteeStatus: str = "NEEDS-ACTION"
+    inviteeStatus: str = InviteeDefaults.STATUS
     commonName: str = ""
-    isMyId: bool = False
+    isMe: bool = False  # Apple uses 'isMe', not 'isMyId'
 
 
 @dataclass
@@ -92,9 +204,13 @@ class AppleCalendarEvent:
     etag: str = ""
 
     # Array fields (required by Apple API)
-    alarms: List[Any] = field(default_factory=list)
+    alarms: List[str] = field(
+        default_factory=list
+    )  # Apple expects ["eventGuid:alarmGuid"] strings
     attachments: List[Any] = field(default_factory=list)
-    invitees: List[AppleEventInvitee] = field(default_factory=list)
+    invitees: List[str] = field(
+        default_factory=list
+    )  # Apple expects ["eventGuid:email"] strings
 
     # Optional fields
     changeRecurring: Optional[str] = None
@@ -108,8 +224,10 @@ class EventObject:
 
     pguid: str
     title: str = "New Event"
-    start_date: datetime = datetime.today()
-    end_date: datetime = datetime.today() + timedelta(minutes=60)
+    start_date: datetime = field(default_factory=datetime.today)
+    end_date: datetime = field(
+        default_factory=lambda: datetime.today() + timedelta(minutes=60)
+    )
     local_start_date: Optional[datetime] = None
     local_end_date: Optional[datetime] = None
     duration: int = field(init=False)
@@ -127,19 +245,36 @@ class EventObject:
     etag: Optional[str] = None
 
     invitees: List[str] = field(init=False, default_factory=list)
+    alarms: List[str] = field(init=False, default_factory=list)
+    _alarm_metadata: dict[str, AlarmMeasurement] = field(
+        init=False, default_factory=dict
+    )
 
     def __post_init__(self) -> None:
+        # Validation: check required fields and data integrity
+        if not self.pguid.strip():
+            raise ValueError("pguid cannot be empty")
+
+        if self.start_date >= self.end_date:
+            raise ValueError(
+                f"start_date ({self.start_date}) must be before end_date ({self.end_date})"
+            )
+
+        # Initialize optional dates
         if not self.local_start_date:
             self.local_start_date = self.start_date
         if not self.local_end_date:
             self.local_end_date = self.end_date
 
+        # Generate GUID if not provided
         if not self.guid:
             self.guid = str(uuid4()).upper()
 
+        # Set timezone if not provided
         if not self.tz:
             self.tz = get_localzone_name()
 
+        # Calculate duration (should now always be positive due to validation)
         self.duration = int(
             (self.end_date.timestamp() - self.start_date.timestamp()) / 60
         )
@@ -171,17 +306,17 @@ class EventObject:
         created_date_list = self.dt_to_list(current_dt)
         last_modified_list = self.dt_to_list(current_dt)
 
-        # Build invitees array for Apple API using dataclass
-        invitees_list: List[AppleEventInvitee] = []
+        # Build invitees array for Apple API - should be strings, not objects!
+        invitees_list: List[str] = []
         if self.invitees:
-            invitees_list = [
-                AppleEventInvitee(
-                    email=email_guid.split(":")[-1],
-                    role="REQ-PARTICIPANT",
-                    inviteeStatus="NEEDS-ACTION",
-                )
-                for email_guid in self.invitees
-            ]
+            # Apple expects ["eventGuid:email"] format, not objects
+            invitees_list = self.invitees
+
+        # Build alarms array for Apple API - should be strings, not objects!
+        alarms_list: List[str] = []
+        if self.alarms:
+            # Apple expects ["eventGuid:alarmGuid"] format, not objects
+            alarms_list = self.alarms
 
         return AppleCalendarEvent(
             # Core fields with direct mapping
@@ -209,6 +344,7 @@ class EventObject:
             location=self.location,
             etag=self.etag or "",
             # Array fields
+            alarms=alarms_list,
             invitees=invitees_list,
             # Optional fields
             changeRecurring=self.change_recurring,
@@ -240,17 +376,33 @@ class EventObject:
             payload_invitees = [
                 ApplePayloadInvitee(
                     guid=email_guid,
-                    pGuid=self.pguid,
-                    role="REQ-PARTICIPANT",
+                    pGuid=self.guid,  # Use Event GUID, not Calendar GUID!
+                    role=InviteeDefaults.ROLE,
                     isOrganizer=False,
                     email=email_guid.split(":")[-1],
-                    inviteeStatus="NEEDS-ACTION",
+                    inviteeStatus=InviteeDefaults.STATUS,
                     commonName="",
-                    isMyId=False,
+                    isMe=False,  # Fixed field name
                 )
                 for email_guid in self.invitees
             ]
             data["Invitee"] = [asdict(invitee) for invitee in payload_invitees]
+
+        # Add alarms to the separate Alarm array if present
+        if self.alarms:
+            payload_alarms = [
+                AppleAlarm(
+                    guid=alarm_guid,
+                    pGuid=self.guid,  # Use Event GUID, not Calendar GUID!
+                    messageType=AlarmDefaults.MESSAGE_TYPE,
+                    isLocationBased=AlarmDefaults.IS_LOCATION_BASED,
+                    measurement=self._alarm_metadata.get(
+                        alarm_guid, AlarmMeasurement()
+                    ),
+                )
+                for alarm_guid in self.alarms
+            ]
+            data["Alarm"] = [asdict(alarm) for alarm in payload_alarms]
 
         return data
 
@@ -259,27 +411,59 @@ class EventObject:
         Converts python datetime object into a list format used
         by Apple's calendar.
         """
-        if start:
-            minutes: int = dt.hour * 60 + dt.minute
-        else:
-            minutes = (24 - dt.hour) * 60 + (60 - dt.minute)
-
-        return [
-            dt.strftime("%Y%m%d"),
-            dt.year,
-            dt.month,
-            dt.day,
-            dt.hour,
-            dt.minute,
-            minutes,
-        ]
+        apple_date = AppleDateFormat.from_datetime(dt, is_start=start)
+        return apple_date.to_list()
 
     def add_invitees(self, _invitees: Optional[list] = None) -> None:
         """
         Adds a list of emails to invitees in the correct format
         """
         if _invitees:
-            self.invitees += ["{}:{}".format(self.guid, email) for email in _invitees]
+            self.invitees += [f"{self.guid}:{email}" for email in _invitees]
+
+    def add_alarm_at_time(self) -> str:
+        """
+        Adds an alarm at the time of the event.
+        Returns the alarm GUID for reference.
+        """
+        from uuid import uuid4
+
+        alarm_guid = str(uuid4())
+        alarm_full_guid = f"{self.guid}:{alarm_guid}"
+        self.alarms.append(alarm_full_guid)
+
+        # Store metadata for "at time of event" alarm
+        self._alarm_metadata[alarm_full_guid] = AlarmMeasurement(
+            before=False, weeks=0, days=0, hours=0, minutes=0, seconds=0
+        )
+        return alarm_guid
+
+    def add_alarm_before(
+        self, minutes: int = 0, hours: int = 0, days: int = 0, weeks: int = 0
+    ) -> str:
+        """
+        Adds an alarm before the event.
+
+        Args:
+            minutes: Minutes before event
+            hours: Hours before event
+            days: Days before event
+            weeks: Weeks before event
+
+        Returns:
+            The alarm GUID for reference.
+        """
+        from uuid import uuid4
+
+        alarm_guid = str(uuid4())
+        alarm_full_guid = f"{self.guid}:{alarm_guid}"
+        self.alarms.append(alarm_full_guid)
+
+        # Store metadata for "before event" alarm
+        self._alarm_metadata[alarm_full_guid] = AlarmMeasurement(
+            before=True, weeks=weeks, days=days, hours=hours, minutes=minutes, seconds=0
+        )
+        return alarm_guid
 
     def get(self, var: str):
         """Get a variable"""
@@ -292,18 +476,18 @@ class CalendarObject:
     A CalendarObject represents a calendar in the Apple Calendar.
     """
 
-    title: str = "Untitled"
+    title: str = CalendarDefaults.TITLE
     guid: str = ""
     share_type: Optional[str] = (
         None  # can be (None, 'published', 'shared') where 'published' gens a public caldav link in the response.  Shared is not supported here as it is rather complex.
     )
-    symbolic_color: str = "__custom__"
-    supported_type: str = "Event"
-    object_type: str = "personal"
-    share_title: str = ""
-    shared_url: str = ""
-    color: str = ""
-    order: int = 7
+    symbolic_color: str = CalendarDefaults.SYMBOLIC_COLOR
+    supported_type: str = CalendarDefaults.SUPPORTED_TYPE
+    object_type: str = CalendarDefaults.OBJECT_TYPE
+    share_title: str = CalendarDefaults.SHARE_TITLE
+    shared_url: str = CalendarDefaults.SHARED_URL
+    color: str = CalendarDefaults.COLOR
+    order: int = CalendarDefaults.ORDER
     extended_details_are_included: bool = True
     read_only: bool = False
     enabled: bool = True
@@ -335,7 +519,7 @@ class CalendarObject:
         """
         Creates a random rgbhex color.
         """
-        return "#%02x%02x%02x" % tuple([randint(0, 255) for _ in range(3)])
+        return f"#{randint(0, 255):02x}{randint(0, 255):02x}{randint(0, 255):02x}"
 
     @property
     def request_data(self) -> dict[str, Any]:
@@ -377,17 +561,45 @@ class CalendarService(BaseService):
             {
                 "lang": "en-us",
                 "usertz": get_localzone_name(),
-                "startDate": from_dt.strftime("%Y-%m-%d"),
-                "endDate": to_dt.strftime("%Y-%m-%d"),
+                "startDate": from_dt.strftime(DateFormats.API_DATE),
+                "endDate": to_dt.strftime(DateFormats.API_DATE),
             }
         )
 
         return params
 
     def obj_from_dict(self, obj: T, _dict) -> T:
-        """Creates an object from a dictionary"""
-        for key, value in _dict.items():
-            setattr(obj, key, value)
+        """
+        Creates an object from a dictionary with proper field validation.
+
+        Maps API field names to dataclass field names and only sets valid fields.
+        """
+        # Get valid fields for this dataclass
+        if hasattr(obj, "__dataclass_fields__"):
+            valid_fields = {f.name for f in fields(obj)}
+
+            # Special case mappings that don't follow standard camelCase conversion
+            special_mappings = {
+                "pGuid": "pguid",  # Not 'p_guid'
+                "shouldShowJunkUIWhenAppropriate": "is_junk",  # Semantic mapping
+            }
+
+            # Set only valid fields with proper name mapping
+            for api_key, value in _dict.items():
+                # Check special cases first, then use automatic conversion
+                if api_key in special_mappings:
+                    field_name = special_mappings[api_key]
+                else:
+                    # Use automatic camelCase to snake_case conversion
+                    field_name = camelcase_to_underscore(api_key)
+
+                # Only set if it's a valid field for this dataclass
+                if field_name in valid_fields:
+                    setattr(obj, field_name, value)
+        else:
+            # Fallback for non-dataclass objects
+            for key, value in _dict.items():
+                setattr(obj, key, value)
 
         return obj
 
@@ -421,8 +633,8 @@ class CalendarService(BaseService):
             {
                 "lang": "en-us",
                 "usertz": get_localzone_name(),
-                "startDate": from_dt.strftime("%Y-%m-%d"),
-                "endDate": to_dt.strftime("%Y-%m-%d"),
+                "startDate": from_dt.strftime(DateFormats.API_DATE),
+                "endDate": to_dt.strftime(DateFormats.API_DATE),
                 "dsid": self.session.service.data["dsInfo"]["dsid"],
             }
         )
@@ -480,13 +692,39 @@ class CalendarService(BaseService):
         )
         return req.json()
 
+    @overload
+    def get_events(
+        self,
+        from_dt: Optional[datetime] = None,
+        to_dt: Optional[datetime] = None,
+        period: str = "month",
+    ) -> list[dict[str, Any]]: ...
+
+    @overload
+    def get_events(
+        self,
+        from_dt: Optional[datetime] = None,
+        to_dt: Optional[datetime] = None,
+        period: str = "month",
+        as_objs: Literal[False] = False,
+    ) -> list[dict[str, Any]]: ...
+
+    @overload
+    def get_events(
+        self,
+        from_dt: Optional[datetime] = None,
+        to_dt: Optional[datetime] = None,
+        period: str = "month",
+        as_objs: Literal[True] = True,
+    ) -> list[EventObject]: ...
+
     def get_events(
         self,
         from_dt: Optional[datetime] = None,
         to_dt: Optional[datetime] = None,
         period: str = "month",
         as_objs: bool = False,
-    ) -> list:
+    ) -> Union[list[dict[str, Any]], list[EventObject]]:
         """
         Retrieves events for a given date range, by default, this month.
         """
@@ -510,7 +748,11 @@ class CalendarService(BaseService):
 
         if as_objs and events:
             for idx, event in enumerate(events):
-                events[idx] = self.obj_from_dict(EventObject(""), event)
+                # Extract pguid from event data (API returns pGuid in camelCase)
+                pguid = event.get("pGuid", "")
+                if not pguid:
+                    raise ValueError(f"Event missing required pGuid field: {event}")
+                events[idx] = self.obj_from_dict(EventObject(pguid), event)
 
         return events
 
