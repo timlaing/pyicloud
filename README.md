@@ -17,7 +17,6 @@
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=coverage)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 
-
 PyiCloud is a module which allows pythonistas to interact with iCloud
 webservices. It\'s powered by the fantastic
 [requests](https://github.com/kennethreitz/requests) HTTP library.
@@ -71,7 +70,7 @@ you can clear a stored password using the `--delete-from-keyring`
 command-line option:
 
 ``` console
-$ icloud --username=jappleseed@apple.com --delete-from-keyring
+icloud --username=jappleseed@apple.com --delete-from-keyring
 ```
 
 **Note**: Authentication will expire after an interval set by Apple, at
@@ -156,6 +155,7 @@ elif api.requires_2sa:
         print("Failed to verify verification code")
         sys.exit(1)
 ```
+
 ## Account
 
 You can access information about your iCloud account using the `account` property:
@@ -164,7 +164,9 @@ You can access information about your iCloud account using the `account` propert
 >>> api.account
 {devices: 5, family: 3, storage: 8990635296 bytes free}
 ```
+
 ### Summary Plan
+
 you can access information about your iCloud account\'s summary plan using the `account.summary_plan` property:
 
 ``` pycon
@@ -304,7 +306,7 @@ api.iphone.erase_device(message)
 
 ## Calendar
 
-The calendar webservice now supports fethcing, creating, and removing calendars and events.
+The calendar webservice supports fetching, creating, and removing calendars and events, with support for alarms, and invitees.
 
 ### Calendars
 
@@ -327,10 +329,12 @@ if `as_objs` is set to `True`, the returned list will be of CalendarObjects; els
 *Create and add a new calendar:*
 
 ``` python
-api = login("username", "pass")
+from pyicloud import PyiCloudService
+from pyicloud.services.calendar import CalendarObject
 
+api = PyiCloudService("username", "password")
 calendar_service = api.calendar
-cal = calendar_service.CalendarObject(title="My Calendar", share_type="published")
+cal = CalendarObject(title="My Calendar", share_type="published")
 cal.color = "#FF0000"
 calendar_service.add_calendar(cal)
 ```
@@ -344,46 +348,119 @@ calendar_service.remove_calendar(cal.guid)
 
 ### Events
 
-The events functionality is based around the `EventObject` dataclass. `guid` is the unique identifier of each event, while `pGuid` is the identifier of the calendar to which this event belongs. `pGuid` is the only paramter that is not optional. Some of the functionality of Events, most notably Alarms, is not included here, but could be easily done had you the desire. The `EventObject` currently has one method you may use: `add_invitees` which takes a list of emails and adds them as invitees to this event.  They should recieve an email when this event is created.
+The events functionality is based around the `EventObject` dataclass with support for alarms and invitees. `guid` is the unique identifier of each event, while `pguid` is the identifier of the calendar to which this event belongs. `pguid` is the only required parameter. The `EventObject` includes automatic validation, dynamic timezone detection, and multiple methods for event management.
+
+#### Key Features
+
+- **Automatic Validation**: Events validate required fields, date ranges, and calendar GUIDs
+- **Dynamic Timezone Detection**: Automatically detects and uses the user's local timezone
+- **Alarm Support**: Add alarms at event time or before the event with flexible timing
+- **Invitee Management**: Add multiple invitees who will receive email notifications
 
 #### Functions
 
 **get_events(from_dt:datetime=None, to_dt:datetime=None, period:str="month", as_objs:bool=False)**<br>
-*Returns a list of events from `from_dt` to `to_dt`. If `period` is provided, it will return the events in that period refrencing `from_dt` if it was provided; else using today's date. IE if `period` is "month", the events for the entire month that `from_dt` falls within will be returned.*
+*Returns a list of events from `from_dt` to `to_dt`. If `period` is provided, it will return the events in that period referencing `from_dt` if it was provided; else using today's date. IE if `period` is "month", the events for the entire month that `from_dt` falls within will be returned.*
 
 **get_event_detail(pguid, guid, as_obj:bool=False)**<br>
-*Returns a speciffic event given that event's `guid` and `pGuid`*
+*Returns a specific event given that event's `guid` and `pguid`*
 
 **add_event(event:EventObject) -> None**<br>
-*Adds an Event to a calendar specified by the event's `pGuid`.*
+*Adds an Event to a calendar specified by the event's `pguid`.*
 
 **remove_event(event:EventObject) -> None**<br>
-*Removes an Event from a calendar specified by the event's `pGuid`.*
+*Removes an Event from a calendar specified by the event's `pguid`.*
+
+#### EventObject Methods
+
+**add_invitees(emails: list) -> None**<br>
+*Adds a list of email addresses as invitees to the event. They will receive email notifications when the event is created.*
+
+**add_alarm_at_time() -> str**<br>
+*Adds an alarm that triggers at the exact time of the event. Returns the alarm GUID for reference.*
+
+**add_alarm_before(minutes=0, hours=0, days=0, weeks=0) -> str**<br>
+*Adds an alarm that triggers before the event starts. You can specify any combination of time units. Returns the alarm GUID for reference.*
 
 #### Examples
 
-*Create, add and remove an Event*
+*Create an event with invitees and alarms:*
 
 ``` python
+from datetime import datetime, timedelta
+from pyicloud import PyiCloudService
+from pyicloud.services.calendar import EventObject
+
+api = PyiCloudService("username", "password")
 calendar_service = api.calendar
-cal = calendar_service.get_calendars(as_objs=True)[0]
-event = EventObject(cal.guid, title="test", start_date=datetime.today(), end_date=datetime.today() + timedelta(hours=1))
+
+# Get a calendar to use
+calendars = calendar_service.get_calendars(as_objs=True)
+calendar_guid = calendars[0].guid
+
+# Create an event with proper validation
+event = EventObject(
+    pguid=calendar_guid,
+    title="Team Meeting",
+    start_date=datetime.now() + timedelta(hours=2),
+    end_date=datetime.now() + timedelta(hours=3),
+    location="Conference Room A",
+    all_day=False
+)
+
+# Add invitees (they'll receive email notifications)
+event.add_invitees(["colleague1@company.com", "colleague2@company.com"])
+
+# Add alarms
+event.add_alarm_before(minutes=15)  # 15 minutes before
+event.add_alarm_before(days=1)      # 1 day before
+
+# Add the event to the calendar
 calendar_service.add_event(event)
+```
+
+*Create a simple event:*
+
+``` python
+# Basic event creation
+event = EventObject(
+    pguid=calendar_guid,
+    title="Doctor Appointment",
+    start_date=datetime(2024, 1, 15, 14, 0),
+    end_date=datetime(2024, 1, 15, 15, 0)
+)
+
+# Add a 30-minute warning alarm
+event.add_alarm_before(minutes=30)
+
+calendar_service.add_event(event)
+```
+
+*Get events in a specific date range:*
+
+``` python
+from_dt = datetime(2024, 1, 1)
+to_dt = datetime(2024, 1, 31)
+events = calendar_service.get_events(from_dt, to_dt, as_objs=True)
+
+for event in events:
+    print(f"Event: {event.title} at {event.start_date}")
+```
+
+*Get next week's events:*
+
+``` python
+next_week_events = calendar_service.get_events(
+    from_dt=datetime.today() + timedelta(days=7),
+    period="week",
+    as_objs=True
+)
+```
+
+*Remove an event:*
+
+``` python
 calendar_service.remove_event(event)
-```
-
-Or, between a specific date range:
-
-``` python
-from_dt = datetime(2012, 1, 1)
-to_dt = datetime(2012, 1, 31)
-api.calendar.events(from_dt, to_dt)
-```
-
-*Get next weeks' events*
-
-``` python
-calendar_service.get_events(from_dt=datetime.today() + timedelta(days=7) ,period="week", as_objs=True)
 ```
 
 ## Contacts
@@ -401,6 +478,7 @@ Note: These contacts do not include contacts federated from e.g.
 Facebook, only the ones stored in iCloud.
 
 ### MeCard
+
 You can access the user's info (contact information) using the `me` property:
 
 ``` pycon
