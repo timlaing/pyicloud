@@ -55,3 +55,20 @@ def underscore_to_camelcase(word: str, initial_capital: bool = False) -> str:
         words[0] = words[0].lower()
 
     return "".join(words)
+
+
+def camelcase_to_underscore(camel_str: str) -> str:
+    """
+    Convert camelCase string to snake_case.
+
+    Examples:
+        startDate -> start_date
+        localStartDate -> local_start_date
+        hasAttachments -> has_attachments
+    """
+    result = []
+    for i, char in enumerate(camel_str):
+        if char.isupper() and i > 0:
+            result.append("_")
+        result.append(char.lower())
+    return "".join(result)
