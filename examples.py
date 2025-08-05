@@ -1,23 +1,24 @@
 """End to End System test"""
 
 import argparse
+import contextlib
+import http.client
 import json
+import logging
 import sys
+import warnings
+from datetime import datetime, timedelta
 from typing import Any, List, Optional
 
 import click
+import requests
 from fido2.hid import CtapHidDevice
 from requests import Response
-import logging
-import http.client
-import requests
-import contextlib
-import warnings
+from urllib3.exceptions import InsecureRequestWarning
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.calendar import CalendarObject, CalendarService
-from urllib3.exceptions import InsecureRequestWarning
 
 END_LIST = "End List\n"
 MAX_DISPLAY = 10
@@ -317,6 +318,24 @@ def display_calendars(api: PyiCloudService) -> None:
             if idx >= MAX_DISPLAY - 1:
                 break
         print(END_LIST)
+
+        if calendars:
+            # Get recent events from API
+            try:
+                recent_events = calendar_service.get_events(
+                    from_dt=datetime.now() - timedelta(days=7),
+                    to_dt=datetime.now() + timedelta(days=7),
+                    as_objs=True,
+                )
+                print(f"Recent events (±7 days): {len(recent_events)} events")
+                for idx, event in enumerate(recent_events):
+                    if hasattr(event, "title") and hasattr(event, "start_date"):
+                        print(f"\t{idx}: {event.title} at {event.start_date}")
+                        if idx >= MAX_DISPLAY - 1:
+                            break
+                print(END_LIST)
+            except Exception as e:
+                print(f"Could not retrieve events: {e}\n")
 
 
 def display_contacts(api: PyiCloudService) -> None:

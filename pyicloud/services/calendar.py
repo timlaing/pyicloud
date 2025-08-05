@@ -1,7 +1,8 @@
 """Calendar service."""
 
+import time
 from calendar import monthrange
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from random import randint
 from typing import Any, List, Literal, Optional, TypeVar, Union, cast, overload
@@ -12,8 +13,198 @@ from tzlocal import get_localzone_name
 
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
+from pyicloud.utils import camelcase_to_underscore
 
 T = TypeVar("T")
+
+
+# Calendar service constants
+class DateFormats:
+    """Date format constants."""
+
+    API_DATE = "%Y-%m-%d"
+    APPLE_DATE = "%Y%m%d"
+
+
+class CalendarDefaults:
+    """Default values for calendars."""
+
+    TITLE = "Untitled"
+    SYMBOLIC_COLOR = "__custom__"
+    SUPPORTED_TYPE = "Event"
+    OBJECT_TYPE = "personal"
+    ORDER = 7
+    SHARE_TITLE = ""
+    SHARED_URL = ""
+    COLOR = ""
+
+
+class InviteeDefaults:
+    """Default values for event invitees."""
+
+    ROLE = "REQ-PARTICIPANT"
+    STATUS = "NEEDS-ACTION"
+
+
+class AlarmDefaults:
+    """Default values for event alarms."""
+
+    MESSAGE_TYPE = "message"
+    IS_LOCATION_BASED = False
+
+
+@dataclass
+class AlarmMeasurement:
+    """
+    Represents the timing measurement for an alarm.
+    """
+
+    before: bool = True
+    weeks: int = 0
+    days: int = 0
+    hours: int = 0
+    minutes: int = 0
+    seconds: int = 0
+
+
+@dataclass
+class AppleAlarm:
+    """
+    Represents an alarm in Apple's Calendar API format.
+
+    This is used in the main payload's Alarm array.
+    """
+
+    guid: str
+    pGuid: str
+    messageType: str = AlarmDefaults.MESSAGE_TYPE
+    isLocationBased: bool = AlarmDefaults.IS_LOCATION_BASED
+    measurement: AlarmMeasurement = field(default_factory=AlarmMeasurement)
+
+
+@dataclass
+class AppleDateFormat:
+    """
+    Apple's 7-element date array format.
+
+    Format: [YYYYMMDD, YYYY, MM, DD, HH, MM, minutes_from_midnight]
+    The date_string uses YYYYMMDD format.
+    """
+
+    date_string: str
+    year: int
+    month: int
+    day: int
+    hour: int
+    minute: int
+    minutes_from_midnight: int
+
+    @classmethod
+    def from_datetime(cls, dt: datetime, is_start: bool = True) -> "AppleDateFormat":
+        """Convert Python datetime to Apple's date format."""
+        if is_start:
+            minutes_calc = dt.hour * 60 + dt.minute
+        else:
+            minutes_calc = (24 - dt.hour) * 60 + (60 - dt.minute)
+
+        return cls(
+            date_string=dt.strftime(DateFormats.APPLE_DATE),
+            year=dt.year,
+            month=dt.month,
+            day=dt.day,
+            hour=dt.hour,
+            minute=dt.minute,
+            minutes_from_midnight=minutes_calc,
+        )
+
+    def to_list(self) -> list[int]:
+        """Convert to Apple's expected list format."""
+        return [
+            self.date_string,
+            self.year,
+            self.month,
+            self.day,
+            self.hour,
+            self.minute,
+            self.minutes_from_midnight,
+        ]
+
+
+@dataclass
+class AppleEventInvitee:
+    """
+    Represents an invitee within the Event object in Apple's Calendar API.
+
+    This is the simpler invitee structure used inside the Event.invitees array.
+    """
+
+    email: str
+    role: str = InviteeDefaults.ROLE
+    inviteeStatus: str = InviteeDefaults.STATUS
+
+
+@dataclass
+class ApplePayloadInvitee:
+    """
+    Represents an invitee in the main payload's Invitee array in Apple's Calendar API.
+
+    This is the more detailed invitee structure used in the top-level Invitee array.
+    """
+
+    guid: str
+    pGuid: str
+    role: str = InviteeDefaults.ROLE
+    isOrganizer: bool = False
+    email: str = ""
+    inviteeStatus: str = InviteeDefaults.STATUS
+    commonName: str = ""
+    isMe: bool = False
+
+
+@dataclass
+class AppleCalendarEvent:
+    """
+    Represents an event in Apple's Calendar API format.
+
+    This dataclass exactly mirrors the structure expected by Apple's API,
+    using the correct camelCase field names and types.
+    """
+
+    title: str
+    tz: str
+    icon: int
+    duration: int
+    allDay: bool
+    pGuid: str
+    guid: str
+
+    startDate: List[int]
+    endDate: List[int]
+    localStartDate: List[int]
+    localEndDate: List[int]
+    createdDate: List[int]
+    lastModifiedDate: List[int]
+
+    extendedDetailsAreIncluded: bool
+    recurrenceException: bool
+    recurrenceMaster: bool
+    hasAttachments: bool
+    readOnly: bool = False
+    transparent: bool = False
+    birthdayIsYearlessBday: bool = False
+    birthdayShowAsCompany: bool = False
+    shouldShowJunkUIWhenAppropriate: bool = False
+
+    location: str = ""
+    url: str = ""
+    description: str = ""
+    etag: str = ""
+
+    alarms: List[str] = field(default_factory=list)
+    attachments: List[Any] = field(default_factory=list)
+    invitees: List[str] = field(default_factory=list)
+
+    changeRecurring: Optional[str] = None
 
 
 @dataclass
@@ -24,15 +215,17 @@ class EventObject:
 
     pguid: str
     title: str = "New Event"
-    start_date: datetime = datetime.today()
-    end_date: datetime = datetime.today() + timedelta(minutes=60)
+    start_date: datetime = field(default_factory=datetime.today)
+    end_date: datetime = field(
+        default_factory=lambda: datetime.today() + timedelta(minutes=60)
+    )
     local_start_date: Optional[datetime] = None
     local_end_date: Optional[datetime] = None
     duration: int = field(init=False)
     icon: int = 0
     change_recurring: Optional[str] = None
-    tz: str = "US/Pacific"
-    guid: str = ""  # event identifier
+    tz: str = ""
+    guid: str = ""
     location: str = ""
     extended_details_are_included: bool = True
     recurrence_exception: bool = False
@@ -43,62 +236,145 @@ class EventObject:
     etag: Optional[str] = None
 
     invitees: List[str] = field(init=False, default_factory=list)
+    alarms: List[str] = field(init=False, default_factory=list)
+    _alarm_metadata: dict[str, AlarmMeasurement] = field(
+        init=False, default_factory=dict
+    )
 
     def __post_init__(self) -> None:
+        # Validation: check required fields and data integrity
+        if not self.pguid.strip():
+            raise ValueError("pguid cannot be empty")
+
+        if self.start_date >= self.end_date:
+            raise ValueError(
+                f"start_date ({self.start_date}) must be before end_date ({self.end_date})"
+            )
+
+        # Initialize optional dates
         if not self.local_start_date:
             self.local_start_date = self.start_date
         if not self.local_end_date:
             self.local_end_date = self.end_date
 
+        # Generate GUID if not provided
         if not self.guid:
             self.guid = str(uuid4()).upper()
 
+        # Set timezone if not provided
+        if not self.tz:
+            self.tz = get_localzone_name()
+
+        # Calculate duration (should now always be positive due to validation)
         self.duration = int(
             (self.end_date.timestamp() - self.start_date.timestamp()) / 60
         )
 
+    def to_apple_event(self) -> AppleCalendarEvent:
+        """
+        Convert this EventObject to Apple's API format.
+
+        This method handles the conversion from our internal representation
+        to the exact structure expected by Apple's Calendar API.
+        """
+        # Convert Python datetime to Apple's date format
+        start_date_list = self.dt_to_list(self.start_date)
+        end_date_list = self.dt_to_list(self.end_date, False)
+        local_start_list = (
+            self.dt_to_list(self.local_start_date)
+            if self.local_start_date
+            else start_date_list
+        )
+        local_end_list = (
+            self.dt_to_list(self.local_end_date, False)
+            if self.local_end_date
+            else end_date_list
+        )
+
+        current_timestamp = time.time()
+        current_dt = datetime.fromtimestamp(current_timestamp)
+        created_date_list = self.dt_to_list(current_dt)
+        last_modified_list = self.dt_to_list(current_dt)
+
+        invitees_list: List[str] = []
+        if self.invitees:
+            invitees_list = self.invitees
+
+        alarms_list: List[str] = []
+        if self.alarms:
+            alarms_list = self.alarms
+
+        return AppleCalendarEvent(
+            title=self.title,
+            tz=self.tz,
+            icon=self.icon,
+            duration=self.duration,
+            allDay=self.all_day,
+            pGuid=self.pguid,
+            guid=self.guid,
+            startDate=start_date_list,
+            endDate=end_date_list,
+            localStartDate=local_start_list,
+            localEndDate=local_end_list,
+            createdDate=created_date_list,
+            lastModifiedDate=last_modified_list,
+            extendedDetailsAreIncluded=self.extended_details_are_included,
+            recurrenceException=self.recurrence_exception,
+            recurrenceMaster=self.recurrence_master,
+            hasAttachments=self.has_attachments,
+            shouldShowJunkUIWhenAppropriate=self.is_junk,
+            location=self.location,
+            etag=self.etag or "",
+            alarms=alarms_list,
+            invitees=invitees_list,
+            changeRecurring=self.change_recurring,
+        )
+
     @property
     def request_data(self) -> dict[str, Any]:
-        """
-        Returns the event data in the format required by Apple's calendar.
-        """
-        event_dict: dict[str, Any] = asdict(self)
-        event_dict["startDate"] = self.dt_to_list(self.start_date)
-        event_dict["endDate"] = self.dt_to_list(self.end_date, False)
-        if self.local_start_date:
-            event_dict["localStartDate"] = self.dt_to_list(self.local_start_date)
-        if self.local_end_date:
-            event_dict["localEndDate"] = self.dt_to_list(self.local_end_date, False)
-
-        event_dict.pop("start_date", None)
-        event_dict.pop("end_date", None)
-        event_dict.pop("local_start_date", None)
-        event_dict.pop("local_end_date", None)
+        """Returns the event data in the format required by Apple's calendar."""
+        apple_event = self.to_apple_event()
+        event_dict = asdict(apple_event)
 
         data: dict[str, Any] = {
             "Event": event_dict,
+            "Invitee": [],
+            "Alarm": [],
             "ClientState": {
-                "Collection": [{"guid": self.guid, "ctag": None}],
-                "fullState": False,
-                "userTime": 1234567890,
-                "alarmRange": 60,
+                "Collection": [{"guid": self.pguid, "ctag": None}],
             },
         }
 
         if self.invitees:
-            data["Invitee"] = [
-                {
-                    "guid": email_guid,
-                    "pGuid": self.pguid,
-                    "role": "REQ-PARTICIPANT",
-                    "isOrganizer": False,
-                    "email": email_guid.split(":")[-1],
-                    "inviteeStatus": "NEEDS-ACTION",
-                    "commonName": "",
-                    "isMyId": False,
-                }
+            payload_invitees = [
+                ApplePayloadInvitee(
+                    guid=email_guid,
+                    pGuid=self.guid,
+                    role=InviteeDefaults.ROLE,
+                    isOrganizer=False,
+                    email=email_guid.split(":")[-1],
+                    inviteeStatus=InviteeDefaults.STATUS,
+                    commonName="",
+                    isMe=False,
+                )
                 for email_guid in self.invitees
             ]
+            data["Invitee"] = [asdict(invitee) for invitee in payload_invitees]
+
+        if self.alarms:
+            payload_alarms = [
+                AppleAlarm(
+                    guid=alarm_guid,
+                    pGuid=self.guid,
+                    messageType=AlarmDefaults.MESSAGE_TYPE,
+                    isLocationBased=AlarmDefaults.IS_LOCATION_BASED,
+                    measurement=self._alarm_metadata.get(
+                        alarm_guid, AlarmMeasurement()
+                    ),
+                )
+                for alarm_guid in self.alarms
+            ]
+            data["Alarm"] = [asdict(alarm) for alarm in payload_alarms]
 
         return data
 
@@ -107,27 +383,53 @@ class EventObject:
         Converts python datetime object into a list format used
         by Apple's calendar.
         """
-        if start:
-            minutes: int = dt.hour * 60 + dt.minute
-        else:
-            minutes = (24 - dt.hour) * 60 + (60 - dt.minute)
-
-        return [
-            dt.strftime("%Y%m%d"),
-            dt.year,
-            dt.month,
-            dt.day,
-            dt.hour,
-            dt.minute,
-            minutes,
-        ]
+        apple_date = AppleDateFormat.from_datetime(dt, is_start=start)
+        return apple_date.to_list()
 
     def add_invitees(self, _invitees: Optional[list] = None) -> None:
         """
         Adds a list of emails to invitees in the correct format
         """
         if _invitees:
-            self.invitees += ["{}:{}".format(self.guid, email) for email in _invitees]
+            self.invitees += [f"{self.guid}:{email}" for email in _invitees]
+
+    def add_alarm_at_time(self) -> str:
+        """
+        Adds an alarm at the time of the event.
+        Returns the alarm GUID for reference.
+        """
+        alarm_guid = str(uuid4())
+        alarm_full_guid = f"{self.guid}:{alarm_guid}"
+        self.alarms.append(alarm_full_guid)
+
+        self._alarm_metadata[alarm_full_guid] = AlarmMeasurement(
+            before=False, weeks=0, days=0, hours=0, minutes=0, seconds=0
+        )
+        return alarm_guid
+
+    def add_alarm_before(
+        self, minutes: int = 0, hours: int = 0, days: int = 0, weeks: int = 0
+    ) -> str:
+        """
+        Adds an alarm before the event.
+
+        Args:
+            minutes: Minutes before event
+            hours: Hours before event
+            days: Days before event
+            weeks: Weeks before event
+
+        Returns:
+            The alarm GUID for reference.
+        """
+        alarm_guid = str(uuid4())
+        alarm_full_guid = f"{self.guid}:{alarm_guid}"
+        self.alarms.append(alarm_full_guid)
+
+        self._alarm_metadata[alarm_full_guid] = AlarmMeasurement(
+            before=True, weeks=weeks, days=days, hours=hours, minutes=minutes, seconds=0
+        )
+        return alarm_guid
 
     def get(self, var: str):
         """Get a variable"""
@@ -140,18 +442,16 @@ class CalendarObject:
     A CalendarObject represents a calendar in the Apple Calendar.
     """
 
-    title: str = "Untitled"
+    title: str = CalendarDefaults.TITLE
     guid: str = ""
-    share_type: Optional[str] = (
-        None  # can be (None, 'published', 'shared') where 'published' gens a public caldav link in the response.  Shared is not supported here as it is rather complex.
-    )
-    symbolic_color: str = "__custom__"
-    supported_type: str = "Event"
-    object_type: str = "personal"
-    share_title: str = ""
-    shared_url: str = ""
-    color: str = ""
-    order: int = 7
+    share_type: Optional[str] = None
+    symbolic_color: str = CalendarDefaults.SYMBOLIC_COLOR
+    supported_type: str = CalendarDefaults.SUPPORTED_TYPE
+    object_type: str = CalendarDefaults.OBJECT_TYPE
+    share_title: str = CalendarDefaults.SHARE_TITLE
+    shared_url: str = CalendarDefaults.SHARED_URL
+    color: str = CalendarDefaults.COLOR
+    order: int = CalendarDefaults.ORDER
     extended_details_are_included: bool = True
     read_only: bool = False
     enabled: bool = True
@@ -183,7 +483,7 @@ class CalendarObject:
         """
         Creates a random rgbhex color.
         """
-        return "#%02x%02x%02x" % tuple([randint(0, 255) for _ in range(3)])
+        return f"#{randint(0, 255):02x}{randint(0, 255):02x}{randint(0, 255):02x}"
 
     @property
     def request_data(self) -> dict[str, Any]:
@@ -193,8 +493,6 @@ class CalendarObject:
             "ClientState": {
                 "Collection": [],
                 "fullState": False,
-                "userTime": 1234567890,
-                "alarmRange": 60,
             },
         }
         return data
@@ -227,17 +525,34 @@ class CalendarService(BaseService):
             {
                 "lang": "en-us",
                 "usertz": get_localzone_name(),
-                "startDate": from_dt.strftime("%Y-%m-%d"),
-                "endDate": to_dt.strftime("%Y-%m-%d"),
+                "startDate": from_dt.strftime(DateFormats.API_DATE),
+                "endDate": to_dt.strftime(DateFormats.API_DATE),
             }
         )
 
         return params
 
     def obj_from_dict(self, obj: T, _dict) -> T:
-        """Creates an object from a dictionary"""
-        for key, value in _dict.items():
-            setattr(obj, key, value)
+        """Creates an object from a dictionary with proper field validation."""
+        if hasattr(obj, "__dataclass_fields__"):
+            valid_fields = {f.name for f in fields(obj)}
+
+            special_mappings = {
+                "pGuid": "pguid",
+                "shouldShowJunkUIWhenAppropriate": "is_junk",
+            }
+
+            for api_key, value in _dict.items():
+                if api_key in special_mappings:
+                    field_name = special_mappings[api_key]
+                else:
+                    field_name = camelcase_to_underscore(api_key)
+
+                if field_name in valid_fields:
+                    setattr(obj, field_name, value)
+        else:
+            for key, value in _dict.items():
+                setattr(obj, key, value)
 
         return obj
 
@@ -271,8 +586,8 @@ class CalendarService(BaseService):
             {
                 "lang": "en-us",
                 "usertz": get_localzone_name(),
-                "startDate": from_dt.strftime("%Y-%m-%d"),
-                "endDate": to_dt.strftime("%Y-%m-%d"),
+                "startDate": from_dt.strftime(DateFormats.API_DATE),
+                "endDate": to_dt.strftime(DateFormats.API_DATE),
                 "dsid": self.session.service.data["dsInfo"]["dsid"],
             }
         )
@@ -330,13 +645,39 @@ class CalendarService(BaseService):
         )
         return req.json()
 
+    @overload
+    def get_events(
+        self,
+        from_dt: Optional[datetime] = None,
+        to_dt: Optional[datetime] = None,
+        period: str = "month",
+    ) -> list[dict[str, Any]]: ...
+
+    @overload
+    def get_events(
+        self,
+        from_dt: Optional[datetime] = None,
+        to_dt: Optional[datetime] = None,
+        period: str = "month",
+        as_objs: Literal[False] = False,
+    ) -> list[dict[str, Any]]: ...
+
+    @overload
+    def get_events(
+        self,
+        from_dt: Optional[datetime] = None,
+        to_dt: Optional[datetime] = None,
+        period: str = "month",
+        as_objs: Literal[True] = True,
+    ) -> list[EventObject]: ...
+
     def get_events(
         self,
         from_dt: Optional[datetime] = None,
         to_dt: Optional[datetime] = None,
         period: str = "month",
         as_objs: bool = False,
-    ) -> list:
+    ) -> Union[list[dict[str, Any]], list[EventObject]]:
         """
         Retrieves events for a given date range, by default, this month.
         """
@@ -360,7 +701,10 @@ class CalendarService(BaseService):
 
         if as_objs and events:
             for idx, event in enumerate(events):
-                events[idx] = self.obj_from_dict(EventObject(""), event)
+                pguid = event.get("pGuid", "")
+                if not pguid:
+                    raise ValueError(f"Event missing required pGuid field: {event}")
+                events[idx] = self.obj_from_dict(EventObject(pguid), event)
 
         return events
 
@@ -395,7 +739,7 @@ class CalendarService(BaseService):
         Adds an Event to a calendar.
         """
         data = event.request_data
-        data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.guid)
+        data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.pguid)
         params = self.default_params
 
         req: Response = self.session.post(
@@ -410,7 +754,7 @@ class CalendarService(BaseService):
         Removes an Event from a calendar. The calendar's guid corresponds to the EventObject's pGuid
         """
         data = event.request_data
-        data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.guid)
+        data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.pguid)
         data["Event"] = {}
 
         params: dict[str, Any] = self.default_params
