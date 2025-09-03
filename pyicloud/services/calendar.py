@@ -519,7 +519,7 @@ class CalendarService(BaseService):
         today: datetime = datetime.today()
         _, days_in_month = monthrange(
             today.year, today.month
-        )  # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and number of days in the month (Jan -> 31, Feb -> 28, etc.)
+        )  # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and number of days in the month (Jan -> 31, Feb -> 28/29, etc.)
         from_dt = datetime(
             today.year, today.month, 1
         )  # Hardcoded to 1 so that startDate is always the first (1st) day of the month
