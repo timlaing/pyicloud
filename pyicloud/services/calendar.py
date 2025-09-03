@@ -517,9 +517,13 @@ class CalendarService(BaseService):
     def default_params(self) -> dict[str, Any]:
         """Returns the default parameters for the calendar service."""
         today: datetime = datetime.today()
-        first_day, last_day = monthrange(today.year, today.month)
-        from_dt = datetime(today.year, today.month, first_day)
-        to_dt = datetime(today.year, today.month, last_day)
+        _, days_in_month = monthrange(
+            today.year, today.month
+        )  # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and number of days in the month (Jan -> 31, Feb -> 28, etc.)
+        from_dt = datetime(
+            today.year, today.month, 1
+        )  # Hardcoded to 1 so that startDate is always the first (1st) day of the month
+        to_dt = datetime(today.year, today.month, days_in_month)
         params = dict(self.params)
         params.update(
             {
@@ -576,11 +580,15 @@ class CalendarService(BaseService):
         have been given, the range becomes this month.
         """
         today: datetime = datetime.today()
-        first_day, last_day = monthrange(today.year, today.month)
+        _, days_in_month = monthrange(
+            today.year, today.month
+        )  # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and number of days in the month (Jan -> 31, Feb -> 28, etc.)
         if not from_dt:
-            from_dt = datetime(today.year, today.month, first_day)
+            from_dt = datetime(
+                today.year, today.month, 1
+            )  # Hardcoded to 1 so that startDate is always the first (1st) day of the month
         if not to_dt:
-            to_dt = datetime(today.year, today.month, last_day)
+            to_dt = datetime(today.year, today.month, days_in_month)
         params = dict(self.params)
         params.update(
             {
