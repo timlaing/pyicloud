@@ -580,15 +580,16 @@ class CalendarService(BaseService):
         have been given, the range becomes this month.
         """
         today: datetime = datetime.today()
+        # Anchor missing bound(s) to whichever bound is provided, else to 'today'
+        anchor: datetime = from_dt or to_dt or today
+        year, month = anchor.year, anchor.month
         _, days_in_month = monthrange(
-            today.year, today.month
-        )  # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and number of days in the month (Jan -> 31, Feb -> 28, etc.)
-        if not from_dt:
-            from_dt = datetime(
-                today.year, today.month, 1
-            )  # Hardcoded to 1 so that startDate is always the first (1st) day of the month
-        if not to_dt:
-            to_dt = datetime(today.year, today.month, days_in_month)
+            year, month
+        )  # (weekday_of_first_day, days_in_month)
+        if from_dt is None:
+            from_dt = anchor.replace(day=1)
+        if to_dt is None:
+            to_dt = anchor.replace(day=days_in_month)
         params = dict(self.params)
         params.update(
             {
