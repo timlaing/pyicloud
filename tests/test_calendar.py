@@ -246,7 +246,10 @@ def test_default_params_feb_non_leap() -> None:
 
     # Freeze 'today' to 2025-02-10 (non-leap year)
     _FixedDateTime.fixed = datetime(2025, 2, 10)
-    with patch("pyicloud.services.calendar.datetime", _FixedDateTime):
+    with (
+        patch("pyicloud.services.calendar.datetime", _FixedDateTime),
+        patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"),
+    ):
         params = service.default_params
         assert params["startDate"] == "2025-02-01"
         assert params["endDate"] == "2025-02-28"
@@ -259,7 +262,10 @@ def test_default_params_feb_leap() -> None:
 
     # Freeze 'today' to 2028-02-10 (leap year)
     _FixedDateTime.fixed = datetime(2028, 2, 10)
-    with patch("pyicloud.services.calendar.datetime", _FixedDateTime):
+    with (
+        patch("pyicloud.services.calendar.datetime", _FixedDateTime),
+        patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"),
+    ):
         params = service.default_params
         assert params["startDate"] == "2028-02-01"
         assert params["endDate"] == "2028-02-29"

@@ -575,9 +575,19 @@ class CalendarService(BaseService):
 
     def refresh_client(self, from_dt=None, to_dt=None) -> dict[str, Any]:
         """
-        Refreshes the CalendarService endpoint, ensuring that the
-        event data is up-to-date. If no 'from_dt' or 'to_dt' datetimes
-        have been given, the range becomes this month.
+        Refresh the Calendar service and return a fresh event payload.
+
+        Date range semantics:
+        - If both 'from_dt' and 'to_dt' are provided, they are respected as-is.
+        - If exactly one bound is provided, the missing bound is anchored to the
+          same month as the provided bound and expanded to the full month
+          (1st..last day of that month).
+        - If neither is provided, defaults to the current month.
+
+        Notes:
+        - Apple's Calendar API treats 'endDate' as inclusive; events occurring on
+          the last day of the month (including all-day and 23:00->00:00 boundary
+          events) are returned. See tests in tests/test_calendar.py.
         """
         today: datetime = datetime.today()
         # Anchor missing bound(s) to whichever bound is provided, else to 'today'
@@ -586,9 +596,10 @@ class CalendarService(BaseService):
         _, days_in_month = monthrange(
             year, month
         )  # (weekday_of_first_day, days_in_month)
-        if from_dt is None:
+        # If either bound is missing, normalize to the full month of the anchor.
+        # When both bounds are provided (e.g., day/week queries), respect them as-is.
+        if from_dt is None or to_dt is None:
             from_dt = anchor.replace(day=1)
-        if to_dt is None:
             to_dt = anchor.replace(day=days_in_month)
         params = dict(self.params)
         params.update(
