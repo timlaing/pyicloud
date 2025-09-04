@@ -224,6 +224,91 @@ def test_constants_and_defaults() -> None:
     assert not AlarmDefaults.IS_LOCATION_BASED
 
 
+def _service_with_mocks(mock_session: PyiCloudSession) -> CalendarService:
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        return CalendarService("https://example.com", mock_session, {"dsid": "12345"})
+
+
+class _FixedDateTime(datetime):
+    """Subclass datetime to control today() for tests."""
+
+    fixed: datetime = datetime(2025, 2, 10)
+
+    @classmethod
+    def today(cls) -> "_FixedDateTime":  # type: ignore[override]
+        return cls.fromtimestamp(cls.fixed.timestamp())
+
+
+def test_default_params_feb_non_leap() -> None:
+    """default_params should compute Feb (non-leap) as 1..28."""
+    mock_session = MagicMock(spec=PyiCloudSession)
+    service = _service_with_mocks(mock_session)
+
+    # Freeze 'today' to 2025-02-10 (non-leap year)
+    _FixedDateTime.fixed = datetime(2025, 2, 10)
+    with (
+        patch("pyicloud.services.calendar.datetime", _FixedDateTime),
+        patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"),
+    ):
+        params = service.default_params
+        assert params["startDate"] == "2025-02-01"
+        assert params["endDate"] == "2025-02-28"
+
+
+def test_default_params_feb_leap() -> None:
+    """default_params should compute Feb (leap year) as 1..29."""
+    mock_session = MagicMock(spec=PyiCloudSession)
+    service = _service_with_mocks(mock_session)
+
+    # Freeze 'today' to 2028-02-10 (leap year)
+    _FixedDateTime.fixed = datetime(2028, 2, 10)
+    with (
+        patch("pyicloud.services.calendar.datetime", _FixedDateTime),
+        patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"),
+    ):
+        params = service.default_params
+        assert params["startDate"] == "2028-02-01"
+        assert params["endDate"] == "2028-02-29"
+
+
+def test_refresh_client_anchors_from_dt_month() -> None:
+    """When only from_dt is provided, anchor to its month for the end bound."""
+    mock_session = MagicMock(spec=PyiCloudSession)
+    mock_response = MagicMock(spec=Response)
+    mock_response.json.return_value = {"Event": []}
+    mock_session.get.return_value = mock_response
+    service = _service_with_mocks(mock_session)
+
+    from_dt = datetime(2025, 3, 15)
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service.refresh_client(from_dt=from_dt, to_dt=None)
+
+    # Inspect params passed to GET
+    _, kwargs = mock_session.get.call_args
+    params = kwargs["params"]
+    assert params["startDate"] == "2025-03-01"
+    assert params["endDate"] == "2025-03-31"
+
+
+def test_refresh_client_anchors_to_dt_month() -> None:
+    """When only to_dt is provided, anchor to its month for the start bound."""
+    mock_session = MagicMock(spec=PyiCloudSession)
+    mock_response = MagicMock(spec=Response)
+    mock_response.json.return_value = {"Event": []}
+    mock_session.get.return_value = mock_response
+    service = _service_with_mocks(mock_session)
+
+    to_dt = datetime(2025, 4, 20)
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service.refresh_client(from_dt=None, to_dt=to_dt)
+
+    # Inspect params passed to GET
+    _, kwargs = mock_session.get.call_args
+    params = kwargs["params"]
+    assert params["startDate"] == "2025-04-01"
+    assert params["endDate"] == "2025-04-30"
+
+
 def test_apple_date_format_dataclass() -> None:
     """Test AppleDateFormat dataclass functionality."""
     # Test from_datetime for start time

@@ -517,9 +517,13 @@ class CalendarService(BaseService):
     def default_params(self) -> dict[str, Any]:
         """Returns the default parameters for the calendar service."""
         today: datetime = datetime.today()
-        first_day, last_day = monthrange(today.year, today.month)
-        from_dt = datetime(today.year, today.month, first_day)
-        to_dt = datetime(today.year, today.month, last_day)
+        _, days_in_month = monthrange(
+            today.year, today.month
+        )  # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and number of days in the month (Jan -> 31, Feb -> 28/29, etc.)
+        from_dt = datetime(
+            today.year, today.month, 1
+        )  # Hardcoded to 1 so that startDate is always the first (1st) day of the month
+        to_dt = datetime(today.year, today.month, days_in_month)
         params = dict(self.params)
         params.update(
             {
@@ -571,16 +575,32 @@ class CalendarService(BaseService):
 
     def refresh_client(self, from_dt=None, to_dt=None) -> dict[str, Any]:
         """
-        Refreshes the CalendarService endpoint, ensuring that the
-        event data is up-to-date. If no 'from_dt' or 'to_dt' datetimes
-        have been given, the range becomes this month.
+        Refresh the Calendar service and return a fresh event payload.
+
+        Date range semantics:
+        - If both 'from_dt' and 'to_dt' are provided, they are respected as-is.
+        - If exactly one bound is provided, the missing bound is anchored to the
+          same month as the provided bound and expanded to the full month
+          (1st..last day of that month).
+        - If neither is provided, defaults to the current month.
+
+        Notes:
+        - Apple's Calendar API treats 'endDate' as inclusive; events occurring on
+          the last day of the month (including all-day and 23:00->00:00 boundary
+          events) are returned. See tests in tests/test_calendar.py.
         """
         today: datetime = datetime.today()
-        first_day, last_day = monthrange(today.year, today.month)
-        if not from_dt:
-            from_dt = datetime(today.year, today.month, first_day)
-        if not to_dt:
-            to_dt = datetime(today.year, today.month, last_day)
+        # Anchor missing bound(s) to whichever bound is provided, else to 'today'
+        anchor: datetime = from_dt or to_dt or today
+        year, month = anchor.year, anchor.month
+        _, days_in_month = monthrange(
+            year, month
+        )  # (weekday_of_first_day, days_in_month)
+        # If either bound is missing, normalize to the full month of the anchor.
+        # When both bounds are provided (e.g., day/week queries), respect them as-is.
+        if from_dt is None or to_dt is None:
+            from_dt = anchor.replace(day=1)
+            to_dt = anchor.replace(day=days_in_month)
         params = dict(self.params)
         params.update(
             {
