@@ -83,6 +83,7 @@ name = "pyicloud"
 dynamic = ["version", "readme", "dependencies", "optional-dependencies"]
 description = "PyiCloud is a module which allows pythonistas to interact with iCloud webservices."
 requires-python = ">=3.10"
+license = "MIT"
 license-files = ["LICENSE.txt"]
 authors = [
     {name = "The PyiCloud Authors"}
