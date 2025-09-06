@@ -1038,10 +1038,20 @@ class PhotoAsset:
         "com.apple.quicktime-movie": "movie",
     }
 
+    FILE_TYPE_EXTENSIONS: dict[str, str] = {
+        "public.heic": ".HEIC",
+        "public.jpeg": ".JPG",
+        "public.png": ".PNG",
+        "com.apple.quicktime-movie": ".MOV",
+    }
+
     PHOTO_VERSION_LOOKUP: dict[str, str] = {
         "original": "resOriginal",
         "medium": "resJPEGMed",
         "thumb": "resJPEGThumb",
+        "original_video": "resOriginalVidCompl",
+        "medium_video": "resVidMed",
+        "thumb_video": "resVidSmall",
     }
 
     VIDEO_VERSION_LOOKUP: dict[str, str] = {
@@ -1117,6 +1127,14 @@ class PhotoAsset:
         return "movie"
 
     @property
+    def is_live_photo(self) -> bool:
+        """Check if the photo is a live photo."""
+        return (
+            self.item_type == "image"
+            and "resOriginalVidComplFileType" in self._master_record["fields"]
+        )
+
+    @property
     def versions(self) -> dict[str, dict[str, Any]]:
         """Gets the photo versions."""
         if not self._versions:
@@ -1133,7 +1151,7 @@ class PhotoAsset:
         return self._versions
 
     def _get_photo_version(self, prefix: str) -> dict[str, Any]:
-        version: dict = {"filename": self.filename}
+        version: dict[str, Any] = {}
         fields: dict[str, dict[str, Any]] = self._master_record["fields"]
         width_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Width")
         if width_entry:
@@ -1160,6 +1178,20 @@ class PhotoAsset:
             version["type"] = type_entry["value"]
         else:
             version["type"] = None
+
+        # Default to the master filename.
+        version["filename"] = self.filename
+        # For live photos, the video version has a different filename.
+        if self.is_live_photo:
+            version_type: Optional[str] = version.get("type")
+            # Check if the current version is the video component of the live photo.
+            if version_type and self.ITEM_TYPES.get(version_type, None) == "movie":
+                # Create the video filename from the image filename.
+                # e.g. IMG_1234.HEIC -> IMG_1234.MOV
+                filename_base, _ = os.path.splitext(self.filename)
+                extension: str = self.FILE_TYPE_EXTENSIONS.get(version_type, ".MOV")
+                live_photo_video_filename: str = f"{filename_base}{extension}"
+                version["filename"] = live_photo_video_filename
 
         return version
 
