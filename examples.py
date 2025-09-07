@@ -9,6 +9,7 @@ import sys
 import warnings
 from datetime import datetime, timedelta
 from typing import Any, List, Optional
+from unittest.mock import patch
 
 import click
 import requests
@@ -31,18 +32,10 @@ MAX_DISPLAY = 10
 ENABLE_SSL_VERIFICATION = True
 
 # Set the log level for HTTP commands
-# HTTP_LOG_LEVEL = logging.CRITICAL
 HTTP_LOG_LEVEL = logging.ERROR
-# HTTP_LOG_LEVEL = logging.WARNING
-# HTTP_LOG_LEVEL = logging.INFO
-# HTTP_LOG_LEVEL = logging.DEBUG
 
 # Set the log level for other commands
-# OTHER_LOG_LEVEL = logging.CRITICAL
 OTHER_LOG_LEVEL = logging.ERROR
-# OTHER_LOG_LEVEL = logging.WARNING
-# OTHER_LOG_LEVEL = logging.INFO
-# OTHER_LOG_LEVEL = logging.DEBUG
 
 # Set whether to show debug info for HTTPConnection
 HTTPCONNECTION_DEBUG_INFO = False
@@ -133,6 +126,7 @@ def parse_args() -> argparse.Namespace:
 @contextlib.contextmanager
 def configurable_ssl_verification(verify_ssl=True):
     opened_adapters = set()
+    old_merge_environment_settings = requests.Session.merge_environment_settings
 
     def merge_environment_settings_with_config(
         self, url, proxies, stream, verify, cert
@@ -178,15 +172,16 @@ def configurable_ssl_verification(verify_ssl=True):
                 pass  # Ignore errors during adapter closing
 
 
-def httpclient_logging_patch(level=HTTP_LOG_LEVEL):
+def httpclient_logging_patch(level=HTTP_LOG_LEVEL) -> None:
     """Enable HTTPConnection debug logging to the logging framework"""
+    httpclient_logger = logging.getLogger("http.client")
 
-    def httpclient_log(*args):
+    def httpclient_log(*args) -> None:
         httpclient_logger.log(level, " ".join(args))
 
     # mask the print() built-in in the http.client module to use
     # logging instead
-    http.client.print = httpclient_log
+    patch("http.client.print", httpclient_log)
     # enable debugging
     if HTTPCONNECTION_DEBUG_INFO:
         http.client.HTTPConnection.debuglevel = 1
@@ -198,90 +193,85 @@ def handle_2fa(api: PyiCloudService) -> None:
     """Handle two-factor authentication"""
     security_key_names: Optional[List[str]] = api.security_key_names
 
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        if security_key_names:
+    if security_key_names:
+        print(
+            f"Security key confirmation is required. "
+            f"Please plug in one of the following keys: {', '.join(security_key_names)}"
+        )
+
+        fido2_devices: List[CtapHidDevice] = api.fido2_devices
+
+        print("Available FIDO2 devices:")
+
+        for idx, dev in enumerate(fido2_devices, start=1):
+            print(f"{idx}: {dev}")
+
+        choice = click.prompt(
+            "Select a FIDO2 device by number",
+            type=click.IntRange(1, len(fido2_devices)),
+            default=1,
+        )
+        selected_device: CtapHidDevice = fido2_devices[choice - 1]
+
+        print("Please confirm the action using the security key")
+
+        api.confirm_security_key(selected_device)
+
+    else:
+        print("Two-factor authentication required.")
+        code: str = input(
+            "Enter the code you received of one of your approved devices: "
+        )
+        result: bool = api.validate_2fa_code(code)
+        print(f"Code validation result: {result}")
+
+        if not result:
+            print("Failed to verify security code")
+            sys.exit(1)
+
+    if not api.is_trusted_session:
+        print("Session is not trusted. Requesting trust...")
+        result = api.trust_session()
+        print(f"Session trust result: {result}")
+
+        if not result:
             print(
-                f"Security key confirmation is required. "
-                f"Please plug in one of the following keys: {', '.join(security_key_names)}"
+                "Failed to request trust. You will likely be prompted for confirmation again in the coming weeks"
             )
-
-            fido2_devices: List[CtapHidDevice] = api.fido2_devices
-
-            print("Available FIDO2 devices:")
-
-            for idx, dev in enumerate(fido2_devices, start=1):
-                print(f"{idx}: {dev}")
-
-            choice = click.prompt(
-                "Select a FIDO2 device by number",
-                type=click.IntRange(1, len(fido2_devices)),
-                default=1,
-            )
-            selected_device: CtapHidDevice = fido2_devices[choice - 1]
-
-            print("Please confirm the action using the security key")
-
-            api.confirm_security_key(selected_device)
-
-        else:
-            print("Two-factor authentication required.")
-            code: str = input(
-                "Enter the code you received of one of your approved devices: "
-            )
-            result: bool = api.validate_2fa_code(code)
-            print(f"Code validation result: {result}")
-
-            if not result:
-                print("Failed to verify security code")
-                sys.exit(1)
-
-        if not api.is_trusted_session:
-            print("Session is not trusted. Requesting trust...")
-            result = api.trust_session()
-            print(f"Session trust result: {result}")
-
-            if not result:
-                print(
-                    "Failed to request trust. You will likely be prompted for confirmation again in the coming weeks"
-                )
 
 
 def handle_2sa(api: PyiCloudService) -> None:
     """Handle two-step authentication"""
     print("Two-step authentication required. Your trusted devices are:")
 
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        trusted_devices: List[dict[str, Any]] = api.trusted_devices
-        for i, device in enumerate(trusted_devices):
-            print(
-                "  %s: %s"
-                % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
-            )
-
-        device_index: int = click.prompt(
-            "Which device would you like to use?", default=0
+    trusted_devices: List[dict[str, Any]] = api.trusted_devices
+    for i, device in enumerate(trusted_devices):
+        print(
+            "  %s: %s"
+            % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
         )
-        device: dict[str, Any] = trusted_devices[device_index]
-        if not api.send_verification_code(device):
-            print("Failed to send verification code")
-            sys.exit(1)
 
-        code = click.prompt("Please enter validation code")
-        if not api.validate_verification_code(device, code):
-            print("Failed to verify verification code")
-            sys.exit(1)
+    device_index: int = click.prompt("Which device would you like to use?", default=0)
+    device: dict[str, Any] = trusted_devices[device_index]
+    if not api.send_verification_code(device):
+        print("Failed to send verification code")
+        sys.exit(1)
+
+    code = click.prompt("Please enter validation code")
+    if not api.validate_verification_code(device, code):
+        print("Failed to verify verification code")
+        sys.exit(1)
 
 
 def get_api() -> PyiCloudService:
     parse_args()
 
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        api = PyiCloudService(
-            apple_id=APPLE_USERNAME,
-            password=APPLE_PASSWORD,
-            china_mainland=CHINA,
-            cookie_directory=COOKIE_DIR,
-        )
+    api = PyiCloudService(
+        apple_id=APPLE_USERNAME,
+        password=APPLE_PASSWORD,
+        china_mainland=CHINA,
+        cookie_directory=COOKIE_DIR,
+    )
 
     if api.requires_2fa:
         handle_2fa(api)
@@ -294,209 +284,210 @@ def get_api() -> PyiCloudService:
 
 def display_devices(api: PyiCloudService) -> None:
     """Display device info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        print(f"List of devices ({len(api.devices)}):")
-        for idx, device in enumerate(api.devices):
-            print(f"\t{idx}: {device}")
-            if idx >= MAX_DISPLAY - 1:
-                break
-        print(END_LIST)
 
-        print("First device:")
-        print(f"\t Name: {api.iphone}")
-        print(f"\t Location: {json.dumps(api.iphone.location, indent=4)}\n")
+    print(f"List of devices ({len(api.devices)}):")
+    for idx, device in enumerate(api.devices):
+        print(f"\t{idx}: {device}")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+    print("First device:")
+    print(f"\t Name: {api.iphone}")
+    print(f"\t Location: {json.dumps(api.iphone.location, indent=4)}\n")
 
 
 def display_calendars(api: PyiCloudService) -> None:
     """Display calendar info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        calendar_service: CalendarService = api.calendar
-        calendars: list[CalendarObject] = calendar_service.get_calendars(as_objs=True)
-        print(f"List of calendars ({len(calendars)}):")
-        for idx, calendar in enumerate(calendars):
-            print(f"\t{idx}: {calendar.title}")
-            if idx >= MAX_DISPLAY - 1:
-                break
-        print(END_LIST)
 
-        if calendars:
-            # Get recent events from API
-            try:
-                recent_events = calendar_service.get_events(
-                    from_dt=datetime.now() - timedelta(days=7),
-                    to_dt=datetime.now() + timedelta(days=7),
-                    as_objs=True,
-                )
-                print(f"Recent events (±7 days): {len(recent_events)} events")
-                for idx, event in enumerate(recent_events):
-                    if hasattr(event, "title") and hasattr(event, "start_date"):
-                        print(f"\t{idx}: {event.title} at {event.start_date}")
-                        if idx >= MAX_DISPLAY - 1:
-                            break
-                print(END_LIST)
-            except Exception as e:
-                print(f"Could not retrieve events: {e}\n")
+    calendar_service: CalendarService = api.calendar
+    calendars: list[CalendarObject] = calendar_service.get_calendars(as_objs=True)
+    print(f"List of calendars ({len(calendars)}):")
+    for idx, calendar in enumerate(calendars):
+        print(f"\t{idx}: {calendar.title}")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+    if not calendars:
+        return
+
+    # Get recent events from API
+    try:
+        recent_events = calendar_service.get_events(
+            from_dt=datetime.now() - timedelta(days=7),
+            to_dt=datetime.now() + timedelta(days=7),
+            as_objs=True,
+        )
+        print(f"Recent events (±7 days): {len(recent_events)} events")
+        for idx, event in enumerate(recent_events):
+            if hasattr(event, "title") and hasattr(event, "start_date"):
+                print(f"\t{idx}: {event.title} at {event.start_date}")
+                if idx >= MAX_DISPLAY - 1:
+                    break
+        print(END_LIST)
+    except Exception as e:
+        print(f"Could not retrieve events: {e}\n")
 
 
 def display_contacts(api: PyiCloudService) -> None:
     """Display contacts info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        contacts = api.contacts.all
-        if contacts:
-            print(f"List of contacts ({len(contacts)}):")
-            for idx, contact in enumerate(contacts):
-                print(
-                    f"\t{idx}: {contact.get('firstName') or contact.get('lastName') or contact.get('companyName')}"
-                )
-                if idx >= MAX_DISPLAY - 1:
-                    break
-            print(END_LIST)
-        else:
-            print("No contacts found\n")
+
+    contacts = api.contacts.all
+    if contacts:
+        print(f"List of contacts ({len(contacts)}):")
+        for idx, contact in enumerate(contacts):
+            print(
+                f"\t{idx}: {contact.get('firstName') or contact.get('lastName') or contact.get('companyName')}"
+            )
+            if idx >= MAX_DISPLAY - 1:
+                break
+        print(END_LIST)
+    else:
+        print("No contacts found\n")
 
 
 def display_drive(api: PyiCloudService) -> None:
     """Display drive info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        drive_files: list[str] = api.drive.dir()
-        print(f"List of files in iCloud Drive root ({len(drive_files)}):")
-        for idx, filename in enumerate(drive_files):
-            print(f"\t{idx}: {filename} ({api.drive[filename].type})")
-            if idx >= MAX_DISPLAY - 1:
-                break
-        print(END_LIST)
+
+    drive_files: list[str] = api.drive.dir()
+    print(f"List of files in iCloud Drive root ({len(drive_files)}):")
+    for idx, filename in enumerate(drive_files):
+        print(f"\t{idx}: {filename} ({api.drive[filename].type})")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
 
 
 def display_files(api: PyiCloudService) -> None:
     """Display files info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        try:
-            files: list[str] = api.files.dir()
-            print(f"List of files in iCloud files root ({len(files)}):")
-            for idx, filename in enumerate(files):
-                print(f"\t{idx}: {filename} ({api.files[filename].type})")
-                if idx >= MAX_DISPLAY - 1:
-                    break
-            print(END_LIST)
-        except PyiCloudServiceUnavailable as error:
-            print(f"Files service not available: {error}\n")
+
+    try:
+        files: list[str] = api.files.dir()
+        print(f"List of files in iCloud files root ({len(files)}):")
+        for idx, filename in enumerate(files):
+            print(f"\t{idx}: {filename} ({api.files[filename].type})")
+            if idx >= MAX_DISPLAY - 1:
+                break
+        print(END_LIST)
+    except PyiCloudServiceUnavailable as error:
+        print(f"Files service not available: {error}\n")
 
 
 def display_photos(api: PyiCloudService) -> None:
     """Display photo info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        print(f"List of photo albums ({len(api.photos.albums)}):")
-        for idx, album in enumerate(api.photos.albums):
-            print(f"\t{idx}: {album}")
-            if idx >= MAX_DISPLAY - 1:
-                break
-        print(END_LIST)
 
-        print(f"List of ALL PHOTOS ({len(api.photos.all)}):")
-        for idx, photo in enumerate(api.photos.all):
-            print(f"\t{idx}: {photo.filename} ({photo.item_type})")
-            if idx >= MAX_DISPLAY - 1:
-                break
-        print(END_LIST)
+    print(f"List of photo albums ({len(api.photos.albums)}):")
+    for idx, album in enumerate(api.photos.albums):
+        print(f"\t{idx}: {album}")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+    print(f"List of ALL PHOTOS ({len(api.photos.all)}):")
+    for idx, photo in enumerate(api.photos.all):
+        print(f"\t{idx}: {photo.filename} ({photo.item_type})")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
 
 
 def display_videos(api: PyiCloudService) -> None:
     """Display video info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        print(f"List of Videos ({len(api.photos.albums['Videos'])}):")
-        for idx, photo in enumerate(api.photos.albums["Videos"]):
-            print(f"\t{idx}: {photo.filename} ({photo.item_type})")
-            if idx >= MAX_DISPLAY - 1:
-                break
-        print(END_LIST)
+
+    print(f"List of Videos ({len(api.photos.albums['Videos'])}):")
+    for idx, photo in enumerate(api.photos.albums["Videos"]):
+        print(f"\t{idx}: {photo.filename} ({photo.item_type})")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
 
 
 def display_shared_photos(api: PyiCloudService) -> None:
     """Display shared photo info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        album = None
-        print(f"List of Shared Albums ({len(api.photos.shared_streams)}):")
-        for idx, album in enumerate(api.photos.shared_streams):
-            print(f"\t{idx}: {album}")
+
+    album = None
+    print(f"List of Shared Albums ({len(api.photos.shared_streams)}):")
+    for idx, album in enumerate(api.photos.shared_streams):
+        print(f"\t{idx}: {album}")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
+
+    if album and api.photos.shared_streams:
+        print(
+            f"List of Shared Photos [{album}] ({len(api.photos.shared_streams[album])}):"
+        )
+        for idx, photo in enumerate(api.photos.shared_streams[album]):
+            print(f"\t{idx}: {photo.filename} ({photo.item_type})")
+
             if idx >= MAX_DISPLAY - 1:
                 break
         print(END_LIST)
-
-        if album and api.photos.shared_streams:
-            print(
-                f"List of Shared Photos [{album}] ({len(api.photos.shared_streams[album])}):"
-            )
-            for idx, photo in enumerate(api.photos.shared_streams[album]):
-                print(f"\t{idx}: {photo.filename} ({photo.item_type})")
-
-                if idx >= MAX_DISPLAY - 1:
-                    break
-            print(END_LIST)
 
 
 def display_account(api: PyiCloudService) -> None:
     """Display account info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        print(f"Account name: {api.account_name}")
-        print(f"Account plan: {json.dumps(api.account.summary_plan, indent=4)}")
-        print(f"List of Family Member ({len(api.account.family)}):")
-        for idx, member in enumerate(api.account.family):
-            print(f"\t{idx}: {member}")
-            try:
-                photo: Response = member.get_photo()
-                print(f"\t\tPhoto: {photo}")
-                print(f"\t\tPhoto type: {photo.headers['Content-Type']}")
-                print(f"\t\tPhoto size: {photo.headers['Content-Length']}")
-            except Exception as e:
-                print(f"\t\tPhoto: Error retrieving user photo: {e}")
-            if idx >= MAX_DISPLAY - 1:
-                break
-        print(END_LIST)
+
+    print(f"Account name: {api.account_name}")
+    print(f"Account plan: {json.dumps(api.account.summary_plan, indent=4)}")
+    print(f"List of Family Member ({len(api.account.family)}):")
+    for idx, member in enumerate(api.account.family):
+        print(f"\t{idx}: {member}")
+        try:
+            photo: Response = member.get_photo()
+            print(f"\t\tPhoto: {photo}")
+            print(f"\t\tPhoto type: {photo.headers['Content-Type']}")
+            print(f"\t\tPhoto size: {photo.headers['Content-Length']}")
+        except Exception as e:
+            print(f"\t\tPhoto: Error retrieving user photo: {e}")
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
 
 
 def display_hidemyemail(api: PyiCloudService) -> None:
     """Display Hide My Email info"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
-        print(f"List of Hide My Email ({len(api.hidemyemail)}):")
-        for idx, email in enumerate(api.hidemyemail):
-            print(
-                f"\t{idx}: {email['hme']} ({email['domain']}) Active = {email['isActive']}"
-            )
-            if idx >= MAX_DISPLAY - 1:
-                break
-        print(END_LIST)
+
+    print(f"List of Hide My Email ({len(api.hidemyemail)}):")
+    for idx, email in enumerate(api.hidemyemail):
+        print(
+            f"\t{idx}: {email['hme']} ({email['domain']}) Active = {email['isActive']}"
+        )
+        if idx >= MAX_DISPLAY - 1:
+            break
+    print(END_LIST)
 
 
-def main() -> None:
-    global httpclient_logger, old_merge_environment_settings
-
-    # Store the original merge_environment_settings
-    old_merge_environment_settings = requests.Session.merge_environment_settings
-
+def setup() -> None:
+    """Setup"""
     # Enable general debug logging
     logging.basicConfig(level=OTHER_LOG_LEVEL)
 
     # Enable httpclient logging
-    httpclient_logger = logging.getLogger("http.client")
     httpclient_logging_patch()
 
-    """main function"""
-    api: PyiCloudService = get_api()
 
-    display_account(api)
-    display_devices(api)
-    display_hidemyemail(api)
-    try:
-        display_calendars(api)
-    except PyiCloudServiceUnavailable as error:
-        print(f"Calendar service not available: {error}\n")
-    display_files(api)
-    display_contacts(api)
-    display_drive(api)
-    display_photos(api)
-    display_videos(api)
-    display_shared_photos(api)
+def main() -> None:
+    """main function"""
+    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
+        api: PyiCloudService = get_api()
+
+        display_account(api)
+        display_devices(api)
+        display_hidemyemail(api)
+        try:
+            display_calendars(api)
+        except PyiCloudServiceUnavailable as error:
+            print(f"Calendar service not available: {error}\n")
+        display_files(api)
+        display_contacts(api)
+        display_drive(api)
+        display_photos(api)
+        display_videos(api)
+        display_shared_photos(api)
 
 
 if __name__ == "__main__":
+    setup()
     main()
