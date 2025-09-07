@@ -500,7 +500,7 @@ And get the user's  profile picture:
 You can access documents stored in your iCloud account by using the
 `files` property\'s `dir` method:
 
-**NOTE** If you recieve a `Account migrated` error, apple has migrated your account to iCloud drive. Please use the `api.drive` API instead.
+**NOTE** If you receive a `Account migrated` error, apple has migrated your account to iCloud drive. Please use the `api.drive` API instead.
 
 ``` pycon
 >>> api.files.dir()
