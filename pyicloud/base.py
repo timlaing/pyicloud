@@ -160,6 +160,8 @@ class PyiCloudService:
         self._photos: Optional[PhotosService] = None
         self._reminders: Optional[RemindersService] = None
 
+        self._requires_mfa: bool = False
+
         self.authenticate()
 
     def authenticate(
@@ -197,7 +199,9 @@ class PyiCloudService:
         if not login_successful:
             try:
                 self._authenticate()
+                LOGGER.debug("Authentication completed successfully")
             except PyiCloud2FARequiredException:
+                self._requires_mfa = True
                 LOGGER.debug("2FA is required")
 
         self._update_state()
@@ -247,8 +251,6 @@ class PyiCloudService:
 
         if "webservices" in self.data:
             self._webservices = self.data["webservices"]
-
-            LOGGER.debug("Authentication completed successfully")
 
     def _authenticate(self) -> None:
         LOGGER.debug("Authenticating as %s", self.account_name)
@@ -434,14 +436,18 @@ class PyiCloudService:
     def requires_2sa(self) -> bool:
         """Returns True if two-step authentication is required."""
         return self.data.get("dsInfo", {}).get("hsaVersion", 0) >= 1 and (
-            self.data.get("hsaChallengeRequired", False) or not self.is_trusted_session
+            self.data.get("hsaChallengeRequired", False)
+            or not self.is_trusted_session
+            or self._requires_mfa
         )
 
     @property
     def requires_2fa(self) -> bool:
         """Returns True if two-factor authentication is required."""
         return self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2 and (
-            self.data.get("hsaChallengeRequired", False) or not self.is_trusted_session
+            self.data.get("hsaChallengeRequired", False)
+            or not self.is_trusted_session
+            or self._requires_mfa
         )
 
     @property
@@ -664,6 +670,7 @@ class PyiCloudService:
                 headers=headers,
             )
             self._authenticate_with_token()
+            self._requires_mfa = False
             return True
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             LOGGER.error("Session trust failed.")

@@ -15,7 +15,7 @@ from typing import Any, Optional
 from click import confirm
 
 from pyicloud import PyiCloudService, utils
-from pyicloud.exceptions import PyiCloudFailedLoginException
+from pyicloud.exceptions import PyiCloudFailedLoginException, PyiCloudServiceUnavailable
 from pyicloud.services.findmyiphone import AppleDevice
 from pyicloud.ssl_context import configurable_ssl_verification
 
@@ -365,25 +365,28 @@ def _authenticate(
 
 
 def _print_devices(api: PyiCloudService, command_line: argparse.Namespace) -> None:
-    print(f"Number of devices: {len(api.devices)}", flush=True)
-    for dev in api.devices:
-        if not command_line.device_id or (
-            command_line.device_id.strip().lower() == dev.id.strip().lower()
-        ):
-            # List device(s)
-            _list_devices_option(command_line, dev)
+    try:
+        print(f"Number of devices: {len(api.devices)}", flush=True)
+        for dev in api.devices:
+            if not command_line.device_id or (
+                command_line.device_id.strip().lower() == dev.id.strip().lower()
+            ):
+                # List device(s)
+                _list_devices_option(command_line, dev)
 
-            # Play a Sound on a device
-            _play_device_sound_option(command_line, dev)
+                # Play a Sound on a device
+                _play_device_sound_option(command_line, dev)
 
-            # Display a Message on the device
-            _display_device_message_option(command_line, dev)
+                # Display a Message on the device
+                _display_device_message_option(command_line, dev)
 
-            # Display a Silent Message on the device
-            _display_device_silent_message_option(command_line, dev)
+                # Display a Silent Message on the device
+                _display_device_silent_message_option(command_line, dev)
 
-            # Enable Lost mode
-            _enable_lost_mode_option(command_line, dev)
+                # Enable Lost mode
+                _enable_lost_mode_option(command_line, dev)
+    except PyiCloudServiceUnavailable as exc:
+        print(exc)
 
 
 def _enable_lost_mode_option(
