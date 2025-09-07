@@ -85,7 +85,7 @@ class PyiCloudSession(requests.Session):
         """Load session_data from file."""
         if os.path.exists(self.cookiejar_path):
             cast(PyiCloudCookieJar, self.cookies).load(
-                ignore_discard=True, ignore_expires=True
+                ignore_discard=True, ignore_expires=False
             )
 
         self._logger.debug("Using session file %s", self.session_path)
@@ -106,7 +106,7 @@ class PyiCloudSession(requests.Session):
             self.logger.debug("Saved session data to file: %s", self.session_path)
 
         cast(PyiCloudCookieJar, self.cookies).save(
-            ignore_discard=True, ignore_expires=True
+            ignore_discard=True, ignore_expires=False
         )
         self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
 
