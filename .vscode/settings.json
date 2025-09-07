@@ -27,5 +27,6 @@
     "editor.defaultFormatter": "ms-azuretools.vscode-docker"
   },
   "pylint.importStrategy": "useBundled",
-  "python.analysis.diagnosticMode": "workspace"
+  "python.analysis.diagnosticMode": "workspace",
+  "sonarlint.testFilePattern": "**/tests/**"
 }

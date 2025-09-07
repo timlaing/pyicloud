@@ -237,7 +237,9 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
     with (
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=True),
         patch("http.cookiejar.LWPCookieJar.save") as mock_save,
+        patch("http.cookiejar.LWPCookieJar.load") as mock_load,
     ):
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -245,7 +247,9 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
         mock_response.headers.get.return_value = "application/json"
         mock_request.return_value = mock_response
         pyicloud_session = PyiCloudSession(
-            pyicloud_service_working, "", cookie_directory=""
+            service=pyicloud_service_working,
+            client_id="",
+            cookie_directory="",
         )
 
         response: Response = pyicloud_session.request(
@@ -271,7 +275,8 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
             cert=None,
             json=None,
         )
-        mock_save.assert_called_once()
+        mock_save.assert_called_once_with(ignore_discard=True, ignore_expires=False)
+        mock_load.assert_called_once_with(ignore_discard=True, ignore_expires=False)
 
 
 def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:

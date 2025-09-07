@@ -76,3 +76,4 @@ desktop.ini
 .pytest_cache
 .python-version
 uv.lock
+fetch_devices_*.py
