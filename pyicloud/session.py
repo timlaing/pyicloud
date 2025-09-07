@@ -84,9 +84,17 @@ class PyiCloudSession(requests.Session):
     def _load_session_data(self) -> None:
         """Load session_data from file."""
         if os.path.exists(self.cookiejar_path):
-            cast(PyiCloudCookieJar, self.cookies).load(
-                ignore_discard=True, ignore_expires=False
-            )
+            try:
+                cast(PyiCloudCookieJar, self.cookies).load(
+                    ignore_discard=True, ignore_expires=False
+                )
+            except OSError as exc:
+                self._logger.warning(
+                    "Failed to load cookie jar %s: %s; starting without persisted cookies",
+                    self.cookiejar_path,
+                    exc,
+                )
+                cast(PyiCloudCookieJar, self.cookies).clear()
 
         self._logger.debug("Using session file %s", self.session_path)
         self._data: dict[str, Any] = {}
@@ -101,6 +109,8 @@ class PyiCloudSession(requests.Session):
 
     def _save_session_data(self) -> None:
         """Save session_data to file."""
+        if self._cookie_directory and not os.path.isdir(self._cookie_directory):
+            os.makedirs(self._cookie_directory, exist_ok=True)
         with open(self.session_path, "w", encoding="utf-8") as outfile:
             dump(self._data, outfile)
             self.logger.debug("Saved session data to file: %s", self.session_path)

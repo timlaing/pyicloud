@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """End to End System test"""
 
 import argparse
@@ -8,7 +9,7 @@ import logging
 import sys
 import warnings
 from datetime import datetime, timedelta
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 from unittest.mock import patch
 
 import click
@@ -126,7 +127,9 @@ def parse_args() -> argparse.Namespace:
 @contextlib.contextmanager
 def configurable_ssl_verification(verify_ssl=True):
     opened_adapters = set()
-    old_merge_environment_settings = requests.Session.merge_environment_settings
+    old_merge_environment_settings: Callable = (
+        requests.Session.merge_environment_settings
+    )
 
     def merge_environment_settings_with_config(
         self, url, proxies, stream, verify, cert
@@ -174,14 +177,16 @@ def configurable_ssl_verification(verify_ssl=True):
 
 def httpclient_logging_patch(level=HTTP_LOG_LEVEL) -> None:
     """Enable HTTPConnection debug logging to the logging framework"""
-    httpclient_logger = logging.getLogger("http.client")
+    httpclient_logger: logging.Logger = logging.getLogger("http.client")
+    httpclient_logger.setLevel(level)
 
     def httpclient_log(*args) -> None:
-        httpclient_logger.log(level, " ".join(args))
+        httpclient_logger.log(level, " ".join(map(str, args)))
 
     # mask the print() built-in in the http.client module to use
     # logging instead
-    patch("http.client.print", httpclient_log)
+    patch("http.client.print", httpclient_log).start()
+
     # enable debugging
     if HTTPCONNECTION_DEBUG_INFO:
         http.client.HTTPConnection.debuglevel = 1
@@ -394,13 +399,15 @@ def display_photos(api: PyiCloudService) -> None:
 
 def display_videos(api: PyiCloudService) -> None:
     """Display video info"""
-
-    print(f"List of Videos ({len(api.photos.albums['Videos'])}):")
-    for idx, photo in enumerate(api.photos.albums["Videos"]):
-        print(f"\t{idx}: {photo.filename} ({photo.item_type})")
-        if idx >= MAX_DISPLAY - 1:
-            break
-    print(END_LIST)
+    if "Videos" in api.photos.albums:
+        print(f"List of Videos ({len(api.photos.albums['Videos'])}):")
+        for idx, photo in enumerate(api.photos.albums["Videos"]):
+            print(f"\t{idx}: {photo.filename} ({photo.item_type})")
+            if idx >= MAX_DISPLAY - 1:
+                break
+        print(END_LIST)
+    else:
+        print("No 'Videos' album found")
 
 
 def display_shared_photos(api: PyiCloudService) -> None:
