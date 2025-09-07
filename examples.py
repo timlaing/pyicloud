@@ -206,6 +206,10 @@ def handle_2fa(api: PyiCloudService) -> None:
 
         fido2_devices: List[CtapHidDevice] = api.fido2_devices
 
+        if not fido2_devices:
+            print("No FIDO2 devices detected. Connect a security key and try again.")
+            sys.exit(1)
+
         print("Available FIDO2 devices:")
 
         for idx, dev in enumerate(fido2_devices, start=1):
@@ -250,13 +254,20 @@ def handle_2sa(api: PyiCloudService) -> None:
     print("Two-step authentication required. Your trusted devices are:")
 
     trusted_devices: List[dict[str, Any]] = api.trusted_devices
+    if not trusted_devices:
+        print("No trusted devices are available for 2-step verification.")
+        sys.exit(1)
     for i, device in enumerate(trusted_devices):
         print(
             "  %s: %s"
             % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
         )
 
-    device_index: int = click.prompt("Which device would you like to use?", default=0)
+    device_index: int = click.prompt(
+        "Which device would you like to use?",
+        type=click.IntRange(0, len(trusted_devices) - 1),
+        default=0,
+    )
     device: dict[str, Any] = trusted_devices[device_index]
     if not api.send_verification_code(device):
         print("Failed to send verification code")
