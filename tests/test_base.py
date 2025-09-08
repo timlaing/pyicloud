@@ -28,6 +28,8 @@ from pyicloud.services.ubiquity import UbiquityService
 from pyicloud.session import PyiCloudSession
 from pyicloud.utils import b64_encode
 
+from tests.const_login import LOGIN_2FA
+
 
 def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> None:
     """Test the authenticate method with force_refresh=True."""
@@ -238,7 +240,7 @@ def test_requires_2sa_property(pyicloud_service: PyiCloudService) -> None:
 
 def test_requires_2fa_property(pyicloud_service: PyiCloudService) -> None:
     """Test the requires_2fa property."""
-    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service.data = LOGIN_2FA
     assert pyicloud_service.requires_2fa
 
 
