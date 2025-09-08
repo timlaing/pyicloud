@@ -432,6 +432,13 @@ class PyiCloudService:
         """Return the session."""
         return self._session
 
+    def _is_mfa_required(self) -> bool:
+        return (
+            self.data.get("hsaChallengeRequired", False)
+            or not self.is_trusted_session
+            or self._requires_mfa
+        )
+
     @property
     def requires_2sa(self) -> bool:
         """Returns True if two-step authentication is required."""
@@ -442,15 +449,19 @@ class PyiCloudService:
         )
 
     @property
+    def requires_2sa(self) -> bool:
+        """Returns True if two-step authentication is required."""
+        return (
+            self._is_mfa_required()
+            and self.data.get("dsInfo", {}).get("hsaVersion", 0) >= 1
+        )
+
+    @property
     def requires_2fa(self) -> bool:
         """Returns True if two-factor authentication is required."""
         return (
-            self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
-            and (
-                self.data.get("hsaChallengeRequired", False)
-                or not self.is_trusted_session
-                or self._requires_mfa
-            )
+            self._is_mfa_required()
+            and self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
             and self.data.get("ICDRSCapableDeviceCount", 0) > 0
         )
 
@@ -676,7 +687,7 @@ class PyiCloudService:
                 headers=headers,
             )
             self._authenticate_with_token()
-            LOGGER.error("Session trust successful.")
+            LOGGER.debug("Session trust successful.")
             return True
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             LOGGER.error("Session trust failed.")
