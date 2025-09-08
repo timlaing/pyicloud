@@ -758,6 +758,10 @@ class PyiCloudService(object):
                     params=self.params,
                 )
             except (PyiCloudAPIResponseException,) as error:
+                if "Account migrated" == error.reason:
+                    raise PyiCloudServiceUnavailable(
+                        "Files service not available use `api.drive` instead"
+                    ) from error
                 raise PyiCloudServiceUnavailable(
                     "Files service not available"
                 ) from error

@@ -495,10 +495,12 @@ And get the user's  profile picture:
 {'signature': 'the signature', 'url': 'URL to the picture', 'crop': {'x': 0, 'width': 640, 'y': 110, 'height': 640}}
 ```
 
-## File Storage (Ubiquity)
+## File Storage (Ubiquity) - Legacy service
 
 You can access documents stored in your iCloud account by using the
 `files` property\'s `dir` method:
+
+**NOTE** If you receive a `Account migrated` error, apple has migrated your account to iCloud drive. Please use the `api.drive` API instead.
 
 ``` pycon
 >>> api.files.dir()
