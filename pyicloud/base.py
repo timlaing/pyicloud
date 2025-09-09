@@ -206,8 +206,6 @@ class PyiCloudService(object):
         self._photos: Optional[PhotosService] = None
         self._reminders: Optional[RemindersService] = None
 
-        self._requires_mfa: bool = False
-
         self.authenticate()
 
     def authenticate(
@@ -245,9 +243,7 @@ class PyiCloudService(object):
         if not login_successful:
             try:
                 self._authenticate()
-                LOGGER.debug("Authentication completed successfully")
             except PyiCloud2FARequiredException:
-                self._requires_mfa = True
                 LOGGER.debug("2FA is required")
 
         self._update_state()
@@ -263,6 +259,8 @@ class PyiCloudService(object):
 
         if "webservices" in self.data:
             self._webservices = self.data["webservices"]
+
+            LOGGER.debug("Authentication completed successfully")
 
     def _authenticate(self) -> None:
         LOGGER.debug("Authenticating as %s", self.account_name)
@@ -428,28 +426,18 @@ class PyiCloudService(object):
 
         return headers
 
-    def _is_mfa_required(self) -> bool:
-        return (
-            self.data.get("hsaChallengeRequired", False)
-            or not self.is_trusted_session
-            or self._requires_mfa
-        )
-
     @property
     def requires_2sa(self) -> bool:
         """Returns True if two-step authentication is required."""
-        return (
-            self._is_mfa_required()
-            and self.data.get("dsInfo", {}).get("hsaVersion", 0) >= 1
+        return self.data.get("dsInfo", {}).get("hsaVersion", 0) >= 1 and (
+            self.data.get("hsaChallengeRequired", False) or not self.is_trusted_session
         )
 
     @property
     def requires_2fa(self) -> bool:
         """Returns True if two-factor authentication is required."""
-        return (
-            self._is_mfa_required()
-            and self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
-            and self.data.get("ICDRSCapableDeviceCount", 0) > 0
+        return self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2 and (
+            self.data.get("hsaChallengeRequired", False) or not self.is_trusted_session
         )
 
     @property
@@ -664,8 +652,6 @@ class PyiCloudService(object):
 
     def trust_session(self) -> bool:
         """Request session trust to avoid user log in going forward."""
-        self._requires_mfa = False
-
         headers: dict[str, Any] = self._get_auth_headers()
 
         try:
@@ -674,7 +660,6 @@ class PyiCloudService(object):
                 headers=headers,
             )
             self._authenticate_with_token()
-            LOGGER.debug("Session trust successful.")
             return True
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             LOGGER.error("Session trust failed.")
