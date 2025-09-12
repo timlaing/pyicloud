@@ -1,6 +1,5 @@
 """Reminders service."""
 
-import json
 import time
 import uuid
 from datetime import datetime
@@ -100,32 +99,30 @@ class RemindersService(BaseService):
 
         req = self.session.post(
             f"{self.service_root}/rd/reminders/tasks",
-            data=json.dumps(
-                {
-                    "Reminders": {
-                        "title": title,
-                        "description": description,
-                        "pGuid": pguid,
-                        "etag": None,
-                        "order": None,
-                        "priority": 0,
-                        "recurrence": None,
-                        "alarms": [],
-                        "startDate": None,
-                        "startDateTz": None,
-                        "startDateIsAllDay": False,
-                        "completedDate": None,
-                        "dueDate": due_dates,
-                        "dueDateIsAllDay": False,
-                        "lastModifiedDate": None,
-                        "createdDate": None,
-                        "isFamily": None,
-                        "createdDateExtended": int(time.time() * 1000),
-                        "guid": str(uuid.uuid4()),
-                    },
-                    "ClientState": {"Collections": list(self.collections.values())},
-                }
-            ),
+            json={
+                "Reminders": {
+                    "title": title,
+                    "description": description,
+                    "pGuid": pguid,
+                    "etag": None,
+                    "order": None,
+                    "priority": 0,
+                    "recurrence": None,
+                    "alarms": [],
+                    "startDate": None,
+                    "startDateTz": None,
+                    "startDateIsAllDay": False,
+                    "completedDate": None,
+                    "dueDate": due_dates,
+                    "dueDateIsAllDay": False,
+                    "lastModifiedDate": None,
+                    "createdDate": None,
+                    "isFamily": None,
+                    "createdDateExtended": int(time.time() * 1000),
+                    "guid": str(uuid.uuid4()),
+                },
+                "ClientState": {"Collections": list(self.collections.values())},
+            },
             params=params_reminders,
         )
         return req.ok

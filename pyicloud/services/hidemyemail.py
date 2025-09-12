@@ -1,6 +1,5 @@
 """Hide my email service."""
 
-import json
 from typing import Any, Generator, Optional
 
 from requests import Response
@@ -72,13 +71,11 @@ class HideMyEmailService(BaseService):
         req: Response = self.session.post(
             self._reserve_endpoint,
             params=self.params,
-            data=json.dumps(
-                {
-                    "hme": email,
-                    "label": label,
-                    "note": note,
-                }
-            ),
+            json={
+                "hme": email,
+                "label": label,
+                "note": note,
+            },
         )
         response = req.json()
         return response.get("result", {})
@@ -117,7 +114,9 @@ class HideMyEmailService(BaseService):
         req: Response = self.session.post(
             self._get_endpoint,
             params=self.params,
-            data=json.dumps({"anonymousId": anonymous_id}),
+            json={
+                "anonymousId": anonymous_id,
+            },
         )
         response = req.json()
         return response.get("result", {})
@@ -146,7 +145,7 @@ class HideMyEmailService(BaseService):
         req: Response = self.session.post(
             self._update_metadata_endpoint,
             params=self.params,
-            data=json.dumps(payload),
+            json=payload,
         )
         response = req.json()
         return response.get("result", {})
@@ -164,7 +163,9 @@ class HideMyEmailService(BaseService):
         req: Response = self.session.post(
             self._delete_endpoint,
             params=self.params,
-            data=json.dumps({"anonymousId": anonymous_id}),
+            json={
+                "anonymousId": anonymous_id,
+            },
         )
         response = req.json()
         return response.get("result", {})
@@ -185,7 +186,9 @@ class HideMyEmailService(BaseService):
         req: Response = self.session.post(
             self._deactivate_endpoint,
             params=self.params,
-            data=json.dumps({"anonymousId": anonymous_id}),
+            json={
+                "anonymousId": anonymous_id,
+            },
         )
         response = req.json()
         return response.get("result", {})
@@ -206,7 +209,9 @@ class HideMyEmailService(BaseService):
         req: Response = self.session.post(
             self._reactivate_endpoint,
             params=self.params,
-            data=json.dumps({"anonymousId": anonymous_id}),
+            json={
+                "anonymousId": anonymous_id,
+            },
         )
         response = req.json()
         return response.get("result", {})
