@@ -86,7 +86,7 @@ class PyiCloudSession(requests.Session):
         if os.path.exists(self.cookiejar_path):
             try:
                 cast(PyiCloudCookieJar, self.cookies).load(
-                    ignore_discard=True, ignore_expires=False
+                    ignore_discard=False, ignore_expires=False
                 )
             except OSError as exc:
                 self._logger.warning(
@@ -116,7 +116,7 @@ class PyiCloudSession(requests.Session):
             self.logger.debug("Saved session data to file: %s", self.session_path)
 
         cast(PyiCloudCookieJar, self.cookies).save(
-            ignore_discard=True, ignore_expires=False
+            ignore_discard=False, ignore_expires=False
         )
         self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
 

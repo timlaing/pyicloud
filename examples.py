@@ -21,6 +21,7 @@ from urllib3.exceptions import InsecureRequestWarning
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.calendar import CalendarObject, CalendarService
+from pyicloud.services.photos import PhotoAlbum
 
 END_LIST = "End List\n"
 MAX_DISPLAY = 10
@@ -52,7 +53,7 @@ CHINA = False
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments"""
-    global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME, CHINA
+    global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME, CHINA  # pylint: disable=global-statement
     parser = argparse.ArgumentParser(description="End to End Test of Services")
 
     parser.add_argument(
@@ -126,6 +127,7 @@ def parse_args() -> argparse.Namespace:
 
 @contextlib.contextmanager
 def configurable_ssl_verification(verify_ssl=True):
+    """Context manager to configure SSL verification for requests"""
     opened_adapters = set()
     old_merge_environment_settings: Callable = (
         requests.Session.merge_environment_settings
@@ -280,6 +282,7 @@ def handle_2sa(api: PyiCloudService) -> None:
 
 
 def get_api() -> PyiCloudService:
+    """Get authenticated API object"""
     parse_args()
 
     api = PyiCloudService(
@@ -433,10 +436,8 @@ def display_shared_photos(api: PyiCloudService) -> None:
     print(END_LIST)
 
     if album and api.photos.shared_streams:
-        print(
-            f"List of Shared Photos [{album}] ({len(api.photos.shared_streams[album])}):"
-        )
-        for idx, photo in enumerate(api.photos.shared_streams[album]):
+        print(f"List of Shared Photos [{album}] ({len(album)}):")
+        for idx, photo in enumerate(album):
             print(f"\t{idx}: {photo.filename} ({photo.item_type})")
 
             if idx >= MAX_DISPLAY - 1:
@@ -477,6 +478,30 @@ def display_hidemyemail(api: PyiCloudService) -> None:
     print(END_LIST)
 
 
+def album_management(api: PyiCloudService) -> None:
+    """Test album management functions"""
+
+    album_name = "Test Album from API"
+    print(f"Creating album '{album_name}'...")
+    album: PhotoAlbum | None = api.photos.create_album(album_name)
+    print(f"Album created: {album}")
+    if album is None:
+        print("Album creation failed.")
+        return
+
+    print(f"Album '{album_name}' created successfully.")
+    album.name = "Renamed Album"
+    print(f"Album renamed to '{album.name}'")
+
+    album.upload("/workspaces/pyicloud/Moon.jpg")
+
+    print(f"Deleting album '{album.name}'...")
+    if album.delete():
+        print("Album deleted.")
+    else:
+        print("Album deletion failed.")
+
+
 def setup() -> None:
     """Setup"""
     # Enable general debug logging
@@ -504,6 +529,7 @@ def main() -> None:
         display_photos(api)
         display_videos(api)
         display_shared_photos(api)
+        album_management(api)
 
 
 if __name__ == "__main__":
