@@ -170,7 +170,7 @@ class PyiCloudService(object):
         self._with_family: bool = with_family
         self._password_filter: Optional[PyiCloudPasswordFilter] = None
 
-        _cookie_directory = self._setup_cookie_directory(cookie_directory)
+        _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
 
         self.session: PyiCloudSession = PyiCloudSession(
             self,
