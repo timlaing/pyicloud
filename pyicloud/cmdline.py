@@ -47,7 +47,9 @@ def _create_parser() -> argparse.ArgumentParser:
         dest="username",
         default="",
         help="Apple ID to Use",
+        required=True,
     )
+
     parser.add_argument(
         "--password",
         action="store",
@@ -58,6 +60,7 @@ def _create_parser() -> argparse.ArgumentParser:
             "fetched from the system keyring."
         ),
     )
+
     parser.add_argument(
         "--china-mainland",
         action="store_true",
@@ -65,6 +68,7 @@ def _create_parser() -> argparse.ArgumentParser:
         default=False,
         help="If the country/region setting of the Apple ID is China mainland",
     )
+
     parser.add_argument(
         "-n",
         "--non-interactive",
@@ -73,6 +77,7 @@ def _create_parser() -> argparse.ArgumentParser:
         default=True,
         help="Disable interactive prompts.",
     )
+
     parser.add_argument(
         "--delete-from-keyring",
         action="store_true",
@@ -80,21 +85,32 @@ def _create_parser() -> argparse.ArgumentParser:
         default=False,
         help="Delete stored password in system keyring for this username.",
     )
-    parser.add_argument(
+
+    # Group for listing options
+    list_group = parser.add_argument_group(
+        title="Listing Options",
+        description="Options for listing devices",
+    )
+
+    # Mutually exclusive group for listing options
+    list_type_group = list_group.add_mutually_exclusive_group()
+    list_type_group.add_argument(
         "--list",
         action="store_true",
         dest="list",
         default=False,
         help="Short Listings for Device(s) associated with account",
     )
-    parser.add_argument(
+
+    list_type_group.add_argument(
         "--llist",
         action="store_true",
         dest="longlist",
         default=False,
         help="Detailed Listings for Device(s) associated with account",
     )
-    parser.add_argument(
+
+    list_group.add_argument(
         "--locate",
         action="store_true",
         dest="locate",
@@ -146,6 +162,7 @@ def _create_parser() -> argparse.ArgumentParser:
         default=False,
         help="Enable Lost mode for the device",
     )
+
     parser.add_argument(
         "--lostphone",
         action="store",
@@ -153,6 +170,7 @@ def _create_parser() -> argparse.ArgumentParser:
         default=False,
         help="Phone Number allowed to call when lost mode is enabled",
     )
+
     parser.add_argument(
         "--lostpassword",
         action="store",
@@ -160,6 +178,7 @@ def _create_parser() -> argparse.ArgumentParser:
         default=False,
         help="Forcibly active this passcode on the idevice",
     )
+
     parser.add_argument(
         "--lostmessage",
         action="store",
@@ -176,6 +195,7 @@ def _create_parser() -> argparse.ArgumentParser:
         default="",
         help="Save device data to a file in the current directory.",
     )
+
     parser.add_argument(
         "--log-level",
         action="store",
@@ -189,6 +209,13 @@ def _create_parser() -> argparse.ArgumentParser:
         "--debug",
         action="store_true",
         help="Enable debug logging",
+    )
+
+    parser.add_argument(
+        "--accept-terms",
+        action="store_true",
+        default=False,
+        help="Automatically accept terms and conditions",
     )
 
     return parser

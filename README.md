@@ -79,6 +79,12 @@ Save password in keyring? [y/N]: N
 which point you will have to re-authenticate. This interval is currently
 two months.
 
+**Note**: Apple will require you to accept new terms and conditions to
+access the iCloud web service. This will result in login failures until
+the terms are accepted. This can be automatically accepted by PyiCloud
+using the `--accept-terms` command-line option. Alternatively you can
+visit the iCloud web site to view and accept the terms.
+
 ### Two-step and two-factor authentication (2SA/2FA)
 
 If you have enabled two-factor authentications (2FA) or [two-step

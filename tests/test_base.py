@@ -6,11 +6,12 @@ Test the PyiCloudService and PyiCloudSession classes."""
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
-from requests import Response
+from requests import HTTPError, Response
 
 from pyicloud.base import PyiCloudService, PyiCloudSession, b64_encode
 from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
+    PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
     PyiCloudFailedLoginException,
     PyiCloudServiceNotActivatedException,
@@ -189,6 +190,10 @@ def test_trust_session_success(pyicloud_service: PyiCloudService) -> None:
             "scnt": "test_scnt",
             "session_id": "test_session_id",
             "session_token": "test_session_token",
+        }
+        mock_session.post.return_value.json.return_value = {
+            "termsUpdateNeeded": False,
+            "hsaTrustedBrowser": True,
         }
         pyicloud_service.session = mock_session
         assert pyicloud_service.trust_session()
@@ -566,3 +571,127 @@ def test_request_pcs_for_service_raises_on_unknown_message(
     ):
         pyicloud_service._request_pcs_for_service("photos")
         mock_logger.error.assert_called()
+
+
+def test_handle_accept_terms_no_terms_update_needed(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _handle_accept_terms when no terms update is needed (should do nothing)."""
+    pyicloud_service.data = {"termsUpdateNeeded": False}
+    login_data = {"test": "data"}
+    # Should not raise or call anything
+    pyicloud_service.session = MagicMock()
+    pyicloud_service._accept_terms = True
+    pyicloud_service._handle_accept_terms(login_data)
+    pyicloud_service.session.get.assert_not_called()
+    pyicloud_service.session.post.assert_not_called()
+
+
+def test_handle_accept_terms_terms_update_needed_accept_terms_false(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _handle_accept_terms when terms update is needed and accept_terms is False (should raise)."""
+    pyicloud_service.data = {"termsUpdateNeeded": True}
+    pyicloud_service._accept_terms = False
+    login_data = {"test": "data"}
+    with pytest.raises(
+        PyiCloudAcceptTermsException,
+        match="You must accept the updated terms of service",
+    ):
+        pyicloud_service._handle_accept_terms(login_data)
+
+
+def test_handle_accept_terms_terms_update_needed_accept_terms_true_success(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _handle_accept_terms when terms update is needed and accept_terms is True (should accept terms)."""
+    pyicloud_service.data = {
+        "termsUpdateNeeded": True,
+        "dsInfo": {"languageCode": "en_US"},
+    }
+    pyicloud_service._accept_terms = True
+    login_data = {"test": "data"}
+
+    # Mock session.get and session.post
+    mock_get = MagicMock()
+    mock_post = MagicMock()
+    pyicloud_service.session.get = mock_get
+    pyicloud_service.session.post = mock_post
+
+    # Mock getTerms response
+    get_terms_response = MagicMock()
+    get_terms_response.raise_for_status = MagicMock()
+    get_terms_response.json.return_value = {"iCloudTerms": {"version": 42}}
+    mock_get.side_effect = [get_terms_response, get_terms_response]
+
+    # Mock accountLogin response
+    post_response = MagicMock()
+    post_response.raise_for_status = MagicMock()
+    post_response.json.return_value = {"new": "data"}
+    mock_post.return_value = post_response
+
+    pyicloud_service._handle_accept_terms(login_data)
+
+    # Check calls
+    mock_get.assert_any_call(
+        f"{pyicloud_service._setup_endpoint}/getTerms",
+        params=pyicloud_service.params,
+        json={"locale": "en_US"},
+    )
+    mock_get.assert_any_call(
+        f"{pyicloud_service._setup_endpoint}/repairDone",
+        params=pyicloud_service.params,
+        json={"acceptedICloudTerms": 42},
+    )
+    mock_post.assert_called_once_with(
+        f"{pyicloud_service._setup_endpoint}/accountLogin", json=login_data
+    )
+    assert pyicloud_service.data == {"new": "data"}
+
+
+def test_handle_accept_terms_terms_update_needed_accept_terms_true_http_error(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _handle_accept_terms when terms update is needed and accept_terms is True but HTTP error occurs."""
+    pyicloud_service.data = {
+        "termsUpdateNeeded": True,
+        "dsInfo": {"languageCode": "en_US"},
+    }
+    pyicloud_service._accept_terms = True
+    login_data = {"test": "data"}
+
+    # Mock session.get to raise HTTPError
+    mock_get = MagicMock()
+    pyicloud_service.session.get = mock_get
+    mock_get.side_effect = HTTPError("HTTP error")
+
+    with pytest.raises(HTTPError):
+        pyicloud_service._handle_accept_terms(login_data)
+
+
+def test_handle_accept_terms_terms_update_needed_accept_terms_true_post_error(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _handle_accept_terms when terms update is needed and accept_terms is True but POST raises HTTPError."""
+    pyicloud_service.data = {
+        "termsUpdateNeeded": True,
+        "dsInfo": {"languageCode": "en_US"},
+    }
+    pyicloud_service._accept_terms = True
+    login_data = {"test": "data"}
+
+    # Mock session.get for getTerms and repairDone
+    mock_get = MagicMock()
+    pyicloud_service.session.get = mock_get
+    get_terms_response = MagicMock()
+    get_terms_response.raise_for_status = MagicMock()
+    get_terms_response.json.return_value = {"iCloudTerms": {"version": 42}}
+    mock_get.side_effect = [get_terms_response, get_terms_response]
+
+    # Mock session.post to raise HTTPError
+    mock_post = MagicMock()
+    pyicloud_service.session.post = mock_post
+    mock_post.side_effect = HTTPError("POST error")
+
+    with pytest.raises(HTTPError):
+        pyicloud_service._handle_accept_terms(login_data)

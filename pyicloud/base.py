@@ -26,6 +26,7 @@ from requests.models import Response
 from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
+    PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
     PyiCloudFailedLoginException,
     PyiCloudPasswordException,
@@ -152,6 +153,7 @@ class PyiCloudService(object):
         client_id: Optional[str] = None,
         with_family: bool = True,
         china_mainland: bool = False,
+        accept_terms: bool = False,
     ) -> None:
         self._is_china_mainland: bool = (
             china_mainland or environ.get("icloud_china", "0") == "1"
@@ -159,6 +161,7 @@ class PyiCloudService(object):
         self._setup_endpoints()
         self._password: Optional[str] = password
         self._apple_id: str = apple_id
+        self._accept_terms: bool = accept_terms
 
         if self._password is None:
             self._password = get_password_from_keyring(apple_id)
@@ -247,6 +250,38 @@ class PyiCloudService(object):
                 LOGGER.debug("2FA is required")
 
         self._update_state()
+
+    def _handle_accept_terms(self, login_data: dict) -> None:
+        """Handle accepting updated terms of service."""
+        if self.data.get("termsUpdateNeeded"):
+            if not self._accept_terms:
+                raise PyiCloudAcceptTermsException(
+                    "You must accept the updated terms of service to continue. "
+                    "Set accept_terms=True to accept them."
+                )
+            resp: Response = self.session.get(
+                f"{self._setup_endpoint}/getTerms",
+                params=self.params,
+                json={
+                    "locale": self.data.get("dsInfo", {}).get("languageCode", "en_US")
+                },
+            )
+            resp.raise_for_status()
+            terms_info: dict[str, Any] = resp.json()
+            version: int = terms_info.get("iCloudTerms", {}).get("version")
+            resp = self.session.get(
+                f"{self._setup_endpoint}/repairDone",
+                params=self.params,
+                json={"acceptedICloudTerms": version},
+            )
+            resp.raise_for_status()
+
+            resp = self.session.post(
+                f"{self._setup_endpoint}/accountLogin", json=login_data
+            )
+            resp.raise_for_status()
+
+            self.data = resp.json()
 
     def _update_state(self) -> None:
         """Update the state of the service."""
@@ -347,7 +382,7 @@ class PyiCloudService(object):
             raise PyiCloudFailedLoginException("No session token available")
 
         try:
-            data: dict[str, Any] = {
+            login_data: dict[str, Any] = {
                 "accountCountryCode": self.session.data.get("account_country"),
                 "dsWebAuthToken": self.session.data.get("session_token"),
                 "extended_login": True,
@@ -355,11 +390,14 @@ class PyiCloudService(object):
             }
 
             resp: Response = self.session.post(
-                f"{self._setup_endpoint}/accountLogin", json=data
+                f"{self._setup_endpoint}/accountLogin", json=login_data
             )
             resp.raise_for_status()
 
             self.data = resp.json()
+
+            self._handle_accept_terms(login_data)
+
             if not self.is_trusted_session:
                 raise PyiCloud2FARequiredException(self.account_name, resp)
         except (PyiCloudAPIResponseException, HTTPError) as error:
@@ -368,14 +406,16 @@ class PyiCloudService(object):
 
     def _authenticate_with_credentials_service(self, service: Optional[str]) -> None:
         """Authenticate to a specific service using credentials."""
-        data: dict[str, Any] = {
+        login_data: dict[str, Any] = {
             "appName": service,
             "apple_id": self.account_name,
             "password": self.password,
         }
 
         try:
-            self.session.post(f"{self._setup_endpoint}/accountLogin", json=data)
+            self.session.post(f"{self._setup_endpoint}/accountLogin", json=login_data)
+
+            self._handle_accept_terms(login_data)
 
             self.data = self._validate_token()
         except PyiCloudAPIResponseException as error:
