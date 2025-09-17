@@ -36,6 +36,34 @@ class PyiCloudCookieJar(
 ):
     """Mix the Requests CookieJar with the LWPCookieJar to allow persistance"""
 
+    def load(
+        self,
+        filename: Optional[str] = None,
+        ignore_discard: bool = True,
+        ignore_expires: bool = False,
+    ) -> None:
+        """Load cookies from file."""
+        super().load(
+            ignore_discard=ignore_discard,
+            ignore_expires=ignore_expires,
+        )
+        try:
+            self.clear(domain=".icloud.com", path="/", name="X-APPLE-WEBAUTH-FMIP")
+        except KeyError:
+            pass  # Cookie did not exist, nothing to clear
+
+    def save(
+        self,
+        filename: Optional[str] = None,
+        ignore_discard: bool = True,
+        ignore_expires: bool = False,
+    ) -> None:
+        """Save cookies to file."""
+        super().save(
+            ignore_discard=ignore_discard,
+            ignore_expires=ignore_expires,
+        )
+
 
 class PyiCloudSession(requests.Session):
     """iCloud session."""
@@ -85,9 +113,7 @@ class PyiCloudSession(requests.Session):
         """Load session_data from file."""
         if os.path.exists(self.cookiejar_path):
             try:
-                cast(PyiCloudCookieJar, self.cookies).load(
-                    ignore_discard=False, ignore_expires=False
-                )
+                cast(PyiCloudCookieJar, self.cookies).load()
             except OSError as exc:
                 self._logger.warning(
                     "Failed to load cookie jar %s: %s; starting without persisted cookies",
@@ -115,9 +141,7 @@ class PyiCloudSession(requests.Session):
             dump(self._data, outfile)
             self.logger.debug("Saved session data to file: %s", self.session_path)
 
-        cast(PyiCloudCookieJar, self.cookies).save(
-            ignore_discard=False, ignore_expires=False
-        )
+        cast(PyiCloudCookieJar, self.cookies).save()
         self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
 
     def _update_session_data(self, response: Response) -> None:
