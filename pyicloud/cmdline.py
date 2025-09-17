@@ -47,7 +47,6 @@ def _create_parser() -> argparse.ArgumentParser:
         dest="username",
         default="",
         help="Apple ID to Use",
-        required=True,
     )
 
     parser.add_argument(
