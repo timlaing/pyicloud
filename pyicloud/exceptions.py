@@ -48,6 +48,10 @@ class PyiCloudFailedLoginException(PyiCloudException):
     """iCloud failed login exception."""
 
 
+class PyiCloudAcceptTermsException(PyiCloudException):
+    """iCloud accept terms exception."""
+
+
 class PyiCloud2FARequiredException(PyiCloudException):
     """iCloud 2FA required exception."""
 
