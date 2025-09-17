@@ -268,7 +268,9 @@ class PyiCloudService(object):
             )
             resp.raise_for_status()
             terms_info: dict[str, Any] = resp.json()
-            version: int = terms_info.get("iCloudTerms", {}).get("version")
+            version: int | None = terms_info.get("iCloudTerms", {}).get("version")
+            if version is None:
+                raise PyiCloudAcceptTermsException("Could not get terms version")
             resp = self.session.get(
                 f"{self._setup_endpoint}/repairDone",
                 params=self.params,
