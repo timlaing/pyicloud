@@ -82,6 +82,12 @@ def test_username_password_invalid() -> None:
             china_mainland=False,
             delete_from_keyring=False,
             loglevel="info",
+            no_verify_ssl=False,
+            http_proxy=None,
+            https_proxy=None,
+            session_dir="./",
+            accept_terms=False,
+            with_family=False,
         )
         main()
 
@@ -101,6 +107,12 @@ def test_username_password_invalid() -> None:
             china_mainland=False,
             delete_from_keyring=False,
             loglevel="error",
+            no_verify_ssl=True,
+            http_proxy=None,
+            https_proxy=None,
+            session_dir="./",
+            accept_terms=False,
+            with_family=False,
         )
         main()
 
@@ -119,6 +131,12 @@ def test_username_password_invalid() -> None:
             china_mainland=False,
             delete_from_keyring=False,
             loglevel="warning",
+            no_verify_ssl=False,
+            http_proxy="http://proxy:8080",
+            https_proxy="https://proxy:8080",
+            session_dir="./",
+            accept_terms=True,
+            with_family=True,
         )
         main()
 
@@ -151,6 +169,12 @@ def test_username_password_requires_2fa() -> None:
             silentmessage=None,
             lostmode=None,
             loglevel="warning",
+            no_verify_ssl=True,
+            http_proxy=None,
+            https_proxy=None,
+            session_dir="./",
+            accept_terms=False,
+            with_family=False,
         )
         main()
 
@@ -181,6 +205,12 @@ def test_device_outputfile() -> None:
             silentmessage=None,
             lostmode=None,
             loglevel="none",
+            no_verify_ssl=True,
+            http_proxy=None,
+            https_proxy=None,
+            session_dir="./",
+            accept_terms=False,
+            with_family=False,
         )
         main()
 

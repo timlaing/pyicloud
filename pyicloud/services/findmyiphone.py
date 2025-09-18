@@ -4,7 +4,11 @@ from typing import Any, Iterator, Optional
 
 from requests import Response
 
-from pyicloud.exceptions import PyiCloudNoDevicesException, PyiCloudServiceUnavailable
+from pyicloud.exceptions import (
+    PyiCloudAuthRequiredException,
+    PyiCloudNoDevicesException,
+    PyiCloudServiceUnavailable,
+)
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 
@@ -35,14 +39,25 @@ class FindMyiPhoneServiceManager(BaseService):
         self._fmip_erase_url: str = f"{fmip_endpoint}/remoteWipeWithUserAuth"
         self._erase_token_url: str = f"{token_endpoint}/fmipWebAuthenticate"
 
+        self._response: dict[str, Any] = {}
         self._devices: dict[str, AppleDevice] = {}
-        self.refresh_client()
+        self.refresh_client_with_reauth()
 
-    def refresh_client(self) -> None:
-        """Refreshes the FindMyiPhoneService endpoint,
+    def refresh_client_with_reauth(self) -> None:
+        """Refreshes the FindMyiPhoneService endpoint with re-authentication.
 
         This ensures that the location data is up-to-date.
 
+        """
+        try:
+            self._refresh_client()
+        except PyiCloudAuthRequiredException:
+            self.session.service.authenticate(force_refresh=True)
+            self._refresh_client()
+
+    def _refresh_client(self) -> None:
+        """
+        Refreshes the FindMyiPhoneService endpoint, This ensures that the location data is up-to-date.
         """
         req: Response = self.session.post(
             self._fmip_refresh_url,
@@ -54,12 +69,17 @@ class FindMyiPhoneServiceManager(BaseService):
                     "apiVersion": "3.0",
                     "deviceListVersion": 1,
                     "fmly": self.with_family,
-                }
+                    "timezone": "US/Pacific",
+                    "inactiveTime": 0,
+                    "shouldLocate": True,
+                    "selectedDevice": "all",
+                },
+                "isUpdatingAllLocations": True,
             },
         )
-        self.response: dict[str, Any] = req.json()
+        self._response = req.json()
 
-        for device_info in self.response["content"]:
+        for device_info in self._response["content"]:
             device_id: str = device_info["id"]
             if device_id not in self._devices:
                 self._devices[device_id] = AppleDevice(
@@ -135,7 +155,7 @@ class AppleDevice:
     @property
     def location(self) -> Optional[dict[str, Any]]:
         """Updates the device location."""
-        self._manager.refresh_client()
+        self._manager.refresh_client_with_reauth()
         return self._content["location"]
 
     def status(self, additional: Optional[list[str]] = None) -> dict[str, Any]:
@@ -143,7 +163,7 @@ class AppleDevice:
 
         This returns only a subset of possible properties.
         """
-        self._manager.refresh_client()
+        self._manager.refresh_client_with_reauth()
         fields: list[str] = [
             "batteryLevel",
             "deviceDisplayName",

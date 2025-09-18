@@ -190,10 +190,8 @@ class PyiCloudService(object):
         self._client_id = self.session.data.get("client_id", self._client_id)
 
         self.params = {
-            "clientBuildNumber": "2512Hotfix21",
-            "clientMasteringNumber": "2512Hotfix21",
-            "ckjsBuildVersion": "2310ProjectDev27",
-            "ckjsVersion": "2.6.4",
+            "clientBuildNumber": "2534Project51",
+            "clientMasteringNumber": "2534B22",
             "clientId": self._client_id,
         }
 

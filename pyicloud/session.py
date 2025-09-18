@@ -20,11 +20,13 @@ from pyicloud.const import (
     ERROR_AUTHENTICATION_FAILED,
     ERROR_ZONE_NOT_FOUND,
     HEADER_DATA,
+    AppleAuthError,
 )
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
     PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
     PyiCloudServiceNotActivatedException,
 )
 
@@ -114,7 +116,7 @@ class PyiCloudSession(requests.Session):
         if os.path.exists(self.cookiejar_path):
             try:
                 cast(PyiCloudCookieJar, self.cookies).load()
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 self._logger.warning(
                     "Failed to load cookie jar %s: %s; starting without persisted cookies",
                     self.cookiejar_path,
@@ -141,8 +143,11 @@ class PyiCloudSession(requests.Session):
             dump(self._data, outfile)
             self.logger.debug("Saved session data to file: %s", self.session_path)
 
-        cast(PyiCloudCookieJar, self.cookies).save()
-        self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
+        try:
+            cast(PyiCloudCookieJar, self.cookies).save()
+            self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
+        except (OSError, ValueError) as exc:
+            self.logger.warning("Failed to save cookies data: %s", exc)
 
     def _update_session_data(self, response: Response) -> None:
         """Update session_data with new data."""
@@ -158,14 +163,6 @@ class PyiCloudSession(requests.Session):
             CONTENT_TYPE_TEXT_JSON,
         ]
         return content_type.split(";")[0] in json_mimetypes
-
-    def _reauthenticate_find_my_iphone(self, response: Response) -> None:
-        self.logger.debug("Re-authenticating Find My iPhone service")
-        try:
-            service: Optional[str] = None if response.status_code == 450 else "find"
-            self.service.authenticate(True, service)
-        except PyiCloudAPIResponseException:
-            self.logger.debug("Re-authentication failed")
 
     def request(
         self,
@@ -209,24 +206,19 @@ class PyiCloudSession(requests.Session):
         self,
         method,
         url,
-        *,
-        data=None,
-        has_retried: bool = False,
         **kwargs,
     ) -> Response:
         """Request method."""
         self.logger.debug(
-            "%s %s %s",
+            "%s %s",
             method,
             url,
-            data or "",
         )
 
         try:
             response: Response = super().request(
                 method=method,
                 url=url,
-                data=data,
                 **kwargs,
             )
 
@@ -235,16 +227,15 @@ class PyiCloudSession(requests.Session):
 
             if not response.ok and (
                 self._is_json_response(response)
-                or response.status_code in [421, 450, 500]
+                or response.status_code
+                in [
+                    AppleAuthError.TWO_FACTOR_REQUIRED,
+                    AppleAuthError.FIND_MY_REAUTH_REQUIRED,
+                    AppleAuthError.LOGIN_TOKEN_EXPIRED,
+                    AppleAuthError.GENERAL_AUTH_ERROR,
+                ],
             ):
-                return self._handle_request_error(
-                    response=response,
-                    method=method,
-                    url=url,
-                    data=data,
-                    has_retried=has_retried,
-                    **kwargs,
-                )
+                return self._handle_request_error(response=response)
 
             response.raise_for_status()
 
@@ -265,17 +256,11 @@ class PyiCloudSession(requests.Session):
     def _handle_request_error(
         self,
         response: Response,
-        method,
-        url,
-        *,
-        data=None,
-        has_retried: bool = False,
-        **kwargs,
     ) -> Response:
         """Handle request error."""
 
         if (
-            response.status_code == 409
+            response.status_code == AppleAuthError.TWO_FACTOR_REQUIRED
             and self._is_json_response(response)
             and (response.json().get("authType") == "hsa2")
         ):
@@ -284,31 +269,10 @@ class PyiCloudSession(requests.Session):
                 response=response,
             )
 
-        try:
-            fmip_url: str = self.service.get_webservice_url("findme")
-            if (
-                not has_retried
-                and response.status_code in [421, 450, 500]
-                and fmip_url in url
-            ):
-                self._reauthenticate_find_my_iphone(response)
-                return self._request(
-                    method=method,
-                    url=url,
-                    data=data,
-                    has_retried=True,
-                    **kwargs,
-                )
-        except PyiCloudServiceNotActivatedException:
-            pass
-
-        if not has_retried and response.status_code in [421, 450, 500]:
-            return self._request(
-                method=method,
-                url=url,
-                data=data,
-                has_retried=True,
-                **kwargs,
+        if response.status_code == AppleAuthError.FIND_MY_REAUTH_REQUIRED:
+            raise PyiCloudAuthRequiredException(
+                apple_id=self.service.account_name,
+                response=response,
             )
 
         self._raise_error(response.status_code, response.reason)
@@ -355,7 +319,12 @@ class PyiCloudSession(requests.Session):
                 reason + ".  Please wait a few minutes then try again."
                 "The remote servers might be trying to throttle requests."
             )
-        if code in [421, 450, 500]:
+        if code in [
+            AppleAuthError.TWO_FACTOR_REQUIRED,
+            AppleAuthError.FIND_MY_REAUTH_REQUIRED,
+            AppleAuthError.LOGIN_TOKEN_EXPIRED,
+            AppleAuthError.GENERAL_AUTH_ERROR,
+        ]:
             reason = "Authentication required for Account."
 
         raise PyiCloudAPIResponseException(reason, code)

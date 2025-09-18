@@ -17,6 +17,7 @@ from click import confirm
 from pyicloud import PyiCloudService, utils
 from pyicloud.exceptions import PyiCloudFailedLoginException
 from pyicloud.services.findmyiphone import AppleDevice
+from pyicloud.ssl_context import configurable_ssl_verification
 
 DEVICE_ERROR = "Please use the --device switch to indicate which device to use."
 
@@ -217,6 +218,38 @@ def _create_parser() -> argparse.ArgumentParser:
         help="Automatically accept terms and conditions",
     )
 
+    parser.add_argument(
+        "--with-family",
+        action="store_true",
+        default=False,
+        help="Include family devices",
+    )
+
+    parser.add_argument(
+        "--session-dir",
+        type=str,
+        help="Directory to store session files",
+    )
+
+    parser.add_argument(
+        "--http-proxy",
+        type=str,
+        help="Use HTTP proxy for requests",
+    )
+
+    parser.add_argument(
+        "--https-proxy",
+        type=str,
+        help="Use HTTPS proxy for requests",
+    )
+
+    parser.add_argument(
+        "--no-verify-ssl",
+        action="store_true",
+        default=False,
+        help="Disable SSL certificate verification",
+    )
+
     return parser
 
 
@@ -264,24 +297,29 @@ def main() -> None:
     if username and command_line.delete_from_keyring:
         utils.delete_password_in_keyring(username)
 
-    failure_count = 0
-    while True:
-        password: Optional[str] = _get_password(username, parser, command_line)
+    with configurable_ssl_verification(
+        verify_ssl=not command_line.no_verify_ssl,
+        http_proxy=command_line.http_proxy or "",
+        https_proxy=command_line.https_proxy or "",
+    ):
+        failure_count = 0
+        while True:
+            password: Optional[str] = _get_password(username, parser, command_line)
 
-        api: Optional[PyiCloudService] = _authenticate(
-            username,
-            password,
-            china_mainland,
-            parser,
-            command_line,
-            failures=failure_count,
-        )
-        if not api:
-            failure_count += 1
-        else:
-            break
+            api: Optional[PyiCloudService] = _authenticate(
+                username,
+                password,
+                china_mainland,
+                parser,
+                command_line,
+                failures=failure_count,
+            )
+            if not api:
+                failure_count += 1
+            else:
+                break
 
-    _print_devices(api, command_line)
+        _print_devices(api, command_line)
 
 
 def _authenticate(
@@ -294,7 +332,14 @@ def _authenticate(
 ) -> Optional[PyiCloudService]:
     api = None
     try:
-        api = PyiCloudService(username, password, china_mainland=china_mainland)
+        api = PyiCloudService(
+            apple_id=username,
+            password=password,
+            china_mainland=china_mainland,
+            cookie_directory=command_line.session_dir,
+            accept_terms=command_line.accept_terms,
+            with_family=command_line.with_family,
+        )
         if (
             not utils.password_exists_in_keyring(username)
             and command_line.interactive
@@ -328,6 +373,7 @@ def _authenticate(
 
 
 def _print_devices(api: PyiCloudService, command_line: argparse.Namespace) -> None:
+    print(f"Number of devices: {len(api.devices)}", flush=True)
     for dev in api.devices:
         if not command_line.device_id or (
             command_line.device_id.strip().lower() == dev.id.strip().lower()
