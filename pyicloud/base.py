@@ -190,7 +190,7 @@ class PyiCloudService(object):
         self._client_id = self.session.data.get("client_id", self._client_id)
 
         self.params = {
-            "clientBuildNumber": "2534Project51",
+            "clientBuildNumber": "2534Project66",
             "clientMasteringNumber": "2534B22",
             "clientId": self._client_id,
         }
