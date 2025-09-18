@@ -57,7 +57,7 @@ class FindMyiPhoneServiceManager(BaseService):
 
     def _refresh_client(self) -> None:
         """
-        Refreshes the FindMyiPhoneService endpoint, This ensures that the location data is up-to-date.
+        Refreshes the FindMyiPhoneService endpoint. This ensures that the location data is up-to-date.
         """
         req: Response = self.session.post(
             self._fmip_refresh_url,
