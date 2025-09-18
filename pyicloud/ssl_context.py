@@ -35,12 +35,14 @@ def configurable_ssl_verification(
         if not verify_ssl:
             settings["verify"] = False
 
-        # You can also uncomment and use proxies here if needed,
-        proxies = {
-            "http": http_proxy,
-            "https": https_proxy,
-        }
-        settings["proxies"] = proxies
+        # Only set proxies if at least one is non-empty
+        proxies = {}
+        if http_proxy:
+            proxies["http"] = http_proxy
+        if https_proxy:
+            proxies["https"] = https_proxy
+        if proxies:
+            settings["proxies"] = proxies
 
         return settings
 
