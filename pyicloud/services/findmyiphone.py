@@ -44,18 +44,23 @@ class FindMyiPhoneServiceManager(BaseService):
         self.refresh_client_with_reauth()
 
     def refresh_client_with_reauth(self) -> None:
-        """Refreshes the FindMyiPhoneService endpoint with re-authentication.
-
-        This ensures that the location data is up-to-date.
-
         """
+        Refreshes the FindMyiPhoneService endpoint with re-authentication.
+        This ensures that the location data is up-to-date.
+        """
+
+        # Refresh the client (own devices first)
         try:
             self._refresh_client()
         except PyiCloudAuthRequiredException:
             self.session.service.authenticate(force_refresh=True)
             self._refresh_client()
 
-    def _refresh_client(self) -> None:
+        # Refresh the client (family devices second)
+        if self.with_family:
+            self._refresh_client(with_family=True)
+
+    def _refresh_client(self, with_family: bool = False) -> None:
         """
         Refreshes the FindMyiPhoneService endpoint. This ensures that the location data is up-to-date.
         """
@@ -68,7 +73,7 @@ class FindMyiPhoneServiceManager(BaseService):
                     "appVersion": "2.0",
                     "apiVersion": "3.0",
                     "deviceListVersion": 1,
-                    "fmly": self.with_family,
+                    "fmly": with_family,
                     "timezone": "US/Pacific",
                     "inactiveTime": 0,
                     "shouldLocate": True,

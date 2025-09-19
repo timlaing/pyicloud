@@ -183,7 +183,7 @@ def test_findmyiphone_service_manager(
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
 
     # Test refresh_client
-    manager._refresh_client()
+    manager.refresh_client_with_reauth()
     assert len(manager) > 0
 
     # Test __getitem__
