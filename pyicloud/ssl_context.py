@@ -15,8 +15,8 @@ logger: logging.Logger = logging.getLogger(__name__)
 @contextlib.contextmanager
 def configurable_ssl_verification(
     verify_ssl: bool = True,
-    http_proxy: str = "",
-    https_proxy: str = "",
+    http_proxy: str = None,
+    https_proxy: str = None,
 ) -> Generator[None, Any, None]:
     """Context manager to configure SSL verification for requests"""
     opened_adapters: Set[requests.adapters.BaseAdapter] = set()
