@@ -46,6 +46,7 @@ class PyiCloudCookieJar(
     ) -> None:
         """Load cookies from file."""
         super().load(
+            filename=filename,
             ignore_discard=ignore_discard,
             ignore_expires=ignore_expires,
         )
@@ -62,6 +63,7 @@ class PyiCloudCookieJar(
     ) -> None:
         """Save cookies to file."""
         super().save(
+            filename=filename,
             ignore_discard=ignore_discard,
             ignore_expires=ignore_expires,
         )
@@ -225,9 +227,11 @@ class PyiCloudSession(requests.Session):
             self._update_session_data(response)
             self._save_session_data()
 
+            status_code: int = int(response.status_code)
+
             if not response.ok and (
                 self._is_json_response(response)
-                or response.status_code
+                or status_code
                 in [
                     AppleAuthError.TWO_FACTOR_REQUIRED,
                     AppleAuthError.FIND_MY_REAUTH_REQUIRED,
@@ -235,7 +239,10 @@ class PyiCloudSession(requests.Session):
                     AppleAuthError.GENERAL_AUTH_ERROR,
                 ],
             ):
-                return self._handle_request_error(response=response)
+                return self._handle_request_error(
+                    status_code=status_code,
+                    response=response,
+                )
 
             response.raise_for_status()
 
@@ -255,12 +262,12 @@ class PyiCloudSession(requests.Session):
 
     def _handle_request_error(
         self,
+        status_code: int,
         response: Response,
     ) -> Response:
         """Handle request error."""
-
         if (
-            response.status_code == AppleAuthError.TWO_FACTOR_REQUIRED
+            status_code == AppleAuthError.TWO_FACTOR_REQUIRED
             and self._is_json_response(response)
             and (response.json().get("authType") == "hsa2")
         ):
@@ -269,13 +276,13 @@ class PyiCloudSession(requests.Session):
                 response=response,
             )
 
-        if response.status_code == AppleAuthError.FIND_MY_REAUTH_REQUIRED:
+        if status_code == AppleAuthError.FIND_MY_REAUTH_REQUIRED:
             raise PyiCloudAuthRequiredException(
                 apple_id=self.service.account_name,
                 response=response,
             )
 
-        self._raise_error(response.status_code, response.reason)
+        self._raise_error(status_code, response.reason)
 
     def _decode_json_response(self, response: Response) -> None:
         """Decode JSON response."""
@@ -319,7 +326,7 @@ class PyiCloudSession(requests.Session):
                 reason + ".  Please wait a few minutes then try again."
                 "The remote servers might be trying to throttle requests."
             )
-        if code in [
+        if isinstance(code, int) and code in [
             AppleAuthError.TWO_FACTOR_REQUIRED,
             AppleAuthError.FIND_MY_REAUTH_REQUIRED,
             AppleAuthError.LOGIN_TOKEN_EXPIRED,

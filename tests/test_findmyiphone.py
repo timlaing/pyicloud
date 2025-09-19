@@ -2,9 +2,16 @@
 
 # pylint: disable=protected-access
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from pyicloud.base import PyiCloudService
+from pyicloud.exceptions import (
+    PyiCloudAuthRequiredException,
+    PyiCloudNoDevicesException,
+    PyiCloudServiceUnavailable,
+)
 from pyicloud.services.findmyiphone import AppleDevice, FindMyiPhoneServiceManager
 
 
@@ -199,3 +206,159 @@ def test_findmyiphone_service_manager(
 
     # Test __str__ and __repr__
     assert str(manager) == repr(manager)
+
+
+def test_get_erase_token_success(pyicloud_service_working: PyiCloudService) -> None:
+    """Tests AppleDevice._get_erase_token returns token when available."""
+    device: AppleDevice = pyicloud_service_working.devices[0]
+    expected_token = "test_erase_token"
+
+    with patch.object(device.session, "post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "tokens": {"mmeFMIPWebEraseDeviceToken": expected_token}
+        }
+        token: str = device._get_erase_token()
+        assert token == expected_token
+        mock_post.assert_called_with(
+            url=device._erase_token_url,
+            json={"dsWebAuthToken": device.session.data.get("session_token")},
+        )
+
+
+def test_get_erase_token_missing_tokens(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Tests AppleDevice._get_erase_token raises when tokens missing."""
+    device: AppleDevice = pyicloud_service_working.devices[0]
+
+    with (
+        patch.object(device.session, "post") as mock_post,
+        pytest.raises(PyiCloudServiceUnavailable),
+    ):
+        mock_post.return_value.json.return_value = {}
+        device._get_erase_token()
+        mock_post.assert_called_with(
+            url=device._erase_token_url,
+            json={"dsWebAuthToken": device.session.data.get("session_token")},
+        )
+
+
+def test_get_erase_token_missing_token_key(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Tests AppleDevice._get_erase_token raises when token key missing."""
+    device: AppleDevice = pyicloud_service_working.devices[0]
+
+    with (
+        patch.object(device.session, "post") as mock_post,
+        pytest.raises(PyiCloudServiceUnavailable),
+    ):
+        mock_post.return_value.json.return_value = {"tokens": {}}
+        device._get_erase_token()
+
+
+def test_erase_device_calls_post_with_correct_data(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Tests AppleDevice.erase_device calls session.post with correct data."""
+    device: AppleDevice = pyicloud_service_working.devices[0]
+    expected_token = "test_erase_token"
+
+    with (
+        patch.object(
+            device, "_get_erase_token", return_value=expected_token
+        ) as mock_get_token,
+        patch.object(device.session, "post") as mock_post,
+    ):
+        device.erase_device(text="Erase this device", newpasscode="5678")
+        mock_get_token.assert_called_once()
+        mock_post.assert_called_with(
+            device._erase_url,
+            params=device._params,
+            json={
+                "authToken": expected_token,
+                "text": "Erase this device",
+                "device": device.data["id"],
+                "passcode": "5678",
+            },
+        )
+
+
+def test_erase_device_default_arguments(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Tests AppleDevice.erase_device with default arguments."""
+    device: AppleDevice = pyicloud_service_working.devices[0]
+    expected_token = "default_token"
+
+    with (
+        patch.object(
+            device, "_get_erase_token", return_value=expected_token
+        ) as mock_get_token,
+        patch.object(device.session, "post") as mock_post,
+    ):
+        device.erase_device()
+        mock_get_token.assert_called_once()
+        mock_post.assert_called_with(
+            device._erase_url,
+            params=device._params,
+            json={
+                "authToken": expected_token,
+                "text": "This device has been lost. Please call me.",
+                "device": device.data["id"],
+                "passcode": "",
+            },
+        )
+
+
+def test_refresh_client_with_reauth_auth_required(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Test refresh_client_with_reauth handles PyiCloudAuthRequiredException and reauthenticates."""
+    manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+
+    # Patch _refresh_client to raise PyiCloudAuthRequiredException first, then succeed
+    with (
+        patch.object(
+            manager,
+            "_refresh_client",
+            side_effect=[PyiCloudAuthRequiredException("", MagicMock()), None],
+        ) as mock_refresh,
+        patch.object(manager.session.service, "authenticate") as mock_authenticate,
+        patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
+        patch.object(manager, "_with_family", False),
+    ):
+        manager.refresh_client_with_reauth()
+        mock_authenticate.assert_called_once_with(force_refresh=True)
+        assert mock_refresh.call_count >= 2
+
+
+def test_refresh_client_with_reauth_with_family(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Test refresh_client_with_reauth calls _refresh_client with with_family=True."""
+    manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+    manager._with_family = True
+
+    with (
+        patch.object(manager, "_refresh_client") as mock_refresh,
+        patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
+    ):
+        manager.refresh_client_with_reauth()
+        # Should call _refresh_client twice: once with default, once with with_family=True
+        mock_refresh.assert_any_call()
+        mock_refresh.assert_any_call(with_family=True)
+
+
+def test_refresh_client_with_reauth_no_devices_raises(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Test refresh_client_with_reauth raises PyiCloudNoDevicesException when no devices."""
+    manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+
+    with (
+        patch.object(manager, "_refresh_client"),
+        patch.object(manager, "_devices", {}),
+    ):
+        with pytest.raises(PyiCloudNoDevicesException):
+            manager.refresh_client_with_reauth()

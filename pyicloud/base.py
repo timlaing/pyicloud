@@ -28,6 +28,7 @@ from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
+    PyiCloudException,
     PyiCloudFailedLoginException,
     PyiCloudPasswordException,
     PyiCloudServiceNotActivatedException,
@@ -236,7 +237,7 @@ class PyiCloudService(object):
                 try:
                     self._authenticate_with_credentials_service(service)
                     login_successful = True
-                except Exception:
+                except PyiCloudException:
                     LOGGER.debug(
                         "Could not log into service. Attempting brand new login."
                     )

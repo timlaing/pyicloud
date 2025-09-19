@@ -5,17 +5,18 @@ import warnings
 from typing import Any, Callable, Generator, Set
 
 import requests
+import requests.adapters
 from urllib3.exceptions import InsecureRequestWarning
 
 
 @contextlib.contextmanager
 def configurable_ssl_verification(
-    verify_ssl=True,
+    verify_ssl: bool = True,
     http_proxy: str = "",
     https_proxy: str = "",
 ) -> Generator[None, Any, None]:
     """Context manager to configure SSL verification for requests"""
-    opened_adapters: Set[Any] = set()
+    opened_adapters: Set[requests.adapters.BaseAdapter] = set()
 
     # Store the original merge_environment_settings
     old_merge_environment_settings: Callable = (
@@ -36,14 +37,13 @@ def configurable_ssl_verification(
             settings["verify"] = False
 
         # Only set proxies if at least one is non-empty
-        proxies = {}
+        override_proxies: dict[str, str] = {}
         if http_proxy:
-            proxies["http"] = http_proxy
+            override_proxies["http"] = http_proxy
         if https_proxy:
-            proxies["https"] = https_proxy
-        if proxies:
-            settings["proxies"] = proxies
-
+            override_proxies["https"] = https_proxy
+        if override_proxies:
+            settings["proxies"] = override_proxies
         return settings
 
     # Temporarily override merge_environment_settings
@@ -65,5 +65,5 @@ def configurable_ssl_verification(
         for adapter in opened_adapters:
             try:
                 adapter.close()
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
                 pass  # Ignore errors during adapter closing

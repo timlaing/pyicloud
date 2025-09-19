@@ -3,19 +3,33 @@ Test the PyiCloudService and PyiCloudSession classes."""
 
 # pylint: disable=protected-access
 
+from typing import Any, List
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
+from fido2.hid import CtapHidDevice
 from requests import HTTPError, Response
 
-from pyicloud.base import PyiCloudService, PyiCloudSession, b64_encode
+from pyicloud.base import (
+    PyiCloudPasswordFilter,
+    PyiCloudService,
+    PyiCloudSession,
+    b64_encode,
+)
 from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
     PyiCloudFailedLoginException,
     PyiCloudServiceNotActivatedException,
+    PyiCloudServiceUnavailable,
 )
+from pyicloud.services.calendar import CalendarService
+from pyicloud.services.contacts import ContactsService
+from pyicloud.services.hidemyemail import HideMyEmailService
+from pyicloud.services.photos import PhotosService
+from pyicloud.services.reminders import RemindersService
+from pyicloud.services.ubiquity import UbiquityService
 
 
 def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> None:
@@ -280,8 +294,16 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
             cert=None,
             json=None,
         )
-        mock_save.assert_called_once_with(ignore_discard=True, ignore_expires=False)
-        mock_load.assert_called_once_with(ignore_discard=True, ignore_expires=False)
+        mock_save.assert_called_once_with(
+            filename=None,
+            ignore_discard=True,
+            ignore_expires=False,
+        )
+        mock_load.assert_called_once_with(
+            filename=None,
+            ignore_discard=True,
+            ignore_expires=False,
+        )
 
 
 def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
@@ -695,3 +717,639 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_true_post_error(
 
     with pytest.raises(HTTPError):
         pyicloud_service._handle_accept_terms(login_data)
+
+
+def test_validate_token_success(pyicloud_service: PyiCloudService) -> None:
+    """Test _validate_token returns JSON when X-APPLE-WEBAUTH-TOKEN is present and request succeeds."""
+    with (
+        patch.object(pyicloud_service.session.cookies, "get", return_value="token"),
+        patch.object(pyicloud_service.session, "post") as mock_post,
+    ):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status": "success"}
+        mock_post.return_value = mock_response
+
+        result = pyicloud_service._validate_token()
+        assert result == {"status": "success"}
+        mock_post.assert_called_once_with(
+            f"{pyicloud_service._setup_endpoint}/validate", data="null"
+        )
+
+
+def test_validate_token_missing_cookie_raises(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _validate_token raises when X-APPLE-WEBAUTH-TOKEN cookie is missing."""
+    with patch.object(pyicloud_service.session.cookies, "get", return_value=None):
+        with pytest.raises(
+            PyiCloudAPIResponseException, match="Missing X-APPLE-WEBAUTH-TOKEN cookie"
+        ):
+            pyicloud_service._validate_token()
+
+
+def test_validate_token_post_raises_exception(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _validate_token raises when session.post raises PyiCloudAPIResponseException."""
+    with (
+        patch.object(pyicloud_service.session.cookies, "get", return_value="token"),
+        patch.object(
+            pyicloud_service.session,
+            "post",
+            side_effect=PyiCloudAPIResponseException("Invalid token"),
+        ),
+    ):
+        with pytest.raises(PyiCloudAPIResponseException, match="Invalid token"):
+            pyicloud_service._validate_token()
+
+
+def test_str_and_repr(pyicloud_service: PyiCloudService) -> None:
+    """Test __str__ and __repr__ methods."""
+    s = str(pyicloud_service)
+    r: str = repr(pyicloud_service)
+    assert s.startswith("iCloud API:")
+    assert r.startswith("<iCloud API:")
+
+
+def test_account_name_property(pyicloud_service: PyiCloudService) -> None:
+    """Test account_name property returns the correct Apple ID."""
+    assert pyicloud_service.account_name == pyicloud_service._apple_id
+
+
+def test_password_property_sets_filter(pyicloud_service: PyiCloudService) -> None:
+    """Test password property returns password and sets filter."""
+    pw: str = pyicloud_service.password
+    assert pw == pyicloud_service._password
+    assert isinstance(pyicloud_service.password_filter, PyiCloudPasswordFilter)
+
+
+def test_requires_2sa_true(pyicloud_service: PyiCloudService) -> None:
+    """Test requires_2sa returns True when hsaVersion >= 1 and not trusted."""
+    pyicloud_service.data = {
+        "dsInfo": {"hsaVersion": 1},
+        "hsaChallengeRequired": True,
+        "hsaTrustedBrowser": False,
+    }
+    assert pyicloud_service.requires_2sa
+
+
+def test_requires_2sa_false(pyicloud_service: PyiCloudService) -> None:
+    """Test requires_2sa returns False when hsaVersion < 1."""
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 0}}
+    assert not pyicloud_service.requires_2sa
+
+
+def test_requires_2fa_true(pyicloud_service: PyiCloudService) -> None:
+    """Test requires_2fa returns True when hsaVersion == 2 and not trusted."""
+    pyicloud_service.data = {
+        "dsInfo": {"hsaVersion": 2},
+        "hsaChallengeRequired": True,
+        "hsaTrustedBrowser": False,
+    }
+    assert pyicloud_service.requires_2fa
+
+
+def test_requires_2fa_false(pyicloud_service: PyiCloudService) -> None:
+    """Test requires_2fa returns False when hsaVersion != 2."""
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 1}}
+    assert not pyicloud_service.requires_2fa
+
+
+def test_is_trusted_session_true(pyicloud_service: PyiCloudService) -> None:
+    """Test is_trusted_session returns True when hsaTrustedBrowser is True."""
+    pyicloud_service.data = {"hsaTrustedBrowser": True}
+    assert pyicloud_service.is_trusted_session
+
+
+def test_is_trusted_session_false(pyicloud_service: PyiCloudService) -> None:
+    """Test is_trusted_session returns False when hsaTrustedBrowser is False."""
+    pyicloud_service.data = {"hsaTrustedBrowser": False}
+    assert not pyicloud_service.is_trusted_session
+
+
+def test_get_auth_headers_overrides(pyicloud_service: PyiCloudService) -> None:
+    """Test _get_auth_headers applies overrides."""
+    pyicloud_service.session.data["scnt"] = "test_scnt"
+    pyicloud_service.session.data["session_id"] = "test_session_id"
+    headers: dict[str, Any] = pyicloud_service._get_auth_headers(
+        {"Extra-Header": "Value"}
+    )
+    assert headers["scnt"] == "test_scnt"
+    assert headers["X-Apple-ID-Session-Id"] == "test_session_id"
+    assert headers["Extra-Header"] == "Value"
+
+
+def test_trusted_devices_calls_session_get(pyicloud_service: PyiCloudService) -> None:
+    """Test trusted_devices property calls session.get and returns devices."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"devices": [{"id": "device1"}]}
+    pyicloud_service.session.get = MagicMock(return_value=mock_response)
+    devices: list[dict[str, Any]] = pyicloud_service.trusted_devices
+    assert devices == [{"id": "device1"}]
+    pyicloud_service.session.get.assert_called_once()
+
+
+def test_send_verification_code_success(pyicloud_service: PyiCloudService) -> None:
+    """Test send_verification_code returns True on success."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"success": True}
+    pyicloud_service.session.post = MagicMock(return_value=mock_response)
+    result = pyicloud_service.send_verification_code({"id": "device1"})
+    assert result is True
+
+
+def test_send_verification_code_failure(pyicloud_service: PyiCloudService) -> None:
+    """Test send_verification_code returns False on failure."""
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"success": False}
+    pyicloud_service.session.post = MagicMock(return_value=mock_response)
+    result: bool = pyicloud_service.send_verification_code({"id": "device1"})
+    assert result is False
+
+
+def test_validate_verification_code_success(pyicloud_service: PyiCloudService) -> None:
+    """Test validate_verification_code returns True when code is valid."""
+    pyicloud_service.session.post = MagicMock()
+    pyicloud_service.trust_session = MagicMock(return_value=True)
+    result: bool = pyicloud_service.validate_verification_code(
+        {"id": "device1"}, "123456"
+    )
+    assert result is True
+
+
+def test_validate_verification_code_wrong_code(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test validate_verification_code returns False on wrong code."""
+    exc = PyiCloudAPIResponseException("Invalid code")
+    exc.code = -21669
+    pyicloud_service.session.post = MagicMock(side_effect=exc)
+    result: bool = pyicloud_service.validate_verification_code(
+        {"id": "device1"}, "000000"
+    )
+    assert result is False
+
+
+def test_validate_verification_code_raises_other(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test validate_verification_code raises on unknown error."""
+    exc = PyiCloudAPIResponseException("Other error")
+    exc.code = 12345
+    pyicloud_service.session.post = MagicMock(side_effect=exc)
+    with pytest.raises(PyiCloudAPIResponseException):
+        pyicloud_service.validate_verification_code({"id": "device1"}, "000000")
+
+
+def test_security_key_names_returns_key_names(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test security_key_names property returns keyNames from options."""
+    pyicloud_service._get_webauthn_options = MagicMock(
+        return_value={"keyNames": ["key1", "key2"]}
+    )
+    assert pyicloud_service.security_key_names == ["key1", "key2"]
+
+
+def test_fido2_devices_lists_devices(pyicloud_service: PyiCloudService) -> None:
+    """Test fido2_devices property lists devices."""
+    with patch(
+        "pyicloud.base.CtapHidDevice.list_devices", return_value=[MagicMock()]
+    ) as mock_list:
+        devices: List[CtapHidDevice] = pyicloud_service.fido2_devices
+        assert isinstance(devices, list)
+        mock_list.assert_called_once()
+
+
+def test_confirm_security_key_no_devices_raises(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test confirm_security_key raises if no FIDO2 devices found."""
+    pyicloud_service._get_webauthn_options = MagicMock(
+        return_value={
+            "fsaChallenge": {"challenge": "c", "keyHandles": [], "rpId": "rp"}
+        }
+    )
+    with patch("pyicloud.base.CtapHidDevice.list_devices", return_value=[]):
+        with pytest.raises(RuntimeError, match="No FIDO2 devices found"):
+            pyicloud_service.confirm_security_key()
+
+
+def test_get_webservice_url_raises_if_missing(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test get_webservice_url raises if key missing."""
+    pyicloud_service._webservices = None
+    with pytest.raises(PyiCloudServiceNotActivatedException):
+        pyicloud_service.get_webservice_url("missing_key")
+
+
+def test_get_webservice_url_returns_url(pyicloud_service: PyiCloudService) -> None:
+    """Test get_webservice_url returns correct url."""
+    pyicloud_service._webservices = {"foo": {"url": "https://foo.com"}}
+    assert pyicloud_service.get_webservice_url("foo") == "https://foo.com"
+
+
+def test_str_returns_expected_format(pyicloud_service: PyiCloudService) -> None:
+    """Test __str__ method."""
+    assert str(pyicloud_service).startswith("iCloud API:")
+
+
+def test_repr_returns_expected_format(pyicloud_service: PyiCloudService) -> None:
+    """Test __repr__ method."""
+    assert repr(pyicloud_service).startswith("<iCloud API:")
+
+
+def test_account_name_property_returns_apple_id(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test account_name property returns the correct Apple ID."""
+    assert pyicloud_service.account_name == pyicloud_service._apple_id
+
+
+def test_password_property_sets_filter_and_returns_password(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test password property returns password and sets filter."""
+    pw: str = pyicloud_service.password
+    assert pw == pyicloud_service._password
+    assert isinstance(pyicloud_service.password_filter, PyiCloudPasswordFilter)
+
+
+def test_hidemyemail_returns_service(pyicloud_service: PyiCloudService) -> None:
+    """Test hidemyemail property returns HideMyEmailService instance."""
+    mock_hme_service = MagicMock()
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://hme.example.com",
+        ),
+        patch(
+            "pyicloud.base.HideMyEmailService", return_value=mock_hme_service
+        ) as mock_hme_cls,
+    ):
+        pyicloud_service._hidemyemail = None
+        result: HideMyEmailService = pyicloud_service.hidemyemail
+        mock_hme_cls.assert_called_once_with(
+            service_root="https://hme.example.com",
+            session=pyicloud_service.session,
+            params=pyicloud_service.params,
+        )
+        assert result == mock_hme_service
+
+
+def test_hidemyemail_returns_cached_instance(pyicloud_service: PyiCloudService) -> None:
+    """Test hidemyemail property returns cached instance if already set."""
+    mock_hme_service = MagicMock()
+    pyicloud_service._hidemyemail = mock_hme_service
+    result: HideMyEmailService = pyicloud_service.hidemyemail
+    assert result == mock_hme_service
+
+
+def test_hidemyemail_raises_on_api_exception(pyicloud_service: PyiCloudService) -> None:
+    """Test hidemyemail property raises PyiCloudServiceUnavailable on API exception."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://hme.example.com",
+        ),
+        patch(
+            "pyicloud.base.HideMyEmailService",
+            side_effect=PyiCloudAPIResponseException("error"),
+        ),
+    ):
+        pyicloud_service._hidemyemail = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable, match="Hide My Email service not available"
+        ):
+            _: HideMyEmailService = pyicloud_service.hidemyemail
+
+
+def test_files_returns_service(pyicloud_service: PyiCloudService) -> None:
+    """Test files property returns UbiquityService instance."""
+    mock_files_service = MagicMock()
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://files.example.com",
+        ),
+        patch(
+            "pyicloud.base.UbiquityService", return_value=mock_files_service
+        ) as mock_files_cls,
+    ):
+        pyicloud_service._files = None
+        result: UbiquityService = pyicloud_service.files
+        mock_files_cls.assert_called_once_with(
+            service_root="https://files.example.com",
+            session=pyicloud_service.session,
+            params=pyicloud_service.params,
+        )
+        assert result == mock_files_service
+
+
+def test_files_returns_cached_instance(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test files property returns cached instance if already set."""
+    mock_files_service = MagicMock()
+    pyicloud_service._files = mock_files_service
+    result: UbiquityService = pyicloud_service.files
+    assert result == mock_files_service
+
+
+def test_files_raises_on_api_exception(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test files property raises PyiCloudServiceUnavailable on API exception."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://files.example.com",
+        ),
+        patch(
+            "pyicloud.base.UbiquityService",
+            side_effect=PyiCloudAPIResponseException("error"),
+        ),
+    ):
+        pyicloud_service._files = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable, match="Files service not available"
+        ):
+            _: UbiquityService = pyicloud_service.files
+
+
+def test_files_raises_on_account_migrated(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test files property raises specific message if Account migrated."""
+    exc = PyiCloudAPIResponseException("Account migrated")
+    exc.reason = "Account migrated"
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://files.example.com",
+        ),
+        patch(
+            "pyicloud.base.UbiquityService",
+            side_effect=exc,
+        ),
+    ):
+        pyicloud_service._files = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable,
+            match="Files service not available use `api.drive` instead",
+        ):
+            _: UbiquityService = pyicloud_service.files
+
+
+def test_photos_returns_service(pyicloud_service: PyiCloudService) -> None:
+    """Test photos property returns PhotosService instance."""
+    mock_photos_service = MagicMock()
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            side_effect=[
+                "https://photos.example.com",
+                "https://upload.example.com",
+                "https://shared.example.com",
+            ],
+        ),
+        patch(
+            "pyicloud.base.PhotosService", return_value=mock_photos_service
+        ) as mock_photos_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
+    ):
+        pyicloud_service._photos = None
+        pyicloud_service.data = {"dsInfo": {"dsid": "12345"}}
+        result: PhotosService = pyicloud_service.photos
+        mock_photos_cls.assert_called_once_with(
+            service_root="https://photos.example.com",
+            session=pyicloud_service.session,
+            params=pyicloud_service.params,
+            upload_url="https://upload.example.com",
+            shared_streams_url="https://shared.example.com",
+        )
+        assert pyicloud_service.params["dsid"] == "12345"
+        assert result == mock_photos_service
+
+
+def test_photos_returns_cached_instance(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test photos property returns cached instance if already set."""
+    mock_photos_service = MagicMock()
+    pyicloud_service._photos = mock_photos_service
+    with patch.object(pyicloud_service, "_request_pcs_for_service"):
+        result: PhotosService = pyicloud_service.photos
+        assert result == mock_photos_service
+
+
+def test_photos_raises_on_api_exception(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test photos property raises PyiCloudServiceUnavailable on API exception."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            side_effect=[
+                "https://photos.example.com",
+                "https://upload.example.com",
+                "https://shared.example.com",
+            ],
+        ),
+        patch(
+            "pyicloud.base.PhotosService",
+            side_effect=PyiCloudAPIResponseException("error"),
+        ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
+    ):
+        pyicloud_service._photos = None
+        pyicloud_service.data = {"dsInfo": {"dsid": "12345"}}
+        with pytest.raises(
+            PyiCloudServiceUnavailable, match="Photos service not available"
+        ):
+            _: PhotosService = pyicloud_service.photos
+
+
+def test_calendar_returns_service(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test calendar property returns CalendarService instance."""
+    mock_calendar_service = MagicMock()
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://calendar.example.com",
+        ),
+        patch(
+            "pyicloud.base.CalendarService",
+            return_value=mock_calendar_service,
+        ) as mock_calendar_cls,
+    ):
+        pyicloud_service._calendar = None
+        result: CalendarService = pyicloud_service.calendar
+        mock_calendar_cls.assert_called_once_with(
+            service_root="https://calendar.example.com",
+            session=pyicloud_service.session,
+            params=pyicloud_service.params,
+        )
+        assert result == mock_calendar_service
+
+
+def test_calendar_returns_cached_instance(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test calendar property returns cached instance if already set."""
+    mock_calendar_service = MagicMock()
+    pyicloud_service._calendar = mock_calendar_service
+    result: CalendarService = pyicloud_service.calendar
+    assert result == mock_calendar_service
+
+
+def test_calendar_raises_on_api_exception(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test calendar property raises PyiCloudServiceUnavailable on API exception."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://calendar.example.com",
+        ),
+        patch(
+            "pyicloud.base.CalendarService",
+            side_effect=PyiCloudAPIResponseException("error"),
+        ),
+    ):
+        pyicloud_service._calendar = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable,
+            match="Calendar service not available",
+        ):
+            _: CalendarService = pyicloud_service.calendar
+
+
+def test_contacts_returns_service(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test contacts property returns ContactsService instance."""
+    mock_contacts_service = MagicMock()
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://contacts.example.com",
+        ),
+        patch(
+            "pyicloud.base.ContactsService",
+            return_value=mock_contacts_service,
+        ) as mock_contacts_cls,
+    ):
+        pyicloud_service._contacts = None
+        result: ContactsService = pyicloud_service.contacts
+        mock_contacts_cls.assert_called_once_with(
+            service_root="https://contacts.example.com",
+            session=pyicloud_service.session,
+            params=pyicloud_service.params,
+        )
+        assert result == mock_contacts_service
+
+
+def test_contacts_returns_cached_instance(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test contacts property returns cached instance if already set."""
+    mock_contacts_service = MagicMock()
+    pyicloud_service._contacts = mock_contacts_service
+    result: ContactsService = pyicloud_service.contacts
+    assert result == mock_contacts_service
+
+
+def test_contacts_raises_on_api_exception(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test contacts property raises PyiCloudServiceUnavailable on API exception."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://contacts.example.com",
+        ),
+        patch(
+            "pyicloud.base.ContactsService",
+            side_effect=PyiCloudAPIResponseException("error"),
+        ),
+    ):
+        pyicloud_service._contacts = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable,
+            match="Contacts service not available",
+        ):
+            _: ContactsService = pyicloud_service.contacts
+
+
+def test_reminders_returns_service(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test reminders property returns RemindersService instance."""
+    mock_reminders_service = MagicMock()
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://reminders.example.com",
+        ),
+        patch(
+            "pyicloud.base.RemindersService",
+            return_value=mock_reminders_service,
+        ) as mock_reminders_cls,
+    ):
+        pyicloud_service._reminders = None
+        result: RemindersService = pyicloud_service.reminders
+        mock_reminders_cls.assert_called_once_with(
+            service_root="https://reminders.example.com",
+            session=pyicloud_service.session,
+            params=pyicloud_service.params,
+        )
+        assert result == mock_reminders_service
+
+
+def test_reminders_returns_cached_instance(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test reminders property returns cached instance if already set."""
+    mock_reminders_service = MagicMock()
+    pyicloud_service._reminders = mock_reminders_service
+    result: RemindersService = pyicloud_service.reminders
+    assert result == mock_reminders_service
+
+
+def test_reminders_raises_on_api_exception(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test reminders property raises PyiCloudServiceUnavailable on API exception."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://reminders.example.com",
+        ),
+        patch(
+            "pyicloud.base.RemindersService",
+            side_effect=PyiCloudAPIResponseException("error"),
+        ),
+    ):
+        pyicloud_service._reminders = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable,
+            match="Reminders service not available",
+        ):
+            _ = pyicloud_service.reminders

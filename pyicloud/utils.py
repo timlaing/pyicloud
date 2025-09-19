@@ -66,7 +66,7 @@ def camelcase_to_underscore(camel_str: str) -> str:
         localStartDate -> local_start_date
         hasAttachments -> has_attachments
     """
-    result = []
+    result: list[str] = []
     for i, char in enumerate(camel_str):
         if char.isupper() and i > 0:
             result.append("_")

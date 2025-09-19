@@ -12,6 +12,8 @@ from pyicloud.exceptions import (
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 
+_FMIP_CLIENT_CONTEXT_TIMEZONE: str = "US/Pacific"
+
 
 class FindMyiPhoneServiceManager(BaseService):
     """The 'Find my iPhone' iCloud service
@@ -29,9 +31,10 @@ class FindMyiPhoneServiceManager(BaseService):
         with_family=False,
     ) -> None:
         super().__init__(service_root, session, params)
-        self.with_family: bool = with_family
+        self._with_family: bool = with_family
 
         fmip_endpoint: str = f"{service_root}/fmipservice/client/web"
+        self._fmip_init_url: str = f"{fmip_endpoint}/initClient"
         self._fmip_refresh_url: str = f"{fmip_endpoint}/refreshClient"
         self._fmip_sound_url: str = f"{fmip_endpoint}/playSound"
         self._fmip_message_url: str = f"{fmip_endpoint}/sendMessage"
@@ -39,8 +42,8 @@ class FindMyiPhoneServiceManager(BaseService):
         self._fmip_erase_url: str = f"{fmip_endpoint}/remoteWipeWithUserAuth"
         self._erase_token_url: str = f"{token_endpoint}/fmipWebAuthenticate"
 
-        self._response: dict[str, Any] = {}
         self._devices: dict[str, AppleDevice] = {}
+        self._server_ctx: dict[str, Any] | None = None
         self.refresh_client_with_reauth()
 
     def refresh_client_with_reauth(self) -> None:
@@ -57,34 +60,54 @@ class FindMyiPhoneServiceManager(BaseService):
             self._refresh_client()
 
         # Refresh the client (family devices second)
-        if self.with_family:
+        if self._with_family:
             self._refresh_client(with_family=True)
+
+        if not self._devices:
+            raise PyiCloudNoDevicesException()
 
     def _refresh_client(self, with_family: bool = False) -> None:
         """
-        Refreshes the FindMyiPhoneService endpoint. This ensures that the location data is up-to-date.
+        Refreshes the FindMyiPhoneService endpoint, this ensures that the location data
+        is up-to-date.
         """
-        req: Response = self.session.post(
-            self._fmip_refresh_url,
-            params=self.params,
-            json={
-                "clientContext": {
-                    "appName": "iCloud Find (Web)",
-                    "appVersion": "2.0",
-                    "apiVersion": "3.0",
-                    "deviceListVersion": 1,
-                    "fmly": with_family,
-                    "timezone": "US/Pacific",
-                    "inactiveTime": 0,
+        req_json: dict[str, Any] = {
+            "clientContext": {
+                "appName": "iCloud Find (Web)",
+                "appVersion": "2.0",
+                "apiVersion": "3.0",
+                "deviceListVersion": 1,
+                "fmly": with_family,
+                "timezone": _FMIP_CLIENT_CONTEXT_TIMEZONE,
+                "inactiveTime": 0,
+            },
+        }
+
+        if self._server_ctx:
+            req_json["serverContext"] = self._server_ctx
+            req_json["isUpdatingAllLocations"] = True
+            req_json["clientContext"].update(
+                {
                     "shouldLocate": True,
                     "selectedDevice": "all",
-                },
-                "isUpdatingAllLocations": True,
-            },
-        )
-        self._response = req.json()
+                }
+            )
 
-        for device_info in self._response["content"]:
+        req: Response = self.session.post(
+            url=self._fmip_refresh_url if self._server_ctx else self._fmip_init_url,
+            params=self.params,
+            json=req_json,
+        )
+        resp: dict[str, Any] = req.json()
+
+        self._server_ctx = resp.get("serverContext")
+        if self._server_ctx and "theftLoss" in self._server_ctx:
+            self._server_ctx["theftLoss"] = None
+
+        if "content" not in resp:
+            return
+
+        for device_info in resp["content"]:
             device_id: str = device_info["id"]
             if device_id not in self._devices:
                 self._devices[device_id] = AppleDevice(
@@ -99,9 +122,6 @@ class FindMyiPhoneServiceManager(BaseService):
                 )
             else:
                 self._devices[device_id].update(device_info)
-
-        if not self._devices:
-            raise PyiCloudNoDevicesException()
 
     def __getitem__(self, key) -> "AppleDevice":
         if isinstance(key, int):
