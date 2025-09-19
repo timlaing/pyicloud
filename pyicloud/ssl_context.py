@@ -68,5 +68,9 @@ def configurable_ssl_verification(
         for adapter in opened_adapters:
             try:
                 adapter.close()
-            except Exception as e:  # pylint: disable=broad-except
-                logger.debug("Failed to close adapter: %s", e)
+            except AttributeError as e:
+                logger.debug("Failed to close adapter (AttributeError): %s", e)
+            except requests.exceptions.ConnectionError as e:
+                logger.debug("Failed to close adapter (ConnectionError): %s", e)
+            except Exception as e:  # fallback for unexpected exceptions
+                logger.debug("Failed to close adapter (%s): %s", type(e).__name__, e)
