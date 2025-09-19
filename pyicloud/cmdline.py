@@ -247,7 +247,7 @@ def _create_parser() -> argparse.ArgumentParser:
         "--no-verify-ssl",
         action="store_true",
         default=False,
-        help="Disable SSL certificate verification",
+        help="Disable SSL certificate verification (WARNING: This makes the connection insecure)",
     )
 
     return parser

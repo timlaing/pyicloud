@@ -75,7 +75,12 @@ def test_insecure_request_warning(monkeypatch: MonkeyPatch) -> None:
     with configurable_ssl_verification(verify_ssl=False):
         with warnings.catch_warnings(record=True) as w:
             warnings.warn("test", InsecureRequestWarning)
-            # Should not raise InsecureRequestWarning, but our dummy warning will be present
-            assert all(
-                issubclass(warning.category, InsecureRequestWarning) for warning in w
+            # InsecureRequestWarning should be suppressed
+            insecure_warnings: list[warnings.WarningMessage] = [
+                warning
+                for warning in w
+                if issubclass(warning.category, InsecureRequestWarning)
+            ]
+            assert len(insecure_warnings) == 0, (
+                "InsecureRequestWarning should be suppressed"
             )

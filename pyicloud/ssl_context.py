@@ -1,12 +1,15 @@
 """Context manager to configure SSL verification for requests"""
 
 import contextlib
+import logging
 import warnings
 from typing import Any, Callable, Generator, Set
 
 import requests
 import requests.adapters
 from urllib3.exceptions import InsecureRequestWarning
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 @contextlib.contextmanager
@@ -65,5 +68,5 @@ def configurable_ssl_verification(
         for adapter in opened_adapters:
             try:
                 adapter.close()
-            except Exception:  # pylint: disable=broad-except
-                pass  # Ignore errors during adapter closing
+            except Exception as e:  # pylint: disable=broad-except
+                logger.debug("Failed to close adapter: %s", e)

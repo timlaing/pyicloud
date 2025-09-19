@@ -2,7 +2,7 @@
 
 # pylint: disable=protected-access
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -330,7 +330,8 @@ def test_refresh_client_with_reauth_auth_required(
     ):
         manager.refresh_client_with_reauth()
         mock_authenticate.assert_called_once_with(force_refresh=True)
-        assert mock_refresh.call_count >= 2
+        assert mock_refresh.call_count == 2
+        mock_refresh.assert_has_calls([call(), call()])
 
 
 def test_refresh_client_with_reauth_with_family(

@@ -309,7 +309,7 @@ class PyiCloudSession(requests.Session):
                 "Failed to parse response with JSON mimetype: %s", response.text
             )
 
-    def _raise_error(self, code: Optional[Union[int, str]], reason: str) -> NoReturn:
+    def _raise_error(self, code: int | str | None, reason: str) -> NoReturn:
         if (
             self.service.requires_2sa
             and reason == "Missing X-APPLE-WEBAUTH-TOKEN cookie"
