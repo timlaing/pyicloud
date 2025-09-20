@@ -493,7 +493,6 @@ class DriveNode:
             return self.connection.recover_items_from_trash(
                 self.data["drivewsid"], self.data["etag"]
             )
-
         raise ValueError(f"'{self.name}' does not appear to be in the Trash.")
 
     def delete_forever(self):
