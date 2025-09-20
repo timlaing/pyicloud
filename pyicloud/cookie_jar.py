@@ -38,12 +38,16 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
             ignore_expires=ignore_expires,
         )
         # Clear any FMIP cookie regardless of domain/path to avoid stale auth.
-        for cookie in self:
-            if cookie.name == _FMIP_AUTH_COOKIE_NAME:
-                try:
-                    self.clear(domain=cookie.domain, path=cookie.path, name=cookie.name)
-                except KeyError:
-                    pass
+        cookies_to_clear: list[tuple[str, str, str]] = [
+            (cookie.domain, cookie.path, cookie.name)
+            for cookie in self
+            if cookie.name == _FMIP_AUTH_COOKIE_NAME
+        ]
+        for domain, path, name in cookies_to_clear:
+            try:
+                self.clear(domain=domain, path=path, name=name)
+            except KeyError:
+                pass
 
     def save(
         self,
