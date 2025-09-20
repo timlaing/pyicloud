@@ -114,15 +114,12 @@ class PyiCloudService:
         self._setup_endpoints()
 
         self._password_raw: Optional[str] = password
-        self._password: Optional[SrpPassword] = None
 
         self._apple_id: str = apple_id
         self._accept_terms: bool = accept_terms
 
         if self._password_raw is None:
             self._password_raw = get_password_from_keyring(apple_id)
-        if self._password_raw is not None:
-            self._password = SrpPassword(self._password_raw)
 
         self.data: dict[str, Any] = {}
         self.params: dict[str, Any] = {}
@@ -266,15 +263,16 @@ class PyiCloudService:
 
     def _srp_authentication(self, headers: dict[str, Any]) -> None:
         """SRP authentication."""
-        if self._password is None or self._password_raw is None:
+        if self._password_raw is None:
             raise PyiCloudFailedLoginException("No password set")
 
+        srp_password: SrpPassword = SrpPassword(self._password_raw)
         srp.rfc5054_enable()
         srp.no_username_in_x()
         try:
             usr = srp.User(
                 self.account_name,
-                self._password_raw,
+                srp_password,
                 hash_alg=srp.SHA256,
                 ng_type=srp.NG_2048,
             )
@@ -305,7 +303,9 @@ class PyiCloudService:
         c: Any = body["c"]
         iterations: int = body["iteration"]
         key_length: int = 32
-        self._password.set_encrypt_info(salt, iterations, key_length)
+
+        srp_password.set_encrypt_info(salt, iterations, key_length)
+
         m1: None | Any = usr.process_challenge(salt, b)
         m2: None | bytes = usr.H_AMK
         if m1 and m2:

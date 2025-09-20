@@ -7,7 +7,7 @@ class SrpPassword:
     """SRP password."""
 
     def __init__(self, password: str) -> None:
-        self.password_hash: bytes = hashlib.sha256(password.encode("utf-8")).digest()
+        self._password_hash: bytes = hashlib.sha256(password.encode("utf-8")).digest()
         self.salt: bytes | None = None
         self.iterations: int | None = None
         self.key_length: int | None = None
@@ -27,7 +27,7 @@ class SrpPassword:
 
         return hashlib.pbkdf2_hmac(
             "sha256",
-            self.password_hash,
+            self._password_hash,
             self.salt,
             self.iterations,
             self.key_length,
