@@ -744,8 +744,8 @@ class PhotoAlbum(BasePhotoAlbum):
 
     def _get_len(self) -> int:
         url: str = (
-            f"{self.service.service_endpoint}/internal/records",
-            f"/query/batch?{urlencode(self.service.params)}",
+            f"{self.service.service_endpoint}/internal/records"
+            f"/query/batch?{urlencode(self.service.params)}"
         )
         request: Response = self.service.session.post(
             url,
