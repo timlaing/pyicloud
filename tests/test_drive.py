@@ -6,7 +6,7 @@ from unittest.mock import ANY, Mock, patch
 
 import pytest
 
-from pyicloud.base import PyiCloudService
+from pyicloud import PyiCloudService
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.services.drive import (

@@ -1,15 +1,13 @@
 """Pyicloud Session handling"""
 
-import http.cookiejar
 import logging
 import os
 import os.path as path
 from json import JSONDecodeError, dump, load
 from re import match
-from typing import Any, NoReturn, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, Union, cast
 
 import requests
-import requests.cookies
 from requests.models import Response
 
 from pyicloud.const import (
@@ -22,6 +20,7 @@ from pyicloud.const import (
     HEADER_DATA,
     AppleAuthError,
 )
+from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
@@ -30,43 +29,8 @@ from pyicloud.exceptions import (
     PyiCloudServiceNotActivatedException,
 )
 
-KEY_RETRIED = "retried"
-
-
-class PyiCloudCookieJar(
-    requests.cookies.RequestsCookieJar, http.cookiejar.LWPCookieJar
-):
-    """Mix the Requests CookieJar with the LWPCookieJar to allow persistance"""
-
-    def load(
-        self,
-        filename: Optional[str] = None,
-        ignore_discard: bool = True,
-        ignore_expires: bool = False,
-    ) -> None:
-        """Load cookies from file."""
-        super().load(
-            filename=filename,
-            ignore_discard=ignore_discard,
-            ignore_expires=ignore_expires,
-        )
-        try:
-            self.clear(domain=".icloud.com", path="/", name="X-APPLE-WEBAUTH-FMIP")
-        except KeyError:
-            pass  # Cookie did not exist, nothing to clear
-
-    def save(
-        self,
-        filename: Optional[str] = None,
-        ignore_discard: bool = True,
-        ignore_expires: bool = False,
-    ) -> None:
-        """Save cookies to file."""
-        super().save(
-            filename=filename,
-            ignore_discard=ignore_discard,
-            ignore_expires=ignore_expires,
-        )
+if TYPE_CHECKING:
+    from pyicloud.base import PyiCloudService
 
 
 class PyiCloudSession(requests.Session):
@@ -74,7 +38,7 @@ class PyiCloudSession(requests.Session):
 
     def __init__(
         self,
-        service,
+        service: "PyiCloudService",
         client_id: str,
         cookie_directory: str,
         verify: bool = False,
@@ -82,10 +46,10 @@ class PyiCloudSession(requests.Session):
     ) -> None:
         super().__init__()
 
-        self._service = service
+        self._service: PyiCloudService = service
         self.verify = verify
         self._cookie_directory: str = cookie_directory
-        self.cookies = PyiCloudCookieJar(self.cookiejar_path)
+        self.cookies = PyiCloudCookieJar(filename=self.cookiejar_path)
         self._data: dict[str, Any] = {}
 
         self._logger: logging.Logger = logging.getLogger(__name__)
@@ -106,11 +70,6 @@ class PyiCloudSession(requests.Session):
     @property
     def logger(self) -> logging.Logger:
         """Gets the request logger"""
-        if (
-            self.service.password_filter is not None
-            and self.service.password_filter not in self._logger.filters
-        ):
-            self._logger.addFilter(self.service.password_filter)
         return self._logger
 
     def _load_session_data(self) -> None:
@@ -337,7 +296,7 @@ class PyiCloudSession(requests.Session):
         raise PyiCloudAPIResponseException(reason, code)
 
     @property
-    def service(self):
+    def service(self) -> "PyiCloudService":
         """Gets the service."""
         return self._service
 

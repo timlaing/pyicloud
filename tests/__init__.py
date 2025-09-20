@@ -71,11 +71,11 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if not data:
             data = json.loads(kwargs.get("data", "{}")) if kwargs.get("data") else {}
 
-        if self._service._setup_endpoint in url:
+        if self.service._setup_endpoint in url:
             if resp := self._handle_setup_endpoint(url, method, data, headers):
                 return resp
 
-        if self._service.auth_endpoint in url:
+        if self.service._auth_endpoint in url:
             if resp := self._handle_auth_endpoint(url, method, data):
                 return resp
 

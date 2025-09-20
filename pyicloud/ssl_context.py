@@ -3,10 +3,9 @@
 import contextlib
 import logging
 import warnings
-from typing import Any, Callable, Generator, Set
+from typing import Any, Callable, Generator
 
 import requests
-import requests.adapters
 from urllib3.exceptions import InsecureRequestWarning
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -15,11 +14,15 @@ logger: logging.Logger = logging.getLogger(__name__)
 @contextlib.contextmanager
 def configurable_ssl_verification(
     verify_ssl: bool = True,
-    http_proxy: str = None,
-    https_proxy: str = None,
+    http_proxy: str | None = None,
+    https_proxy: str | None = None,
 ) -> Generator[None, Any, None]:
-    """Context manager to configure SSL verification for requests"""
-    opened_adapters: Set[requests.adapters.BaseAdapter] = set()
+    """Context manager to configure SSL verification for requests
+
+    Warning: Setting verify_ssl=False disables certificate validation,
+    making connections vulnerable to man-in-the-middle attacks.
+    Only use in trusted environments for testing purposes.
+    """
 
     # Store the original merge_environment_settings
     old_merge_environment_settings: Callable = (
@@ -29,9 +32,6 @@ def configurable_ssl_verification(
     def merge_environment_settings_with_config(
         self, url, proxies, stream, verify, cert
     ):
-        # Add opened adapters to a set so they can be closed later
-        opened_adapters.add(self.get_adapter(url))
-
         settings = old_merge_environment_settings(
             self, url, proxies, stream, verify, cert
         )
@@ -63,14 +63,3 @@ def configurable_ssl_verification(
     finally:
         # Restore the original merge_environment_settings
         requests.Session.merge_environment_settings = old_merge_environment_settings
-
-        # Close all opened adapters
-        for adapter in opened_adapters:
-            try:
-                adapter.close()
-            except AttributeError as e:
-                logger.debug("Failed to close adapter (AttributeError): %s", e)
-            except requests.exceptions.ConnectionError as e:
-                logger.debug("Failed to close adapter (ConnectionError): %s", e)
-            except Exception as e:  # fallback for unexpected exceptions
-                logger.debug("Failed to close adapter (%s): %s", type(e).__name__, e)

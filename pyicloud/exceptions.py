@@ -25,16 +25,12 @@ class TokenException(PyiCloudException):
 class PyiCloudAPIResponseException(PyiCloudException):
     """iCloud response exception."""
 
-    def __init__(
-        self, reason: str, code: Optional[Union[int, str]] = None, retry: bool = False
-    ) -> None:
+    def __init__(self, reason: str, code: Optional[Union[int, str]] = None) -> None:
         self.reason: str = reason
         self.code: Optional[Union[int, str]] = code
         message: str = reason or ""
         if code:
             message += f" ({code})"
-        if retry:
-            message += ". Retrying ..."
 
         super().__init__(message)
 

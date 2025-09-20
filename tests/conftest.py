@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 from requests.cookies import RequestsCookieJar
 
-from pyicloud.base import PyiCloudService
+from pyicloud import PyiCloudService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.drive import COOKIE_APPLE_WEBAUTH_VALIDATE
 from pyicloud.services.hidemyemail import HideMyEmailService
@@ -64,7 +64,7 @@ def mock_open_fixture():
 def pyicloud_service() -> PyiCloudService:
     """Create a PyiCloudService instance with mocked authenticate method."""
     with (
-        patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch(BUILTINS_OPEN, new_callable=mock_open),
     ):
         # Mock the authenticate method during initialization
@@ -79,7 +79,7 @@ def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudServi
     pyicloud_service.data = LOGIN_WORKING
     pyicloud_service._webservices = LOGIN_WORKING["webservices"]
     with patch(BUILTINS_OPEN, new_callable=mock_open):
-        pyicloud_service.session = PyiCloudSessionMock(
+        pyicloud_service._session = PyiCloudSessionMock(
             pyicloud_service,
             "",
             cookie_directory="",

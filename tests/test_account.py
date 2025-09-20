@@ -4,7 +4,7 @@
 
 from unittest.mock import MagicMock
 
-from pyicloud.base import PyiCloudService
+from pyicloud import PyiCloudService
 from pyicloud.services.account import AccountStorageUsage
 
 
@@ -140,7 +140,7 @@ def test_summary_plan(
         "price": "$2.99/month",
     }
     mock_session.get.return_value.json.return_value = mock_response
-    pyicloud_service_working.session = mock_session
+    pyicloud_service_working._session = mock_session
 
     # Access the summary_plan property
     summary_plan = pyicloud_service_working.account.summary_plan

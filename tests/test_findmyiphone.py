@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from pyicloud.base import PyiCloudService
+from pyicloud import PyiCloudService
 from pyicloud.exceptions import (
     PyiCloudAuthRequiredException,
     PyiCloudNoDevicesException,

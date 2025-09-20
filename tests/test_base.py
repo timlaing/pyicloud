@@ -10,12 +10,7 @@ import pytest
 from fido2.hid import CtapHidDevice
 from requests import HTTPError, Response
 
-from pyicloud.base import (
-    PyiCloudPasswordFilter,
-    PyiCloudService,
-    PyiCloudSession,
-    b64_encode,
-)
+from pyicloud import PyiCloudService
 from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
     PyiCloudAcceptTermsException,
@@ -30,6 +25,8 @@ from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.services.photos import PhotosService
 from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
+from pyicloud.session import PyiCloudSession
+from pyicloud.utils import b64url_encode
 
 
 def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> None:
@@ -95,7 +92,7 @@ def test_validate_2fa_code(pyicloud_service: PyiCloudService) -> None:
     pyicloud_service.data = {"dsInfo": {"hsaVersion": 1}, "hsaChallengeRequired": False}
 
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
-        pyicloud_service.session = mock_session
+        pyicloud_service._session = mock_session
         mock_session.data = {
             "scnt": "test_scnt",
             "session_id": "test_session_id",
@@ -116,7 +113,7 @@ def test_validate_2fa_code_failure(pyicloud_service: PyiCloudService) -> None:
     exception.code = -21669
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
         mock_session.post.side_effect = exception
-        pyicloud_service.session = mock_session
+        pyicloud_service._session = mock_session
         assert not pyicloud_service.validate_2fa_code("000000")
 
 
@@ -171,11 +168,13 @@ def test_confirm_security_key_success(
         {
             "challenge": challenge,
             "rpId": rp_id,
-            "clientData": b64_encode(mock_response.response.client_data),
-            "signatureData": b64_encode(mock_response.response.signature),
-            "authenticatorData": b64_encode(mock_response.response.authenticator_data),
-            "userHandle": b64_encode(mock_response.response.user_handle),
-            "credentialID": b64_encode(mock_response.raw_id),
+            "clientData": b64url_encode(mock_response.response.client_data),
+            "signatureData": b64url_encode(mock_response.response.signature),
+            "authenticatorData": b64url_encode(
+                mock_response.response.authenticator_data
+            ),
+            "userHandle": b64url_encode(mock_response.response.user_handle),
+            "credentialID": b64url_encode(mock_response.raw_id),
         }
     )
 
@@ -209,14 +208,14 @@ def test_trust_session_success(pyicloud_service: PyiCloudService) -> None:
             "termsUpdateNeeded": False,
             "hsaTrustedBrowser": True,
         }
-        pyicloud_service.session = mock_session
+        pyicloud_service._session = mock_session
         assert pyicloud_service.trust_session()
 
 
 def test_trust_session_failure(pyicloud_service: PyiCloudService) -> None:
     """Test the trust_session method with a failed response."""
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
-        pyicloud_service.session = mock_session
+        pyicloud_service._session = mock_session
         mock_session.get.side_effect = PyiCloudAPIResponseException("Trust failed")
         assert not pyicloud_service.trust_session()
 
@@ -295,12 +294,12 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
             json=None,
         )
         mock_save.assert_called_once_with(
-            filename=None,
+            filename="testexamplecom.cookiejar",
             ignore_discard=True,
             ignore_expires=False,
         )
         mock_load.assert_called_once_with(
-            filename=None,
+            filename="testexamplecom.cookiejar",
             ignore_discard=True,
             ignore_expires=False,
         )
@@ -452,7 +451,7 @@ def test_request_pcs_for_service_icdrs_not_disabled(
 ) -> None:
     """Test _request_pcs_for_service when ICDRS is not disabled (should early return)."""
     mock_logger = MagicMock()
-    pyicloud_service.session = MagicMock()
+    pyicloud_service._session = MagicMock()
     pyicloud_service.session.post = MagicMock(
         return_value=MagicMock(json=MagicMock(return_value={"isICDRSDisabled": False}))
     )
@@ -470,21 +469,21 @@ def test_request_pcs_for_service_consent_needed_and_notification_sent(
     """Test _request_pcs_for_service when device consent is needed and notification is sent."""
     # First call: ICDRS disabled, device not consented
     # Second call: device consented (simulate after waiting)
-    consent_states = [
+    consent_states: List[dict[str, bool]] = [
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": True},
     ]
 
     pyicloud_service._check_pcs_consent = MagicMock(side_effect=consent_states)
-    pyicloud_service.session = MagicMock()
+    pyicloud_service._session = MagicMock()
     pyicloud_service.params = {}
-    pyicloud_service.session.post.return_value.json.side_effect = [
+    pyicloud_service._session.post.return_value.json.side_effect = [
         {"isDeviceConsentNotificationSent": True},
         {"status": "success", "message": "ok"},
     ]
     with patch("time.sleep"):
         pyicloud_service._request_pcs_for_service("photos")
-    pyicloud_service.session.post.assert_any_call(
+    pyicloud_service._session.post.assert_any_call(
         f"{pyicloud_service._setup_endpoint}/enableDeviceConsentForPCS",
         params=pyicloud_service.params,
     )
@@ -498,9 +497,9 @@ def test_request_pcs_for_service_consent_needed_and_notification_not_sent(
     pyicloud_service._check_pcs_consent = MagicMock(
         return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": False}
     )
-    pyicloud_service.session = MagicMock()
+    pyicloud_service._session = MagicMock()
     pyicloud_service.params = {}
-    pyicloud_service.session.post.return_value.json.return_value = {
+    pyicloud_service._session.post.return_value.json.return_value = {
         "isDeviceConsentNotificationSent": False
     }
     with pytest.raises(
@@ -514,15 +513,15 @@ def test_request_pcs_for_service_pcs_consent_waits(
 ) -> None:
     """Test _request_pcs_for_service waits for PCS consent and then proceeds."""
     # Simulate PCS consent not granted for first 2 tries, then granted
-    consent_states = [
+    consent_states: List[dict[str, bool]] = [
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": True},
     ]
     pyicloud_service._check_pcs_consent = MagicMock(side_effect=consent_states)
-    pyicloud_service.session = MagicMock()
+    pyicloud_service._session = MagicMock()
     pyicloud_service.params = {}
-    pyicloud_service.session.post.return_value.json.return_value = {
+    pyicloud_service._session.post.return_value.json.return_value = {
         "isDeviceConsentNotificationSent": True
     }
     pyicloud_service._send_pcs_request = MagicMock(
@@ -540,7 +539,7 @@ def test_request_pcs_for_service_success_on_first_attempt(
     pyicloud_service._check_pcs_consent = MagicMock(
         return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": True}
     )
-    pyicloud_service.session = MagicMock()
+    pyicloud_service._session = MagicMock()
     pyicloud_service.params = {}
     pyicloud_service._send_pcs_request = MagicMock(
         return_value={"status": "success", "message": "ok"}
@@ -558,9 +557,9 @@ def test_request_pcs_for_service_retries_on_cookie_messages(
     pyicloud_service._check_pcs_consent = MagicMock(
         return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": True}
     )
-    pyicloud_service.session = MagicMock()
+    pyicloud_service._session = MagicMock()
     pyicloud_service.params = {}
-    responses = [
+    responses: List[dict[str, str]] = [
         {"status": "error", "message": "Requested the device to upload cookies."},
         {"status": "error", "message": "Cookies not available yet on server."},
         {"status": "success", "message": "ok"},
@@ -578,7 +577,7 @@ def test_request_pcs_for_service_raises_on_unknown_message(
     pyicloud_service._check_pcs_consent = MagicMock(
         return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": True}
     )
-    pyicloud_service.session = MagicMock()
+    pyicloud_service._session = MagicMock()
     pyicloud_service.params = {}
     pyicloud_service._send_pcs_request = MagicMock(
         return_value={"status": "error", "message": "Some unknown error"}
@@ -592,7 +591,7 @@ def test_request_pcs_for_service_raises_on_unknown_message(
         patch("pyicloud.base.LOGGER", mock_logger),
     ):
         pyicloud_service._request_pcs_for_service("photos")
-        mock_logger.error.assert_called()
+    mock_logger.error.assert_called()
 
 
 def test_handle_accept_terms_no_terms_update_needed(
@@ -600,13 +599,13 @@ def test_handle_accept_terms_no_terms_update_needed(
 ) -> None:
     """Test _handle_accept_terms when no terms update is needed (should do nothing)."""
     pyicloud_service.data = {"termsUpdateNeeded": False}
-    login_data = {"test": "data"}
+    login_data: dict[str, str] = {"test": "data"}
     # Should not raise or call anything
-    pyicloud_service.session = MagicMock()
+    pyicloud_service._session = MagicMock()
     pyicloud_service._accept_terms = True
     pyicloud_service._handle_accept_terms(login_data)
-    pyicloud_service.session.get.assert_not_called()
-    pyicloud_service.session.post.assert_not_called()
+    pyicloud_service._session.get.assert_not_called()
+    pyicloud_service._session.post.assert_not_called()
 
 
 def test_handle_accept_terms_terms_update_needed_accept_terms_false(
@@ -615,7 +614,7 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_false(
     """Test _handle_accept_terms when terms update is needed and accept_terms is False (should raise)."""
     pyicloud_service.data = {"termsUpdateNeeded": True}
     pyicloud_service._accept_terms = False
-    login_data = {"test": "data"}
+    login_data: dict[str, str] = {"test": "data"}
     with pytest.raises(
         PyiCloudAcceptTermsException,
         match="You must accept the updated terms of service",
@@ -632,7 +631,7 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_true_success(
         "dsInfo": {"languageCode": "en_US"},
     }
     pyicloud_service._accept_terms = True
-    login_data = {"test": "data"}
+    login_data: dict[str, str] = {"test": "data"}
 
     # Mock session.get and session.post
     mock_get = MagicMock()
@@ -680,7 +679,7 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_true_http_error(
         "dsInfo": {"languageCode": "en_US"},
     }
     pyicloud_service._accept_terms = True
-    login_data = {"test": "data"}
+    login_data: dict[str, str] = {"test": "data"}
 
     # Mock session.get to raise HTTPError
     mock_get = MagicMock()
@@ -700,7 +699,7 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_true_post_error(
         "dsInfo": {"languageCode": "en_US"},
     }
     pyicloud_service._accept_terms = True
-    login_data = {"test": "data"}
+    login_data: dict[str, str] = {"test": "data"}
 
     # Mock session.get for getTerms and repairDone
     mock_get = MagicMock()
@@ -774,13 +773,6 @@ def test_str_and_repr(pyicloud_service: PyiCloudService) -> None:
 def test_account_name_property(pyicloud_service: PyiCloudService) -> None:
     """Test account_name property returns the correct Apple ID."""
     assert pyicloud_service.account_name == pyicloud_service._apple_id
-
-
-def test_password_property_sets_filter(pyicloud_service: PyiCloudService) -> None:
-    """Test password property returns password and sets filter."""
-    pw: str = pyicloud_service.password
-    assert pw == pyicloud_service._password
-    assert isinstance(pyicloud_service.password_filter, PyiCloudPasswordFilter)
 
 
 def test_requires_2sa_true(pyicloud_service: PyiCloudService) -> None:
@@ -965,15 +957,6 @@ def test_account_name_property_returns_apple_id(
 ) -> None:
     """Test account_name property returns the correct Apple ID."""
     assert pyicloud_service.account_name == pyicloud_service._apple_id
-
-
-def test_password_property_sets_filter_and_returns_password(
-    pyicloud_service: PyiCloudService,
-) -> None:
-    """Test password property returns password and sets filter."""
-    pw: str = pyicloud_service.password
-    assert pw == pyicloud_service._password
-    assert isinstance(pyicloud_service.password_filter, PyiCloudPasswordFilter)
 
 
 def test_hidemyemail_returns_service(pyicloud_service: PyiCloudService) -> None:
