@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 from requests.cookies import RequestsCookieJar
 
-from pyicloud import PyiCloudService
+from pyicloud.base import PyiCloudService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.drive import COOKIE_APPLE_WEBAUTH_VALIDATE
 from pyicloud.services.hidemyemail import HideMyEmailService

@@ -302,23 +302,18 @@ def main() -> None:
         http_proxy=command_line.http_proxy or "",
         https_proxy=command_line.https_proxy or "",
     ):
-        failure_count = 0
-        while True:
-            password: Optional[str] = _get_password(username, parser, command_line)
+        password: Optional[str] = _get_password(username, parser, command_line)
 
-            api: Optional[PyiCloudService] = _authenticate(
-                username,
-                password,
-                china_mainland,
-                parser,
-                command_line,
-                failures=failure_count,
-            )
-            if not api:
-                failure_count += 1
-            else:
-                break
+        api: Optional[PyiCloudService] = _authenticate(
+            username,
+            password,
+            china_mainland,
+            parser,
+            command_line,
+        )
 
+        if not api:
+            return
         _print_devices(api, command_line)
 
 
@@ -328,7 +323,6 @@ def _authenticate(
     china_mainland: bool,
     parser: argparse.ArgumentParser,
     command_line: argparse.Namespace,
-    failures: int = 0,
 ) -> Optional[PyiCloudService]:
     api = None
     try:
@@ -365,11 +359,9 @@ def _authenticate(
 
         message: str = f"Bad username or password for {username}"
 
-        failures += 1
-        if failures >= 3:
-            raise RuntimeError(message) from err
+        print(err, file=sys.stderr)
 
-        print(message, file=sys.stderr)
+        raise RuntimeError(message) from err
 
 
 def _print_devices(api: PyiCloudService, command_line: argparse.Namespace) -> None:

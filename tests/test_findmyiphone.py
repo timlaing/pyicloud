@@ -231,12 +231,12 @@ def test_get_erase_token_missing_tokens(
     """Tests AppleDevice._get_erase_token raises when tokens missing."""
     device: AppleDevice = pyicloud_service_working.devices[0]
 
-    with (
-        patch.object(device.session, "post") as mock_post,
-        pytest.raises(PyiCloudServiceUnavailable),
-    ):
+    with patch.object(device.session, "post") as mock_post:
         mock_post.return_value.json.return_value = {}
-        device._get_erase_token()
+
+        with pytest.raises(PyiCloudServiceUnavailable):
+            device._get_erase_token()
+
         mock_post.assert_called_with(
             url=device._erase_token_url,
             json={"dsWebAuthToken": device.session.data.get("session_token")},

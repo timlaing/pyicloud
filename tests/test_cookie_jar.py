@@ -46,9 +46,9 @@ def test_load_with_filename_removes_fmip_cookie() -> None:
         # Add a non-FMIP cookie too
         jar.set("other_cookie", "value", domain="example.com", path="/")
         jar.save()
-        buffer.seek(0)
         # Reload and check FMIP cookie is removed
         jar2 = PyiCloudCookieJar(filename=filename)
+        buffer.seek(0)
         jar2.load()
         names: list[str] = [cookie.name for cookie in jar2]
         assert _FMIP_AUTH_COOKIE_NAME not in names

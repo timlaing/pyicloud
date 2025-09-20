@@ -26,7 +26,7 @@ from pyicloud.services.photos import PhotosService
 from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
 from pyicloud.session import PyiCloudSession
-from pyicloud.utils import b64url_encode
+from pyicloud.utils import b64_encode
 
 
 def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> None:
@@ -168,13 +168,11 @@ def test_confirm_security_key_success(
         {
             "challenge": challenge,
             "rpId": rp_id,
-            "clientData": b64url_encode(mock_response.response.client_data),
-            "signatureData": b64url_encode(mock_response.response.signature),
-            "authenticatorData": b64url_encode(
-                mock_response.response.authenticator_data
-            ),
-            "userHandle": b64url_encode(mock_response.response.user_handle),
-            "credentialID": b64url_encode(mock_response.raw_id),
+            "clientData": b64_encode(mock_response.response.client_data),
+            "signatureData": b64_encode(mock_response.response.signature),
+            "authenticatorData": b64_encode(mock_response.response.authenticator_data),
+            "userHandle": b64_encode(mock_response.response.user_handle),
+            "credentialID": b64_encode(mock_response.raw_id),
         }
     )
 

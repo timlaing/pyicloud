@@ -80,6 +80,6 @@ def b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-def b64url_encode(b: bytes) -> str:
-    """Encode bytes to a base64url encoded string."""
+def b64_encode(b: bytes) -> str:
+    """Encode bytes to a base64 encoded string."""
     return base64.b64encode(b).decode()

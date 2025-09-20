@@ -48,8 +48,8 @@ from pyicloud.services import (
 from pyicloud.session import PyiCloudSession
 from pyicloud.srp_password import SrpPassword
 from pyicloud.utils import (
+    b64_encode,
     b64url_decode,
-    b64url_encode,
     get_password_from_keyring,
 )
 
@@ -112,18 +112,19 @@ class PyiCloudService:
             china_mainland or environ.get("icloud_china", "0") == "1"
         )
         self._setup_endpoints()
-        self._password: Optional[SrpPassword] = (
-            SrpPassword(password) if password else None
-        )
+
+        self._password_raw: Optional[str] = password
+        self._password: Optional[SrpPassword] = None
+
         self._apple_id: str = apple_id
         self._accept_terms: bool = accept_terms
 
-        if self._password is None:
-            if password := get_password_from_keyring(apple_id):
-                self._password = SrpPassword(password)
+        if self._password_raw is None:
+            self._password_raw = get_password_from_keyring(apple_id)
+        if self._password_raw is not None:
+            self._password = SrpPassword(self._password_raw)
 
         self.data: dict[str, Any] = {}
-
         self.params: dict[str, Any] = {}
         self._client_id: str = client_id or (f"auth-{str(uuid1()).lower()}")
         self._with_family: bool = with_family
@@ -265,18 +266,21 @@ class PyiCloudService:
 
     def _srp_authentication(self, headers: dict[str, Any]) -> None:
         """SRP authentication."""
+        if self._password is None or self._password_raw is None:
+            raise PyiCloudFailedLoginException("No password set")
+
         srp.rfc5054_enable()
         srp.no_username_in_x()
         try:
             usr = srp.User(
                 self.account_name,
-                self.password,
+                self._password_raw,
                 hash_alg=srp.SHA256,
                 ng_type=srp.NG_2048,
             )
             uname, A = usr.start_authentication()  # pylint: disable=invalid-name
             data: dict[str, Any] = {
-                "a": b64url_encode(A),
+                "a": b64_encode(A),
                 ACCOUNT_NAME: uname,
                 "protocols": ["s2k", "s2k_fo"],
             }
@@ -301,15 +305,15 @@ class PyiCloudService:
         c: Any = body["c"]
         iterations: int = body["iteration"]
         key_length: int = 32
-        self.password.set_encrypt_info(salt, iterations, key_length)
+        self._password.set_encrypt_info(salt, iterations, key_length)
         m1: None | Any = usr.process_challenge(salt, b)
         m2: None | bytes = usr.H_AMK
         if m1 and m2:
             data = {
                 ACCOUNT_NAME: uname,
                 "c": c,
-                "m1": b64url_encode(m1),
-                "m2": b64url_encode(m2),
+                "m1": b64_encode(m1),
+                "m2": b64_encode(m2),
                 "rememberMe": True,
                 "trustTokens": [],
             }
@@ -364,7 +368,7 @@ class PyiCloudService:
         login_data: dict[str, Any] = {
             "appName": service,
             "apple_id": self.account_name,
-            "password": self.password,
+            "password": self._password_raw,
         }
 
         try:
@@ -544,13 +548,13 @@ class PyiCloudService:
         self._submit_webauthn_assertion_response(
             {
                 "challenge": challenge,
-                "clientData": b64url_encode(result.response.client_data),
-                "signatureData": b64url_encode(result.response.signature),
-                "authenticatorData": b64url_encode(result.response.authenticator_data),
-                "userHandle": b64url_encode(result.response.user_handle)
+                "clientData": b64_encode(result.response.client_data),
+                "signatureData": b64_encode(result.response.signature),
+                "authenticatorData": b64_encode(result.response.authenticator_data),
+                "userHandle": b64_encode(result.response.user_handle)
                 if result.response.user_handle
                 else None,
-                "credentialID": b64url_encode(result.raw_id),
+                "credentialID": b64_encode(result.raw_id),
                 "rpId": rp_id,
             }
         )
@@ -848,13 +852,6 @@ class PyiCloudService:
         """Retrieves the account name associated with the Apple ID."""
 
         return self._apple_id
-
-    @property
-    def password(self) -> SrpPassword:
-        """Retrieves the password associated with the Apple ID."""
-        if self._password is None:
-            raise PyiCloudPasswordException("No password set")
-        return self._password
 
     def __str__(self) -> str:
         return f"iCloud API: {self.account_name}"
