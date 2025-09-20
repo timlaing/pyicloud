@@ -538,9 +538,15 @@ class PyiCloudService:
 
     def confirm_security_key(self, device: Optional[CtapHidDevice] = None) -> None:
         """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
-        challenge = self._auth_data["fsaChallenge"]["challenge"]
-        allowed_credentials = self._auth_data["fsaChallenge"]["keyHandles"]
-        rp_id = self._auth_data["fsaChallenge"]["rpId"]
+        fsa: dict[str, Any] = self._auth_data.get("fsaChallenge", {})
+        try:
+            challenge = fsa["challenge"]
+            allowed_credentials = fsa["keyHandles"]
+            rp_id = fsa["rpId"]
+        except KeyError as error:
+            raise PyiCloudAPIResponseException(
+                "Missing WebAuthn challenge data"
+            ) from error
 
         if not device:
             devices: List[CtapHidDevice] = list(CtapHidDevice.list_devices())
