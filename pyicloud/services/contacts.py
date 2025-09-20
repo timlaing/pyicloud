@@ -23,14 +23,14 @@ class ContactsService(BaseService):
         self._contacts_changeset_url: str = f"{self._contacts_endpoint}/changeset"
         self._contacts_me_card_url: str = f"{self._contacts_endpoint}/mecard"
 
-        self._contacts: Optional[list] = None
+        self._contacts: Optional[list[dict[str, Any]]] = None
 
     def refresh_client(self) -> None:
         """
         Refreshes the ContactsService endpoint, ensuring that the
         contacts data is up-to-date.
         """
-        params_contacts = dict(self.params)
+        params_contacts: dict[str, Any] = dict(self.params)
         params_contacts.update(
             {
                 "locale": "en_US",
@@ -44,7 +44,7 @@ class ContactsService(BaseService):
         )
         response: dict[str, Any] = req.json()
 
-        params_next = dict(params_contacts)
+        params_next: dict[str, Any] = dict(params_contacts)
         params_next.update(
             {
                 "prefToken": response["prefToken"],
@@ -58,7 +58,7 @@ class ContactsService(BaseService):
         self._contacts = response.get("contacts")
 
     @property
-    def all(self):
+    def all(self) -> list[dict[str, Any]] | None:
         """
         Retrieves all contacts.
         """
