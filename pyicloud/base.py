@@ -201,6 +201,7 @@ class PyiCloudService:
         if (
             not login_successful
             and service is not None
+            and self.data.get("apps")
             and service in self.data["apps"]
         ):
             app: dict[str, Any] = self.data["apps"][service]
