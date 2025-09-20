@@ -2,8 +2,8 @@
 
 import logging
 import os
-import os.path as path
 from json import JSONDecodeError, dump, load
+from os import path
 from re import match
 from typing import TYPE_CHECKING, Any, NoReturn, Optional, Union, cast
 

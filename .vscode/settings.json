@@ -7,7 +7,7 @@
   "python.testing.pytestEnabled": true,
   "python.analysis.inlayHints.pytestParameters": true,
   "isort.check": true,
-  "isort.importStrategy": "useBundled",
+  "isort.importStrategy": "fromEnvironment",
   "python.analysis.autoFormatStrings": true,
   "python.analysis.autoImportCompletions": true,
   "python.analysis.completeFunctionParens": true,
@@ -26,7 +26,8 @@
   "[dockerfile]": {
     "editor.defaultFormatter": "ms-azuretools.vscode-docker"
   },
-  "pylint.importStrategy": "useBundled",
-  "python.analysis.diagnosticMode": "workspace",
-  "sonarlint.testFilePattern": "**/tests/**"
+  "pylint.importStrategy": "fromEnvironment",
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "sonarlint.testFilePattern": "**/tests/**",
+  "python.languageServer": "Pylance"
 }

@@ -47,7 +47,7 @@ class DriveService(BaseService):
             if cookie.name == COOKIE_APPLE_WEBAUTH_VALIDATE and cookie.value:
                 match: Optional[Match[str]] = search(r"\bt=([^:]+)", cookie.value)
                 if match is None:
-                    raise TokenException("Can't extract token from %r" % cookie.value)
+                    raise TokenException(f"Can't extract token from {cookie.value}")
                 return {"token": match.group(1)}
         raise TokenException("Token cookie not found")
 
@@ -402,7 +402,7 @@ class DriveNode:
             if "items" not in self.data or force:
                 self.data.update(self.connection.get_node_data(self.data["drivewsid"]))
             if "items" not in self.data:
-                raise KeyError("No items in folder, status: %s" % self.data["status"])
+                raise KeyError(f"No items in folder, status: {self.data['status']}")
             self._children = [
                 DriveNode(self.connection, item_data)
                 for item_data in self.data["items"]
@@ -493,8 +493,8 @@ class DriveNode:
             return self.connection.recover_items_from_trash(
                 self.data["drivewsid"], self.data["etag"]
             )
-        else:
-            raise ValueError(f"'{self.name}' does not appear to be in the Trash.")
+
+        raise ValueError(f"'{self.name}' does not appear to be in the Trash.")
 
     def delete_forever(self):
         """Permanently deletes an iCloud Drive item from trash."""
@@ -503,11 +503,10 @@ class DriveNode:
             return self.connection.delete_forever_from_trash(
                 self.data["drivewsid"], self.data["etag"]
             )
-        else:
-            raise ValueError(
-                f"'{self.name}' does not appear to be in the Trash. Please 'delete()' it first before "
-                f"trying to 'delete_forever()'."
-            )
+        raise ValueError(
+            f"'{self.name}' does not appear to be in the Trash. Please 'delete()' it first before "
+            f"trying to 'delete_forever()'."
+        )
 
     def get(self, name: str) -> "DriveNode":
         """Gets the node child."""

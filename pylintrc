@@ -6,21 +6,15 @@ persistent=no
 extension-pkg-whitelist=ciso8601
 
 [BASIC]
-good-names=id,i,j,k
+good-names=id,pk
 
 [MESSAGES CONTROL]
 # Reasons disabled:
-# format - handled by black
 # duplicate-code - unavoidable
 # too-many-* - are not enforced for the sake of readability
 # too-few-* - same as too-many-*
 # inconsistent-return-statements - doesn't handle raise
-# unnecessary-pass - readability for functions which only contain pass
-# useless-object-inheritance - should be removed while droping Python 2
-# wrong-import-order - isort guards this
-# consider-using-f-string - temporarily to be able to not block Python upgrade
 disable=
-  format,
   duplicate-code,
   inconsistent-return-statements,
   too-few-public-methods,
@@ -34,13 +28,11 @@ disable=
   too-many-return-statements,
   too-many-statements,
   too-many-boolean-expressions,
-  unnecessary-pass,
-  useless-object-inheritance,
-  wrong-import-order,
-  consider-using-f-string
+  too-many-positional-arguments,
+
 
 [FORMAT]
 expected-line-ending-format=LF
 
 [EXCEPTIONS]
-overgeneral-exceptions=PyiCloudException
+overgeneral-exceptions=pyicloud.exceptions.PyiCloudException

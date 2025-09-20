@@ -385,8 +385,8 @@ def _print_devices(api: PyiCloudService, command_line: argparse.Namespace) -> No
 
                 # Enable Lost mode
                 _enable_lost_mode_option(command_line, dev)
-    except PyiCloudServiceUnavailable as exc:
-        print(exc)
+    except PyiCloudServiceUnavailable:
+        print("iCloud - Find My service is unavailable.")
 
 
 def _enable_lost_mode_option(
@@ -510,7 +510,7 @@ def _show_devices(api: PyiCloudService) -> list[dict[str, Any]]:
     """Show devices."""
     devices: list[dict[str, Any]] = api.trusted_devices
     for i, device in enumerate(devices):
-        phone_number: str = f"SMS to {device.get('phoneNumber')}"
+        phone_number: str = f"{device.get('deviceType')} to {device.get('phoneNumber')}"
         print(f"    {i}: {device.get('deviceName', phone_number)}")
 
     return devices

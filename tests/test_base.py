@@ -27,7 +27,6 @@ from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
 from pyicloud.session import PyiCloudSession
 from pyicloud.utils import b64_encode
-
 from tests.const_login import LOGIN_2FA
 
 
@@ -133,15 +132,13 @@ def test_confirm_security_key_success(
     pyicloud_service.trust_session = MagicMock()
 
     # Simulated WebAuthn options returned from backend
-    pyicloud_service._get_webauthn_options = MagicMock(
-        return_value={
-            "fsaChallenge": {
-                "challenge": challenge,  # base64url(fake_challenge)
-                "keyHandles": ["a2V5MQ", "a2V5Mg"],  # base64url(fake_key_ids)
-                "rpId": rp_id,
-            }
+    pyicloud_service._auth_data = {
+        "fsaChallenge": {
+            "challenge": challenge,  # base64url(fake_challenge)
+            "keyHandles": ["a2V5MQ", "a2V5Mg"],  # base64url(fake_key_ids)
+            "rpId": rp_id,
         }
-    )
+    }
 
     # Simulated FIDO2 response
     mock_response = MagicMock()
@@ -897,9 +894,8 @@ def test_security_key_names_returns_key_names(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Test security_key_names property returns keyNames from options."""
-    pyicloud_service._get_webauthn_options = MagicMock(
-        return_value={"keyNames": ["key1", "key2"]}
-    )
+    pyicloud_service._auth_data = {"keyNames": ["key1", "key2"]}
+
     assert pyicloud_service.security_key_names == ["key1", "key2"]
 
 
@@ -917,11 +913,10 @@ def test_confirm_security_key_no_devices_raises(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Test confirm_security_key raises if no FIDO2 devices found."""
-    pyicloud_service._get_webauthn_options = MagicMock(
-        return_value={
-            "fsaChallenge": {"challenge": "c", "keyHandles": [], "rpId": "rp"}
-        }
-    )
+    pyicloud_service._auth_data = {
+        "fsaChallenge": {"challenge": "c", "keyHandles": [], "rpId": "rp"}
+    }
+
     with patch("pyicloud.base.CtapHidDevice.list_devices", return_value=[]):
         with pytest.raises(RuntimeError, match="No FIDO2 devices found"):
             pyicloud_service.confirm_security_key()
