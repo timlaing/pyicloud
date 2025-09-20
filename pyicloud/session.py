@@ -1,15 +1,13 @@
 """Pyicloud Session handling"""
 
-import http.cookiejar
 import logging
 import os
 import os.path as path
 from json import JSONDecodeError, dump, load
 from re import match
-from typing import Any, NoReturn, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, Union, cast
 
 import requests
-import requests.cookies
 from requests.models import Response
 
 from pyicloud.const import (
@@ -20,21 +18,19 @@ from pyicloud.const import (
     ERROR_AUTHENTICATION_FAILED,
     ERROR_ZONE_NOT_FOUND,
     HEADER_DATA,
+    AppleAuthError,
 )
+from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
     PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
     PyiCloudServiceNotActivatedException,
 )
 
-KEY_RETRIED = "retried"
-
-
-class PyiCloudCookieJar(
-    requests.cookies.RequestsCookieJar, http.cookiejar.LWPCookieJar
-):
-    """Mix the Requests CookieJar with the LWPCookieJar to allow persistance"""
+if TYPE_CHECKING:
+    from pyicloud.base import PyiCloudService
 
 
 class PyiCloudSession(requests.Session):
@@ -42,7 +38,7 @@ class PyiCloudSession(requests.Session):
 
     def __init__(
         self,
-        service,
+        service: "PyiCloudService",
         client_id: str,
         cookie_directory: str,
         verify: bool = False,
@@ -50,10 +46,10 @@ class PyiCloudSession(requests.Session):
     ) -> None:
         super().__init__()
 
-        self._service = service
+        self._service: PyiCloudService = service
         self.verify = verify
         self._cookie_directory: str = cookie_directory
-        self.cookies = PyiCloudCookieJar(self.cookiejar_path)
+        self.cookies = PyiCloudCookieJar(filename=self.cookiejar_path)
         self._data: dict[str, Any] = {}
 
         self._logger: logging.Logger = logging.getLogger(__name__)
@@ -74,21 +70,14 @@ class PyiCloudSession(requests.Session):
     @property
     def logger(self) -> logging.Logger:
         """Gets the request logger"""
-        if (
-            self.service.password_filter is not None
-            and self.service.password_filter not in self._logger.filters
-        ):
-            self._logger.addFilter(self.service.password_filter)
         return self._logger
 
     def _load_session_data(self) -> None:
         """Load session_data from file."""
         if os.path.exists(self.cookiejar_path):
             try:
-                cast(PyiCloudCookieJar, self.cookies).load(
-                    ignore_discard=True, ignore_expires=False
-                )
-            except OSError as exc:
+                cast(PyiCloudCookieJar, self.cookies).load()
+            except (OSError, ValueError) as exc:
                 self._logger.warning(
                     "Failed to load cookie jar %s: %s; starting without persisted cookies",
                     self.cookiejar_path,
@@ -115,10 +104,11 @@ class PyiCloudSession(requests.Session):
             dump(self._data, outfile)
             self.logger.debug("Saved session data to file: %s", self.session_path)
 
-        cast(PyiCloudCookieJar, self.cookies).save(
-            ignore_discard=True, ignore_expires=False
-        )
-        self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
+        try:
+            cast(PyiCloudCookieJar, self.cookies).save()
+            self.logger.debug("Saved cookies data to file: %s", self.cookiejar_path)
+        except (OSError, ValueError) as exc:
+            self.logger.warning("Failed to save cookies data: %s", exc)
 
     def _update_session_data(self, response: Response) -> None:
         """Update session_data with new data."""
@@ -134,14 +124,6 @@ class PyiCloudSession(requests.Session):
             CONTENT_TYPE_TEXT_JSON,
         ]
         return content_type.split(";")[0] in json_mimetypes
-
-    def _reauthenticate_find_my_iphone(self, response: Response) -> None:
-        self.logger.debug("Re-authenticating Find My iPhone service")
-        try:
-            service: Optional[str] = None if response.status_code == 450 else "find"
-            self.service.authenticate(True, service)
-        except PyiCloudAPIResponseException:
-            self.logger.debug("Re-authentication failed")
 
     def request(
         self,
@@ -185,41 +167,40 @@ class PyiCloudSession(requests.Session):
         self,
         method,
         url,
-        *,
-        data=None,
-        has_retried: bool = False,
         **kwargs,
     ) -> Response:
         """Request method."""
         self.logger.debug(
-            "%s %s %s",
+            "%s %s",
             method,
             url,
-            data or "",
         )
 
         try:
             response: Response = super().request(
                 method=method,
                 url=url,
-                data=data,
                 **kwargs,
             )
 
             self._update_session_data(response)
             self._save_session_data()
 
+            status_code: int = int(response.status_code)
+
             if not response.ok and (
                 self._is_json_response(response)
-                or response.status_code in [421, 450, 500]
+                or status_code
+                in [
+                    AppleAuthError.TWO_FACTOR_REQUIRED,
+                    AppleAuthError.FIND_MY_REAUTH_REQUIRED,
+                    AppleAuthError.LOGIN_TOKEN_EXPIRED,
+                    AppleAuthError.GENERAL_AUTH_ERROR,
+                ],
             ):
                 return self._handle_request_error(
+                    status_code=status_code,
                     response=response,
-                    method=method,
-                    url=url,
-                    data=data,
-                    has_retried=has_retried,
-                    **kwargs,
                 )
 
             response.raise_for_status()
@@ -240,18 +221,12 @@ class PyiCloudSession(requests.Session):
 
     def _handle_request_error(
         self,
+        status_code: int,
         response: Response,
-        method,
-        url,
-        *,
-        data=None,
-        has_retried: bool = False,
-        **kwargs,
     ) -> Response:
         """Handle request error."""
-
         if (
-            response.status_code == 409
+            status_code == AppleAuthError.TWO_FACTOR_REQUIRED
             and self._is_json_response(response)
             and (response.json().get("authType") == "hsa2")
         ):
@@ -260,34 +235,13 @@ class PyiCloudSession(requests.Session):
                 response=response,
             )
 
-        try:
-            fmip_url: str = self.service.get_webservice_url("findme")
-            if (
-                not has_retried
-                and response.status_code in [421, 450, 500]
-                and fmip_url in url
-            ):
-                self._reauthenticate_find_my_iphone(response)
-                return self._request(
-                    method=method,
-                    url=url,
-                    data=data,
-                    has_retried=True,
-                    **kwargs,
-                )
-        except PyiCloudServiceNotActivatedException:
-            pass
-
-        if not has_retried and response.status_code in [421, 450, 500]:
-            return self._request(
-                method=method,
-                url=url,
-                data=data,
-                has_retried=True,
-                **kwargs,
+        if status_code == AppleAuthError.FIND_MY_REAUTH_REQUIRED:
+            raise PyiCloudAuthRequiredException(
+                apple_id=self.service.account_name,
+                response=response,
             )
 
-        self._raise_error(response.status_code, response.reason)
+        self._raise_error(status_code, response.reason)
 
     def _decode_json_response(self, response: Response) -> None:
         """Decode JSON response."""
@@ -331,13 +285,18 @@ class PyiCloudSession(requests.Session):
                 reason + ".  Please wait a few minutes then try again."
                 "The remote servers might be trying to throttle requests."
             )
-        if code in [421, 450, 500]:
+        if isinstance(code, int) and code in [
+            AppleAuthError.TWO_FACTOR_REQUIRED,
+            AppleAuthError.FIND_MY_REAUTH_REQUIRED,
+            AppleAuthError.LOGIN_TOKEN_EXPIRED,
+            AppleAuthError.GENERAL_AUTH_ERROR,
+        ]:
             reason = "Authentication required for Account."
 
         raise PyiCloudAPIResponseException(reason, code)
 
     @property
-    def service(self):
+    def service(self) -> "PyiCloudService":
         """Gets the service."""
         return self._service
 

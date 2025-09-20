@@ -1,5 +1,7 @@
 """Contants for the PyiCloud API."""
 
+from enum import IntEnum
+
 CONTENT_TYPE = "Content-Type"
 CONTENT_TYPE_JSON = "application/json"
 CONTENT_TYPE_TEXT = "plain/text"
@@ -21,3 +23,13 @@ ACCOUNT_NAME = "accountName"
 ERROR_ACCESS_DENIED = "ACCESS_DENIED"
 ERROR_ZONE_NOT_FOUND = "ZONE_NOT_FOUND"
 ERROR_AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED"
+
+
+class AppleAuthError(IntEnum):
+    """Apple auth error codes."""
+
+    SUCCESS = 200
+    LOGIN_TOKEN_EXPIRED = 421
+    TWO_FACTOR_REQUIRED = 409
+    FIND_MY_REAUTH_REQUIRED = 450
+    GENERAL_AUTH_ERROR = 500

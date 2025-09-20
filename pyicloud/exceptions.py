@@ -25,16 +25,12 @@ class TokenException(PyiCloudException):
 class PyiCloudAPIResponseException(PyiCloudException):
     """iCloud response exception."""
 
-    def __init__(
-        self, reason: str, code: Optional[Union[int, str]] = None, retry: bool = False
-    ) -> None:
+    def __init__(self, reason: str, code: Optional[Union[int, str]] = None) -> None:
         self.reason: str = reason
         self.code: Optional[Union[int, str]] = code
         message: str = reason or ""
         if code:
             message += f" ({code})"
-        if retry:
-            message += ". Retrying ..."
 
         super().__init__(message)
 
@@ -67,6 +63,15 @@ class PyiCloud2SARequiredException(PyiCloudException):
     def __init__(self, apple_id: str) -> None:
         message: str = f"Two-step authentication required for account: {apple_id}"
         super().__init__(message)
+
+
+class PyiCloudAuthRequiredException(PyiCloudException):
+    """iCloud re-authentication required exception."""
+
+    def __init__(self, apple_id: str, response: Response) -> None:
+        message: str = f"Re-authentication required for account: {apple_id}"
+        super().__init__(message)
+        self.response: Response = response
 
 
 class PyiCloudNoStoredPasswordAvailableException(PyiCloudException):

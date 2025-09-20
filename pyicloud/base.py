@@ -2,7 +2,6 @@
 
 import base64
 import getpass
-import hashlib
 import logging
 import time
 from os import environ, mkdir, path
@@ -28,6 +27,7 @@ from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
+    PyiCloudException,
     PyiCloudFailedLoginException,
     PyiCloudPasswordException,
     PyiCloudServiceNotActivatedException,
@@ -46,66 +46,19 @@ from pyicloud.services import (
     UbiquityService,
 )
 from pyicloud.session import PyiCloudSession
-from pyicloud.utils import get_password_from_keyring
+from pyicloud.srp_password import SrpPassword
+from pyicloud.utils import (
+    b64_encode,
+    b64url_decode,
+    get_password_from_keyring,
+)
 
 LOGGER: logging.Logger = logging.getLogger(__name__)
 PCS_SLEEP_TIME: int = 5
 PCS_MAX_RETRIES: int = 10
 
 
-def b64url_decode(s: str) -> bytes:
-    """Decode a base64url encoded string."""
-    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
-
-
-def b64_encode(b: bytes) -> str:
-    """Encode bytes to a base64url encoded string."""
-    return base64.b64encode(b).decode()
-
-
-class SrpPassword:
-    """SRP password."""
-
-    def __init__(self, password: str) -> None:
-        self.password: str = password
-        self.salt: bytes
-        self.iterations: int
-        self.key_length: int
-
-    def set_encrypt_info(self, salt: bytes, iterations: int, key_length: int) -> None:
-        """Set encrypt info."""
-        self.salt = salt
-        self.iterations = iterations
-        self.key_length = key_length
-
-    def encode(self) -> bytes:
-        """Encode password."""
-        password_hash: bytes = hashlib.sha256(self.password.encode("utf-8")).digest()
-        return hashlib.pbkdf2_hmac(
-            "sha256",
-            password_hash,
-            self.salt,
-            self.iterations,
-            self.key_length,
-        )
-
-
-class PyiCloudPasswordFilter(logging.Filter):
-    """Password log hider."""
-
-    def __init__(self, password: str) -> None:
-        super().__init__(password)
-
-    def filter(self, record) -> bool:
-        message: str = record.getMessage()
-        if self.name in message:
-            record.msg = message.replace(self.name, "*" * 8)
-            record.args = ()
-
-        return True
-
-
-class PyiCloudService(object):
+class PyiCloudService:
     """
     A base authentication class for the iCloud service. Handles the
     authentication required to access iCloud services.
@@ -121,7 +74,7 @@ class PyiCloudService(object):
         # If the country or region setting of your Apple ID is China mainland.
         # See https://support.apple.com/en-us/HT208351
         icloud_china: str = ".cn" if self._is_china_mainland else ""
-        self.auth_endpoint: str = (
+        self._auth_endpoint: str = (
             f"https://idmsa.apple.com{icloud_china}/appleauth/auth"
         )
         self._home_endpoint: str = f"https://www.icloud.com{icloud_china}"
@@ -159,23 +112,23 @@ class PyiCloudService(object):
             china_mainland or environ.get("icloud_china", "0") == "1"
         )
         self._setup_endpoints()
-        self._password: Optional[str] = password
+
+        self._password_raw: Optional[str] = password
+
         self._apple_id: str = apple_id
         self._accept_terms: bool = accept_terms
 
-        if self._password is None:
-            self._password = get_password_from_keyring(apple_id)
+        if self._password_raw is None:
+            self._password_raw = get_password_from_keyring(apple_id)
 
         self.data: dict[str, Any] = {}
-
         self.params: dict[str, Any] = {}
         self._client_id: str = client_id or (f"auth-{str(uuid1()).lower()}")
         self._with_family: bool = with_family
-        self._password_filter: Optional[PyiCloudPasswordFilter] = None
 
-        _cookie_directory = self._setup_cookie_directory(cookie_directory)
+        _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
 
-        self.session: PyiCloudSession = PyiCloudSession(
+        self._session: PyiCloudSession = PyiCloudSession(
             self,
             verify=verify,
             headers={
@@ -190,10 +143,8 @@ class PyiCloudService(object):
         self._client_id = self.session.data.get("client_id", self._client_id)
 
         self.params = {
-            "clientBuildNumber": "2512Hotfix21",
-            "clientMasteringNumber": "2512Hotfix21",
-            "ckjsBuildVersion": "2310ProjectDev27",
-            "ckjsVersion": "2.6.4",
+            "clientBuildNumber": "2534Project66",
+            "clientMasteringNumber": "2534B22",
             "clientId": self._client_id,
         }
 
@@ -238,7 +189,7 @@ class PyiCloudService(object):
                 try:
                     self._authenticate_with_credentials_service(service)
                     login_successful = True
-                except Exception:
+                except PyiCloudException:
                     LOGGER.debug(
                         "Could not log into service. Attempting brand new login."
                     )
@@ -312,45 +263,51 @@ class PyiCloudService(object):
 
     def _srp_authentication(self, headers: dict[str, Any]) -> None:
         """SRP authentication."""
-        try:
-            srp_password = SrpPassword(self.password)
-        except PyiCloudPasswordException as error:
-            raise PyiCloudFailedLoginException("Password not provided") from error
+        if self._password_raw is None:
+            raise PyiCloudFailedLoginException("No password set")
+
+        srp_password: SrpPassword = SrpPassword(self._password_raw)
         srp.rfc5054_enable()
         srp.no_username_in_x()
-        usr = srp.User(
-            self.account_name,
-            srp_password,
-            hash_alg=srp.SHA256,
-            ng_type=srp.NG_2048,
-        )
-        uname, A = usr.start_authentication()  # pylint: disable=invalid-name
-        data: dict[str, Any] = {
-            "a": b64_encode(A),
-            ACCOUNT_NAME: uname,
-            "protocols": ["s2k", "s2k_fo"],
-        }
-
         try:
+            usr = srp.User(
+                self.account_name,
+                srp_password,
+                hash_alg=srp.SHA256,
+                ng_type=srp.NG_2048,
+            )
+            uname, A = usr.start_authentication()  # pylint: disable=invalid-name
+            data: dict[str, Any] = {
+                "a": b64_encode(A),
+                ACCOUNT_NAME: uname,
+                "protocols": ["s2k", "s2k_fo"],
+            }
+
             response: Response = self.session.post(
-                f"{self.auth_endpoint}/signin/init",
+                f"{self._auth_endpoint}/signin/init",
                 json=data,
                 headers=headers,
             )
             response.raise_for_status()
-        except (PyiCloudAPIResponseException, HTTPError) as error:
+        except (
+            PyiCloudAPIResponseException,
+            HTTPError,
+            PyiCloudPasswordException,
+        ) as error:
             msg = "Failed to initiate srp authentication."
             raise PyiCloudFailedLoginException(msg, error) from error
 
-        body = response.json()
+        body: dict[str, Any] = response.json()
         salt: bytes = base64.b64decode(body["salt"])
         b: bytes = base64.b64decode(body["b"])
-        c = body["c"]
+        c: Any = body["c"]
         iterations: int = body["iteration"]
         key_length: int = 32
+
         srp_password.set_encrypt_info(salt, iterations, key_length)
-        m1 = usr.process_challenge(salt, b)
-        m2 = usr.H_AMK
+
+        m1: None | Any = usr.process_challenge(salt, b)
+        m2: None | bytes = usr.H_AMK
         if m1 and m2:
             data = {
                 ACCOUNT_NAME: uname,
@@ -365,7 +322,7 @@ class PyiCloudService(object):
 
         try:
             self.session.post(
-                f"{self.auth_endpoint}/signin/complete",
+                f"{self._auth_endpoint}/signin/complete",
                 params={
                     "isRememberMeEnabled": "true",
                 },
@@ -411,7 +368,7 @@ class PyiCloudService(object):
         login_data: dict[str, Any] = {
             "appName": service,
             "apple_id": self.account_name,
-            "password": self.password,
+            "password": self._password_raw,
         }
 
         try:
@@ -467,6 +424,11 @@ class PyiCloudService(object):
             headers.update(overrides)
 
         return headers
+
+    @property
+    def session(self) -> PyiCloudSession:
+        """Return the session."""
+        return self._session
 
     @property
     def requires_2sa(self) -> bool:
@@ -528,7 +490,7 @@ class PyiCloudService(object):
         """Retrieve WebAuthn request options (PublicKeyCredentialRequestOptions) for assertion."""
         headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
-        return self.session.get(self.auth_endpoint, headers=headers).json()
+        return self.session.get(self._auth_endpoint, headers=headers).json()
 
     @property
     def security_key_names(self) -> Optional[List[str]]:
@@ -540,7 +502,7 @@ class PyiCloudService(object):
         headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
         self.session.post(
-            f"{self.auth_endpoint}/verify/security/key", json=data, headers=headers
+            f"{self._auth_endpoint}/verify/security/key", json=data, headers=headers
         )
 
     @property
@@ -678,7 +640,7 @@ class PyiCloudService(object):
 
         try:
             self.session.post(
-                f"{self.auth_endpoint}/verify/trusteddevice/securitycode",
+                f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
                 json=data,
                 headers=headers,
             )
@@ -698,7 +660,7 @@ class PyiCloudService(object):
 
         try:
             self.session.get(
-                f"{self.auth_endpoint}/2sv/trust",
+                f"{self._auth_endpoint}/2sv/trust",
                 headers=headers,
             )
             self._authenticate_with_token()
@@ -890,20 +852,6 @@ class PyiCloudService(object):
         """Retrieves the account name associated with the Apple ID."""
 
         return self._apple_id
-
-    @property
-    def password(self) -> str:
-        """Retrieves the password associated with the Apple ID."""
-        if self._password is None:
-            raise PyiCloudPasswordException()
-        self._password_filter = PyiCloudPasswordFilter(self._password)
-        LOGGER.addFilter(self._password_filter)
-        return self._password
-
-    @property
-    def password_filter(self) -> Optional[PyiCloudPasswordFilter]:
-        """Retrieves the password filter"""
-        return self._password_filter if self._password_filter else None
 
     def __str__(self) -> str:
         return f"iCloud API: {self.account_name}"

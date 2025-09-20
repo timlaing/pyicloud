@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from requests import Response
 
 from pyicloud.services.calendar import (
@@ -354,29 +355,25 @@ def test_event_object_validation() -> None:
     """Test EventObject validation logic."""
     with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
         # Test empty pguid validation
-        try:
+        with pytest.raises(ValueError) as excinfo:
             EventObject(pguid="")
-            assert False, "Should have raised ValueError for empty pguid"
-        except ValueError as e:
-            assert "pguid cannot be empty" in str(e)
+        assert "pguid cannot be empty" in str(excinfo.value)
 
         # Test empty pguid with whitespace
-        try:
+        with pytest.raises(ValueError) as excinfo:
             EventObject(pguid="   ")
-            assert False, "Should have raised ValueError for whitespace-only pguid"
-        except ValueError as e:
-            assert "pguid cannot be empty" in str(e)
+        assert "pguid cannot be empty" in str(excinfo.value)
 
         # Test invalid date range (start after end)
-        try:
+        with pytest.raises(ValueError) as excinfo:
             EventObject(
                 pguid="test-calendar",
                 start_date=datetime(2023, 6, 15, 15, 0),
                 end_date=datetime(2023, 6, 15, 14, 0),  # Earlier than start
             )
-            assert False, "Should have raised ValueError for invalid date range"
-        except ValueError as e:
-            assert "start_date" in str(e) and "must be before end_date" in str(e)
+        assert "start_date" in str(excinfo.value) and "must be before end_date" in str(
+            excinfo.value
+        )
 
         # Test valid event creation
         event = EventObject(
@@ -531,10 +528,8 @@ def test_calendar_service_guid_bug_fix() -> None:
         def mock_get_ctag(guid):
             # This should be called with the calendar GUID (event.pguid)
             # NOT the event GUID (event.guid)
-            if guid == "calendar-guid-123":
-                return "test-ctag"
-            else:
-                raise ValueError(f"get_ctag called with wrong GUID: {guid}")
+            assert guid == "calendar-guid-123"
+            return "test-ctag"
 
         service.get_ctag = mock_get_ctag
 

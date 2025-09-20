@@ -52,7 +52,8 @@
 				"elagil.pre-commit-helper",
 				"sonarsource.sonarlint-vscode",
 				"charliermarsh.ruff",
-				"ms-azuretools.vscode-docker"
+				"ms-azuretools.vscode-docker",
+				"coderabbit.coderabbit-vscode"
 			],
 			"settings": {
 				"sonarlint.ls.javaHome": "/usr/local/sdkman/candidates/java/current",

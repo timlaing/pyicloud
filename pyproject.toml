@@ -44,6 +44,8 @@ addopts = ["--disable-socket", "--allow-unix-socket"]
 branch = true
 omit = [
     "examples.py",
+    "conftest.py",
+    "fetch_devices_error.py",
 ]
 
 [tool.coverage.paths]

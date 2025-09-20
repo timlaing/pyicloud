@@ -1,5 +1,6 @@
 """Utils."""
 
+import base64
 import getpass
 import sys
 from typing import Optional
@@ -66,9 +67,19 @@ def camelcase_to_underscore(camel_str: str) -> str:
         localStartDate -> local_start_date
         hasAttachments -> has_attachments
     """
-    result = []
+    result: list[str] = []
     for i, char in enumerate(camel_str):
         if char.isupper() and i > 0:
             result.append("_")
         result.append(char.lower())
     return "".join(result)
+
+
+def b64url_decode(s: str) -> bytes:
+    """Decode a base64url encoded string."""
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def b64_encode(b: bytes) -> str:
+    """Encode bytes to a base64 encoded string."""
+    return base64.b64encode(b).decode()

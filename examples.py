@@ -2,25 +2,22 @@
 """End to End System test"""
 
 import argparse
-import contextlib
 import http.client
 import json
 import logging
 import sys
-import warnings
 from datetime import datetime, timedelta
-from typing import Any, Callable, List, Optional
+from typing import Any, List, Optional
 from unittest.mock import patch
 
 import click
-import requests
 from fido2.hid import CtapHidDevice
 from requests import Response
-from urllib3.exceptions import InsecureRequestWarning
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.calendar import CalendarObject, CalendarService
+from pyicloud.ssl_context import configurable_ssl_verification
 
 END_LIST = "End List\n"
 MAX_DISPLAY = 10
@@ -38,21 +35,23 @@ HTTP_LOG_LEVEL = logging.ERROR
 # Set the log level for other commands
 OTHER_LOG_LEVEL = logging.ERROR
 
-# Set whether to show debug info for HTTPConnection
+# HTTPConnection parameters
 HTTPCONNECTION_DEBUG_INFO = False
+HTTP_PROXY: Optional[str] = None
+HTTPS_PROXY: Optional[str] = None
 
 # Set where you'd like the COOKIES to be stored. Can also use command-line argument --cookie-dir
-COOKIE_DIR = ""  # location to store session information
+COOKIE_DIR: str = ""  # location to store session information
 
 # Other configurable variables
-APPLE_USERNAME = ""
-APPLE_PASSWORD = ""
-CHINA = False
+APPLE_USERNAME: str = ""
+APPLE_PASSWORD: str = ""
+CHINA: bool = False
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments"""
-    global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME, CHINA
+    global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME, CHINA, HTTP_PROXY, HTTPS_PROXY  # pylint: disable=global-statement
     parser = argparse.ArgumentParser(description="End to End Test of Services")
 
     parser.add_argument(
@@ -94,11 +93,23 @@ def parse_args() -> argparse.Namespace:
         help="Disable SSL verification",
     )
 
+    parser.add_argument(
+        "--http-proxy",
+        type=str,
+        help="Use HTTP proxy for requests",
+    )
+
+    parser.add_argument(
+        "--https-proxy",
+        type=str,
+        help="Use HTTPS proxy for requests",
+    )
+
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
 
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
     if not args.username or not args.password:
         parser.error("Both --username and --password are required")
@@ -121,58 +132,12 @@ def parse_args() -> argparse.Namespace:
         print("=" * 80)
         print()
 
+    if args.http_proxy:
+        HTTP_PROXY = args.http_proxy
+    if args.https_proxy:
+        HTTPS_PROXY = args.https_proxy
+
     return args
-
-
-@contextlib.contextmanager
-def configurable_ssl_verification(verify_ssl=True):
-    opened_adapters = set()
-    old_merge_environment_settings: Callable = (
-        requests.Session.merge_environment_settings
-    )
-
-    def merge_environment_settings_with_config(
-        self, url, proxies, stream, verify, cert
-    ):
-        # Add opened adapters to a set so they can be closed later
-        opened_adapters.add(self.get_adapter(url))
-
-        settings = old_merge_environment_settings(
-            self, url, proxies, stream, verify, cert
-        )
-
-        if not verify_ssl:
-            settings["verify"] = False
-            # You can also uncomment and use proxies here if needed,
-            # proxies = {
-            #     "http": "http://127.0.0.1:8888",
-            #     "https": "http://127.0.0.1:8888"
-            # }
-            # settings["proxies"] = proxies
-
-        return settings
-
-    # Temporarily override merge_environment_settings
-    requests.Session.merge_environment_settings = merge_environment_settings_with_config
-
-    try:
-        # Only catch InsecureRequestWarning if we are disabling SSL verification
-        if not verify_ssl:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", InsecureRequestWarning)
-                yield
-        else:
-            yield
-    finally:
-        # Restore the original merge_environment_settings
-        requests.Session.merge_environment_settings = old_merge_environment_settings
-
-        # Close all opened adapters
-        for adapter in opened_adapters:
-            try:
-                adapter.close()
-            except Exception:
-                pass  # Ignore errors during adapter closing
 
 
 def httpclient_logging_patch(level=HTTP_LOG_LEVEL) -> None:
@@ -280,6 +245,7 @@ def handle_2sa(api: PyiCloudService) -> None:
 
 
 def get_api() -> PyiCloudService:
+    """Get authenticated PyiCloudService instance"""
     parse_args()
 
     api = PyiCloudService(
@@ -349,7 +315,7 @@ def display_calendars(api: PyiCloudService) -> None:
 def display_contacts(api: PyiCloudService) -> None:
     """Display contacts info"""
 
-    contacts = api.contacts.all
+    contacts: List[dict[str, Any]] | None = api.contacts.all
     if contacts:
         print(f"List of contacts ({len(contacts)}):")
         for idx, contact in enumerate(contacts):
@@ -488,7 +454,11 @@ def setup() -> None:
 
 def main() -> None:
     """main function"""
-    with configurable_ssl_verification(ENABLE_SSL_VERIFICATION):
+    with configurable_ssl_verification(
+        ENABLE_SSL_VERIFICATION,
+        HTTP_PROXY,
+        HTTPS_PROXY,
+    ):
         api: PyiCloudService = get_api()
 
         display_account(api)

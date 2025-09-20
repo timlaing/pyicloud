@@ -60,11 +60,27 @@ def mock_open_fixture():
         yield open_mock
 
 
+@pytest.fixture(autouse=True, scope="session")
+def mock_os_open_fixture():
+    """Mock the open function to prevent file system access."""
+    builtins_open = os.open
+
+    def my_open(path, *args, **kwargs):
+        if "python-test-results" not in path:
+            raise FileSystemAccessError(
+                f"You should not be opening files in tests. {path}"
+            )
+        return builtins_open(path, *args, **kwargs)
+
+    with patch("os.open", my_open) as open_mock:
+        yield open_mock
+
+
 @pytest.fixture
 def pyicloud_service() -> PyiCloudService:
     """Create a PyiCloudService instance with mocked authenticate method."""
     with (
-        patch("pyicloud.base.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch(BUILTINS_OPEN, new_callable=mock_open),
     ):
         # Mock the authenticate method during initialization
@@ -79,7 +95,7 @@ def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudServi
     pyicloud_service.data = LOGIN_WORKING
     pyicloud_service._webservices = LOGIN_WORKING["webservices"]
     with patch(BUILTINS_OPEN, new_callable=mock_open):
-        pyicloud_service.session = PyiCloudSessionMock(
+        pyicloud_service._session = PyiCloudSessionMock(
             pyicloud_service,
             "",
             cookie_directory="",
