@@ -10,19 +10,21 @@ def create_cookie_jar_with_cookie(
     filename, name, domain="example.com", path="/", value="test"
 ) -> PyiCloudCookieJar:
     """Create a PyiCloudCookieJar with a single cookie."""
-    jar = PyiCloudCookieJar(filename=filename)
-    jar.set(name, value, domain=domain, path=path)
-    with patch("builtins.open", mock_open()):
-        jar.save()
-    return jar
+    with (
+        patch("builtins.open", new_callable=mock_open),
+        patch("os.open", new_callable=mock_open),
+    ):
+        jar = PyiCloudCookieJar(filename=filename)
+        jar.set(name, value, domain=domain, path=path)
+        return jar
 
 
 def test_load_no_filename() -> None:
     """Test that load is a no-op if no filename is set."""
     jar = PyiCloudCookieJar()
     # Should not raise or do anything if no filename is set
-    with patch("builtins.open", mock_open()):
-        jar.load()  # No-op
+    # with patch("builtins.open", mock_open()):
+    jar.load()  # No-op
 
 
 def test_load_with_filename_removes_fmip_cookie() -> None:
@@ -30,8 +32,13 @@ def test_load_with_filename_removes_fmip_cookie() -> None:
     filename = "test_cookies.txt"
     buffer = StringIO()
     buffer.close = MagicMock()
-    with patch("builtins.open", new_callable=mock_open) as m:
+    with (
+        patch("builtins.open", new_callable=mock_open) as m,
+        patch("os.open"),
+        patch("os.fdopen") as os_fdopen,
+    ):
         m.return_value = buffer
+        os_fdopen.return_value = buffer
 
         jar: PyiCloudCookieJar = create_cookie_jar_with_cookie(
             filename, _FMIP_AUTH_COOKIE_NAME
@@ -53,8 +60,13 @@ def test_load_with_custom_filename_argument_removes_fmip_cookie() -> None:
     filename = "test_cookies.txt"
     buffer = StringIO()
     buffer.close = MagicMock()
-    with patch("builtins.open", mock_open()) as m:
+    with (
+        patch("builtins.open", new_callable=mock_open) as m,
+        patch("os.open"),
+        patch("os.fdopen") as os_fdopen,
+    ):
         m.return_value = buffer
+        os_fdopen.return_value = buffer
         jar: PyiCloudCookieJar = create_cookie_jar_with_cookie(
             filename, _FMIP_AUTH_COOKIE_NAME
         )
@@ -70,8 +82,13 @@ def test_load_handles_keyerror_on_clear() -> None:
     filename = "test_cookies.txt"
     buffer = StringIO()
     buffer.close = MagicMock()
-    with patch("builtins.open", mock_open()) as m:
+    with (
+        patch("builtins.open", new_callable=mock_open) as m,
+        patch("os.open"),
+        patch("os.fdopen") as os_fdopen,
+    ):
         m.return_value = buffer
+        os_fdopen.return_value = buffer
         jar: PyiCloudCookieJar = create_cookie_jar_with_cookie(
             filename, _FMIP_AUTH_COOKIE_NAME
         )
