@@ -1,5 +1,6 @@
 """Find my iPhone service."""
 
+import logging
 from typing import Any, Iterator, Optional
 
 from requests import Response
@@ -13,6 +14,7 @@ from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 
 _FMIP_CLIENT_CONTEXT_TIMEZONE: str = "US/Pacific"
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 class FindMyiPhoneServiceManager(BaseService):
@@ -46,17 +48,26 @@ class FindMyiPhoneServiceManager(BaseService):
         self._server_ctx: dict[str, Any] | None = None
         self.refresh_client_with_reauth()
 
-    def refresh_client_with_reauth(self) -> None:
+    def refresh_client_with_reauth(self, retry: bool = False) -> None:
         """
         Refreshes the FindMyiPhoneService endpoint with re-authentication.
         This ensures that the location data is up-to-date.
         """
-
+        needs_refresh: bool = self._server_ctx is None
         # Refresh the client (own devices first)
         try:
             self._refresh_client()
         except PyiCloudAuthRequiredException:
+            if retry is True:
+                raise
+
+            _LOGGER.debug("Re-authenticating session")
+            self._server_ctx = None
             self.session.service.authenticate(force_refresh=True)
+            self.refresh_client_with_reauth(retry=True)
+            return
+
+        if needs_refresh:
             self._refresh_client()
 
         # Refresh the client (family devices second)
@@ -65,6 +76,8 @@ class FindMyiPhoneServiceManager(BaseService):
 
         if not self._devices:
             raise PyiCloudNoDevicesException()
+
+        _LOGGER.debug("Number of devices found: %d", len(self._devices))
 
     def _refresh_client(self, with_family: bool = False) -> None:
         """
@@ -105,8 +118,10 @@ class FindMyiPhoneServiceManager(BaseService):
             self._server_ctx["theftLoss"] = None
 
         if "content" not in resp:
+            _LOGGER.debug("FMIP returned 0 devices")
             return
 
+        _LOGGER.debug("FMIP returned %d devices", len(resp["content"]))
         for device_info in resp["content"]:
             device_id: str = device_info["id"]
             if device_id not in self._devices:
