@@ -322,7 +322,7 @@ def test_refresh_client_with_reauth_auth_required(
         patch.object(
             manager,
             "_refresh_client",
-            side_effect=[PyiCloudAuthRequiredException("", MagicMock()), None],
+            side_effect=[PyiCloudAuthRequiredException("", MagicMock()), None, None],
         ) as mock_refresh,
         patch.object(manager.session.service, "authenticate") as mock_authenticate,
         patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
@@ -330,7 +330,7 @@ def test_refresh_client_with_reauth_auth_required(
     ):
         manager.refresh_client_with_reauth()
         mock_authenticate.assert_called_once_with(force_refresh=True)
-        assert mock_refresh.call_count == 2
+        assert mock_refresh.call_count == 3
         mock_refresh.assert_has_calls([call(), call()])
 
 
