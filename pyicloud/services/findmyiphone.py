@@ -48,7 +48,7 @@ class FindMyiPhoneServiceManager(BaseService):
         self._server_ctx: dict[str, Any] | None = None
         self.refresh_client_with_reauth()
 
-    def refresh_client_with_reauth(self) -> None:
+    def refresh_client_with_reauth(self, retry: bool = False) -> None:
         """
         Refreshes the FindMyiPhoneService endpoint with re-authentication.
         This ensures that the location data is up-to-date.
@@ -58,9 +58,13 @@ class FindMyiPhoneServiceManager(BaseService):
         try:
             self._refresh_client()
         except PyiCloudAuthRequiredException:
+            if retry is True:
+                raise
+
+            _LOGGER.debug("Re-authenticating session")
             self._server_ctx = None
             self.session.service.authenticate(force_refresh=True)
-            self.refresh_client_with_reauth()
+            self.refresh_client_with_reauth(retry=True)
             return
 
         if needs_refresh:
