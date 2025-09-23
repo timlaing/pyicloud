@@ -194,18 +194,109 @@ def test_findmyiphone_service_manager(
     assert len(manager) > 0
 
     # Test __getitem__
-    device = manager[0]
+    device: AppleDevice = manager[0]
     assert isinstance(device, AppleDevice)
 
     # Test __len__
     assert len(manager) == len(manager)
 
     # Test __iter__
-    devices = list(iter(manager))
+    devices: list[AppleDevice] = list(iter(manager))
     assert len(devices) == len(manager)
 
     # Test __str__ and __repr__
     assert str(manager) == repr(manager)
+
+
+def test_refresh_no_content(pyicloud_service_working: PyiCloudService) -> None:
+    with patch(
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.refresh_client_with_reauth",
+        return_value=None,
+    ):
+        manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+        manager._with_family = True
+
+        with patch.object(manager.session, "post") as mock_post:
+            mock_post.return_value.json.return_value = {}
+            manager._refresh_client()
+            assert mock_post.call_count == 1
+            assert len(manager._devices) == 0
+            mock_post.assert_called_with(
+                url=manager._fmip_init_url,
+                params=manager.params,
+                json={
+                    "clientContext": {
+                        "appName": "iCloud Find (Web)",
+                        "appVersion": "2.0",
+                        "apiVersion": "3.0",
+                        "deviceListVersion": 1,
+                        "fmly": True,
+                        "timezone": "US/Pacific",
+                        "inactiveTime": 0,
+                    }
+                },
+            )
+
+
+def test_refresh_with_server_ctx(pyicloud_service_working: PyiCloudService) -> None:
+    with patch(
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.refresh_client_with_reauth",
+        return_value=None,
+    ):
+        manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+        manager._with_family = True
+
+        with patch.object(manager.session, "post") as mock_post:
+            mock_post.return_value.json.return_value = {
+                "serverContext": {
+                    "theftLoss": {
+                        "status": "OFF",
+                    }
+                },
+                "content": [],
+                "error": None,
+            }
+            manager._refresh_client()
+            manager._refresh_client()
+            assert mock_post.call_count == 2
+            assert len(manager._devices) == 0
+            mock_post.assert_has_calls(
+                [
+                    call(
+                        url=manager._fmip_init_url,
+                        params=manager.params,
+                        json={
+                            "clientContext": {
+                                "appName": "iCloud Find (Web)",
+                                "appVersion": "2.0",
+                                "apiVersion": "3.0",
+                                "deviceListVersion": 1,
+                                "fmly": True,
+                                "timezone": "US/Pacific",
+                                "inactiveTime": 0,
+                            }
+                        },
+                    ),
+                    call().json(),
+                    call(
+                        url=manager._fmip_refresh_url,
+                        params=manager.params,
+                        json={
+                            "clientContext": {
+                                "appName": "iCloud Find (Web)",
+                                "appVersion": "2.0",
+                                "apiVersion": "3.0",
+                                "deviceListVersion": 1,
+                                "fmly": True,
+                                "timezone": "US/Pacific",
+                                "inactiveTime": 0,
+                            },
+                            "serverContext": {"theftLoss": None},
+                        },
+                    ),
+                    call().json(),
+                ]
+            )
 
 
 def test_get_erase_token_success(pyicloud_service_working: PyiCloudService) -> None:
@@ -322,7 +413,7 @@ def test_refresh_client_with_reauth_auth_required(
         patch.object(
             manager,
             "_refresh_client",
-            side_effect=[PyiCloudAuthRequiredException("", MagicMock()), None, None],
+            side_effect=[PyiCloudAuthRequiredException("", MagicMock()), None],
         ) as mock_refresh,
         patch.object(manager.session.service, "authenticate") as mock_authenticate,
         patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
@@ -330,14 +421,41 @@ def test_refresh_client_with_reauth_auth_required(
     ):
         manager.refresh_client_with_reauth()
         mock_authenticate.assert_called_once_with(force_refresh=True)
-        assert mock_refresh.call_count == 3
-        mock_refresh.assert_has_calls([call(), call()])
+        assert mock_refresh.call_count == 2
+        mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
 
 
-def test_refresh_client_with_reauth_with_family(
+def test_refresh_client_with_reauth_failed(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Test refresh_client_with_reauth calls _refresh_client with with_family=True."""
+    """Test refresh_client_with_reauth handles PyiCloudAuthRequiredException and reauthenticates."""
+    manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+
+    # Patch _refresh_client to raise PyiCloudAuthRequiredException first, then succeed
+    with (
+        patch.object(
+            manager,
+            "_refresh_client",
+            side_effect=[
+                PyiCloudAuthRequiredException("", MagicMock()),
+                PyiCloudAuthRequiredException("", MagicMock()),
+            ],
+        ) as mock_refresh,
+        patch.object(manager.session.service, "authenticate") as mock_authenticate,
+        patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
+        patch.object(manager, "_with_family", False),
+    ):
+        with pytest.raises(PyiCloudAuthRequiredException):
+            manager.refresh_client_with_reauth()
+        mock_authenticate.assert_called_once_with(force_refresh=True)
+        assert mock_refresh.call_count == 2
+        mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
+
+
+def test_refresh_client_with_reauth_with_locate(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Test refresh_client_with_reauth calls _refresh_client with locate=True."""
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
     manager._with_family = True
 
@@ -346,9 +464,80 @@ def test_refresh_client_with_reauth_with_family(
         patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
     ):
         manager.refresh_client_with_reauth()
-        # Should call _refresh_client twice: once with default, once with with_family=True
-        mock_refresh.assert_any_call()
-        mock_refresh.assert_any_call(with_family=True)
+        # Should call _refresh_client once: with locate=True
+        assert mock_refresh.call_count == 1
+        mock_refresh.assert_any_call(locate=True)
+
+
+def test_refresh_client_with_reauth_with_loading_to_done(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Test refresh_client_with_reauth calls _refresh_client if the members are loading."""
+    with patch(
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.refresh_client_with_reauth",
+        return_value=None,
+    ):
+        manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+    manager._with_family = True
+
+    with (
+        patch("time.sleep", return_value=None),
+        patch.object(manager, "_refresh_client") as mock_refresh,
+        patch.object(manager, "_user_info") as mock_user_info,
+        patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
+    ):
+        mock_user_info.__getitem__.return_value = True
+
+        mock_user_info.get.side_effect = [
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+        ]
+        manager.refresh_client_with_reauth()
+        assert mock_refresh.call_count == 3
+        mock_refresh.assert_any_call(locate=True)
 
 
 def test_refresh_client_with_reauth_no_devices_raises(
