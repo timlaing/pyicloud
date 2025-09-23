@@ -16,6 +16,7 @@ from pyicloud.session import PyiCloudSession
 
 _FMIP_CLIENT_CONTEXT_TIMEZONE: str = "US/Pacific"
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+_MAX_REFRESH_RETRIES: int = 5
 
 
 class FindMyiPhoneServiceManager(BaseService):
@@ -68,7 +69,14 @@ class FindMyiPhoneServiceManager(BaseService):
             self.refresh_client_with_reauth(retry=True)
             return
 
-        while self._with_family and self._user_info and self._user_info["hasMembers"]:
+        # If family sharing is enabled, we may need to poll until all devices are ready
+        # This is indicated by the deviceFetchStatus being "LOADING"
+        retries: int = 0
+        while (
+            self._with_family
+            and self._user_info
+            and self._user_info.get("hasMembers", False)
+        ):
             needs_refresh: bool = False
             for user in self._user_info.get("membersInfo", {}).values():
                 if user.get("deviceFetchStatus") == "LOADING":
@@ -78,6 +86,10 @@ class FindMyiPhoneServiceManager(BaseService):
             if needs_refresh:
                 time.sleep(0.1)
                 self._refresh_client()
+                retries += 1
+                if retries >= _MAX_REFRESH_RETRIES:
+                    _LOGGER.debug("Max retries reached when fetching family devices")
+                    break
             else:
                 break
 

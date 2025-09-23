@@ -486,11 +486,10 @@ def test_refresh_client_with_reauth_with_loading_to_done(
         patch.object(manager, "_user_info") as mock_user_info,
         patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
     ):
-        mock_user_info.__getitem__.return_value = [
-            True,
-        ]
+        mock_user_info.__getitem__.return_value = True
 
         mock_user_info.get.side_effect = [
+            True,
             {
                 "member1": {
                     "firstName": "Member1",
@@ -505,6 +504,7 @@ def test_refresh_client_with_reauth_with_loading_to_done(
                     "deviceFetchStatus": "LOADING",
                 },
             },
+            True,
             {
                 "member1": {
                     "firstName": "Member1",
@@ -519,6 +519,7 @@ def test_refresh_client_with_reauth_with_loading_to_done(
                     "deviceFetchStatus": "DONE",
                 },
             },
+            True,
             {
                 "member1": {
                     "firstName": "Member1",
