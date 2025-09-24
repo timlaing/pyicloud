@@ -74,6 +74,10 @@ class PyiCloudAuthRequiredException(PyiCloudException):
         self.response: Response = response
 
 
+class PyiCloudNoTrustedNumberAvailable(PyiCloudException):
+    """iCloud no trusted number exception."""
+
+
 class PyiCloudNoStoredPasswordAvailableException(PyiCloudException):
     """iCloud no stored password exception."""
 

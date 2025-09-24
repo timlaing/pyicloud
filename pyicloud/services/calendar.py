@@ -75,6 +75,8 @@ class AppleAlarm:
     This is used in the main payload's Alarm array.
     """
 
+    # pylint: disable=invalid-name
+
     guid: str
     pGuid: str
     messageType: str = AlarmDefaults.MESSAGE_TYPE
@@ -138,6 +140,8 @@ class AppleEventInvitee:
     This is the simpler invitee structure used inside the Event.invitees array.
     """
 
+    # pylint: disable=invalid-name
+
     email: str
     role: str = InviteeDefaults.ROLE
     inviteeStatus: str = InviteeDefaults.STATUS
@@ -150,6 +154,8 @@ class ApplePayloadInvitee:
 
     This is the more detailed invitee structure used in the top-level Invitee array.
     """
+
+    # pylint: disable=invalid-name
 
     guid: str
     pGuid: str
@@ -169,6 +175,8 @@ class AppleCalendarEvent:
     This dataclass exactly mirrors the structure expected by Apple's API,
     using the correct camelCase field names and types.
     """
+
+    # pylint: disable=invalid-name
 
     title: str
     tz: str
@@ -517,9 +525,9 @@ class CalendarService(BaseService):
     def default_params(self) -> dict[str, Any]:
         """Returns the default parameters for the calendar service."""
         today: datetime = datetime.today()
-        _, days_in_month = monthrange(
-            today.year, today.month
-        )  # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and number of days in the month (Jan -> 31, Feb -> 28/29, etc.)
+        _, days_in_month = monthrange(today.year, today.month)
+        # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and
+        # number of days in the month (Jan -> 31, Feb -> 28/29, etc.)
         from_dt = datetime(
             today.year, today.month, 1
         )  # Hardcoded to 1 so that startDate is always the first (1st) day of the month
@@ -547,10 +555,9 @@ class CalendarService(BaseService):
             }
 
             for api_key, value in _dict.items():
-                if api_key in special_mappings:
-                    field_name = special_mappings[api_key]
-                else:
-                    field_name = camelcase_to_underscore(api_key)
+                field_name: str = special_mappings.get(
+                    api_key, camelcase_to_underscore(api_key)
+                )
 
                 if field_name in valid_fields:
                     setattr(obj, field_name, value)

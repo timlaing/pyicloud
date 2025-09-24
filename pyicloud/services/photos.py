@@ -268,7 +268,10 @@ class PhotoLibrary(BasePhotoLibrary):
         super().__init__(service, upload_url)
         self.zone_id: dict[str, str] = zone_id
 
-        self.url: str = f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
+        self.url: str = (
+            f"{self.service.service_endpoint}"
+            f"/records/query?{urlencode(self.service.params)}"
+        )
         json_data: str = json.dumps(
             {
                 "query": {
@@ -506,7 +509,10 @@ class PhotosService(BaseService):
 
         self._shared_library: PhotoStreamLibrary = PhotoStreamLibrary(
             self,
-            shared_streams_url=f"{shared_streams_url}/{self.params['dsid']}/sharedstreams/webgetalbumslist",
+            shared_streams_url=(
+                f"{shared_streams_url}/{self.params['dsid']}"
+                "/sharedstreams/webgetalbumslist"
+            ),
         )
 
     @property
@@ -737,7 +743,10 @@ class PhotoAlbum(BasePhotoAlbum):
         return self.name
 
     def _get_len(self) -> int:
-        url: str = f"{self.service.service_endpoint}/internal/records/query/batch?{urlencode(self.service.params)}"
+        url: str = (
+            f"{self.service.service_endpoint}/internal/records"
+            f"/query/batch?{urlencode(self.service.params)}"
+        )
         request: Response = self.service.session.post(
             url,
             data=json.dumps(

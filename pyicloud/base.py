@@ -22,13 +22,13 @@ from fido2.webauthn import (
 from requests import HTTPError
 from requests.models import Response
 
-from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON
+from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
-    PyiCloudException,
     PyiCloudFailedLoginException,
+    PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
@@ -56,6 +56,19 @@ from pyicloud.utils import (
 LOGGER: logging.Logger = logging.getLogger(__name__)
 PCS_SLEEP_TIME: int = 5
 PCS_MAX_RETRIES: int = 10
+
+_AUTH_HEADERS_JSON: dict[str, str] = {
+    "Accept": f"{CONTENT_TYPE_JSON}, text/javascript",
+    "Content-Type": CONTENT_TYPE_JSON,
+    "X-Apple-OAuth-Client-Id": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
+    "X-Apple-OAuth-Client-Type": "firstPartyAuth",
+    "X-Apple-OAuth-Redirect-URI": "https://www.icloud.com",
+    "X-Apple-OAuth-Require-Grant-Code": "true",
+    "X-Apple-OAuth-Response-Mode": "web_message",
+    "X-Apple-OAuth-Response-Type": "code",
+    "X-Apple-OAuth-State": "",
+    "X-Apple-Widget-Key": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
+}
 
 
 class PyiCloudService:
@@ -122,6 +135,8 @@ class PyiCloudService:
             self._password_raw = get_password_from_keyring(apple_id)
 
         self.data: dict[str, Any] = {}
+        self._auth_data: dict[str, Any] = {}
+
         self.params: dict[str, Any] = {}
         self._client_id: str = client_id or (f"auth-{str(uuid1()).lower()}")
         self._with_family: bool = with_family
@@ -134,7 +149,10 @@ class PyiCloudService:
             headers={
                 "Origin": self._home_endpoint,
                 "Referer": f"{self._home_endpoint}/",
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15",
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15"
+                ),
             },
             client_id=self._client_id,
             cookie_directory=_cookie_directory,
@@ -160,6 +178,8 @@ class PyiCloudService:
         self._photos: Optional[PhotosService] = None
         self._reminders: Optional[RemindersService] = None
 
+        self._requires_mfa: bool = False
+
         self.authenticate()
 
     def authenticate(
@@ -181,6 +201,7 @@ class PyiCloudService:
         if (
             not login_successful
             and service is not None
+            and self.data.get("apps")
             and service in self.data["apps"]
         ):
             app: dict[str, Any] = self.data["apps"][service]
@@ -189,7 +210,7 @@ class PyiCloudService:
                 try:
                     self._authenticate_with_credentials_service(service)
                     login_successful = True
-                except PyiCloudException:
+                except PyiCloudFailedLoginException:
                     LOGGER.debug(
                         "Could not log into service. Attempting brand new login."
                     )
@@ -197,7 +218,9 @@ class PyiCloudService:
         if not login_successful:
             try:
                 self._authenticate()
+                LOGGER.debug("Authentication completed successfully")
             except PyiCloud2FARequiredException:
+                self._requires_mfa = True
                 LOGGER.debug("2FA is required")
 
         self._update_state()
@@ -247,8 +270,6 @@ class PyiCloudService:
 
         if "webservices" in self.data:
             self._webservices = self.data["webservices"]
-
-            LOGGER.debug("Authentication completed successfully")
 
     def _authenticate(self) -> None:
         LOGGER.debug("Authenticating as %s", self.account_name)
@@ -331,6 +352,7 @@ class PyiCloudService:
             )
         except PyiCloud2FARequiredException:
             LOGGER.debug("2FA required to complete authentication.")
+            self._auth_data = self._get_mfa_auth_options()
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
@@ -401,18 +423,12 @@ class PyiCloudService:
     def _get_auth_headers(
         self, overrides: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
-        headers: dict[str, Any] = {
-            "Accept": f"{CONTENT_TYPE_JSON}, text/javascript",
-            "Content-Type": CONTENT_TYPE_JSON,
-            "X-Apple-OAuth-Client-Id": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
-            "X-Apple-OAuth-Client-Type": "firstPartyAuth",
-            "X-Apple-OAuth-Redirect-URI": "https://www.icloud.com",
-            "X-Apple-OAuth-Require-Grant-Code": "true",
-            "X-Apple-OAuth-Response-Mode": "web_message",
-            "X-Apple-OAuth-Response-Type": "code",
-            "X-Apple-OAuth-State": self._client_id,
-            "X-Apple-Widget-Key": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
-        }
+        headers: dict[str, Any] = _AUTH_HEADERS_JSON.copy()
+        headers.update(
+            {
+                "X-Apple-OAuth-State": self._client_id,
+            }
+        )
 
         if self.session.data.get("scnt"):
             headers["scnt"] = self.session.data["scnt"]
@@ -430,18 +446,27 @@ class PyiCloudService:
         """Return the session."""
         return self._session
 
+    def _is_mfa_required(self) -> bool:
+        return (
+            self.data.get("hsaChallengeRequired", False)
+            or not self.is_trusted_session
+            or self._requires_mfa
+        )
+
     @property
     def requires_2sa(self) -> bool:
         """Returns True if two-step authentication is required."""
-        return self.data.get("dsInfo", {}).get("hsaVersion", 0) >= 1 and (
-            self.data.get("hsaChallengeRequired", False) or not self.is_trusted_session
+        return (
+            self._is_mfa_required()
+            and self.data.get("dsInfo", {}).get("hsaVersion", 0) >= 1
         )
 
     @property
     def requires_2fa(self) -> bool:
         """Returns True if two-factor authentication is required."""
-        return self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2 and (
-            self.data.get("hsaChallengeRequired", False) or not self.is_trusted_session
+        return (
+            self._is_mfa_required()
+            and self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
         )
 
     @property
@@ -468,6 +493,7 @@ class PyiCloudService:
 
     def validate_verification_code(self, device: dict[str, Any], code: str) -> bool:
         """Verifies a verification code received on a trusted device."""
+
         device.update({"verificationCode": code, "trustBrowser": True})
 
         try:
@@ -486,8 +512,8 @@ class PyiCloudService:
 
         return not self.requires_2sa
 
-    def _get_webauthn_options(self) -> Dict:
-        """Retrieve WebAuthn request options (PublicKeyCredentialRequestOptions) for assertion."""
+    def _get_mfa_auth_options(self) -> Dict:
+        """Retrieve auth request options for assertion."""
         headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
         return self.session.get(self._auth_endpoint, headers=headers).json()
@@ -495,7 +521,7 @@ class PyiCloudService:
     @property
     def security_key_names(self) -> Optional[List[str]]:
         """Security key names which can be used for the WebAuthn assertion."""
-        return self._get_webauthn_options().get("keyNames")
+        return self._auth_data.get("keyNames")
 
     def _submit_webauthn_assertion_response(self, data: Dict) -> None:
         """Submit the WebAuthn assertion response for authentication."""
@@ -512,10 +538,15 @@ class PyiCloudService:
 
     def confirm_security_key(self, device: Optional[CtapHidDevice] = None) -> None:
         """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
-        options = self._get_webauthn_options()
-        challenge = options["fsaChallenge"]["challenge"]
-        allowed_credentials = options["fsaChallenge"]["keyHandles"]
-        rp_id = options["fsaChallenge"]["rpId"]
+        fsa: dict[str, Any] = self._auth_data.get("fsaChallenge", {})
+        try:
+            challenge = fsa["challenge"]
+            allowed_credentials = fsa["keyHandles"]
+            rp_id = fsa["rpId"]
+        except KeyError as error:
+            raise PyiCloudAPIResponseException(
+                "Missing WebAuthn challenge data"
+            ) from error
 
         if not device:
             devices: List[CtapHidDevice] = list(CtapHidDevice.list_devices())
@@ -635,15 +666,19 @@ class PyiCloudService:
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
-        data: dict[str, Any] = {"securityCode": {"code": code}}
-        headers: dict[str, Any] = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
-
         try:
-            self.session.post(
-                f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
-                json=data,
-                headers=headers,
-            )
+            if self._auth_data.get("mode") == "sms":
+                self._validate_sms_code(code)
+            else:
+                data: dict[str, Any] = {"securityCode": {"code": code}}
+                headers: dict[str, Any] = self._get_auth_headers(
+                    {"Accept": CONTENT_TYPE_JSON}
+                )
+                self.session.post(
+                    f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
+                    json=data,
+                    headers=headers,
+                )
         except PyiCloudAPIResponseException:
             # Wrong verification code
             LOGGER.error("Code verification failed.")
@@ -654,8 +689,37 @@ class PyiCloudService:
         self.trust_session()
         return not self.requires_2sa
 
+    def _validate_sms_code(self, code: str) -> None:
+        """Verifies a verification code received via Apple's SMS system."""
+        trusted_phone_number: dict[str, Any] | None = self._auth_data.get(
+            "trustedPhoneNumber"
+        )
+        if not trusted_phone_number:
+            raise PyiCloudNoTrustedNumberAvailable()
+
+        device_id: int | None = trusted_phone_number.get("id")
+        non_fteu: bool | None = trusted_phone_number.get("nonFTEU")
+        mode: str | None = trusted_phone_number.get("pushMode")
+
+        data: dict[str, Any] = {
+            "phoneNumber": {"id": device_id, "nonFTEU": non_fteu},
+            "securityCode": {"code": code},
+            "mode": mode,
+        }
+        headers: dict[str, Any] = self._get_auth_headers(
+            {"Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"}
+        )
+
+        self.session.post(
+            f"{self._auth_endpoint}/verify/phone/securitycode",
+            json=data,
+            headers=headers,
+        )
+
     def trust_session(self) -> bool:
         """Request session trust to avoid user log in going forward."""
+        self._requires_mfa = False
+
         headers: dict[str, Any] = self._get_auth_headers()
 
         try:
@@ -664,6 +728,7 @@ class PyiCloudService:
                 headers=headers,
             )
             self._authenticate_with_token()
+            LOGGER.debug("Session trust successful.")
             return True
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             LOGGER.error("Session trust failed.")

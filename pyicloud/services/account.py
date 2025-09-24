@@ -104,10 +104,9 @@ class AccountService(BaseService):
         return response
 
     def __str__(self) -> str:
-        return "{{devices: {}, family: {}, storage: {} bytes free}}".format(
-            len(self.devices),
-            len(self.family),
-            self.storage.usage.available_storage_in_bytes,
+        return (
+            f"{{devices: {len(self.devices)}, family: {len(self.family)}, "
+            f"storage: {self.storage.usage.available_storage_in_bytes} bytes free}}"
         )
 
     def __repr__(self) -> str:
@@ -236,9 +235,8 @@ class FamilyMember:
         return getattr(self, key)
 
     def __str__(self) -> str:
-        return "{{name: {}, age_classification: {}}}".format(
-            self.full_name,
-            self.age_classification,
+        return (
+            f"{{name: {self.full_name}, age_classification: {self.age_classification}}}"
         )
 
     def __repr__(self) -> str:
@@ -343,10 +341,7 @@ class AccountStorageUsage:
         return self.quota_data["paidQuota"]
 
     def __str__(self) -> str:
-        return "{}% used of {} bytes".format(
-            self.used_storage_in_percent,
-            self.total_storage_in_bytes,
-        )
+        return f"{self.used_storage_in_percent}% used of {self.total_storage_in_bytes} bytes"
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: {self}>"
