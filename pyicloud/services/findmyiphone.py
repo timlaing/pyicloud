@@ -1,5 +1,7 @@
 """Find my iPhone service."""
 
+import logging
+import time
 from typing import Any, Iterator, Optional
 
 from requests import Response
@@ -13,6 +15,8 @@ from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 
 _FMIP_CLIENT_CONTEXT_TIMEZONE: str = "US/Pacific"
+_LOGGER: logging.Logger = logging.getLogger(__name__)
+_MAX_REFRESH_RETRIES: int = 5
 
 
 class FindMyiPhoneServiceManager(BaseService):
@@ -44,29 +48,57 @@ class FindMyiPhoneServiceManager(BaseService):
 
         self._devices: dict[str, AppleDevice] = {}
         self._server_ctx: dict[str, Any] | None = None
+        self._user_info: dict[str, Any] | None = None
         self.refresh_client_with_reauth()
 
-    def refresh_client_with_reauth(self) -> None:
+    def refresh_client_with_reauth(self, retry: bool = False) -> None:
         """
         Refreshes the FindMyiPhoneService endpoint with re-authentication.
         This ensures that the location data is up-to-date.
         """
-
         # Refresh the client (own devices first)
         try:
-            self._refresh_client()
+            self._refresh_client(locate=True)
         except PyiCloudAuthRequiredException:
-            self.session.service.authenticate(force_refresh=True)
-            self._refresh_client()
+            if retry is True:
+                raise
 
-        # Refresh the client (family devices second)
-        if self._with_family:
-            self._refresh_client(with_family=True)
+            _LOGGER.debug("Re-authenticating session")
+            self._server_ctx = None
+            self.session.service.authenticate(force_refresh=True)
+            self.refresh_client_with_reauth(retry=True)
+            return
+
+        # If family sharing is enabled, we may need to poll until all devices are ready
+        # This is indicated by the deviceFetchStatus being "LOADING"
+        retries: int = 0
+        while (
+            self._with_family
+            and self._user_info
+            and self._user_info.get("hasMembers", False)
+        ):
+            needs_refresh: bool = False
+            for user in self._user_info.get("membersInfo", {}).values():
+                if user.get("deviceFetchStatus") == "LOADING":
+                    needs_refresh = True
+                    break
+
+            if needs_refresh:
+                time.sleep(0.1)
+                self._refresh_client()
+                retries += 1
+                if retries >= _MAX_REFRESH_RETRIES:
+                    _LOGGER.debug("Max retries reached when fetching family devices")
+                    break
+            else:
+                break
 
         if not self._devices:
             raise PyiCloudNoDevicesException()
 
-    def _refresh_client(self, with_family: bool = False) -> None:
+        _LOGGER.debug("Number of devices found: %d", len(self._devices))
+
+    def _refresh_client(self, locate: bool = False) -> None:
         """
         Refreshes the FindMyiPhoneService endpoint, this ensures that the location data
         is up-to-date.
@@ -77,7 +109,7 @@ class FindMyiPhoneServiceManager(BaseService):
                 "appVersion": "2.0",
                 "apiVersion": "3.0",
                 "deviceListVersion": 1,
-                "fmly": with_family,
+                "fmly": self._with_family,
                 "timezone": _FMIP_CLIENT_CONTEXT_TIMEZONE,
                 "inactiveTime": 0,
             },
@@ -85,13 +117,14 @@ class FindMyiPhoneServiceManager(BaseService):
 
         if self._server_ctx:
             req_json["serverContext"] = self._server_ctx
-            req_json["isUpdatingAllLocations"] = True
-            req_json["clientContext"].update(
-                {
-                    "shouldLocate": True,
-                    "selectedDevice": "all",
-                }
-            )
+            if locate:
+                req_json["isUpdatingAllLocations"] = True
+                req_json["clientContext"].update(
+                    {
+                        "shouldLocate": True,
+                        "selectedDevice": "all",
+                    }
+                )
 
         req: Response = self.session.post(
             url=self._fmip_refresh_url if self._server_ctx else self._fmip_init_url,
@@ -104,9 +137,13 @@ class FindMyiPhoneServiceManager(BaseService):
         if self._server_ctx and "theftLoss" in self._server_ctx:
             self._server_ctx["theftLoss"] = None
 
+        self._user_info = resp.get("userInfo")
+
         if "content" not in resp:
+            _LOGGER.debug("FMIP returned 0 devices")
             return
 
+        _LOGGER.debug("FMIP returned %d devices", len(resp["content"]))
         for device_info in resp["content"]:
             device_id: str = device_info["id"]
             if device_id not in self._devices:
