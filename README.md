@@ -23,7 +23,7 @@ webservices. It\'s powered by the fantastic
 
 At its core, PyiCloud connects to iCloud web application using your username and password, then performs regular queries against their API.
 
-**Please see the [terms of use](TERMS_OF_USE.md) for your responsiblities when using this library.**
+**Please see the [terms of use](TERMS_OF_USE.md) for your responsibilities when using this library.**
 
 For support and discussions, join our Discord community: [Join our Discord community](https://discord.gg/nru3was4hk)
 
