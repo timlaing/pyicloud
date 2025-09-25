@@ -21,7 +21,7 @@ PyiCloud is a module which allows pythonistas to interact with iCloud
 webservices. It\'s powered by the fantastic
 [requests](https://github.com/kennethreitz/requests) HTTP library.
 
-At its core, PyiCloud connects to iCloud web application using your username and password, then performs regular queries against their API.
+At its core, PyiCloud connects to the iCloud web application using your username and password, then performs regular queries against its API.
 
 **Please see the [terms of use](TERMS_OF_USE.md) for your responsibilities when using this library.**
 
