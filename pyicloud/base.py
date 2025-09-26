@@ -231,7 +231,7 @@ class PyiCloudService:
             if not self._accept_terms:
                 raise PyiCloudAcceptTermsException(
                     "You must accept the updated terms of service to continue. "
-                    "Set accept_terms=True to accept them."
+                    "Set --accept-terms to accept them."
                 )
             resp: Response = self.session.get(
                 f"{self._setup_endpoint}/getTerms",
