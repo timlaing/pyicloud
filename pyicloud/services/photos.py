@@ -1,7 +1,6 @@
 """Photo service."""
 
 import base64
-import json
 import logging
 import os
 from abc import abstractmethod
@@ -272,17 +271,14 @@ class PhotoLibrary(BasePhotoLibrary):
             f"{self.service.service_endpoint}"
             f"/records/query?{urlencode(self.service.params)}"
         )
-        json_data: str = json.dumps(
-            {
+        request: Response = self.service.session.post(
+            url=self.url,
+            json={
                 "query": {
                     "recordType": "CheckIndexingState",
                 },
                 "zoneID": self.zone_id,
-            }
-        )
-        request: Response = self.service.session.post(
-            url=self.url,
-            data=json_data,
+            },
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, Any] = request.json()
@@ -317,7 +313,7 @@ class PhotoLibrary(BasePhotoLibrary):
 
         request: Response = self.service.session.post(
             url=self.url,
-            data=json.dumps(query),
+            json=query,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, list[dict[str, Any]]] = request.json()
@@ -328,7 +324,7 @@ class PhotoLibrary(BasePhotoLibrary):
 
             request: Response = self.service.session.post(
                 url=self.url,
-                data=json.dumps(query),
+                json=query,
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
@@ -449,9 +445,8 @@ class PhotoStreamLibrary(BasePhotoLibrary):
         """Returns albums."""
         albums: dict[str, BasePhotoAlbum] = {}
         url: str = f"{self.shared_streams_url}?{urlencode(self.service.params)}"
-        json_data: str = json.dumps({})
         request: Response = self.service.session.post(
-            url, data=json_data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+            url, json={}, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
         response: dict[str, list] = request.json()
         for album in response["albums"]:
@@ -749,28 +744,26 @@ class PhotoAlbum(BasePhotoAlbum):
         )
         request: Response = self.service.session.post(
             url,
-            data=json.dumps(
-                {
-                    "batch": [
-                        {
-                            "resultsLimit": 1,
-                            "query": {
-                                "recordType": "HyperionIndexCountLookup",
-                                "filterBy": {
-                                    "fieldName": "indexCountID",
-                                    "comparator": "IN",
-                                    "fieldValue": {
-                                        "type": "STRING_LIST",
-                                        "value": [self.obj_type],
-                                    },
+            json={
+                "batch": [
+                    {
+                        "resultsLimit": 1,
+                        "query": {
+                            "recordType": "HyperionIndexCountLookup",
+                            "filterBy": {
+                                "fieldName": "indexCountID",
+                                "comparator": "IN",
+                                "fieldValue": {
+                                    "type": "STRING_LIST",
+                                    "value": [self.obj_type],
                                 },
                             },
-                            "zoneWide": True,
-                            "zoneID": self.zone_id,
-                        }
-                    ]
-                }
-            ),
+                        },
+                        "zoneWide": True,
+                        "zoneID": self.zone_id,
+                    }
+                ]
+            },
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, Any] = request.json()
@@ -1017,7 +1010,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         )
         request: Response = self.service.session.post(
             url,
-            data=json.dumps({"albumguid": self.album_guid}),
+            json={"albumguid": self.album_guid},
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, Any] = request.json()
@@ -1236,7 +1229,7 @@ class PhotoAsset:
         url: str = f"{endpoint}/records/modify?{params}"
 
         return self._service.session.post(
-            url, data=json.dumps(data), headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+            url, json=data, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
 
     def __repr__(self) -> str:

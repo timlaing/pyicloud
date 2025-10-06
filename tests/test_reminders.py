@@ -1,7 +1,6 @@
 """Unit tests for the RemindersService class."""
 
 import datetime
-import json
 from unittest.mock import MagicMock, patch
 
 from requests import Response
@@ -81,8 +80,8 @@ def test_reminders_service_post() -> None:
         assert result is True
         mock_session.post.assert_called_once()
         _, kwargs = mock_session.post.call_args
-        assert kwargs["data"]
-        data = json.loads(kwargs["data"])
+        assert kwargs["json"]
+        data = kwargs["json"]
         assert data["Reminders"]["title"] == "New Task"
         assert data["Reminders"]["description"] == "Description"
         assert data["Reminders"]["pGuid"] == "guid1"
@@ -95,7 +94,7 @@ def test_reminders_service_post() -> None:
         assert result is True
         mock_session.post.assert_called_once()
         _, kwargs = mock_session.post.call_args
-        data = json.loads(kwargs["data"])
+        data = kwargs["json"]
         assert data["Reminders"]["title"] == "Task Without Due Date"
         assert data["Reminders"]["dueDate"] is None
 
@@ -116,7 +115,7 @@ def test_reminders_service_post_invalid_collection() -> None:
         assert result is True
         mock_session.post.assert_called_once()
         _, kwargs = mock_session.post.call_args
-        data = json.loads(kwargs["data"])
+        data = kwargs["json"]
         assert data["Reminders"]["pGuid"] == "tasks"  # Default collection
 
 

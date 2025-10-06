@@ -1,6 +1,5 @@
 """Tests for the Hide My Email service."""
 
-import json
 from typing import Any, Optional
 from unittest.mock import MagicMock
 
@@ -39,9 +38,7 @@ def test_reserve(
     mock_session.post.assert_called_once_with(
         "https://example.com/v1/hme/reserve",
         params={"dsid": "12345"},
-        data=json.dumps(
-            {"hme": "alias@example.com", "label": "Test Label", "note": "Test Note"}
-        ),
+        json={"hme": "alias@example.com", "label": "Test Label", "note": "Test Note"},
     )
 
 
@@ -84,7 +81,7 @@ def test_getitem(
     mock_session.post.assert_called_once_with(
         "https://example.com/v2/hme/get",
         params={"dsid": "12345"},
-        data=json.dumps({"anonymousId": "12345"}),
+        json={"anonymousId": "12345"},
     )
 
 
@@ -103,9 +100,7 @@ def test_update_metadata(
     mock_session.post.assert_called_once_with(
         "https://example.com/v1/hme/updateMetaData",
         params={"dsid": "12345"},
-        data=json.dumps(
-            {"anonymousId": "12345", "label": "New Label", "note": "New Note"}
-        ),
+        json={"anonymousId": "12345", "label": "New Label", "note": "New Note"},
     )
 
 
@@ -122,7 +117,7 @@ def test_delete(
     mock_session.post.assert_called_once_with(
         "https://example.com/v1/hme/delete",
         params={"dsid": "12345"},
-        data=json.dumps({"anonymousId": "12345"}),
+        json={"anonymousId": "12345"},
     )
 
 
@@ -139,7 +134,7 @@ def test_deactivate(
     mock_session.post.assert_called_once_with(
         "https://example.com/v1/hme/deactivate",
         params={"dsid": "12345"},
-        data=json.dumps({"anonymousId": "12345"}),
+        json={"anonymousId": "12345"},
     )
 
 
@@ -156,5 +151,5 @@ def test_reactivate(
     mock_session.post.assert_called_once_with(
         "https://example.com/v1/hme/reactivate",
         params={"dsid": "12345"},
-        data=json.dumps({"anonymousId": "12345"}),
+        json={"anonymousId": "12345"},
     )
