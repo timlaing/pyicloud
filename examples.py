@@ -17,6 +17,7 @@ from requests import Response
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.calendar import CalendarObject, CalendarService
+from pyicloud.services.photos import PhotoAlbum
 from pyicloud.ssl_context import configurable_ssl_verification
 
 END_LIST = "End List\n"
@@ -399,10 +400,8 @@ def display_shared_photos(api: PyiCloudService) -> None:
     print(END_LIST)
 
     if album and api.photos.shared_streams:
-        print(
-            f"List of Shared Photos [{album}] ({len(api.photos.shared_streams[album])}):"
-        )
-        for idx, photo in enumerate(api.photos.shared_streams[album]):
+        print(f"List of Shared Photos [{album}] ({len(album)}):")
+        for idx, photo in enumerate(album):
             print(f"\t{idx}: {photo.filename} ({photo.item_type})")
 
             if idx >= MAX_DISPLAY - 1:
@@ -443,6 +442,30 @@ def display_hidemyemail(api: PyiCloudService) -> None:
     print(END_LIST)
 
 
+def album_management(api: PyiCloudService) -> None:
+    """Test album management functions"""
+
+    album_name = "Test Album from API"
+    print(f"Creating album '{album_name}'...")
+    album: PhotoAlbum | None = api.photos.create_album(album_name)
+    print(f"Album created: {album}")
+    if album is None:
+        print("Album creation failed.")
+        return
+
+    print(f"Album '{album_name}' created successfully.")
+    album.name = "Renamed Album"
+    print(f"Album renamed to '{album.name}'")
+
+    album.upload("/workspaces/pyicloud/Moon.jpg")
+
+    print(f"Deleting album '{album.name}'...")
+    if album.delete():
+        print("Album deleted.")
+    else:
+        print("Album deletion failed.")
+
+
 def setup() -> None:
     """Setup"""
     # Enable general debug logging
@@ -474,6 +497,7 @@ def main() -> None:
         display_photos(api)
         display_videos(api)
         display_shared_photos(api)
+        album_management(api)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 """PhotoLibrary tests."""
 
 # pylint: disable=protected-access
-from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
@@ -16,7 +15,10 @@ from pyicloud.services.photos import (
     BasePhotoAlbum,
     BasePhotoLibrary,
     DirectionEnum,
+    ListTypeEnum,
+    ObjectTypeEnum,
     PhotoAlbum,
+    PhotoAsset,
     PhotoLibrary,
     PhotosService,
     PhotoStreamLibrary,
@@ -92,6 +94,7 @@ def test_fetch_folders(mock_photos_service: MagicMock) -> None:
                     "records": [
                         {
                             "recordName": "folder1",
+                            "recordChangeTag": "tag1",
                             "fields": {
                                 "albumNameEnc": {"value": "Zm9sZGVyMQ=="},
                                 "isDeleted": {"value": False},
@@ -137,6 +140,7 @@ def test_get_albums(mock_photos_service: MagicMock) -> None:
                     "records": [
                         {
                             "recordName": "folder1",
+                            "recordChangeTag": "tag1",
                             "fields": {
                                 "albumNameEnc": {"value": "Zm9sZGVyMQ=="},
                                 "isDeleted": {"value": False},
@@ -157,7 +161,7 @@ def test_get_albums(mock_photos_service: MagicMock) -> None:
     assert SmartAlbumEnum.ALL_PHOTOS in albums
     assert "folder1" in albums
     assert albums["folder1"].name == "folder1"
-    assert albums["folder1"].direction == DirectionEnum.ASCENDING
+    assert albums["folder1"]._direction == DirectionEnum.ASCENDING
 
 
 def test_upload_file_success(mock_photos_service: MagicMock) -> None:
@@ -183,8 +187,16 @@ def test_upload_file_success(mock_photos_service: MagicMock) -> None:
                     "records": [
                         {
                             "recordName": "uploaded_photo",
+                            "recordChangeTag": "tag1",
                             "recordType": "CPLAsset",
-                        }
+                            "fields": {
+                                "masterRef": {"value": {"recordName": "uploaded_photo"}}
+                            },
+                        },
+                        {
+                            "recordType": "CPLMaster",
+                            "recordName": "uploaded_photo",
+                        },
                     ]
                 }
             )
@@ -198,11 +210,12 @@ def test_upload_file_success(mock_photos_service: MagicMock) -> None:
     )
 
     with patch("builtins.open", mock_open(read_data=b"file_content")):
-        record_name: dict[str, Any] = library.upload_file("test_photo.jpg")
+        asset: PhotoAsset | None = library.upload_file("test_photo.jpg")
 
-    assert record_name == "uploaded_photo"
+    assert asset is not None
+    assert asset.id == "uploaded_photo"
     mock_photos_service.session.post.assert_called_with(
-        url="https://upload.example.com/upload",
+        url="https://upload.example.com/upload?dsid=12345&filename=test_photo.jpg",
         data=b"file_content",
         params={"filename": "test_photo.jpg", "dsid": "12345"},
     )
@@ -251,7 +264,7 @@ def test_upload_file_with_errors(mock_photos_service: MagicMock) -> None:
 
     assert "UPLOAD_ERROR" in str(exc_info.value)
     mock_photos_service.session.post.assert_called_with(
-        url="https://upload.example.com/upload",
+        url="https://upload.example.com/upload?dsid=12345&filename=test_photo.jpg",
         data=b"file_content",
         params={"filename": "test_photo.jpg", "dsid": "12345"},
     )
@@ -289,11 +302,11 @@ def test_upload_file_no_records(mock_photos_service: MagicMock) -> None:
     )
 
     with patch("builtins.open", mock_open(read_data=b"file_content")):
-        with pytest.raises(IndexError):
+        with pytest.raises(KeyError):
             library.upload_file("test_photo.jpg")
 
     mock_photos_service.session.post.assert_called_with(
-        url="https://upload.example.com/upload",
+        url="https://upload.example.com/upload?dsid=12345&filename=test_photo.jpg",
         data=b"file_content",
         params={"filename": "test_photo.jpg", "dsid": "12345"},
     )
@@ -321,6 +334,7 @@ def test_fetch_folders_multiple_pages(mock_photos_service: MagicMock) -> None:
                     "records": [
                         {
                             "recordName": "folder1",
+                            "recordChangeTag": "tag1",
                             "fields": {
                                 "albumNameEnc": {"value": "Zm9sZGVyMQ=="},
                                 "isDeleted": {"value": False},
@@ -337,6 +351,7 @@ def test_fetch_folders_multiple_pages(mock_photos_service: MagicMock) -> None:
                     "records": [
                         {
                             "recordName": "folder2",
+                            "recordChangeTag": "tag2",
                             "fields": {
                                 "albumNameEnc": {"value": "Zm9sZGVyMg=="},
                                 "isDeleted": {"value": False},
@@ -384,6 +399,7 @@ def test_fetch_folders_skips_deleted_folders(mock_photos_service: MagicMock) -> 
                     "records": [
                         {
                             "recordName": "folder1",
+                            "recordChangeTag": "tag1",
                             "fields": {
                                 "albumNameEnc": {"value": "Zm9sZGVyMQ=="},
                                 "isDeleted": {"value": True},
@@ -399,6 +415,7 @@ def test_fetch_folders_skips_deleted_folders(mock_photos_service: MagicMock) -> 
                     "records": [
                         {
                             "recordName": "folder2",
+                            "recordChangeTag": "tag2",
                             "fields": {
                                 "albumNameEnc": {"value": "Zm9sZGVyMg=="},
                                 "isDeleted": {"value": False},
@@ -509,26 +526,22 @@ def test_base_photo_album_initialization(mock_photo_library: MagicMock) -> None:
     album = BasePhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
-        list_type="CPLAssetAndMasterByAssetDate",
-        asset_type=MagicMock,
+        list_type=ListTypeEnum.DEFAULT,
         page_size=50,
         direction=DirectionEnum.ASCENDING,
     )
     assert album.name == "Test Album"
     assert album.service == mock_photo_library.service
     assert album.page_size == 50
-    assert album.direction == DirectionEnum.ASCENDING
-    assert album.list_type == "CPLAssetAndMasterByAssetDate"
-    assert album.asset_type == MagicMock
+    assert album._direction == DirectionEnum.ASCENDING
+    assert album._list_type == ListTypeEnum.DEFAULT
 
 
 def test_base_photo_album_parse_response() -> None:
     """Tests the _parse_response method."""
-    album = BasePhotoAlbum(
-        library=MagicMock(),
-        name="Test Album",
-        list_type="CPLAssetAndMasterByAssetDate",
-        asset_type=MagicMock,
+    library = BasePhotoLibrary(
+        service=MagicMock(),
+        asset_type=PhotoAsset,
     )
     response = {
         "records": [
@@ -542,7 +555,7 @@ def test_base_photo_album_parse_response() -> None:
             },
         ]
     }
-    asset_records, master_records = album._parse_response(response)
+    asset_records, master_records = library.parse_asset_response(response)
     assert "master1" in asset_records
     assert len(master_records) == 1
     assert master_records[0]["recordName"] == "master1"
@@ -570,10 +583,11 @@ def test_base_photo_album_get_photos_at(mock_photo_library: MagicMock) -> None:
     album = PhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
-        list_type="CPLAssetAndMasterByAssetDate",
-        obj_type="MagicMock",
+        list_type=ListTypeEnum.DEFAULT,
+        obj_type=ObjectTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         page_size=10,
+        record_id="album1",
         url="https://example.com/records/query?dsid=12345",
     )
     photos = list(album.photos)
@@ -586,8 +600,7 @@ def test_base_photo_album_len(mock_photos_service: MagicMock) -> None:
     album = BasePhotoAlbum(
         library=mock_photos_service,
         name="Test Album",
-        list_type="CPLAssetAndMasterByAssetDate",
-        asset_type=MagicMock,
+        list_type=ListTypeEnum.DEFAULT,
     )
     album._get_len = MagicMock(return_value=42)
     assert len(album) == 42
@@ -616,11 +629,12 @@ def test_base_photo_album_iter(mock_photo_library: MagicMock) -> None:
     album = PhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
-        list_type="CPLAssetAndMasterByAssetDate",
-        obj_type="MagicMock",
+        list_type=ListTypeEnum.DEFAULT,
+        obj_type=ObjectTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         page_size=10,
         url="https://example.com/records/query?dsid=12345",
+        record_id="album1",
     )
     photos = list(iter(album))
     assert len(photos) == 1
@@ -632,8 +646,7 @@ def test_base_photo_album_str() -> None:
     album = BasePhotoAlbum(
         library=MagicMock(),
         name="Test Album",
-        list_type="CPLAssetAndMasterByAssetDate",
-        asset_type=MagicMock,
+        list_type=ListTypeEnum.DEFAULT,
     )
     assert str(album) == "Test Album"
 
@@ -643,8 +656,7 @@ def test_base_photo_album_repr() -> None:
     album = BasePhotoAlbum(
         library=MagicMock(),
         name="Test Album",
-        list_type="CPLAssetAndMasterByAssetDate",
-        asset_type=MagicMock,
+        list_type=ListTypeEnum.DEFAULT,
     )
     assert repr(album) == "<BasePhotoAlbum: 'Test Album'>"
 
@@ -817,5 +829,5 @@ def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
     shared_streams: AlbumContainer = photos_service.shared_streams
     assert isinstance(shared_streams, AlbumContainer)
     assert "Shared Album" in shared_streams
-    assert isinstance(shared_streams["Shared Album"], SharedPhotoStreamAlbum)
+    assert isinstance(shared_streams.find("Shared Album"), SharedPhotoStreamAlbum)
     mock_photos_service.session.post.assert_called()
