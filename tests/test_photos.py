@@ -1,7 +1,6 @@
 """PhotoLibrary tests."""
 
 # pylint: disable=protected-access
-import json
 from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -720,12 +719,10 @@ def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
     assert isinstance(libraries["CustomZone"], PhotoLibrary)
     mock_photos_service.session.post.assert_called_with(
         url="https://example.com/database/1/com.apple.photos.cloud/production/private/records/query?dsid=12345&remapEnums=True&getCurrentSyncToken=True",
-        data=json.dumps(
-            {
-                "query": {"recordType": "CheckIndexingState"},
-                "zoneID": {"zoneName": "CustomZone"},
-            }
-        ),
+        json={
+            "query": {"recordType": "CheckIndexingState"},
+            "zoneID": {"zoneName": "CustomZone"},
+        },
         headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
     )
 
