@@ -160,13 +160,10 @@ class FindMyiPhoneServiceManager(BaseService):
             else:
                 self._devices[device_id].update(device_info)
 
-    def __getitem__(self, key) -> "AppleDevice":
+    def __getitem__(self, key: str | int) -> "AppleDevice":
         if isinstance(key, int):
-            key = list(self.keys())[key]
+            key = list(self._devices.keys())[key]
         return self._devices[key]
-
-    def __getattr__(self, attr: str) -> Any:
-        return getattr(self._devices, attr)
 
     def __str__(self) -> str:
         return f"{self._devices}"
@@ -179,6 +176,16 @@ class FindMyiPhoneServiceManager(BaseService):
 
     def __len__(self) -> int:
         return len(self._devices)
+
+    @property
+    def devices(self) -> dict[str, "AppleDevice"]:
+        """Returns the devices."""
+        return self._devices
+
+    @property
+    def user_info(self) -> Optional[dict[str, Any]]:
+        """Returns the user info."""
+        return self._user_info
 
 
 class AppleDevice:
