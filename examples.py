@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, List, Optional
 from unittest.mock import patch
 
@@ -457,7 +458,11 @@ def album_management(api: PyiCloudService) -> None:
     album.name = "Renamed Album"
     print(f"Album renamed to '{album.name}'")
 
-    album.upload("/workspaces/pyicloud/Moon.jpg")
+    sample_photo: Path = Path(__file__).with_name("sample.jpg")
+    if sample_photo.exists():
+        album.upload(str(sample_photo))
+    else:
+        print(f"Skipping upload: sample photo not found at {sample_photo}")
 
     print(f"Deleting album '{album.name}'...")
     if album.delete():

@@ -914,11 +914,21 @@ class PhotoAlbum(BasePhotoAlbum):
             f"?{urlencode(self.service.params)}"
         )
 
-        self.service.session.post(
+        response: Response = self.service.session.post(
             url,
             json=data,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
+        payload: dict[str, Any] = response.json()
+        if payload.get("records"):
+            latest: dict[str, Any] = payload["records"][0]
+            self._record_change_tag = latest.get(
+                "recordChangeTag", self._record_change_tag
+            )
+            fields: dict[str, Any] = latest.get("fields", {})
+            self._record_modification_date = fields.get(
+                "recordModificationDate", {}
+            ).get("value", self._record_modification_date)
 
         self._name = value
 
