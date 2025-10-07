@@ -802,7 +802,7 @@ class BasePhotoAlbum:
     @abstractmethod
     def _get_payload(
         self, offset: int, page_size: int, direction: DirectionEnum
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """Returns the payload for the photo list request."""
         raise NotImplementedError
 
@@ -1034,7 +1034,7 @@ class PhotoAlbum(BasePhotoAlbum):
 
     def _get_payload(
         self, offset: int, page_size: int, direction: DirectionEnum
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         return self._list_query_gen(
             offset,
             self._list_type,
@@ -1319,7 +1319,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
 
     def _get_payload(
         self, offset: int, page_size: int, direction: DirectionEnum
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         return {
             "albumguid": self._album_guid,
             "albumctag": self._album_ctag,
@@ -1451,15 +1451,16 @@ class PhotoAsset:
     @property
     def item_type(self) -> str:
         """Gets the photo item type."""
+        item_type: str = ""
         try:
-            item_type: str = self._master_record["fields"]["itemType"]["value"]
+            item_type = self._master_record["fields"]["itemType"]["value"]
         except KeyError:
             try:
                 item_type = self._master_record["fields"]["resOriginalFileType"][
                     "value"
                 ]
             except KeyError:
-                return "image"
+                pass
         if item_type in self.ITEM_TYPES:
             return self.ITEM_TYPES[item_type]
         if self.filename.lower().endswith((".heic", ".png", ".jpg", ".jpeg")):
