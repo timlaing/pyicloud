@@ -47,6 +47,7 @@ class FindMyiPhoneServiceManager(BaseService):
         self._erase_token_url: str = f"{token_endpoint}/fmipWebAuthenticate"
 
         self._devices: dict[str, AppleDevice] = {}
+        self._devices_names: list[str] = []
         self._server_ctx: dict[str, Any] | None = None
         self._user_info: dict[str, Any] | None = None
         self.refresh_client_with_reauth()
@@ -160,9 +161,11 @@ class FindMyiPhoneServiceManager(BaseService):
             else:
                 self._devices[device_id].update(device_info)
 
+        self._devices_names = list(self._devices.keys())
+
     def __getitem__(self, key: str | int) -> "AppleDevice":
         if isinstance(key, int):
-            key = list(self._devices.keys())[key]
+            key = self._devices_names[key]
         return self._devices[key]
 
     def __str__(self) -> str:
