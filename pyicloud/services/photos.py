@@ -104,26 +104,25 @@ class AlbumContainer(Iterable):
         else:
             self._albums = {}
 
+        self._index: list[str] = list(self._albums.keys())
+
     def __len__(self) -> int:
         return len(self._albums)
 
-    def __getitem__(self, key: str) -> "BasePhotoAlbum":
+    def __getitem__(self, key: str | int) -> "BasePhotoAlbum":
         """Returns the album for the given id."""
+        if isinstance(key, int):
+            return self._albums[self._index[key]]
         if key in self._albums:
             return self._albums[key]
-
         raise KeyError(f"Photo album does not exist: {key}")
 
     def __iter__(self) -> Iterator["BasePhotoAlbum"]:
-        return self._albums.values().__iter__()
+        return iter(self._albums.values())
 
     def __contains__(self, name: str) -> bool:
         """Checks if an album exists in the container."""
         return self.find(name) is not None
-
-    def values(self) -> Iterable["BasePhotoAlbum"]:
-        """Returns the values of the albums."""
-        return self._albums.values()
 
     def find(self, name: str) -> Optional["BasePhotoAlbum"]:
         """Finds an album by name, returns None if not found."""
@@ -141,6 +140,13 @@ class AlbumContainer(Iterable):
     def append(self, album: "BasePhotoAlbum") -> None:
         """Appends an album to the container."""
         self._albums[album.id] = album
+        self._index: list[str] = list(self._albums.keys())
+
+    def index(self, idx: int) -> "BasePhotoAlbum":
+        """Returns the album at the given index."""
+        if idx < 0 or idx >= len(self._index):
+            raise IndexError("Photo album index out of range")
+        return self._albums[self._index[idx]]
 
 
 class BasePhotoLibrary:

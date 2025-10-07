@@ -117,7 +117,7 @@ def test_fetch_folders(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
     )
     library.SMART_ALBUMS = {}
-    albums: list[BasePhotoAlbum] = list(library.albums.values())
+    albums: AlbumContainer = library.albums
 
     assert len(albums) == 1
     assert albums[0].name == "folder1"
@@ -374,7 +374,7 @@ def test_fetch_folders_multiple_pages(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
     )
     library.SMART_ALBUMS = {}
-    albums: list[BasePhotoAlbum] = list(library.albums.values())
+    albums: AlbumContainer = library.albums
     assert len(albums) == 2
     assert albums[0].name == "folder1"
     assert albums[1].name == "folder2"
@@ -438,7 +438,7 @@ def test_fetch_folders_skips_deleted_folders(mock_photos_service: MagicMock) -> 
         upload_url="https://upload.example.com",
     )
     library.SMART_ALBUMS = {}
-    albums: list[BasePhotoAlbum] = list(library.albums.values())
+    albums: AlbumContainer = library.albums
 
     assert len(albums) == 1
     assert albums[0].name == "folder2"
