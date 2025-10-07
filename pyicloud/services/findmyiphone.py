@@ -35,6 +35,7 @@ class FindMyiPhoneServiceManager(BaseService):
         params: dict[str, Any],
         with_family=False,
     ) -> None:
+        """Initialize the FindMyiPhoneServiceManager."""
         super().__init__(service_root, session, params)
         self._with_family: bool = with_family
 
@@ -165,20 +166,25 @@ class FindMyiPhoneServiceManager(BaseService):
         self._devices_names = list(self._devices.keys())
 
     def __getitem__(self, key: str | int) -> "AppleDevice":
+        """Gets a device by name or index."""
         if isinstance(key, int):
             key = self._devices_names[key]
         return self._devices[key]
 
     def __str__(self) -> str:
+        """String representation of the devices."""
         return f"{self._devices}"
 
     def __repr__(self) -> str:
+        """Representation of the device."""
         return f"{self}"
 
     def __iter__(self) -> Iterator["AppleDevice"]:
+        """Iterates over the devices."""
         return iter(self._devices.values())
 
     def __len__(self) -> int:
+        """Returns the number of devices."""
         return len(self._devices)
 
     @property
@@ -206,6 +212,7 @@ class AppleDevice:
         erase_token_url: str,
         message_url: str,
     ) -> None:
+        """Initialize the Apple device."""
         self._content: dict[str, Any] = content
         self._manager: FindMyiPhoneServiceManager = manager
         self._params: dict[str, Any] = params
@@ -337,9 +344,11 @@ class AppleDevice:
         return self._content
 
     def __getitem__(self, key) -> Any:
+        """Gets an attribute of the device data."""
         return self._content[key]
 
     def __getattr__(self, attr) -> Any:
+        """Gets an attribute of the device data."""
         if attr in self._content:
             return self._content[attr]
         raise AttributeError(
@@ -347,7 +356,9 @@ class AppleDevice:
         )
 
     def __str__(self) -> str:
+        """String representation of the device."""
         return f"{self['deviceDisplayName']}: {self['name']}"
 
     def __repr__(self) -> str:
+        """Representation of the device."""
         return f"<AppleDevice({self})>"
