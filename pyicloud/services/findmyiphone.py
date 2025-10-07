@@ -2,6 +2,7 @@
 
 import logging
 import time
+from types import MappingProxyType
 from typing import Any, Iterator, Optional
 
 from requests import Response
@@ -181,14 +182,14 @@ class FindMyiPhoneServiceManager(BaseService):
         return len(self._devices)
 
     @property
-    def devices(self) -> dict[str, "AppleDevice"]:
+    def devices(self) -> "MappingProxyType[str, AppleDevice]":
         """Returns the devices."""
-        return self._devices
+        return MappingProxyType(self._devices)
 
     @property
-    def user_info(self) -> Optional[dict[str, Any]]:
+    def user_info(self) -> Optional[MappingProxyType[str, Any]]:
         """Returns the user info."""
-        return self._user_info
+        return MappingProxyType(self._user_info) if self._user_info else None
 
 
 class AppleDevice:
