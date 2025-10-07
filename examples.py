@@ -372,6 +372,11 @@ def display_photos(api: PyiCloudService) -> None:
     for idx, photo in enumerate(api.photos.all):
         print(f"\t{idx}: {photo.filename} ({photo.item_type})")
         if idx >= MAX_DISPLAY - 1:
+            data: bytes | None = photo.download()
+            if data:
+                print(f"\t\tDownloaded {len(data)} bytes")
+            else:
+                print("\t\tDownload failed")
             break
     print(END_LIST)
 
@@ -395,7 +400,7 @@ def display_shared_photos(api: PyiCloudService) -> None:
     album = None
     print(f"List of Shared Albums ({len(api.photos.shared_streams)}):")
     for idx, album in enumerate(api.photos.shared_streams):
-        print(f"\t{idx}: {album}")
+        print(f"\t{idx}: {album.name} ({len(album)} photos)")
         if idx >= MAX_DISPLAY - 1:
             break
     print(END_LIST)

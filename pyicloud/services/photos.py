@@ -78,7 +78,7 @@ class ObjectTypeEnum(str, Enum):
     PANORAMA = "CPLAssetInSmartAlbumByAssetDate:Panorama"
     SCREENSHOT = "CPLAssetInSmartAlbumByAssetDate:Screenshot"
     SLOMO = "CPLAssetInSmartAlbumByAssetDate:Slomo"
-    TIMELASPE = "CPLAssetInSmartAlbumByAssetDate:Timelapse"
+    TIMELAPSE = "CPLAssetInSmartAlbumByAssetDate:Timelapse"
     VIDEO = "CPLAssetInSmartAlbumByAssetDate:Video"
     CONTAINER = "CPLContainerRelationNotDeletedByAssetDate"
 
@@ -114,8 +114,8 @@ class AlbumContainer(Iterable):
 
         raise KeyError(f"Photo album does not exist: {key}")
 
-    def __iter__(self) -> Iterator[str]:
-        return self._albums.__iter__()
+    def __iter__(self) -> Iterator["BasePhotoAlbum"]:
+        return self._albums.values().__iter__()
 
     def __contains__(self, name: str) -> bool:
         """Checks if an album exists in the container."""
@@ -198,7 +198,7 @@ class PhotoLibrary(BasePhotoLibrary):
             "query_filter": None,
         },
         SmartAlbumEnum.TIME_LAPSE: {
-            "obj_type": ObjectTypeEnum.TIMELASPE,
+            "obj_type": ObjectTypeEnum.TIMELAPSE,
             "list_type": ListTypeEnum.SMART_ALBUM,
             "direction": DirectionEnum.ASCENDING,
             "query_filter": [
@@ -1546,22 +1546,23 @@ class PhotoAsset:
 
         return version
 
-    def download(self, version="original", **kwargs) -> Optional[Response]:
+    def download(self, version="original", **kwargs) -> Optional[bytes]:
         """Returns the photo file."""
         if version not in self.versions:
             return None
 
-        return self._service.session.get(
+        rasp: Response = self._service.session.get(
             self.versions[version]["url"], stream=True, **kwargs
         )
+        return rasp.raw.data
 
-    def delete(self) -> Response:
+    def delete(self) -> bool:
         """Deletes the photo."""
         endpoint: str = self._service.service_endpoint
         params: str = urlencode(self._service.params)
         url: str = f"{endpoint}/records/modify?{params}"
 
-        return self._service.session.post(
+        resp: Response = self._service.session.post(
             url,
             json={
                 "operations": [
@@ -1580,6 +1581,7 @@ class PhotoAsset:
             },
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
+        return resp.status_code == 200
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: id={self.id}>"

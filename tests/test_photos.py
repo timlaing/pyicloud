@@ -1473,9 +1473,9 @@ def test_photo_asset_properties_and_methods() -> None:
 
     # Prepare mock data for master and asset records
     filename = "test_photo.JPG"
-    encoded_filename = base64.b64encode(filename.encode("utf-8")).decode("utf-8")
+    encoded_filename: str = base64.b64encode(filename.encode("utf-8")).decode("utf-8")
     now = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
-    master_record = {
+    master_record: dict[str, Any] = {
         "recordName": "photo_id_123",
         "fields": {
             "filenameEnc": {"value": encoded_filename},
@@ -1501,7 +1501,7 @@ def test_photo_asset_properties_and_methods() -> None:
         },
         "recordChangeTag": "tag1",
     }
-    asset_record = {
+    asset_record: dict[str, Any] = {
         "fields": {
             "assetDate": {"value": now},
             "addedDate": {"value": now},
@@ -1514,8 +1514,12 @@ def test_photo_asset_properties_and_methods() -> None:
     mock_service = MagicMock()
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
-    mock_service.session.get.return_value = "response"
-    mock_service.session.post.return_value = MagicMock(json=MagicMock(return_value={}))
+    mock_service.session.get.return_value = MagicMock(
+        json=MagicMock(return_value={}), raw=MagicMock(data=b"response")
+    )
+    mock_service.session.post.return_value = MagicMock(
+        json=MagicMock(return_value={}), status_code=200
+    )
 
     asset = PhotoAsset(mock_service, master_record, asset_record)
 
@@ -1537,26 +1541,26 @@ def test_photo_asset_properties_and_methods() -> None:
     # Test is_live_photo (should be False)
     assert asset.is_live_photo is False
     # Test versions
-    versions = asset.versions
+    versions: dict[str, dict[str, Any]] = asset.versions
     assert "original" in versions
     assert "thumb" in versions
     assert versions["original"]["filename"] == filename
     assert versions["original"]["url"] == "http://example.com/photo.jpg"
     assert versions["thumb"]["url"] == "http://example.com/thumb.jpg"
     # Test download returns the mocked response
-    assert asset.download(version="original") == "response"
+    assert asset.download(version="original") == b"response"
     # Test download with invalid version returns None
     assert asset.download(version="nonexistent") is None
     # Test delete returns a mocked response
-    resp = asset.delete()
-    assert resp is mock_service.session.post.return_value
+    resp: bool = asset.delete()
+    assert resp is True
     # Test __repr__
     assert repr(asset) == "<PhotoAsset: id=photo_id_123>"
 
 
 def test_photo_asset_is_live_photo_true() -> None:
     """Test PhotoAsset is_live_photo property for live photo."""
-    master_record = {
+    master_record: dict[str, Any] = {
         "recordName": "photo_id_456",
         "fields": {
             "filenameEnc": {
@@ -1583,7 +1587,7 @@ def test_photo_asset_is_live_photo_true() -> None:
         },
         "recordChangeTag": "tag2",
     }
-    asset_record = {
+    asset_record: dict[str, Any] = {
         "fields": {
             "assetDate": {"value": 1700000000000},
             "addedDate": {"value": 1700000000000},
