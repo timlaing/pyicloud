@@ -12,6 +12,7 @@ from pyicloud.base import PyiCloudService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.drive import COOKIE_APPLE_WEBAUTH_VALIDATE
 from pyicloud.services.hidemyemail import HideMyEmailService
+from pyicloud.services.photos import BasePhotoLibrary, PhotoAsset
 from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
 from tests.const_login import LOGIN_WORKING
@@ -146,11 +147,12 @@ def mock_photos_service() -> MagicMock:
 
 
 @pytest.fixture
-def mock_photo_library(mock_photos_service: MagicMock) -> MagicMock:
+def mock_photo_library(mock_photos_service: MagicMock) -> BasePhotoLibrary:
     """Fixture for mocking PhotoLibrary."""
-    library = MagicMock()
-    library.service = mock_photos_service
-    return library
+    return BasePhotoLibrary(
+        service=mock_photos_service,
+        asset_type=PhotoAsset,
+    )
 
 
 @pytest.fixture
