@@ -982,6 +982,19 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
         headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
     )
 
+    # Verify that if the server returns updated tags, they are stored
+    mock_photo_library.service.session.post.return_value.json.return_value = {
+        "records": [
+            {
+                "recordChangeTag": "new_tag",
+                "fields": {"recordModificationDate": {"value": "2023-02-01T00:00:00Z"}},
+            }
+        ]
+    }
+    album.rename("Another Name")
+    assert album._record_change_tag == "new_tag"
+    assert album._record_modification_date == "2023-02-01T00:00:00Z"
+
 
 def test_photo_album_rename_same_name(mock_photo_library: MagicMock) -> None:
     """Tests that renaming to the same name does nothing."""

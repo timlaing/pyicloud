@@ -487,7 +487,7 @@ class PhotoLibrary(BasePhotoLibrary):
                                 ),
                             },
                             "albumType": {
-                                "value": album_type,
+                                "value": album_type.value,
                             },
                             "isDeleted": {
                                 "value": 0,
@@ -538,11 +538,13 @@ class PhotoLibrary(BasePhotoLibrary):
                 params=params,
             )
 
-        if "errors" in response.json():
-            raise PyiCloudAPIResponseException("", response.json()["errors"])
+        json_response: dict[str, Any] = response.json()
+        if "errors" in json_response:
+            raise PyiCloudAPIResponseException("", json_response["errors"])
 
-        json_response: dict[str, list[dict[str, Any]]] = response.json()
-        records = {rec["recordType"]: rec for rec in json_response["records"]}
+        records: dict[Any, dict[str, Any]] = {
+            rec["recordType"]: rec for rec in json_response["records"]
+        }
 
         return self.asset_type(self.service, records["CPLMaster"], records["CPLAsset"])
 
@@ -1476,6 +1478,7 @@ class PhotoAsset:
                     "value"
                 ]
             except KeyError:
+                # Both fields missing; fall back to filename extension or default to "movie".
                 pass
         if item_type in self.ITEM_TYPES:
             return self.ITEM_TYPES[item_type]
@@ -1577,7 +1580,10 @@ class PhotoAsset:
                         "record": {
                             "recordName": self._asset_record["recordName"],
                             "recordType": self._asset_record["recordType"],
-                            "recordChangeTag": self._master_record["recordChangeTag"],
+                            "recordChangeTag": self._asset_record.get(
+                                "recordChangeTag",
+                                self._master_record.get("recordChangeTag"),
+                            ),
                             "fields": {"isDeleted": {"value": 1}},
                         },
                     }
