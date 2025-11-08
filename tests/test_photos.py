@@ -214,15 +214,14 @@ def test_upload_file_success(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
     )
 
-    with patch("builtins.open", mock_open(read_data=b"file_content")):
+    with patch("builtins.open", mock_open(read_data=b"file_content")) as mock_file:
         asset: PhotoAsset | None = library.upload_file("test_photo.jpg")
 
     assert asset is not None
     assert asset.id == "uploaded_photo"
     mock_photos_service.session.post.assert_called_with(
         url="https://upload.example.com/upload?dsid=12345&filename=test_photo.jpg",
-        data=b"file_content",
-        params={"filename": "test_photo.jpg", "dsid": "12345"},
+        data=mock_file.return_value,
     )
 
 
@@ -263,15 +262,14 @@ def test_upload_file_with_errors(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
     )
 
-    with patch("builtins.open", mock_open(read_data=b"file_content")):
+    with patch("builtins.open", mock_open(read_data=b"file_content")) as mock_file:
         with pytest.raises(PyiCloudAPIResponseException) as exc_info:
             library.upload_file("test_photo.jpg")
 
     assert "UPLOAD_ERROR" in str(exc_info.value)
     mock_photos_service.session.post.assert_called_with(
         url="https://upload.example.com/upload?dsid=12345&filename=test_photo.jpg",
-        data=b"file_content",
-        params={"filename": "test_photo.jpg", "dsid": "12345"},
+        data=mock_file.return_value,
     )
 
 
@@ -306,14 +304,13 @@ def test_upload_file_no_records(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
     )
 
-    with patch("builtins.open", mock_open(read_data=b"file_content")):
+    with patch("builtins.open", mock_open(read_data=b"file_content")) as mock_file:
         with pytest.raises(KeyError):
             library.upload_file("test_photo.jpg")
 
     mock_photos_service.session.post.assert_called_with(
         url="https://upload.example.com/upload?dsid=12345&filename=test_photo.jpg",
-        data=b"file_content",
-        params={"filename": "test_photo.jpg", "dsid": "12345"},
+        data=mock_file.return_value,
     )
 
 
@@ -727,7 +724,7 @@ def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
     )
-    libraries = photos_service.libraries
+    libraries: dict[str, BasePhotoLibrary] = photos_service.libraries
     assert "root" in libraries
     assert "shared" in libraries
     assert "CustomZone" in libraries
@@ -735,7 +732,10 @@ def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
     assert isinstance(libraries["shared"], PhotoStreamLibrary)
     assert isinstance(libraries["CustomZone"], PhotoLibrary)
     mock_photos_service.session.post.assert_called_with(
-        url="https://example.com/database/1/com.apple.photos.cloud/production/private/records/query?dsid=12345&remapEnums=True&getCurrentSyncToken=True",
+        url=(
+            "https://example.com/database/1/com.apple.photos.cloud/production/private/records/query"
+            "?dsid=12345&remapEnums=True&getCurrentSyncToken=True"
+        ),
         json={
             "query": {"recordType": "CheckIndexingState"},
             "zoneID": {"zoneName": "CustomZone"},
@@ -1528,7 +1528,8 @@ def test_photo_asset_properties_and_methods() -> None:
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
     mock_service.session.get.return_value = MagicMock(
-        json=MagicMock(return_value={}), raw=MagicMock(data=b"response")
+        json=MagicMock(return_value={}),
+        raw=MagicMock(read=MagicMock(return_value=b"response")),
     )
     mock_service.session.post.return_value = MagicMock(
         json=MagicMock(return_value={}), status_code=200

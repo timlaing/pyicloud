@@ -180,7 +180,7 @@ class BasePhotoLibrary:
 
     def parse_asset_response(
         self, response: dict[str, list[dict[str, Any]]]
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
         """Parses the asset response."""
         asset_records: dict[str, dict[str, Any]] = {}
         master_records: list[dict[str, Any]] = []
@@ -519,7 +519,12 @@ class PhotoLibrary(BasePhotoLibrary):
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
 
-        return self._convert_record_to_album(resp.json()["records"][0])
+        payload = resp.json()
+        records: list[dict[str, Any]] = payload.get("records", [])
+        if not records:
+            return None
+
+        return self._convert_record_to_album(records[0])
 
     def upload_file(self, path: str) -> Optional["PhotoAsset"]:
         """Upload a photo from path, returns a recordName"""
@@ -534,8 +539,7 @@ class PhotoLibrary(BasePhotoLibrary):
         with open(path, "rb") as file_obj:
             response: Response = self.service.session.post(
                 url=url,
-                data=file_obj.read(),
-                params=params,
+                data=file_obj,
             )
 
         json_response: dict[str, Any] = response.json()
@@ -1561,9 +1565,11 @@ class PhotoAsset:
             return None
 
         rasp: Response = self._service.session.get(
-            self.versions[version]["url"], stream=True, **kwargs
+            self.versions[version]["url"],
+            stream=True,
+            **kwargs,
         )
-        return rasp.raw.data
+        return rasp.raw.read()
 
     def delete(self) -> bool:
         """Deletes the photo."""
