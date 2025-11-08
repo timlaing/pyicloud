@@ -49,7 +49,7 @@ jobs:
       - name: Get coverage info
         run: pytest --cov=. --cov-config=.coveragerc --cov-report xml:coverage.xml
       - name: Upload code coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: code-coverage
           path: coverage.xml
