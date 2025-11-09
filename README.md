@@ -675,7 +675,7 @@ Individual albums are available through the `albums` property:
 <PhotoAlbum: 'Screenshots'>
 ```
 
-To delete an individual album call the `delete` method.
+To delete an individual album, call the `delete` method.
 
 ``` pycon
 >>> api.photos.albums['MyAlbum']
@@ -695,7 +695,7 @@ photos are returned first. All other albums are sorted by
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
 ```
 
-To download a photo use the `download` method, which will return a raw stream:
+To download a photo, use the `download` method, which will return a raw stream:
 
 ``` python
 photo = next(iter(api.photos.albums['Screenshots']), None)
@@ -737,7 +737,7 @@ api.photos.albums['Screenshots'].upload(file_path)
 
 Note: Only limited media type is accepted, upload not support types (e.g. png) will get TYPE_UNSUPPORTED error.
 
-To delete a photo use the `delete` method on the PhotoAsset, returns a bool indicating success.
+To delete a photo, use the `delete` method on the PhotoAsset, returns a bool indicating success.
 
 ``` pycon
 >>> photo = api.photos.albums['Screenshots'][0]:
