@@ -14,12 +14,27 @@ from requests import Response
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
+    PyiCloudException,
     PyiCloudServiceNotActivatedException,
 )
 from pyicloud.services.base import BaseService
 from pyicloud.session import PyiCloudSession
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+
+
+class PhotosServiceException(PyiCloudException):
+    """Photo service exception."""
+
+    def __init__(
+        self,
+        *args,
+        photo: "PhotoAsset|None" = None,
+        album: "BasePhotoAlbum|None" = None,
+    ) -> None:
+        super().__init__(*args)
+        self.photo: "PhotoAsset|None" = photo
+        self.album: "BasePhotoAlbum|None" = album
 
 
 @unique
@@ -513,16 +528,20 @@ class PhotoLibrary(BasePhotoLibrary):
         params: str = urlencode(self.service.params)
         url: str = f"{endpoint}/records/modify?{params}"
 
-        resp: Response = self.service.session.post(
-            url,
-            json=data,
-            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-        )
+        try:
+            resp: Response = self.service.session.post(
+                url,
+                json=data,
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+            )
 
-        payload = resp.json()
-        records: list[dict[str, Any]] = payload.get("records", [])
-        if not records:
-            return None
+            payload: dict[str, Any] = resp.json()
+            records: list[dict[str, Any]] = payload.get("records", [])
+            if not records:
+                return None
+        except PyiCloudAPIResponseException as ex:
+            _LOGGER.error("Failed to create album: %s", ex)
+            raise PhotosServiceException("Failed to create album") from ex
 
         return self._convert_record_to_album(records[0])
 
@@ -549,6 +568,9 @@ class PhotoLibrary(BasePhotoLibrary):
         records: dict[Any, dict[str, Any]] = {
             rec["recordType"]: rec for rec in json_response["records"]
         }
+
+        if "CPLMaster" not in records or "CPLAsset" not in records:
+            return None
 
         return self.asset_type(self.service, records["CPLMaster"], records["CPLAsset"])
 
@@ -968,11 +990,27 @@ class PhotoAlbum(BasePhotoAlbum):
             f"?{urlencode(self.service.params)}"
         )
 
-        self.service.session.post(
-            url,
-            json=data,
-            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-        )
+        try:
+            response: Response = self.service.session.post(
+                url,
+                json=data,
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+            )
+            payload: dict[str, Any] = response.json()
+            self._record_change_tag = payload["records"][0].get(
+                "recordChangeTag", self._record_change_tag
+            )
+            self._record_modification_date = (
+                payload["records"][0]
+                .get("fields", {})
+                .get("recordModificationDate", {})
+                .get("value", self._record_modification_date)
+            )
+        except PyiCloudAPIResponseException as ex:
+            _LOGGER.error("Failed to delete photo from album: %s", ex)
+            raise PhotosServiceException(
+                "Failed to delete photo from album", album=self
+            ) from ex
 
         return True
 
@@ -1008,11 +1046,30 @@ class PhotoAlbum(BasePhotoAlbum):
             f"?{urlencode(self.service.params)}"
         )
 
-        self.service.session.post(
-            url,
-            json=data,
-            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-        )
+        try:
+            response: Response = self.service.session.post(
+                url,
+                json=data,
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+            )
+
+            payload: dict[str, Any] = response.json()
+            self._record_change_tag = payload["records"][0].get(
+                "recordChangeTag", self._record_change_tag
+            )
+            self._record_modification_date = (
+                payload["records"][0]
+                .get("fields", {})
+                .get("recordModificationDate", {})
+                .get("value", self._record_modification_date)
+            )
+        except PyiCloudAPIResponseException as ex:
+            _LOGGER.error("Failed to add photo to album: %s", ex)
+            raise PhotosServiceException(
+                "Failed to add photo to album",
+                album=self,
+                photo=photo_asset,
+            ) from ex
 
         return photo_asset
 

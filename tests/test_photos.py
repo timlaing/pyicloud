@@ -305,8 +305,8 @@ def test_upload_file_no_records(mock_photos_service: MagicMock) -> None:
     )
 
     with patch("builtins.open", mock_open(read_data=b"file_content")) as mock_file:
-        with pytest.raises(KeyError):
-            library.upload_file("test_photo.jpg")
+        result: PhotoAsset | None = library.upload_file("test_photo.jpg")
+        assert result is None
 
     mock_photos_service.session.post.assert_called_with(
         url="https://upload.example.com/upload?dsid=12345&filename=test_photo.jpg",

@@ -18,27 +18,27 @@ from requests import Response
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.calendar import CalendarObject, CalendarService
-from pyicloud.services.photos import PhotoAlbum
+from pyicloud.services.photos import PhotoAlbum, PhotoAsset
 from pyicloud.ssl_context import configurable_ssl_verification
 
-END_LIST = "End List\n"
-MAX_DISPLAY = 10
+END_LIST: str = "End List\n"
+MAX_DISPLAY: int = 10
 
 # Set to FALSE to disable SSL verification to use tools like charles, mitmproxy, fiddler, or similiar tools to debug the data sent on the wire.
 # Can also use command-line argument --disable-ssl-verify
 # This uses code taken from:
 # - https://stackoverflow.com/questions/15445981/how-do-i-disable-the-security-certificate-check-in-python-requests
 # - https://stackoverflow.com/questions/16337511/log-all-requests-from-the-python-requests-module
-ENABLE_SSL_VERIFICATION = True
+ENABLE_SSL_VERIFICATION: bool = True
 
 # Set the log level for HTTP commands
-HTTP_LOG_LEVEL = logging.ERROR
+HTTP_LOG_LEVEL: int = logging.ERROR
 
 # Set the log level for other commands
-OTHER_LOG_LEVEL = logging.ERROR
+OTHER_LOG_LEVEL: int = logging.ERROR
 
 # HTTPConnection parameters
-HTTPCONNECTION_DEBUG_INFO = False
+HTTPCONNECTION_DEBUG_INFO: bool = False
 HTTP_PROXY: Optional[str] = None
 HTTPS_PROXY: Optional[str] = None
 
@@ -51,7 +51,7 @@ APPLE_PASSWORD: str = ""
 CHINA: bool = False
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args() -> None:
     """Parse command line arguments"""
     global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME, CHINA, HTTP_PROXY, HTTPS_PROXY  # pylint: disable=global-statement
     parser = argparse.ArgumentParser(description="End to End Test of Services")
@@ -138,8 +138,6 @@ def parse_args() -> argparse.Namespace:
         HTTP_PROXY = args.http_proxy
     if args.https_proxy:
         HTTPS_PROXY = args.https_proxy
-
-    return args
 
 
 def httpclient_logging_patch(level=HTTP_LOG_LEVEL) -> None:
@@ -248,8 +246,6 @@ def handle_2sa(api: PyiCloudService) -> None:
 
 def get_api() -> PyiCloudService:
     """Get authenticated PyiCloudService instance"""
-    parse_args()
-
     api = PyiCloudService(
         apple_id=APPLE_USERNAME,
         password=APPLE_PASSWORD,
@@ -465,7 +461,13 @@ def album_management(api: PyiCloudService) -> None:
 
     sample_photo: Path = Path(__file__).with_name("sample.jpg")
     if sample_photo.exists():
-        album.upload(str(sample_photo))
+        photo: PhotoAsset | None = album.upload(str(sample_photo))
+        if photo:
+            print(f"Photo uploaded successfully: {photo.filename} ({photo.item_type})")
+            if photo.delete():
+                print("Photo deleted successfully.")
+        else:
+            print("Photo upload failed.")
     else:
         print(f"Skipping upload: sample photo not found at {sample_photo}")
 
@@ -478,6 +480,8 @@ def album_management(api: PyiCloudService) -> None:
 
 def setup() -> None:
     """Setup"""
+    parse_args()
+
     # Enable general debug logging
     logging.basicConfig(level=OTHER_LOG_LEVEL)
 
@@ -494,19 +498,19 @@ def main() -> None:
     ):
         api: PyiCloudService = get_api()
 
-        display_account(api)
-        display_devices(api)
-        display_hidemyemail(api)
-        try:
-            display_calendars(api)
-        except PyiCloudServiceUnavailable as error:
-            print(f"Calendar service not available: {error}\n")
-        display_files(api)
-        display_contacts(api)
-        display_drive(api)
-        display_photos(api)
-        display_videos(api)
-        display_shared_photos(api)
+        # display_account(api)
+        # display_devices(api)
+        # display_hidemyemail(api)
+        # try:
+        #     display_calendars(api)
+        # except PyiCloudServiceUnavailable as error:
+        #     print(f"Calendar service not available: {error}\n")
+        # display_files(api)
+        # display_contacts(api)
+        # display_drive(api)
+        # display_photos(api)
+        # display_videos(api)
+        # display_shared_photos(api)
         album_management(api)
 
 
