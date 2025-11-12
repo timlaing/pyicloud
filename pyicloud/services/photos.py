@@ -764,9 +764,13 @@ class BasePhotoAlbum:
         )
         for master_record in master_records:
             record_name: str = master_record["recordName"]
-            yield self._library.asset_type(
-                self.service, master_record, asset_records[record_name]
-            )
+            asset_record = asset_records.get(record_name)
+            if not asset_record:
+                _LOGGER.debug(
+                    "No asset record found for master record: %s", record_name
+                )
+                continue
+            yield self._library.asset_type(self.service, master_record, asset_record)
 
     def photo(self, index) -> "PhotoAsset":
         """Returns a photo at the given index."""

@@ -18,7 +18,7 @@ from requests import Response
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.calendar import CalendarObject, CalendarService
-from pyicloud.services.photos import PhotoAlbum, PhotoAsset
+from pyicloud.services.photos import BasePhotoAlbum, PhotoAlbum, PhotoAsset
 from pyicloud.ssl_context import configurable_ssl_verification
 
 END_LIST: str = "End List\n"
@@ -113,11 +113,11 @@ def parse_args() -> None:
 
     args: argparse.Namespace = parser.parse_args()
 
-    if not args.username or not args.password:
-        parser.error("Both --username and --password are required")
+    if not args.username:
+        parser.error("Both --username is required")
     else:
         APPLE_USERNAME = args.username
-        APPLE_PASSWORD = args.password
+        APPLE_PASSWORD = args.password or ""
 
     if args.cookie_directory:
         COOKIE_DIR = args.cookie_directory
@@ -393,7 +393,7 @@ def display_videos(api: PyiCloudService) -> None:
 def display_shared_photos(api: PyiCloudService) -> None:
     """Display shared photo info"""
 
-    album = None
+    selected_album: BasePhotoAlbum | None = next(iter(api.photos.shared_streams), None)
     print(f"List of Shared Albums ({len(api.photos.shared_streams)}):")
     for idx, album in enumerate(api.photos.shared_streams):
         print(f"\t{idx}: {album.name} ({len(album)} photos)")
@@ -401,9 +401,9 @@ def display_shared_photos(api: PyiCloudService) -> None:
             break
     print(END_LIST)
 
-    if album and api.photos.shared_streams:
-        print(f"List of Shared Photos [{album}] ({len(album)}):")
-        for idx, photo in enumerate(album):
+    if selected_album and api.photos.shared_streams:
+        print(f"List of Shared Photos [{selected_album.name}] ({len(selected_album)}):")
+        for idx, photo in enumerate(selected_album):
             print(f"\t{idx}: {photo.filename} ({photo.item_type})")
 
             if idx >= MAX_DISPLAY - 1:

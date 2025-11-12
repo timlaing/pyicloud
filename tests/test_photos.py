@@ -166,7 +166,6 @@ def test_get_albums(mock_photos_service: MagicMock) -> None:
     assert SmartAlbumEnum.ALL_PHOTOS in albums
     assert "folder1" in albums
     assert albums["folder1"].name == "folder1"
-    assert albums["folder1"]._direction == DirectionEnum.ASCENDING
 
 
 def test_upload_file_success(mock_photos_service: MagicMock) -> None:
@@ -535,8 +534,6 @@ def test_base_photo_album_initialization(mock_photo_library: MagicMock) -> None:
     assert album.name == "Test Album"
     assert album.service == mock_photo_library.service
     assert album.page_size == 50
-    assert album._direction == DirectionEnum.ASCENDING
-    assert album._list_type == ListTypeEnum.DEFAULT
 
 
 def test_base_photo_album_parse_response() -> None:

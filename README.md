@@ -721,7 +721,7 @@ with open(photo.versions['thumb']['filename'], 'wb') as thumb_file:
 
 To upload a photo use the `upload` method, which will upload the file to the requested album
 this will appear automatically in your 'ALL PHOTOS' album. This will return the uploaded
-PhotoAsset for futher information.
+PhotoAsset for further information.
 
 ``` python
 api.photos.albums['Screenshots'].upload(file_path)
@@ -732,12 +732,12 @@ api.photos.albums['Screenshots'].upload(file_path)
 >>> album
 <PhotoAlbum: 'Screenshots'>
 >>> album.upload("./my_test_image.jpg")
-<PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jdQ> my_test_image.png
+<PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jdQ> my_test_image.jpg
 ```
 
-Note: Only limited media type is accepted, upload not support types (e.g. png) will get TYPE_UNSUPPORTED error.
+Note: Only limited media types are accepted. Unsupported types (e.g., PNG) will return a TYPE_UNSUPPORTED error.
 
-To delete a photo, use the `delete` method on the PhotoAsset, returns a bool indicating success.
+To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool indicating success.
 
 ``` pycon
 >>> photo = api.photos.albums['Screenshots'][0]:
