@@ -740,7 +740,7 @@ Note: Only limited media types are accepted. Unsupported types (e.g., PNG) will 
 To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool indicating success.
 
 ``` pycon
->>> photo = api.photos.albums['Screenshots'][0]:
+>>> photo = api.photos.albums['Screenshots'][0]
 >>> photo
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
 >>> photo.delete()
@@ -755,7 +755,7 @@ api.photos.albums['Screenshots'].add_photo(photo_asset)
 ```
 
 ``` pycon
->>> photo = api.photos.albums['Screenshots'][0]:
+>>> photo = api.photos.albums['Screenshots'][0]
 >>> photo
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
 >>> my_album = api.photos.albums['MyAlbum']
