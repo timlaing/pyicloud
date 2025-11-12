@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, List, Optional
 from unittest.mock import patch
 
@@ -17,26 +18,27 @@ from requests import Response
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudServiceUnavailable
 from pyicloud.services.calendar import CalendarObject, CalendarService
+from pyicloud.services.photos import BasePhotoAlbum, PhotoAlbum, PhotoAsset
 from pyicloud.ssl_context import configurable_ssl_verification
 
-END_LIST = "End List\n"
-MAX_DISPLAY = 10
+END_LIST: str = "End List\n"
+MAX_DISPLAY: int = 10
 
 # Set to FALSE to disable SSL verification to use tools like charles, mitmproxy, fiddler, or similiar tools to debug the data sent on the wire.
 # Can also use command-line argument --disable-ssl-verify
 # This uses code taken from:
 # - https://stackoverflow.com/questions/15445981/how-do-i-disable-the-security-certificate-check-in-python-requests
 # - https://stackoverflow.com/questions/16337511/log-all-requests-from-the-python-requests-module
-ENABLE_SSL_VERIFICATION = True
+ENABLE_SSL_VERIFICATION: bool = True
 
 # Set the log level for HTTP commands
-HTTP_LOG_LEVEL = logging.ERROR
+HTTP_LOG_LEVEL: int = logging.ERROR
 
 # Set the log level for other commands
-OTHER_LOG_LEVEL = logging.ERROR
+OTHER_LOG_LEVEL: int = logging.ERROR
 
 # HTTPConnection parameters
-HTTPCONNECTION_DEBUG_INFO = False
+HTTPCONNECTION_DEBUG_INFO: bool = False
 HTTP_PROXY: Optional[str] = None
 HTTPS_PROXY: Optional[str] = None
 
@@ -49,7 +51,7 @@ APPLE_PASSWORD: str = ""
 CHINA: bool = False
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args() -> None:
     """Parse command line arguments"""
     global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME, CHINA, HTTP_PROXY, HTTPS_PROXY  # pylint: disable=global-statement
     parser = argparse.ArgumentParser(description="End to End Test of Services")
@@ -111,11 +113,11 @@ def parse_args() -> argparse.Namespace:
 
     args: argparse.Namespace = parser.parse_args()
 
-    if not args.username or not args.password:
-        parser.error("Both --username and --password are required")
+    if not args.username:
+        parser.error("Both --username is required")
     else:
         APPLE_USERNAME = args.username
-        APPLE_PASSWORD = args.password
+        APPLE_PASSWORD = args.password or ""
 
     if args.cookie_directory:
         COOKIE_DIR = args.cookie_directory
@@ -136,8 +138,6 @@ def parse_args() -> argparse.Namespace:
         HTTP_PROXY = args.http_proxy
     if args.https_proxy:
         HTTPS_PROXY = args.https_proxy
-
-    return args
 
 
 def httpclient_logging_patch(level=HTTP_LOG_LEVEL) -> None:
@@ -246,8 +246,6 @@ def handle_2sa(api: PyiCloudService) -> None:
 
 def get_api() -> PyiCloudService:
     """Get authenticated PyiCloudService instance"""
-    parse_args()
-
     api = PyiCloudService(
         apple_id=APPLE_USERNAME,
         password=APPLE_PASSWORD,
@@ -370,6 +368,11 @@ def display_photos(api: PyiCloudService) -> None:
     for idx, photo in enumerate(api.photos.all):
         print(f"\t{idx}: {photo.filename} ({photo.item_type})")
         if idx >= MAX_DISPLAY - 1:
+            data: bytes | None = photo.download()
+            if data:
+                print(f"\t\tDownloaded {len(data)} bytes")
+            else:
+                print("\t\tDownload failed")
             break
     print(END_LIST)
 
@@ -390,19 +393,17 @@ def display_videos(api: PyiCloudService) -> None:
 def display_shared_photos(api: PyiCloudService) -> None:
     """Display shared photo info"""
 
-    album = None
+    selected_album: BasePhotoAlbum | None = next(iter(api.photos.shared_streams), None)
     print(f"List of Shared Albums ({len(api.photos.shared_streams)}):")
     for idx, album in enumerate(api.photos.shared_streams):
-        print(f"\t{idx}: {album}")
+        print(f"\t{idx}: {album.name} ({len(album)} photos)")
         if idx >= MAX_DISPLAY - 1:
             break
     print(END_LIST)
 
-    if album and api.photos.shared_streams:
-        print(
-            f"List of Shared Photos [{album}] ({len(api.photos.shared_streams[album])}):"
-        )
-        for idx, photo in enumerate(api.photos.shared_streams[album]):
+    if selected_album and api.photos.shared_streams:
+        print(f"List of Shared Photos [{selected_album.name}] ({len(selected_album)}):")
+        for idx, photo in enumerate(selected_album):
             print(f"\t{idx}: {photo.filename} ({photo.item_type})")
 
             if idx >= MAX_DISPLAY - 1:
@@ -443,8 +444,44 @@ def display_hidemyemail(api: PyiCloudService) -> None:
     print(END_LIST)
 
 
+def album_management(api: PyiCloudService) -> None:
+    """Test album management functions"""
+
+    album_name = "Test Album from API"
+    print(f"Creating album '{album_name}'...")
+    album: PhotoAlbum | None = api.photos.create_album(album_name)
+    print(f"Album created: {album}")
+    if album is None:
+        print("Album creation failed.")
+        return
+
+    print(f"Album '{album_name}' created successfully.")
+    album.name = "Renamed Album"
+    print(f"Album renamed to '{album.name}'")
+
+    sample_photo: Path = Path(__file__).with_name("sample.jpg")
+    if sample_photo.exists():
+        photo: PhotoAsset | None = album.upload(str(sample_photo))
+        if photo:
+            print(f"Photo uploaded successfully: {photo.filename} ({photo.item_type})")
+            if photo.delete():
+                print("Photo deleted successfully.")
+        else:
+            print("Photo upload failed.")
+    else:
+        print(f"Skipping upload: sample photo not found at {sample_photo}")
+
+    print(f"Deleting album '{album.name}'...")
+    if album.delete():
+        print("Album deleted.")
+    else:
+        print("Album deletion failed.")
+
+
 def setup() -> None:
     """Setup"""
+    parse_args()
+
     # Enable general debug logging
     logging.basicConfig(level=OTHER_LOG_LEVEL)
 
@@ -461,19 +498,20 @@ def main() -> None:
     ):
         api: PyiCloudService = get_api()
 
-        display_account(api)
-        display_devices(api)
-        display_hidemyemail(api)
-        try:
-            display_calendars(api)
-        except PyiCloudServiceUnavailable as error:
-            print(f"Calendar service not available: {error}\n")
-        display_files(api)
-        display_contacts(api)
-        display_drive(api)
-        display_photos(api)
-        display_videos(api)
-        display_shared_photos(api)
+        # display_account(api)
+        # display_devices(api)
+        # display_hidemyemail(api)
+        # try:
+        #     display_calendars(api)
+        # except PyiCloudServiceUnavailable as error:
+        #     print(f"Calendar service not available: {error}\n")
+        # display_files(api)
+        # display_contacts(api)
+        # display_drive(api)
+        # display_photos(api)
+        # display_videos(api)
+        # display_shared_photos(api)
+        album_management(api)
 
 
 if __name__ == "__main__":

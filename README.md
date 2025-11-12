@@ -675,6 +675,15 @@ Individual albums are available through the `albums` property:
 <PhotoAlbum: 'Screenshots'>
 ```
 
+To delete an individual album, call the `delete` method.
+
+``` pycon
+>>> api.photos.albums['MyAlbum']
+<PhotoAlbum: 'MyAlbum'>
+>>> api.photos.albums['MyAlbum'].delete()
+True
+```
+
 Which you can iterate to access the photo assets. The "All Photos"
 album is sorted by `added_date` so the most recently added
 photos are returned first. All other albums are sorted by
@@ -686,27 +695,12 @@ photos are returned first. All other albums are sorted by
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
 ```
 
-To download a photo use the `download` method, which will
-return a [Response
-object](https://requests.readthedocs.io/en/latest/api/#requests.Response),
-initialized with `stream` set to `True`, so you can read from the raw
-response object:
+To download a photo, use the `download` method, which will return a raw stream:
 
 ``` python
 photo = next(iter(api.photos.albums['Screenshots']), None)
-download = photo.download()
 with open(photo.filename, 'wb') as opened_file:
-    opened_file.write(download.raw.read())
-```
-
-Consider using `shutil.copyfileobj` or another buffered strategy for downloading so that the whole file isn't read into memory before writing.
-
-``` python
-import shutil
-photo = next(iter(api.photos.albums['Screenshots']), None)
-response_obj = photo.download()
-with open(photo.filename, 'wb') as f:
-    shutil.copyfileobj(response_obj.raw, f)
+    opened_file.write(photo.download())
 ```
 
 Information about each version can be accessed through the `versions`
@@ -721,18 +715,55 @@ To download a specific version of the photo asset, pass the version to
 `download()`:
 
 ``` python
-download = photo.download('thumb')
 with open(photo.versions['thumb']['filename'], 'wb') as thumb_file:
-    thumb_file.write(download.raw.read())
+    thumb_file.write(photo.download('thumb'))
 ```
 
-To upload an image
+To upload a photo use the `upload` method, which will upload the file to the requested album
+this will appear automatically in your 'ALL PHOTOS' album. This will return the uploaded
+PhotoAsset for further information.
 
 ``` python
-api.photos.upload_file(file_path)
+api.photos.albums['Screenshots'].upload(file_path)
 ```
 
-Note: Only limited media type is accepted, upload not support types (e.g. png) will get TYPE_UNSUPPORTED error.
+``` pycon
+>>> album = api.photos.albums['Screenshots']
+>>> album
+<PhotoAlbum: 'Screenshots'>
+>>> album.upload("./my_test_image.jpg")
+<PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jdQ> my_test_image.jpg
+```
+
+Note: Only limited media types are accepted. Unsupported types (e.g., PNG) will return a TYPE_UNSUPPORTED error.
+
+To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool indicating success.
+
+``` pycon
+>>> photo = api.photos.albums['Screenshots'][0]
+>>> photo
+<PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
+>>> photo.delete()
+True
+```
+
+To add an existing photo to an album, use the `add_photo` method, which will link the PhotoAsset to the requested album.
+It returns a bool indicating success.
+
+``` python
+api.photos.albums['Screenshots'].add_photo(photo_asset)
+```
+
+``` pycon
+>>> photo = api.photos.albums['Screenshots'][0]
+>>> photo
+<PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
+>>> my_album = api.photos.albums['MyAlbum']
+>>> my_album
+<PhotoAlbum: 'MyAlbum'>
+>>> my_album.add_photo(photo)
+True
+```
 
 ## Hide My Email
 
