@@ -747,7 +747,7 @@ To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool 
 True
 ```
 
-To add an existing photo to an album use the `add_photo` method, which will link the PhotoAsset to the requested album.
+To add an existing photo to an album, use the `add_photo` method, which will link the PhotoAsset to the requested album.
 It returns a bool indicating success.
 
 ``` python
