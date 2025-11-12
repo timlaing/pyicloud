@@ -1018,14 +1018,8 @@ class PhotoAlbum(BasePhotoAlbum):
 
         return True
 
-    def upload(self, path) -> Optional["PhotoAsset"]:
-        """Uploads a photo to the album."""
-        if not isinstance(self._library, PhotoLibrary):
-            return None
-        photo_asset: PhotoAsset | None = self._library.upload_file(path)
-
-        if photo_asset is None:
-            return None
+    def add_photo(self, photo: "PhotoAsset") -> bool:
+        """Adds an existing photo to the album."""
 
         data: dict[str, Any] = {
             "atomic": True,
@@ -1035,12 +1029,12 @@ class PhotoAlbum(BasePhotoAlbum):
                     "operationType": "create",
                     "record": {
                         "fields": {
-                            "itemId": {"value": photo_asset.id},
+                            "itemId": {"value": photo.id},
                             "position": {"value": 1024},
                             "containerId": {"value": self._record_id},
                         },
                         "recordType": "CPLContainerRelation",
-                        "recordName": f"{photo_asset.id}-IN-{self._record_id}",
+                        "recordName": f"{photo.id}-IN-{self._record_id}",
                     },
                 }
             ],
@@ -1069,11 +1063,26 @@ class PhotoAlbum(BasePhotoAlbum):
             )
         except PyiCloudAPIResponseException as ex:
             _LOGGER.error("Failed to add photo to album: %s", ex)
+            return False
+
+        return True
+
+    def upload(self, path) -> Optional["PhotoAsset"]:
+        """Uploads a photo to the album."""
+        if not isinstance(self._library, PhotoLibrary):
+            return None
+        photo_asset: PhotoAsset | None = self._library.upload_file(path)
+
+        if photo_asset is None:
+            return None
+
+        if not self.add_photo(photo_asset):
+            _LOGGER.error("Failed to add photo to album")
             raise PhotosServiceException(
                 "Failed to add photo to album",
                 album=self,
                 photo=photo_asset,
-            ) from ex
+            )
 
         return photo_asset
 
@@ -1625,12 +1634,12 @@ class PhotoAsset:
         if version not in self.versions:
             return None
 
-        rasp: Response = self._service.session.get(
+        response: Response = self._service.session.get(
             self.versions[version]["url"],
             stream=True,
             **kwargs,
         )
-        return rasp.raw.read()
+        return response.raw.read()
 
     def delete(self) -> bool:
         """Deletes the photo."""

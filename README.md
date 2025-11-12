@@ -747,6 +747,24 @@ To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool 
 True
 ```
 
+To add an existing photo to an album use the `add_photo` method, which will link the PhotoAsset to the requested album.
+It returns a bool indicating success.
+
+``` python
+api.photos.albums['Screenshots'].add_photo(photo_asset)
+```
+
+``` pycon
+>>> photo = api.photos.albums['Screenshots'][0]:
+>>> photo
+<PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
+>>> my_album = api.photos.albums['MyAlbum']
+>>> my_album
+<PhotoAlbum: 'MyAlbum'>
+>>> my_album.add_photo(photo)
+True
+```
+
 ## Hide My Email
 
 You can access the iCloud Hide My Email service through the `hidemyemail` property
