@@ -27,6 +27,25 @@ At its core, PyiCloud connects to the iCloud web application using your username
 
 For support and discussions, join our Discord community: [Join our Discord community](https://discord.gg/nru3was4hk)
 
+## Async Support 🆕
+
+PyiCloud now supports asynchronous operations! Use `AsyncPyiCloudService` for async/await syntax:
+
+``` python
+import asyncio
+from pyicloud import AsyncPyiCloudService
+
+async def main():
+    async with await AsyncPyiCloudService.create('jappleseed@apple.com', 'password') as api:
+        print(f"Logged in as: {api.account_name}")
+
+asyncio.run(main())
+```
+
+**[📖 Read the full Async API Guide](ASYNC_API.md)** for detailed usage examples, migration guide, and best practices.
+
+The traditional synchronous API (`PyiCloudService`) remains fully supported and is documented below.
+
 ## Authentication
 
 Authentication without using a saved password is as simple as passing your username and password to the `PyiCloudService` class:

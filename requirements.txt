@@ -1,6 +1,7 @@
 certifi>=2024.12.14
 click>=8.1.8
 fido2>=2.0.0
+httpx>=0.27.0
 keyring>=25.6.0
 keyrings.alt>=5.0.2
 requests>=2.31.0
