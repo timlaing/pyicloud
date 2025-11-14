@@ -51,24 +51,29 @@ class DriveService(BaseService):
                 return {"token": match.group(1)}
         raise TokenException("Token cookie not found")
 
-    def get_node_data(self, drivewsid):
+    def get_node_data(
+        self, drivewsid: str, share_id: Optional[dict[str, Any]] = None
+    ) -> dict[str, Any]:
         """Returns the node data."""
+        payload = [
+            {
+                "drivewsid": drivewsid,
+                "partialData": False,
+            }
+        ]
+        if share_id:
+            payload[0]["shareID"] = share_id
         request: Response = self.session.post(
             self.service_root + "/retrieveItemDetailsInFolders",
             params=self.params,
-            json=[
-                {
-                    "drivewsid": drivewsid,
-                    "partialData": False,
-                }
-            ],
+            json=payload,
         )
         self._raise_if_error(request)
         return request.json()[0]
 
     def get_file(self, file_id: str, zone: str = CLOUD_DOCS_ZONE, **kwargs) -> Response:
         """Returns iCloud Drive file."""
-        file_params = dict(self.params)
+        file_params: dict[str, Any] = dict(self.params)
         file_params.update({"document_id": file_id})
         response: Response = self.session.get(
             self._document_root + f"/ws/{zone}/download/by_id",
@@ -87,7 +92,8 @@ class DriveService(BaseService):
     def get_app_data(self):
         """Returns the app library (previously ubiquity)."""
         request: Response = self.session.get(
-            self.service_root + "/retrieveAppLibraries", params=self.params
+            self.service_root + "/retrieveAppLibraries",
+            params=self.params,
         )
         self._raise_if_error(request)
         return request.json()["items"]
@@ -359,9 +365,9 @@ class DriveNode:
     NAME_ROOT = "root"
     NAME_UNKNOWN = "<UNKNOWN>"
 
-    def __init__(self, conn, data) -> None:
-        self.data = data
-        self.connection = conn
+    def __init__(self, conn: DriveService, data: dict[str, Any]) -> None:
+        self.data: dict[str, Any] = data
+        self.connection: DriveService = conn
         self._children: Optional[list[DriveNode]] = None
 
     @property
@@ -400,7 +406,11 @@ class DriveNode:
         """Gets the node children."""
         if not self._children or force:
             if "items" not in self.data or force:
-                self.data.update(self.connection.get_node_data(self.data["drivewsid"]))
+                self.data.update(
+                    self.connection.get_node_data(
+                        self.data["drivewsid"], self.data.get("shareID")
+                    )
+                )
             if "items" not in self.data:
                 raise KeyError(f"No items in folder, status: {self.data['status']}")
             self._children = [
