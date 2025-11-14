@@ -498,19 +498,19 @@ def main() -> None:
     ):
         api: PyiCloudService = get_api()
 
-        # display_account(api)
-        # display_devices(api)
-        # display_hidemyemail(api)
-        # try:
-        #     display_calendars(api)
-        # except PyiCloudServiceUnavailable as error:
-        #     print(f"Calendar service not available: {error}\n")
-        # display_files(api)
-        # display_contacts(api)
-        # display_drive(api)
-        # display_photos(api)
-        # display_videos(api)
-        # display_shared_photos(api)
+        display_account(api)
+        display_devices(api)
+        display_hidemyemail(api)
+        try:
+            display_calendars(api)
+        except PyiCloudServiceUnavailable as error:
+            print(f"Calendar service not available: {error}\n")
+        display_files(api)
+        display_contacts(api)
+        display_drive(api)
+        display_photos(api)
+        display_videos(api)
+        display_shared_photos(api)
         album_management(api)
 
 
