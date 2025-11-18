@@ -775,8 +775,9 @@ class BasePhotoAlbum:
 
             if record_name not in found_record_names:
                 found_record_names.append(record_name)
+                # print('added record_name:', record_name)
             else:
-                print('duplicate found')
+                # print('duplicate found')
                 continue
 
             yield self._library.asset_type(self.service, master_record, asset_record)
@@ -1601,18 +1602,17 @@ class PhotoAsset:
 
     def _get_photo_version(self, prefix: str, fields: dict[str, dict[str, Any]]) -> dict[str, Any]:
         version: dict[str, Any] = {}
+        width_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Width")
+        if width_entry:
+            version["width"] = width_entry["value"]
+        else:
+            version["width"] = None
 
-        # width_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Width")
-        # if width_entry:
-        #     version["width"] = width_entry["value"]
-        # else:
-        #     version["width"] = None
-        #
-        # height_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Height")
-        # if height_entry:
-        #     version["height"] = height_entry["value"]
-        # else:
-        #     version["height"] = None
+        height_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Height")
+        if height_entry:
+            version["height"] = height_entry["value"]
+        else:
+            version["height"] = None
 
         size_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Res")
         if size_entry:
