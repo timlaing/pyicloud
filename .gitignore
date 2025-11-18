@@ -78,3 +78,5 @@ desktop.ini
 uv.lock
 fetch_devices_*.py
 *.jpg
+
+venv/

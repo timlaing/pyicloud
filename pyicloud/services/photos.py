@@ -762,6 +762,8 @@ class BasePhotoAlbum:
         asset_records, master_records = self._library.parse_asset_response(
             json_response
         )
+
+        found_record_names = []
         for master_record in master_records:
             record_name: str = master_record["recordName"]
             asset_record = asset_records.get(record_name)
@@ -770,6 +772,13 @@ class BasePhotoAlbum:
                     "No asset record found for master record: %s", record_name
                 )
                 continue
+
+            if record_name not in found_record_names:
+                found_record_names.append(record_name)
+            else:
+                print('duplicate found')
+                continue
+
             yield self._library.asset_type(self.service, master_record, asset_record)
 
     def photo(self, index) -> "PhotoAsset":
@@ -1484,6 +1493,7 @@ class PhotoAsset:
         "original_video": "resOriginalVidCompl",
         "medium_video": "resVidMed",
         "thumb_video": "resVidSmall",
+        "adjusted": "resJPEGFull",
     }
 
     VIDEO_VERSION_LOOKUP: dict[str, str] = {
@@ -1579,25 +1589,30 @@ class PhotoAsset:
                 typed_version_lookup = self.PHOTO_VERSION_LOOKUP
 
             for key, prefix in typed_version_lookup.items():
-                if f"{prefix}Res" in self._master_record["fields"]:
-                    self._versions[key] = self._get_photo_version(prefix)
+                fields = None
+                if f"{prefix}Res" in self._asset_record["fields"]:
+                    fields = self._asset_record["fields"]
+                if not fields and f"{prefix}Res" in self._master_record["fields"]:
+                    fields = self._master_record['fields']
+                if fields:
+                    self._versions[key] = self._get_photo_version(prefix, fields)
 
         return self._versions
 
-    def _get_photo_version(self, prefix: str) -> dict[str, Any]:
+    def _get_photo_version(self, prefix: str, fields: dict[str, dict[str, Any]]) -> dict[str, Any]:
         version: dict[str, Any] = {}
-        fields: dict[str, dict[str, Any]] = self._master_record["fields"]
-        width_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Width")
-        if width_entry:
-            version["width"] = width_entry["value"]
-        else:
-            version["width"] = None
 
-        height_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Height")
-        if height_entry:
-            version["height"] = height_entry["value"]
-        else:
-            version["height"] = None
+        # width_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Width")
+        # if width_entry:
+        #     version["width"] = width_entry["value"]
+        # else:
+        #     version["width"] = None
+        #
+        # height_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Height")
+        # if height_entry:
+        #     version["height"] = height_entry["value"]
+        # else:
+        #     version["height"] = None
 
         size_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Res")
         if size_entry:
