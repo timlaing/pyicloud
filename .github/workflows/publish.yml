@@ -1,5 +1,7 @@
 name: Build and Publish Python Package
 # This workflow builds a Python package and publishes it to PyPI or TestPyPI
+permissions:
+  contents: read
 on:
   release:
     types: [published, prereleased]
