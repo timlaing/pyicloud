@@ -5,55 +5,20 @@ permissions:
   pull-requests: write
 
 on:
-  workflow_run:
-    workflows:
-      - Tests
-    types:
-      - completed
-
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
 jobs:
-  check_pr:
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
-    outputs:
-      pr_number: ${{ steps.get_pr.outputs.pr_number }}
-      head_ref: ${{ steps.get_pr.outputs.head_ref }}
-      base_ref: ${{ steps.get_pr.outputs.base_ref }}
-    steps:
-      - name: Get PR number
-        id: get_pr
-        env:
-          PULL_REQUESTS_JSON: ${{ toJson(github.event.workflow_run.pull_requests) }}
-        run: |
-          echo "pr_number=$(jq -r '.pull_requests[0].number' <<< \"$PULL_REQUESTS_JSON\")" >> $GITHUB_OUTPUT
-          echo "head_ref=$(jq -r '.pull_requests[0].head.ref' <<< \"$PULL_REQUESTS_JSON\")" >> $GITHUB_OUTPUT
-          echo "base_ref=$(jq -r '.pull_requests[0].base.ref' <<< \"$PULL_REQUESTS_JSON\")" >> $GITHUB_OUTPUT
-
-  sonar:
-    needs: check_pr
-    if: ${{ needs.check_pr.outputs.pr_number != '' }}
+  sonarqube:
+    name: SonarQube
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          repository: ${{ github.event.workflow_run.head_repository.full_name }}
-          ref: ${{ github.event.workflow_run.head_branch }}
-          fetch-depth: 0
-      - uses: actions/download-artifact@v6
-        with:
-          name: code-coverage
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-          repository: ${{ github.event.workflow_run.head_repository.full_name }}
-      - name: Display structure of downloaded files
-        run: ls -R
-      - uses: SonarSource/sonarqube-scan-action@master
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Needed to get PR information, if any
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.scm.revision=${{ github.event.workflow_run.head_sha }}
-            -Dsonar.pullrequest.key=${{ needs.check_pr.outputs.pr_number }}
-            -Dsonar.pullrequest.branch=${{ needs.check_pr.outputs.head_ref }}
-            -Dsonar.pullrequest.base=${{ needs.check_pr.outputs.base_ref }}
