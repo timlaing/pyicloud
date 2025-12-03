@@ -1,4 +1,5 @@
 """Drive test constants."""
+# pylint: disable=line-too-long
 
 DRIVEWSID = "FOLDER::com.apple.CloudDocs::root"
 ZONE = "com.apple.CloudDocs"

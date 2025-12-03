@@ -1,5 +1,6 @@
 """Account test constants."""
 
+# pylint: disable=line-too-long
 from .const_login import FIRST_NAME
 
 # Fakers
