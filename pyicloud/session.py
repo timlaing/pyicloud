@@ -241,7 +241,7 @@ class PyiCloudSession(requests.Session):
                 response=response,
             )
 
-        self._raise_error(status_code, response.reason)
+        self._raise_error(response, status_code, response.reason)
 
     def _decode_json_response(self, response: Response) -> None:
         """Decode JSON response."""
@@ -261,14 +261,16 @@ class PyiCloudSession(requests.Session):
                 if reason:
                     code: Optional[Union[int, str]] = data.get("errorCode")
                     code = code or data.get("serverErrorCode")
-                    self._raise_error(code, reason)
+                    self._raise_error(response, code, reason)
 
         except JSONDecodeError:
             self.logger.warning(
                 "Failed to parse response with JSON mimetype: %s", response.text
             )
 
-    def _raise_error(self, code: Optional[Union[int, str]], reason: str) -> NoReturn:
+    def _raise_error(
+        self, response: Response, code: Optional[Union[int, str]], reason: str
+    ) -> NoReturn:
         if (
             self.service.requires_2sa
             and reason == "Missing X-APPLE-WEBAUTH-TOKEN cookie"
@@ -279,7 +281,7 @@ class PyiCloudSession(requests.Session):
                 "Please log into https://icloud.com/ to manually "
                 "finish setting up your iCloud service"
             )
-            raise PyiCloudServiceNotActivatedException(reason, code)
+            raise PyiCloudServiceNotActivatedException(reason, code, response)
         if code == ERROR_ACCESS_DENIED:
             reason = (
                 reason + ".  Please wait a few minutes then try again."
@@ -293,7 +295,7 @@ class PyiCloudSession(requests.Session):
         ]:
             reason = "Authentication required for Account."
 
-        raise PyiCloudAPIResponseException(reason, code)
+        raise PyiCloudAPIResponseException(reason, code, response)
 
     @property
     def service(self) -> "PyiCloudService":

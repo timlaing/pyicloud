@@ -3,6 +3,7 @@
 
 import os
 import secrets
+from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
@@ -27,6 +28,38 @@ EXAMPLE_DOMAIN: str = "https://example.com"
 
 class FileSystemAccessError(Exception):
     """Raised when a test tries to access the file system."""
+
+
+@pytest.fixture(autouse=True, scope="function")
+def mock_file_open_write_fixture():
+    """Mock the open function to prevent file system access."""
+    # Dictionary to store written data
+    written_data: dict[str, Any] = {}
+
+    def mock_file_open(filepath: str, mode="r", **_):
+        """Mock file open function."""
+
+        if "w" in mode or "a" in mode:
+            # Writing or appending mode
+            def mock_write(content):
+                if filepath not in written_data:
+                    written_data[filepath] = ""
+                if "a" in mode:  # Append mode
+                    written_data[filepath] += content
+                else:  # Write mode
+                    written_data[filepath] = content
+
+            mock_file = mock_open().return_value
+            mock_file.write = mock_write
+            return mock_file
+        elif "r" in mode:
+            raise FileNotFoundError(f"No such file or directory: '{filepath}'")
+        else:
+            raise ValueError(f"Unsupported mode: {mode}")
+
+    # Attach the written_data dictionary to the mock for access in tests
+    mock_file_open.written_data = written_data  # type: ignore
+    return mock_file_open
 
 
 @pytest.fixture(autouse=True, scope="function")

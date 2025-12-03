@@ -60,11 +60,12 @@ def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> N
 def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> None:
     """Test the authenticate method with missing session_token."""
     with (
+        patch("pyicloud.base.PyiCloudSession.get") as mock_get_response,
         patch("pyicloud.base.PyiCloudSession.post") as mock_post_response,
         patch.object(
             pyicloud_service,
             "_authenticate_with_token",
-            side_effect=[PyiCloudFailedLoginException, None],
+            side_effect=[PyiCloudFailedLoginException("a"), None],
         ) as mock_authenticate_with_token,
     ):
         mock_post_response.return_value.json.side_effect = [
@@ -72,6 +73,7 @@ def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> N
                 "salt": "U29tZVNhbHQ=",
                 "b": "U29tZUJ5dGVz",
                 "c": "TestC",
+                "protocol": "s2k",
                 "iteration": 1000,
                 "dsInfo": {"hsaVersion": 1},
                 "hsaChallengeRequired": False,
@@ -83,6 +85,7 @@ def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> N
         pyicloud_service.session._data = {}
         pyicloud_service.params = {}
         pyicloud_service.authenticate()
+        assert mock_get_response.call_count == 1
         assert mock_post_response.call_count == 2
         assert mock_authenticate_with_token.call_count == 2
 
@@ -427,20 +430,26 @@ def test_raise_error_2sa_required(pyicloud_session: PyiCloudSession) -> None:
         patch("pyicloud.base.PyiCloudService.requires_2sa", return_value=True),
     ):
         pyicloud_session._raise_error(
-            401, reason="Missing X-APPLE-WEBAUTH-TOKEN cookie"
+            code=401,
+            reason="Missing X-APPLE-WEBAUTH-TOKEN cookie",
+            response=MagicMock(),
         )
 
 
 def test_raise_error_service_not_activated(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with a service not activated exception."""
     with pytest.raises(PyiCloudServiceNotActivatedException):
-        pyicloud_session._raise_error("ZONE_NOT_FOUND", reason="ServiceNotActivated")
+        pyicloud_session._raise_error(
+            code="ZONE_NOT_FOUND", reason="ServiceNotActivated", response=MagicMock()
+        )
 
 
 def test_raise_error_access_denied(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with an access denied exception."""
     with pytest.raises(PyiCloudAPIResponseException):
-        pyicloud_session._raise_error("ACCESS_DENIED", reason="ACCESS_DENIED")
+        pyicloud_session._raise_error(
+            code="ACCESS_DENIED", reason="ACCESS_DENIED", response=MagicMock()
+        )
 
 
 def test_request_pcs_for_service_icdrs_not_disabled(
@@ -608,7 +617,8 @@ def test_handle_accept_terms_no_terms_update_needed(
 def test_handle_accept_terms_terms_update_needed_accept_terms_false(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _handle_accept_terms when terms update is needed and accept_terms is False (should raise)."""
+    """Test _handle_accept_terms when terms update is needed and accept_terms is
+    False (should raise)."""
     pyicloud_service.data = {"termsUpdateNeeded": True}
     pyicloud_service._accept_terms = False
     login_data: dict[str, str] = {"test": "data"}
@@ -622,7 +632,8 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_false(
 def test_handle_accept_terms_terms_update_needed_accept_terms_true_success(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _handle_accept_terms when terms update is needed and accept_terms is True (should accept terms)."""
+    """Test _handle_accept_terms when terms update is needed and accept_terms is
+    True (should accept terms)."""
     pyicloud_service.data = {
         "termsUpdateNeeded": True,
         "dsInfo": {"languageCode": "en_US"},
@@ -670,7 +681,8 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_true_success(
 def test_handle_accept_terms_terms_update_needed_accept_terms_true_http_error(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _handle_accept_terms when terms update is needed and accept_terms is True but HTTP error occurs."""
+    """Test _handle_accept_terms when terms update is needed and accept_terms is
+    True but HTTP error occurs."""
     pyicloud_service.data = {
         "termsUpdateNeeded": True,
         "dsInfo": {"languageCode": "en_US"},
@@ -690,7 +702,8 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_true_http_error(
 def test_handle_accept_terms_terms_update_needed_accept_terms_true_post_error(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _handle_accept_terms when terms update is needed and accept_terms is True but POST raises HTTPError."""
+    """Test _handle_accept_terms when terms update is needed and accept_terms is
+    True but POST raises HTTPError."""
     pyicloud_service.data = {
         "termsUpdateNeeded": True,
         "dsInfo": {"languageCode": "en_US"},
@@ -716,7 +729,8 @@ def test_handle_accept_terms_terms_update_needed_accept_terms_true_post_error(
 
 
 def test_validate_token_success(pyicloud_service: PyiCloudService) -> None:
-    """Test _validate_token returns JSON when X-APPLE-WEBAUTH-TOKEN is present and request succeeds."""
+    """Test _validate_token returns JSON when X-APPLE-WEBAUTH-TOKEN is present and
+    request succeeds."""
     with (
         patch.object(pyicloud_service.session.cookies, "get", return_value="token"),
         patch.object(pyicloud_service.session, "post") as mock_post,

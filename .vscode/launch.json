@@ -31,7 +31,11 @@
                 "${input:password}",
                 "--list",
                 "-n",
-                "--debug"
+                "--debug",
+                "--http-proxy",
+                "http://192.168.150.109:8888",
+                "--https-proxy",
+                "http://192.168.150.109:8888",
             ]
         },
         {

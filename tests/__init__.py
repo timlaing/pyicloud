@@ -5,6 +5,7 @@
 import json
 from io import BytesIO
 from typing import Any, Optional
+from unittest.mock import MagicMock
 
 from requests import Response
 
@@ -134,6 +135,17 @@ class PyiCloudSessionMock(base.PyiCloudSession):
             if resp := self._handle_icloud_content(url):
                 return resp
 
+        if "/appleauth/auth/authorize/signin" in url and method == "GET":
+            return ResponseMock(
+                "",
+                status_code=200,
+                headers={
+                    "scnt": "scnt_value",
+                    "X-Apple-Session-Id": "session_id_value",
+                    "X-Apple-Auth-Attributes": "auth_attributes_value",
+                },
+            )
+
     def _handle_setup_endpoint(
         self, url, method, data, headers
     ) -> Optional[ResponseMock]:
@@ -167,7 +179,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
     def _handle_account_login(self, data: dict[str, Any]) -> ResponseMock:
         """Handle account login."""
         if data.get("dsWebAuthToken") not in VALID_TOKENS:
-            self._raise_error(None, "Unknown reason")
+            self._raise_error(MagicMock(), None, "Unknown reason")
         if data.get("dsWebAuthToken") == REQUIRES_2FA_TOKEN:
             return ResponseMock(LOGIN_2FA)
         return ResponseMock(LOGIN_WORKING)
@@ -189,18 +201,18 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if data == TRUSTED_DEVICE_1:
             self._service._apple_id = AUTHENTICATED_USER
             return ResponseMock(VERIFICATION_CODE_OK)
-        self._raise_error(None, "FOUND_CODE")
+        self._raise_error(MagicMock(), None, "FOUND_CODE")
 
     def _handle_validate(self, headers: dict[str, Any]) -> ResponseMock:
         """Handle validate."""
         if headers.get("X-APPLE-WEBAUTH-TOKEN") == VALID_COOKIE:
             return ResponseMock(LOGIN_WORKING)
-        self._raise_error(None, "Session expired")
+        self._raise_error(MagicMock(), None, "Session expired")
 
     def _handle_signin(self, data: dict[str, Any]) -> ResponseMock:
         """Handle signin."""
         if data.get("accountName") not in VALID_USERS:
-            self._raise_error(None, "Unknown reason")
+            self._raise_error(MagicMock(), None, "Unknown reason")
         if data.get("accountName") == REQUIRES_2FA_USER:
             self._service.session._data["session_token"] = REQUIRES_2FA_TOKEN
             return ResponseMock(AUTH_OK)
@@ -211,7 +223,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
     def _handle_security_code(self, data: dict[str, Any]) -> ResponseMock:
         """Handle security code."""
         if data.get("securityCode", {}).get("code") != VALID_2FA_CODE:
-            self._raise_error(None, "Incorrect code")
+            self._raise_error(MagicMock(), None, "Incorrect code")
 
         self._service.session._data["session_token"] = VALID_TOKEN
         return ResponseMock("", status_code=204)
