@@ -1,5 +1,8 @@
 """Tests for the SrpPassword class in pyicloud.srp_password module."""
 
+from hashlib import sha256
+from unittest.mock import patch
+
 import pytest
 
 from pyicloud.srp_password import SrpPassword, SrpProtocolType
@@ -59,3 +62,29 @@ def test_encode_consistency_for_same_input() -> None:
     srp1.set_encrypt_info(salt, iterations, key_length, SrpProtocolType.S2K_FO)
     srp2.set_encrypt_info(salt, iterations, key_length, SrpProtocolType.S2K_FO)
     assert srp1.encode() == srp2.encode()
+
+
+def test_srp_password_digest() -> None:
+    """Test that the SrpPassword digest method works as expected."""
+    password = "securepassword"
+    salt = b"saltysalt"
+    iterations = 2000
+    key_length = 32
+
+    password_digest: bytes = sha256(password.encode("utf-8")).digest()
+    password_digest_hex: bytes = sha256(password.encode("utf-8")).hexdigest().encode()
+
+    with patch("pyicloud.srp_password.pbkdf2_hmac") as mock_pbkdf2_hmac:
+        srp = SrpPassword(password)
+        srp.set_encrypt_info(salt, iterations, key_length, SrpProtocolType.S2K)
+        _ = srp.encode()
+
+        mock_pbkdf2_hmac.assert_called_with(
+            "sha256", password_digest, salt, iterations, key_length
+        )
+
+        srp.set_encrypt_info(salt, iterations, key_length, SrpProtocolType.S2K_FO)
+        _ = srp.encode()
+        mock_pbkdf2_hmac.assert_called_with(
+            "sha256", password_digest_hex, salt, iterations, key_length
+        )
