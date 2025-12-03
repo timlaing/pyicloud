@@ -1,4 +1,5 @@
 """Unit tests for the RemindersService class."""
+# pylint: disable=protected-access
 
 import datetime
 from unittest.mock import MagicMock, patch

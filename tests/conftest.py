@@ -16,7 +16,7 @@ from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.services.photos import BasePhotoLibrary, PhotoAsset
 from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
-from tests.const_login import LOGIN_WORKING
+from tests.const import LOGIN_WORKING
 
 BUILTINS_OPEN: str = "builtins.open"
 EXAMPLE_DOMAIN: str = "https://example.com"

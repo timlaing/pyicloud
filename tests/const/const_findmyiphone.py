@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from tests.const import CLIENT_ID
-from tests.const_account_family import (
+from .const import CLIENT_ID
+from .const_account_family import (
     FIRST_NAME,
     FULL_NAME,
     LAST_NAME,

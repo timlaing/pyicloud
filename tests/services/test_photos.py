@@ -150,7 +150,15 @@ def test_get_albums(mock_photos_service: MagicMock) -> None:
                                 "albumNameEnc": {"value": "Zm9sZGVyMQ=="},
                                 "isDeleted": {"value": False},
                             },
-                        }
+                        },
+                        {
+                            "recordName": "1111-1111-1111-1111",
+                            "recordChangeTag": "tag2",
+                            "fields": {
+                                "albumNameEnc": {"value": "QWxidW0gTmFtZSAy"},
+                                "isDeleted": {"value": False},
+                            },
+                        },
                     ]
                 }
             )
@@ -166,6 +174,15 @@ def test_get_albums(mock_photos_service: MagicMock) -> None:
     assert SmartAlbumEnum.ALL_PHOTOS in albums
     assert "folder1" in albums
     assert albums["folder1"].name == "folder1"
+    assert albums["Album Name 2"].id == "1111-1111-1111-1111"
+    assert albums.index(1).id == "Time-lapse"
+    assert albums.get("Nonexistent Album") is None
+    assert albums[0] == next(iter(albums))
+    with pytest.raises(KeyError):
+        _ = albums["Album Name 3"]
+
+    with pytest.raises(IndexError):
+        _ = albums.index(100)
 
 
 def test_upload_file_success(mock_photos_service: MagicMock) -> None:

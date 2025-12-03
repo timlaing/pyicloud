@@ -11,18 +11,11 @@ from requests import Response
 
 from pyicloud import base
 from tests.const import (
+    ACCOUNT_DEVICES_WORKING,
+    ACCOUNT_FAMILY_WORKING,
+    ACCOUNT_STORAGE_WORKING,
+    AUTH_OK,
     AUTHENTICATED_USER,
-    REQUIRES_2FA_TOKEN,
-    REQUIRES_2FA_USER,
-    VALID_2FA_CODE,
-    VALID_COOKIE,
-    VALID_TOKEN,
-    VALID_TOKENS,
-    VALID_USERS,
-)
-from tests.const_account import ACCOUNT_DEVICES_WORKING, ACCOUNT_STORAGE_WORKING
-from tests.const_account_family import ACCOUNT_FAMILY_WORKING
-from tests.const_drive import (
     DRIVE_FILE_DOWNLOAD_WORKING,
     DRIVE_FOLDER_WORKING,
     DRIVE_ROOT_INVALID,
@@ -31,14 +24,18 @@ from tests.const_drive import (
     DRIVE_TRASH_DELETE_FOREVER_WORKING,
     DRIVE_TRASH_RECOVER_WORKING,
     DRIVE_TRASH_WORKING,
-)
-from tests.const_findmyiphone import FMI_FAMILY_WORKING
-from tests.const_login import (
-    AUTH_OK,
+    FMI_FAMILY_WORKING,
     LOGIN_2FA,
     LOGIN_WORKING,
+    REQUIRES_2FA_TOKEN,
+    REQUIRES_2FA_USER,
     TRUSTED_DEVICE_1,
     TRUSTED_DEVICES,
+    VALID_2FA_CODE,
+    VALID_COOKIE,
+    VALID_TOKEN,
+    VALID_TOKENS,
+    VALID_USERS,
     VERIFICATION_CODE_KO,
     VERIFICATION_CODE_OK,
 )

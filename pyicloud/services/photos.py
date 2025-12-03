@@ -130,7 +130,8 @@ class AlbumContainer(Iterable):
             return self._albums[self._index[key]]
         if key in self._albums:
             return self._albums[key]
-        if album := self.find(key):
+        album: BasePhotoAlbum | None = self.find(key)
+        if album is not None:
             return album
         raise KeyError(f"Photo album does not exist: {key}")
 
