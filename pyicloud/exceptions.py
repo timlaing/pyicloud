@@ -54,7 +54,7 @@ class PyiCloudFailedLoginException(PyiCloudException):
 
     def __init__(
         self,
-        msg,
+        msg: str,
         *args,
         response: Optional[Response] = None,
     ) -> None:

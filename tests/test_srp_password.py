@@ -13,7 +13,7 @@ def test_encode_raises_value_error_if_encrypt_info_not_set() -> None:
 
 
 def test_encode_raises_value_error_if_protocol_not_valid() -> None:
-    """Test that encode raises ValueError if encrypt info is not set."""
+    """Test that encode raises ValueError if protocol is not valid."""
 
     srp = SrpPassword("testpassword")
     srp.set_encrypt_info("abc", "1", "32", None)  # type: ignore

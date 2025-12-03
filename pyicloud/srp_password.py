@@ -2,10 +2,6 @@
 
 from enum import Enum
 from hashlib import pbkdf2_hmac, sha256
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from _hashlib import HASH
 
 
 class SrpProtocolType(Enum):
@@ -19,7 +15,7 @@ class SrpPassword:
     """SRP password."""
 
     def __init__(self, password: str) -> None:
-        self._password_hash: HASH = sha256(password.encode("utf-8"))
+        self._password_hash: bytes = sha256(password.encode("utf-8")).digest()
         self.salt: bytes | None = None
         self.iterations: int | None = None
         self.key_length: int | None = None
@@ -42,9 +38,9 @@ class SrpPassword:
         password_digest: bytes | None = None
 
         if self.protocol == SrpProtocolType.S2K_FO:
-            password_digest = self._password_hash.hexdigest().encode()
+            password_digest = self._password_hash.hex().encode()
         elif self.protocol == SrpProtocolType.S2K:
-            password_digest = self._password_hash.digest()
+            password_digest = self._password_hash
 
         if password_digest is None:
             raise ValueError("Unsupported SrpPassword type")

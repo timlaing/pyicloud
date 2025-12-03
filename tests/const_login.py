@@ -358,13 +358,12 @@ LOGIN_2FA = {
     "configBag": {
         "urls": {
             "accountCreateUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!create",
-            "accountLoginUI": f"{ICLOUD_AUTH_URL}/signin?widgetKey=" + WIDGET_KEY,
+            "accountLoginUI": f"{ICLOUD_AUTH_URL}/signin?widgetKey={WIDGET_KEY}",
             "accountLogin": "https://setup.icloud.com/setup/ws/1/accountLogin",
             "accountRepairUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!repair",
             "downloadICloudTerms": "https://setup.icloud.com/setup/ws/1/downloadLiteTerms",
             "repairDone": "https://setup.icloud.com/setup/ws/1/repairDone",
-            "accountAuthorizeUI": f"{ICLOUD_AUTH_URL}/authorize/signin?client_id="
-            + WIDGET_KEY,
+            "accountAuthorizeUI": f"{ICLOUD_AUTH_URL}/authorize/signin?client_id={WIDGET_KEY}",
             "vettingUrlForEmail": "https://id.apple.com/IDMSEmailVetting/vetShareEmail",
             "accountCreate": "https://setup.icloud.com/setup/ws/1/createLiteAccount",
             "getICloudTerms": "https://setup.icloud.com/setup/ws/1/getTerms",
