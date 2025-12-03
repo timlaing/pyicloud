@@ -25,12 +25,21 @@ class TokenException(PyiCloudException):
 class PyiCloudAPIResponseException(PyiCloudException):
     """iCloud response exception."""
 
-    def __init__(self, reason: str, code: Optional[Union[int, str]] = None) -> None:
+    def __init__(
+        self,
+        reason: str,
+        code: Optional[Union[int, str]] = None,
+        response: Optional[Response] = None,
+    ) -> None:
         self.reason: str = reason
         self.code: Optional[Union[int, str]] = code
+        self.response: Optional[Response] = response
         message: str = reason or ""
         if code:
             message += f" ({code})"
+
+        if response is not None and response.text:
+            message += f": {response.text}"
 
         super().__init__(message)
 
@@ -42,6 +51,18 @@ class PyiCloudServiceNotActivatedException(PyiCloudAPIResponseException):
 # Login
 class PyiCloudFailedLoginException(PyiCloudException):
     """iCloud failed login exception."""
+
+    def __init__(
+        self,
+        msg: str,
+        *args,
+        response: Optional[Response] = None,
+    ) -> None:
+        self.response: Optional[Response] = response
+        message: str = msg or "Failed login to iCloud"
+        if response is not None and response.text:
+            message = f"{message} ({response.status_code}): {response.text}"
+        super().__init__(message, *args)
 
 
 class PyiCloudAcceptTermsException(PyiCloudException):

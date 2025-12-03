@@ -5,7 +5,6 @@ import argparse
 import pickle
 from io import BytesIO
 from pprint import pformat
-from typing import Any
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
@@ -31,31 +30,6 @@ from tests.const import (
     VALID_PASSWORD,
 )
 from tests.const_findmyiphone import FMI_FAMILY_WORKING
-
-# Dictionary to store written data
-written_data: dict[str, Any] = {}
-
-
-# Custom side effect function for open
-def mock_file_open(filepath: str, mode="r", **_):
-    """Mock file open function."""
-    if "w" in mode or "a" in mode:
-        # Writing or appending mode
-        def mock_write(content):
-            if filepath not in written_data:
-                written_data[filepath] = ""
-            if "a" in mode:  # Append mode
-                written_data[filepath] += content
-            else:  # Write mode
-                written_data[filepath] = content
-
-        mock_file = mock_open().return_value
-        mock_file.write = mock_write
-        return mock_file
-    elif "r" in mode:
-        raise FileNotFoundError(f"No such file or directory: '{filepath}'")
-    else:
-        raise ValueError(f"Unsupported mode: {mode}")
 
 
 def test_no_arg() -> None:
@@ -179,12 +153,12 @@ def test_username_password_requires_2fa() -> None:
         main()
 
 
-def test_device_outputfile() -> None:
+def test_device_outputfile(mock_file_open_write_fixture: MagicMock) -> None:
     """Test the outputfile command."""
 
     with (
         patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
-        patch("builtins.open", mock_file_open),
+        patch("builtins.open", mock_file_open_write_fixture),
         patch("keyring.get_password", return_value=None),
         patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
     ):
@@ -218,8 +192,8 @@ def test_device_outputfile() -> None:
         if devices:
             for device in devices:
                 file_name = device.get("name").strip().lower() + ".fmip_snapshot"
-                assert file_name in written_data
-                buffer = BytesIO(written_data[file_name])
+                assert file_name in mock_file_open_write_fixture.written_data
+                buffer = BytesIO(mock_file_open_write_fixture.written_data[file_name])
 
                 contents = []
                 while True:

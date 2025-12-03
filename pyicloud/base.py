@@ -2,6 +2,7 @@
 
 import base64
 import getpass
+import json
 import logging
 import time
 from os import environ, mkdir, path
@@ -46,7 +47,7 @@ from pyicloud.services import (
     UbiquityService,
 )
 from pyicloud.session import PyiCloudSession
-from pyicloud.srp_password import SrpPassword
+from pyicloud.srp_password import SrpPassword, SrpProtocolType
 from pyicloud.utils import (
     b64_encode,
     b64url_decode,
@@ -56,6 +57,13 @@ from pyicloud.utils import (
 LOGGER: logging.Logger = logging.getLogger(__name__)
 PCS_SLEEP_TIME: int = 5
 PCS_MAX_RETRIES: int = 10
+
+_HEADERS: dict[str, str] = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15"
+    ),
+}
 
 _AUTH_HEADERS_JSON: dict[str, str] = {
     "Accept": f"{CONTENT_TYPE_JSON}, text/javascript",
@@ -68,6 +76,21 @@ _AUTH_HEADERS_JSON: dict[str, str] = {
     "X-Apple-OAuth-Response-Type": "code",
     "X-Apple-OAuth-State": "",
     "X-Apple-Widget-Key": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
+    "X-Apple-FD-Client-Info": json.dumps(
+        {
+            "U": _HEADERS["User-Agent"],
+            "L": "en-US",
+            "Z": "GMT+00:00",
+            "V": "1.1",
+            "F": "",
+        },
+        separators=(",", ":"),
+    ),
+}
+
+_PARAMS: dict[str, str] = {
+    "clientBuildNumber": "2534Project66",
+    "clientMasteringNumber": "2534B22",
 }
 
 
@@ -87,9 +110,8 @@ class PyiCloudService:
         # If the country or region setting of your Apple ID is China mainland.
         # See https://support.apple.com/en-us/HT208351
         icloud_china: str = ".cn" if self._is_china_mainland else ""
-        self._auth_endpoint: str = (
-            f"https://idmsa.apple.com{icloud_china}/appleauth/auth"
-        )
+        self._idmsa_endpoint: str = f"https://idmsa.apple.com{icloud_china}"
+        self._auth_endpoint: str = f"{self._idmsa_endpoint}/appleauth/auth"
         self._home_endpoint: str = f"https://www.icloud.com{icloud_china}"
         self._setup_endpoint: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
 
@@ -138,33 +160,35 @@ class PyiCloudService:
         self._auth_data: dict[str, Any] = {}
 
         self.params: dict[str, Any] = {}
-        self._client_id: str = client_id or (f"auth-{str(uuid1()).lower()}")
+        self._client_id: str = client_id or str(uuid1()).lower()
         self._with_family: bool = with_family
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
+        _headers: dict[str, str] = _HEADERS.copy()
+        _headers.update(
+            {
+                "Origin": self._home_endpoint,
+                "Referer": f"{self._home_endpoint}/",
+            }
+        )
 
         self._session: PyiCloudSession = PyiCloudSession(
             self,
             verify=verify,
-            headers={
-                "Origin": self._home_endpoint,
-                "Referer": f"{self._home_endpoint}/",
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3.1 Safari/605.1.15"
-                ),
-            },
+            headers=_headers,
             client_id=self._client_id,
             cookie_directory=_cookie_directory,
         )
 
         self._client_id = self.session.data.get("client_id", self._client_id)
 
-        self.params = {
-            "clientBuildNumber": "2534Project66",
-            "clientMasteringNumber": "2534B22",
-            "clientId": self._client_id,
-        }
+        _params: dict[str, str] = _PARAMS.copy()
+        _params.update(
+            {
+                "clientId": self._client_id,
+            }
+        )
+        self.params = _params
 
         self._webservices: Optional[dict[str, dict[str, Any]]] = None
 
@@ -277,15 +301,31 @@ class PyiCloudService:
         try:
             self._authenticate_with_token()
         except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
-            headers: dict[str, str] = self._get_auth_headers()
-
-            self._srp_authentication(headers)
+            self._srp_authentication()
             self._authenticate_with_token()
 
-    def _srp_authentication(self, headers: dict[str, Any]) -> None:
+    def _srp_authentication(self) -> None:
         """SRP authentication."""
         if self._password_raw is None:
             raise PyiCloudFailedLoginException("No password set")
+
+        auth_headers = self._get_auth_headers()
+
+        response: Response = self.session.get(
+            f"{self._auth_endpoint}/authorize/signin",
+            params={
+                "frame_id": auth_headers["X-Apple-OAuth-State"],
+                "skVersion": "7",
+                "iframeid": auth_headers["X-Apple-OAuth-State"],
+                "client_id": auth_headers["X-Apple-Widget-Key"],
+                "response_type": auth_headers["X-Apple-OAuth-Response-Type"],
+                "redirect_uri": auth_headers["X-Apple-OAuth-Redirect-URI"],
+                "response_mode": auth_headers["X-Apple-OAuth-Response-Mode"],
+                "state": auth_headers["X-Apple-OAuth-State"],
+                "authVersion": "latest",
+            },
+        )
+        response.raise_for_status()
 
         srp_password: SrpPassword = SrpPassword(self._password_raw)
         srp.rfc5054_enable()
@@ -301,13 +341,13 @@ class PyiCloudService:
             data: dict[str, Any] = {
                 "a": b64_encode(A),
                 ACCOUNT_NAME: uname,
-                "protocols": ["s2k", "s2k_fo"],
+                "protocols": [protocol.value for protocol in SrpProtocolType],
             }
 
             response: Response = self.session.post(
                 f"{self._auth_endpoint}/signin/init",
                 json=data,
-                headers=headers,
+                headers=self._get_auth_headers(),
             )
             response.raise_for_status()
         except (
@@ -323,9 +363,10 @@ class PyiCloudService:
         b: bytes = base64.b64decode(body["b"])
         c: Any = body["c"]
         iterations: int = body["iteration"]
+        protocol: SrpProtocolType = SrpProtocolType(body["protocol"])
         key_length: int = 32
 
-        srp_password.set_encrypt_info(salt, iterations, key_length)
+        srp_password.set_encrypt_info(salt, iterations, key_length, protocol)
 
         m1: None | Any = usr.process_challenge(salt, b)
         m2: None | bytes = usr.H_AMK
@@ -348,7 +389,7 @@ class PyiCloudService:
                     "isRememberMeEnabled": "true",
                 },
                 json=data,
-                headers=headers,
+                headers=self._get_auth_headers(),
             )
         except PyiCloud2FARequiredException:
             LOGGER.debug("2FA required to complete authentication.")
@@ -426,7 +467,9 @@ class PyiCloudService:
         headers: dict[str, Any] = _AUTH_HEADERS_JSON.copy()
         headers.update(
             {
+                "Referer": self._idmsa_endpoint,
                 "X-Apple-OAuth-State": self._client_id,
+                "X-Apple-Frame-Id": self._client_id,
             }
         )
 
@@ -435,6 +478,8 @@ class PyiCloudService:
 
         if self.session.data.get("session_id"):
             headers["X-Apple-ID-Session-Id"] = self.session.data["session_id"]
+        if self.session.data.get("auth_attributes"):
+            headers["X-Apple-Auth-Attributes"] = self.session.data["auth_attributes"]
 
         if overrides:
             headers.update(overrides)

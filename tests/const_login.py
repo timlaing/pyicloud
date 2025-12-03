@@ -23,11 +23,12 @@ AUTH_OK: dict[str, Any] = {
     "b": "U29tZUJ5dGVz",
     "c": "TestC",
     "iteration": 1000,
+    "protocol": "s2k",
     "dsInfo": {"hsaVersion": 1},
     "hsaChallengeRequired": False,
     "webservices": "TestWebservices",
 }
-
+ICLOUD_AUTH_URL = "https://idmsa.apple.com/appleauth/auth"
 ICLOUD_UPLOAD_PHOTOS_WS_URL = "https://p31-uploadphotosws.icloud.com:443"
 ICLOUD_WIDGET_ACCOUNT_URL = "https://appleid.apple.com/widget/account/?widgetKey="
 LOGIN_WORKING: dict[str, Any] = {
@@ -165,14 +166,12 @@ LOGIN_WORKING: dict[str, Any] = {
     "configBag": {
         "urls": {
             "accountCreateUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!create",
-            "accountLoginUI": "https://idmsa.apple.com/appleauth/auth/signin?widgetKey="
-            + WIDGET_KEY,
+            "accountLoginUI": f"{ICLOUD_AUTH_URL}/signin?widgetKey={WIDGET_KEY}",
             "accountLogin": "https://setup.icloud.com/setup/ws/1/accountLogin",
             "accountRepairUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!repair",
             "downloadICloudTerms": "https://setup.icloud.com/setup/ws/1/downloadLiteTerms",
             "repairDone": "https://setup.icloud.com/setup/ws/1/repairDone",
-            "accountAuthorizeUI": "https://idmsa.apple.com/appleauth/auth/authorize/signin?client_id="
-            + WIDGET_KEY,
+            "accountAuthorizeUI": f"{ICLOUD_AUTH_URL}/authorize/signin?client_id={WIDGET_KEY}",
             "vettingUrlForEmail": "https://id.apple.com/IDMSEmailVetting/vetShareEmail",
             "accountCreate": "https://setup.icloud.com/setup/ws/1/createLiteAccount",
             "getICloudTerms": "https://setup.icloud.com/setup/ws/1/getTerms",
@@ -359,14 +358,12 @@ LOGIN_2FA = {
     "configBag": {
         "urls": {
             "accountCreateUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!create",
-            "accountLoginUI": "https://idmsa.apple.com/appleauth/auth/signin?widgetKey="
-            + WIDGET_KEY,
+            "accountLoginUI": f"{ICLOUD_AUTH_URL}/signin?widgetKey={WIDGET_KEY}",
             "accountLogin": "https://setup.icloud.com/setup/ws/1/accountLogin",
             "accountRepairUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!repair",
             "downloadICloudTerms": "https://setup.icloud.com/setup/ws/1/downloadLiteTerms",
             "repairDone": "https://setup.icloud.com/setup/ws/1/repairDone",
-            "accountAuthorizeUI": "https://idmsa.apple.com/appleauth/auth/authorize/signin?client_id="
-            + WIDGET_KEY,
+            "accountAuthorizeUI": f"{ICLOUD_AUTH_URL}/authorize/signin?client_id={WIDGET_KEY}",
             "vettingUrlForEmail": "https://id.apple.com/IDMSEmailVetting/vetShareEmail",
             "accountCreate": "https://setup.icloud.com/setup/ws/1/createLiteAccount",
             "getICloudTerms": "https://setup.icloud.com/setup/ws/1/getTerms",
