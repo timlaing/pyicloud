@@ -71,26 +71,20 @@ def test_srp_password_digest() -> None:
     iterations = 2000
     key_length = 32
 
-    password_digest = sha256(password.encode("utf-8")).digest()
-    password_digest_hex = sha256(password.encode("utf-8")).hexdigest().encode()
+    password_digest: bytes = sha256(password.encode("utf-8")).digest()
+    password_digest_hex: bytes = sha256(password.encode("utf-8")).hexdigest().encode()
 
     with patch("pyicloud.srp_password.pbkdf2_hmac") as mock_pbkdf2_hmac:
         srp = SrpPassword(password)
         srp.set_encrypt_info(salt, iterations, key_length, SrpProtocolType.S2K)
         _ = srp.encode()
 
-        assert (
-            mock_pbkdf2_hmac.assert_called_with(
-                "sha256", password_digest, salt, iterations, key_length
-            )
-            is None
+        mock_pbkdf2_hmac.assert_called_with(
+            "sha256", password_digest, salt, iterations, key_length
         )
 
         srp.set_encrypt_info(salt, iterations, key_length, SrpProtocolType.S2K_FO)
         _ = srp.encode()
-        assert (
-            mock_pbkdf2_hmac.assert_called_with(
-                "sha256", password_digest_hex, salt, iterations, key_length
-            )
-            is None
+        mock_pbkdf2_hmac.assert_called_with(
+            "sha256", password_digest_hex, salt, iterations, key_length
         )
