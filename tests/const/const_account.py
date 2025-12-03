@@ -1,6 +1,7 @@
 """Account test constants."""
 
-from tests.const_login import FIRST_NAME
+# pylint: disable=line-too-long
+from .const_login import FIRST_NAME
 
 # Fakers
 PAYMENT_METHOD_ID_1 = "PAYMENT_METHOD_ID_1"

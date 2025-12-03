@@ -25,11 +25,11 @@ from pyicloud.services.findmyiphone import AppleDevice
 from tests import PyiCloudSessionMock
 from tests.const import (
     AUTHENTICATED_USER,
+    FMI_FAMILY_WORKING,
     REQUIRES_2FA_USER,
     VALID_2FA_CODE,
     VALID_PASSWORD,
 )
-from tests.const_findmyiphone import FMI_FAMILY_WORKING
 
 
 def test_no_arg() -> None:

@@ -77,9 +77,12 @@ def test_family(pyicloud_service_working: PyiCloudService) -> None:
 def test_storage(pyicloud_service_working: PyiCloudService) -> None:
     """Tests storage."""
     assert pyicloud_service_working.account.storage
-    assert (
-        repr(pyicloud_service_working.account.storage)
-        == "<AccountStorage: {usage: 43.75% used of 5368709120 bytes, usages_by_media: {'photos': <AccountStorageUsageForMedia: {key: photos, usage: 0 bytes}>, 'backup': <AccountStorageUsageForMedia: {key: backup, usage: 799008186 bytes}>, 'docs': <AccountStorageUsageForMedia: {key: docs, usage: 449092146 bytes}>, 'mail': <AccountStorageUsageForMedia: {key: mail, usage: 1101522944 bytes}>}}>"
+    assert repr(pyicloud_service_working.account.storage) == (
+        "<AccountStorage: {usage: 43.75% used of 5368709120 bytes, usages_by_media: "
+        "{'photos': <AccountStorageUsageForMedia: {key: photos, usage: 0 bytes}>, "
+        "'backup': <AccountStorageUsageForMedia: {key: backup, usage: 799008186 bytes}>, "
+        "'docs': <AccountStorageUsageForMedia: {key: docs, usage: 449092146 bytes}>, "
+        "'mail': <AccountStorageUsageForMedia: {key: mail, usage: 1101522944 bytes}>}}>"
     )
 
 

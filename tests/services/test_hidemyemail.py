@@ -1,4 +1,5 @@
 """Tests for the Hide My Email service."""
+# pylint: disable=protected-access
 
 from typing import Any, Optional
 from unittest.mock import MagicMock

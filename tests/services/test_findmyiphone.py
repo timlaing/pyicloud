@@ -209,6 +209,7 @@ def test_findmyiphone_service_manager(
 
 
 def test_refresh_no_content(pyicloud_service_working: PyiCloudService) -> None:
+    """Tests refresh_client handles no content response."""
     with patch(
         "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.refresh_client_with_reauth",
         return_value=None,
@@ -239,6 +240,7 @@ def test_refresh_no_content(pyicloud_service_working: PyiCloudService) -> None:
 
 
 def test_refresh_with_server_ctx(pyicloud_service_working: PyiCloudService) -> None:
+    """Tests refresh_client handles serverContext in response."""
     with patch(
         "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.refresh_client_with_reauth",
         return_value=None,

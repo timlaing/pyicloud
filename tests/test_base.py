@@ -27,7 +27,7 @@ from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
 from pyicloud.session import PyiCloudSession
 from pyicloud.utils import b64_encode
-from tests.const_login import LOGIN_2FA
+from tests.const import LOGIN_2FA
 
 
 def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> None:

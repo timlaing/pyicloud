@@ -16,7 +16,7 @@ from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.services.photos import BasePhotoLibrary, PhotoAsset
 from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
-from tests.const_login import LOGIN_WORKING
+from tests.const import LOGIN_WORKING
 
 BUILTINS_OPEN: str = "builtins.open"
 EXAMPLE_DOMAIN: str = "https://example.com"
@@ -52,10 +52,10 @@ def mock_file_open_write_fixture():
             mock_file = mock_open().return_value
             mock_file.write = mock_write
             return mock_file
-        elif "r" in mode:
+        if "r" in mode:
             raise FileNotFoundError(f"No such file or directory: '{filepath}'")
-        else:
-            raise ValueError(f"Unsupported mode: {mode}")
+
+        raise ValueError(f"Unsupported mode: {mode}")
 
     # Attach the written_data dictionary to the mock for access in tests
     mock_file_open.written_data = written_data  # type: ignore

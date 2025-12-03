@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from tests.const_account_family import (
+from .const_account_family import (
     APPLE_ID_EMAIL,
     FIRST_NAME,
     FULL_NAME,
