@@ -101,7 +101,8 @@ class PyiCloudSession(requests.Session):
         if self._cookie_directory and not os.path.isdir(self._cookie_directory):
             os.makedirs(self._cookie_directory, exist_ok=True)
         with open(self.session_path, "w", encoding="utf-8") as outfile:
-            dump(self._data, outfile)
+            # Copy to avoid dict mutation during concurrent access
+            dump(dict(self._data), outfile)
             self.logger.debug("Saved session data to file: %s", self.session_path)
 
         try:
