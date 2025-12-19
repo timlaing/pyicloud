@@ -43,7 +43,13 @@ class DriveService(BaseService):
         self._trash: Optional[DriveNode] = None
 
     def _get_token_from_cookie(self) -> dict[str, Any]:
-        for cookie in self.session.cookies:
+        # Copy cookies to avoid "dictionary changed size during iteration"
+        # when concurrent HTTP responses modify the cookie jar
+        try:
+            cookies_snapshot = list(self.session.cookies)
+        except RuntimeError:
+            cookies_snapshot = []
+        for cookie in cookies_snapshot:
             if cookie.name == COOKIE_APPLE_WEBAUTH_VALIDATE and cookie.value:
                 match: Optional[Match[str]] = search(r"\bt=([^:]+)", cookie.value)
                 if match is None:
@@ -406,16 +412,18 @@ class DriveNode:
         """Gets the node children."""
         if not self._children or force:
             if "items" not in self.data or force:
-                self.data.update(
-                    self.connection.get_node_data(
-                        self.data["drivewsid"], self.data.get("shareID")
-                    )
+                node_data = self.connection.get_node_data(
+                    self.data["drivewsid"], self.data.get("shareID")
                 )
+                # Copy to avoid dict mutation during iteration in concurrent access
+                self.data = {**self.data, **node_data}
             if "items" not in self.data:
                 raise KeyError(f"No items in folder, status: {self.data['status']}")
+            # Copy items list to avoid "dictionary changed size during iteration"
+            items_copy = list(self.data["items"])
             self._children = [
                 DriveNode(self.connection, item_data)
-                for item_data in self.data["items"]
+                for item_data in items_copy
             ]
         return self._children
 
