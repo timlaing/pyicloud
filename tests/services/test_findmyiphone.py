@@ -2,7 +2,8 @@
 
 # pylint: disable=protected-access
 
-from unittest.mock import MagicMock, call, patch
+from datetime import datetime, timedelta
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 
@@ -12,7 +13,12 @@ from pyicloud.exceptions import (
     PyiCloudNoDevicesException,
     PyiCloudServiceUnavailable,
 )
-from pyicloud.services.findmyiphone import AppleDevice, FindMyiPhoneServiceManager
+from pyicloud.services.findmyiphone import (
+    AppleDevice,
+    FindMyiPhoneServiceManager,
+    _monitor_thread,
+)
+from tests.const.const_findmyiphone import FMI_FAMILY_WORKING
 
 
 def test_devices(pyicloud_service_working: PyiCloudService) -> None:
@@ -102,6 +108,12 @@ def test_apple_device_properties(pyicloud_service_working: PyiCloudService) -> N
     assert location is not None
     assert "latitude" in location
     assert "longitude" in location
+    with patch(
+        "pyicloud.services.findmyiphone.AppleDevice.location_available",
+        new_callable=PropertyMock,
+    ) as mock_location_available:
+        mock_location_available.return_value = False
+        assert device.location is None
 
     # Test status method
     status = device.status()
@@ -118,12 +130,60 @@ def test_apple_device_properties(pyicloud_service_working: PyiCloudService) -> N
     # Test data property
     assert device.data is not None
     assert "id" in device.data
+    with (
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+        ) as mock_refresh,
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
+            new_callable=PropertyMock,
+        ) as mock_is_alive,
+    ):
+        mock_is_alive.return_value = False
+        assert "id" in device.data
+        mock_refresh.assert_called_once()
+
+    # Test model property
+    assert device.model == device.data["deviceModel"]
+
+    # Test device_type property
+    assert device.device_type == device.data["deviceClass"]
 
     # Test __getitem__ method
-    assert device["id"] == device.data["id"]
+    device_id = device.data["id"]
+    with (
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+        ) as mock_refresh,
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
+            new_callable=PropertyMock,
+        ) as mock_is_alive,
+    ):
+        mock_is_alive.side_effect = [True, False]
+        assert device["id"] == device_id
+        mock_refresh.assert_not_called()
+
+        assert device["id"] == device_id
+        assert mock_refresh.call_count == 1
 
     # Test __getattr__ method
     assert device.deviceDisplayName == device.data["deviceDisplayName"]
+    display_name = device.data["deviceDisplayName"]
+    with pytest.raises(AttributeError):
+        _ = device.non_existent_attribute
+    with (
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+        ) as mock_refresh,
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
+            new_callable=PropertyMock,
+        ) as mock_is_alive,
+    ):
+        mock_is_alive.return_value = False
+        assert device.deviceDisplayName == display_name
+        mock_refresh.assert_called_once()
 
     # Test __str__ method
     assert str(device) == f"{device['deviceDisplayName']}: {device['name']}"
@@ -139,6 +199,17 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
     # Mock session.post to avoid actual API calls
     with patch.object(device.session, "post") as mock_post:
         # Test play_sound
+        with pytest.raises(PyiCloudServiceUnavailable):
+            device.data["features"] = {
+                "WIP": False,
+                "MSG": False,
+                "LOC": False,
+                "SND": False,
+            }
+            device.play_sound(subject="Test Alert")
+
+        device.data["features"] = {"WIP": True, "MSG": True, "LOC": True, "SND": True}
+
         device.play_sound(subject="Test Alert")
         mock_post.assert_called_with(
             device._sound_url,
@@ -151,6 +222,17 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
         )
 
         # Test display_message
+        with pytest.raises(PyiCloudServiceUnavailable):
+            device.data["features"] = {
+                "WIP": False,
+                "MSG": False,
+                "LOC": False,
+                "SND": False,
+            }
+            device.display_message(subject="Test Message", message="Hello", sounds=True)
+
+        device.data["features"] = {"WIP": True, "MSG": True, "LOC": True, "SND": True}
+
         device.display_message(subject="Test Message", message="Hello", sounds=True)
         mock_post.assert_called_with(
             device._message_url,
@@ -159,12 +241,23 @@ def test_apple_device_actions(pyicloud_service_working: PyiCloudService) -> None
                 "device": device.data["id"],
                 "subject": "Test Message",
                 "sound": True,
+                "vibrate": False,
+                "strobe": False,
                 "userText": True,
                 "text": "Hello",
             },
         )
 
         # Test lost_device
+        with pytest.raises(PyiCloudServiceUnavailable):
+            device.data["lostModeCapable"] = False
+
+            device.lost_device(
+                number="1234567890", text="Lost device message", newpasscode="1234"
+            )
+
+        device.data["features"] = {"WIP": True, "MSG": True, "LOC": True, "SND": True}
+        device.data["lostModeCapable"] = True
         device.lost_device(
             number="1234567890", text="Lost device message", newpasscode="1234"
         )
@@ -190,28 +283,68 @@ def test_findmyiphone_service_manager(
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
 
     # Test refresh_client
-    manager.refresh_client_with_reauth()
+    manager._refresh_client_with_reauth()
     assert len(manager) > 0
 
     # Test __getitem__
-    device: AppleDevice = manager[0]
-    assert isinstance(device, AppleDevice)
+    with (
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+        ) as mock_refresh,
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
+            new_callable=PropertyMock,
+        ) as mock_is_alive,
+    ):
+        mock_is_alive.side_effect = [True, False, True, True]
+        device: AppleDevice = manager[0]
+        assert isinstance(device, AppleDevice)
+        mock_refresh.assert_not_called()
+        assert mock_is_alive.call_count == 1
 
-    # Test __len__
-    assert len(manager) == len(manager)
+        device: AppleDevice = manager[0]
+        assert isinstance(device, AppleDevice)
+        assert mock_refresh.call_count == 1
+        assert mock_is_alive.call_count == 2
 
-    # Test __iter__
-    devices: list[AppleDevice] = list(iter(manager))
-    assert len(devices) == len(manager)
+        device: AppleDevice = manager[device.data["id"]]
+        assert isinstance(device, AppleDevice)
+        assert mock_refresh.call_count == 1
+        assert mock_is_alive.call_count == 4
 
     # Test __str__ and __repr__
     assert str(manager) == repr(manager)
+
+    # Test __iter__
+    with (
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+        ) as mock_refresh,
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
+            new_callable=PropertyMock,
+        ) as mock_is_alive,
+    ):
+        mock_is_alive.side_effect = [True, True, False, False]
+
+        devices: list[AppleDevice] = list(iter(manager))
+        assert len(devices) == len(manager)
+        mock_refresh.assert_not_called()
+        assert mock_is_alive.call_count == 2
+
+        devices: list[AppleDevice] = list(iter(manager))
+        assert len(devices) == len(manager)
+        assert mock_refresh.call_count == 2
+        assert mock_is_alive.call_count == 4
+
+    assert len(manager.devices) == len(devices)
+    assert manager.user_info == FMI_FAMILY_WORKING["userInfo"]
 
 
 def test_refresh_no_content(pyicloud_service_working: PyiCloudService) -> None:
     """Tests refresh_client handles no content response."""
     with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.refresh_client_with_reauth",
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
         return_value=None,
     ):
         manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
@@ -242,7 +375,7 @@ def test_refresh_no_content(pyicloud_service_working: PyiCloudService) -> None:
 def test_refresh_with_server_ctx(pyicloud_service_working: PyiCloudService) -> None:
     """Tests refresh_client handles serverContext in response."""
     with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.refresh_client_with_reauth",
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
         return_value=None,
     ):
         manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
@@ -390,6 +523,15 @@ def test_erase_device_default_arguments(
         ) as mock_get_token,
         patch.object(device.session, "post") as mock_post,
     ):
+        with pytest.raises(PyiCloudServiceUnavailable):
+            device.data["features"] = {
+                "WIP": False,
+            }
+            device.erase_device()
+
+        device.data["features"] = {
+            "WIP": True,
+        }
         device.erase_device()
         mock_get_token.assert_called_once()
         mock_post.assert_called_with(
@@ -421,7 +563,7 @@ def test_refresh_client_with_reauth_auth_required(
         patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
         patch.object(manager, "_with_family", False),
     ):
-        manager.refresh_client_with_reauth()
+        manager._refresh_client_with_reauth()
         mock_authenticate.assert_called_once_with(force_refresh=True)
         assert mock_refresh.call_count == 2
         mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
@@ -448,7 +590,7 @@ def test_refresh_client_with_reauth_failed(
         patch.object(manager, "_with_family", False),
     ):
         with pytest.raises(PyiCloudAuthRequiredException):
-            manager.refresh_client_with_reauth()
+            manager._refresh_client_with_reauth()
         mock_authenticate.assert_called_once_with(force_refresh=True)
         assert mock_refresh.call_count == 2
         mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
@@ -465,7 +607,7 @@ def test_refresh_client_with_reauth_with_locate(
         patch.object(manager, "_refresh_client") as mock_refresh,
         patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
     ):
-        manager.refresh_client_with_reauth()
+        manager._refresh_client_with_reauth()
         # Should call _refresh_client once: with locate=True
         assert mock_refresh.call_count == 1
         mock_refresh.assert_any_call(locate=True)
@@ -476,7 +618,7 @@ def test_refresh_client_with_reauth_with_loading_to_done(
 ) -> None:
     """Test refresh_client_with_reauth calls _refresh_client if the members are loading."""
     with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.refresh_client_with_reauth",
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
         return_value=None,
     ):
         manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
@@ -537,9 +679,140 @@ def test_refresh_client_with_reauth_with_loading_to_done(
                 },
             },
         ]
-        manager.refresh_client_with_reauth()
+        manager._refresh_client_with_reauth()
         assert mock_refresh.call_count == 3
         mock_refresh.assert_any_call(locate=True)
+
+
+def test_refresh_client_with_reauth_with_loading_no_complete(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Test refresh_client_with_reauth calls _refresh_client if the members are loading."""
+    with patch(
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
+        return_value=None,
+    ):
+        manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+    manager._with_family = True
+
+    with (
+        patch("time.sleep", return_value=None),
+        patch.object(manager, "_refresh_client") as mock_refresh,
+        patch.object(manager, "_user_info") as mock_user_info,
+        patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
+    ):
+        mock_user_info.__getitem__.return_value = True
+
+        mock_user_info.get.side_effect = [
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+                "member2": {
+                    "firstName": "Member2",
+                    "lastName": "Two",
+                    "appleId": "member2@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+        ]
+        manager._refresh_client_with_reauth()
+        assert mock_refresh.call_count == 6
+        mock_refresh.assert_called_with(locate=True)
 
 
 def test_refresh_client_with_reauth_no_devices_raises(
@@ -553,4 +826,123 @@ def test_refresh_client_with_reauth_no_devices_raises(
         patch.object(manager, "_devices", {}),
     ):
         with pytest.raises(PyiCloudNoDevicesException):
-            manager.refresh_client_with_reauth()
+            manager._refresh_client_with_reauth()
+
+
+def test_monitor_thread_calls_func_at_interval() -> None:
+    """Test _monitor_thread calls function at specified interval."""
+
+    mock_func = MagicMock()
+    interval = 0.2
+
+    with (
+        patch("threading.main_thread") as mock_main_thread,
+        patch("time.sleep") as mock_sleep,
+        patch("pyicloud.services.findmyiphone.datetime") as mock_datetime,
+    ):
+        # Mock main_thread to return alive twice, then dead
+        mock_main_thread.return_value.is_alive.side_effect = [
+            True,
+            True,
+            False,
+        ]
+
+        # Mock datetime.now() to simulate time progression
+        base_time = datetime(2023, 1, 1, 12, 0, 0)
+        mock_datetime.now.side_effect = [
+            base_time,  # Initial next_event calculation
+            base_time + timedelta(seconds=0.1),  # First loop check (not ready)
+            base_time + timedelta(seconds=0.3),  # Second loop check (ready)
+            base_time + timedelta(seconds=0.3),  # New next_event calculation
+        ]
+        mock_datetime.side_effect = datetime
+
+        _monitor_thread(interval, mock_func, locate=True)
+
+        # Should call func once when interval has passed
+        mock_func.assert_called_once_with(True)
+        # Should sleep twice (0.1 seconds each loop iteration)
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_has_calls([call(0.1), call(0.1)])
+
+
+def test_monitor_thread_passes_locate_parameter() -> None:
+    """Test _monitor_thread passes locate parameter to function."""
+
+    mock_func = MagicMock()
+
+    with (
+        patch("threading.main_thread") as mock_main_thread,
+        patch("time.sleep"),
+        patch("pyicloud.services.findmyiphone.datetime") as mock_datetime,
+    ):
+        mock_main_thread.return_value.is_alive.side_effect = [True, False]
+
+        base_time = datetime(2023, 1, 1, 12, 0, 0)
+        mock_datetime.now.side_effect = [
+            base_time,  # Initial next_event
+            base_time + timedelta(seconds=1.0),  # Loop check (ready)
+            base_time + timedelta(seconds=1.0),  # New next_event
+        ]
+        mock_datetime.side_effect = datetime
+
+        _monitor_thread(0.5, mock_func, locate=False)
+
+        mock_func.assert_called_once_with(False)
+
+
+def test_monitor_thread_stops_when_main_thread_dies() -> None:
+    """Test _monitor_thread stops when main thread is no longer alive."""
+
+    mock_func = MagicMock()
+
+    with (
+        patch("threading.main_thread") as mock_main_thread,
+        patch("time.sleep") as mock_sleep,
+    ):
+        # Main thread dies immediately
+        mock_main_thread.return_value.is_alive.return_value = False
+
+        _monitor_thread(1.0, mock_func)
+
+        # Function should never be called
+        mock_func.assert_not_called()
+        # Sleep should never be called
+        mock_sleep.assert_not_called()
+
+
+def test_monitor_thread_multiple_intervals() -> None:
+    """Test _monitor_thread calls function multiple times across intervals."""
+
+    mock_func = MagicMock()
+    interval = 0.1
+
+    with (
+        patch("threading.main_thread") as mock_main_thread,
+        patch("time.sleep"),
+        patch("pyicloud.services.findmyiphone.datetime") as mock_datetime,
+    ):
+        # Main thread alive for multiple iterations
+        mock_main_thread.return_value.is_alive.side_effect = [
+            True,
+            True,
+            True,
+            False,
+        ]
+
+        base_time = datetime(2023, 1, 1, 12, 0, 0)
+        mock_datetime.now.side_effect = [
+            base_time,  # Initial next_event
+            base_time + timedelta(seconds=0.15),  # First ready
+            base_time + timedelta(seconds=0.15),  # New next_event after first call
+            base_time + timedelta(seconds=0.25),  # Next not ready (before interval)
+            base_time + timedelta(seconds=0.26),  # Second ready
+            base_time + timedelta(seconds=0.30),  # New next_event after second call
+        ]
+        mock_datetime.side_effect = datetime
+
+        _monitor_thread(interval, mock_func, locate=True)
+
+        # Should call func twice
+        assert mock_func.call_count == 2
+        mock_func.assert_has_calls([call(True), call(True)])
