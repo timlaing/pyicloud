@@ -93,6 +93,13 @@ class FindMyiPhoneServiceManager(BaseService):
             self._refresh_client_with_reauth(retry=True, locate=locate)
             return
 
+        # Initialize devices (including family devices if enabled)
+        self._initialize_devices(locate=locate)
+        self._start_monitor_thread()
+
+    def _initialize_devices(self, locate: bool = False) -> None:
+        """Initializes the devices for the FindMyiPhoneServiceManager."""
+
         # If family sharing is enabled, we may need to poll until all devices are ready
         # This is indicated by the deviceFetchStatus being "LOADING"
         retries: int = 0
@@ -122,6 +129,8 @@ class FindMyiPhoneServiceManager(BaseService):
 
         _LOGGER.info("Number of devices found: %d", len(self._devices))
 
+    def _start_monitor_thread(self) -> None:
+        """Starts the monitor thread for the FindMyiPhoneServiceManager."""
         if not self.is_alive:
             self._monitor = threading.Thread(
                 target=_monitor_thread,
