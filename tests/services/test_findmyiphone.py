@@ -836,17 +836,10 @@ def test_monitor_thread_calls_func_at_interval() -> None:
     interval = 0.2
 
     with (
-        patch("threading.main_thread") as mock_main_thread,
-        patch("time.sleep") as mock_sleep,
         patch("pyicloud.services.findmyiphone.datetime") as mock_datetime,
     ):
-        # Mock main_thread to return alive twice, then dead
-        mock_main_thread.return_value.is_alive.side_effect = [
-            True,
-            True,
-            False,
-        ]
-
+        mock_event = MagicMock()
+        mock_event.wait.side_effect = [False, False, True]
         # Mock datetime.now() to simulate time progression
         base_time = datetime(2023, 1, 1, 12, 0, 0)
         mock_datetime.now.side_effect = [
@@ -857,13 +850,10 @@ def test_monitor_thread_calls_func_at_interval() -> None:
         ]
         mock_datetime.side_effect = datetime
 
-        _monitor_thread(interval, mock_func, locate=True)
+        _monitor_thread(interval, mock_func, mock_event, locate=True)
 
         # Should call func once when interval has passed
         mock_func.assert_called_once_with(True)
-        # Should sleep twice (0.1 seconds each loop iteration)
-        assert mock_sleep.call_count == 2
-        mock_sleep.assert_has_calls([call(0.1), call(0.1)])
 
 
 def test_monitor_thread_passes_locate_parameter() -> None:
@@ -872,11 +862,10 @@ def test_monitor_thread_passes_locate_parameter() -> None:
     mock_func = MagicMock()
 
     with (
-        patch("threading.main_thread") as mock_main_thread,
-        patch("time.sleep"),
         patch("pyicloud.services.findmyiphone.datetime") as mock_datetime,
     ):
-        mock_main_thread.return_value.is_alive.side_effect = [True, False]
+        mock_event = MagicMock()
+        mock_event.wait.side_effect = [False, True]
 
         base_time = datetime(2023, 1, 1, 12, 0, 0)
         mock_datetime.now.side_effect = [
@@ -886,29 +875,34 @@ def test_monitor_thread_passes_locate_parameter() -> None:
         ]
         mock_datetime.side_effect = datetime
 
-        _monitor_thread(0.5, mock_func, locate=False)
+        _monitor_thread(0.5, mock_func, mock_event, locate=False)
 
         mock_func.assert_called_once_with(False)
 
 
-def test_monitor_thread_stops_when_main_thread_dies() -> None:
-    """Test _monitor_thread stops when main thread is no longer alive."""
+def test_monitor_thread_handles_exception() -> None:
+    """Test _monitor_thread handles the function raising an exception."""
 
     mock_func = MagicMock()
+    mock_func.side_effect = Exception("Test Exception")
 
     with (
-        patch("threading.main_thread") as mock_main_thread,
-        patch("time.sleep") as mock_sleep,
+        patch("pyicloud.services.findmyiphone.datetime") as mock_datetime,
     ):
-        # Main thread dies immediately
-        mock_main_thread.return_value.is_alive.return_value = False
+        mock_event = MagicMock()
+        mock_event.wait.side_effect = [False, True]
 
-        _monitor_thread(1.0, mock_func)
+        base_time = datetime(2023, 1, 1, 12, 0, 0)
+        mock_datetime.now.side_effect = [
+            base_time,  # Initial next_event
+            base_time + timedelta(seconds=1.0),  # Loop check (ready)
+            base_time + timedelta(seconds=1.0),  # New next_event
+        ]
+        mock_datetime.side_effect = datetime
 
-        # Function should never be called
-        mock_func.assert_not_called()
-        # Sleep should never be called
-        mock_sleep.assert_not_called()
+        _monitor_thread(0.5, mock_func, mock_event, locate=False)
+
+        mock_func.assert_called_once_with(False)
 
 
 def test_monitor_thread_multiple_intervals() -> None:
@@ -918,18 +912,11 @@ def test_monitor_thread_multiple_intervals() -> None:
     interval = 0.1
 
     with (
-        patch("threading.main_thread") as mock_main_thread,
-        patch("time.sleep"),
         patch("pyicloud.services.findmyiphone.datetime") as mock_datetime,
     ):
         # Main thread alive for multiple iterations
-        mock_main_thread.return_value.is_alive.side_effect = [
-            True,
-            True,
-            True,
-            False,
-        ]
-
+        mock_event = MagicMock()
+        mock_event.wait.side_effect = [False, False, False, True]
         base_time = datetime(2023, 1, 1, 12, 0, 0)
         mock_datetime.now.side_effect = [
             base_time,  # Initial next_event
@@ -941,7 +928,7 @@ def test_monitor_thread_multiple_intervals() -> None:
         ]
         mock_datetime.side_effect = datetime
 
-        _monitor_thread(interval, mock_func, locate=True)
+        _monitor_thread(interval, mock_func, mock_event, locate=True)
 
         # Should call func twice
         assert mock_func.call_count == 2

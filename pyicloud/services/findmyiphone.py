@@ -22,11 +22,16 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 _MAX_REFRESH_RETRIES: int = 5
 
 
-def _monitor_thread(interval: float, func: Callable, locate: bool = True) -> None:
+def _monitor_thread(
+    interval: float, func: Callable, stop_event: threading.Event, locate: bool = True
+) -> None:
     next_event: datetime = datetime.now() + timedelta(seconds=interval)
-    while threading.main_thread().is_alive():
+    while not stop_event.wait(timeout=interval):
         if next_event < datetime.now():
-            func(locate)
+            try:
+                func(locate)
+            except Exception as exc:
+                _LOGGER.debug("FindMyiPhone monitor thread error: %s", exc)
             next_event = datetime.now() + timedelta(seconds=interval)
         time.sleep(0.1)
 
@@ -64,6 +69,7 @@ class FindMyiPhoneServiceManager(BaseService):
         self._server_ctx: dict[str, Any] | None = None
         self._user_info: dict[str, Any] | None = None
         self._monitor: Optional[threading.Thread] = None
+        self.stop_event: threading.Event = threading.Event()
 
         self._refresh_client_with_reauth(locate=True)
 
@@ -75,6 +81,7 @@ class FindMyiPhoneServiceManager(BaseService):
         This ensures that the location data is up-to-date.
         """
         # Refresh the client (own devices first)
+        self.stop_event.set()
         try:
             self._refresh_client(locate=locate)
         except PyiCloudAuthRequiredException:
@@ -122,8 +129,11 @@ class FindMyiPhoneServiceManager(BaseService):
                 kwargs={
                     "func": self._refresh_client,
                     "interval": 1.0,
+                    "stop_event": self.stop_event,
                 },
+                daemon=True,
             )
+            self.stop_event.clear()
             self._monitor.start()
 
     def _refresh_client(self, locate: bool = False) -> None:
@@ -431,27 +441,27 @@ class AppleDevice:
     @property
     def name(self) -> str:
         """Gets the device name."""
-        return self["name"]
+        return self.data.get("name", "")
 
     @property
     def model(self) -> str:
         """Gets the device model."""
-        return self["deviceModel"]
+        return self.data.get("deviceModel", "")
 
     @property
     def model_name(self) -> str:
         """Gets the device model name."""
-        return self["deviceDisplayName"]
+        return self.data.get("deviceDisplayName", "")
 
     @property
     def device_type(self) -> str:
         """Gets the device type."""
-        return self["deviceClass"]
+        return self.data.get("deviceClass", "")
 
     @property
     def lost_mode_available(self) -> bool:
         """Indicates if lost mode is available for the device."""
-        return self["lostModeCapable"]
+        return self.data.get("lostModeCapable", False)
 
     @property
     def messaging_available(self) -> bool:
