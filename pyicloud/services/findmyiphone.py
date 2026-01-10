@@ -33,7 +33,6 @@ def _monitor_thread(
             except Exception as exc:
                 _LOGGER.debug("FindMyiPhone monitor thread error: %s", exc)
             next_event = datetime.now() + timedelta(seconds=interval)
-        time.sleep(0.1)
 
 
 class FindMyiPhoneServiceManager(BaseService):
