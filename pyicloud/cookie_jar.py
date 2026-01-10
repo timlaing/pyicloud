@@ -38,9 +38,14 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
             ignore_expires=ignore_expires,
         )
         # Clear any FMIP cookie regardless of domain/path to avoid stale auth.
+        # Copy to list first to avoid dict mutation during iteration
+        try:
+            cookies_snapshot = list(self)
+        except RuntimeError:
+            cookies_snapshot = []
         cookies_to_clear: list[tuple[str, str, str]] = [
             (cookie.domain, cookie.path, cookie.name)
-            for cookie in self
+            for cookie in cookies_snapshot
             if cookie.name == _FMIP_AUTH_COOKIE_NAME
         ]
         for domain, path, name in cookies_to_clear:
@@ -59,8 +64,21 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
         resolved: Optional[str] = self._resolve_filename(filename)
         if not resolved:
             return  # No-op if no filename is bound
-        super().save(
-            filename=resolved,
-            ignore_discard=ignore_discard,
-            ignore_expires=ignore_expires,
-        )
+        # Copy cookies to avoid "dictionary changed size during iteration"
+        # when concurrent HTTP responses modify the cookie jar
+        try:
+            cookies_snapshot = list(self)
+            # Create temp jar with snapshot for thread-safe save
+            from http.cookiejar import LWPCookieJar as TempJar
+
+            temp_jar = TempJar(filename=resolved)
+            for cookie in cookies_snapshot:
+                temp_jar.set_cookie(cookie)
+            temp_jar.save(
+                filename=resolved,
+                ignore_discard=ignore_discard,
+                ignore_expires=ignore_expires,
+            )
+        except RuntimeError:
+            # If we still hit a race, silently skip this save
+            pass
