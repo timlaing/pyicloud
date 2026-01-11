@@ -5,6 +5,10 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
+	"containerEnv": {
+		"WORKSPACE_DIRECTORY": "${containerWorkspaceFolder}",
+		"DEVCONTAINER": "1"
+	},
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	"features": {
@@ -24,8 +28,10 @@
 			"pnpmVersion": "latest",
 			"nvmVersion": "latest"
 		},
-		"ghcr.io/va-h/devcontainers-features/uv:1": {
-			"shellautocompletion": true,
+		"ghcr.io/devcontainers-extra/features/uv": {
+			"version": "latest"
+		},
+		"ghcr.io/devcontainers-extra/features/pre-commit:2": {
 			"version": "latest"
 		}
 	},
@@ -52,7 +58,8 @@
 				"sonarsource.sonarlint-vscode",
 				"charliermarsh.ruff",
 				"ms-azuretools.vscode-docker",
-				"coderabbit.coderabbit-vscode"
+				"coderabbit.coderabbit-vscode",
+				"foxundermoon.shell-format"
 			],
 			"settings": {
 				"sonarlint.ls.javaHome": "/usr/local/sdkman/candidates/java/current",
