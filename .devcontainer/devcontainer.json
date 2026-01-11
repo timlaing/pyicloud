@@ -12,11 +12,8 @@
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	"features": {
-		"ghcr.io/devcontainers/features/github-cli:1": {
-			"version": "latest"
-		},
+		"ghcr.io/devcontainers/features/github-cli:1": {},
 		"ghcr.io/devcontainers/features/java:1": {
-			"version": "latest",
 			"jdkDistro": "open",
 			"gradleVersion": "latest",
 			"mavenVersion": "latest",
@@ -28,12 +25,8 @@
 			"pnpmVersion": "latest",
 			"nvmVersion": "latest"
 		},
-		"ghcr.io/devcontainers-extra/features/uv": {
-			"version": "latest"
-		},
-		"ghcr.io/devcontainers-extra/features/pre-commit:2": {
-			"version": "latest"
-		}
+		"ghcr.io/devcontainers-extra/features/uv": {},
+		"ghcr.io/devcontainers-extra/features/pre-commit:2": {}
 	},
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
