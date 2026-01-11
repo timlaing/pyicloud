@@ -380,7 +380,7 @@ def test_list_devices_option_short_list() -> None:
     )
 
     # Create a mock device with sample content
-    content: dict[str, str] = {
+    content: dict[str, str | list[dict[str, bool]]] = {
         "name": "Test Device",
         "deviceDisplayName": "Test Display",
         "location": "Test Location",
@@ -388,6 +388,9 @@ def test_list_devices_option_short_list() -> None:
         "batteryStatus": "Charging",
         "deviceClass": "Phone",
         "deviceModel": "iPhone",
+        "features": [
+            {"LOC": True},
+        ],
     }
     dev = AppleDevice(
         content=content,

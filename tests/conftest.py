@@ -115,10 +115,14 @@ def pyicloud_service() -> PyiCloudService:
     """Create a PyiCloudService instance with mocked authenticate method."""
     with (
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
+        patch(
+            "pyicloud.PyiCloudService._setup_cookie_directory"
+        ) as mock_setup_cookie_directory,
         patch(BUILTINS_OPEN, new_callable=mock_open),
     ):
         # Mock the authenticate method during initialization
         mock_authenticate.return_value = None
+        mock_setup_cookie_directory.return_value = "/tmp/pyicloud/cookies"
         service = PyiCloudService("test@example.com", secrets.token_hex(32))
         return service
 
@@ -206,3 +210,10 @@ def mock_service_with_cookies(
     pyicloud_service_working.session.cookies = jar
 
     return pyicloud_service_working
+
+
+@pytest.fixture(autouse=True, scope="session")
+def mock_thread():
+    """Mock threading.Thread to prevent actual thread creation during tests."""
+    with patch("threading.Thread") as mock_thread_class:
+        yield mock_thread_class
