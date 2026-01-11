@@ -5,14 +5,15 @@
 	"build": {
 		"dockerfile": "Dockerfile"
 	},
+	"containerEnv": {
+		"WORKSPACE_DIRECTORY": "${containerWorkspaceFolder}",
+		"DEVCONTAINER": "1"
+	},
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	"features": {
-		"ghcr.io/devcontainers/features/github-cli:1": {
-			"version": "latest"
-		},
+		"ghcr.io/devcontainers/features/github-cli:1": {},
 		"ghcr.io/devcontainers/features/java:1": {
-			"version": "latest",
 			"jdkDistro": "open",
 			"gradleVersion": "latest",
 			"mavenVersion": "latest",
@@ -24,10 +25,8 @@
 			"pnpmVersion": "latest",
 			"nvmVersion": "latest"
 		},
-		"ghcr.io/va-h/devcontainers-features/uv:1": {
-			"shellautocompletion": true,
-			"version": "latest"
-		}
+		"ghcr.io/devcontainers-extra/features/uv": {},
+		"ghcr.io/devcontainers-extra/features/pre-commit:2": {}
 	},
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
@@ -52,7 +51,8 @@
 				"sonarsource.sonarlint-vscode",
 				"charliermarsh.ruff",
 				"ms-azuretools.vscode-docker",
-				"coderabbit.coderabbit-vscode"
+				"coderabbit.coderabbit-vscode",
+				"foxundermoon.shell-format"
 			],
 			"settings": {
 				"sonarlint.ls.javaHome": "/usr/local/sdkman/candidates/java/current",

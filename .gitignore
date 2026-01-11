@@ -34,7 +34,6 @@ htmlcov/
 test-reports/
 test-results.xml
 test-output.xml
-test.py
 # Translations
 *.mo
 
@@ -78,3 +77,4 @@ desktop.ini
 uv.lock
 fetch_devices_*.py
 *.jpg
+/test*.py
