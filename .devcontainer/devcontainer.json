@@ -1,75 +1,75 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
-	"name": "PyiCloud Dev",
-	"build": {
-		"dockerfile": "Dockerfile"
-	},
-	"containerEnv": {
-		"WORKSPACE_DIRECTORY": "${containerWorkspaceFolder}",
-		"DEVCONTAINER": "1"
-	},
-	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	// Features to add to the dev container. More info: https://containers.dev/features.
-	"features": {
-		"ghcr.io/devcontainers/features/github-cli:1": {},
-		"ghcr.io/devcontainers/features/java:1": {
-			"jdkDistro": "open",
-			"gradleVersion": "latest",
-			"mavenVersion": "latest",
-			"antVersion": "latest",
-			"groovyVersion": "latest"
-		},
-		"ghcr.io/devcontainers/features/node:1": {
-			"version": "lts",
-			"pnpmVersion": "latest",
-			"nvmVersion": "latest"
-		},
-		"ghcr.io/devcontainers-extra/features/uv": {},
-		"ghcr.io/devcontainers-extra/features/pre-commit:2": {}
-	},
-	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [],
-	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "scripts/setup.sh",
-	// Configure tool-specific properties.
-	"customizations": {
-		"vscode": {
-			"extensions": [
-				"donjayamanne.python-extension-pack",
-				"shyykoserhiy.git-autoconfig",
-				"ms-python.vscode-pylance",
-				"redhat.vscode-yaml",
-				"esbenp.prettier-vscode",
-				"ms-python.pylint",
-				"ms-python.isort",
-				"ms-python.python",
-				"ryanluker.vscode-coverage-gutters",
-				"donjayamanne.git-extension-pack",
-				"github.vscode-github-actions",
-				"elagil.pre-commit-helper",
-				"sonarsource.sonarlint-vscode",
-				"charliermarsh.ruff",
-				"ms-azuretools.vscode-docker",
-				"coderabbit.coderabbit-vscode",
-				"foxundermoon.shell-format"
-			],
-			"settings": {
-				"sonarlint.ls.javaHome": "/usr/local/sdkman/candidates/java/current",
-				"editor.tabSize": 4,
-				"terminal.integrated.profiles.linux": {
-					"zsh": {
-						"path": "/usr/bin/zsh",
-						"args": [
-							"-l"
-						]
-					}
-				},
-				"terminal.integrated.defaultProfile.linux": "zsh"
-			}
-		}
-	},
-	"mounts": [
-		"source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
-	]
+  "name": "PyiCloud Dev",
+  "image": "mcr.microsoft.com/devcontainers/python:3-3-trixie",
+  "containerEnv": {
+    "WORKSPACE_DIRECTORY": "${containerWorkspaceFolder}",
+    "DEVCONTAINER": "1"
+  },
+  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+  // Features to add to the dev container. More info: https://containers.dev/features.
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/java:1": {
+      "jdkDistro": "open",
+      "gradleVersion": "latest",
+      "mavenVersion": "latest",
+      "antVersion": "latest",
+      "groovyVersion": "latest"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts",
+      "pnpmVersion": "latest",
+      "nvmVersion": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": false
+    },
+    "ghcr.io/dhoeric/features/act": {}
+  },
+  // Use 'forwardPorts' to make a list of ports inside the container available locally.
+  // "forwardPorts": [],
+  // Use 'postCreateCommand' to run commands after the container is created.
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && scripts/setup.sh",
+  "postStartCommand": "scripts/startup.sh",
+  // Configure tool-specific properties.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "donjayamanne.python-extension-pack",
+        "shyykoserhiy.git-autoconfig",
+        "ms-python.vscode-pylance",
+        "redhat.vscode-yaml",
+        "esbenp.prettier-vscode",
+        "ms-python.pylint",
+        "ms-python.isort",
+        "ms-python.python",
+        "ryanluker.vscode-coverage-gutters",
+        "donjayamanne.git-extension-pack",
+        "github.vscode-github-actions",
+        "elagil.pre-commit-helper",
+        "sonarsource.sonarlint-vscode",
+        "charliermarsh.ruff",
+        "ms-azuretools.vscode-docker",
+        "coderabbit.coderabbit-vscode",
+        "foxundermoon.shell-format",
+        "SanjulaGanepola.github-local-actions"
+      ],
+      "settings": {
+        "sonarlint.ls.javaHome": "/usr/local/sdkman/candidates/java/current",
+        "editor.tabSize": 4,
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/usr/bin/zsh",
+            "args": ["-l"]
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+  ]
 }
