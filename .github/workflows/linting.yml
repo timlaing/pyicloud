@@ -9,11 +9,6 @@ jobs:
   prek:
     name: Run prek checks
     runs-on: ubuntu-latest
-    needs: [info]
-    if: |
-      github.event.inputs.pylint-only != 'true'
-      && github.event.inputs.mypy-only != 'true'
-      && github.event.inputs.audit-licenses-only != 'true'
     steps:
       - uses: actions/checkout@v6
       - name: Register problem matchers
