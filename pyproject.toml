@@ -46,6 +46,8 @@ omit = [
     "examples.py",
     "conftest.py",
     "fetch_devices_error.py",
+    "tests/**",
+    "test*.py",
 ]
 
 [tool.coverage.paths]

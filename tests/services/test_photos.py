@@ -1,6 +1,8 @@
 """PhotoLibrary tests."""
 
 # pylint: disable=protected-access
+# pylint: disable=redefined-outer-name
+# pylint: disable=abstract-method
 import base64
 from datetime import datetime, timezone
 from typing import Any
@@ -30,6 +32,42 @@ from pyicloud.services.photos import (
     SharedPhotoStreamAlbum,
     SmartAlbumEnum,
 )
+
+
+@pytest.fixture
+def mock_photo_album(mock_photos_service) -> BasePhotoAlbum:
+    """Returns a mock BasePhotoAlbum subclass for testing."""
+
+    class MyPhotoAlbum(BasePhotoAlbum):
+        """Mock BasePhotoAlbum subclass for testing."""
+
+        def _get_len(self) -> int:
+            return 0
+
+        def _get_payload(
+            self, offset: int, page_size: int, direction: DirectionEnum
+        ) -> dict[str, Any]:
+            return {}
+
+        def _get_url(self) -> str:
+            return "https://example.com/test_album"
+
+        def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
+            return {}
+
+        @property
+        def fullname(self) -> str:
+            return "Test Album"
+
+        @property
+        def id(self) -> str:
+            return "test_album"
+
+    return MyPhotoAlbum(
+        library=mock_photos_service,
+        name="Test Album",
+        list_type=ListTypeEnum.DEFAULT,
+    )
 
 
 def test_photo_library_initialization(mock_photos_service: MagicMock) -> None:
@@ -541,7 +579,33 @@ def test_fetch_folders_handles_missing_fields(mock_photos_service: MagicMock) ->
 
 def test_base_photo_album_initialization(mock_photo_library: MagicMock) -> None:
     """Tests initialization of BasePhotoAlbum."""
-    album = BasePhotoAlbum(
+
+    class MyPhotoAlbum(BasePhotoAlbum):
+        """Mock BasePhotoAlbum subclass for testing."""
+
+        def _get_len(self) -> int:
+            return 0
+
+        def _get_payload(
+            self, offset: int, page_size: int, direction: DirectionEnum
+        ) -> dict[str, Any]:
+            return {}
+
+        def _get_url(self) -> str:
+            return "https://example.com/test_album"
+
+        def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
+            return {}
+
+        @property
+        def fullname(self) -> str:
+            return "Test Album"
+
+        @property
+        def id(self) -> str:
+            return "test_album"
+
+    album = MyPhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
         list_type=ListTypeEnum.DEFAULT,
@@ -611,16 +675,11 @@ def test_base_photo_album_get_photos_at(mock_photo_library: MagicMock) -> None:
     mock_photo_library.service.session.post.assert_called()
 
 
-def test_base_photo_album_len(mock_photos_service: MagicMock) -> None:
+def test_base_photo_album_len(mock_photo_album) -> None:
     """Tests the __len__ method."""
-    album = BasePhotoAlbum(
-        library=mock_photos_service,
-        name="Test Album",
-        list_type=ListTypeEnum.DEFAULT,
-    )
-    album._get_len = MagicMock(return_value=42)
-    assert len(album) == 42
-    album._get_len.assert_called_once()
+    mock_photo_album._get_len = MagicMock(return_value=42)
+    assert len(mock_photo_album) == 42
+    mock_photo_album._get_len.assert_called_once()
 
 
 def test_base_photo_album_iter(mock_photo_library: MagicMock) -> None:
@@ -657,24 +716,14 @@ def test_base_photo_album_iter(mock_photo_library: MagicMock) -> None:
     mock_photo_library.service.session.post.assert_called()
 
 
-def test_base_photo_album_str() -> None:
+def test_base_photo_album_str(mock_photo_album) -> None:
     """Tests the __str__ method."""
-    album = BasePhotoAlbum(
-        library=MagicMock(),
-        name="Test Album",
-        list_type=ListTypeEnum.DEFAULT,
-    )
-    assert str(album) == "Test Album"
+    assert str(mock_photo_album) == "Test Album"
 
 
-def test_base_photo_album_repr() -> None:
+def test_base_photo_album_repr(mock_photo_album) -> None:
     """Tests the __repr__ method."""
-    album = BasePhotoAlbum(
-        library=MagicMock(),
-        name="Test Album",
-        list_type=ListTypeEnum.DEFAULT,
-    )
-    assert repr(album) == "<BasePhotoAlbum: 'Test Album'>"
+    assert repr(mock_photo_album) == "<MyPhotoAlbum: 'Test Album'>"
 
 
 def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
