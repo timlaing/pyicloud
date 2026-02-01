@@ -61,7 +61,7 @@ profile = "black"
 [tool.setuptools_scm]
 
 [build-system]
-requires = ["setuptools >= 77.0,< 80.10", "setuptools-scm"]
+requires = ["setuptools >= 77.0,< 80.11", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
