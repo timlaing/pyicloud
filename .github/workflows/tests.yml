@@ -39,7 +39,7 @@ jobs:
           python --version
           python3 -m pip install uv
           uv pip install -U "pip>=25.2"
-          uv pip install -r requirements_test.txt
+          uv pip install -r requirements_all.txt
       - name: Run pytest
         timeout-minutes: 60
         id: pytest-full
