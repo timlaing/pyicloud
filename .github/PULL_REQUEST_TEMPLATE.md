@@ -3,7 +3,9 @@
   Thanks for contributing to our project <3
   Please, DO NOT DELETE ANY TEXT from this template! (unless instructed).
 -->
+
 ## Breaking change
+
 <!--
   If your PR contains a breaking change for existing users, it is important
   to tell them what breaks, how to make it work again and why we did this.
@@ -12,8 +14,8 @@
   Note: Remove this section if this PR is NOT a breaking change.
 -->
 
-
 ## Proposed change
+
 <!--
   Describe the big picture of your changes here to communicate to the
   maintainers why we should accept this pull request. If it fixes a bug
@@ -21,8 +23,8 @@
   additional information section.
 -->
 
-
 ## Type of change
+
 <!--
   What type of change does your PR introduce to pyiCloud?
   NOTE: Please, check only 1 box! (with an `x`)
@@ -39,6 +41,7 @@
 - [ ] Documentation or code sample
 
 ## Example of code:
+
 <!--
   Supplying a code snippet, makes it easier for a maintainer to test your PR.
   Furthermore, for new services, it gives an impression of how we should use it.
@@ -50,6 +53,7 @@
 ```
 
 ## Additional information
+
 <!--
   Details are important, and help maintainers processing your PR.
   Please be sure to fill out additional details, if applicable.
@@ -59,6 +63,7 @@
 - This PR is related to issue:
 
 ## Checklist
+
 <!--
   Put an `x` in the boxes that apply. You can also fill these out after
   creating the PR. If you're unsure about any of them, don't hesitate to ask.

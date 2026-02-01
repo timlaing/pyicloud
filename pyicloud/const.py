@@ -1,4 +1,4 @@
-"""Contants for the PyiCloud API."""
+"""Constants for the PyiCloud API."""
 
 from enum import IntEnum
 

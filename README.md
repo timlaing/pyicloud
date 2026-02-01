@@ -31,7 +31,7 @@ For support and discussions, join our Discord community: [Join our Discord commu
 
 Authentication without using a saved password is as simple as passing your username and password to the `PyiCloudService` class:
 
-``` python
+```python
 from pyicloud import PyiCloudService
 api = PyiCloudService('jappleseed@apple.com', 'password')
 ```
@@ -42,7 +42,7 @@ In the event that the username/password combination is invalid, a
 If the country/region setting of your Apple ID is China mainland, you
 should pass `china_mainland=True` to the `PyiCloudService` class:
 
-``` python
+```python
 from pyicloud import PyiCloudService
 api = PyiCloudService('jappleseed@apple.com', 'password', china_mainland=True)
 ```
@@ -50,7 +50,7 @@ api = PyiCloudService('jappleseed@apple.com', 'password', china_mainland=True)
 You can also store your password in the system keyring using the
 command-line tool:
 
-``` console
+```console
 $ icloud --username=jappleseed@apple.com
 Enter iCloud password for jappleseed@apple.com:
 Save password in keyring? (y/N)
@@ -61,7 +61,7 @@ to provide a password when interacting with the command-line tool or
 instantiating the `PyiCloudService` class for the username you stored
 the password for.
 
-``` python
+```python
 api = PyiCloudService('jappleseed@apple.com')
 ```
 
@@ -69,7 +69,7 @@ If you would like to delete a password stored in your system keyring,
 you can clear a stored password using the `--delete-from-keyring`
 command-line option:
 
-``` console
+```console
 $ icloud --username=jappleseed@apple.com --delete-from-keyring
 Enter iCloud password for jappleseed@apple.com:
 Save password in keyring? [y/N]: N
@@ -91,7 +91,7 @@ If you have enabled two-factor authentications (2FA) or [two-step
 authentication (2SA)](https://support.apple.com/en-us/HT204152) for the
 account you will have to do some extra work:
 
-``` python
+```python
 if api.requires_2fa:
     security_key_names = api.security_key_names
 
@@ -168,7 +168,7 @@ elif api.requires_2sa:
 
 You can access information about your iCloud account using the `account` property:
 
-``` pycon
+```pycon
 >>> api.account
 {devices: 5, family: 3, storage: 8990635296 bytes free}
 ```
@@ -177,7 +177,7 @@ You can access information about your iCloud account using the `account` propert
 
 you can access information about your iCloud account\'s summary plan using the `account.summary_plan` property:
 
-``` pycon
+```pycon
 >>> api.account.summary_plan
 {'featureKey': 'cloud.storage', 'summary': {'includedInPlan': True, 'limit': 50, 'limitUnits': 'GIB'}, 'includedWithAccountPurchasedPlan': {'includedInPlan': True, 'limit': 50, 'limitUnits': 'GIB'}, 'includedWithAppleOnePlan': {'includedInPlan': False}, 'includedWithSharedPlan': {'includedInPlan': False}, 'includedWithCompedPlan': {'includedInPlan': False}, 'includedWithManagedPlan': {'includedInPlan': False}}
 ```
@@ -186,14 +186,14 @@ you can access information about your iCloud account\'s summary plan using the `
 
 You can get the storage information of your iCloud account using the `account.storage` property:
 
-``` pycon
+```pycon
 >>> api.account.storage
 {usage: 85.12% used of 53687091200 bytes, usages_by_media: {'photos': <AccountStorageUsageForMedia: {key: photos, usage: 41785285900 bytes}>, 'backup': <AccountStorageUsageForMedia: {key: backup, usage: 27250085 bytes}>, 'docs': <AccountStorageUsageForMedia: {key: docs, usage: 3810332430 bytes}>, 'mail': <AccountStorageUsageForMedia: {key: mail, usage: 26208942 bytes}>, 'messages': <AccountStorageUsageForMedia: {key: messages, usage: 1379351 bytes}>}}
 ```
 
 You even can generate a pie chart:
 
-``` python
+```python
 ......
 storage = api.account.storage
 y = []
@@ -217,7 +217,7 @@ plt.show()
 You can list which devices associated with your account by using the
 `devices` property:
 
-``` pycon
+```pycon
 >>> api.devices
 {
 'i9vbKRGIcLYqJnXMd1b257kUWnoyEBcEh6yM+IfmiMLh7BmOpALS+w==': <AppleDevice(iPhone 4S: Johnny Appleseed's iPhone)>,
@@ -228,7 +228,7 @@ You can list which devices associated with your account by using the
 and you can access individual devices by either their index, or their
 ID:
 
-``` pycon
+```pycon
 >>> api.devices[0]
 <AppleDevice(iPhone 4S: Johnny Appleseed's iPhone)>
 >>> api.devices['i9vbKRGIcLYqJnXMd1b257kUWnoyEBcEh6yM+IfmiMLh7BmOpALS+w==']
@@ -239,7 +239,7 @@ or, as a shorthand if you have only one associated apple device, you can
 simply use the `iphone` property to access the first device associated
 with your account:
 
-``` pycon
+```pycon
 >>> api.iphone
 <AppleDevice(iPhone 4S: Johnny Appleseed's iPhone)>
 ```
@@ -257,7 +257,7 @@ data!
 Returns the device\'s last known location. The Find My iPhone app must
 have been installed and initialized.
 
-``` pycon
+```pycon
 >>> api.iphone.location
 {'timeStamp': 1357753796553, 'locationFinished': True, 'longitude': -0.14189, 'positionType': 'GPS', 'locationType': None, 'latitude': 51.501364, 'isOld': False, 'horizontalAccuracy': 5.0}
 ```
@@ -267,7 +267,7 @@ have been installed and initialized.
 The Find My iPhone response is quite bloated, so for simplicity\'s sake
 this method will return a subset of the properties.
 
-``` pycon
+```pycon
 >>> api.iphone.status()
 {'deviceDisplayName': 'iPhone 5', 'deviceStatus': '200', 'batteryLevel': 0.6166913, 'name': "Peter's iPhone"}
 ```
@@ -280,7 +280,7 @@ list of property names.
 Sends a request to the device to play a sound, if you wish pass a custom
 message you can do so by changing the subject arg.
 
-``` python
+```python
 api.iphone.play_sound()
 ```
 
@@ -292,12 +292,12 @@ will be sent to you.
 
 Lost mode is slightly different to the \"Play Sound\" functionality in
 that it allows the person who picks up the phone to call a specific
-phone number *without having to enter the passcode*. Just like \"Play
+phone number _without having to enter the passcode_. Just like \"Play
 Sound\" you may pass a custom message which the device will display, if
 it\'s not overridden the custom message of \"This iPhone has been lost.
 Please call me.\" is used.
 
-``` python
+```python
 phone_number = '555-373-383'
 message = 'Thief! Return my phone immediately.'
 api.iphone.lost_device(phone_number, message)
@@ -307,7 +307,7 @@ api.iphone.lost_device(phone_number, message)
 
 Erase Device functionality, forces the device to be erased when next connected to a network. It allows the person who picks up the phone to see a custom message which the device will display, if it\'s not overridden the custom message of \"This iPhone has been lost. Please call me.\" is used.
 
-``` python
+```python
 message = 'Thief! Return my phone immediately.'
 api.iphone.erase_device(message)
 ```
@@ -323,20 +323,20 @@ The calendar functionality is based around the `CalendarObject` dataclass. Every
 #### Functions
 
 **get_calendars(as_objs:bool=False) -> list**<br>
-*returns a list of the user's calendars*<br>
+_returns a list of the user's calendars_<br>
 if `as_objs` is set to `True`, the returned list will be of CalendarObjects; else it will be of dictionaries.
 
 **add_calendar(calendar:CalendarObject) -> None:**<br>
-*adds a calendar to the users apple calendar*
+_adds a calendar to the users apple calendar_
 
 **remove_calendar(cal_guid:str) -> None**<br>
-*Removes a Calendar from the apple calendar given the provided guid*
+_Removes a Calendar from the apple calendar given the provided guid_
 
 #### Examples
 
-*Create and add a new calendar:*
+_Create and add a new calendar:_
 
-``` python
+```python
 from pyicloud import PyiCloudService
 from pyicloud.services.calendar import CalendarObject
 
@@ -347,9 +347,9 @@ cal.color = "#FF0000"
 calendar_service.add_calendar(cal)
 ```
 
-*Remove an existing calendar:*
+_Remove an existing calendar:_
 
-``` python
+```python
 cal = calendar_service.get_calendars(as_objs=True)[1]
 calendar_service.remove_calendar(cal.guid)
 ```
@@ -368,33 +368,33 @@ The events functionality is based around the `EventObject` dataclass with suppor
 #### Functions
 
 **get_events(from_dt:datetime=None, to_dt:datetime=None, period:str="month", as_objs:bool=False)**<br>
-*Returns a list of events from `from_dt` to `to_dt`. If `period` is provided, it will return the events in that period referencing `from_dt` if it was provided; else using today's date. IE if `period` is "month", the events for the entire month that `from_dt` falls within will be returned.*
+_Returns a list of events from `from_dt` to `to_dt`. If `period` is provided, it will return the events in that period referencing `from_dt` if it was provided; else using today's date. IE if `period` is "month", the events for the entire month that `from_dt` falls within will be returned._
 
 **get_event_detail(pguid, guid, as_obj:bool=False)**<br>
-*Returns a specific event given that event's `guid` and `pguid`*
+_Returns a specific event given that event's `guid` and `pguid`_
 
 **add_event(event:EventObject) -> None**<br>
-*Adds an Event to a calendar specified by the event's `pguid`.*
+_Adds an Event to a calendar specified by the event's `pguid`._
 
 **remove_event(event:EventObject) -> None**<br>
-*Removes an Event from a calendar specified by the event's `pguid`.*
+_Removes an Event from a calendar specified by the event's `pguid`._
 
 #### EventObject Methods
 
 **add_invitees(emails: list) -> None**<br>
-*Adds a list of email addresses as invitees to the event. They will receive email notifications when the event is created.*
+_Adds a list of email addresses as invitees to the event. They will receive email notifications when the event is created._
 
 **add_alarm_at_time() -> str**<br>
-*Adds an alarm that triggers at the exact time of the event. Returns the alarm GUID for reference.*
+_Adds an alarm that triggers at the exact time of the event. Returns the alarm GUID for reference._
 
 **add_alarm_before(minutes=0, hours=0, days=0, weeks=0) -> str**<br>
-*Adds an alarm that triggers before the event starts. You can specify any combination of time units. Returns the alarm GUID for reference.*
+_Adds an alarm that triggers before the event starts. You can specify any combination of time units. Returns the alarm GUID for reference._
 
 #### Examples
 
-*Create an event with invitees and alarms:*
+_Create an event with invitees and alarms:_
 
-``` python
+```python
 from datetime import datetime, timedelta
 from pyicloud import PyiCloudService
 from pyicloud.services.calendar import EventObject
@@ -427,9 +427,9 @@ event.add_alarm_before(days=1)      # 1 day before
 calendar_service.add_event(event)
 ```
 
-*Create a simple event:*
+_Create a simple event:_
 
-``` python
+```python
 # Basic event creation
 event = EventObject(
     pguid=calendar_guid,
@@ -444,9 +444,9 @@ event.add_alarm_before(minutes=30)
 calendar_service.add_event(event)
 ```
 
-*Get events in a specific date range:*
+_Get events in a specific date range:_
 
-``` python
+```python
 from_dt = datetime(2024, 1, 1)
 to_dt = datetime(2024, 1, 31)
 events = calendar_service.get_events(from_dt, to_dt, as_objs=True)
@@ -455,9 +455,9 @@ for event in events:
     print(f"Event: {event.title} at {event.start_date}")
 ```
 
-*Get next week's events:*
+_Get next week's events:_
 
-``` python
+```python
 next_week_events = calendar_service.get_events(
     from_dt=datetime.today() + timedelta(days=7),
     period="week",
@@ -465,9 +465,9 @@ next_week_events = calendar_service.get_events(
 )
 ```
 
-*Remove an event:*
+_Remove an event:_
 
-``` python
+```python
 calendar_service.remove_event(event)
 ```
 
@@ -476,7 +476,7 @@ calendar_service.remove_event(event)
 You can access your iCloud contacts/address book through the `contacts`
 property:
 
-``` pycon
+```pycon
 >>> for c in api.contacts.all():
 >>> print(c.get('firstName'), c.get('phones'))
 John [{'field': '+1 555-55-5555-5', 'label': 'MOBILE'}]
@@ -489,14 +489,14 @@ Facebook, only the ones stored in iCloud.
 
 You can access the user's info (contact information) using the `me` property:
 
-``` pycon
+```pycon
 >>> api.contacts.me
 Tim Cook
 ```
 
-And get the user's  profile picture:
+And get the user's profile picture:
 
-``` pycon
+```pycon
 >>> api.contacts.me.photo
 {'signature': 'the signature', 'url': 'URL to the picture', 'crop': {'x': 0, 'width': 640, 'y': 110, 'height': 640}}
 ```
@@ -508,7 +508,7 @@ You can access documents stored in your iCloud account by using the
 
 **NOTE** If you receive a `Account migrated` error, apple has migrated your account to iCloud drive. Please use the `api.drive` API instead.
 
-``` pycon
+```pycon
 >>> api.files.dir()
 ['.do-not-delete',
  '.localized',
@@ -523,7 +523,7 @@ You can access documents stored in your iCloud account by using the
 You can access children and their children\'s children using the
 filename as an index:
 
-``` pycon
+```pycon
 >>> api.files['com~apple~Notes']
 <Folder: 'com~apple~Notes'>
 >>> api.files['com~apple~Notes'].type
@@ -545,7 +545,7 @@ datetime.datetime(2012, 9, 13, 2, 26, 17)
 And when you have a file that you\'d like to download, the `open` method
 will return a response object from which you can read the `content`.
 
-``` pycon
+```pycon
 >>> api.files['com~apple~Notes']['Documents']['Some Document'].open().content
 'Hello, these are the file contents'
 ```
@@ -557,7 +557,7 @@ request using [requests](https://github.com/kennethreitz/requests).
 
 For example, if you know that the file you\'re opening has JSON content:
 
-``` pycon
+```pycon
 >>> api.files['com~apple~Notes']['Documents']['information.json'].open().json()
 {'How much we love you': 'lots'}
 >>> api.files['com~apple~Notes']['Documents']['information.json'].open().json()['How much we love you']
@@ -568,7 +568,7 @@ Or, if you\'re downloading a particularly large file, you may want to
 use the `stream` keyword argument, and read directly from the raw
 response object:
 
-``` pycon
+```pycon
 >>> download = api.files['com~apple~Notes']['Documents']['big_file.zip'].open(stream=True)
 >>> with open('downloaded_file.zip', 'wb') as opened_file:
         opened_file.write(download.raw.read())
@@ -580,7 +580,7 @@ You can access your iCloud Drive using an API identical to the Ubiquity
 one described in the previous section, except that it is rooted at
 `api.drive`:
 
-``` pycon
+```pycon
 >>> api.drive.dir()
 ['Holiday Photos', 'Work Files']
 >>> api.drive['Holiday Photos']['2013']['Sicily'].dir()
@@ -600,7 +600,7 @@ datetime.datetime(2013, 3, 21, 12, 28, 12) # NB this is UTC
 The `open` method will return a response object from which you can read
 the file\'s contents:
 
-``` python
+```python
 from shutil import copyfileobj
 with drive_file.open(stream=True) as response:
     with open(drive_file.name, 'wb') as file_out:
@@ -610,7 +610,7 @@ with drive_file.open(stream=True) as response:
 To interact with files and directions the `mkdir`, `rename` and `delete`
 functions are available for a file or folder:
 
-``` python
+```python
 api.drive['Holiday Photos'].mkdir('2020')
 api.drive['Holiday Photos']['2020'].rename('2020_copy')
 api.drive['Holiday Photos']['2020_copy'].delete()
@@ -619,7 +619,7 @@ api.drive['Holiday Photos']['2020_copy'].delete()
 The `upload` method can be used to send a file-like object to the iCloud
 Drive:
 
-``` python
+```python
 with open('Vacation.jpeg', 'rb') as file_in:
     api.drive['Holiday Photos'].upload(file_in)
 ```
@@ -629,7 +629,7 @@ to prevent decoding errors further down the line.
 
 You can also interact with files in the `trash`:
 
-``` pycon
+```pycon
 >>> delete_output = api.drive['Holiday Photos']['2013']['Sicily']['DSC08116.JPG'].delete()
 >>> api.drive.trash.dir()
 ['DSC08116.JPG']
@@ -642,7 +642,7 @@ You can also interact with files in the `trash`:
 
 You can interact with the `trash` similar to a standard directory, with some restrictions. In addition, files in the `trash` can be recovered back to their original location, or deleted forever:
 
-``` pycon
+```pycon
 >>> api.drive['Holiday Photos']['2013']['Sicily'].dir()
 []
 
@@ -663,21 +663,21 @@ You can interact with the `trash` similar to a standard directory, with some res
 
 You can access the iCloud Photo Library through the `photos` property.
 
-``` pycon
+```pycon
 >>> api.photos.all
 <PhotoAlbum: 'All Photos'>
 ```
 
 Individual albums are available through the `albums` property:
 
-``` pycon
+```pycon
 >>> api.photos.albums['Screenshots']
 <PhotoAlbum: 'Screenshots'>
 ```
 
 To delete an individual album, call the `delete` method.
 
-``` pycon
+```pycon
 >>> api.photos.albums['MyAlbum']
 <PhotoAlbum: 'MyAlbum'>
 >>> api.photos.albums['MyAlbum'].delete()
@@ -689,7 +689,7 @@ album is sorted by `added_date` so the most recently added
 photos are returned first. All other albums are sorted by
 `asset_date` (which represents the exif date) :
 
-``` pycon
+```pycon
 >>> for photo in api.photos.albums['Screenshots']:
         print(photo, photo.filename)
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
@@ -697,7 +697,7 @@ photos are returned first. All other albums are sorted by
 
 To download a photo, use the `download` method, which will return a raw stream:
 
-``` python
+```python
 photo = next(iter(api.photos.albums['Screenshots']), None)
 with open(photo.filename, 'wb') as opened_file:
     opened_file.write(photo.download())
@@ -706,7 +706,7 @@ with open(photo.filename, 'wb') as opened_file:
 Information about each version can be accessed through the `versions`
 property:
 
-``` pycon
+```pycon
 >>> photo.versions.keys()
 ['medium', 'original', 'thumb']
 ```
@@ -714,7 +714,7 @@ property:
 To download a specific version of the photo asset, pass the version to
 `download()`:
 
-``` python
+```python
 with open(photo.versions['thumb']['filename'], 'wb') as thumb_file:
     thumb_file.write(photo.download('thumb'))
 ```
@@ -723,11 +723,11 @@ To upload a photo use the `upload` method, which will upload the file to the req
 this will appear automatically in your 'ALL PHOTOS' album. This will return the uploaded
 PhotoAsset for further information.
 
-``` python
+```python
 api.photos.albums['Screenshots'].upload(file_path)
 ```
 
-``` pycon
+```pycon
 >>> album = api.photos.albums['Screenshots']
 >>> album
 <PhotoAlbum: 'Screenshots'>
@@ -739,7 +739,7 @@ Note: Only limited media types are accepted. Unsupported types (e.g., PNG) will 
 
 To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool indicating success.
 
-``` pycon
+```pycon
 >>> photo = api.photos.albums['Screenshots'][0]
 >>> photo
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
@@ -750,11 +750,11 @@ True
 To add an existing photo to an album, use the `add_photo` method, which will link the PhotoAsset to the requested album.
 It returns a bool indicating success.
 
-``` python
+```python
 api.photos.albums['Screenshots'].add_photo(photo_asset)
 ```
 
-``` pycon
+```pycon
 >>> photo = api.photos.albums['Screenshots'][0]
 >>> photo
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
@@ -786,14 +786,14 @@ print(f"Reserved email - response: {reserved}")
 
 To get the anonymous_id (unique identifier) from the reservation.
 
-``` python
+```python
 anonymous_id = reserved.get("anonymousId")
 print(anonymous_id)
 ```
 
 To list the current aliases
 
-``` python
+```python
 # Print details of each alias
 for alias in api.hidemyemail:
     print(f"- {alias.get('hme')}: {alias.get('label')} ({alias.get('anonymousId')})")
