@@ -1,6 +1,6 @@
 """Cookie jar with persistence support."""
 
-from http.cookiejar import LWPCookieJar
+from http.cookiejar import Cookie, LWPCookieJar
 from typing import Optional
 
 from requests.cookies import RequestsCookieJar
@@ -22,6 +22,13 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
             return  # No-op if no filename is bound
         return resolved
 
+    def copy(self) -> "PyiCloudCookieJar":
+        """Create a copy of this cookie jar."""
+        new_jar: PyiCloudCookieJar = PyiCloudCookieJar(filename=self.filename)
+        new_jar.set_policy(self.get_policy())
+        new_jar.update(self)
+        return new_jar
+
     def load(
         self,
         filename: Optional[str] = None,
@@ -40,19 +47,19 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
         # Clear any FMIP cookie regardless of domain/path to avoid stale auth.
         # Copy to list first to avoid dict mutation during iteration
         try:
-            cookies_snapshot = list(self)
+            cookies_to_clear: list[Cookie] = [
+                cookie
+                for cookie in self.copy()
+                if cookie.name == _FMIP_AUTH_COOKIE_NAME
+            ]
+            for cookie in cookies_to_clear:
+                try:
+                    self.clear(domain=cookie.domain, path=cookie.path, name=cookie.name)
+                except KeyError:
+                    pass
         except RuntimeError:
-            cookies_snapshot = []
-        cookies_to_clear: list[tuple[str, str, str]] = [
-            (cookie.domain, cookie.path, cookie.name)
-            for cookie in cookies_snapshot
-            if cookie.name == _FMIP_AUTH_COOKIE_NAME
-        ]
-        for domain, path, name in cookies_to_clear:
-            try:
-                self.clear(domain=domain, path=path, name=name)
-            except KeyError:
-                pass
+            # If we still hit a race, silently skip this load
+            pass
 
     def save(
         self,
@@ -67,14 +74,9 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
         # Copy cookies to avoid "dictionary changed size during iteration"
         # when concurrent HTTP responses modify the cookie jar
         try:
-            cookies_snapshot = list(self)
-            # Create temp jar with snapshot for thread-safe save
-            from http.cookiejar import LWPCookieJar as TempJar
-
-            temp_jar = TempJar(filename=resolved)
-            for cookie in cookies_snapshot:
-                temp_jar.set_cookie(cookie)
-            temp_jar.save(
+            temp_jar: PyiCloudCookieJar = self.copy()
+            LWPCookieJar.save(
+                temp_jar,
                 filename=resolved,
                 ignore_discard=ignore_discard,
                 ignore_expires=ignore_expires,

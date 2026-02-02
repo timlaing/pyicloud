@@ -45,11 +45,7 @@ class DriveService(BaseService):
     def _get_token_from_cookie(self) -> dict[str, Any]:
         # Copy cookies to avoid "dictionary changed size during iteration"
         # when concurrent HTTP responses modify the cookie jar
-        try:
-            cookies_snapshot = list(self.session.cookies)
-        except RuntimeError:
-            cookies_snapshot = []
-        for cookie in cookies_snapshot:
+        for cookie in self.session.cookies:
             if cookie.name == COOKIE_APPLE_WEBAUTH_VALIDATE and cookie.value:
                 match: Optional[Match[str]] = search(r"\bt=([^:]+)", cookie.value)
                 if match is None:
@@ -420,10 +416,9 @@ class DriveNode:
             if "items" not in self.data:
                 raise KeyError(f"No items in folder, status: {self.data['status']}")
             # Copy items list to avoid "dictionary changed size during iteration"
-            items_copy = list(self.data["items"])
             self._children = [
                 DriveNode(self.connection, item_data)
-                for item_data in items_copy
+                for item_data in self.data["items"].copy()
             ]
         return self._children
 
