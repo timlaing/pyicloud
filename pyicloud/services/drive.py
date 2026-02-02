@@ -261,18 +261,18 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def move_nodes_to_node(self, nodes: list[DriveNode], destination: DriveNode):
+    def move_nodes_to_node(self, nodes: list["DriveNode"], destination: "DriveNode"):
         """Moves iCloud Drive node(s) to the specified folder"""
-        node_ids = [node.data.get("drivewsid") for node in nodes]
-        etags = [node.data.get("etag") for node in nodes]
+        node_ids = [node.data["drivewsid"] for node in nodes]
+        etags = [node.data["etag"] for node in nodes]
 
         items = zip(node_ids, etags, node_ids)  # clientId == node_id
 
-        # when moving a node to the trash on icloud.com, the clientID is set to the node_id:
+        # when moving a node on icloud.com, the clientID is set to the node_id:
         request: Response = self.session.post(
             self.service_root + "/moveItems",
             params=self.params,
-            json = {
+            json={
                 "destinationDrivewsId": destination.data.get("drivewsid"),
                 "items": [
                     {
