@@ -57,27 +57,11 @@ source = [
 [tool.isort]
 profile = "black"
 
-[tool.tox]
-requires = ["tox>=4.24.1"]
-env_list = ["lint", "3.13", "3.12", "3.11", "3.10"]
-
-[tool.tox.env_run_base]
-description = "Run test under {base_python}"
-commands = [["pytest"]]
-deps = ["-r requirements_test.txt"]
-
-[tool.tox.gh-actions]
-python = '''
-    3.10: 3.10, lint
-    3.11: 3.11
-    3.12: 3.12
-    3.13: 3.13
-'''
 
 [tool.setuptools_scm]
 
 [build-system]
-requires = ["setuptools >= 77.0,< 80.10", "setuptools-scm"]
+requires = ["setuptools >= 77.0,< 80.11", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -101,6 +85,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries"
 ]
 keywords = ["icloud", "find-my-iphone"]

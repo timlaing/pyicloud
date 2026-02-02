@@ -24,7 +24,7 @@ from pyicloud.ssl_context import configurable_ssl_verification
 END_LIST: str = "End List\n"
 MAX_DISPLAY: int = 10
 
-# Set to FALSE to disable SSL verification to use tools like charles, mitmproxy, fiddler, or similiar tools to debug the data sent on the wire.
+# Set to FALSE to disable SSL verification to use tools like charles, mitmproxy, fiddler, or similar tools to debug the data sent on the wire.
 # Can also use command-line argument --disable-ssl-verify
 # This uses code taken from:
 # - https://stackoverflow.com/questions/15445981/how-do-i-disable-the-security-certificate-check-in-python-requests
