@@ -3,7 +3,7 @@
 import base64
 import logging
 import os
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from enum import Enum, IntEnum, unique
 from typing import Any, Generator, Iterable, Iterator, Optional, cast
@@ -167,7 +167,7 @@ class AlbumContainer(Iterable):
         return self._albums[self._index[idx]]
 
 
-class BasePhotoLibrary:
+class BasePhotoLibrary(ABC):
     """Represents a library in the user's photos.
 
     This provides access to all the albums as well as the photos.
@@ -710,7 +710,7 @@ class PhotosService(BaseService):
         return self._root_library.create_album(name, album_type)
 
 
-class BasePhotoAlbum(Iterable):
+class BasePhotoAlbum(Iterable, ABC):
     """An abstract photo album."""
 
     def __init__(
@@ -902,7 +902,15 @@ class BasePhotoAlbum(Iterable):
     def __getitem__(self, key: int | str) -> "PhotoAsset":
         """Gets a photo by index."""
         if isinstance(key, int):
-            return next(self._get_photos_at(key, self._direction, 1))
+            # Emulate standard Python sequence semantics for integer indices:
+            # - Negative indices are resolved relative to the end of the album.
+            # - Out-of-range indices raise IndexError instead of StopIteration.
+            if key < 0:
+                key = len(self) + key
+            try:
+                return next(self._get_photos_at(key, self._direction, 1))
+            except StopIteration as exc:
+                raise IndexError("Photo index out of range") from exc
         else:
             if photo := self.get(key):
                 return photo
@@ -1189,11 +1197,13 @@ class PhotoAlbum(BasePhotoAlbum):
             self._list_type,
             DirectionEnum.ASCENDING,
             1,
-            {
-                "fieldName": "recordName",
-                "comparator": "EQUALS",
-                "fieldValue": {"type": "STRING", "value": photo_id},
-            },
+            [
+                {
+                    "fieldName": "recordName",
+                    "comparator": "EQUALS",
+                    "fieldValue": {"type": "STRING", "value": photo_id},
+                }
+            ],
         )
 
     def _list_query_gen(
@@ -1478,7 +1488,29 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         }
 
     def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
-        return self._get_payload(0, len(self), DirectionEnum.ASCENDING)
+        # For shared streams, avoid building a payload that explicitly requests
+        # the entire album based on len(self). The actual lookup-by-id logic is
+        # implemented in _get_photo(), which pages through results as needed.
+        raise NotImplementedError(
+            "_get_photo_payload is not implemented for SharedPhotoStreamAlbum"
+        )
+
+    def _get_photo(self, photo_id: str) -> "PhotoAsset":
+        """
+        Fetch a single photo by id by paging through the shared stream.
+        This avoids an upfront call to get the album size and does not
+        require fetching the entire album in one request.
+        """
+        offset: int = 0
+        while True:
+            page = self._get_photos_at(offset, DirectionEnum.ASCENDING, self.page_size)
+            offset += self.page_size
+            for photo in page:
+                if photo.id == photo_id:
+                    return photo
+            if len(list(page)) < self.page_size:
+                break
+        raise KeyError(f"Photo does not exist: {photo_id}")
 
     def _get_url(self) -> str:
         return f"{self._album_location}webgetassets?{urlencode(self.service.params)}"
