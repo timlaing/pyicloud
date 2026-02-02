@@ -34,42 +34,6 @@ from pyicloud.services.photos import (
 )
 
 
-@pytest.fixture
-def mock_photo_album(mock_photos_service) -> BasePhotoAlbum:
-    """Returns a mock BasePhotoAlbum subclass for testing."""
-
-    class MyPhotoAlbum(BasePhotoAlbum):
-        """Mock BasePhotoAlbum subclass for testing."""
-
-        def _get_len(self) -> int:
-            return 0
-
-        def _get_payload(
-            self, offset: int, page_size: int, direction: DirectionEnum
-        ) -> dict[str, Any]:
-            return {}
-
-        def _get_url(self) -> str:
-            return "https://example.com/test_album"
-
-        def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
-            return {}
-
-        @property
-        def fullname(self) -> str:
-            return "Test Album"
-
-        @property
-        def id(self) -> str:
-            return "test_album"
-
-    return MyPhotoAlbum(
-        library=mock_photos_service,
-        name="Test Album",
-        list_type=ListTypeEnum.DEFAULT,
-    )
-
-
 def test_photo_library_initialization(mock_photos_service: MagicMock) -> None:
     """Tests initialization of PhotoLibrary."""
     mock_photos_service.session.post.side_effect = [
@@ -617,12 +581,8 @@ def test_base_photo_album_initialization(mock_photo_library: MagicMock) -> None:
     assert album.page_size == 50
 
 
-def test_base_photo_album_parse_response() -> None:
+def test_base_photo_album_parse_response(mock_photo_library: MagicMock) -> None:
     """Tests the _parse_response method."""
-    library = BasePhotoLibrary(
-        service=MagicMock(),
-        asset_type=PhotoAsset,
-    )
     response = {
         "records": [
             {
@@ -635,7 +595,7 @@ def test_base_photo_album_parse_response() -> None:
             },
         ]
     }
-    asset_records, master_records = library.parse_asset_response(response)
+    asset_records, master_records = mock_photo_library.parse_asset_response(response)
     assert "master1" in asset_records
     assert len(master_records) == 1
     assert master_records[0]["recordName"] == "master1"
@@ -2088,3 +2048,641 @@ def test_create_album_with_custom_album_type(mock_photos_service: MagicMock) -> 
     assert album is not None
     assert album.name == "Custom Album"
     assert album.id == "album456"
+
+
+def test_shared_photo_stream_album_get_photo_success(
+    mock_photos_service: MagicMock,
+    mock_photo_library: MagicMock,
+) -> None:
+    """Test SharedPhotoStreamAlbum _get_photo method with successful photo lookup."""
+    mock_photos_service.params = {"dsid": "12345"}
+
+    # Mock photo assets
+    mock_photo1 = MagicMock(spec=PhotoAsset)
+    mock_photo1.id = "photo1"
+    mock_photo2 = MagicMock(spec=PhotoAsset)
+    mock_photo2.id = "photo2"
+    mock_photo3 = MagicMock(spec=PhotoAsset)
+    mock_photo3.id = "photo3"
+
+    album = SharedPhotoStreamAlbum(
+        library=mock_photo_library,
+        name="Shared Album",
+        album_location="https://shared.example.com/album/",
+        album_ctag="ctag",
+        album_guid="guid",
+        owner_dsid="owner",
+        creation_date="1700000000000",
+        page_size=2,
+    )
+
+    # Mock _get_photos_at to return photos in pages
+    album._get_photos_at = MagicMock(
+        side_effect=[
+            iter([mock_photo1, mock_photo2]),  # First page
+            iter([mock_photo3]),  # Second page (photo found here)
+        ]
+    )
+
+    result = album._get_photo("photo3")
+
+    assert result == mock_photo3
+    # Verify _get_photos_at was called twice with correct offsets
+    assert album._get_photos_at.call_count == 2
+    album._get_photos_at.assert_any_call(0, DirectionEnum.ASCENDING, 2)
+    album._get_photos_at.assert_any_call(2, DirectionEnum.ASCENDING, 2)
+
+
+def test_shared_photo_stream_album_get_photo_not_found(
+    mock_photos_service: MagicMock,
+) -> None:
+    """Test SharedPhotoStreamAlbum _get_photo method when photo is not found."""
+    mock_library = MagicMock(spec=PhotoLibrary)
+    mock_library.service = mock_photos_service
+    mock_photos_service.params = {"dsid": "12345"}
+
+    # Mock photo assets
+    mock_photo1 = MagicMock(spec=PhotoAsset)
+    mock_photo1.id = "photo1"
+    mock_photo2 = MagicMock(spec=PhotoAsset)
+    mock_photo2.id = "photo2"
+
+    album = SharedPhotoStreamAlbum(
+        library=mock_library,
+        name="Shared Album",
+        album_location="https://shared.example.com/album/",
+        album_ctag="ctag",
+        album_guid="guid",
+        owner_dsid="owner",
+        creation_date="1700000000000",
+        page_size=3,
+    )
+
+    # Mock _get_photos_at to return photos in pages, last page is incomplete
+    album._get_photos_at = MagicMock(
+        side_effect=[
+            iter(
+                [mock_photo1, mock_photo2]
+            ),  # First page (2 photos, less than page_size)
+        ]
+    )
+
+    with pytest.raises(KeyError, match="Photo does not exist: nonexistent"):
+        album._get_photo("nonexistent")
+
+    # Verify _get_photos_at was called once
+    album._get_photos_at.assert_called_once_with(0, DirectionEnum.ASCENDING, 3)
+
+
+def test_shared_photo_stream_album_get_photo_found_in_first_page(
+    mock_photos_service: MagicMock,
+) -> None:
+    """Test SharedPhotoStreamAlbum _get_photo method when photo is found in first page."""
+    mock_library = MagicMock(spec=PhotoLibrary)
+    mock_library.service = mock_photos_service
+    mock_photos_service.params = {"dsid": "12345"}
+
+    # Mock photo assets
+    mock_photo1 = MagicMock(spec=PhotoAsset)
+    mock_photo1.id = "target_photo"
+    mock_photo2 = MagicMock(spec=PhotoAsset)
+    mock_photo2.id = "photo2"
+
+    album = SharedPhotoStreamAlbum(
+        library=mock_library,
+        name="Shared Album",
+        album_location="https://shared.example.com/album/",
+        album_ctag="ctag",
+        album_guid="guid",
+        owner_dsid="owner",
+        creation_date="1700000000000",
+        page_size=2,
+    )
+
+    # Mock _get_photos_at to return target photo in first page
+    album._get_photos_at = MagicMock(
+        side_effect=[
+            iter([mock_photo1, mock_photo2]),  # First page contains target
+        ]
+    )
+
+    result = album._get_photo("target_photo")
+
+    assert result == mock_photo1
+    # Verify _get_photos_at was called only once
+    album._get_photos_at.assert_called_once_with(0, DirectionEnum.ASCENDING, 2)
+
+
+def test_shared_photo_stream_album_get_photo_empty_pages(
+    mock_photos_service: MagicMock,
+) -> None:
+    """Test SharedPhotoStreamAlbum _get_photo method with empty album."""
+    mock_library = MagicMock(spec=PhotoLibrary)
+    mock_library.service = mock_photos_service
+    mock_photos_service.params = {"dsid": "12345"}
+
+    album = SharedPhotoStreamAlbum(
+        library=mock_library,
+        name="Empty Album",
+        album_location="https://shared.example.com/album/",
+        album_ctag="ctag",
+        album_guid="guid",
+        owner_dsid="owner",
+        creation_date="1700000000000",
+        page_size=10,
+    )
+
+    # Mock _get_photos_at to return empty iterator
+    album._get_photos_at = MagicMock(
+        side_effect=[
+            iter([]),  # Empty first page
+        ]
+    )
+
+    with pytest.raises(KeyError, match="Photo does not exist: any_photo"):
+        album._get_photo("any_photo")
+
+    # Verify _get_photos_at was called once
+    album._get_photos_at.assert_called_once_with(0, DirectionEnum.ASCENDING, 10)
+
+
+def test_shared_photo_stream_album_get_photo_payload_not_implemented() -> None:
+    """Test SharedPhotoStreamAlbum _get_photo_payload raises NotImplementedError."""
+    album = SharedPhotoStreamAlbum(
+        library=MagicMock(),
+        name="Shared Album",
+        album_location="https://shared.example.com/album/",
+        album_ctag="ctag",
+        album_guid="guid",
+        owner_dsid="owner",
+        creation_date="1700000000000",
+    )
+
+    with pytest.raises(
+        NotImplementedError,
+        match="_get_photo_payload is not implemented for SharedPhotoStreamAlbum",
+    ):
+        album._get_photo_payload("photo123")
+
+
+def test_base_photo_album_get_returns_photo(mock_photo_library: MagicMock) -> None:
+    """Tests the get method returns a photo when it exists."""
+    mock_photo = MagicMock(spec=PhotoAsset)
+    mock_photo.id = "photo123"
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock _get_photo to return the photo
+    album._get_photo = MagicMock(return_value=mock_photo)
+
+    result = album.get("photo123")
+
+    assert result == mock_photo
+    album._get_photo.assert_called_once_with("photo123")
+
+
+def test_base_photo_album_get_returns_none_when_not_found(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Tests the get method returns None when photo doesn't exist."""
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock _get_photo to raise KeyError
+    album._get_photo = MagicMock(side_effect=KeyError("Photo not found"))
+
+    result = album.get("nonexistent")
+
+    assert result is None
+    album._get_photo.assert_called_once_with("nonexistent")
+
+
+def test_base_photo_album_getitem_with_positive_index(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Tests __getitem__ with positive integer index."""
+    mock_photo = MagicMock(spec=PhotoAsset)
+    mock_photo.id = "photo123"
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock _get_photos_at to return the photo
+    album._get_photos_at = MagicMock(return_value=iter([mock_photo]))
+
+    result = album[5]
+
+    assert result == mock_photo
+    album._get_photos_at.assert_called_once_with(5, DirectionEnum.ASCENDING, 1)
+
+
+def test_base_photo_album_getitem_with_negative_index(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Tests __getitem__ with negative integer index."""
+    mock_photo = MagicMock(spec=PhotoAsset)
+    mock_photo.id = "photo123"
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock len to return 10
+    album._get_len = MagicMock(return_value=10)
+    # Mock _get_photos_at to return the photo
+    album._get_photos_at = MagicMock(return_value=iter([mock_photo]))
+
+    result = album[-2]  # Should resolve to index 8 (10 + (-2))
+
+    assert result == mock_photo
+    album._get_photos_at.assert_called_once_with(8, DirectionEnum.ASCENDING, 1)
+
+
+def test_base_photo_album_getitem_index_out_of_range(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Tests __getitem__ raises IndexError for out of range index."""
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock _get_photos_at to return empty iterator (StopIteration)
+    album._get_photos_at = MagicMock(return_value=iter([]))
+
+    with pytest.raises(IndexError, match="Photo index out of range"):
+        _ = album[100]
+
+    album._get_photos_at.assert_called_once_with(100, DirectionEnum.ASCENDING, 1)
+
+
+def test_base_photo_album_getitem_with_string_key_found(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Tests __getitem__ with string key when photo exists."""
+    mock_photo = MagicMock(spec=PhotoAsset)
+    mock_photo.id = "photo123"
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock _get_photo to return the photo
+    album._get_photo = MagicMock(return_value=mock_photo)
+
+    result = album["photo123"]
+
+    assert result == mock_photo
+    album._get_photo.assert_called_once_with("photo123")
+
+
+def test_base_photo_album_getitem_with_string_key_not_found(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Tests __getitem__ with string key when photo doesn't exist."""
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock _get_photo to raise KeyError
+    album._get_photo = MagicMock(side_effect=KeyError("Photo not found"))
+
+    with pytest.raises(KeyError, match="Photo does not exist: nonexistent"):
+        _ = album["nonexistent"]
+
+    album._get_photo.assert_called_once_with("nonexistent")
+
+
+def test_base_photo_album_contains_returns_true(mock_photo_library: MagicMock) -> None:
+    """Tests __contains__ returns True when photo exists."""
+    mock_photo = MagicMock(spec=PhotoAsset)
+    mock_photo.id = "photo123"
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock _get_photo to return the photo
+    album._get_photo = MagicMock(return_value=mock_photo)
+
+    result = "photo123" in album
+
+    assert result is True
+    album._get_photo.assert_called_once_with("photo123")
+
+
+def test_base_photo_album_contains_returns_false(mock_photo_library: MagicMock) -> None:
+    """Tests __contains__ returns False when photo doesn't exist."""
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    # Mock _get_photo to raise KeyError
+    album._get_photo = MagicMock(side_effect=KeyError("Photo not found"))
+
+    result = "nonexistent" in album
+
+    assert result is False
+    album._get_photo.assert_called_once_with("nonexistent")
+
+
+def test_photo_album_get_photo_success(mock_photo_library: MagicMock) -> None:
+    """Tests _get_photo method when photo is found."""
+    mock_photo = MagicMock(spec=PhotoAsset)
+    mock_photo.id = "target_photo"
+
+    mock_photo_library.service.session.post.return_value.json.return_value = {
+        "records": [
+            {
+                "recordType": "CPLAsset",
+                "fields": {"masterRef": {"value": {"recordName": "target_photo"}}},
+            },
+            {
+                "recordType": "CPLMaster",
+                "recordName": "target_photo",
+            },
+        ]
+    }
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    result = album._get_photo("target_photo")
+
+    assert result.id == "target_photo"
+    mock_photo_library.service.session.post.assert_called_once_with(
+        url="https://example.com/records/query?dsid=12345",
+        json=album._get_photo_payload("target_photo"),
+        headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+    )
+
+
+def test_photo_album_get_photo_not_found(mock_photo_library: MagicMock) -> None:
+    """Tests _get_photo method when photo is not found."""
+    mock_photo = MagicMock(spec=PhotoAsset)
+    mock_photo.id = "different_photo"
+
+    mock_photo_library.service.session.post.return_value.json.return_value = {
+        "records": [
+            {
+                "recordType": "CPLAsset",
+                "fields": {"masterRef": {"value": {"recordName": "different_photo"}}},
+            },
+            {
+                "recordType": "CPLMaster",
+                "recordName": "different_photo",
+            },
+        ]
+    }
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    with pytest.raises(KeyError, match="Photo does not exist: target_photo"):
+        album._get_photo("target_photo")
+
+    mock_photo_library.service.session.post.assert_called_once_with(
+        url="https://example.com/records/query?dsid=12345",
+        json=album._get_photo_payload("target_photo"),
+        headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+    )
+
+
+def test_photo_album_get_photo_empty_response(mock_photo_library: MagicMock) -> None:
+    """Tests _get_photo method when no photos are returned."""
+    mock_photo_library.service.session.post.return_value.json.return_value = {
+        "records": []
+    }
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    with pytest.raises(KeyError, match="Photo does not exist: nonexistent_photo"):
+        album._get_photo("nonexistent_photo")
+
+    mock_photo_library.service.session.post.assert_called_once_with(
+        url="https://example.com/records/query?dsid=12345",
+        json=album._get_photo_payload("nonexistent_photo"),
+        headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+    )
+
+
+def test_photo_album_get_photo_multiple_photos_found_correct_one(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Tests _get_photo method when multiple photos are returned but correct one is found."""
+    mock_photo_library.service.session.post.return_value.json.return_value = {
+        "records": [
+            {
+                "recordType": "CPLAsset",
+                "fields": {"masterRef": {"value": {"recordName": "photo1"}}},
+            },
+            {
+                "recordType": "CPLMaster",
+                "recordName": "photo1",
+            },
+            {
+                "recordType": "CPLAsset",
+                "fields": {"masterRef": {"value": {"recordName": "target_photo"}}},
+            },
+            {
+                "recordType": "CPLMaster",
+                "recordName": "target_photo",
+            },
+            {
+                "recordType": "CPLAsset",
+                "fields": {"masterRef": {"value": {"recordName": "photo3"}}},
+            },
+            {
+                "recordType": "CPLMaster",
+                "recordName": "photo3",
+            },
+        ]
+    }
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    result = album._get_photo("target_photo")
+
+    assert result.id == "target_photo"
+    mock_photo_library.service.session.post.assert_called_once_with(
+        url="https://example.com/records/query?dsid=12345",
+        json=album._get_photo_payload("target_photo"),
+        headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+    )
+
+
+def test_photo_asset_download_url_existing_version() -> None:
+    """Test PhotoAsset download_url property for existing version."""
+    master_record: dict[str, Any] = {
+        "recordName": "photo_id_123",
+        "fields": {
+            "filenameEnc": {"value": base64.b64encode(b"test.jpg").decode("utf-8")},
+            "resOriginalRes": {
+                "value": {
+                    "size": 123456,
+                    "downloadURL": "http://example.com/original.jpg",
+                }
+            },
+            "resJPEGThumbRes": {
+                "value": {
+                    "size": 1234,
+                    "downloadURL": "http://example.com/thumb.jpg",
+                }
+            },
+            "resOriginalWidth": {"value": 1920},
+            "resOriginalHeight": {"value": 1080},
+            "resJPEGThumbWidth": {"value": 100},
+            "resJPEGThumbHeight": {"value": 50},
+            "itemType": {"value": "public.jpeg"},
+        },
+    }
+    asset_record: dict[str, Any] = {
+        "fields": {"assetDate": {"value": 1700000000000}},
+    }
+
+    mock_service = MagicMock()
+    asset = PhotoAsset(mock_service, master_record, asset_record)
+
+    # Test original version
+    assert asset.download_url("original") == "http://example.com/original.jpg"
+    # Test thumb version
+    assert asset.download_url("thumb") == "http://example.com/thumb.jpg"
+
+
+def test_photo_asset_download_url_nonexistent_version() -> None:
+    """Test PhotoAsset download_url property for nonexistent version."""
+    master_record: dict[str, Any] = {
+        "recordName": "photo_id_123",
+        "fields": {
+            "filenameEnc": {"value": base64.b64encode(b"test.jpg").decode("utf-8")},
+            "resOriginalRes": {
+                "value": {
+                    "size": 123456,
+                    "downloadURL": "http://example.com/original.jpg",
+                }
+            },
+            "itemType": {"value": "public.jpeg"},
+        },
+    }
+    asset_record: dict[str, Any] = {
+        "fields": {"assetDate": {"value": 1700000000000}},
+    }
+
+    mock_service = MagicMock()
+    asset = PhotoAsset(mock_service, master_record, asset_record)
+
+    # Test nonexistent version
+    assert asset.download_url("nonexistent") is None
+
+
+def test_photo_asset_download_url_default_parameter() -> None:
+    """Test PhotoAsset download_url property with default parameter."""
+    master_record: dict[str, Any] = {
+        "recordName": "photo_id_123",
+        "fields": {
+            "filenameEnc": {"value": base64.b64encode(b"test.jpg").decode("utf-8")},
+            "resOriginalRes": {
+                "value": {
+                    "size": 123456,
+                    "downloadURL": "http://example.com/original.jpg",
+                }
+            },
+            "itemType": {"value": "public.jpeg"},
+        },
+    }
+    asset_record: dict[str, Any] = {
+        "fields": {"assetDate": {"value": 1700000000000}},
+    }
+
+    mock_service = MagicMock()
+    asset = PhotoAsset(mock_service, master_record, asset_record)
+
+    # Test default parameter (should be "original")
+    assert asset.download_url() == "http://example.com/original.jpg"

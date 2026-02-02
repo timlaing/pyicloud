@@ -1504,12 +1504,14 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         offset: int = 0
         while True:
             page = self._get_photos_at(offset, DirectionEnum.ASCENDING, self.page_size)
-            offset += self.page_size
+            photo_count = 0
             for photo in page:
+                photo_count += 1
                 if photo.id == photo_id:
                     return photo
-            if len(list(page)) < self.page_size:
+            if photo_count < self.page_size:
                 break
+            offset += photo_count
         raise KeyError(f"Photo does not exist: {photo_id}")
 
     def _get_url(self) -> str:
@@ -1676,6 +1678,13 @@ class PhotoAsset:
                     self._versions[key] = self._get_photo_version(prefix)
 
         return self._versions
+
+    def download_url(self, version="original") -> Optional[str]:
+        """Returns the photo download URL."""
+        if version not in self.versions:
+            return None
+
+        return self.versions[version]["url"]
 
     def _get_photo_version(self, prefix: str) -> dict[str, Any]:
         version: dict[str, Any] = {}
