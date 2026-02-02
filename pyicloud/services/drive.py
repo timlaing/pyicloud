@@ -273,7 +273,7 @@ class DriveService(BaseService):
             self.service_root + "/moveItems",
             params=self.params,
             json={
-                "destinationDrivewsId": destination.data.get("drivewsid"),
+                "destinationDrivewsId": destination.data["drivewsid"],
                 "items": [
                     {
                         "drivewsid": _drivewsid,
