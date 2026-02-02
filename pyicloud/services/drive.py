@@ -45,7 +45,7 @@ class DriveService(BaseService):
     def _get_token_from_cookie(self) -> dict[str, Any]:
         # Copy cookies to avoid "dictionary changed size during iteration"
         # when concurrent HTTP responses modify the cookie jar
-        for cookie in self.session.cookies:
+        for cookie in self.session.cookies.copy():
             if cookie.name == COOKIE_APPLE_WEBAUTH_VALIDATE and cookie.value:
                 match: Optional[Match[str]] = search(r"\bt=([^:]+)", cookie.value)
                 if match is None:
