@@ -1,11 +1,16 @@
 #!/usr/bin/zsh
 set -ex
 
-cd "$(realpath "$(dirname "$0")/..")"
+cd "$(dirname "$0")/.."
 
 export UV_LINK_MODE=copy
 
+if [ ! -n "$VIRTUAL_ENV" ]; then
+  source .venv/bin/activate
+fi
+
 echo "Installing development dependencies..."
+
 uv pip install \
   -e . \
   -r requirements_all.txt \

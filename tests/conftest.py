@@ -1,5 +1,7 @@
 """Pytest configuration file for the pyicloud package."""
 # pylint: disable=redefined-outer-name,protected-access
+# pylint: disable=protected-access
+# pylint: disable=redefined-outer-name
 
 import os
 import secrets
@@ -13,17 +15,20 @@ from pyicloud.base import PyiCloudService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.drive import COOKIE_APPLE_WEBAUTH_VALIDATE
 from pyicloud.services.hidemyemail import HideMyEmailService
-from pyicloud.services.photos import BasePhotoLibrary, PhotoAsset
+from pyicloud.services.photos import (
+    AlbumContainer,
+    BasePhotoAlbum,
+    BasePhotoLibrary,
+    DirectionEnum,
+    ListTypeEnum,
+    PhotoAsset,
+)
 from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
 from tests.const import LOGIN_WORKING
 
 BUILTINS_OPEN: str = "builtins.open"
 EXAMPLE_DOMAIN: str = "https://example.com"
-
-
-# pylint: disable=protected-access
-# pylint: disable=redefined-outer-name
 
 
 class FileSystemAccessError(Exception):
@@ -186,9 +191,60 @@ def mock_photos_service() -> MagicMock:
 @pytest.fixture
 def mock_photo_library(mock_photos_service: MagicMock) -> BasePhotoLibrary:
     """Fixture for mocking PhotoLibrary."""
-    return BasePhotoLibrary(
+
+    class MyPhotoLibrary(BasePhotoLibrary):
+        """Concrete implementation of BasePhotoLibrary for testing."""
+
+        def _get_photo_payload(self, photo_id: str) -> Any:
+            """Mock implementation of _get_photo_payload."""
+            raise NotImplementedError()
+
+        def _get_photo(self, photo_id: str) -> PhotoAsset:
+            """Mock implementation of _get_photo."""
+            raise NotImplementedError()
+
+        def _get_albums(self) -> AlbumContainer:
+            raise NotImplementedError()
+
+    return MyPhotoLibrary(
         service=mock_photos_service,
         asset_type=PhotoAsset,
+    )
+
+
+@pytest.fixture
+def mock_photo_album(mock_photos_service) -> BasePhotoAlbum:
+    """Returns a mock BasePhotoAlbum subclass for testing."""
+
+    class MyPhotoAlbum(BasePhotoAlbum):
+        """Mock BasePhotoAlbum subclass for testing."""
+
+        def _get_len(self) -> int:
+            return 0
+
+        def _get_payload(
+            self, offset: int, page_size: int, direction: DirectionEnum
+        ) -> dict[str, Any]:
+            return {}
+
+        def _get_url(self) -> str:
+            return "https://example.com/test_album"
+
+        def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
+            return {}
+
+        @property
+        def fullname(self) -> str:
+            return "Test Album"
+
+        @property
+        def id(self) -> str:
+            return "test_album"
+
+    return MyPhotoAlbum(
+        library=mock_photos_service,
+        name="Test Album",
+        list_type=ListTypeEnum.DEFAULT,
     )
 
 
