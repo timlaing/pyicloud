@@ -1,5 +1,6 @@
 name: Tests
 
+# yamllint disable-line rule:truthy
 on: [workflow_dispatch, push, pull_request]
 
 permissions:
@@ -7,7 +8,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -16,18 +17,39 @@ jobs:
           - "3.11"
           - "3.12"
           - "3.13"
-
+          - "3.14"
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
+      - name: Register Python problem matcher
         run: |
-          python -m pip install --upgrade pip
-          pip install tox tox-gh-actions
-      - name: Test with tox
-        run: tox
+          echo "::add-matcher::.github/workflows/matchers/python.json"
+      - name: Register pytest slow test problem matcher
+        run: |
+          echo "::add-matcher::.github/workflows/matchers/pytest-slow.json"
+      - name: Create Python virtual environment
+        run: |
+          python -m venv venv
+          . venv/bin/activate
+          python --version
+          python3 -m pip install uv
+          uv pip install -U "pip>=25.2"
+          uv pip install -r requirements_all.txt
+      - name: Run pytest
+        timeout-minutes: 60
+        id: pytest-full
+        env:
+          PYTHONDONTWRITEBYTECODE: 1
+        run: |
+          . venv/bin/activate
+          python --version
+          set -o pipefail
+          python3 -b -m pytest \
+            --cov="pyicloud" \
+            --cov-report=xml \
+            --junitxml=junit.xml -o junit_family=legacy

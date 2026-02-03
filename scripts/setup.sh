@@ -1,10 +1,24 @@
 #!/usr/bin/zsh
-set -e
+set -ex
+
+cd "$(dirname "$0")/.."
 
 export UV_LINK_MODE=copy
-uv venv --seed --clear && uv pip install -r requirements_all.txt
-grep -qxF 'source /workspaces/pyicloud/.venv/bin/activate' ~/.zshrc || cat <<EOF >>~/.zshrc
-if [ -f "/workspaces/pyicloud/.venv/bin/activate" ]; then
-  source /workspaces/pyicloud/.venv/bin/activate
+
+if [ ! -n "$VIRTUAL_ENV" ]; then
+  rm -rf .venv || true
+  if [ -x "$(command -v uv)" ]; then
+    uv venv .venv
+  else
+    python3 -m venv .venv
+  fi
+  source .venv/bin/activate
 fi
-EOF
+
+if ! [ -x "$(command -v uv)" ]; then
+  python3 -m pip install uv
+fi
+
+scripts/startup.sh
+
+prek install -f

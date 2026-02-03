@@ -10,11 +10,20 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    labels:
+      - dependency
+      - devcontainers
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: weekly
+    labels:
+      - dependency
+      - pip
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: weekly
+    labels:
+      - dependency
+      - github_actions

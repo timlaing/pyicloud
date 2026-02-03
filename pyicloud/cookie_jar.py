@@ -9,7 +9,7 @@ _FMIP_AUTH_COOKIE_NAME: str = "X-APPLE-WEBAUTH-FMIP"
 
 
 class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
-    """Mix the Requests CookieJar with the LWPCookieJar to allow persistance"""
+    """Mix the Requests CookieJar with the LWPCookieJar to allow persistence"""
 
     def __init__(self, filename: Optional[str] = None) -> None:
         """Initialise both bases; do not pass filename positionally to RequestsCookieJar."""
