@@ -3,6 +3,8 @@
 from io import StringIO
 from unittest.mock import MagicMock, mock_open, patch
 
+from requests.cookies import RequestsCookieJar
+
 from pyicloud.cookie_jar import _FMIP_AUTH_COOKIE_NAME, PyiCloudCookieJar
 
 
@@ -103,3 +105,25 @@ def test_load_handles_keyerror_on_clear() -> None:
         with patch.object(jar2, "clear", side_effect=raise_keyerror):
             # Should not raise
             jar2.load()
+
+
+def test_cookies_property_independence() -> None:
+    """Test that multiple calls to cookies property return independent copies."""
+    filename = "test_cookies.txt"
+    with (
+        patch("builtins.open", new_callable=mock_open),
+        patch("os.open", new_callable=mock_open),
+    ):
+        jar = PyiCloudCookieJar(filename=filename)
+        jar.set("test_cookie", "value", domain="example.com", path="/")
+
+        jar2: RequestsCookieJar = jar.copy()
+
+        # Should be different objects
+        assert jar is not jar2
+
+        # But with same content
+        assert len(jar) == len(jar2)
+        for cookie1, cookie2 in zip(list(jar), list(jar2)):
+            assert str(cookie1) == str(cookie2)
+            assert cookie1 is not cookie2

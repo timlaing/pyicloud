@@ -3,7 +3,7 @@
 import base64
 import logging
 import os
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from enum import Enum, IntEnum, unique
 from typing import Any, Generator, Iterable, Iterator, Optional, cast
@@ -167,7 +167,7 @@ class AlbumContainer(Iterable):
         return self._albums[self._index[idx]]
 
 
-class BasePhotoLibrary:
+class BasePhotoLibrary(ABC):
     """Represents a library in the user's photos.
 
     This provides access to all the albums as well as the photos.
@@ -710,7 +710,7 @@ class PhotosService(BaseService):
         return self._root_library.create_album(name, album_type)
 
 
-class BasePhotoAlbum:
+class BasePhotoAlbum(Iterable, ABC):
     """An abstract photo album."""
 
     def __init__(
@@ -760,11 +760,27 @@ class BasePhotoAlbum:
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         json_response: dict[str, list[dict[str, Any]]] = response.json()
+        return self._process_photo_list_response(json_response)
+
+    def _get_photo(self, photo_id: str) -> "PhotoAsset":
+        """Returns a photo by id."""
+        response: Response = self.service.session.post(
+            url=self._get_url(),
+            json=self._get_photo_payload(photo_id),
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+        )
+        json_response: dict[str, list[dict[str, Any]]] = response.json()
+        for photo in self._process_photo_list_response(json_response):
+            if photo.id == photo_id:
+                return photo
+        raise KeyError(f"Photo does not exist: {photo_id}")
+
+    def _process_photo_list_response(
+        self, json: dict[str, list[dict[str, Any]]]
+    ) -> Generator["PhotoAsset", None, None]:
         asset_records: dict[str, Any]
         master_records: list[dict[str, Any]]
-        asset_records, master_records = self._library.parse_asset_response(
-            json_response
-        )
+        asset_records, master_records = self._library.parse_asset_response(json)
         for master_record in master_records:
             record_name: str = master_record["recordName"]
             asset_record = asset_records.get(record_name)
@@ -848,6 +864,11 @@ class BasePhotoAlbum:
         raise NotImplementedError
 
     @abstractmethod
+    def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
+        """Returns the payload for the photo record request."""
+        raise NotImplementedError
+
+    @abstractmethod
     def _get_url(self) -> str:
         """Returns the URL for the photo list request."""
         raise NotImplementedError
@@ -870,6 +891,35 @@ class BasePhotoAlbum:
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: '{self}'>"
+
+    def get(self, key: str) -> "PhotoAsset | None":
+        """Gets a photo by id."""
+        try:
+            return self._get_photo(key)
+        except KeyError:
+            return None
+
+    def __getitem__(self, key: int | str) -> "PhotoAsset":
+        """Gets a photo by index."""
+        if isinstance(key, int):
+            # Emulate standard Python sequence semantics for integer indices:
+            # - Negative indices are resolved relative to the end of the album.
+            # - Out-of-range indices raise IndexError instead of StopIteration.
+            if key < 0:
+                key = len(self) + key
+            try:
+                return next(self._get_photos_at(key, self._direction, 1))
+            except StopIteration as exc:
+                raise IndexError("Photo index out of range") from exc
+        else:
+            if photo := self.get(key):
+                return photo
+
+        raise KeyError(f"Photo does not exist: {key}")
+
+    def __contains__(self, key: str) -> bool:
+        """Checks if a photo exists in the album by id."""
+        return self.get(key) is not None
 
 
 class PhotoAlbum(BasePhotoAlbum):
@@ -1127,6 +1177,9 @@ class PhotoAlbum(BasePhotoAlbum):
 
         return response["batch"][0]["records"][0]["fields"]["itemCount"]["value"]
 
+    def _get_url(self) -> str:
+        return self._url
+
     def _get_payload(
         self, offset: int, page_size: int, direction: DirectionEnum
     ) -> dict[str, Any]:
@@ -1138,8 +1191,20 @@ class PhotoAlbum(BasePhotoAlbum):
             self._query_filter,
         )
 
-    def _get_url(self) -> str:
-        return self._url
+    def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
+        return self._list_query_gen(
+            0,
+            self._list_type,
+            DirectionEnum.ASCENDING,
+            1,
+            [
+                {
+                    "fieldName": "recordName",
+                    "comparator": "EQUALS",
+                    "fieldValue": {"type": "STRING", "value": photo_id},
+                }
+            ],
+        )
 
     def _list_query_gen(
         self,
@@ -1422,6 +1487,33 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
             "offset": str(offset),
         }
 
+    def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
+        # For shared streams, avoid building a payload that explicitly requests
+        # the entire album based on len(self). The actual lookup-by-id logic is
+        # implemented in _get_photo(), which pages through results as needed.
+        raise NotImplementedError(
+            "_get_photo_payload is not implemented for SharedPhotoStreamAlbum"
+        )
+
+    def _get_photo(self, photo_id: str) -> "PhotoAsset":
+        """
+        Fetch a single photo by id by paging through the shared stream.
+        This avoids an upfront call to get the album size and does not
+        require fetching the entire album in one request.
+        """
+        offset: int = 0
+        while True:
+            page = self._get_photos_at(offset, DirectionEnum.ASCENDING, self.page_size)
+            photo_count = 0
+            for photo in page:
+                photo_count += 1
+                if photo.id == photo_id:
+                    return photo
+            if photo_count < self.page_size:
+                break
+            offset += photo_count
+        raise KeyError(f"Photo does not exist: {photo_id}")
+
     def _get_url(self) -> str:
         return f"{self._album_location}webgetassets?{urlencode(self.service.params)}"
 
@@ -1586,6 +1678,13 @@ class PhotoAsset:
                     self._versions[key] = self._get_photo_version(prefix)
 
         return self._versions
+
+    def download_url(self, version="original") -> Optional[str]:
+        """Returns the photo download URL."""
+        if version not in self.versions:
+            return None
+
+        return self.versions[version]["url"]
 
     def _get_photo_version(self, prefix: str) -> dict[str, Any]:
         version: dict[str, Any] = {}

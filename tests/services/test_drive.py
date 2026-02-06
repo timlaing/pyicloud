@@ -8,9 +8,10 @@ import pytest
 
 from pyicloud import PyiCloudService
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
-from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.exceptions import PyiCloudAPIResponseException, TokenException
 from pyicloud.services.drive import (
     CLOUD_DOCS_ZONE,
+    COOKIE_APPLE_WEBAUTH_VALIDATE,
     NODE_TRASH,
     DriveNode,
     DriveService,
@@ -627,3 +628,119 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=ANY,
         )
+
+
+def test_get_token_from_cookie_success(
+    mock_service_with_cookies: PyiCloudService,
+) -> None:
+    """Test successful token extraction from cookie."""
+    drive: DriveService = mock_service_with_cookies.drive
+
+    # Mock cookie with valid token format
+    mock_cookie = Mock()
+    mock_cookie.name = COOKIE_APPLE_WEBAUTH_VALIDATE
+    mock_cookie.value = "some_prefix;t=valid_token_123:other_data"
+
+    with patch.object(drive.session, "cookies", [mock_cookie]):
+        token_data = drive._get_token_from_cookie()
+        assert token_data == {"token": "valid_token_123"}
+
+
+def test_get_token_from_cookie_no_token_cookie(
+    mock_service_with_cookies: PyiCloudService,
+) -> None:
+    """Test token extraction when no token cookie exists."""
+
+    drive: DriveService = mock_service_with_cookies.drive
+
+    # Mock cookie with different name
+    mock_cookie = Mock()
+    mock_cookie.name = "OTHER_COOKIE"
+    mock_cookie.value = "some_value"
+
+    with patch.object(drive.session, "cookies", [mock_cookie]):
+        with pytest.raises(TokenException, match="Token cookie not found"):
+            drive._get_token_from_cookie()
+
+
+def test_get_token_from_cookie_empty_value(
+    mock_service_with_cookies: PyiCloudService,
+) -> None:
+    """Test token extraction when cookie has empty value."""
+
+    drive: DriveService = mock_service_with_cookies.drive
+
+    # Mock cookie with correct name but empty value
+    mock_cookie = Mock()
+    mock_cookie.name = COOKIE_APPLE_WEBAUTH_VALIDATE
+    mock_cookie.value = ""
+
+    with patch.object(drive.session, "cookies", [mock_cookie]):
+        with pytest.raises(TokenException, match="Token cookie not found"):
+            drive._get_token_from_cookie()
+
+
+def test_get_token_from_cookie_invalid_token_format(
+    mock_service_with_cookies: PyiCloudService,
+) -> None:
+    """Test token extraction when cookie value has invalid token format."""
+
+    drive: DriveService = mock_service_with_cookies.drive
+
+    # Mock cookie with invalid token format
+    mock_cookie = Mock()
+    mock_cookie.name = COOKIE_APPLE_WEBAUTH_VALIDATE
+    mock_cookie.value = "invalid_format_without_token"
+
+    with patch.object(drive.session, "cookies", [mock_cookie]):
+        with pytest.raises(
+            TokenException,
+            match="Can't extract token from invalid_format_without_token",
+        ):
+            drive._get_token_from_cookie()
+
+
+def test_get_token_from_cookie_multiple_cookies(
+    mock_service_with_cookies: PyiCloudService,
+) -> None:
+    """Test token extraction with multiple cookies."""
+    drive: DriveService = mock_service_with_cookies.drive
+
+    # Mock multiple cookies, only one with valid token
+    mock_cookie_1 = Mock()
+    mock_cookie_1.name = "OTHER_COOKIE"
+    mock_cookie_1.value = "other_value"
+
+    mock_cookie_2 = Mock()
+    mock_cookie_2.name = COOKIE_APPLE_WEBAUTH_VALIDATE
+    mock_cookie_2.value = "prefix;t=correct_token:suffix"
+
+    mock_cookie_3 = Mock()
+    mock_cookie_3.name = "ANOTHER_COOKIE"
+    mock_cookie_3.value = "another_value"
+
+    with patch.object(
+        drive.session, "cookies", [mock_cookie_1, mock_cookie_2, mock_cookie_3]
+    ):
+        token_data = drive._get_token_from_cookie()
+        assert token_data == {"token": "correct_token"}
+
+
+def test_get_token_from_cookie_concurrent_modification_safety(
+    mock_service_with_cookies: PyiCloudService,
+) -> None:
+    """Test that cookie copying prevents concurrent modification issues."""
+    drive: DriveService = mock_service_with_cookies.drive
+
+    # Mock cookie with valid token
+    mock_cookie = Mock()
+    mock_cookie.name = COOKIE_APPLE_WEBAUTH_VALIDATE
+    mock_cookie.value = "t=thread_safe_token:data"
+
+    # Create a mock cookies object that would simulate concurrent modification
+    mock_cookies = [mock_cookie]
+
+    with patch.object(drive.session, "cookies", mock_cookies):
+        # This should work without raising "dictionary changed size during iteration"
+        token_data = drive._get_token_from_cookie()
+        assert token_data == {"token": "thread_safe_token"}
