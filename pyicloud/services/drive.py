@@ -283,8 +283,8 @@ class DriveService(BaseService):
                         "clientId": _client_id
                     }
                     for _drivewsid, _etag, _client_id in items
-                ]
-            }
+                ],
+            },
         )
         self._raise_if_error(request)
         return request.json()
