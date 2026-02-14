@@ -1,5 +1,10 @@
 #!/usr/bin/zsh
-set -ex
+set -e
+set -o pipefail
+
+if [ -n "${PYICLOUD_TRACE:-}" ]; then
+  set -x
+fi
 
 cd "$(dirname "$0")/.."
 
