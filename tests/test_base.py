@@ -1359,137 +1359,86 @@ def test_setup_cookie_directory_with_custom_path(
     with (
         patch("pyicloud.base.path.expanduser") as mock_expanduser,
         patch("pyicloud.base.path.normpath") as mock_normpath,
-        patch("pyicloud.base.path.exists") as mock_exists,
-        patch("pyicloud.base.mkdir") as mock_mkdir,
-        patch("pyicloud.base.chmod") as mock_chmod,
+        patch("pyicloud.base.makedirs") as mock_makedirs,
     ):
-        mock_normpath.return_value = "/home/user/.pyicloud"
-        mock_expanduser.return_value = "/home/user/.pyicloud"
-        mock_exists.return_value = True
+        mock_normpath.return_value = "/normalized/path"
+        mock_expanduser.return_value = "/expanded/path"
 
-        result: str = pyicloud_service._setup_cookie_directory("/home/user/.pyicloud")
+        result: str = pyicloud_service._setup_cookie_directory("/custom/path")
 
-        assert result == "/home/user/.pyicloud"
-        mock_normpath.assert_called_once_with("/home/user/.pyicloud")
-        mock_expanduser.assert_called_once_with("/home/user/.pyicloud")
-        mock_exists.assert_called_once_with("/home/user/.pyicloud")
-        mock_mkdir.assert_not_called()
-        mock_chmod.assert_called_once_with("/home/user/.pyicloud", 0o700)
+        mock_expanduser.assert_called_once_with("/custom/path")
+        mock_normpath.assert_called_once_with("/expanded/path")
+        mock_makedirs.assert_called_once_with("/normalized/path", exist_ok=True)
+        assert result == "/normalized/path"
 
 
-def test_setup_cookie_directory_custom_path_not_exists(
+def test_setup_cookie_directory_with_none_creates_default(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _setup_cookie_directory creates custom directory if it doesn't exist."""
-    with (
-        patch("pyicloud.base.path.expanduser") as mock_expanduser,
-        patch("pyicloud.base.path.normpath") as mock_normpath,
-        patch("pyicloud.base.path.exists") as mock_exists,
-        patch("pyicloud.base.mkdir") as mock_mkdir,
-        patch("pyicloud.base.chmod") as mock_chmod,
-    ):
-        mock_normpath.return_value = "/home/user/.pyicloud"
-        mock_expanduser.return_value = "/home/user/.pyicloud"
-        mock_exists.return_value = False
-
-        result: str = pyicloud_service._setup_cookie_directory("/home/user/.pyicloud")
-
-        assert result == "/home/user/.pyicloud"
-        mock_mkdir.assert_called_once_with("/home/user/.pyicloud")
-        mock_chmod.assert_called_once_with("/home/user/.pyicloud", 0o700)
-
-
-def test_setup_cookie_directory_default_path(
-    pyicloud_service: PyiCloudService,
-) -> None:
-    """Test _setup_cookie_directory uses default temp directory when no path given."""
+    """Test _setup_cookie_directory with None creates default directory structure."""
     with (
         patch("pyicloud.base.gettempdir") as mock_gettempdir,
         patch("pyicloud.base.getpass.getuser") as mock_getuser,
         patch("pyicloud.base.path.join") as mock_join,
-        patch("pyicloud.base.path.exists") as mock_exists,
-        patch("pyicloud.base.mkdir") as mock_mkdir,
+        patch("pyicloud.base.makedirs") as mock_makedirs,
         patch("pyicloud.base.chmod") as mock_chmod,
     ):
         mock_gettempdir.return_value = "/tmp"
         mock_getuser.return_value = "testuser"
         mock_join.side_effect = ["/tmp/pyicloud", "/tmp/pyicloud/testuser"]
-        mock_exists.side_effect = [False, False]
 
         result: str = pyicloud_service._setup_cookie_directory(None)
 
+        mock_gettempdir.assert_called_once()
+        mock_getuser.assert_called_once()
+        assert mock_join.call_count == 2
+        assert mock_makedirs.call_count == 2
+        assert mock_chmod.call_count == 1
+        mock_chmod.assert_called_once_with("/tmp/pyicloud", 0o1777)
         assert result == "/tmp/pyicloud/testuser"
-        assert mock_mkdir.call_count == 2
-        assert mock_chmod.call_count == 2
-        mock_chmod.assert_any_call("/tmp/pyicloud", 0o777)
-        mock_chmod.assert_any_call("/tmp/pyicloud/testuser", 0o700)
 
 
-def test_setup_cookie_directory_default_path_topdir_exists(
+def test_setup_cookie_directory_with_empty_string(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _setup_cookie_directory when topdir already exists."""
+    """Test _setup_cookie_directory with empty string creates default directory structure."""
     with (
         patch("pyicloud.base.gettempdir") as mock_gettempdir,
         patch("pyicloud.base.getpass.getuser") as mock_getuser,
         patch("pyicloud.base.path.join") as mock_join,
-        patch("pyicloud.base.path.exists") as mock_exists,
-        patch("pyicloud.base.mkdir") as mock_mkdir,
-        patch("pyicloud.base.chmod") as mock_chmod,
-    ):
-        mock_gettempdir.return_value = "/tmp"
-        mock_getuser.return_value = "testuser"
-        mock_join.side_effect = ["/tmp/pyicloud", "/tmp/pyicloud/testuser"]
-        mock_exists.side_effect = [True, False]
-
-        result: str = pyicloud_service._setup_cookie_directory(None)
-
-        assert result == "/tmp/pyicloud/testuser"
-        assert mock_mkdir.call_count == 1
-        mock_mkdir.assert_called_once_with("/tmp/pyicloud/testuser")
-        mock_chmod.assert_called_once_with("/tmp/pyicloud/testuser", 0o700)
-
-
-def test_setup_cookie_directory_default_path_all_exists(
-    pyicloud_service: PyiCloudService,
-) -> None:
-    """Test _setup_cookie_directory when both topdir and userdir already exist."""
-    with (
-        patch("pyicloud.base.gettempdir") as mock_gettempdir,
-        patch("pyicloud.base.getpass.getuser") as mock_getuser,
-        patch("pyicloud.base.path.join") as mock_join,
-        patch("pyicloud.base.path.exists") as mock_exists,
-        patch("pyicloud.base.mkdir") as mock_mkdir,
-        patch("pyicloud.base.chmod") as mock_chmod,
-    ):
-        mock_gettempdir.return_value = "/tmp"
-        mock_getuser.return_value = "testuser"
-        mock_join.side_effect = ["/tmp/pyicloud", "/tmp/pyicloud/testuser"]
-        mock_exists.return_value = True
-
-        result: str = pyicloud_service._setup_cookie_directory(None)
-
-        assert result == "/tmp/pyicloud/testuser"
-        mock_mkdir.assert_not_called()
-        mock_chmod.assert_called_once_with("/tmp/pyicloud/testuser", 0o700)
-
-
-def test_setup_cookie_directory_expands_tilde(
-    pyicloud_service: PyiCloudService,
-) -> None:
-    """Test _setup_cookie_directory expands tilde in custom path."""
-    with (
-        patch("pyicloud.base.path.expanduser") as mock_expanduser,
-        patch("pyicloud.base.path.normpath") as mock_normpath,
-        patch("pyicloud.base.path.exists") as mock_exists,
-        patch("pyicloud.base.mkdir"),
+        patch("pyicloud.base.makedirs"),
         patch("pyicloud.base.chmod"),
     ):
-        mock_normpath.return_value = "~/.pyicloud"
+        mock_gettempdir.return_value = "/tmp"
+        mock_getuser.return_value = "testuser"
+        mock_join.side_effect = ["/tmp/pyicloud", "/tmp/pyicloud/testuser"]
+
+        result: str = pyicloud_service._setup_cookie_directory("")
+
+        mock_gettempdir.assert_called_once()
+        mock_getuser.assert_called_once()
+        assert result == "/tmp/pyicloud/testuser"
+
+
+def test_setup_cookie_directory_with_tilde_expansion(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _setup_cookie_directory expands tilde in path."""
+    with (
+        patch("pyicloud.base.path.expanduser") as mock_expanduser,
+        patch("pyicloud.base.path.normpath") as mock_normpath,
+        patch("pyicloud.base.makedirs") as mock_makedirs,
+        patch("pyicloud.base.umask") as mock_umask,
+    ):
+        mock_normpath.return_value = "/home/user/.pyicloud"
         mock_expanduser.return_value = "/home/user/.pyicloud"
-        mock_exists.return_value = True
+        mock_umask.return_value = 0o700
 
         result: str = pyicloud_service._setup_cookie_directory("~/.pyicloud")
 
-        assert result == "/home/user/.pyicloud"
         mock_expanduser.assert_called_once_with("~/.pyicloud")
+        mock_makedirs.assert_called_once_with("/home/user/.pyicloud", exist_ok=True)
+        assert mock_umask.call_count == 2
+        mock_umask.assert_called_with(0o700)
+        mock_umask.assert_any_call(0o077)
+        assert result == "/home/user/.pyicloud"
