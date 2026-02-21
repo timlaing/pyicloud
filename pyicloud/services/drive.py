@@ -280,7 +280,7 @@ class DriveService(BaseService):
                     {
                         "drivewsid": _drivewsid,
                         "etag": _etag,
-                        "clientId": _client_id
+                        "clientId": _client_id,
                     }
                     for _drivewsid, _etag, _client_id in items
                 ],
