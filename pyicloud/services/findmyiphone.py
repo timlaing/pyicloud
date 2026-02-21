@@ -50,12 +50,14 @@ class FindMyiPhoneServiceManager(BaseService):
         session: PyiCloudSession,
         params: dict[str, Any],
         with_family=False,
-        refresh_interval: float = 5.0 * 60.0,
+        refresh_interval: float | None = None,
     ) -> None:
         """Initialize the FindMyiPhoneServiceManager."""
         super().__init__(service_root, session, params)
         self._with_family: bool = with_family
-        self._refresh_interval: float = refresh_interval
+        self._refresh_interval: float = (
+            refresh_interval if refresh_interval is not None else 5.0 * 60.0
+        )
 
         fmip_endpoint: str = f"{service_root}/fmipservice/client/web"
         self._fmip_init_url: str = f"{fmip_endpoint}/initClient"

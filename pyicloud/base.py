@@ -142,6 +142,7 @@ class PyiCloudService:
         with_family: bool = True,
         china_mainland: bool = False,
         accept_terms: bool = False,
+        refresh_interval: float | None = None,
     ) -> None:
         self._is_china_mainland: bool = (
             china_mainland or environ.get("icloud_china", "0") == "1"
@@ -152,6 +153,7 @@ class PyiCloudService:
 
         self._apple_id: str = apple_id
         self._accept_terms: bool = accept_terms
+        self._refresh_interval: float | None = refresh_interval
 
         if self._password_raw is None:
             self._password_raw = get_password_from_keyring(apple_id)
@@ -800,6 +802,7 @@ class PyiCloudService:
                     session=self.session,
                     params=self.params,
                     with_family=self._with_family,
+                    refresh_interval=self._refresh_interval,
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(
