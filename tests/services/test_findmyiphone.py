@@ -283,7 +283,7 @@ def test_findmyiphone_service_manager(
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
 
     # Test refresh_client
-    manager._refresh_client_with_reauth()
+    manager._refresh_client_with_reauth(locate=True)
     assert len(manager) > 0
 
     # Test __getitem__
@@ -352,7 +352,7 @@ def test_refresh_no_content(pyicloud_service_working: PyiCloudService) -> None:
 
         with patch.object(manager.session, "post") as mock_post:
             mock_post.return_value.json.return_value = {}
-            manager._refresh_client()
+            manager._refresh_client(locate=True)
             assert mock_post.call_count == 1
             assert len(manager._devices) == 0
             mock_post.assert_called_with(
@@ -391,12 +391,13 @@ def test_refresh_with_server_ctx(pyicloud_service_working: PyiCloudService) -> N
                 "content": [],
                 "error": None,
             }
-            manager._refresh_client()
-            manager._refresh_client()
+            manager._refresh_client(locate=True)
+            manager._refresh_client(locate=True)
             assert mock_post.call_count == 2
             assert len(manager._devices) == 0
             mock_post.assert_has_calls(
-                [
+                any_order=False,
+                calls=[
                     call(
                         url=manager._fmip_init_url,
                         params=manager.params,
@@ -425,12 +426,15 @@ def test_refresh_with_server_ctx(pyicloud_service_working: PyiCloudService) -> N
                                 "fmly": True,
                                 "timezone": "US/Pacific",
                                 "inactiveTime": 0,
+                                "shouldLocate": True,
+                                "selectedDevice": "all",
                             },
                             "serverContext": {"theftLoss": None},
+                            "isUpdatingAllLocations": True,
                         },
                     ),
                     call().json(),
-                ]
+                ],
             )
 
 
@@ -563,7 +567,7 @@ def test_refresh_client_with_reauth_auth_required(
         patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
         patch.object(manager, "_with_family", False),
     ):
-        manager._refresh_client_with_reauth()
+        manager._refresh_client_with_reauth(locate=True)
         mock_authenticate.assert_called_once_with(force_refresh=True)
         assert mock_refresh.call_count == 2
         mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
@@ -590,7 +594,7 @@ def test_refresh_client_with_reauth_failed(
         patch.object(manager, "_with_family", False),
     ):
         with pytest.raises(PyiCloudAuthRequiredException):
-            manager._refresh_client_with_reauth()
+            manager._refresh_client_with_reauth(locate=True)
         mock_authenticate.assert_called_once_with(force_refresh=True)
         assert mock_refresh.call_count == 2
         mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
@@ -607,7 +611,7 @@ def test_refresh_client_with_reauth_with_locate(
         patch.object(manager, "_refresh_client") as mock_refresh,
         patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
     ):
-        manager._refresh_client_with_reauth()
+        manager._refresh_client_with_reauth(locate=True)
         # Should call _refresh_client once: with locate=True
         assert mock_refresh.call_count == 1
         mock_refresh.assert_any_call(locate=True)
@@ -679,7 +683,7 @@ def test_refresh_client_with_reauth_with_loading_to_done(
                 },
             },
         ]
-        manager._refresh_client_with_reauth()
+        manager._refresh_client_with_reauth(locate=True)
         assert mock_refresh.call_count == 3
         mock_refresh.assert_any_call(locate=True)
 
@@ -810,7 +814,7 @@ def test_refresh_client_with_reauth_with_loading_no_complete(
                 },
             },
         ]
-        manager._refresh_client_with_reauth()
+        manager._refresh_client_with_reauth(locate=True)
         assert mock_refresh.call_count == 6
         mock_refresh.assert_called_with(locate=True)
 
@@ -826,7 +830,7 @@ def test_refresh_client_with_reauth_no_devices_raises(
         patch.object(manager, "_devices", {}),
     ):
         with pytest.raises(PyiCloudNoDevicesException):
-            manager._refresh_client_with_reauth()
+            manager._refresh_client_with_reauth(locate=True)
 
 
 def test_monitor_thread_calls_func_at_interval() -> None:

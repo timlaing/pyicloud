@@ -23,8 +23,9 @@ _MAX_REFRESH_RETRIES: int = 5
 
 
 def _monitor_thread(
-    interval: float, func: Callable, stop_event: threading.Event, locate: bool = True
+    interval: float, func: Callable, stop_event: threading.Event, locate: bool = False
 ) -> None:
+    """Thread function to monitor the FindMyiPhoneServiceManager."""
     next_event: datetime = datetime.now() + timedelta(seconds=interval)
     while not stop_event.wait(timeout=interval):
         if next_event < datetime.now():
@@ -49,10 +50,12 @@ class FindMyiPhoneServiceManager(BaseService):
         session: PyiCloudSession,
         params: dict[str, Any],
         with_family=False,
+        refresh_interval: float = 5.0 * 60.0,
     ) -> None:
         """Initialize the FindMyiPhoneServiceManager."""
         super().__init__(service_root, session, params)
         self._with_family: bool = with_family
+        self._refresh_interval: float = refresh_interval
 
         fmip_endpoint: str = f"{service_root}/fmipservice/client/web"
         self._fmip_init_url: str = f"{fmip_endpoint}/initClient"
@@ -72,9 +75,7 @@ class FindMyiPhoneServiceManager(BaseService):
 
         self._refresh_client_with_reauth(locate=True)
 
-    def _refresh_client_with_reauth(
-        self, retry: bool = False, locate: bool = True
-    ) -> None:
+    def _refresh_client_with_reauth(self, locate: bool, retry: bool = False) -> None:
         """
         Refreshes the FindMyiPhoneService endpoint with re-authentication.
         This ensures that the location data is up-to-date.
@@ -90,14 +91,14 @@ class FindMyiPhoneServiceManager(BaseService):
             _LOGGER.debug("Re-authenticating session")
             self._server_ctx = None
             self.session.service.authenticate(force_refresh=True)
-            self._refresh_client_with_reauth(retry=True, locate=locate)
+            self._refresh_client_with_reauth(locate=locate, retry=True)
             return
 
         # Initialize devices (including family devices if enabled)
         self._initialize_devices(locate=locate)
         self._start_monitor_thread()
 
-    def _initialize_devices(self, locate: bool = False) -> None:
+    def _initialize_devices(self, locate: bool) -> None:
         """Initializes the devices for the FindMyiPhoneServiceManager."""
 
         # If family sharing is enabled, we may need to poll until all devices are ready
@@ -136,7 +137,7 @@ class FindMyiPhoneServiceManager(BaseService):
                 target=_monitor_thread,
                 kwargs={
                     "func": self._refresh_client,
-                    "interval": 1.0,
+                    "interval": self._refresh_interval,
                     "stop_event": self.stop_event,
                 },
                 daemon=True,
@@ -144,7 +145,7 @@ class FindMyiPhoneServiceManager(BaseService):
             self.stop_event.clear()
             self._monitor.start()
 
-    def _refresh_client(self, locate: bool = False) -> None:
+    def _refresh_client(self, locate: bool) -> None:
         """
         Refreshes the FindMyiPhoneService endpoint, this ensures that the location data
         is up-to-date.
@@ -208,7 +209,7 @@ class FindMyiPhoneServiceManager(BaseService):
 
         self._devices_names = list(self._devices.keys())
 
-    def refresh(self, locate: bool = False) -> None:
+    def refresh(self, locate: bool = True) -> None:
         """Public method to refresh the FindMyiPhoneService endpoint."""
         self._refresh_client_with_reauth(locate=locate)
 
