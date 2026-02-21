@@ -47,6 +47,15 @@ from pyicloud import PyiCloudService
 api = PyiCloudService('jappleseed@apple.com', 'password', china_mainland=True)
 ```
 
+If you plan to use this as a daemon / service to keep the connection alive with Apple thus reducing the volume of notification emails.
+A refresh interval can be configured (default = 5 minutes).
+
+```python
+from pyicloud import PyiCloudService
+api = PyiCloudService('jappleseed@apple.com', 'password', refresh_interval=60) # 1 minute refresh
+api.devices
+```
+
 You can also store your password in the system keyring using the
 command-line tool:
 
