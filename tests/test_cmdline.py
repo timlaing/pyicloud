@@ -45,6 +45,7 @@ def test_username_password_invalid() -> None:
         patch("getpass.getpass", return_value=None),
         patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
         patch("builtins.open", new_callable=mock_open),
+        patch("pyicloud.base.makedirs"),
         patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
         pytest.raises(SystemExit, match="2"),
     ):
@@ -70,6 +71,7 @@ def test_username_password_invalid() -> None:
         patch("getpass.getpass", return_value="invalid_pass"),
         patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
         patch("builtins.open", new_callable=mock_open),
+        patch("pyicloud.base.makedirs"),
         patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
         pytest.raises(RuntimeError, match="Bad username or password for invalid_user"),
     ):
@@ -94,6 +96,7 @@ def test_username_password_invalid() -> None:
     with (
         patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
         patch("builtins.open", new_callable=mock_open),
+        patch("pyicloud.base.makedirs"),
         patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
         pytest.raises(RuntimeError, match="Bad username or password for invalid_user"),
     ):
@@ -124,6 +127,7 @@ def test_username_password_requires_2fa() -> None:
         patch("pyicloud.cmdline.confirm", return_value=False),
         patch("keyring.get_password", return_value=None),
         patch("builtins.open", new_callable=mock_open),
+        patch("pyicloud.base.makedirs"),
         patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
     ):
         mock_parse_args.return_value = argparse.Namespace(
@@ -159,6 +163,7 @@ def test_device_outputfile(mock_file_open_write_fixture: MagicMock) -> None:
     with (
         patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
         patch("builtins.open", mock_file_open_write_fixture),
+        patch("pyicloud.base.makedirs"),
         patch("keyring.get_password", return_value=None),
         patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
     ):

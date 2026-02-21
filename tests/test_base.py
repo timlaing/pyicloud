@@ -1350,3 +1350,95 @@ def test_reminders_raises_on_api_exception(
             match="Reminders service not available",
         ):
             _ = pyicloud_service.reminders
+
+
+def test_setup_cookie_directory_with_custom_path(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _setup_cookie_directory with a custom cookie directory path."""
+    with (
+        patch("pyicloud.base.path.expanduser") as mock_expanduser,
+        patch("pyicloud.base.path.normpath") as mock_normpath,
+        patch("pyicloud.base.makedirs") as mock_makedirs,
+    ):
+        mock_normpath.return_value = "/normalized/path"
+        mock_expanduser.return_value = "/expanded/path"
+
+        result: str = pyicloud_service._setup_cookie_directory("/custom/path")
+
+        mock_expanduser.assert_called_once_with("/custom/path")
+        mock_normpath.assert_called_once_with("/expanded/path")
+        mock_makedirs.assert_called_once_with("/normalized/path", exist_ok=True)
+        assert result == "/normalized/path"
+
+
+def test_setup_cookie_directory_with_none_creates_default(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _setup_cookie_directory with None creates default directory structure."""
+    with (
+        patch("pyicloud.base.gettempdir") as mock_gettempdir,
+        patch("pyicloud.base.getpass.getuser") as mock_getuser,
+        patch("pyicloud.base.path.join") as mock_join,
+        patch("pyicloud.base.makedirs") as mock_makedirs,
+        patch("pyicloud.base.chmod") as mock_chmod,
+    ):
+        mock_gettempdir.return_value = "/tmp"
+        mock_getuser.return_value = "testuser"
+        mock_join.side_effect = ["/tmp/pyicloud", "/tmp/pyicloud/testuser"]
+
+        result: str = pyicloud_service._setup_cookie_directory(None)
+
+        mock_gettempdir.assert_called_once()
+        mock_getuser.assert_called_once()
+        assert mock_join.call_count == 2
+        assert mock_makedirs.call_count == 2
+        assert mock_chmod.call_count == 1
+        mock_chmod.assert_called_once_with("/tmp/pyicloud", 0o1777)
+        assert result == "/tmp/pyicloud/testuser"
+
+
+def test_setup_cookie_directory_with_empty_string(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _setup_cookie_directory with empty string creates default directory structure."""
+    with (
+        patch("pyicloud.base.gettempdir") as mock_gettempdir,
+        patch("pyicloud.base.getpass.getuser") as mock_getuser,
+        patch("pyicloud.base.path.join") as mock_join,
+        patch("pyicloud.base.makedirs"),
+        patch("pyicloud.base.chmod"),
+    ):
+        mock_gettempdir.return_value = "/tmp"
+        mock_getuser.return_value = "testuser"
+        mock_join.side_effect = ["/tmp/pyicloud", "/tmp/pyicloud/testuser"]
+
+        result: str = pyicloud_service._setup_cookie_directory("")
+
+        mock_gettempdir.assert_called_once()
+        mock_getuser.assert_called_once()
+        assert result == "/tmp/pyicloud/testuser"
+
+
+def test_setup_cookie_directory_with_tilde_expansion(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test _setup_cookie_directory expands tilde in path."""
+    with (
+        patch("pyicloud.base.path.expanduser") as mock_expanduser,
+        patch("pyicloud.base.path.normpath") as mock_normpath,
+        patch("pyicloud.base.makedirs") as mock_makedirs,
+        patch("pyicloud.base.umask") as mock_umask,
+    ):
+        mock_normpath.return_value = "/home/user/.pyicloud"
+        mock_expanduser.return_value = "/home/user/.pyicloud"
+        mock_umask.return_value = 0o700
+
+        result: str = pyicloud_service._setup_cookie_directory("~/.pyicloud")
+
+        mock_expanduser.assert_called_once_with("~/.pyicloud")
+        mock_makedirs.assert_called_once_with("/home/user/.pyicloud", exist_ok=True)
+        assert mock_umask.call_count == 2
+        mock_umask.assert_called_with(0o700)
+        mock_umask.assert_any_call(0o077)
+        assert result == "/home/user/.pyicloud"

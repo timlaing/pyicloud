@@ -83,6 +83,38 @@ def mock_mkdir():
         yield mkdir_mock
 
 
+@pytest.fixture(autouse=True, scope="function")
+def mock_makedirs():
+    """Mock the makedirs function to prevent file system access."""
+    mkdirs = os.makedirs
+
+    def my_makedirs(path, *args, **kwargs):
+        if "python-test-results" not in path:
+            raise FileSystemAccessError(
+                f"You should not be creating directories in tests. {path}"
+            )
+        return mkdirs(path, *args, **kwargs)
+
+    with patch("os.makedirs", my_makedirs) as mkdir_mock:
+        yield mkdir_mock
+
+
+@pytest.fixture(autouse=True, scope="function")
+def mock_chmod():
+    """Mock the chmod function to prevent file system access."""
+    chmod = os.chmod
+
+    def my_chmod(path, *args, **kwargs):
+        if "python-test-results" not in path:
+            raise FileSystemAccessError(
+                f"You should not be changing file permissions in tests. {path}"
+            )
+        return chmod(path, *args, **kwargs)
+
+    with patch("os.chmod", my_chmod) as chmod_mock:
+        yield chmod_mock
+
+
 @pytest.fixture(autouse=True, scope="session")
 def mock_open_fixture():
     """Mock the open function to prevent file system access."""

@@ -5,7 +5,7 @@ import getpass
 import json
 import logging
 import time
-from os import environ, mkdir, path
+from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
 from typing import Any, Dict, List, Optional
 from uuid import uuid1
@@ -115,21 +115,22 @@ class PyiCloudService:
         self._home_endpoint: str = f"https://www.icloud.com{icloud_china}"
         self._setup_endpoint: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
 
-    def _setup_cookie_directory(self, cookie_directory: Optional[str]) -> str:
+    def _setup_cookie_directory(self, cookie_directory: Optional[str] = None) -> str:
         """Set up the cookie directory for the service."""
         _cookie_directory: str = ""
         if cookie_directory:
-            _cookie_directory = path.expanduser(path.normpath(cookie_directory))
-            if not path.exists(_cookie_directory):
-                mkdir(_cookie_directory, 0o700)
+            _cookie_directory = path.normpath(path.expanduser(cookie_directory))
         else:
             topdir: str = path.join(gettempdir(), "pyicloud")
+            makedirs(topdir, exist_ok=True)
+            chmod(topdir, 0o1777)
             _cookie_directory = path.join(topdir, getpass.getuser())
-            if not path.exists(topdir):
-                mkdir(topdir, 0o777)
-            if not path.exists(_cookie_directory):
-                mkdir(_cookie_directory, 0o700)
 
+        old_umask = umask(0o077)
+        try:
+            makedirs(_cookie_directory, exist_ok=True)
+        finally:
+            umask(old_umask)
         return _cookie_directory
 
     def __init__(
