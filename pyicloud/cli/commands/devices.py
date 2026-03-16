@@ -194,13 +194,16 @@ def devices_export(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
     output: Path = typer.Option(..., "--output", help="Destination JSON file."),
-    raw: bool = typer.Option(
-        True,
-        "--raw/--normalized",
-        help="Write the raw device payload instead of normalized fields.",
+    raw: bool | None = typer.Option(
+        None,
+        "--raw",
+        help="Write the raw device payload.",
     ),
-    locate: bool = typer.Option(
-        False, "--locate", help="Include the current location in normalized exports."
+    normalized: bool = typer.Option(
+        False,
+        "--normalized",
+        hidden=True,
+        help="Write normalized device fields instead of the raw payload.",
     ),
 ) -> None:
     """Export a device snapshot to JSON."""
@@ -208,9 +211,13 @@ def devices_export(
     state = get_state(ctx)
     api = state.get_api()
     idevice = resolve_device(api, device)
-    payload = idevice.data if raw else normalize_device_details(idevice, locate=locate)
+    if raw and normalized:
+        raise typer.BadParameter("Choose either --raw or --normalized, not both.")
+
+    use_raw = raw is not False and not normalized
+    payload = idevice.data if use_raw else normalize_device_details(idevice)
     write_json_file(output, payload)
     if state.json_output:
-        state.write_json({"device_id": idevice.id, "path": str(output), "raw": raw})
+        state.write_json({"device_id": idevice.id, "path": str(output), "raw": use_raw})
         return
     state.console.print(str(output))

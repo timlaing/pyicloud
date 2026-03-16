@@ -709,6 +709,7 @@ def test_drive_and_photos_commands() -> None:
 
     fake_api = FakeAPI()
     output_path = Path("/tmp/python-test-results/test_cmdline/photo.bin")
+    json_output_path = Path("/tmp/python-test-results/test_cmdline/report.txt")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     drive_result = _invoke(fake_api, "drive", "list", "/")
     photo_result = _invoke(
@@ -719,10 +720,22 @@ def test_drive_and_photos_commands() -> None:
         "--output",
         str(output_path),
     )
+    json_drive_result = _invoke(
+        fake_api,
+        "--format",
+        "json",
+        "drive",
+        "download",
+        "/report.txt",
+        "--output",
+        str(json_output_path),
+    )
     assert drive_result.exit_code == 0
     assert "report.txt" in drive_result.stdout
     assert photo_result.exit_code == 0
     assert output_path.read_bytes() == b"photo-1:original"
+    assert json_drive_result.exit_code == 0
+    assert json.loads(json_drive_result.stdout)["path"] == str(json_output_path)
 
 
 def test_hidemyemail_commands() -> None:
@@ -803,4 +816,5 @@ def test_main_returns_clean_error_for_user_abort(capsys) -> None:
         code = cli_module.main()
     captured = capsys.readouterr()
     assert code == 1
+    assert captured.out == ""
     assert message in captured.err

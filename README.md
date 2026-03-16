@@ -68,6 +68,21 @@ before the service subcommand:
 $ icloud --username=jappleseed@apple.com --format json account summary
 ```
 
+The main global options are:
+
+- `--username`: Apple ID username
+- `--password`: Apple ID password; if omitted, pyicloud uses the system keyring or prompts interactively
+- `--china-mainland`: use China mainland Apple web service endpoints
+- `--interactive/--non-interactive`: enable or disable prompts for auth flows and keyring storage
+- `--delete-from-keyring`: delete the stored password for `--username` and exit
+- `--accept-terms`: automatically accept pending Apple web terms when possible
+- `--with-family`: include family devices in Find My listings
+- `--session-dir`: custom directory for session and cookie files
+- `--http-proxy` / `--https-proxy`: per-protocol proxy settings
+- `--no-verify-ssl`: disable TLS verification for requests
+- `--log-level`: one of `error`, `warning`, `info`, or `debug`
+- `--format`: one of `text` or `json`
+
 You can store your password in the system keyring using the
 command-line tool:
 
