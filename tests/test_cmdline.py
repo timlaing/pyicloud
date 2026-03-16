@@ -1,423 +1,806 @@
-"""Cmdline tests."""
-# pylint: disable=protected-access
+"""Tests for the Typer-based pyicloud CLI."""
 
-import argparse
-import pickle
-from io import BytesIO
-from pprint import pformat
-from unittest.mock import MagicMock, PropertyMock, mock_open, patch
+from __future__ import annotations
 
-import pytest
+import importlib
+import json
+from contextlib import nullcontext
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Iterable, Optional
+from unittest.mock import MagicMock, patch
 
-from pyicloud.cmdline import (
-    _create_parser,
-    _display_device_message_option,
-    _display_device_silent_message_option,
-    _enable_lost_mode_option,
-    _handle_2fa,
-    _handle_2sa,
-    _list_devices_option,
-    _play_device_sound_option,
-    create_pickled_data,
-    main,
-)
-from pyicloud.services.findmyiphone import AppleDevice
-from tests import PyiCloudSessionMock
-from tests.const import (
-    AUTHENTICATED_USER,
-    FMI_FAMILY_WORKING,
-    REQUIRES_2FA_USER,
-    VALID_2FA_CODE,
-    VALID_PASSWORD,
-)
+from typer.testing import CliRunner
+
+cli_module = importlib.import_module("pyicloud.cli.app")
+context_module = importlib.import_module("pyicloud.cli.context")
+app = cli_module.app
 
 
-def test_no_arg() -> None:
-    """Test no args."""
-    with pytest.raises(SystemExit, match="2"):
-        main()
+class FakeDevice:
+    """Find My device fixture."""
+
+    def __init__(self) -> None:
+        self.id = "device-1"
+        self.name = "Jacob's iPhone"
+        self.deviceDisplayName = "iPhone"
+        self.deviceClass = "iPhone"
+        self.deviceModel = "iPhone16,1"
+        self.batteryLevel = 0.87
+        self.batteryStatus = "Charging"
+        self.location = {"latitude": 49.0, "longitude": 6.0}
+        self.data = {
+            "id": self.id,
+            "name": self.name,
+            "deviceDisplayName": self.deviceDisplayName,
+            "deviceClass": self.deviceClass,
+            "deviceModel": self.deviceModel,
+            "batteryLevel": self.batteryLevel,
+            "batteryStatus": self.batteryStatus,
+            "location": self.location,
+        }
+        self.sound_subject: Optional[str] = None
+        self.messages: list[dict[str, Any]] = []
+        self.lost_mode: Optional[dict[str, str]] = None
+        self.erase_message: Optional[str] = None
+
+    def play_sound(self, subject: str = "Find My iPhone Alert") -> None:
+        self.sound_subject = subject
+
+    def display_message(self, subject: str, message: str, sounds: bool) -> None:
+        self.messages.append({"subject": subject, "message": message, "sounds": sounds})
+
+    def lost_device(self, number: str, text: str, newpasscode: str) -> None:
+        self.lost_mode = {"number": number, "text": text, "newpasscode": newpasscode}
+
+    def erase_device(self, message: str) -> None:
+        self.erase_message = message
 
 
-def test_username_password_invalid() -> None:
-    """Test username and password commands."""
-    # No password supplied
-    with (
-        patch("getpass.getpass", return_value=None),
-        patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
-        patch("builtins.open", new_callable=mock_open),
-        patch("pyicloud.base.makedirs"),
-        patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
-        pytest.raises(SystemExit, match="2"),
-    ):
-        mock_parse_args.return_value = argparse.Namespace(
-            username="valid_user",
-            password=None,
-            debug=False,
-            interactive=True,
-            china_mainland=False,
-            delete_from_keyring=False,
-            loglevel="info",
-            no_verify_ssl=False,
-            http_proxy=None,
-            https_proxy=None,
-            session_dir="./",
-            accept_terms=False,
-            with_family=False,
+class FakeDriveResponse:
+    """Download response fixture."""
+
+    def iter_content(self, chunk_size: int = 8192):  # pragma: no cover - trivial
+        yield b"hello"
+
+
+class FakeDriveNode:
+    """Drive node fixture."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        node_type: str = "folder",
+        size: Optional[int] = None,
+        modified: Optional[datetime] = None,
+        children: Optional[list["FakeDriveNode"]] = None,
+    ) -> None:
+        self.name = name
+        self.type = node_type
+        self.size = size
+        self.date_modified = modified
+        self._children = children or []
+        self.data = {"name": name, "type": node_type, "size": size}
+
+    def get_children(self) -> list["FakeDriveNode"]:
+        return list(self._children)
+
+    def __getitem__(self, key: str) -> "FakeDriveNode":
+        for child in self._children:
+            if child.name == key:
+                return child
+        raise KeyError(key)
+
+    def open(self, **kwargs) -> FakeDriveResponse:  # pragma: no cover - trivial
+        return FakeDriveResponse()
+
+
+class FakeAlbumContainer(list):
+    """Photo album container fixture."""
+
+    def find(self, name: Optional[str]):
+        if name is None:
+            return None
+        for album in self:
+            if album.name == name:
+                return album
+        return None
+
+
+class FakePhoto:
+    """Photo asset fixture."""
+
+    def __init__(self, photo_id: str, filename: str) -> None:
+        self.id = photo_id
+        self.filename = filename
+        self.item_type = "image"
+        self.created = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        self.size = 1234
+
+    def download(self, version: str = "original") -> bytes:
+        return f"{self.id}:{version}".encode()
+
+
+class FakePhotoAlbum:
+    """Photo album fixture."""
+
+    def __init__(self, name: str, photos: list[FakePhoto]) -> None:
+        self.name = name
+        self.fullname = f"/{name}"
+        self._photos = photos
+
+    @property
+    def photos(self):
+        return iter(self._photos)
+
+    def __len__(self) -> int:
+        return len(self._photos)
+
+    def __getitem__(self, photo_id: str) -> FakePhoto:
+        for photo in self._photos:
+            if photo.id == photo_id:
+                return photo
+        raise KeyError(photo_id)
+
+
+class FakeHideMyEmail:
+    """Hide My Email fixture."""
+
+    def __init__(self) -> None:
+        self.aliases = [
+            {
+                "hme": "alpha@privaterelay.appleid.com",
+                "label": "Shopping",
+                "anonymousId": "alias-1",
+            }
+        ]
+
+    def __iter__(self):
+        return iter(self.aliases)
+
+    def generate(self) -> str:
+        return "generated@privaterelay.appleid.com"
+
+    def reserve(
+        self, email: str, label: str, note: str = "Generated"
+    ) -> dict[str, Any]:
+        return {"anonymousId": "alias-2", "hme": email, "label": label, "note": note}
+
+    def update_metadata(
+        self, anonymous_id: str, label: str, note: str
+    ) -> dict[str, Any]:
+        return {"anonymousId": anonymous_id, "label": label, "note": note}
+
+    def deactivate(self, anonymous_id: str) -> dict[str, Any]:
+        return {"anonymousId": anonymous_id, "active": False}
+
+    def reactivate(self, anonymous_id: str) -> dict[str, Any]:
+        return {"anonymousId": anonymous_id, "active": True}
+
+    def delete(self, anonymous_id: str) -> dict[str, Any]:
+        return {"anonymousId": anonymous_id, "deleted": True}
+
+
+@dataclass
+class FakeReminder:
+    """Reminder fixture."""
+
+    id: str
+    title: str
+    completed: bool = False
+    due_date: Optional[datetime] = None
+    priority: int = 0
+    desc: str = ""
+
+
+@dataclass
+class FakeNoteSummary:
+    """Note summary fixture."""
+
+    id: str
+    title: str
+    folder_name: str
+    modified_at: datetime
+    is_deleted: bool = False
+
+
+@dataclass
+class FakeNote:
+    """Note fixture."""
+
+    id: str
+    title: str
+    text: str
+    attachments: Optional[list[Any]] = None
+
+
+@dataclass
+class FakeChange:
+    """Change fixture."""
+
+    type: str
+    reminder_id: Optional[str] = None
+    reminder: Optional[Any] = None
+    note_id: Optional[str] = None
+    note: Optional[Any] = None
+
+
+class FakeReminders:
+    """Reminders service fixture."""
+
+    def __init__(self) -> None:
+        self._lists = [
+            SimpleNamespace(
+                id="list-1",
+                title="Inbox",
+                color='{"daHexString":"#007AFF","ckSymbolicColorName":"blue"}',
+                count=2,
+            )
+        ]
+        self._reminders = [
+            FakeReminder(id="rem-1", title="Buy milk", priority=1),
+            FakeReminder(id="rem-2", title="Pay rent", completed=True),
+        ]
+
+    def lists(self) -> Iterable[Any]:
+        return list(self._lists)
+
+    def reminders(
+        self, list_id: Optional[str] = None, include_completed: bool = False
+    ) -> Iterable[FakeReminder]:
+        if include_completed:
+            return list(self._reminders)
+        return [reminder for reminder in self._reminders if not reminder.completed]
+
+    def get(self, reminder_id: str) -> FakeReminder:
+        for reminder in self._reminders:
+            if reminder.id == reminder_id:
+                return reminder
+        raise KeyError(reminder_id)
+
+    def create(self, **kwargs: Any) -> FakeReminder:
+        reminder = FakeReminder(
+            id="rem-created",
+            title=kwargs["title"],
+            due_date=kwargs.get("due_date"),
+            priority=kwargs.get("priority", 0),
+            desc=kwargs.get("desc", ""),
         )
-        main()
+        self._reminders.append(reminder)
+        return reminder
 
-    # Bad username or password
-    with (
-        patch("getpass.getpass", return_value="invalid_pass"),
-        patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
-        patch("builtins.open", new_callable=mock_open),
-        patch("pyicloud.base.makedirs"),
-        patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
-        pytest.raises(RuntimeError, match="Bad username or password for invalid_user"),
-    ):
-        mock_parse_args.return_value = argparse.Namespace(
-            username="invalid_user",
-            password=None,
-            debug=False,
-            interactive=True,
-            china_mainland=False,
-            delete_from_keyring=False,
-            loglevel="error",
-            no_verify_ssl=True,
-            http_proxy=None,
-            https_proxy=None,
-            session_dir="./",
-            accept_terms=False,
-            with_family=False,
-        )
-        main()
+    def update(self, reminder: FakeReminder) -> None:
+        return None
 
-    # We should not use getpass for this one, but we reset the password at login fail
-    with (
-        patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
-        patch("builtins.open", new_callable=mock_open),
-        patch("pyicloud.base.makedirs"),
-        patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
-        pytest.raises(RuntimeError, match="Bad username or password for invalid_user"),
-    ):
-        mock_parse_args.return_value = argparse.Namespace(
-            username="invalid_user",
-            password="invalid_pass",
-            debug=False,
-            interactive=False,
-            china_mainland=False,
-            delete_from_keyring=False,
-            loglevel="warning",
-            no_verify_ssl=False,
-            http_proxy="http://proxy:8080",
-            https_proxy="https://proxy:8080",
-            session_dir="./",
-            accept_terms=True,
-            with_family=True,
-        )
-        main()
+    def delete(self, reminder: FakeReminder) -> None:
+        reminder.completed = True
 
-
-def test_username_password_requires_2fa() -> None:
-    """Test username and password commands."""
-    # Valid connection for the first time
-    with (
-        patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
-        patch("pyicloud.cmdline.input", return_value=VALID_2FA_CODE),
-        patch("pyicloud.cmdline.confirm", return_value=False),
-        patch("keyring.get_password", return_value=None),
-        patch("builtins.open", new_callable=mock_open),
-        patch("pyicloud.base.makedirs"),
-        patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
-    ):
-        mock_parse_args.return_value = argparse.Namespace(
-            username=REQUIRES_2FA_USER,
-            password=VALID_PASSWORD,
-            debug=False,
-            interactive=True,
-            china_mainland=False,
-            delete_from_keyring=False,
-            device_id=None,
-            locate=None,
-            output_to_file=None,
-            longlist=None,
-            list=None,
-            sound=None,
-            message=None,
-            silentmessage=None,
-            lostmode=None,
-            loglevel="warning",
-            no_verify_ssl=True,
-            http_proxy=None,
-            https_proxy=None,
-            session_dir="./",
-            accept_terms=False,
-            with_family=False,
-        )
-        main()
-
-
-def test_device_outputfile(mock_file_open_write_fixture: MagicMock) -> None:
-    """Test the outputfile command."""
-
-    with (
-        patch("argparse.ArgumentParser.parse_args") as mock_parse_args,
-        patch("builtins.open", mock_file_open_write_fixture),
-        patch("pyicloud.base.makedirs"),
-        patch("keyring.get_password", return_value=None),
-        patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
-    ):
-        mock_parse_args.return_value = argparse.Namespace(
-            username=AUTHENTICATED_USER,
-            password=VALID_PASSWORD,
-            debug=False,
-            interactive=False,
-            china_mainland=False,
-            delete_from_keyring=False,
-            device_id=None,
-            locate=None,
-            output_to_file=True,
-            longlist=None,
-            list=None,
-            sound=None,
-            message=None,
-            silentmessage=None,
-            lostmode=None,
-            loglevel="none",
-            no_verify_ssl=True,
-            http_proxy=None,
-            https_proxy=None,
-            session_dir="./",
-            accept_terms=False,
-            with_family=False,
-        )
-        main()
-
-        devices = FMI_FAMILY_WORKING.get("content")
-        if devices:
-            for device in devices:
-                file_name = device.get("name").strip().lower() + ".fmip_snapshot"
-                assert file_name in mock_file_open_write_fixture.written_data
-                buffer = BytesIO(mock_file_open_write_fixture.written_data[file_name])
-
-                contents = []
-                while True:
-                    try:
-                        contents.append(pickle.load(buffer))
-                    except EOFError:
-                        break
-                assert contents == [device]
-
-
-def test_create_pickled_data() -> None:
-    """Test the creation of pickled data."""
-    idevice = MagicMock()
-    idevice.data = {"key": "value"}
-    filename = "test.pkl"
-    with (
-        patch("builtins.open", new_callable=mock_open) as mock_file,
-        patch("pickle.dump") as mock_pickle_dump,
-        patch("pyicloud.base.PyiCloudSession", new=PyiCloudSessionMock),
-    ):
-        create_pickled_data(idevice, filename)
-        mock_file.assert_called_with(filename, "wb")
-        mock_pickle_dump.assert_called_with(
-            idevice.data, mock_file(), protocol=pickle.HIGHEST_PROTOCOL
+    def iter_changes(self, since: Optional[str] = None):
+        yield FakeChange(
+            type="updated", reminder_id="rem-1", reminder=self._reminders[0]
         )
 
 
-def test_create_parser() -> None:
-    """Test the creation of the parser."""
-    parser: argparse.ArgumentParser = _create_parser()
-    assert isinstance(parser, argparse.ArgumentParser)
+class FakeNotes:
+    """Notes service fixture."""
+
+    def __init__(self) -> None:
+        self._recent = [
+            FakeNoteSummary(
+                id="note-deleted",
+                title="Deleted Note",
+                folder_name="Recently Deleted",
+                modified_at=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                is_deleted=True,
+            ),
+            FakeNoteSummary(
+                id="note-1",
+                title="Daily Plan",
+                folder_name="Notes",
+                modified_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
+            ),
+        ]
+        self._folders = [
+            SimpleNamespace(
+                id="folder-1",
+                name="Notes",
+                parent_id=None,
+                has_subfolders=False,
+            )
+        ]
+
+    def recents(self, *, limit: int = 50):
+        return self._recent[:limit]
+
+    def folders(self):
+        return list(self._folders)
+
+    def in_folder(self, folder_id: str, limit: int = 50):
+        return self._recent[:limit]
+
+    def iter_all(self, since: Optional[str] = None):
+        return iter(self._recent)
+
+    def get(self, note_id: str, *, with_attachments: bool = False):
+        attachments = (
+            [
+                SimpleNamespace(
+                    id="att-1", filename="file.pdf", uti="com.adobe.pdf", size=12
+                )
+            ]
+            if with_attachments
+            else None
+        )
+        return FakeNote(
+            id=note_id, title="Daily Plan", text="Ship CLI", attachments=attachments
+        )
+
+    def render_note(self, note_id: str, **kwargs: Any) -> str:
+        return f"<p>{note_id}</p>"
+
+    def export_note(self, note_id: str, output_dir: str, **kwargs: Any) -> str:
+        return str(Path(output_dir) / f"{note_id}.html")
+
+    def iter_changes(self, since: Optional[str] = None):
+        yield FakeChange(type="updated", note_id="note-1", note=self.get("note-1"))
 
 
-def test_enable_lost_mode_option() -> None:
-    """Test the enable lost mode option."""
-    command_line = MagicMock(
-        lostmode=True,
-        device_id="123",
-        lost_phone="1234567890",
-        lost_message="Lost",
-        lost_password="pass",
-    )
-    dev = MagicMock()
-    _enable_lost_mode_option(command_line, dev)
-    dev.lost_device.assert_called_with(
-        number="1234567890", text="Lost", newpasscode="pass"
-    )
+class FakeAPI:
+    """Authenticated API fixture."""
+
+    def __init__(self) -> None:
+        self.requires_2fa = False
+        self.requires_2sa = False
+        self.is_trusted_session = True
+        self.fido2_devices: list[dict[str, Any]] = []
+        self.trusted_devices: list[dict[str, Any]] = []
+        self.validate_2fa_code = MagicMock(return_value=True)
+        self.confirm_security_key = MagicMock(return_value=True)
+        self.send_verification_code = MagicMock(return_value=True)
+        self.validate_verification_code = MagicMock(return_value=True)
+        self.trust_session = MagicMock(return_value=True)
+        self.account_name = "user@example.com"
+        self.devices = [FakeDevice()]
+        self.account = SimpleNamespace(
+            devices=[
+                {
+                    "name": "Jacob's iPhone",
+                    "modelDisplayName": "iPhone 16 Pro",
+                    "deviceClass": "iPhone",
+                    "id": "acc-device-1",
+                }
+            ],
+            family=[
+                SimpleNamespace(
+                    full_name="Jane Doe",
+                    apple_id="jane@example.com",
+                    dsid="123",
+                    age_classification="adult",
+                    has_parental_privileges=True,
+                )
+            ],
+            storage=SimpleNamespace(
+                usage=SimpleNamespace(
+                    used_storage_in_bytes=100,
+                    available_storage_in_bytes=900,
+                    total_storage_in_bytes=1000,
+                    used_storage_in_percent=10.0,
+                ),
+                usages_by_media={
+                    "photos": SimpleNamespace(
+                        label="Photos", color="FFFFFF", usage_in_bytes=80
+                    )
+                },
+            ),
+            summary_plan={"summary": {"limit": 50, "limitUnits": "GIB"}},
+        )
+        self.calendar = SimpleNamespace(
+            get_calendars=lambda: [
+                {
+                    "guid": "cal-1",
+                    "title": "Home",
+                    "color": "#fff",
+                    "shareType": "owner",
+                }
+            ],
+            get_events=lambda **kwargs: [
+                {
+                    "guid": "event-1",
+                    "pGuid": "cal-1",
+                    "title": "Dentist",
+                    "startDate": "2026-03-01T09:00:00Z",
+                    "endDate": "2026-03-01T10:00:00Z",
+                }
+            ],
+        )
+        self.contacts = SimpleNamespace(
+            all=[
+                {
+                    "firstName": "John",
+                    "lastName": "Appleseed",
+                    "phones": [{"field": "+1 555-0100"}],
+                    "emails": [{"field": "john@example.com"}],
+                }
+            ],
+            me=SimpleNamespace(
+                first_name="John",
+                last_name="Appleseed",
+                photo={"url": "https://example.com/photo.jpg"},
+                raw_data={"contacts": [{"firstName": "John"}]},
+            ),
+        )
+        drive_file = FakeDriveNode(
+            "report.txt",
+            node_type="file",
+            size=42,
+            modified=datetime(2026, 3, 1, tzinfo=timezone.utc),
+        )
+        self.drive = SimpleNamespace(
+            root=FakeDriveNode("root", children=[drive_file]),
+            trash=FakeDriveNode("trash"),
+        )
+        photo_album = FakePhotoAlbum("All Photos", [FakePhoto("photo-1", "img.jpg")])
+        self.photos = SimpleNamespace(
+            albums=FakeAlbumContainer([photo_album]),
+            all=photo_album,
+        )
+        self.hidemyemail = FakeHideMyEmail()
+        self.reminders = FakeReminders()
+        self.notes = FakeNotes()
 
 
-def test_display_device_message_option() -> None:
-    """Test the display device message option."""
-    command_line = MagicMock(message="Test Message", device_id="123")
-    dev = MagicMock()
-    _display_device_message_option(command_line, dev)
-    dev.display_message.assert_called_with(
-        subject="A Message", message="Test Message", sounds=True
-    )
+def _runner() -> CliRunner:
+    return CliRunner()
 
 
-def test_display_device_silent_message_option() -> None:
-    """Test the display device silent message option."""
-    command_line = MagicMock(silentmessage="Silent Message", device_id="123")
-    dev = MagicMock()
-    _display_device_silent_message_option(command_line, dev)
-    dev.display_message.assert_called_with(
-        subject="A Silent Message", message="Silent Message", sounds=False
-    )
-
-
-def test_play_device_sound_option() -> None:
-    """Test the play device sound option."""
-    command_line = MagicMock(sound=True, device_id="123")
-    dev = MagicMock()
-    _play_device_sound_option(command_line, dev)
-    dev.play_sound.assert_called_once()
-
-
-def test_handle_2sa() -> None:
-    """Test the handle 2sa function."""
-    api = MagicMock()
-    api.send_verification_code.return_value = True
-    api.validate_verification_code.return_value = True
+def _invoke(
+    fake_api: FakeAPI,
+    *args: str,
+    interactive: bool = False,
+):
+    runner = _runner()
+    cli_args = [
+        "--username",
+        "user@example.com",
+        "--password",
+        "secret",
+        *([] if interactive else ["--non-interactive"]),
+        *args,
+    ]
     with (
-        patch("pyicloud.cmdline.input", side_effect=["0", "123456"]),
-        patch(
-            "pyicloud.cmdline._show_devices",
-            return_value=[{"deviceName": "Test Device"}],
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
         ),
     ):
-        _handle_2sa(api)
+        return runner.invoke(app, cli_args)
 
-        api.send_verification_code.assert_called_once_with(
-            {"deviceName": "Test Device"}
+
+def test_root_help() -> None:
+    """The root command should expose the service subcommands and format option."""
+
+    result = _runner().invoke(app, ["--help"])
+    assert result.exit_code == 0
+    assert "--format" in result.stdout
+    assert "--json" not in result.stdout
+    assert "--debug" not in result.stdout
+    for command in (
+        "account",
+        "devices",
+        "calendar",
+        "contacts",
+        "drive",
+        "photos",
+        "hidemyemail",
+        "reminders",
+        "notes",
+    ):
+        assert command in result.stdout
+
+
+def test_group_help() -> None:
+    """Each command group should expose help."""
+
+    for command in (
+        "account",
+        "devices",
+        "calendar",
+        "contacts",
+        "drive",
+        "photos",
+        "hidemyemail",
+        "reminders",
+        "notes",
+    ):
+        result = _runner().invoke(app, [command, "--help"])
+        assert result.exit_code == 0
+
+
+def test_account_summary_command() -> None:
+    """Account summary should render the storage overview."""
+
+    result = _invoke(FakeAPI(), "account", "summary")
+    assert result.exit_code == 0
+    assert "Account: user@example.com" in result.stdout
+    assert "Storage: 10.0% used" in result.stdout
+
+
+def test_format_option_outputs_json() -> None:
+    """The root format option should support machine-readable JSON."""
+
+    result = _invoke(FakeAPI(), "--format", "json", "account", "summary")
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["account_name"] == "user@example.com"
+    assert payload["devices_count"] == 1
+
+
+def test_default_log_level_is_warning() -> None:
+    """Authenticated commands should default pyicloud logs to warning."""
+
+    with patch.object(context_module.logging, "basicConfig") as basic_config:
+        result = _invoke(FakeAPI(), "account", "summary")
+    assert result.exit_code == 0
+    basic_config.assert_called_once_with(level=context_module.logging.WARNING)
+
+
+def test_missing_username_errors_cleanly() -> None:
+    """Authenticated commands should fail without a traceback when username is missing."""
+
+    with patch.object(
+        context_module, "configurable_ssl_verification", return_value=nullcontext()
+    ):
+        result = _runner().invoke(app, ["account", "summary"])
+    assert result.exit_code != 0
+    assert "The --username option is required" in result.exception.args[0]
+
+
+def test_delete_from_keyring() -> None:
+    """The keyring delete path should work without invoking a subcommand."""
+
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+    ):
+        result = _runner().invoke(
+            app,
+            ["--username", "user@example.com", "--delete-from-keyring"],
         )
-        api.validate_verification_code.assert_called_once_with(
-            {"deviceName": "Test Device"},
-            "123456",
-        )
+    assert result.exit_code == 0
+    delete_password.assert_called_once_with("user@example.com")
+    assert "Deleted stored password from keyring." in result.stdout
 
 
-def test_handle_2fa() -> None:
-    """Test the handle 2fa function."""
-    api = MagicMock()
-    api.validate_2fa_code.return_value = True
-    with patch("pyicloud.cmdline.input", return_value="123456"):
-        _handle_2fa(api)
-        api.validate_2fa_code.assert_called_once_with("123456")
+def test_security_key_flow() -> None:
+    """Security-key 2FA should confirm the selected key."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.fido2_devices = [{"id": "sk-1"}]
+    result = _invoke(fake_api, "account", "summary")
+    assert result.exit_code == 0
+    fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
 
 
-def test_list_devices_option_locate() -> None:
-    """Test the list devices option with locate."""
-    # Create a mock command_line object with the locate option enabled
-    command_line = MagicMock(
-        locate=True,  # Enable the locate option
-        longlist=False,
-        output_to_file=False,
-        list=False,
+def test_trusted_device_2sa_flow() -> None:
+    """2SA should send and validate a verification code."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2sa = True
+    fake_api.trusted_devices = [{"deviceName": "Trusted Device", "phoneNumber": "+1"}]
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "account", "summary", interactive=True)
+    assert result.exit_code == 0
+    fake_api.send_verification_code.assert_called_once_with(fake_api.trusted_devices[0])
+    fake_api.validate_verification_code.assert_called_once_with(
+        fake_api.trusted_devices[0], "123456"
     )
 
-    # Create a mock device object
 
-    dev = MagicMock()
-    location = PropertyMock(return_value="Test Location")
-    type(dev).location = location
+def test_devices_list_and_show_commands() -> None:
+    """Devices list and show should expose summary and detailed views."""
 
-    # Call the function
-    _list_devices_option(command_line, dev)
-
-    # Verify that the location() method was called
-    location.assert_called_once()
-
-
-def test_list_devices_option() -> None:
-    """Test the list devices option."""
-    command_line = MagicMock(
-        longlist=True,
-        locate=False,
-        output_to_file=False,
-        list=False,
+    fake_api = FakeAPI()
+    list_result = _invoke(fake_api, "devices", "list", "--locate")
+    show_result = _invoke(fake_api, "devices", "show", "device-1")
+    raw_result = _invoke(
+        fake_api, "--format", "json", "devices", "show", "device-1", "--raw"
     )
-    content: dict[str, str] = {
-        "name": "Test Device",
-        "deviceDisplayName": "Test Display",
-        "location": "Test Location",
-        "batteryLevel": "100%",
-        "batteryStatus": "Charging",
-        "deviceClass": "Phone",
-        "deviceModel": "iPhone",
+    assert list_result.exit_code == 0
+    assert "Jacob's iPhone" in list_result.stdout
+    assert show_result.exit_code == 0
+    assert "Battery Status" in show_result.stdout
+    assert raw_result.exit_code == 0
+    assert json.loads(raw_result.stdout)["deviceDisplayName"] == "iPhone"
+
+
+def test_devices_mutations_and_export() -> None:
+    """Device actions should map to the Find My device methods."""
+
+    fake_api = FakeAPI()
+    export_path = Path("/tmp/python-test-results/test_cmdline/device.json")
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    sound_result = _invoke(
+        fake_api,
+        "--format",
+        "json",
+        "devices",
+        "sound",
+        "device-1",
+        "--subject",
+        "Ping",
+    )
+    silent_result = _invoke(
+        fake_api,
+        "devices",
+        "message",
+        "device-1",
+        "Hello",
+        "--silent",
+    )
+    lost_result = _invoke(
+        fake_api,
+        "devices",
+        "lost-mode",
+        "device-1",
+        "--phone",
+        "123",
+        "--message",
+        "Lost",
+        "--passcode",
+        "4567",
+    )
+    export_result = _invoke(
+        fake_api,
+        "--format",
+        "json",
+        "devices",
+        "export",
+        "device-1",
+        "--output",
+        str(export_path),
+    )
+    assert sound_result.exit_code == 0
+    assert json.loads(sound_result.stdout)["subject"] == "Ping"
+    assert fake_api.devices[0].sound_subject == "Ping"
+    assert silent_result.exit_code == 0
+    assert fake_api.devices[0].messages[-1]["sounds"] is False
+    assert lost_result.exit_code == 0
+    assert fake_api.devices[0].lost_mode == {
+        "number": "123",
+        "text": "Lost",
+        "newpasscode": "4567",
     }
-    dev = AppleDevice(
-        content=content,
-        params={},
-        manager=MagicMock(),
-        sound_url="",
-        lost_url="",
-        message_url="",
-        erase_token_url="",
-        erase_url="",
+    assert export_result.exit_code == 0
+    assert json.loads(export_result.stdout)["path"] == str(export_path)
+    assert (
+        json.loads(export_path.read_text(encoding="utf-8"))["name"] == "Jacob's iPhone"
     )
 
-    with patch("pyicloud.cmdline.create_pickled_data") as mock_create_pickled:
-        _list_devices_option(command_line, dev)
 
-        # Verify no pickled data creation
-        mock_create_pickled.assert_not_called()
+def test_calendar_and_contacts_commands() -> None:
+    """Calendar and contacts groups should expose read commands."""
 
-    # Check for proper console output during detailed listing
-    with patch("builtins.print") as mock_print:
-        _list_devices_option(command_line, dev)
-        mock_print.assert_any_call("-" * 30)
-        mock_print.assert_any_call("Test Device")
-        for key, value in content.items():
-            mock_print.assert_any_call(f"{key:>30} - {pformat(value)}")
+    fake_api = FakeAPI()
+    calendars = _invoke(fake_api, "calendar", "calendars")
+    contacts = _invoke(fake_api, "contacts", "me")
+    assert calendars.exit_code == 0
+    assert "Home" in calendars.stdout
+    assert contacts.exit_code == 0
+    assert "John Appleseed" in contacts.stdout
 
 
-def test_list_devices_option_short_list() -> None:
-    """Test the list devices option with short list."""
-    # Create a mock command_line object with the list option enabled
-    command_line = MagicMock(
-        longlist=False,
-        locate=False,
-        output_to_file=False,
-        list=True,  # Enable the short list option
+def test_drive_and_photos_commands() -> None:
+    """Drive and photos commands should expose listing and download flows."""
+
+    fake_api = FakeAPI()
+    output_path = Path("/tmp/python-test-results/test_cmdline/photo.bin")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    drive_result = _invoke(fake_api, "drive", "list", "/")
+    photo_result = _invoke(
+        fake_api,
+        "photos",
+        "download",
+        "photo-1",
+        "--output",
+        str(output_path),
     )
+    assert drive_result.exit_code == 0
+    assert "report.txt" in drive_result.stdout
+    assert photo_result.exit_code == 0
+    assert output_path.read_bytes() == b"photo-1:original"
 
-    # Create a mock device with sample content
-    content: dict[str, str | list[dict[str, bool]]] = {
-        "name": "Test Device",
-        "deviceDisplayName": "Test Display",
-        "location": "Test Location",
-        "batteryLevel": "100%",
-        "batteryStatus": "Charging",
-        "deviceClass": "Phone",
-        "deviceModel": "iPhone",
-        "features": [
-            {"LOC": True},
-        ],
-    }
-    dev = AppleDevice(
-        content=content,
-        params={},
-        manager=MagicMock(),
-        sound_url="",
-        lost_url="",
-        message_url="",
-        erase_token_url="",
-        erase_url="",
+
+def test_hidemyemail_commands() -> None:
+    """Hide My Email commands should expose list and generate."""
+
+    fake_api = FakeAPI()
+    list_result = _invoke(fake_api, "hidemyemail", "list")
+    generate_result = _invoke(fake_api, "hidemyemail", "generate")
+    assert list_result.exit_code == 0
+    assert "Shopping" in list_result.stdout
+    assert generate_result.exit_code == 0
+    assert "generated@privaterelay.appleid.com" in generate_result.stdout
+
+
+def test_reminders_commands() -> None:
+    """Reminders commands should expose list and create flows."""
+
+    fake_api = FakeAPI()
+    lists_result = _invoke(fake_api, "reminders", "lists")
+    list_result = _invoke(fake_api, "reminders", "list")
+    create_result = _invoke(
+        fake_api,
+        "--format",
+        "json",
+        "reminders",
+        "create",
+        "--list-id",
+        "list-1",
+        "--title",
+        "New task",
+        "--priority",
+        "5",
     )
+    assert lists_result.exit_code == 0
+    assert "blue (#007AFF)" in lists_result.stdout
+    assert list_result.exit_code == 0
+    assert "Buy milk" in list_result.stdout
+    assert create_result.exit_code == 0
+    assert json.loads(create_result.stdout)["id"] == "rem-created"
 
-    with patch("builtins.print") as mock_print:
-        # Call the function
-        _list_devices_option(command_line, dev)
 
-        # Verify the output for short list option
-        mock_print.assert_any_call("-" * 30)
-        mock_print.assert_any_call("Name           - Test Device")
-        mock_print.assert_any_call("Display Name   - Test Display")
-        mock_print.assert_any_call("Location       - Test Location")
-        mock_print.assert_any_call("Battery Level  - 100%")
-        mock_print.assert_any_call("Battery Status - Charging")
-        mock_print.assert_any_call("Device Class   - Phone")
-        mock_print.assert_any_call("Device Model   - iPhone")
+def test_notes_commands() -> None:
+    """Notes commands should expose recent, get, render, and export flows."""
+
+    fake_api = FakeAPI()
+    output_dir = Path("/tmp/python-test-results/test_cmdline/notes")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    recent_result = _invoke(fake_api, "notes", "recent", "--limit", "1")
+    include_deleted_result = _invoke(
+        fake_api, "notes", "recent", "--limit", "1", "--include-deleted"
+    )
+    render_result = _invoke(fake_api, "--format", "json", "notes", "render", "note-1")
+    export_result = _invoke(
+        fake_api,
+        "--format",
+        "json",
+        "notes",
+        "export",
+        "note-1",
+        str(output_dir),
+    )
+    assert recent_result.exit_code == 0
+    assert "Daily Plan" in recent_result.stdout
+    assert "Deleted Note" not in recent_result.stdout
+    assert include_deleted_result.exit_code == 0
+    assert "Deleted Note" in include_deleted_result.stdout
+    assert render_result.exit_code == 0
+    assert json.loads(render_result.stdout)["html"] == "<p>note-1</p>"
+    assert export_result.exit_code == 0
+    assert json.loads(export_result.stdout)["path"] == str(output_dir / "note-1.html")
+
+
+def test_main_returns_clean_error_for_user_abort(capsys) -> None:
+    """The entrypoint should not emit a traceback for expected CLI errors."""
+
+    message = "The --username option is required for authenticated commands."
+    with patch.object(cli_module, "app", side_effect=context_module.CLIAbort(message)):
+        code = cli_module.main()
+    captured = capsys.readouterr()
+    assert code == 1
+    assert message in captured.err

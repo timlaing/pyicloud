@@ -56,11 +56,23 @@ api = PyiCloudService('jappleseed@apple.com', 'password', refresh_interval=60) #
 api.devices
 ```
 
-You can also store your password in the system keyring using the
+The `icloud` command line interface is organized around service
+subcommands such as `account`, `devices`, `calendar`, `contacts`,
+`drive`, `photos`, `hidemyemail`, `reminders`, and `notes`.
+
+Global options such as `--username`, `--password`, `--session-dir`,
+`--accept-terms`, `--with-family`, `--log-level`, and `--format` apply
+before the service subcommand:
+
+```console
+$ icloud --username=jappleseed@apple.com --format json account summary
+```
+
+You can store your password in the system keyring using the
 command-line tool:
 
 ```console
-$ icloud --username=jappleseed@apple.com
+$ icloud --username=jappleseed@apple.com account summary
 Enter iCloud password for jappleseed@apple.com:
 Save password in keyring? (y/N)
 ```
@@ -69,6 +81,23 @@ If you have stored a password in the keyring, you will not be required
 to provide a password when interacting with the command-line tool or
 instantiating the `PyiCloudService` class for the username you stored
 the password for.
+
+Examples:
+
+```console
+$ icloud --username=jappleseed@apple.com account summary
+$ icloud --username=jappleseed@apple.com devices list --locate
+$ icloud --username=jappleseed@apple.com devices show "Jacob's iPhone"
+$ icloud --username=jappleseed@apple.com devices export "Jacob's iPhone" --output ./iphone.json
+$ icloud --username=jappleseed@apple.com calendar events --period week
+$ icloud --username=jappleseed@apple.com contacts me
+$ icloud --username=jappleseed@apple.com drive list /Documents
+$ icloud --username=jappleseed@apple.com photos albums
+$ icloud --username=jappleseed@apple.com hidemyemail list
+$ icloud --username=jappleseed@apple.com reminders lists
+$ icloud --username=jappleseed@apple.com notes recent --limit 5
+$ icloud --username=jappleseed@apple.com --format json account summary
+```
 
 ```python
 api = PyiCloudService('jappleseed@apple.com')
@@ -80,9 +109,16 @@ command-line option:
 
 ```console
 $ icloud --username=jappleseed@apple.com --delete-from-keyring
-Enter iCloud password for jappleseed@apple.com:
-Save password in keyring? [y/N]: N
 ```
+
+Migration notes for the previous Find My-focused CLI:
+
+- `--list` now maps to `icloud devices list`
+- `--llist` now maps to `icloud devices show DEVICE --raw`
+- `--outputfile` now maps to `icloud devices export DEVICE --output PATH`
+- device action flags now map to explicit commands such as
+  `icloud devices sound DEVICE`, `icloud devices message DEVICE ...`, and
+  `icloud devices lost-mode DEVICE ...`
 
 **Note**: Authentication will expire after an interval set by Apple, at
 which point you will have to re-authenticate. This interval is currently
