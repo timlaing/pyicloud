@@ -6,12 +6,14 @@ import typer
 
 from pyicloud.cli.context import get_state, service_call
 from pyicloud.cli.normalize import normalize_alias
+from pyicloud.cli.options import with_execution_context_options
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Manage Hide My Email aliases.")
 
 
 @app.command("list")
+@with_execution_context_options
 def hidemyemail_list(ctx: typer.Context) -> None:
     """List Hide My Email aliases."""
 
@@ -37,6 +39,7 @@ def hidemyemail_list(ctx: typer.Context) -> None:
 
 
 @app.command("generate")
+@with_execution_context_options
 def hidemyemail_generate(ctx: typer.Context) -> None:
     """Generate a new relay address."""
 
@@ -51,6 +54,7 @@ def hidemyemail_generate(ctx: typer.Context) -> None:
 
 
 @app.command("reserve")
+@with_execution_context_options
 def hidemyemail_reserve(
     ctx: typer.Context,
     email: str = typer.Argument(...),
@@ -72,6 +76,7 @@ def hidemyemail_reserve(
 
 
 @app.command("update")
+@with_execution_context_options
 def hidemyemail_update(
     ctx: typer.Context,
     anonymous_id: str = typer.Argument(...),
@@ -93,6 +98,7 @@ def hidemyemail_update(
 
 
 @app.command("deactivate")
+@with_execution_context_options
 def hidemyemail_deactivate(
     ctx: typer.Context, anonymous_id: str = typer.Argument(...)
 ) -> None:
@@ -110,6 +116,7 @@ def hidemyemail_deactivate(
 
 
 @app.command("reactivate")
+@with_execution_context_options
 def hidemyemail_reactivate(
     ctx: typer.Context, anonymous_id: str = typer.Argument(...)
 ) -> None:
@@ -127,6 +134,7 @@ def hidemyemail_reactivate(
 
 
 @app.command("delete")
+@with_execution_context_options
 def hidemyemail_delete(
     ctx: typer.Context, anonymous_id: str = typer.Argument(...)
 ) -> None:

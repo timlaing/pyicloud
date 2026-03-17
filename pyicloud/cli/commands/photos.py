@@ -10,12 +10,14 @@ import typer
 
 from pyicloud.cli.context import CLIAbort, get_state, service_call
 from pyicloud.cli.normalize import normalize_album, normalize_photo
+from pyicloud.cli.options import with_execution_context_options
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Browse and download iCloud Photos.")
 
 
 @app.command("albums")
+@with_execution_context_options
 def photos_albums(ctx: typer.Context) -> None:
     """List photo albums."""
 
@@ -36,6 +38,7 @@ def photos_albums(ctx: typer.Context) -> None:
 
 
 @app.command("list")
+@with_execution_context_options
 def photos_list(
     ctx: typer.Context,
     album: Optional[str] = typer.Option(
@@ -75,6 +78,7 @@ def photos_list(
 
 
 @app.command("download")
+@with_execution_context_options
 def photos_download(
     ctx: typer.Context,
     photo_id: str = typer.Argument(..., help="Photo asset id."),

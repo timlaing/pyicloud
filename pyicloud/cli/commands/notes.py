@@ -10,12 +10,14 @@ import typer
 
 from pyicloud.cli.context import get_state, service_call
 from pyicloud.cli.normalize import select_recent_notes
+from pyicloud.cli.options import with_execution_context_options
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Inspect, render, and export Notes.")
 
 
 @app.command("recent")
+@with_execution_context_options
 def notes_recent(
     ctx: typer.Context,
     limit: int = typer.Option(10, "--limit", min=1, help="Maximum notes to show."),
@@ -46,6 +48,7 @@ def notes_recent(
 
 
 @app.command("folders")
+@with_execution_context_options
 def notes_folders(ctx: typer.Context) -> None:
     """List note folders."""
 
@@ -65,6 +68,7 @@ def notes_folders(ctx: typer.Context) -> None:
 
 
 @app.command("list")
+@with_execution_context_options
 def notes_list(
     ctx: typer.Context,
     folder_id: Optional[str] = typer.Option(None, "--folder-id", help="Folder id."),
@@ -103,6 +107,7 @@ def notes_list(
 
 
 @app.command("get")
+@with_execution_context_options
 def notes_get(
     ctx: typer.Context,
     note_id: str = typer.Argument(...),
@@ -133,6 +138,7 @@ def notes_get(
 
 
 @app.command("render")
+@with_execution_context_options
 def notes_render(
     ctx: typer.Context,
     note_id: str = typer.Argument(...),
@@ -158,6 +164,7 @@ def notes_render(
 
 
 @app.command("export")
+@with_execution_context_options
 def notes_export(
     ctx: typer.Context,
     note_id: str = typer.Argument(...),
@@ -191,6 +198,7 @@ def notes_export(
 
 
 @app.command("changes")
+@with_execution_context_options
 def notes_changes(
     ctx: typer.Context,
     since: Optional[str] = typer.Option(None, "--since", help="Sync cursor."),

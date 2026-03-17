@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import ExitStack
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path, PurePosixPath
@@ -20,6 +21,8 @@ from pyicloud.ssl_context import configurable_ssl_verification
 
 from .account_index import AccountIndexEntry, prune_accounts, remember_account
 from .output import OutputFormat, write_json
+
+EXECUTION_CONTEXT_OVERRIDES_META_KEY = "execution_context_overrides"
 
 
 class CLIAbort(RuntimeError):
@@ -44,6 +47,43 @@ class LogLevel(str, Enum):
         if self is LogLevel.DEBUG:
             return logging.DEBUG
         return logging.WARNING
+
+
+@dataclass(frozen=True)
+class CLIInvocationDefaults:
+    """Root-level execution context defaults captured before leaf parsing."""
+
+    username: str
+    password: Optional[str]
+    china_mainland: bool
+    interactive: bool
+    delete_from_keyring: bool
+    accept_terms: bool
+    with_family: bool
+    session_dir: Optional[str]
+    http_proxy: Optional[str]
+    https_proxy: Optional[str]
+    no_verify_ssl: bool
+    log_level: LogLevel
+    output_format: OutputFormat
+
+
+@dataclass(frozen=True)
+class CommandOverrides:
+    """Leaf command execution-context overrides."""
+
+    username: Optional[str] = None
+    password: Optional[str] = None
+    china_mainland: Optional[bool] = None
+    interactive: Optional[bool] = None
+    accept_terms: Optional[bool] = None
+    with_family: Optional[bool] = None
+    session_dir: Optional[str] = None
+    http_proxy: Optional[str] = None
+    https_proxy: Optional[str] = None
+    no_verify_ssl: Optional[bool] = None
+    log_level: Optional[LogLevel] = None
+    output_format: Optional[OutputFormat] = None
 
 
 class CLIState:
@@ -85,6 +125,75 @@ class CLIState:
         self._api: Optional[PyiCloudService] = None
         self._probe_api: Optional[PyiCloudService] = None
         self._resolved_username: Optional[str] = self.username or None
+
+    @classmethod
+    def from_invocation(
+        cls,
+        defaults: CLIInvocationDefaults,
+        overrides: Optional[CommandOverrides] = None,
+    ) -> "CLIState":
+        """Build CLI state from root defaults plus leaf overrides."""
+
+        overrides = overrides or CommandOverrides()
+        return cls(
+            username=(
+                defaults.username if overrides.username is None else overrides.username
+            ),
+            password=(
+                defaults.password if overrides.password is None else overrides.password
+            ),
+            china_mainland=(
+                defaults.china_mainland
+                if overrides.china_mainland is None
+                else overrides.china_mainland
+            ),
+            interactive=(
+                defaults.interactive
+                if overrides.interactive is None
+                else overrides.interactive
+            ),
+            delete_from_keyring=defaults.delete_from_keyring,
+            accept_terms=(
+                defaults.accept_terms
+                if overrides.accept_terms is None
+                else overrides.accept_terms
+            ),
+            with_family=(
+                defaults.with_family
+                if overrides.with_family is None
+                else overrides.with_family
+            ),
+            session_dir=(
+                defaults.session_dir
+                if overrides.session_dir is None
+                else overrides.session_dir
+            ),
+            http_proxy=(
+                defaults.http_proxy
+                if overrides.http_proxy is None
+                else overrides.http_proxy
+            ),
+            https_proxy=(
+                defaults.https_proxy
+                if overrides.https_proxy is None
+                else overrides.https_proxy
+            ),
+            no_verify_ssl=(
+                defaults.no_verify_ssl
+                if overrides.no_verify_ssl is None
+                else overrides.no_verify_ssl
+            ),
+            log_level=(
+                defaults.log_level
+                if overrides.log_level is None
+                else overrides.log_level
+            ),
+            output_format=(
+                defaults.output_format
+                if overrides.output_format is None
+                else overrides.output_format
+            ),
+        )
 
     @property
     def has_explicit_username(self) -> bool:
@@ -407,12 +516,24 @@ class CLIState:
 
 
 def get_state(ctx: typer.Context) -> CLIState:
-    """Return the shared CLI state for a command."""
+    """Return the resolved CLI state for a leaf command."""
 
-    state = ctx.obj
-    if not isinstance(state, CLIState):
+    root_ctx = ctx.find_root()
+    state = root_ctx.obj
+    if isinstance(state, CLIState):
+        return state
+    if not isinstance(state, CLIInvocationDefaults):
         raise RuntimeError("CLI state was not initialized.")
-    return state
+
+    overrides = CommandOverrides(
+        **ctx.meta.get(EXECUTION_CONTEXT_OVERRIDES_META_KEY, {})
+    )
+    resolved = CLIState.from_invocation(state, overrides)
+    resolved.open()
+    root_ctx.call_on_close(resolved.close)
+    root_ctx.obj = resolved
+    ctx.obj = resolved
+    return resolved
 
 
 def service_call(label: str, fn):

@@ -11,12 +11,14 @@ from pyicloud.cli.normalize import (
     normalize_family_member,
     normalize_storage,
 )
+from pyicloud.cli.options import with_execution_context_options
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Inspect iCloud account metadata.")
 
 
 @app.command("summary")
+@with_execution_context_options
 def account_summary(ctx: typer.Context) -> None:
     """Show high-level account information."""
 
@@ -37,6 +39,7 @@ def account_summary(ctx: typer.Context) -> None:
 
 
 @app.command("devices")
+@with_execution_context_options
 def account_devices(ctx: typer.Context) -> None:
     """List devices associated with the account profile."""
 
@@ -67,6 +70,7 @@ def account_devices(ctx: typer.Context) -> None:
 
 
 @app.command("family")
+@with_execution_context_options
 def account_family(ctx: typer.Context) -> None:
     """List family sharing members."""
 
@@ -97,6 +101,7 @@ def account_family(ctx: typer.Context) -> None:
 
 
 @app.command("storage")
+@with_execution_context_options
 def account_storage(ctx: typer.Context) -> None:
     """Show iCloud storage usage."""
 

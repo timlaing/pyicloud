@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from pyicloud.cli.context import CLIAbort, get_state
+from pyicloud.cli.options import with_execution_context_options
 from pyicloud.cli.output import console_kv_table, console_table
 
 app = typer.Typer(
@@ -23,6 +24,7 @@ def _auth_payload(state, api, status: dict[str, object]) -> dict[str, object]:
 
 
 @app.command("status")
+@with_execution_context_options
 def auth_status(ctx: typer.Context) -> None:
     """Show the current authentication and session status."""
 
@@ -120,6 +122,7 @@ def auth_status(ctx: typer.Context) -> None:
 
 
 @app.command("login")
+@with_execution_context_options
 def auth_login(ctx: typer.Context) -> None:
     """Authenticate and persist a usable session."""
 
@@ -153,6 +156,7 @@ def auth_login(ctx: typer.Context) -> None:
 
 
 @app.command("logout")
+@with_execution_context_options
 def auth_logout(
     ctx: typer.Context,
     keep_trusted: bool = typer.Option(

@@ -14,11 +14,14 @@ from pyicloud.cli.commands.hidemyemail import app as hidemyemail_app
 from pyicloud.cli.commands.notes import app as notes_app
 from pyicloud.cli.commands.photos import app as photos_app
 from pyicloud.cli.commands.reminders import app as reminders_app
-from pyicloud.cli.context import CLIAbort, CLIState, LogLevel
+from pyicloud.cli.context import CLIAbort, CLIInvocationDefaults, CLIState, LogLevel
 from pyicloud.cli.output import OutputFormat
 
 app = typer.Typer(
-    help="Command line interface for pyicloud services.",
+    help=(
+        "Command line interface for pyicloud services. Execution-context options "
+        "may be provided either before the command or on the final command."
+    ),
     no_args_is_help=True,
     pretty_exceptions_show_locals=False,
 )
@@ -41,7 +44,10 @@ def root(
     username: str = typer.Option(
         "",
         "--username",
-        help="Apple ID username. Optional when a command can infer a single account context.",
+        help=(
+            "Apple ID username. Can be provided before the command or on the final "
+            "command. Optional when a command can infer a single account context."
+        ),
     ),
     password: str | None = typer.Option(
         None,
@@ -95,12 +101,15 @@ def root(
         OutputFormat.TEXT,
         "--format",
         case_sensitive=False,
-        help="Output format for command results.",
+        help=(
+            "Output format for command results. Can be provided before the command "
+            "or on the final command."
+        ),
     ),
 ) -> None:
     """Initialize shared CLI state."""
 
-    state = CLIState(
+    defaults = CLIInvocationDefaults(
         username=username,
         password=password,
         china_mainland=china_mainland,
@@ -115,12 +124,15 @@ def root(
         log_level=log_level,
         output_format=output_format,
     )
-    state.open()
-    ctx.call_on_close(state.close)
-    ctx.obj = state
+    ctx.obj = defaults
 
     if delete_from_keyring:
-        deleted = state.delete_stored_password()
+        state = CLIState.from_invocation(defaults)
+        state.open()
+        try:
+            deleted = state.delete_stored_password()
+        finally:
+            state.close()
         if ctx.invoked_subcommand is None:
             state.console.print(
                 "Deleted stored password from keyring."

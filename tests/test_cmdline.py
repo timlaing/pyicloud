@@ -575,13 +575,35 @@ def _invoke(
         return runner.invoke(app, cli_args)
 
 
+def _invoke_with_cli_args(
+    fake_api: FakeAPI,
+    cli_args: list[str],
+    *,
+    keyring_passwords: Optional[set[str]] = None,
+):
+    runner = _runner()
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate in (keyring_passwords or set()),
+        ),
+    ):
+        return runner.invoke(app, cli_args)
+
+
 def test_root_help() -> None:
     """The root command should expose the service subcommands and format option."""
 
     result = _runner().invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "--username" in result.stdout
-    assert "Optional when a" in result.stdout
+    assert "before the command or on the final command" in result.stdout
     assert "--format" in result.stdout
     assert "--json" not in result.stdout
     assert "--debug" not in result.stdout
@@ -619,6 +641,17 @@ def test_group_help() -> None:
         assert result.exit_code == 0
 
 
+def test_leaf_help_includes_execution_context_options() -> None:
+    """Leaf command help should show shared execution-context options."""
+
+    result = _runner().invoke(app, ["account", "summary", "--help"])
+
+    assert result.exit_code == 0
+    assert "--username" in result.stdout
+    assert "--format" in result.stdout
+    assert "--session-dir" in result.stdout
+
+
 def test_account_summary_command() -> None:
     """Account summary should render the storage overview."""
 
@@ -636,6 +669,162 @@ def test_format_option_outputs_json() -> None:
     assert result.exit_code == 0
     assert payload["account_name"] == "user@example.com"
     assert payload["devices_count"] == 1
+
+
+def test_command_local_format_option_outputs_json() -> None:
+    """Leaf commands should accept --format after the final subcommand."""
+
+    session_dir = _unique_session_dir("leaf-format")
+    result = _invoke_with_cli_args(
+        FakeAPI(session_dir=session_dir),
+        [
+            "--username",
+            "user@example.com",
+            "--password",
+            "secret",
+            "--session-dir",
+            str(session_dir),
+            "--non-interactive",
+            "account",
+            "summary",
+            "--format",
+            "json",
+        ],
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["account_name"] == "user@example.com"
+
+
+def test_leaf_execution_context_overrides_root_values() -> None:
+    """Leaf execution-context options should take precedence over root values."""
+
+    session_dir = _unique_session_dir("leaf-precedence")
+    fake_api = FakeAPI(username="leaf@example.com", session_dir=session_dir)
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "leaf@example.com"
+        assert kwargs["cookie_directory"] == str(session_dir)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "--username",
+                "root@example.com",
+                "--password",
+                "root-secret",
+                "--session-dir",
+                "/tmp/root-session",
+                "--format",
+                "json",
+                "--non-interactive",
+                "auth",
+                "login",
+                "--username",
+                "leaf@example.com",
+                "--password",
+                "leaf-secret",
+                "--session-dir",
+                str(session_dir),
+                "--format",
+                "text",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Authenticated session is ready." in result.stdout
+    assert result.stdout.lstrip()[0] != "{"
+
+
+def test_auth_login_accepts_command_local_username() -> None:
+    """Auth login should accept --username after the final subcommand."""
+
+    session_dir = _unique_session_dir("leaf-username")
+    fake_api = FakeAPI(username="leaf@example.com", session_dir=session_dir)
+
+    def fake_service(*, apple_id: str, **_kwargs: Any) -> FakeAPI:
+        assert apple_id == "leaf@example.com"
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+                "auth",
+                "login",
+                "--username",
+                "leaf@example.com",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "leaf@example.com" in result.stdout
+
+
+def test_leaf_session_dir_option_is_used_for_service_commands() -> None:
+    """Leaf --session-dir should be honored by service commands."""
+
+    session_dir = _unique_session_dir("leaf-session-dir")
+    fake_api = FakeAPI(session_dir=session_dir)
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        assert kwargs["cookie_directory"] == str(session_dir)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--non-interactive",
+                "account",
+                "summary",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Account: user@example.com" in result.stdout
 
 
 def test_default_log_level_is_warning() -> None:
@@ -701,6 +890,19 @@ def test_delete_from_keyring() -> None:
     delete_password.assert_called_once_with("user@example.com")
     assert "Deleted stored password from keyring." in result.stdout
     assert account_index_module.load_accounts(session_dir) == {}
+
+
+def test_delete_from_keyring_remains_root_only() -> None:
+    """Utility flags like --delete-from-keyring should remain root-only."""
+
+    result = _runner().invoke(
+        app,
+        ["auth", "login", "--delete-from-keyring"],
+    )
+
+    assert result.exit_code != 0
+    combined_output = result.stdout + result.stderr
+    assert "No such option: --delete-from-keyring" in combined_output
 
 
 def test_auth_status_probe_is_non_interactive() -> None:

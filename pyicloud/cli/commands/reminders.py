@@ -8,12 +8,14 @@ from typing import Optional
 import typer
 
 from pyicloud.cli.context import get_state, parse_datetime, service_call
+from pyicloud.cli.options import with_execution_context_options
 from pyicloud.cli.output import console_table, format_color_value
 
 app = typer.Typer(help="Inspect and mutate Reminders.")
 
 
 @app.command("lists")
+@with_execution_context_options
 def reminders_lists(ctx: typer.Context) -> None:
     """List reminder lists."""
 
@@ -36,6 +38,7 @@ def reminders_lists(ctx: typer.Context) -> None:
 
 
 @app.command("list")
+@with_execution_context_options
 def reminders_list(
     ctx: typer.Context,
     list_id: Optional[str] = typer.Option(None, "--list-id", help="List id."),
@@ -82,6 +85,7 @@ def reminders_list(
 
 
 @app.command("get")
+@with_execution_context_options
 def reminders_get(ctx: typer.Context, reminder_id: str = typer.Argument(...)) -> None:
     """Get one reminder."""
 
@@ -99,6 +103,7 @@ def reminders_get(ctx: typer.Context, reminder_id: str = typer.Argument(...)) ->
 
 
 @app.command("create")
+@with_execution_context_options
 def reminders_create(
     ctx: typer.Context,
     list_id: str = typer.Option(..., "--list-id", help="Target list id."),
@@ -132,6 +137,7 @@ def reminders_create(
 
 
 @app.command("set-status")
+@with_execution_context_options
 def reminders_set_status(
     ctx: typer.Context,
     reminder_id: str = typer.Argument(...),
@@ -151,6 +157,7 @@ def reminders_set_status(
 
 
 @app.command("delete")
+@with_execution_context_options
 def reminders_delete(
     ctx: typer.Context, reminder_id: str = typer.Argument(...)
 ) -> None:
@@ -167,6 +174,7 @@ def reminders_delete(
 
 
 @app.command("changes")
+@with_execution_context_options
 def reminders_changes(
     ctx: typer.Context,
     since: Optional[str] = typer.Option(None, "--since", help="Sync cursor."),

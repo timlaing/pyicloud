@@ -106,17 +106,20 @@ Examples:
 ```console
 $ icloud auth status
 $ icloud auth login
+$ icloud auth login --username jappleseed@apple.com
 $ icloud auth logout
 $ icloud auth logout --keep-trusted
 $ icloud auth logout --all-sessions
 $ icloud auth logout --keep-trusted --all-sessions
 $ icloud auth logout --remove-keyring
 $ icloud account summary
+$ icloud account summary --format json
 $ icloud devices list --locate
+$ icloud devices list --session-dir /tmp/pyicloud-test --format json
 $ icloud devices show "Jacob's iPhone"
 $ icloud devices export "Jacob's iPhone" --output ./iphone.json
 $ icloud --username=jappleseed@apple.com auth login
-$ icloud --username=jappleseed@apple.com account summary
+$ icloud --format json account summary
 $ icloud --username=jappleseed@apple.com calendar events --period week
 $ icloud --username=jappleseed@apple.com contacts me
 $ icloud --username=jappleseed@apple.com drive list /Documents
@@ -149,6 +152,12 @@ The `auth` command group lets you inspect and manage persisted sessions:
 - `icloud auth logout --remove-keyring`: also delete the stored password for the selected account
 - `icloud auth logout --keep-trusted --all-sessions`: experimental combination that requests both behaviors
 
+Execution-context options such as `--username`, `--password`,
+`--session-dir`, and `--format` can be provided either before the
+command or on the final command. The preferred style is to place them on
+the final command, for example `icloud account summary --format json` or
+`icloud auth login --username=<apple-id>`.
+
 When only one local account is known, `auth login` can omit
 `--username`. Service commands, `auth status`, and `auth logout` without
 `--username` operate on active logged-in sessions only, similar to `gh`.
@@ -166,7 +175,8 @@ Stored passwords in the system keyring are treated separately from
 authenticated sessions. A plain `icloud auth logout` ends the session
 but keeps the stored password. Use `icloud auth logout --remove-keyring`
 or `icloud --username=<apple-id> --delete-from-keyring` if you also want
-to forget the saved password.
+to forget the saved password. The utility flag `--delete-from-keyring`
+remains root-only.
 
 Migration notes for the previous Find My-focused CLI:
 

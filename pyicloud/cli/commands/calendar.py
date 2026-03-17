@@ -9,12 +9,14 @@ import typer
 
 from pyicloud.cli.context import get_state, parse_datetime, service_call
 from pyicloud.cli.normalize import normalize_calendar, normalize_event
+from pyicloud.cli.options import with_execution_context_options
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Inspect calendars and events.")
 
 
 @app.command("calendars")
+@with_execution_context_options
 def calendar_calendars(ctx: typer.Context) -> None:
     """List available calendars."""
 
@@ -45,6 +47,7 @@ def calendar_calendars(ctx: typer.Context) -> None:
 
 
 @app.command("events")
+@with_execution_context_options
 def calendar_events(
     ctx: typer.Context,
     from_dt: Optional[str] = typer.Option(None, "--from", help="Start datetime."),
