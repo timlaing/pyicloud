@@ -35,10 +35,7 @@ def auth_status(ctx: typer.Context) -> None:
             if state.json_output:
                 state.write_json({"authenticated": False, "accounts": []})
                 return
-            state.console.print(
-                "You are not logged into any iCloud accounts. To log in, run: "
-                "icloud --username <apple-id> auth login"
-            )
+            state.console.print(state.not_logged_in_message())
             return
 
         payloads = [_auth_payload(state, api, status) for api, status in active_probes]
@@ -187,18 +184,13 @@ def auth_logout(
             if state.json_output:
                 state.write_json({"authenticated": False, "accounts": []})
                 return
-            state.console.print(
-                "You are not logged into any iCloud accounts. To log in, run: "
-                "icloud --username <apple-id> auth login"
-            )
+            state.console.print(state.not_logged_in_message())
             return
         if len(active_probes) > 1:
-            accounts = "\n".join(
-                f"  - {api.account_name}" for api, _status in active_probes
-            )
             raise CLIAbort(
-                "Multiple logged-in iCloud accounts were found; pass --username to choose one.\n"
-                f"{accounts}"
+                state.multiple_logged_in_accounts_message(
+                    [api.account_name for api, _status in active_probes]
+                )
             )
         api, _status = active_probes[0]
 

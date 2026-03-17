@@ -641,6 +641,27 @@ def test_group_help() -> None:
         assert result.exit_code == 0
 
 
+def test_bare_group_invocation_shows_help() -> None:
+    """Bare group invocation should show help instead of a missing-command error."""
+
+    for command in (
+        "account",
+        "auth",
+        "devices",
+        "calendar",
+        "contacts",
+        "drive",
+        "photos",
+        "hidemyemail",
+        "reminders",
+        "notes",
+    ):
+        result = _runner().invoke(app, [command])
+        assert result.exit_code == 0
+        assert "Usage:" in result.stdout
+        assert "Missing command" not in (result.stdout + result.stderr)
+
+
 def test_leaf_help_includes_execution_context_options() -> None:
     """Leaf command help should show shared execution-context options."""
 
@@ -850,7 +871,7 @@ def test_no_local_accounts_require_username() -> None:
     assert (
         result.exception.args[0]
         == "You are not logged into any iCloud accounts. To log in, run: "
-        "icloud --username <apple-id> auth login"
+        "icloud auth login --username <apple-id>"
     )
 
 
@@ -1060,13 +1081,13 @@ def test_single_known_account_supports_implicit_local_context() -> None:
     assert (
         post_logout_account_result.exception.args[0]
         == "You are not logged into any iCloud accounts. To log in, run: "
-        "icloud --username <apple-id> auth login"
+        "icloud auth login --username <apple-id>"
     )
     assert post_logout_explicit_result.exit_code != 0
     assert (
         post_logout_explicit_result.exception.args[0]
         == "You are not logged into iCloud for solo@example.com. Run: "
-        "icloud --username solo@example.com auth login"
+        "icloud auth login --username solo@example.com"
     )
     assert login_result.exit_code == 0
     assert [

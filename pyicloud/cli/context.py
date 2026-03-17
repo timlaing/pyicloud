@@ -301,20 +301,30 @@ class CLIState:
         self._resolved_username = accounts[0]["username"]
         return self._resolved_username
 
-    def _not_logged_in_message(self) -> str:
+    def not_logged_in_message(self) -> str:
         """Return the default message for commands that require an active session."""
 
         return (
             "You are not logged into any iCloud accounts. To log in, run: "
-            "icloud --username <apple-id> auth login"
+            "icloud auth login --username <apple-id>"
         )
 
-    def _not_logged_in_for_account_message(self, username: str) -> str:
+    def not_logged_in_for_account_message(self, username: str) -> str:
         """Return the message for account-targeted commands without an active session."""
 
         return (
             f"You are not logged into iCloud for {username}. Run: "
-            f"icloud --username {username} auth login"
+            f"icloud auth login --username {username}"
+        )
+
+    @staticmethod
+    def multiple_logged_in_accounts_message(usernames: list[str]) -> str:
+        """Return the message for ambiguous active-session account selection."""
+
+        options = "\n".join(f"  - {username}" for username in usernames)
+        return (
+            "Multiple logged-in iCloud accounts were found; pass --username to choose one.\n"
+            f"{options}"
         )
 
     def _password_for_login(self, username: str) -> Optional[str]:
@@ -438,21 +448,19 @@ class CLIState:
             api = self.build_probe_api(username)
             status = api.get_auth_status()
             if not status["authenticated"]:
-                raise CLIAbort(self._not_logged_in_for_account_message(username))
+                raise CLIAbort(self.not_logged_in_for_account_message(username))
             self._api = api
             self.remember_account(api)
             return api
 
         active_probes = self.active_session_probes()
         if not active_probes:
-            raise CLIAbort(self._not_logged_in_message())
+            raise CLIAbort(self.not_logged_in_message())
         if len(active_probes) > 1:
-            accounts = "\n".join(
-                f"  - {api.account_name}" for api, _status in active_probes
-            )
             raise CLIAbort(
-                "Multiple logged-in iCloud accounts were found; pass --username to choose one.\n"
-                f"{accounts}"
+                self.multiple_logged_in_accounts_message(
+                    [api.account_name for api, _status in active_probes]
+                )
             )
 
         api, _status = active_probes[0]

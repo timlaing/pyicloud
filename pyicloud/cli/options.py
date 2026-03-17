@@ -14,6 +14,30 @@ from .output import OutputFormat
 
 CommandCallback = TypeVar("CommandCallback", bound=Callable[..., Any])
 EXECUTION_CONTEXT_PANEL = "Execution Context"
+EXECUTION_CONTEXT_PLACEMENT_HELP = (
+    " Can be provided before the command or on the final command."
+)
+
+USERNAME_OPTION_HELP = "Apple ID username."
+ROOT_USERNAME_OPTION_HELP = (
+    USERNAME_OPTION_HELP
+    + EXECUTION_CONTEXT_PLACEMENT_HELP
+    + " Optional when a command can infer a single account context."
+)
+PASSWORD_OPTION_HELP = (
+    "Apple ID password. If omitted, pyicloud will use the system keyring or prompt interactively."
+)
+CHINA_MAINLAND_OPTION_HELP = "Use China mainland Apple web service endpoints."
+INTERACTIVE_OPTION_HELP = "Enable or disable interactive prompts."
+ACCEPT_TERMS_OPTION_HELP = "Automatically accept pending Apple iCloud web terms."
+WITH_FAMILY_OPTION_HELP = "Include family devices in Find My device listings."
+SESSION_DIR_OPTION_HELP = "Directory to store session and cookie files."
+NO_VERIFY_SSL_OPTION_HELP = "Disable SSL verification for requests."
+LOG_LEVEL_OPTION_HELP = "Logging level for pyicloud internals."
+OUTPUT_FORMAT_OPTION_HELP = "Output format for command results."
+ROOT_OUTPUT_FORMAT_OPTION_HELP = (
+    OUTPUT_FORMAT_OPTION_HELP + EXECUTION_CONTEXT_PLACEMENT_HELP
+)
 
 
 def _execution_context_parameters() -> list[inspect.Parameter]:
@@ -27,7 +51,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
             default=typer.Option(
                 None,
                 "--username",
-                help="Apple ID username.",
+                help=USERNAME_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -38,7 +62,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
             default=typer.Option(
                 None,
                 "--password",
-                help="Apple ID password.",
+                help=PASSWORD_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -49,7 +73,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
             default=typer.Option(
                 None,
                 "--china-mainland",
-                help="Use China mainland Apple web service endpoints.",
+                help=CHINA_MAINLAND_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -60,7 +84,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
             default=typer.Option(
                 None,
                 "--interactive/--non-interactive",
-                help="Enable or disable interactive prompts.",
+                help=INTERACTIVE_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -71,7 +95,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
             default=typer.Option(
                 None,
                 "--accept-terms",
-                help="Automatically accept pending Apple iCloud web terms.",
+                help=ACCEPT_TERMS_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -82,7 +106,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
             default=typer.Option(
                 None,
                 "--with-family",
-                help="Include family devices in Find My device listings.",
+                help=WITH_FAMILY_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -93,7 +117,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
             default=typer.Option(
                 None,
                 "--session-dir",
-                help="Directory to store session and cookie files.",
+                help=SESSION_DIR_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -124,7 +148,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
             default=typer.Option(
                 None,
                 "--no-verify-ssl",
-                help="Disable SSL verification for requests.",
+                help=NO_VERIFY_SSL_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -136,7 +160,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
                 None,
                 "--log-level",
                 case_sensitive=False,
-                help="Logging level for pyicloud internals.",
+                help=LOG_LEVEL_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),
@@ -148,7 +172,7 @@ def _execution_context_parameters() -> list[inspect.Parameter]:
                 None,
                 "--format",
                 case_sensitive=False,
-                help="Output format for command results.",
+                help=OUTPUT_FORMAT_OPTION_HELP,
                 rich_help_panel=EXECUTION_CONTEXT_PANEL,
             ),
         ),

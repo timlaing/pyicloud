@@ -15,6 +15,18 @@ from pyicloud.cli.commands.notes import app as notes_app
 from pyicloud.cli.commands.photos import app as photos_app
 from pyicloud.cli.commands.reminders import app as reminders_app
 from pyicloud.cli.context import CLIAbort, CLIInvocationDefaults, CLIState, LogLevel
+from pyicloud.cli.options import (
+    ACCEPT_TERMS_OPTION_HELP,
+    CHINA_MAINLAND_OPTION_HELP,
+    INTERACTIVE_OPTION_HELP,
+    LOG_LEVEL_OPTION_HELP,
+    NO_VERIFY_SSL_OPTION_HELP,
+    PASSWORD_OPTION_HELP,
+    ROOT_OUTPUT_FORMAT_OPTION_HELP,
+    ROOT_USERNAME_OPTION_HELP,
+    SESSION_DIR_OPTION_HELP,
+    WITH_FAMILY_OPTION_HELP,
+)
 from pyicloud.cli.output import OutputFormat
 
 app = typer.Typer(
@@ -26,16 +38,29 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 
-app.add_typer(account_app, name="account")
-app.add_typer(auth_app, name="auth")
-app.add_typer(devices_app, name="devices")
-app.add_typer(calendar_app, name="calendar")
-app.add_typer(contacts_app, name="contacts")
-app.add_typer(drive_app, name="drive")
-app.add_typer(photos_app, name="photos")
-app.add_typer(hidemyemail_app, name="hidemyemail")
-app.add_typer(reminders_app, name="reminders")
-app.add_typer(notes_app, name="notes")
+
+def _group_root(ctx: typer.Context) -> None:
+    """Show mounted group help when invoked without a subcommand."""
+
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
+
+app.add_typer(account_app, name="account", invoke_without_command=True, callback=_group_root)
+app.add_typer(auth_app, name="auth", invoke_without_command=True, callback=_group_root)
+app.add_typer(devices_app, name="devices", invoke_without_command=True, callback=_group_root)
+app.add_typer(calendar_app, name="calendar", invoke_without_command=True, callback=_group_root)
+app.add_typer(contacts_app, name="contacts", invoke_without_command=True, callback=_group_root)
+app.add_typer(drive_app, name="drive", invoke_without_command=True, callback=_group_root)
+app.add_typer(photos_app, name="photos", invoke_without_command=True, callback=_group_root)
+app.add_typer(
+    hidemyemail_app, name="hidemyemail", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(
+    reminders_app, name="reminders", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(notes_app, name="notes", invoke_without_command=True, callback=_group_root)
 
 
 @app.callback(invoke_without_command=True)
@@ -44,25 +69,22 @@ def root(
     username: str = typer.Option(
         "",
         "--username",
-        help=(
-            "Apple ID username. Can be provided before the command or on the final "
-            "command. Optional when a command can infer a single account context."
-        ),
+        help=ROOT_USERNAME_OPTION_HELP,
     ),
     password: str | None = typer.Option(
         None,
         "--password",
-        help="Apple ID password. If omitted, pyicloud will use the system keyring or prompt interactively.",
+        help=PASSWORD_OPTION_HELP,
     ),
     china_mainland: bool = typer.Option(
         False,
         "--china-mainland",
-        help="Use China mainland Apple web service endpoints.",
+        help=CHINA_MAINLAND_OPTION_HELP,
     ),
     interactive: bool = typer.Option(
         True,
         "--interactive/--non-interactive",
-        help="Enable or disable interactive prompts.",
+        help=INTERACTIVE_OPTION_HELP,
     ),
     delete_from_keyring: bool = typer.Option(
         False,
@@ -72,39 +94,36 @@ def root(
     accept_terms: bool = typer.Option(
         False,
         "--accept-terms",
-        help="Automatically accept pending Apple iCloud web terms.",
+        help=ACCEPT_TERMS_OPTION_HELP,
     ),
     with_family: bool = typer.Option(
         False,
         "--with-family",
-        help="Include family devices in Find My device listings.",
+        help=WITH_FAMILY_OPTION_HELP,
     ),
     session_dir: str | None = typer.Option(
         None,
         "--session-dir",
-        help="Directory to store session and cookie files.",
+        help=SESSION_DIR_OPTION_HELP,
     ),
     http_proxy: str | None = typer.Option(None, "--http-proxy"),
     https_proxy: str | None = typer.Option(None, "--https-proxy"),
     no_verify_ssl: bool = typer.Option(
         False,
         "--no-verify-ssl",
-        help="Disable SSL verification for requests.",
+        help=NO_VERIFY_SSL_OPTION_HELP,
     ),
     log_level: LogLevel = typer.Option(
         LogLevel.WARNING,
         "--log-level",
         case_sensitive=False,
-        help="Logging level for pyicloud internals.",
+        help=LOG_LEVEL_OPTION_HELP,
     ),
     output_format: OutputFormat = typer.Option(
         OutputFormat.TEXT,
         "--format",
         case_sensitive=False,
-        help=(
-            "Output format for command results. Can be provided before the command "
-            "or on the final command."
-        ),
+        help=ROOT_OUTPUT_FORMAT_OPTION_HELP,
     ),
 ) -> None:
     """Initialize shared CLI state."""
