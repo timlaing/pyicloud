@@ -11,12 +11,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Iterable, Optional
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 from typer.testing import CliRunner
 
+account_index_module = importlib.import_module("pyicloud.cli.account_index")
 cli_module = importlib.import_module("pyicloud.cli.app")
 context_module = importlib.import_module("pyicloud.cli.context")
 app = cli_module.app
+
+TEST_ROOT = Path("/tmp/python-test-results/test_cmdline")
 
 
 class FakeDevice:
@@ -351,7 +355,12 @@ class FakeNotes:
 class FakeAPI:
     """Authenticated API fixture."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        username: str = "user@example.com",
+        session_dir: Optional[Path] = None,
+    ) -> None:
         self.requires_2fa = False
         self.requires_2sa = False
         self.is_trusted_session = True
@@ -362,7 +371,24 @@ class FakeAPI:
         self.send_verification_code = MagicMock(return_value=True)
         self.validate_verification_code = MagicMock(return_value=True)
         self.trust_session = MagicMock(return_value=True)
-        self.account_name = "user@example.com"
+        self.account_name = username
+        session_dir = session_dir or _unique_session_dir("fake-api")
+        session_stub = "".join(
+            character for character in username if character.isalnum()
+        )
+        self.session = SimpleNamespace(
+            session_path=str(session_dir / f"{session_stub}.session"),
+            cookiejar_path=str(session_dir / f"{session_stub}.cookiejar"),
+        )
+        self.get_auth_status = MagicMock(
+            return_value={
+                "authenticated": True,
+                "trusted_session": True,
+                "requires_2fa": False,
+                "requires_2sa": False,
+            }
+        )
+        self.logout = MagicMock(side_effect=self._logout)
         self.devices = [FakeDevice()]
         self.account = SimpleNamespace(
             devices=[
@@ -451,22 +477,86 @@ class FakeAPI:
         self.reminders = FakeReminders()
         self.notes = FakeNotes()
 
+    def _logout(
+        self,
+        *,
+        keep_trusted: bool = False,
+        all_sessions: bool = False,
+        clear_local_session: bool = True,
+    ) -> dict[str, Any]:
+        if clear_local_session:
+            for path in (self.session.session_path, self.session.cookiejar_path):
+                try:
+                    Path(path).unlink()
+                except FileNotFoundError:
+                    pass
+            self.get_auth_status.return_value = {
+                "authenticated": False,
+                "trusted_session": False,
+                "requires_2fa": False,
+                "requires_2sa": False,
+            }
+        return {
+            "payload": {
+                "trustBrowser": keep_trusted,
+                "allBrowsers": all_sessions,
+            },
+            "remote_logout_confirmed": True,
+            "local_session_cleared": clear_local_session,
+        }
+
 
 def _runner() -> CliRunner:
     return CliRunner()
 
 
+def _unique_session_dir(label: str = "session") -> Path:
+    path = TEST_ROOT / f"{label}-{uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _remember_local_account(
+    session_dir: Path,
+    username: str,
+    *,
+    has_session_file: bool = False,
+    has_cookiejar_file: bool = False,
+    keyring_passwords: Optional[set[str]] = None,
+) -> FakeAPI:
+    fake_api = FakeAPI(username=username, session_dir=session_dir)
+    if has_session_file:
+        with open(fake_api.session.session_path, "w", encoding="utf-8"):
+            pass
+    if has_cookiejar_file:
+        with open(fake_api.session.cookiejar_path, "w", encoding="utf-8"):
+            pass
+    account_index_module.remember_account(
+        session_dir,
+        username=username,
+        session_path=fake_api.session.session_path,
+        cookiejar_path=fake_api.session.cookiejar_path,
+        keyring_has=lambda candidate: candidate in (keyring_passwords or set()),
+    )
+    return fake_api
+
+
 def _invoke(
     fake_api: FakeAPI,
     *args: str,
+    username: Optional[str] = "user@example.com",
+    password: Optional[str] = "secret",
     interactive: bool = False,
+    session_dir: Optional[Path] = None,
+    keyring_passwords: Optional[set[str]] = None,
 ):
     runner = _runner()
+    session_dir = session_dir or _unique_session_dir("invoke")
     cli_args = [
-        "--username",
-        "user@example.com",
-        "--password",
-        "secret",
+        *([] if username is None else ["--username", username]),
+        *([] if password is None else ["--password", password]),
+        "--session-dir",
+        str(session_dir),
         *([] if interactive else ["--non-interactive"]),
         *args,
     ]
@@ -477,7 +567,9 @@ def _invoke(
         ),
         patch.object(context_module, "confirm", return_value=False),
         patch.object(
-            context_module.utils, "password_exists_in_keyring", return_value=False
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate in (keyring_passwords or set()),
         ),
     ):
         return runner.invoke(app, cli_args)
@@ -488,11 +580,14 @@ def test_root_help() -> None:
 
     result = _runner().invoke(app, ["--help"])
     assert result.exit_code == 0
+    assert "--username" in result.stdout
+    assert "Optional when a" in result.stdout
     assert "--format" in result.stdout
     assert "--json" not in result.stdout
     assert "--debug" not in result.stdout
     for command in (
         "account",
+        "auth",
         "devices",
         "calendar",
         "contacts",
@@ -510,6 +605,7 @@ def test_group_help() -> None:
 
     for command in (
         "account",
+        "auth",
         "devices",
         "calendar",
         "contacts",
@@ -551,59 +647,555 @@ def test_default_log_level_is_warning() -> None:
     basic_config.assert_called_once_with(level=context_module.logging.WARNING)
 
 
-def test_missing_username_errors_cleanly() -> None:
-    """Authenticated commands should fail without a traceback when username is missing."""
+def test_no_local_accounts_require_username() -> None:
+    """Authenticated service commands should require a logged-in session."""
 
+    session_dir = _unique_session_dir("no-local-accounts")
     with patch.object(
         context_module, "configurable_ssl_verification", return_value=nullcontext()
     ):
-        result = _runner().invoke(app, ["account", "summary"])
+        result = _runner().invoke(
+            app, ["--session-dir", str(session_dir), "account", "summary"]
+        )
     assert result.exit_code != 0
-    assert "The --username option is required" in result.exception.args[0]
+    assert (
+        result.exception.args[0]
+        == "You are not logged into any iCloud accounts. To log in, run: "
+        "icloud --username <apple-id> auth login"
+    )
 
 
 def test_delete_from_keyring() -> None:
     """The keyring delete path should work without invoking a subcommand."""
+
+    session_dir = _unique_session_dir("delete-keyring")
+    _remember_local_account(
+        session_dir,
+        "user@example.com",
+        keyring_passwords={"user@example.com"},
+    )
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+    ):
+        with patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: not delete_password.called,
+        ):
+            result = _runner().invoke(
+                app,
+                [
+                    "--username",
+                    "user@example.com",
+                    "--session-dir",
+                    str(session_dir),
+                    "--delete-from-keyring",
+                ],
+            )
+    assert result.exit_code == 0
+    delete_password.assert_called_once_with("user@example.com")
+    assert "Deleted stored password from keyring." in result.stdout
+    assert account_index_module.load_accounts(session_dir) == {}
+
+
+def test_auth_status_probe_is_non_interactive() -> None:
+    """Auth status should probe persisted sessions without prompting for login."""
+
+    session_dir = _unique_session_dir("auth-status")
+    fake_api = _remember_local_account(
+        session_dir,
+        "user@example.com",
+        has_session_file=True,
+    )
+    fake_api.get_auth_status.return_value = {
+        "authenticated": False,
+        "trusted_session": False,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(context_module.utils, "get_password", side_effect=AssertionError),
+        patch.object(context_module.typer, "prompt", side_effect=AssertionError),
+    ):
+        result = _runner().invoke(
+            app,
+            ["--session-dir", str(session_dir), "--non-interactive", "auth", "status"],
+        )
+    assert result.exit_code == 0
+    assert "You are not logged into any iCloud accounts." in result.stdout
+
+
+def test_auth_status_without_username_ignores_keyring_only_accounts() -> None:
+    """Implicit auth status should report active sessions, not stored credentials."""
+
+    session_dir = _unique_session_dir("status-keyring-only")
+    _remember_local_account(
+        session_dir,
+        "user@example.com",
+        keyring_passwords={"user@example.com"},
+    )
+
+    result = _invoke(
+        FakeAPI(username="user@example.com", session_dir=session_dir),
+        "auth",
+        "status",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"user@example.com"},
+    )
+
+    assert result.exit_code == 0
+    assert "You are not logged into any iCloud accounts." in result.stdout
+    assert "user@example.com" not in result.stdout
+
+
+def test_auth_login_and_status_commands() -> None:
+    """Auth status and login should expose stable text and JSON payloads."""
+
+    fake_api = FakeAPI()
+    status_result = _invoke(fake_api, "--format", "json", "auth", "status")
+    login_result = _invoke(fake_api, "--format", "json", "auth", "login")
+
+    status_payload = json.loads(status_result.stdout)
+    login_payload = json.loads(login_result.stdout)
+
+    assert status_result.exit_code == 0
+    assert status_payload["authenticated"] is True
+    assert status_payload["trusted_session"] is True
+    assert status_payload["account_name"] == "user@example.com"
+    assert login_result.exit_code == 0
+    assert login_payload["authenticated"] is True
+    assert login_payload["session_path"] == fake_api.session.session_path
+
+
+def test_single_known_account_supports_implicit_local_context() -> None:
+    """Implicit local context should work only while an active session exists."""
+
+    session_dir = _unique_session_dir("implicit-context")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    status_result = _invoke(
+        FakeAPI(username="solo@example.com", session_dir=session_dir),
+        "auth",
+        "status",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    account_result = _invoke(
+        FakeAPI(username="solo@example.com", session_dir=session_dir),
+        "account",
+        "summary",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    devices_result = _invoke(
+        FakeAPI(username="solo@example.com", session_dir=session_dir),
+        "devices",
+        "list",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    logout_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    logout_result = _invoke(
+        logout_api,
+        "auth",
+        "logout",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    post_logout_account_result = _invoke(
+        logout_api,
+        "account",
+        "summary",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    post_logout_explicit_result = _invoke(
+        logout_api,
+        "account",
+        "summary",
+        username="solo@example.com",
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+    login_result = _invoke(
+        FakeAPI(username="solo@example.com", session_dir=session_dir),
+        "auth",
+        "login",
+        username=None,
+        session_dir=session_dir,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    assert status_result.exit_code == 0
+    assert "solo@example.com" in status_result.stdout
+    assert account_result.exit_code == 0
+    assert devices_result.exit_code == 0
+    assert logout_result.exit_code == 0
+    assert post_logout_account_result.exit_code != 0
+    assert (
+        post_logout_account_result.exception.args[0]
+        == "You are not logged into any iCloud accounts. To log in, run: "
+        "icloud --username <apple-id> auth login"
+    )
+    assert post_logout_explicit_result.exit_code != 0
+    assert (
+        post_logout_explicit_result.exception.args[0]
+        == "You are not logged into iCloud for solo@example.com. Run: "
+        "icloud --username solo@example.com auth login"
+    )
+    assert login_result.exit_code == 0
+    assert [
+        entry["username"]
+        for entry in account_index_module.prune_accounts(
+            session_dir, lambda candidate: candidate == "solo@example.com"
+        )
+    ] == ["solo@example.com"]
+
+
+def test_multiple_local_accounts_require_explicit_username_for_auth_login() -> None:
+    """Auth login should list local accounts when bootstrap discovery is ambiguous."""
+
+    session_dir = _unique_session_dir("multiple-contexts")
+    _remember_local_account(
+        session_dir,
+        "alpha@example.com",
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+    _remember_local_account(
+        session_dir,
+        "beta@example.com",
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
 
     with (
         patch.object(
             context_module, "configurable_ssl_verification", return_value=nullcontext()
         ),
         patch.object(
-            context_module.utils, "password_exists_in_keyring", return_value=True
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate
+            in {"alpha@example.com", "beta@example.com"},
         ),
-        patch.object(
-            context_module.utils, "delete_password_in_keyring"
-        ) as delete_password,
     ):
         result = _runner().invoke(
             app,
-            ["--username", "user@example.com", "--delete-from-keyring"],
+            [
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+                "auth",
+                "login",
+            ],
         )
+
+    assert result.exit_code != 0
+    assert "Multiple local accounts were found" in result.exception.args[0]
+    assert "alpha@example.com" in result.exception.args[0]
+    assert "beta@example.com" in result.exception.args[0]
+
+
+def test_multiple_active_sessions_require_explicit_username() -> None:
+    """Service commands should not guess when multiple active sessions exist."""
+
+    session_dir = _unique_session_dir("multiple-active-sessions")
+    alpha_api = _remember_local_account(
+        session_dir,
+        "alpha@example.com",
+        has_session_file=True,
+    )
+    beta_api = _remember_local_account(
+        session_dir,
+        "beta@example.com",
+        has_session_file=True,
+    )
+    apis = {
+        "alpha@example.com": alpha_api,
+        "beta@example.com": beta_api,
+    }
+
+    def fake_service(*, apple_id: str, **_kwargs: Any) -> FakeAPI:
+        return apis[apple_id]
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+                "account",
+                "summary",
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert "Multiple logged-in iCloud accounts were found" in result.exception.args[0]
+    assert "alpha@example.com" in result.exception.args[0]
+    assert "beta@example.com" in result.exception.args[0]
+
+
+def test_explicit_username_overrides_ambiguous_local_context() -> None:
+    """Explicit usernames should continue to work when multiple local accounts exist."""
+
+    session_dir = _unique_session_dir("explicit-override")
+    _remember_local_account(
+        session_dir,
+        "alpha@example.com",
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+    _remember_local_account(
+        session_dir,
+        "beta@example.com",
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+
+    result = _invoke(
+        FakeAPI(username="beta@example.com", session_dir=session_dir),
+        "account",
+        "summary",
+        username="beta@example.com",
+        session_dir=session_dir,
+        keyring_passwords={"alpha@example.com", "beta@example.com"},
+    )
+
     assert result.exit_code == 0
+    assert "beta@example.com" in result.stdout
+
+
+def test_authenticated_commands_update_account_index() -> None:
+    """Successful authenticated commands should index the resolved account."""
+
+    session_dir = _unique_session_dir("index-update")
+    fake_api = FakeAPI(username="indexed@example.com", session_dir=session_dir)
+
+    result = _invoke(
+        fake_api,
+        "account",
+        "summary",
+        username="indexed@example.com",
+        session_dir=session_dir,
+    )
+
+    indexed_accounts = account_index_module.load_accounts(session_dir)
+
+    assert result.exit_code == 0
+    assert "indexed@example.com" in indexed_accounts
+    assert indexed_accounts["indexed@example.com"]["session_path"] == (
+        fake_api.session.session_path
+    )
+
+
+def test_account_index_prunes_stale_entries_but_keeps_keyring_backed_accounts() -> None:
+    """Local account discovery should prune stale entries and retain keyring-backed ones."""
+
+    session_dir = _unique_session_dir("index-prune")
+    stale_api = _remember_local_account(
+        session_dir,
+        "stale@example.com",
+        has_session_file=True,
+    )
+    Path(stale_api.session.session_path).unlink()
+    kept_api = _remember_local_account(
+        session_dir,
+        "kept@example.com",
+        keyring_passwords={"kept@example.com"},
+    )
+
+    discovered = account_index_module.prune_accounts(
+        session_dir,
+        lambda candidate: candidate == "kept@example.com",
+    )
+
+    assert [entry["username"] for entry in discovered] == ["kept@example.com"]
+    assert list(account_index_module.load_accounts(session_dir)) == ["kept@example.com"]
+    assert kept_api.session.session_path.endswith("keptexamplecom.session")
+
+
+def test_auth_login_non_interactive_requires_credentials() -> None:
+    """Auth login should fail cleanly when non-interactive mode lacks credentials."""
+
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(context_module.utils, "get_password", return_value=None),
+    ):
+        result = _runner().invoke(
+            app,
+            ["--username", "user@example.com", "--non-interactive", "auth", "login"],
+        )
+    assert result.exit_code != 0
+    assert "No password supplied and no stored password was found." in str(
+        result.exception
+    )
+
+
+def test_auth_logout_variants_and_remote_failure() -> None:
+    """Auth logout should map semantic flags to Apple's payload and keep keyring intact."""
+
+    def invoke_logout(*args: str, failing_api: Optional[FakeAPI] = None):
+        session_dir = _unique_session_dir("auth-logout")
+        _remember_local_account(
+            session_dir,
+            "user@example.com",
+            has_session_file=True,
+            keyring_passwords={"user@example.com"},
+        )
+        return _invoke(
+            failing_api or FakeAPI(session_dir=session_dir),
+            "--format",
+            "json",
+            "auth",
+            "logout",
+            *args,
+            username=None,
+            session_dir=session_dir,
+            keyring_passwords={"user@example.com"},
+        )
+
+    default_result = invoke_logout()
+    keep_trusted_result = invoke_logout("--keep-trusted")
+    all_sessions_result = invoke_logout("--all-sessions")
+    combined_result = invoke_logout("--keep-trusted", "--all-sessions")
+
+    assert default_result.exit_code == 0
+    assert json.loads(default_result.stdout)["payload"] == {
+        "trustBrowser": False,
+        "allBrowsers": False,
+    }
+    assert keep_trusted_result.exit_code == 0
+    assert json.loads(keep_trusted_result.stdout)["payload"] == {
+        "trustBrowser": True,
+        "allBrowsers": False,
+    }
+    assert all_sessions_result.exit_code == 0
+    assert json.loads(all_sessions_result.stdout)["payload"] == {
+        "trustBrowser": False,
+        "allBrowsers": True,
+    }
+    assert combined_result.exit_code == 0
+    assert json.loads(combined_result.stdout)["payload"] == {
+        "trustBrowser": True,
+        "allBrowsers": True,
+    }
+
+    session_dir = _unique_session_dir("auth-logout-failure")
+    _remember_local_account(
+        session_dir,
+        "user@example.com",
+        has_session_file=True,
+        keyring_passwords={"user@example.com"},
+    )
+    failing_api = FakeAPI(session_dir=session_dir)
+    failing_api.logout = MagicMock(
+        return_value={
+            "payload": {"trustBrowser": False, "allBrowsers": False},
+            "remote_logout_confirmed": False,
+            "local_session_cleared": True,
+        }
+    )
+    with patch.object(
+        context_module.utils, "delete_password_in_keyring"
+    ) as delete_password:
+        failure_result = _invoke(
+            failing_api,
+            "auth",
+            "logout",
+            username=None,
+            session_dir=session_dir,
+            keyring_passwords={"user@example.com"},
+        )
+    assert failure_result.exit_code == 0
+    assert "remote logout was not confirmed" in failure_result.stdout
+    delete_password.assert_not_called()
+
+
+def test_auth_logout_remove_keyring_is_explicit() -> None:
+    """Auth logout should only delete stored passwords when requested."""
+
+    session_dir = _unique_session_dir("auth-logout-remove-keyring")
+    _remember_local_account(
+        session_dir,
+        "user@example.com",
+        has_session_file=True,
+        keyring_passwords={"user@example.com"},
+    )
+
+    with patch.object(
+        context_module.utils, "delete_password_in_keyring"
+    ) as delete_password:
+        result = _invoke(
+            FakeAPI(session_dir=session_dir),
+            "--format",
+            "json",
+            "auth",
+            "logout",
+            "--remove-keyring",
+            username=None,
+            session_dir=session_dir,
+            keyring_passwords={"user@example.com"},
+        )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert payload["stored_password_removed"] is True
     delete_password.assert_called_once_with("user@example.com")
-    assert "Deleted stored password from keyring." in result.stdout
 
 
 def test_security_key_flow() -> None:
-    """Security-key 2FA should confirm the selected key."""
+    """Auth login should confirm the selected security key."""
 
     fake_api = FakeAPI()
     fake_api.requires_2fa = True
     fake_api.fido2_devices = [{"id": "sk-1"}]
-    result = _invoke(fake_api, "account", "summary")
+    result = _invoke(fake_api, "auth", "login")
     assert result.exit_code == 0
     fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
 
 
 def test_trusted_device_2sa_flow() -> None:
-    """2SA should send and validate a verification code."""
+    """Auth login should send and validate a 2SA verification code."""
 
     fake_api = FakeAPI()
     fake_api.requires_2sa = True
     fake_api.trusted_devices = [{"deviceName": "Trusted Device", "phoneNumber": "+1"}]
     with patch.object(context_module.typer, "prompt", return_value="123456"):
-        result = _invoke(fake_api, "account", "summary", interactive=True)
+        result = _invoke(fake_api, "auth", "login", interactive=True)
     assert result.exit_code == 0
     fake_api.send_verification_code.assert_called_once_with(fake_api.trusted_devices[0])
     fake_api.validate_verification_code.assert_called_once_with(
@@ -811,7 +1403,7 @@ def test_notes_commands() -> None:
 def test_main_returns_clean_error_for_user_abort(capsys) -> None:
     """The entrypoint should not emit a traceback for expected CLI errors."""
 
-    message = "The --username option is required for authenticated commands."
+    message = "No local accounts were found; pass --username to bootstrap one."
     with patch.object(cli_module, "app", side_effect=context_module.CLIAbort(message)):
         code = cli_module.main()
     captured = capsys.readouterr()

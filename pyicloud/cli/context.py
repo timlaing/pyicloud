@@ -14,9 +14,11 @@ from click import confirm
 from rich.console import Console
 
 from pyicloud import PyiCloudService, utils
+from pyicloud.base import resolve_cookie_directory
 from pyicloud.exceptions import PyiCloudFailedLoginException, PyiCloudServiceUnavailable
 from pyicloud.ssl_context import configurable_ssl_verification
 
+from .account_index import AccountIndexEntry, prune_accounts, remember_account
 from .output import OutputFormat, write_json
 
 
@@ -81,6 +83,14 @@ class CLIState:
         self.err_console = Console(stderr=True)
         self._stack = ExitStack()
         self._api: Optional[PyiCloudService] = None
+        self._probe_api: Optional[PyiCloudService] = None
+        self._resolved_username: Optional[str] = self.username or None
+
+    @property
+    def has_explicit_username(self) -> bool:
+        """Return whether the user explicitly passed --username."""
+
+        return bool(self.username)
 
     @property
     def json_output(self) -> bool:
@@ -114,15 +124,94 @@ class CLIState:
 
         if not self.username:
             raise CLIAbort("A username is required with --delete-from-keyring.")
-        if utils.password_exists_in_keyring(self.username):
-            utils.delete_password_in_keyring(self.username)
+        return self.delete_keyring_password(self.username)
+
+    def delete_keyring_password(self, username: str) -> bool:
+        """Delete a stored keyring password for a username."""
+
+        if utils.password_exists_in_keyring(username):
+            utils.delete_password_in_keyring(username)
+            self.prune_local_accounts()
             return True
+        self.prune_local_accounts()
         return False
 
-    def _password_for_login(self) -> Optional[str]:
+    def has_keyring_password(self, username: Optional[str] = None) -> bool:
+        """Return whether a keyring password exists for a username."""
+
+        candidate = (username or self._resolved_username or self.username).strip()
+        if not candidate:
+            return False
+        return utils.password_exists_in_keyring(candidate)
+
+    @property
+    def session_root(self) -> Path:
+        """Return the resolved session root for this CLI invocation."""
+
+        return Path(resolve_cookie_directory(self.session_dir))
+
+    def local_accounts(self) -> list[AccountIndexEntry]:
+        """Return discoverable local accounts after opportunistic pruning."""
+
+        return prune_accounts(self.session_root, self.has_keyring_password)
+
+    def prune_local_accounts(self) -> list[AccountIndexEntry]:
+        """Prune stale indexed accounts and return the discoverable set."""
+
+        return self.local_accounts()
+
+    def remember_account(self, api: PyiCloudService, *, select: bool = True) -> None:
+        """Persist an account entry for later local discovery."""
+
+        remember_account(
+            self.session_root,
+            username=api.account_name,
+            session_path=api.session.session_path,
+            cookiejar_path=api.session.cookiejar_path,
+            keyring_has=self.has_keyring_password,
+        )
+        if select:
+            self._resolved_username = api.account_name
+
+    def _resolve_username(self) -> str:
+        if self._resolved_username:
+            return self._resolved_username
+
+        accounts = self.local_accounts()
+        if not accounts:
+            raise CLIAbort(
+                "No local accounts were found; pass --username to bootstrap one."
+            )
+        if len(accounts) > 1:
+            options = "\n".join(f"  - {entry['username']}" for entry in accounts)
+            raise CLIAbort(
+                "Multiple local accounts were found; pass --username to choose one.\n"
+                f"{options}"
+            )
+
+        self._resolved_username = accounts[0]["username"]
+        return self._resolved_username
+
+    def _not_logged_in_message(self) -> str:
+        """Return the default message for commands that require an active session."""
+
+        return (
+            "You are not logged into any iCloud accounts. To log in, run: "
+            "icloud --username <apple-id> auth login"
+        )
+
+    def _not_logged_in_for_account_message(self, username: str) -> str:
+        """Return the message for account-targeted commands without an active session."""
+
+        return (
+            f"You are not logged into iCloud for {username}. Run: "
+            f"icloud --username {username} auth login"
+        )
+
+    def _password_for_login(self, username: str) -> Optional[str]:
         if self.password:
             return self.password
-        return utils.get_password(self.username, interactive=self.interactive)
+        return utils.get_password(username, interactive=self.interactive)
 
     def _prompt_index(self, prompt: str, count: int) -> int:
         if count <= 1 or not self.interactive:
@@ -185,17 +274,14 @@ class CLIState:
         if not api.validate_verification_code(device, code):
             raise CLIAbort("Failed to verify the 2SA code.")
 
-    def get_api(self) -> PyiCloudService:
-        """Return an authenticated PyiCloudService instance."""
+    def get_login_api(self) -> PyiCloudService:
+        """Return a PyiCloudService, bootstrapping login if needed."""
 
         if self._api is not None:
             return self._api
-        if not self.username:
-            raise CLIAbort(
-                "The --username option is required for authenticated commands."
-            )
+        username = self._resolve_username()
 
-        password = self._password_for_login()
+        password = self._password_for_login(username)
         if not password:
             raise CLIAbort("No password supplied and no stored password was found.")
 
@@ -203,7 +289,7 @@ class CLIState:
 
         try:
             api = PyiCloudService(
-                apple_id=self.username,
+                apple_id=username,
                 password=password,
                 china_mainland=self.china_mainland,
                 cookie_directory=self.session_dir,
@@ -211,16 +297,17 @@ class CLIState:
                 with_family=self.with_family,
             )
         except PyiCloudFailedLoginException as err:
-            if utils.password_exists_in_keyring(self.username):
-                utils.delete_password_in_keyring(self.username)
-            raise CLIAbort(f"Bad username or password for {self.username}") from err
+            if utils.password_exists_in_keyring(username):
+                utils.delete_password_in_keyring(username)
+                self.prune_local_accounts()
+            raise CLIAbort(f"Bad username or password for {username}") from err
 
         if (
-            not utils.password_exists_in_keyring(self.username)
+            not utils.password_exists_in_keyring(username)
             and self.interactive
             and confirm("Save password in keyring?")
         ):
-            utils.store_password_in_keyring(self.username, password)
+            utils.store_password_in_keyring(username, password)
 
         if api.requires_2fa:
             self._handle_2fa(api)
@@ -228,7 +315,95 @@ class CLIState:
             self._handle_2sa(api)
 
         self._api = api
+        self.remember_account(api)
         return api
+
+    def get_api(self) -> PyiCloudService:
+        """Return an authenticated PyiCloudService backed by an active session."""
+
+        if self._api is not None:
+            return self._api
+
+        if self.has_explicit_username:
+            username = self._resolve_username()
+            api = self.build_probe_api(username)
+            status = api.get_auth_status()
+            if not status["authenticated"]:
+                raise CLIAbort(self._not_logged_in_for_account_message(username))
+            self._api = api
+            self.remember_account(api)
+            return api
+
+        active_probes = self.active_session_probes()
+        if not active_probes:
+            raise CLIAbort(self._not_logged_in_message())
+        if len(active_probes) > 1:
+            accounts = "\n".join(
+                f"  - {api.account_name}" for api, _status in active_probes
+            )
+            raise CLIAbort(
+                "Multiple logged-in iCloud accounts were found; pass --username to choose one.\n"
+                f"{accounts}"
+            )
+
+        api, _status = active_probes[0]
+        self._api = api
+        self.remember_account(api)
+        return api
+
+    def build_probe_api(self, username: str) -> PyiCloudService:
+        """Build a non-authenticating PyiCloudService for session probes."""
+
+        logging.basicConfig(level=self.log_level.logging_level())
+        return PyiCloudService(
+            apple_id=username,
+            password=self.password,
+            china_mainland=self.china_mainland,
+            cookie_directory=self.session_dir,
+            accept_terms=self.accept_terms,
+            with_family=self.with_family,
+            authenticate=False,
+        )
+
+    def get_probe_api(self) -> PyiCloudService:
+        """Return a cached non-authenticating PyiCloudService for session probes."""
+
+        if self._probe_api is not None:
+            return self._probe_api
+        username = self._resolve_username()
+        self._probe_api = self.build_probe_api(username)
+        return self._probe_api
+
+    def auth_storage_info(
+        self, api: Optional[PyiCloudService] = None
+    ) -> dict[str, Any]:
+        """Return session storage paths and presence flags."""
+
+        probe_api = api or self.get_probe_api()
+        session_path = Path(probe_api.session.session_path)
+        cookiejar_path = Path(probe_api.session.cookiejar_path)
+        return {
+            "session_path": str(session_path),
+            "cookiejar_path": str(cookiejar_path),
+            "has_session_file": session_path.exists(),
+            "has_cookiejar_file": cookiejar_path.exists(),
+        }
+
+    def active_session_probes(self) -> list[tuple[PyiCloudService, dict[str, Any]]]:
+        """Return authenticated sessions discoverable from local session files."""
+
+        probes: list[tuple[PyiCloudService, dict[str, Any]]] = []
+        for entry in self.local_accounts():
+            session_path = Path(entry["session_path"])
+            cookiejar_path = Path(entry["cookiejar_path"])
+            if not (session_path.exists() or cookiejar_path.exists()):
+                continue
+            api = self.build_probe_api(entry["username"])
+            status = api.get_auth_status()
+            if status["authenticated"]:
+                self.remember_account(api, select=False)
+                probes.append((api, status))
+        return probes
 
 
 def get_state(ctx: typer.Context) -> CLIState:

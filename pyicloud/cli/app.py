@@ -5,6 +5,7 @@ from __future__ import annotations
 import typer
 
 from pyicloud.cli.commands.account import app as account_app
+from pyicloud.cli.commands.auth import app as auth_app
 from pyicloud.cli.commands.calendar import app as calendar_app
 from pyicloud.cli.commands.contacts import app as contacts_app
 from pyicloud.cli.commands.devices import app as devices_app
@@ -23,6 +24,7 @@ app = typer.Typer(
 )
 
 app.add_typer(account_app, name="account")
+app.add_typer(auth_app, name="auth")
 app.add_typer(devices_app, name="devices")
 app.add_typer(calendar_app, name="calendar")
 app.add_typer(contacts_app, name="contacts")
@@ -36,7 +38,11 @@ app.add_typer(notes_app, name="notes")
 @app.callback(invoke_without_command=True)
 def root(
     ctx: typer.Context,
-    username: str = typer.Option("", "--username", help="Apple ID username."),
+    username: str = typer.Option(
+        "",
+        "--username",
+        help="Apple ID username. Optional when a command can infer a single account context.",
+    ),
     password: str | None = typer.Option(
         None,
         "--password",

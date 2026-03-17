@@ -56,13 +56,17 @@ api = PyiCloudService('jappleseed@apple.com', 'password', refresh_interval=60) #
 api.devices
 ```
 
-The `icloud` command line interface is organized around service
-subcommands such as `account`, `devices`, `calendar`, `contacts`,
-`drive`, `photos`, `hidemyemail`, `reminders`, and `notes`.
+The `icloud` command line interface is organized around top-level
+subcommands such as `account`, `auth`, `devices`, `calendar`,
+`contacts`, `drive`, `photos`, `hidemyemail`, `reminders`, and
+`notes`.
 
 Global options such as `--username`, `--password`, `--session-dir`,
 `--accept-terms`, `--with-family`, `--log-level`, and `--format` apply
-before the service subcommand:
+before the service subcommand. `--username` acts as an explicit override;
+if exactly one local account is known in the selected session directory,
+the CLI can infer it automatically. If multiple local accounts are known,
+the CLI will ask you to pass `--username` explicitly.
 
 ```console
 $ icloud --username=jappleseed@apple.com --format json account summary
@@ -70,7 +74,7 @@ $ icloud --username=jappleseed@apple.com --format json account summary
 
 The main global options are:
 
-- `--username`: Apple ID username
+- `--username`: Apple ID username; optional when exactly one local account is discoverable
 - `--password`: Apple ID password; if omitted, pyicloud uses the system keyring or prompts interactively
 - `--china-mainland`: use China mainland Apple web service endpoints
 - `--interactive/--non-interactive`: enable or disable prompts for auth flows and keyring storage
@@ -100,10 +104,19 @@ the password for.
 Examples:
 
 ```console
+$ icloud auth status
+$ icloud auth login
+$ icloud auth logout
+$ icloud auth logout --keep-trusted
+$ icloud auth logout --all-sessions
+$ icloud auth logout --keep-trusted --all-sessions
+$ icloud auth logout --remove-keyring
+$ icloud account summary
+$ icloud devices list --locate
+$ icloud devices show "Jacob's iPhone"
+$ icloud devices export "Jacob's iPhone" --output ./iphone.json
+$ icloud --username=jappleseed@apple.com auth login
 $ icloud --username=jappleseed@apple.com account summary
-$ icloud --username=jappleseed@apple.com devices list --locate
-$ icloud --username=jappleseed@apple.com devices show "Jacob's iPhone"
-$ icloud --username=jappleseed@apple.com devices export "Jacob's iPhone" --output ./iphone.json
 $ icloud --username=jappleseed@apple.com calendar events --period week
 $ icloud --username=jappleseed@apple.com contacts me
 $ icloud --username=jappleseed@apple.com drive list /Documents
@@ -125,6 +138,35 @@ command-line option:
 ```console
 $ icloud --username=jappleseed@apple.com --delete-from-keyring
 ```
+
+The `auth` command group lets you inspect and manage persisted sessions:
+
+- `icloud auth status`: report active logged-in iCloud sessions without prompting for password or 2FA
+- `icloud auth login`: ensure a usable authenticated session exists
+- `icloud auth logout`: sign out and clear the local session so the next login will typically require 2FA again
+- `icloud auth logout --keep-trusted`: sign out while asking Apple to preserve trusted-browser state for the next login
+- `icloud auth logout --all-sessions`: attempt to sign out all browser sessions
+- `icloud auth logout --remove-keyring`: also delete the stored password for the selected account
+- `icloud auth logout --keep-trusted --all-sessions`: experimental combination that requests both behaviors
+
+When only one local account is known, `auth login` can omit
+`--username`. Service commands, `auth status`, and `auth logout` without
+`--username` operate on active logged-in sessions only, similar to `gh`.
+If no active sessions exist, service commands and `auth status` report
+that no iCloud accounts are logged in and direct you to
+`icloud --username=<apple-id> auth login`. If multiple logged-in
+accounts exist, pass `--username` to disambiguate account-targeted
+operations.
+
+`--keep-trusted` and `--all-sessions` are translated to Apple's logout
+payload internally; the CLI intentionally exposes user-facing semantics
+instead of the raw wire field names.
+
+Stored passwords in the system keyring are treated separately from
+authenticated sessions. A plain `icloud auth logout` ends the session
+but keeps the stored password. Use `icloud auth logout --remove-keyring`
+or `icloud --username=<apple-id> --delete-from-keyring` if you also want
+to forget the saved password.
 
 Migration notes for the previous Find My-focused CLI:
 

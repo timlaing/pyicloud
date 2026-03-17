@@ -3,6 +3,8 @@ Test the PyiCloudService and PyiCloudSession classes."""
 
 # pylint: disable=protected-access
 
+import json
+import secrets
 from typing import Any, List
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -57,6 +59,51 @@ def test_authenticate_with_force_refresh(pyicloud_service: PyiCloudService) -> N
         validate_token.assert_called_once()
 
 
+def test_constructor_accepts_positional_refresh_interval() -> None:
+    """refresh_interval stays positional-compatible with upstream."""
+    with (
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
+        patch("builtins.open", new_callable=mock_open),
+    ):
+        mock_authenticate.return_value = None
+        mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
+
+        service = PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            None,
+            True,
+            None,
+            True,
+            False,
+            False,
+            30.0,
+        )
+
+        assert service._refresh_interval == 30.0
+
+
+def test_constructor_skips_authentication_when_requested() -> None:
+    """authenticate=False should not trigger login during construction."""
+    with (
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.base.get_password_from_keyring") as get_from_keyring,
+        patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
+        patch("builtins.open", new_callable=mock_open),
+    ):
+        mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
+
+        PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            authenticate=False,
+        )
+
+        mock_authenticate.assert_not_called()
+        get_from_keyring.assert_not_called()
+
+
 def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> None:
     """Test the authenticate method with missing session_token."""
     with (
@@ -88,6 +135,84 @@ def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> N
         assert mock_get_response.call_count == 1
         assert mock_post_response.call_count == 2
         assert mock_authenticate_with_token.call_count == 2
+
+
+def test_get_auth_status_without_session_token(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Auth status should report unauthenticated when no token is present."""
+
+    pyicloud_service.session._data = {}
+    result = pyicloud_service.get_auth_status()
+
+    assert result == {
+        "authenticated": False,
+        "trusted_session": False,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+
+
+def test_get_auth_status_with_valid_session(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Auth status should validate a persisted session token without logging in."""
+
+    pyicloud_service.session._data = {"session_token": "token"}
+    pyicloud_service.session.cookies = MagicMock()
+    pyicloud_service.session.cookies.get.return_value = "cookie"
+
+    with patch.object(
+        pyicloud_service,
+        "_validate_token",
+        return_value={
+            "dsInfo": {"dsid": "123", "hsaVersion": 2},
+            "hsaTrustedBrowser": True,
+            "webservices": {"findme": {"url": "https://example.com"}},
+        },
+    ):
+        result = pyicloud_service.get_auth_status()
+
+    assert result == {
+        "authenticated": True,
+        "trusted_session": True,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    assert pyicloud_service.params["dsid"] == "123"
+
+
+def test_get_auth_status_invalid_token_does_not_fallback_to_login(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Auth status should not attempt a password-based login on invalid tokens."""
+
+    pyicloud_service.session._data = {"session_token": "token"}
+    pyicloud_service.session.cookies = MagicMock()
+    pyicloud_service.session.cookies.get.return_value = "cookie"
+    pyicloud_service.data = {"hsaTrustedBrowser": True}
+    pyicloud_service.params["dsid"] = "123"
+    pyicloud_service._devices = MagicMock()
+
+    with (
+        patch.object(
+            pyicloud_service,
+            "_validate_token",
+            side_effect=PyiCloudAPIResponseException("Invalid token"),
+        ),
+        patch.object(pyicloud_service, "_authenticate") as mock_authenticate,
+    ):
+        result = pyicloud_service.get_auth_status()
+
+    assert result == {
+        "authenticated": False,
+        "trusted_session": False,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    assert "dsid" not in pyicloud_service.params
+    assert pyicloud_service._devices is None
+    mock_authenticate.assert_not_called()
 
 
 def test_validate_2fa_code(pyicloud_service: PyiCloudService) -> None:
@@ -220,6 +345,71 @@ def test_trust_session_failure(pyicloud_service: PyiCloudService) -> None:
         assert not pyicloud_service.trust_session()
 
 
+@pytest.mark.parametrize(
+    ("keep_trusted", "all_sessions", "expected_payload"),
+    [
+        (False, False, {"trustBrowser": False, "allBrowsers": False}),
+        (True, False, {"trustBrowser": True, "allBrowsers": False}),
+        (False, True, {"trustBrowser": False, "allBrowsers": True}),
+        (True, True, {"trustBrowser": True, "allBrowsers": True}),
+    ],
+)
+def test_logout_payload_mappings(
+    pyicloud_service: PyiCloudService,
+    keep_trusted: bool,
+    all_sessions: bool,
+    expected_payload: dict[str, bool],
+) -> None:
+    """Logout should map CLI semantics to Apple's payload exactly."""
+
+    pyicloud_service.params["dsid"] = "123"
+    pyicloud_service.session.cookies = MagicMock()
+    pyicloud_service.session.cookies.get.return_value = "cookie"
+    pyicloud_service.session.clear_persistence = MagicMock()
+    pyicloud_service.session.post = MagicMock(
+        return_value=MagicMock(json=MagicMock(return_value={"success": True}))
+    )
+
+    result = pyicloud_service.logout(
+        keep_trusted=keep_trusted,
+        all_sessions=all_sessions,
+    )
+
+    kwargs = pyicloud_service.session.post.call_args.kwargs
+    assert kwargs["params"]["dsid"] == "123"
+    assert kwargs["headers"] == {"Content-Type": "text/plain;charset=UTF-8"}
+    assert json.loads(kwargs["data"]) == expected_payload
+    assert result["payload"] == expected_payload
+    assert result["remote_logout_confirmed"] is True
+
+
+def test_logout_clears_authenticated_state(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Logout should clear in-memory auth state and persisted session data."""
+
+    pyicloud_service.data = {"dsInfo": {"dsid": "123"}}
+    pyicloud_service.params["dsid"] = "123"
+    pyicloud_service._devices = MagicMock()
+    pyicloud_service.session.cookies = MagicMock()
+    pyicloud_service.session.cookies.get.return_value = "cookie"
+    pyicloud_service.session.post = MagicMock(
+        side_effect=PyiCloudAPIResponseException("logout failed")
+    )
+    pyicloud_service.session.clear_persistence = MagicMock()
+
+    result = pyicloud_service.logout()
+
+    assert result["remote_logout_confirmed"] is False
+    assert result["local_session_cleared"] is True
+    pyicloud_service.session.clear_persistence.assert_called_once_with(
+        remove_files=True
+    )
+    assert pyicloud_service.data == {}
+    assert "dsid" not in pyicloud_service.params
+    assert pyicloud_service._devices is None
+
+
 def test_cookiejar_path_property(pyicloud_session: PyiCloudSession) -> None:
     """Test the cookiejar_path property."""
     path: str = pyicloud_session.cookiejar_path
@@ -230,6 +420,25 @@ def test_session_path_property(pyicloud_session: PyiCloudSession) -> None:
     """Test the session_path property."""
     path: str = pyicloud_session.session_path
     assert isinstance(path, str)
+
+
+def test_clear_persistence_removes_session_and_cookie_files(
+    pyicloud_session: PyiCloudSession,
+) -> None:
+    """Session persistence cleanup should clear cookies and remove persisted files."""
+
+    pyicloud_session._data = {"session_token": "token"}
+    with patch("pyicloud.session.os.remove") as mock_remove:
+        pyicloud_session.clear_persistence()
+
+    pyicloud_session.cookies.clear.assert_called_once_with()
+    assert pyicloud_session.data == {}
+    assert mock_remove.call_count == 2
+    removed_paths = {call.args[0] for call in mock_remove.call_args_list}
+    assert removed_paths == {
+        pyicloud_session.cookiejar_path,
+        pyicloud_session.session_path,
+    }
 
 
 def test_requires_2sa_property(pyicloud_service: PyiCloudService) -> None:
