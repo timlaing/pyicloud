@@ -10,13 +10,14 @@ from typing import Callable, TypedDict
 ACCOUNT_INDEX_FILENAME = "accounts.json"
 
 
-class AccountIndexEntry(TypedDict):
+class AccountIndexEntry(TypedDict, total=False):
     """Persisted local account metadata."""
 
     username: str
     last_used_at: str
     session_path: str
     cookiejar_path: str
+    china_mainland: bool
 
 
 def account_index_path(session_root: str | Path) -> Path:
@@ -55,6 +56,9 @@ def load_accounts(session_root: str | Path) -> dict[str, AccountIndexEntry]:
             "session_path": session_path,
             "cookiejar_path": cookiejar_path,
         }
+        china_mainland = entry.get("china_mainland")
+        if isinstance(china_mainland, bool):
+            normalized[username]["china_mainland"] = china_mainland
     return normalized
 
 
@@ -113,6 +117,7 @@ def remember_account(
     username: str,
     session_path: str,
     cookiejar_path: str,
+    china_mainland: bool | None,
     keyring_has: Callable[[str], bool],
 ) -> AccountIndexEntry:
     """Upsert one account entry and prune any stale neighbors."""
@@ -120,12 +125,17 @@ def remember_account(
     accounts = {
         entry["username"]: entry for entry in prune_accounts(session_root, keyring_has)
     }
+    previous = accounts.get(username)
     entry: AccountIndexEntry = {
         "username": username,
         "last_used_at": datetime.now(tz=timezone.utc).isoformat(),
         "session_path": session_path,
         "cookiejar_path": cookiejar_path,
     }
+    if china_mainland is not None:
+        entry["china_mainland"] = china_mainland
+    elif previous is not None and "china_mainland" in previous:
+        entry["china_mainland"] = previous["china_mainland"]
     accounts[username] = entry
     _save_accounts(session_root, accounts)
     return entry

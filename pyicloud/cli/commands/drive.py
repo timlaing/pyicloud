@@ -14,14 +14,14 @@ from pyicloud.cli.context import (
     write_response_to_path,
 )
 from pyicloud.cli.normalize import normalize_drive_node
-from pyicloud.cli.options import with_execution_context_options
+from pyicloud.cli.options import with_service_command_options
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Browse and download iCloud Drive files.")
 
 
 @app.command("list")
-@with_execution_context_options
+@with_service_command_options
 def drive_list(
     ctx: typer.Context,
     path: str = typer.Argument("/", help="Drive path, for example /Documents."),
@@ -73,7 +73,7 @@ def drive_list(
 
 
 @app.command("download")
-@with_execution_context_options
+@with_service_command_options
 def drive_download(
     ctx: typer.Context,
     path: str = typer.Argument(..., help="Drive path to the file."),

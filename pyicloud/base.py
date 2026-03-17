@@ -148,14 +148,16 @@ class PyiCloudService:
         verify: bool = True,
         client_id: Optional[str] = None,
         with_family: bool = True,
-        china_mainland: bool = False,
+        china_mainland: Optional[bool] = None,
         accept_terms: bool = False,
         refresh_interval: float | None = None,
         *,
         authenticate: bool = True,
     ) -> None:
         self._is_china_mainland: bool = (
-            china_mainland or environ.get("icloud_china", "0") == "1"
+            environ.get("icloud_china", "0") == "1"
+            if china_mainland is None
+            else china_mainland
         )
         self._setup_endpoints()
 
@@ -218,6 +220,12 @@ class PyiCloudService:
 
         if authenticate:
             self.authenticate()
+
+    @property
+    def is_china_mainland(self) -> bool:
+        """Return whether the current service uses China mainland endpoints."""
+
+        return self._is_china_mainland
 
     def authenticate(
         self, force_refresh: bool = False, service: Optional[str] = None

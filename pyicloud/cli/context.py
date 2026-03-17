@@ -19,10 +19,10 @@ from pyicloud.base import resolve_cookie_directory
 from pyicloud.exceptions import PyiCloudFailedLoginException, PyiCloudServiceUnavailable
 from pyicloud.ssl_context import configurable_ssl_verification
 
-from .account_index import AccountIndexEntry, prune_accounts, remember_account
+from .account_index import AccountIndexEntry, load_accounts, prune_accounts, remember_account
 from .output import OutputFormat, write_json
 
-EXECUTION_CONTEXT_OVERRIDES_META_KEY = "execution_context_overrides"
+COMMAND_OPTIONS_META_KEY = "command_options"
 
 
 class CLIAbort(RuntimeError):
@@ -50,40 +50,21 @@ class LogLevel(str, Enum):
 
 
 @dataclass(frozen=True)
-class CLIInvocationDefaults:
-    """Root-level execution context defaults captured before leaf parsing."""
-
-    username: str
-    password: Optional[str]
-    china_mainland: bool
-    interactive: bool
-    delete_from_keyring: bool
-    accept_terms: bool
-    with_family: bool
-    session_dir: Optional[str]
-    http_proxy: Optional[str]
-    https_proxy: Optional[str]
-    no_verify_ssl: bool
-    log_level: LogLevel
-    output_format: OutputFormat
-
-
-@dataclass(frozen=True)
-class CommandOverrides:
-    """Leaf command execution-context overrides."""
+class CLICommandOptions:
+    """Command-local options captured from the leaf command."""
 
     username: Optional[str] = None
     password: Optional[str] = None
     china_mainland: Optional[bool] = None
-    interactive: Optional[bool] = None
-    accept_terms: Optional[bool] = None
-    with_family: Optional[bool] = None
+    interactive: bool = True
+    accept_terms: bool = False
+    with_family: bool = False
     session_dir: Optional[str] = None
     http_proxy: Optional[str] = None
     https_proxy: Optional[str] = None
-    no_verify_ssl: Optional[bool] = None
-    log_level: Optional[LogLevel] = None
-    output_format: Optional[OutputFormat] = None
+    no_verify_ssl: bool = False
+    log_level: LogLevel = LogLevel.WARNING
+    output_format: OutputFormat = OutputFormat.TEXT
 
 
 class CLIState:
@@ -92,11 +73,10 @@ class CLIState:
     def __init__(
         self,
         *,
-        username: str,
+        username: Optional[str],
         password: Optional[str],
-        china_mainland: bool,
+        china_mainland: Optional[bool],
         interactive: bool,
-        delete_from_keyring: bool,
         accept_terms: bool,
         with_family: bool,
         session_dir: Optional[str],
@@ -106,11 +86,10 @@ class CLIState:
         log_level: LogLevel,
         output_format: OutputFormat,
     ) -> None:
-        self.username = username.strip()
+        self.username = (username or "").strip()
         self.password = password
         self.china_mainland = china_mainland
         self.interactive = interactive
-        self.delete_from_keyring = delete_from_keyring
         self.accept_terms = accept_terms
         self.with_family = with_family
         self.session_dir = session_dir
@@ -127,72 +106,22 @@ class CLIState:
         self._resolved_username: Optional[str] = self.username or None
 
     @classmethod
-    def from_invocation(
-        cls,
-        defaults: CLIInvocationDefaults,
-        overrides: Optional[CommandOverrides] = None,
-    ) -> "CLIState":
-        """Build CLI state from root defaults plus leaf overrides."""
+    def from_options(cls, options: CLICommandOptions) -> "CLIState":
+        """Build CLI state from one leaf command's options."""
 
-        overrides = overrides or CommandOverrides()
         return cls(
-            username=(
-                defaults.username if overrides.username is None else overrides.username
-            ),
-            password=(
-                defaults.password if overrides.password is None else overrides.password
-            ),
-            china_mainland=(
-                defaults.china_mainland
-                if overrides.china_mainland is None
-                else overrides.china_mainland
-            ),
-            interactive=(
-                defaults.interactive
-                if overrides.interactive is None
-                else overrides.interactive
-            ),
-            delete_from_keyring=defaults.delete_from_keyring,
-            accept_terms=(
-                defaults.accept_terms
-                if overrides.accept_terms is None
-                else overrides.accept_terms
-            ),
-            with_family=(
-                defaults.with_family
-                if overrides.with_family is None
-                else overrides.with_family
-            ),
-            session_dir=(
-                defaults.session_dir
-                if overrides.session_dir is None
-                else overrides.session_dir
-            ),
-            http_proxy=(
-                defaults.http_proxy
-                if overrides.http_proxy is None
-                else overrides.http_proxy
-            ),
-            https_proxy=(
-                defaults.https_proxy
-                if overrides.https_proxy is None
-                else overrides.https_proxy
-            ),
-            no_verify_ssl=(
-                defaults.no_verify_ssl
-                if overrides.no_verify_ssl is None
-                else overrides.no_verify_ssl
-            ),
-            log_level=(
-                defaults.log_level
-                if overrides.log_level is None
-                else overrides.log_level
-            ),
-            output_format=(
-                defaults.output_format
-                if overrides.output_format is None
-                else overrides.output_format
-            ),
+            username=options.username,
+            password=options.password,
+            china_mainland=options.china_mainland,
+            interactive=options.interactive,
+            accept_terms=options.accept_terms,
+            with_family=options.with_family,
+            session_dir=options.session_dir,
+            http_proxy=options.http_proxy,
+            https_proxy=options.https_proxy,
+            no_verify_ssl=options.no_verify_ssl,
+            log_level=options.log_level,
+            output_format=options.output_format,
         )
 
     @property
@@ -228,13 +157,6 @@ class CLIState:
 
         write_json(self.console, payload)
 
-    def delete_stored_password(self) -> bool:
-        """Delete a stored keyring password."""
-
-        if not self.username:
-            raise CLIAbort("A username is required with --delete-from-keyring.")
-        return self.delete_keyring_password(self.username)
-
     def delete_keyring_password(self, username: str) -> bool:
         """Delete a stored keyring password for a username."""
 
@@ -269,6 +191,21 @@ class CLIState:
 
         return self.local_accounts()
 
+    def account_entry(self, username: str) -> Optional[AccountIndexEntry]:
+        """Return the indexed account entry for a username, if present."""
+
+        return load_accounts(self.session_root).get(username)
+
+    def resolved_china_mainland(self, username: str) -> Optional[bool]:
+        """Resolve China mainland mode for an account from command or stored state."""
+
+        if self.china_mainland is not None:
+            return self.china_mainland
+        entry = self.account_entry(username)
+        if entry is None:
+            return None
+        return entry.get("china_mainland")
+
     def remember_account(self, api: PyiCloudService, *, select: bool = True) -> None:
         """Persist an account entry for later local discovery."""
 
@@ -277,6 +214,7 @@ class CLIState:
             username=api.account_name,
             session_path=api.session.session_path,
             cookiejar_path=api.session.cookiejar_path,
+            china_mainland=api.is_china_mainland,
             keyring_has=self.has_keyring_password,
         )
         if select:
@@ -410,7 +348,7 @@ class CLIState:
             api = PyiCloudService(
                 apple_id=username,
                 password=password,
-                china_mainland=self.china_mainland,
+                china_mainland=self.resolved_china_mainland(username),
                 cookie_directory=self.session_dir,
                 accept_terms=self.accept_terms,
                 with_family=self.with_family,
@@ -475,7 +413,7 @@ class CLIState:
         return PyiCloudService(
             apple_id=username,
             password=self.password,
-            china_mainland=self.china_mainland,
+            china_mainland=self.resolved_china_mainland(username),
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
@@ -530,13 +468,9 @@ def get_state(ctx: typer.Context) -> CLIState:
     state = root_ctx.obj
     if isinstance(state, CLIState):
         return state
-    if not isinstance(state, CLIInvocationDefaults):
-        raise RuntimeError("CLI state was not initialized.")
 
-    overrides = CommandOverrides(
-        **ctx.meta.get(EXECUTION_CONTEXT_OVERRIDES_META_KEY, {})
-    )
-    resolved = CLIState.from_invocation(state, overrides)
+    options = CLICommandOptions(**ctx.meta.get(COMMAND_OPTIONS_META_KEY, {}))
+    resolved = CLIState.from_options(options)
     resolved.open()
     root_ctx.call_on_close(resolved.close)
     root_ctx.obj = resolved

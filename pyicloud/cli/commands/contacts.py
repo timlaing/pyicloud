@@ -8,14 +8,14 @@ import typer
 
 from pyicloud.cli.context import get_state, service_call
 from pyicloud.cli.normalize import normalize_contact, normalize_me
-from pyicloud.cli.options import with_execution_context_options
+from pyicloud.cli.options import with_service_command_options
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Inspect iCloud contacts.")
 
 
 @app.command("list")
-@with_execution_context_options
+@with_service_command_options
 def contacts_list(
     ctx: typer.Context,
     limit: int = typer.Option(50, "--limit", min=1, help="Maximum contacts to show."),
@@ -52,7 +52,7 @@ def contacts_list(
 
 
 @app.command("me")
-@with_execution_context_options
+@with_service_command_options
 def contacts_me(ctx: typer.Context) -> None:
     """Show the signed-in contact card."""
 

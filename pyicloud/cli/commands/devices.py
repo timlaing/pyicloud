@@ -8,7 +8,7 @@ import typer
 
 from pyicloud.cli.context import get_state, resolve_device, service_call
 from pyicloud.cli.normalize import normalize_device_details, normalize_device_summary
-from pyicloud.cli.options import with_execution_context_options
+from pyicloud.cli.options import with_devices_command_options
 from pyicloud.cli.output import (
     console_kv_table,
     console_table,
@@ -20,7 +20,7 @@ app = typer.Typer(help="Work with Find My devices.")
 
 
 @app.command("list")
-@with_execution_context_options
+@with_devices_command_options
 def devices_list(
     ctx: typer.Context,
     locate: bool = typer.Option(
@@ -58,7 +58,7 @@ def devices_list(
 
 
 @app.command("show")
-@with_execution_context_options
+@with_devices_command_options
 def devices_show(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -96,7 +96,7 @@ def devices_show(
 
 
 @app.command("sound")
-@with_execution_context_options
+@with_devices_command_options
 def devices_sound(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -116,7 +116,7 @@ def devices_sound(
 
 
 @app.command("message")
-@with_execution_context_options
+@with_devices_command_options
 def devices_message(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -143,7 +143,7 @@ def devices_message(
 
 
 @app.command("lost-mode")
-@with_execution_context_options
+@with_devices_command_options
 def devices_lost_mode(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -174,7 +174,7 @@ def devices_lost_mode(
 
 
 @app.command("erase")
-@with_execution_context_options
+@with_devices_command_options
 def devices_erase(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -197,7 +197,7 @@ def devices_erase(
 
 
 @app.command("export")
-@with_execution_context_options
+@with_devices_command_options
 def devices_export(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),

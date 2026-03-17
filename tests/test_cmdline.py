@@ -360,10 +360,12 @@ class FakeAPI:
         *,
         username: str = "user@example.com",
         session_dir: Optional[Path] = None,
+        china_mainland: bool = False,
     ) -> None:
         self.requires_2fa = False
         self.requires_2sa = False
         self.is_trusted_session = True
+        self.is_china_mainland = china_mainland
         self.fido2_devices: list[dict[str, Any]] = []
         self.trusted_devices: list[dict[str, Any]] = []
         self.validate_2fa_code = MagicMock(return_value=True)
@@ -522,9 +524,14 @@ def _remember_local_account(
     *,
     has_session_file: bool = False,
     has_cookiejar_file: bool = False,
+    china_mainland: bool | None = None,
     keyring_passwords: Optional[set[str]] = None,
 ) -> FakeAPI:
-    fake_api = FakeAPI(username=username, session_dir=session_dir)
+    fake_api = FakeAPI(
+        username=username,
+        session_dir=session_dir,
+        china_mainland=bool(china_mainland),
+    )
     if has_session_file:
         with open(fake_api.session.session_path, "w", encoding="utf-8"):
             pass
@@ -536,6 +543,7 @@ def _remember_local_account(
         username=username,
         session_path=fake_api.session.session_path,
         cookiejar_path=fake_api.session.cookiejar_path,
+        china_mainland=china_mainland,
         keyring_has=lambda candidate: candidate in (keyring_passwords or set()),
     )
     return fake_api
@@ -545,21 +553,55 @@ def _invoke(
     fake_api: FakeAPI,
     *args: str,
     username: Optional[str] = "user@example.com",
-    password: Optional[str] = "secret",
-    interactive: bool = False,
+    password: Optional[str] = None,
+    interactive: Optional[bool] = None,
     session_dir: Optional[Path] = None,
+    china_mainland: Optional[bool] = None,
+    accept_terms: Optional[bool] = None,
+    with_family: Optional[bool] = None,
+    output_format: Optional[str] = None,
+    log_level: Optional[str] = None,
+    http_proxy: Optional[str] = None,
+    https_proxy: Optional[str] = None,
+    no_verify_ssl: bool = False,
     keyring_passwords: Optional[set[str]] = None,
 ):
     runner = _runner()
     session_dir = session_dir or _unique_session_dir("invoke")
-    cli_args = [
-        *([] if username is None else ["--username", username]),
-        *([] if password is None else ["--password", password]),
-        "--session-dir",
-        str(session_dir),
-        *([] if interactive else ["--non-interactive"]),
-        *args,
-    ]
+    cli_args = list(args)
+    command_path = tuple(args[:3])
+    supports_auth_login = command_path[:2] == ("auth", "login")
+    supports_devices = args[:1] == ("devices",)
+    supports_keyring_delete = command_path[:3] == ("auth", "keyring", "delete")
+
+    if username is not None:
+        cli_args.extend(["--username", username])
+    if session_dir is not None:
+        cli_args.extend(["--session-dir", str(session_dir)])
+    if supports_auth_login and password is None:
+        password = "secret"
+    if supports_auth_login and interactive is None:
+        interactive = False
+    if supports_auth_login and password is not None:
+        cli_args.extend(["--password", password])
+    if supports_auth_login and interactive is not None:
+        cli_args.append("--interactive" if interactive else "--non-interactive")
+    if supports_auth_login and china_mainland:
+        cli_args.append("--china-mainland")
+    if supports_auth_login and accept_terms:
+        cli_args.append("--accept-terms")
+    if not supports_keyring_delete and http_proxy is not None:
+        cli_args.extend(["--http-proxy", http_proxy])
+    if not supports_keyring_delete and https_proxy is not None:
+        cli_args.extend(["--https-proxy", https_proxy])
+    if not supports_keyring_delete and no_verify_ssl:
+        cli_args.append("--no-verify-ssl")
+    if supports_devices and with_family:
+        cli_args.append("--with-family")
+    if output_format is not None:
+        cli_args.extend(["--format", output_format])
+    if log_level is not None:
+        cli_args.extend(["--log-level", log_level])
     with (
         patch.object(context_module, "PyiCloudService", return_value=fake_api),
         patch.object(
@@ -598,15 +640,17 @@ def _invoke_with_cli_args(
 
 
 def test_root_help() -> None:
-    """The root command should expose the service subcommands and format option."""
+    """The root command should expose only help/completion utilities and subcommands."""
 
     result = _runner().invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "--username" in result.stdout
-    assert "before the command or on the final command" in result.stdout
-    assert "--format" in result.stdout
-    assert "--json" not in result.stdout
-    assert "--debug" not in result.stdout
+    assert "--username" not in result.stdout
+    assert "--password" not in result.stdout
+    assert "--format" not in result.stdout
+    assert "--session-dir" not in result.stdout
+    assert "--http-proxy" not in result.stdout
+    assert "--install-completion" in result.stdout
+    assert "--show-completion" in result.stdout
     for command in (
         "account",
         "auth",
@@ -663,7 +707,7 @@ def test_bare_group_invocation_shows_help() -> None:
 
 
 def test_leaf_help_includes_execution_context_options() -> None:
-    """Leaf command help should show shared execution-context options."""
+    """Leaf command help should show the command-local options it supports."""
 
     result = _runner().invoke(app, ["account", "summary", "--help"])
 
@@ -671,6 +715,31 @@ def test_leaf_help_includes_execution_context_options() -> None:
     assert "--username" in result.stdout
     assert "--format" in result.stdout
     assert "--session-dir" in result.stdout
+    assert "--password" not in result.stdout
+    assert "--with-family" not in result.stdout
+
+
+def test_auth_login_help_scopes_authentication_options() -> None:
+    """Auth login help should expose auth-only options on the leaf command."""
+
+    result = _runner().invoke(app, ["auth", "login", "--help"])
+
+    assert result.exit_code == 0
+    assert "--username" in result.stdout
+    assert "--password" in result.stdout
+    assert "--china-mainland" in result.stdout
+    assert "--interactive" in result.stdout
+    assert "--accept-terms" in result.stdout
+    assert "--with-family" not in result.stdout
+
+
+def test_devices_help_scopes_device_options() -> None:
+    """Devices help should expose device-specific options on device commands only."""
+
+    result = _runner().invoke(app, ["devices", "list", "--help"])
+
+    assert result.exit_code == 0
+    assert "--with-family" in result.stdout
 
 
 def test_account_summary_command() -> None:
@@ -683,9 +752,9 @@ def test_account_summary_command() -> None:
 
 
 def test_format_option_outputs_json() -> None:
-    """The root format option should support machine-readable JSON."""
+    """Leaf --format should support machine-readable JSON."""
 
-    result = _invoke(FakeAPI(), "--format", "json", "account", "summary")
+    result = _invoke(FakeAPI(), "account", "summary", output_format="json")
     payload = json.loads(result.stdout)
     assert result.exit_code == 0
     assert payload["account_name"] == "user@example.com"
@@ -699,15 +768,12 @@ def test_command_local_format_option_outputs_json() -> None:
     result = _invoke_with_cli_args(
         FakeAPI(session_dir=session_dir),
         [
-            "--username",
-            "user@example.com",
-            "--password",
-            "secret",
-            "--session-dir",
-            str(session_dir),
-            "--non-interactive",
             "account",
             "summary",
+            "--username",
+            "user@example.com",
+            "--session-dir",
+            str(session_dir),
             "--format",
             "json",
         ],
@@ -718,55 +784,19 @@ def test_command_local_format_option_outputs_json() -> None:
     assert payload["account_name"] == "user@example.com"
 
 
-def test_leaf_execution_context_overrides_root_values() -> None:
-    """Leaf execution-context options should take precedence over root values."""
+def test_old_root_execution_options_fail_cleanly() -> None:
+    """Root execution options should no longer be accepted."""
 
-    session_dir = _unique_session_dir("leaf-precedence")
-    fake_api = FakeAPI(username="leaf@example.com", session_dir=session_dir)
-
-    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
-        assert apple_id == "leaf@example.com"
-        assert kwargs["cookie_directory"] == str(session_dir)
-        return fake_api
-
-    with (
-        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
-        patch.object(
-            context_module, "configurable_ssl_verification", return_value=nullcontext()
-        ),
-        patch.object(context_module, "confirm", return_value=False),
-        patch.object(
-            context_module.utils, "password_exists_in_keyring", return_value=False
-        ),
+    for cli_args in (
+        ["--username", "user@example.com", "auth", "login"],
+        ["--password", "secret", "auth", "login"],
+        ["--session-dir", "/tmp/pyicloud", "account", "summary"],
+        ["--format", "json", "account", "summary"],
+        ["--delete-from-keyring"],
     ):
-        result = _runner().invoke(
-            app,
-            [
-                "--username",
-                "root@example.com",
-                "--password",
-                "root-secret",
-                "--session-dir",
-                "/tmp/root-session",
-                "--format",
-                "json",
-                "--non-interactive",
-                "auth",
-                "login",
-                "--username",
-                "leaf@example.com",
-                "--password",
-                "leaf-secret",
-                "--session-dir",
-                str(session_dir),
-                "--format",
-                "text",
-            ],
-        )
-
-    assert result.exit_code == 0
-    assert "Authenticated session is ready." in result.stdout
-    assert result.stdout.lstrip()[0] != "{"
+        result = _runner().invoke(app, cli_args)
+        assert result.exit_code != 0
+        assert "No such option" in (result.stdout + result.stderr)
 
 
 def test_auth_login_accepts_command_local_username() -> None:
@@ -792,15 +822,15 @@ def test_auth_login_accepts_command_local_username() -> None:
         result = _runner().invoke(
             app,
             [
+                "auth",
+                "login",
+                "--username",
+                "leaf@example.com",
                 "--password",
                 "secret",
                 "--session-dir",
                 str(session_dir),
                 "--non-interactive",
-                "auth",
-                "login",
-                "--username",
-                "leaf@example.com",
             ],
         )
 
@@ -832,20 +862,125 @@ def test_leaf_session_dir_option_is_used_for_service_commands() -> None:
         result = _runner().invoke(
             app,
             [
-                "--username",
-                "user@example.com",
-                "--password",
-                "secret",
-                "--non-interactive",
                 "account",
                 "summary",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--format",
+                "text",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Account: user@example.com" in result.stdout
+
+
+def test_china_mainland_is_login_only() -> None:
+    """China mainland selection should only be accepted on auth login."""
+
+    status_result = _runner().invoke(app, ["auth", "status", "--china-mainland"])
+    service_result = _runner().invoke(app, ["account", "summary", "--china-mainland"])
+
+    assert status_result.exit_code != 0
+    assert "No such option: --china-mainland" in (status_result.stdout + status_result.stderr)
+    assert service_result.exit_code != 0
+    assert "No such option: --china-mainland" in (
+        service_result.stdout + service_result.stderr
+    )
+
+
+def test_auth_login_persists_china_mainland_metadata() -> None:
+    """Auth login should persist China mainland metadata for later commands."""
+
+    session_dir = _unique_session_dir("china-mainland")
+
+    def fake_service(*, apple_id: str, china_mainland: Any, **_kwargs: Any) -> FakeAPI:
+        if apple_id == "cn@example.com":
+            assert china_mainland is True
+            return FakeAPI(
+                username="cn@example.com",
+                session_dir=session_dir,
+                china_mainland=True,
+            )
+        raise AssertionError("Unexpected account")
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        login_result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "cn@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--china-mainland",
+                "--non-interactive",
+            ],
+        )
+
+    assert login_result.exit_code == 0
+    assert account_index_module.load_accounts(session_dir)["cn@example.com"][
+        "china_mainland"
+    ] is True
+
+
+def test_persisted_china_mainland_metadata_is_used_for_service_commands() -> None:
+    """Stored China mainland metadata should be reused by later service probes."""
+
+    session_dir = _unique_session_dir("china-mainland-probe")
+    _remember_local_account(
+        session_dir,
+        "cn@example.com",
+        has_session_file=True,
+        china_mainland=True,
+    )
+
+    def fake_service(*, apple_id: str, china_mainland: Any, **_kwargs: Any) -> FakeAPI:
+        assert apple_id == "cn@example.com"
+        assert china_mainland is True
+        return FakeAPI(
+            username="cn@example.com",
+            session_dir=session_dir,
+            china_mainland=True,
+        )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "account",
+                "summary",
+                "--username",
+                "cn@example.com",
                 "--session-dir",
                 str(session_dir),
             ],
         )
 
     assert result.exit_code == 0
-    assert "Account: user@example.com" in result.stdout
+    assert "Account: cn@example.com" in result.stdout
 
 
 def test_default_log_level_is_warning() -> None:
@@ -865,7 +1000,7 @@ def test_no_local_accounts_require_username() -> None:
         context_module, "configurable_ssl_verification", return_value=nullcontext()
     ):
         result = _runner().invoke(
-            app, ["--session-dir", str(session_dir), "account", "summary"]
+            app, ["account", "summary", "--session-dir", str(session_dir)]
         )
     assert result.exit_code != 0
     assert (
@@ -875,8 +1010,8 @@ def test_no_local_accounts_require_username() -> None:
     )
 
 
-def test_delete_from_keyring() -> None:
-    """The keyring delete path should work without invoking a subcommand."""
+def test_auth_keyring_delete() -> None:
+    """The keyring delete subcommand should delete stored credentials."""
 
     session_dir = _unique_session_dir("delete-keyring")
     _remember_local_account(
@@ -900,11 +1035,13 @@ def test_delete_from_keyring() -> None:
             result = _runner().invoke(
                 app,
                 [
+                    "auth",
+                    "keyring",
+                    "delete",
                     "--username",
                     "user@example.com",
                     "--session-dir",
                     str(session_dir),
-                    "--delete-from-keyring",
                 ],
             )
     assert result.exit_code == 0
@@ -913,17 +1050,19 @@ def test_delete_from_keyring() -> None:
     assert account_index_module.load_accounts(session_dir) == {}
 
 
-def test_delete_from_keyring_remains_root_only() -> None:
-    """Utility flags like --delete-from-keyring should remain root-only."""
+def test_auth_keyring_delete_requires_explicit_username() -> None:
+    """Deleting stored credentials should require an explicit username."""
 
     result = _runner().invoke(
         app,
-        ["auth", "login", "--delete-from-keyring"],
+        ["auth", "keyring", "delete"],
     )
 
     assert result.exit_code != 0
-    combined_output = result.stdout + result.stderr
-    assert "No such option: --delete-from-keyring" in combined_output
+    assert (
+        result.exception.args[0]
+        == "The --username option is required for auth keyring delete."
+    )
 
 
 def test_auth_status_probe_is_non_interactive() -> None:
@@ -954,7 +1093,7 @@ def test_auth_status_probe_is_non_interactive() -> None:
     ):
         result = _runner().invoke(
             app,
-            ["--session-dir", str(session_dir), "--non-interactive", "auth", "status"],
+            ["auth", "status", "--session-dir", str(session_dir)],
         )
     assert result.exit_code == 0
     assert "You are not logged into any iCloud accounts." in result.stdout
@@ -988,8 +1127,8 @@ def test_auth_login_and_status_commands() -> None:
     """Auth status and login should expose stable text and JSON payloads."""
 
     fake_api = FakeAPI()
-    status_result = _invoke(fake_api, "--format", "json", "auth", "status")
-    login_result = _invoke(fake_api, "--format", "json", "auth", "login")
+    status_result = _invoke(fake_api, "auth", "status", output_format="json")
+    login_result = _invoke(fake_api, "auth", "login", output_format="json")
 
     status_payload = json.loads(status_result.stdout)
     login_payload = json.loads(login_result.stdout)
@@ -1127,11 +1266,11 @@ def test_multiple_local_accounts_require_explicit_username_for_auth_login() -> N
         result = _runner().invoke(
             app,
             [
+                "auth",
+                "login",
                 "--session-dir",
                 str(session_dir),
                 "--non-interactive",
-                "auth",
-                "login",
             ],
         )
 
@@ -1175,11 +1314,10 @@ def test_multiple_active_sessions_require_explicit_username() -> None:
         result = _runner().invoke(
             app,
             [
-                "--session-dir",
-                str(session_dir),
-                "--non-interactive",
                 "account",
                 "summary",
+                "--session-dir",
+                str(session_dir),
             ],
         )
 
@@ -1280,7 +1418,13 @@ def test_auth_login_non_interactive_requires_credentials() -> None:
     ):
         result = _runner().invoke(
             app,
-            ["--username", "user@example.com", "--non-interactive", "auth", "login"],
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--non-interactive",
+            ],
         )
     assert result.exit_code != 0
     assert "No password supplied and no stored password was found." in str(
@@ -1301,13 +1445,12 @@ def test_auth_logout_variants_and_remote_failure() -> None:
         )
         return _invoke(
             failing_api or FakeAPI(session_dir=session_dir),
-            "--format",
-            "json",
             "auth",
             "logout",
             *args,
             username=None,
             session_dir=session_dir,
+            output_format="json",
             keyring_passwords={"user@example.com"},
         )
 
@@ -1384,13 +1527,12 @@ def test_auth_logout_remove_keyring_is_explicit() -> None:
     ) as delete_password:
         result = _invoke(
             FakeAPI(session_dir=session_dir),
-            "--format",
-            "json",
             "auth",
             "logout",
             "--remove-keyring",
             username=None,
             session_dir=session_dir,
+            output_format="json",
             keyring_passwords={"user@example.com"},
         )
 
@@ -1433,7 +1575,12 @@ def test_devices_list_and_show_commands() -> None:
     list_result = _invoke(fake_api, "devices", "list", "--locate")
     show_result = _invoke(fake_api, "devices", "show", "device-1")
     raw_result = _invoke(
-        fake_api, "--format", "json", "devices", "show", "device-1", "--raw"
+        fake_api,
+        "devices",
+        "show",
+        "device-1",
+        "--raw",
+        output_format="json",
     )
     assert list_result.exit_code == 0
     assert "Jacob's iPhone" in list_result.stdout
@@ -1451,13 +1598,12 @@ def test_devices_mutations_and_export() -> None:
     export_path.parent.mkdir(parents=True, exist_ok=True)
     sound_result = _invoke(
         fake_api,
-        "--format",
-        "json",
         "devices",
         "sound",
         "device-1",
         "--subject",
         "Ping",
+        output_format="json",
     )
     silent_result = _invoke(
         fake_api,
@@ -1481,13 +1627,12 @@ def test_devices_mutations_and_export() -> None:
     )
     export_result = _invoke(
         fake_api,
-        "--format",
-        "json",
         "devices",
         "export",
         "device-1",
         "--output",
         str(export_path),
+        output_format="json",
     )
     assert sound_result.exit_code == 0
     assert json.loads(sound_result.stdout)["subject"] == "Ping"
@@ -1537,13 +1682,12 @@ def test_drive_and_photos_commands() -> None:
     )
     json_drive_result = _invoke(
         fake_api,
-        "--format",
-        "json",
         "drive",
         "download",
         "/report.txt",
         "--output",
         str(json_output_path),
+        output_format="json",
     )
     assert drive_result.exit_code == 0
     assert "report.txt" in drive_result.stdout
@@ -1573,8 +1717,6 @@ def test_reminders_commands() -> None:
     list_result = _invoke(fake_api, "reminders", "list")
     create_result = _invoke(
         fake_api,
-        "--format",
-        "json",
         "reminders",
         "create",
         "--list-id",
@@ -1583,6 +1725,7 @@ def test_reminders_commands() -> None:
         "New task",
         "--priority",
         "5",
+        output_format="json",
     )
     assert lists_result.exit_code == 0
     assert "blue (#007AFF)" in lists_result.stdout
@@ -1602,15 +1745,20 @@ def test_notes_commands() -> None:
     include_deleted_result = _invoke(
         fake_api, "notes", "recent", "--limit", "1", "--include-deleted"
     )
-    render_result = _invoke(fake_api, "--format", "json", "notes", "render", "note-1")
+    render_result = _invoke(
+        fake_api,
+        "notes",
+        "render",
+        "note-1",
+        output_format="json",
+    )
     export_result = _invoke(
         fake_api,
-        "--format",
-        "json",
         "notes",
         "export",
         "note-1",
         str(output_dir),
+        output_format="json",
     )
     assert recent_result.exit_code == 0
     assert "Daily Plan" in recent_result.stdout

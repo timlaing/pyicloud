@@ -5,11 +5,30 @@ from __future__ import annotations
 import typer
 
 from pyicloud.cli.context import CLIAbort, get_state
-from pyicloud.cli.options import with_execution_context_options
+from pyicloud.cli.options import (
+    with_auth_login_options,
+    with_auth_session_options,
+    with_keyring_delete_options,
+)
 from pyicloud.cli.output import console_kv_table, console_table
 
-app = typer.Typer(
-    help="Manage authentication and sessions for the selected or inferred account."
+app = typer.Typer(help="Manage authentication and sessions.")
+keyring_app = typer.Typer(help="Manage stored keyring credentials.")
+
+
+def _group_root(ctx: typer.Context) -> None:
+    """Show subgroup help when invoked without a subcommand."""
+
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
+
+app.add_typer(
+    keyring_app,
+    name="keyring",
+    invoke_without_command=True,
+    callback=_group_root,
 )
 
 
@@ -24,7 +43,7 @@ def _auth_payload(state, api, status: dict[str, object]) -> dict[str, object]:
 
 
 @app.command("status")
-@with_execution_context_options
+@with_auth_session_options
 def auth_status(ctx: typer.Context) -> None:
     """Show the current authentication and session status."""
 
@@ -119,7 +138,7 @@ def auth_status(ctx: typer.Context) -> None:
 
 
 @app.command("login")
-@with_execution_context_options
+@with_auth_login_options
 def auth_login(ctx: typer.Context) -> None:
     """Authenticate and persist a usable session."""
 
@@ -153,7 +172,7 @@ def auth_login(ctx: typer.Context) -> None:
 
 
 @app.command("logout")
-@with_execution_context_options
+@with_auth_session_options
 def auth_logout(
     ctx: typer.Context,
     keep_trusted: bool = typer.Option(
@@ -231,3 +250,27 @@ def auth_logout(
         )
     else:
         state.console.print("Cleared local session; remote logout was not confirmed.")
+
+
+@keyring_app.command("delete")
+@with_keyring_delete_options
+def auth_keyring_delete(ctx: typer.Context) -> None:
+    """Delete a stored keyring password."""
+
+    state = get_state(ctx)
+    if not state.has_explicit_username:
+        raise CLIAbort("The --username option is required for auth keyring delete.")
+
+    deleted = state.delete_keyring_password(state.username)
+    payload = {
+        "account_name": state.username,
+        "stored_password_removed": deleted,
+    }
+    if state.json_output:
+        state.write_json(payload)
+        return
+    state.console.print(
+        "Deleted stored password from keyring."
+        if deleted
+        else "No stored password was found for that account."
+    )
