@@ -16,10 +16,19 @@ from rich.console import Console
 
 from pyicloud import PyiCloudService, utils
 from pyicloud.base import resolve_cookie_directory
-from pyicloud.exceptions import PyiCloudFailedLoginException, PyiCloudServiceUnavailable
+from pyicloud.exceptions import (
+    PyiCloudAuthRequiredException,
+    PyiCloudFailedLoginException,
+    PyiCloudServiceUnavailable,
+)
 from pyicloud.ssl_context import configurable_ssl_verification
 
-from .account_index import AccountIndexEntry, load_accounts, prune_accounts, remember_account
+from .account_index import (
+    AccountIndexEntry,
+    load_accounts,
+    prune_accounts,
+    remember_account,
+)
 from .output import OutputFormat, write_json
 
 COMMAND_OPTIONS_META_KEY = "command_options"
@@ -104,6 +113,7 @@ class CLIState:
         self._api: Optional[PyiCloudService] = None
         self._probe_api: Optional[PyiCloudService] = None
         self._resolved_username: Optional[str] = self.username or None
+        self._logging_configured = False
 
     @classmethod
     def from_options(cls, options: CLICommandOptions) -> "CLIState":
@@ -265,10 +275,31 @@ class CLIState:
             f"{options}"
         )
 
-    def _password_for_login(self, username: str) -> Optional[str]:
+    def _password_for_login(self, username: str) -> tuple[Optional[str], Optional[str]]:
+        if self.password:
+            return self.password, "explicit"
+
+        keyring_password = utils.get_password_from_keyring(username)
+        if keyring_password:
+            return keyring_password, "keyring"
+
+        if not self.interactive:
+            return None, None
+
+        return utils.get_password(username, interactive=True), "prompt"
+
+    def _configure_logging(self) -> None:
+        if self._logging_configured:
+            return
+        logging.basicConfig(level=self.log_level.logging_level())
+        self._logging_configured = True
+
+    def _stored_password_for_session(self, username: str) -> Optional[str]:
+        """Return a non-interactive password for service-level reauthentication."""
+
         if self.password:
             return self.password
-        return utils.get_password(username, interactive=self.interactive)
+        return utils.get_password_from_keyring(username)
 
     def _prompt_index(self, prompt: str, count: int) -> int:
         if count <= 1 or not self.interactive:
@@ -338,11 +369,11 @@ class CLIState:
             return self._api
         username = self._resolve_username()
 
-        password = self._password_for_login(username)
+        password, password_source = self._password_for_login(username)
         if not password:
             raise CLIAbort("No password supplied and no stored password was found.")
 
-        logging.basicConfig(level=self.log_level.logging_level())
+        self._configure_logging()
 
         try:
             api = PyiCloudService(
@@ -354,7 +385,9 @@ class CLIState:
                 with_family=self.with_family,
             )
         except PyiCloudFailedLoginException as err:
-            if utils.password_exists_in_keyring(username):
+            if password_source == "keyring" and utils.password_exists_in_keyring(
+                username
+            ):
                 utils.delete_password_in_keyring(username)
                 self.prune_local_accounts()
             raise CLIAbort(f"Bad username or password for {username}") from err
@@ -383,10 +416,15 @@ class CLIState:
 
         if self.has_explicit_username:
             username = self._resolve_username()
-            api = self.build_probe_api(username)
-            status = api.get_auth_status()
+            probe_api = self.build_probe_api(username)
+            status = probe_api.get_auth_status()
             if not status["authenticated"]:
                 raise CLIAbort(self.not_logged_in_for_account_message(username))
+            api = self.build_session_api(username)
+            if not self._hydrate_api_from_probe(api, probe_api):
+                status = api.get_auth_status()
+                if not status["authenticated"]:
+                    raise CLIAbort(self.not_logged_in_for_account_message(username))
             self._api = api
             self.remember_account(api)
             return api
@@ -401,7 +439,14 @@ class CLIState:
                 )
             )
 
-        api, _status = active_probes[0]
+        probe_api, _status = active_probes[0]
+        api = self.build_session_api(probe_api.account_name)
+        if not self._hydrate_api_from_probe(api, probe_api):
+            status = api.get_auth_status()
+            if not status["authenticated"]:
+                raise CLIAbort(
+                    self.not_logged_in_for_account_message(probe_api.account_name)
+                )
         self._api = api
         self.remember_account(api)
         return api
@@ -409,7 +454,7 @@ class CLIState:
     def build_probe_api(self, username: str) -> PyiCloudService:
         """Build a non-authenticating PyiCloudService for session probes."""
 
-        logging.basicConfig(level=self.log_level.logging_level())
+        self._configure_logging()
         return PyiCloudService(
             apple_id=username,
             password=self.password,
@@ -419,6 +464,45 @@ class CLIState:
             with_family=self.with_family,
             authenticate=False,
         )
+
+    def build_session_api(self, username: str) -> PyiCloudService:
+        """Build a session-backed API that can satisfy service reauthentication."""
+
+        self._configure_logging()
+        return PyiCloudService(
+            apple_id=username,
+            password=self._stored_password_for_session(username),
+            china_mainland=self.resolved_china_mainland(username),
+            cookie_directory=self.session_dir,
+            accept_terms=self.accept_terms,
+            with_family=self.with_family,
+            authenticate=False,
+        )
+
+    @staticmethod
+    def _hydrate_api_from_probe(
+        api: PyiCloudService, probe_api: Optional[PyiCloudService]
+    ) -> bool:
+        """Populate auth-derived state on a session-backed API from a probe."""
+
+        if probe_api is None:
+            return False
+
+        probe_data = getattr(probe_api, "data", None)
+        if not isinstance(probe_data, dict) or not probe_data:
+            return False
+
+        api.data = dict(probe_data)
+
+        params = getattr(api, "params", None)
+        ds_info = probe_data.get("dsInfo")
+        if isinstance(params, dict) and isinstance(ds_info, dict) and "dsid" in ds_info:
+            params.update({"dsid": ds_info["dsid"]})
+
+        if "webservices" in probe_data:
+            setattr(api, "_webservices", probe_data["webservices"])
+
+        return True
 
     def get_probe_api(self) -> PyiCloudService:
         """Return a cached non-authenticating PyiCloudService for session probes."""
@@ -478,13 +562,22 @@ def get_state(ctx: typer.Context) -> CLIState:
     return resolved
 
 
-def service_call(label: str, fn):
+def service_call(label: str, fn, *, account_name: Optional[str] = None):
     """Wrap a service call with user-facing service-unavailable handling."""
 
     try:
         return fn()
     except PyiCloudServiceUnavailable as err:
         raise CLIAbort(f"{label} service unavailable: {err}") from err
+    except (PyiCloudAuthRequiredException, PyiCloudFailedLoginException) as err:
+        if account_name:
+            raise CLIAbort(
+                f"{label} requires re-authentication for {account_name}. "
+                f"Run: icloud auth login --username {account_name}"
+            ) from err
+        raise CLIAbort(
+            f"{label} requires re-authentication. Run: icloud auth login."
+        ) from err
 
 
 def parse_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -508,7 +601,9 @@ def resolve_device(api: PyiCloudService, query: str):
     """Return a device matched by id or common display names."""
 
     lowered = query.strip().lower()
-    for device in api.devices:
+    for device in service_call(
+        "Find My", lambda: api.devices, account_name=api.account_name
+    ):
         candidates = [
             getattr(device, "id", ""),
             getattr(device, "name", ""),

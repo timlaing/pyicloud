@@ -35,6 +35,15 @@ class FileSystemAccessError(Exception):
     """Raised when a test tries to access the file system."""
 
 
+def normalize_path(path: Any) -> str:
+    """Normalize PathLike objects before file-system guard checks."""
+
+    try:
+        return str(os.fspath(path))
+    except TypeError:
+        return str(path)
+
+
 @pytest.fixture(autouse=True, scope="function")
 def mock_file_open_write_fixture():
     """Mock the open function to prevent file system access."""
@@ -73,9 +82,10 @@ def mock_mkdir():
     mkdir = os.mkdir
 
     def my_mkdir(path, *args, **kwargs):
-        if "python-test-results" not in path:
+        normalized = normalize_path(path)
+        if "python-test-results" not in normalized:
             raise FileSystemAccessError(
-                f"You should not be creating directories in tests. {path}"
+                f"You should not be creating directories in tests. {normalized}"
             )
         return mkdir(path, *args, **kwargs)
 
@@ -89,9 +99,10 @@ def mock_makedirs():
     mkdirs = os.makedirs
 
     def my_makedirs(path, *args, **kwargs):
-        if "python-test-results" not in path:
+        normalized = normalize_path(path)
+        if "python-test-results" not in normalized:
             raise FileSystemAccessError(
-                f"You should not be creating directories in tests. {path}"
+                f"You should not be creating directories in tests. {normalized}"
             )
         return mkdirs(path, *args, **kwargs)
 
@@ -105,9 +116,10 @@ def mock_chmod():
     chmod = os.chmod
 
     def my_chmod(path, *args, **kwargs):
-        if "python-test-results" not in path:
+        normalized = normalize_path(path)
+        if "python-test-results" not in normalized:
             raise FileSystemAccessError(
-                f"You should not be changing file permissions in tests. {path}"
+                f"You should not be changing file permissions in tests. {normalized}"
             )
         return chmod(path, *args, **kwargs)
 
@@ -121,9 +133,10 @@ def mock_open_fixture():
     builtins_open = open
 
     def my_open(path, *args, **kwargs):
-        if "python-test-results" not in path:
+        normalized = normalize_path(path)
+        if "python-test-results" not in normalized:
             raise FileSystemAccessError(
-                f"You should not be opening files in tests. {path}"
+                f"You should not be opening files in tests. {normalized}"
             )
         return builtins_open(path, *args, **kwargs)
 
@@ -137,9 +150,10 @@ def mock_os_open_fixture():
     builtins_open = os.open
 
     def my_open(path, *args, **kwargs):
-        if "python-test-results" not in path:
+        normalized = normalize_path(path)
+        if "python-test-results" not in normalized:
             raise FileSystemAccessError(
-                f"You should not be opening files in tests. {path}"
+                f"You should not be opening files in tests. {normalized}"
             )
         return builtins_open(path, *args, **kwargs)
 

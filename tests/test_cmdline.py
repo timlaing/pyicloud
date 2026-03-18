@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 account_index_module = importlib.import_module("pyicloud.cli.account_index")
 cli_module = importlib.import_module("pyicloud.cli.app")
 context_module = importlib.import_module("pyicloud.cli.context")
+output_module = importlib.import_module("pyicloud.cli.output")
 app = cli_module.app
 
 TEST_ROOT = Path("/tmp/python-test-results/test_cmdline")
@@ -225,6 +226,9 @@ class FakeAPI:
                 "requires_2sa": False,
             }
         )
+        self.data: dict[str, Any] = {}
+        self.params: dict[str, Any] = {}
+        self._webservices: Any = None
         self.logout = MagicMock(side_effect=self._logout)
         self.devices = [FakeDevice()]
         self.account = SimpleNamespace(
@@ -446,6 +450,13 @@ def _invoke(
             "password_exists_in_keyring",
             side_effect=lambda candidate: candidate in (keyring_passwords or set()),
         ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=lambda candidate: (
+                "stored-secret" if candidate in (keyring_passwords or set()) else None
+            ),
+        ),
     ):
         return runner.invoke(app, cli_args)
 
@@ -467,6 +478,13 @@ def _invoke_with_cli_args(
             context_module.utils,
             "password_exists_in_keyring",
             side_effect=lambda candidate: candidate in (keyring_passwords or set()),
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=lambda candidate: (
+                "stored-secret" if candidate in (keyring_passwords or set()) else None
+            ),
         ),
     ):
         return runner.invoke(app, cli_args)
@@ -645,6 +663,9 @@ def test_auth_login_accepts_command_local_username() -> None:
         patch.object(
             context_module.utils, "password_exists_in_keyring", return_value=False
         ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
     ):
         result = _runner().invoke(
             app,
@@ -685,6 +706,9 @@ def test_leaf_session_dir_option_is_used_for_service_commands() -> None:
         patch.object(
             context_module.utils, "password_exists_in_keyring", return_value=False
         ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
     ):
         result = _runner().invoke(
             app,
@@ -711,7 +735,9 @@ def test_china_mainland_is_login_only() -> None:
     service_result = _runner().invoke(app, ["account", "summary", "--china-mainland"])
 
     assert status_result.exit_code != 0
-    assert "No such option: --china-mainland" in (status_result.stdout + status_result.stderr)
+    assert "No such option: --china-mainland" in (
+        status_result.stdout + status_result.stderr
+    )
     assert service_result.exit_code != 0
     assert "No such option: --china-mainland" in (
         service_result.stdout + service_result.stderr
@@ -760,9 +786,12 @@ def test_auth_login_persists_china_mainland_metadata() -> None:
         )
 
     assert login_result.exit_code == 0
-    assert account_index_module.load_accounts(session_dir)["cn@example.com"][
-        "china_mainland"
-    ] is True
+    assert (
+        account_index_module.load_accounts(session_dir)["cn@example.com"][
+            "china_mainland"
+        ]
+        is True
+    )
 
 
 def test_persisted_china_mainland_metadata_is_used_for_service_commands() -> None:
@@ -792,6 +821,9 @@ def test_persisted_china_mainland_metadata_is_used_for_service_commands() -> Non
         ),
         patch.object(
             context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
         ),
     ):
         result = _runner().invoke(
@@ -1099,6 +1131,136 @@ def test_single_known_account_supports_implicit_local_context() -> None:
     ] == ["solo@example.com"]
 
 
+def test_get_api_uses_keyring_password_for_session_backed_service_commands() -> None:
+    """Service commands should preload the stored password for service reauth."""
+
+    session_dir = _unique_session_dir("service-reauth-password")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    probe_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    service_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return probe_api if len(constructor_calls) == 1 else service_api
+
+    state = context_module.CLIState(
+        username=None,
+        password=None,
+        china_mainland=None,
+        interactive=False,
+        accept_terms=False,
+        with_family=False,
+        session_dir=str(session_dir),
+        http_proxy=None,
+        https_proxy=None,
+        no_verify_ssl=False,
+        log_level=context_module.LogLevel.WARNING,
+        output_format=output_module.OutputFormat.TEXT,
+    )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "solo@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+    ):
+        api = state.get_api()
+
+    assert api is service_api
+    assert len(constructor_calls) == 2
+    assert constructor_calls[0]["apple_id"] == "solo@example.com"
+    assert constructor_calls[0]["password"] is None
+    assert constructor_calls[0]["authenticate"] is False
+    assert constructor_calls[1]["apple_id"] == "solo@example.com"
+    assert constructor_calls[1]["password"] == "stored-secret"
+    assert constructor_calls[1]["authenticate"] is False
+    probe_api.get_auth_status.assert_called_once_with()
+    service_api.get_auth_status.assert_called_once_with()
+
+
+def test_get_api_hydrates_session_backed_service_commands_from_probe_state() -> None:
+    """Service commands should reuse validated probe state for webservice access."""
+
+    session_dir = _unique_session_dir("service-reauth-hydration")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    probe_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    probe_api.data = {
+        "dsInfo": {"dsid": "1234567890", "hsaVersion": 2},
+        "hsaTrustedBrowser": True,
+        "webservices": {"findme": {"url": "https://example.invalid/findme"}},
+    }
+    service_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    service_api.data = {}
+    service_api.params = {}
+    service_api._webservices = None
+    service_api.get_auth_status.side_effect = AssertionError(
+        "service API should be hydrated from the probe state"
+    )
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return probe_api if len(constructor_calls) == 1 else service_api
+
+    state = context_module.CLIState(
+        username=None,
+        password=None,
+        china_mainland=None,
+        interactive=False,
+        accept_terms=False,
+        with_family=False,
+        session_dir=str(session_dir),
+        http_proxy=None,
+        https_proxy=None,
+        no_verify_ssl=False,
+        log_level=context_module.LogLevel.WARNING,
+        output_format=output_module.OutputFormat.TEXT,
+    )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "solo@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+    ):
+        api = state.get_api()
+
+    assert api is service_api
+    assert len(constructor_calls) == 2
+    assert service_api.data == probe_api.data
+    assert service_api.params["dsid"] == "1234567890"
+    assert service_api._webservices == probe_api.data["webservices"]
+    probe_api.get_auth_status.assert_called_once_with()
+    service_api.get_auth_status.assert_not_called()
+
+
 def test_multiple_local_accounts_require_explicit_username_for_auth_login() -> None:
     """Auth login should list local accounts when bootstrap discovery is ambiguous."""
 
@@ -1276,7 +1438,9 @@ def test_auth_login_non_interactive_requires_credentials() -> None:
         patch.object(
             context_module.utils, "password_exists_in_keyring", return_value=False
         ),
-        patch.object(context_module.utils, "get_password", return_value=None),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
     ):
         result = _runner().invoke(
             app,
@@ -1292,6 +1456,49 @@ def test_auth_login_non_interactive_requires_credentials() -> None:
     assert "No password supplied and no stored password was found." in str(
         result.exception
     )
+
+
+def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() -> None:
+    """Explicit bad passwords should not delete a previously stored keyring password."""
+
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module,
+            "PyiCloudService",
+            side_effect=context_module.PyiCloudFailedLoginException("bad password"),
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "wrong-secret",
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert str(result.exception) == "Bad username or password for user@example.com"
+    delete_password.assert_not_called()
 
 
 def test_auth_logout_variants_and_remote_failure() -> None:
@@ -1452,6 +1659,87 @@ def test_devices_list_and_show_commands() -> None:
     assert json.loads(raw_result.stdout)["deviceDisplayName"] == "iPhone"
 
 
+def test_devices_show_reports_reauthentication_requirement() -> None:
+    """Device resolution should collapse reauth failures into a CLIAbort."""
+
+    session_dir = _unique_session_dir("devices-show-reauth")
+
+    class ReauthAPI:
+        def __init__(self) -> None:
+            self.account_name = "user@example.com"
+            self.is_china_mainland = False
+            self.session = SimpleNamespace(
+                session_path=str(session_dir / "userexamplecom.session"),
+                cookiejar_path=str(session_dir / "userexamplecom.cookiejar"),
+            )
+            self.get_auth_status = MagicMock(
+                return_value={
+                    "authenticated": True,
+                    "trusted_session": True,
+                    "requires_2fa": False,
+                    "requires_2sa": False,
+                }
+            )
+
+        @property
+        def devices(self):
+            raise context_module.PyiCloudFailedLoginException("No password set")
+
+    result = _invoke(
+        ReauthAPI(),
+        "devices",
+        "show",
+        "Example iPhone",
+        session_dir=session_dir,
+    )
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Find My requires re-authentication for user@example.com. "
+        "Run: icloud auth login --username user@example.com"
+    )
+
+
+def test_account_summary_reports_reauthentication_requirement() -> None:
+    """Account commands should collapse reauth failures into a CLIAbort."""
+
+    session_dir = _unique_session_dir("account-summary-reauth")
+
+    class ReauthAPI:
+        def __init__(self) -> None:
+            self.account_name = "user@example.com"
+            self.is_china_mainland = False
+            self.session = SimpleNamespace(
+                session_path=str(session_dir / "userexamplecom.session"),
+                cookiejar_path=str(session_dir / "userexamplecom.cookiejar"),
+            )
+            self.get_auth_status = MagicMock(
+                return_value={
+                    "authenticated": True,
+                    "trusted_session": True,
+                    "requires_2fa": False,
+                    "requires_2sa": False,
+                }
+            )
+
+        @property
+        def account(self):
+            raise context_module.PyiCloudFailedLoginException("No password set")
+
+    result = _invoke(
+        ReauthAPI(),
+        "account",
+        "summary",
+        session_dir=session_dir,
+    )
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Account requires re-authentication for user@example.com. "
+        "Run: icloud auth login --username user@example.com"
+    )
+
+
 def test_devices_mutations_and_export() -> None:
     """Device actions should map to the Find My device methods."""
 
@@ -1569,8 +1857,6 @@ def test_hidemyemail_commands() -> None:
     assert "Shopping" in list_result.stdout
     assert generate_result.exit_code == 0
     assert "generated@privaterelay.appleid.com" in generate_result.stdout
-
-
 
 
 def test_main_returns_clean_error_for_user_abort(capsys) -> None:

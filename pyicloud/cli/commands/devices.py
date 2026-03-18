@@ -33,7 +33,11 @@ def devices_list(
     api = state.get_api()
     payload = [
         normalize_device_summary(device, locate=locate)
-        for device in service_call("Find My", lambda: api.devices)
+        for device in service_call(
+            "Find My",
+            lambda: api.devices,
+            account_name=api.account_name,
+        )
     ]
     if state.json_output:
         state.write_json(payload)

@@ -24,7 +24,9 @@ def account_summary(ctx: typer.Context) -> None:
 
     state = get_state(ctx)
     api = state.get_api()
-    account = service_call("Account", lambda: api.account)
+    account = service_call(
+        "Account", lambda: api.account, account_name=api.account_name
+    )
     payload = normalize_account_summary(api, account)
     if state.json_output:
         state.write_json(payload)
@@ -47,7 +49,11 @@ def account_devices(ctx: typer.Context) -> None:
     api = state.get_api()
     payload = [
         normalize_account_device(device)
-        for device in service_call("Account", lambda: api.account.devices)
+        for device in service_call(
+            "Account",
+            lambda: api.account.devices,
+            account_name=api.account_name,
+        )
     ]
     if state.json_output:
         state.write_json(payload)
@@ -78,7 +84,11 @@ def account_family(ctx: typer.Context) -> None:
     api = state.get_api()
     payload = [
         normalize_family_member(member)
-        for member in service_call("Account", lambda: api.account.family)
+        for member in service_call(
+            "Account",
+            lambda: api.account.family,
+            account_name=api.account_name,
+        )
     ]
     if state.json_output:
         state.write_json(payload)
@@ -107,7 +117,11 @@ def account_storage(ctx: typer.Context) -> None:
 
     state = get_state(ctx)
     api = state.get_api()
-    payload = normalize_storage(service_call("Account", lambda: api.account.storage))
+    payload = normalize_storage(
+        service_call(
+            "Account", lambda: api.account.storage, account_name=api.account_name
+        )
+    )
     if state.json_output:
         state.write_json(payload)
         return
