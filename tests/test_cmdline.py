@@ -1123,6 +1123,41 @@ def test_auth_status_without_username_ignores_keyring_only_accounts() -> None:
     assert "user@example.com" not in result.stdout
 
 
+def test_auth_status_explicit_username_marks_missing_storage_inline() -> None:
+    """Text auth status should inline missing storage markers instead of extra boolean rows."""
+
+    session_dir = _unique_session_dir("status-missing-storage")
+    fake_api = _remember_local_account(
+        session_dir,
+        "user@example.com",
+        keyring_passwords={"user@example.com"},
+    )
+    fake_api.get_auth_status.return_value = {
+        "authenticated": False,
+        "trusted_session": False,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+
+    result = _invoke(
+        fake_api,
+        "auth",
+        "status",
+        username="user@example.com",
+        session_dir=session_dir,
+        keyring_passwords={"user@example.com"},
+    )
+
+    assert result.exit_code == 0
+    assert "Password in Keyring" in result.stdout
+    assert "Stored Password" not in result.stdout
+    assert "Session File" in result.stdout
+    assert "Cookie Jar" in result.stdout
+    assert result.stdout.count("(missing)") == 2
+    assert "Session File Exists" not in result.stdout
+    assert "Cookie Jar Exists" not in result.stdout
+
+
 def test_auth_login_and_status_commands() -> None:
     """Auth status and login should expose stable text and JSON payloads."""
 

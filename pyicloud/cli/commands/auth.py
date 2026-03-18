@@ -32,6 +32,41 @@ app.add_typer(
 )
 
 
+def _storage_path_display(path: object, exists: object) -> object:
+    """Render a canonical storage path with an inline missing marker for text output."""
+
+    if exists:
+        return path
+    return f"{path} (missing)"
+
+
+def _auth_status_rows(payload: dict[str, object]) -> list[tuple[str, object]]:
+    """Build text-mode rows for one auth status payload."""
+
+    return [
+        ("Account", payload["account_name"]),
+        ("Authenticated", payload["authenticated"]),
+        ("Trusted Session", payload["trusted_session"]),
+        ("Requires 2FA", payload["requires_2fa"]),
+        ("Requires 2SA", payload["requires_2sa"]),
+        ("Password in Keyring", payload["has_keyring_password"]),
+        (
+            "Session File",
+            _storage_path_display(
+                payload["session_path"],
+                payload["has_session_file"],
+            ),
+        ),
+        (
+            "Cookie Jar",
+            _storage_path_display(
+                payload["cookiejar_path"],
+                payload["has_cookiejar_file"],
+            ),
+        ),
+    ]
+
+
 def _auth_payload(state, api, status: dict[str, object]) -> dict[str, object]:
     payload: dict[str, object] = {
         "account_name": api.account_name,
@@ -69,18 +104,7 @@ def auth_status(ctx: typer.Context) -> None:
             state.console.print(
                 console_kv_table(
                     "Auth Status",
-                    [
-                        ("Account", payload["account_name"]),
-                        ("Authenticated", payload["authenticated"]),
-                        ("Trusted Session", payload["trusted_session"]),
-                        ("Requires 2FA", payload["requires_2fa"]),
-                        ("Requires 2SA", payload["requires_2sa"]),
-                        ("Stored Password", payload["has_keyring_password"]),
-                        ("Session File", payload["session_path"]),
-                        ("Session File Exists", payload["has_session_file"]),
-                        ("Cookie Jar", payload["cookiejar_path"]),
-                        ("Cookie Jar Exists", payload["has_cookiejar_file"]),
-                    ],
+                    _auth_status_rows(payload),
                 )
             )
             return
@@ -90,7 +114,7 @@ def auth_status(ctx: typer.Context) -> None:
                 [
                     "Account",
                     "Trusted Session",
-                    "Stored Password",
+                    "Password in Keyring",
                     "Session File Exists",
                     "Cookie Jar Exists",
                 ],
@@ -121,18 +145,7 @@ def auth_status(ctx: typer.Context) -> None:
     state.console.print(
         console_kv_table(
             "Auth Status",
-            [
-                ("Account", payload["account_name"]),
-                ("Authenticated", payload["authenticated"]),
-                ("Trusted Session", payload["trusted_session"]),
-                ("Requires 2FA", payload["requires_2fa"]),
-                ("Requires 2SA", payload["requires_2sa"]),
-                ("Stored Password", payload["has_keyring_password"]),
-                ("Session File", payload["session_path"]),
-                ("Session File Exists", payload["has_session_file"]),
-                ("Cookie Jar", payload["cookiejar_path"]),
-                ("Cookie Jar Exists", payload["has_cookiejar_file"]),
-            ],
+            _auth_status_rows(payload),
         )
     )
 
