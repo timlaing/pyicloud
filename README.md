@@ -183,6 +183,10 @@ authentication (2SA)](https://support.apple.com/en-us/HT204152) for the
 account you will have to do some extra work:
 
 ```python
+import sys
+
+import click
+
 if api.requires_2fa:
     security_key_names = api.security_key_names
 
@@ -233,7 +237,6 @@ if api.requires_2fa:
             )
 
 elif api.requires_2sa:
-    import click
     print("Two-step authentication required. Your trusted devices are:")
 
     devices = api.trusted_devices
@@ -568,8 +571,8 @@ You can access your iCloud contacts/address book through the `contacts`
 property:
 
 ```pycon
->>> for c in api.contacts.all():
->>> print(c.get('firstName'), c.get('phones'))
+>>> for c in api.contacts.all:
+...     print(c.get('firstName'), c.get('phones'))
 John [{'field': '+1 555-55-5555-5', 'label': 'MOBILE'}]
 ```
 
