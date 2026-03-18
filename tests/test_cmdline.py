@@ -22,7 +22,9 @@ context_module = importlib.import_module("pyicloud.cli.context")
 output_module = importlib.import_module("pyicloud.cli.output")
 app = cli_module.app
 
-TEST_ROOT = Path(tempfile.gettempdir()) / "python-test-results" / "test_cmdline"
+TEST_BASE = Path(tempfile.gettempdir()) / "python-test-results"
+TEST_BASE.mkdir(parents=True, exist_ok=True)
+TEST_ROOT = Path(tempfile.mkdtemp(prefix="test_cmdline-", dir=TEST_BASE))
 
 
 class FakeDevice:
