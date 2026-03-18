@@ -13,6 +13,12 @@ from typing import Any, Iterable
 from rich.console import Console
 from rich.table import Table
 
+TABLE_TITLE_STYLE = "bold bright_cyan"
+TABLE_HEADER_STYLE = "bold bright_cyan"
+TABLE_BORDER_STYLE = None
+TABLE_KEY_STYLE = "bold bright_white"
+TABLE_ROW_STYLES: tuple[str, ...] = ()
+
 
 class OutputFormat(str, Enum):
     """Supported output formats."""
@@ -78,7 +84,13 @@ def console_table(
 ) -> Table:
     """Build a simple rich table."""
 
-    table = Table(title=title)
+    table = Table(
+        title=title,
+        title_style=TABLE_TITLE_STYLE,
+        header_style=TABLE_HEADER_STYLE,
+        border_style=TABLE_BORDER_STYLE,
+        row_styles=list(TABLE_ROW_STYLES),
+    )
     for column in columns:
         table.add_column(column)
     for row in rows:
@@ -89,8 +101,14 @@ def console_table(
 def console_kv_table(title: str, rows: Iterable[tuple[str, Any]]) -> Table:
     """Build a two-column key/value table."""
 
-    table = Table(title=title)
-    table.add_column("Field")
+    table = Table(
+        title=title,
+        title_style=TABLE_TITLE_STYLE,
+        header_style=TABLE_HEADER_STYLE,
+        border_style=TABLE_BORDER_STYLE,
+        row_styles=list(TABLE_ROW_STYLES),
+    )
+    table.add_column("Field", style=TABLE_KEY_STYLE)
     table.add_column("Value")
     for key, value in rows:
         table.add_row(key, "" if value is None else str(value))
