@@ -284,8 +284,9 @@ class PyiCloudSession(requests.Session):
                     self._raise_error(response, code, reason)
 
         except JSONDecodeError:
-            self.logger.warning(
-                "Failed to parse response with JSON mimetype: %s", response.text
+            self.logger.debug(
+                "Failed to parse response body as JSON despite JSON mimetype; status=%s",
+                getattr(response, "status_code", "unknown"),
             )
 
     def _raise_error(

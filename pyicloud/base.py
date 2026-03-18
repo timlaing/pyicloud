@@ -781,7 +781,7 @@ class PyiCloudService:
         _check_pcs_resp: dict[str, Any] = self._check_pcs_consent()
 
         if not _check_pcs_resp.get("isICDRSDisabled", False):
-            LOGGER.warning("ICDRS is not disabled")
+            LOGGER.debug("Skipping PCS request because Apple reports ICDRS is enabled")
             return
 
         if not _check_pcs_resp.get("isDeviceConsentedForPCS", True):

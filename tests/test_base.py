@@ -679,7 +679,9 @@ def test_request_pcs_for_service_icdrs_not_disabled(
     with patch("pyicloud.base.LOGGER", mock_logger):
         pyicloud_service._send_pcs_request = MagicMock()
         pyicloud_service._request_pcs_for_service("photos")
-        mock_logger.warning.assert_called_once_with("ICDRS is not disabled")
+        mock_logger.debug.assert_any_call(
+            "Skipping PCS request because Apple reports ICDRS is enabled"
+        )
         pyicloud_service._send_pcs_request.assert_not_called()
 
 
