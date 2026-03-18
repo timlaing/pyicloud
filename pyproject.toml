@@ -104,7 +104,7 @@ repository = "https://github.com/timlaing/pyicloud"
 icloud = "pyicloud.cmdline:main"
 
 [tool.setuptools]
-packages = ["pyicloud", "pyicloud.services"]
+packages = ["pyicloud", "pyicloud.cli", "pyicloud.cli.commands", "pyicloud.services"]
 
 [tool.setuptools.dynamic]
 readme = {file = "README.md", content-type = "text/markdown"}

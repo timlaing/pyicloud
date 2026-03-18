@@ -174,23 +174,3 @@ def normalize_alias(alias: dict[str, Any]) -> dict[str, Any]:
         "label": alias.get("label"),
         "anonymous_id": alias.get("anonymousId"),
     }
-
-
-def select_recent_notes(api: Any, *, limit: int, include_deleted: bool) -> list[Any]:
-    """Return recent notes, excluding deleted notes by default."""
-
-    if include_deleted:
-        return list(api.notes.recents(limit=limit))
-
-    probe_limit = limit
-    max_probe = min(max(limit, 10) * 8, 500)
-    while True:
-        rows = list(api.notes.recents(limit=probe_limit))
-        filtered = [row for row in rows if not getattr(row, "is_deleted", False)]
-        if (
-            len(filtered) >= limit
-            or len(rows) < probe_limit
-            or probe_limit >= max_probe
-        ):
-            return filtered[:limit]
-        probe_limit = min(probe_limit * 2, max_probe)

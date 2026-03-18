@@ -5,11 +5,10 @@ from __future__ import annotations
 import importlib
 import json
 from contextlib import nullcontext
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -28,7 +27,7 @@ class FakeDevice:
 
     def __init__(self) -> None:
         self.id = "device-1"
-        self.name = "Jacob's iPhone"
+        self.name = "Example iPhone"
         self.deviceDisplayName = "iPhone"
         self.deviceClass = "iPhone"
         self.deviceModel = "iPhone16,1"
@@ -188,170 +187,6 @@ class FakeHideMyEmail:
         return {"anonymousId": anonymous_id, "deleted": True}
 
 
-@dataclass
-class FakeReminder:
-    """Reminder fixture."""
-
-    id: str
-    title: str
-    completed: bool = False
-    due_date: Optional[datetime] = None
-    priority: int = 0
-    desc: str = ""
-
-
-@dataclass
-class FakeNoteSummary:
-    """Note summary fixture."""
-
-    id: str
-    title: str
-    folder_name: str
-    modified_at: datetime
-    is_deleted: bool = False
-
-
-@dataclass
-class FakeNote:
-    """Note fixture."""
-
-    id: str
-    title: str
-    text: str
-    attachments: Optional[list[Any]] = None
-
-
-@dataclass
-class FakeChange:
-    """Change fixture."""
-
-    type: str
-    reminder_id: Optional[str] = None
-    reminder: Optional[Any] = None
-    note_id: Optional[str] = None
-    note: Optional[Any] = None
-
-
-class FakeReminders:
-    """Reminders service fixture."""
-
-    def __init__(self) -> None:
-        self._lists = [
-            SimpleNamespace(
-                id="list-1",
-                title="Inbox",
-                color='{"daHexString":"#007AFF","ckSymbolicColorName":"blue"}',
-                count=2,
-            )
-        ]
-        self._reminders = [
-            FakeReminder(id="rem-1", title="Buy milk", priority=1),
-            FakeReminder(id="rem-2", title="Pay rent", completed=True),
-        ]
-
-    def lists(self) -> Iterable[Any]:
-        return list(self._lists)
-
-    def reminders(
-        self, list_id: Optional[str] = None, include_completed: bool = False
-    ) -> Iterable[FakeReminder]:
-        if include_completed:
-            return list(self._reminders)
-        return [reminder for reminder in self._reminders if not reminder.completed]
-
-    def get(self, reminder_id: str) -> FakeReminder:
-        for reminder in self._reminders:
-            if reminder.id == reminder_id:
-                return reminder
-        raise KeyError(reminder_id)
-
-    def create(self, **kwargs: Any) -> FakeReminder:
-        reminder = FakeReminder(
-            id="rem-created",
-            title=kwargs["title"],
-            due_date=kwargs.get("due_date"),
-            priority=kwargs.get("priority", 0),
-            desc=kwargs.get("desc", ""),
-        )
-        self._reminders.append(reminder)
-        return reminder
-
-    def update(self, reminder: FakeReminder) -> None:
-        return None
-
-    def delete(self, reminder: FakeReminder) -> None:
-        reminder.completed = True
-
-    def iter_changes(self, since: Optional[str] = None):
-        yield FakeChange(
-            type="updated", reminder_id="rem-1", reminder=self._reminders[0]
-        )
-
-
-class FakeNotes:
-    """Notes service fixture."""
-
-    def __init__(self) -> None:
-        self._recent = [
-            FakeNoteSummary(
-                id="note-deleted",
-                title="Deleted Note",
-                folder_name="Recently Deleted",
-                modified_at=datetime(2026, 3, 2, tzinfo=timezone.utc),
-                is_deleted=True,
-            ),
-            FakeNoteSummary(
-                id="note-1",
-                title="Daily Plan",
-                folder_name="Notes",
-                modified_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
-            ),
-        ]
-        self._folders = [
-            SimpleNamespace(
-                id="folder-1",
-                name="Notes",
-                parent_id=None,
-                has_subfolders=False,
-            )
-        ]
-
-    def recents(self, *, limit: int = 50):
-        return self._recent[:limit]
-
-    def folders(self):
-        return list(self._folders)
-
-    def in_folder(self, folder_id: str, limit: int = 50):
-        return self._recent[:limit]
-
-    def iter_all(self, since: Optional[str] = None):
-        return iter(self._recent)
-
-    def get(self, note_id: str, *, with_attachments: bool = False):
-        attachments = (
-            [
-                SimpleNamespace(
-                    id="att-1", filename="file.pdf", uti="com.adobe.pdf", size=12
-                )
-            ]
-            if with_attachments
-            else None
-        )
-        return FakeNote(
-            id=note_id, title="Daily Plan", text="Ship CLI", attachments=attachments
-        )
-
-    def render_note(self, note_id: str, **kwargs: Any) -> str:
-        return f"<p>{note_id}</p>"
-
-    def export_note(self, note_id: str, output_dir: str, **kwargs: Any) -> str:
-        return str(Path(output_dir) / f"{note_id}.html")
-
-    def iter_changes(self, since: Optional[str] = None):
-        yield FakeChange(type="updated", note_id="note-1", note=self.get("note-1"))
-
-
 class FakeAPI:
     """Authenticated API fixture."""
 
@@ -395,7 +230,7 @@ class FakeAPI:
         self.account = SimpleNamespace(
             devices=[
                 {
-                    "name": "Jacob's iPhone",
+                    "name": "Example iPhone",
                     "modelDisplayName": "iPhone 16 Pro",
                     "deviceClass": "iPhone",
                     "id": "acc-device-1",
@@ -476,8 +311,6 @@ class FakeAPI:
             all=photo_album,
         )
         self.hidemyemail = FakeHideMyEmail()
-        self.reminders = FakeReminders()
-        self.notes = FakeNotes()
 
     def _logout(
         self,
@@ -660,8 +493,6 @@ def test_root_help() -> None:
         "drive",
         "photos",
         "hidemyemail",
-        "reminders",
-        "notes",
     ):
         assert command in result.stdout
 
@@ -678,8 +509,6 @@ def test_group_help() -> None:
         "drive",
         "photos",
         "hidemyemail",
-        "reminders",
-        "notes",
     ):
         result = _runner().invoke(app, [command, "--help"])
         assert result.exit_code == 0
@@ -697,8 +526,6 @@ def test_bare_group_invocation_shows_help() -> None:
         "drive",
         "photos",
         "hidemyemail",
-        "reminders",
-        "notes",
     ):
         result = _runner().invoke(app, [command])
         assert result.exit_code == 0
@@ -1618,7 +1445,7 @@ def test_devices_list_and_show_commands() -> None:
         output_format="json",
     )
     assert list_result.exit_code == 0
-    assert "Jacob's iPhone" in list_result.stdout
+    assert "Example iPhone" in list_result.stdout
     assert show_result.exit_code == 0
     assert "Battery Status" in show_result.stdout
     assert raw_result.exit_code == 0
@@ -1683,7 +1510,7 @@ def test_devices_mutations_and_export() -> None:
     assert export_result.exit_code == 0
     assert json.loads(export_result.stdout)["path"] == str(export_path)
     assert (
-        json.loads(export_path.read_text(encoding="utf-8"))["name"] == "Jacob's iPhone"
+        json.loads(export_path.read_text(encoding="utf-8"))["name"] == "Example iPhone"
     )
 
 
@@ -1744,66 +1571,6 @@ def test_hidemyemail_commands() -> None:
     assert "generated@privaterelay.appleid.com" in generate_result.stdout
 
 
-def test_reminders_commands() -> None:
-    """Reminders commands should expose list and create flows."""
-
-    fake_api = FakeAPI()
-    lists_result = _invoke(fake_api, "reminders", "lists")
-    list_result = _invoke(fake_api, "reminders", "list")
-    create_result = _invoke(
-        fake_api,
-        "reminders",
-        "create",
-        "--list-id",
-        "list-1",
-        "--title",
-        "New task",
-        "--priority",
-        "5",
-        output_format="json",
-    )
-    assert lists_result.exit_code == 0
-    assert "blue (#007AFF)" in lists_result.stdout
-    assert list_result.exit_code == 0
-    assert "Buy milk" in list_result.stdout
-    assert create_result.exit_code == 0
-    assert json.loads(create_result.stdout)["id"] == "rem-created"
-
-
-def test_notes_commands() -> None:
-    """Notes commands should expose recent, get, render, and export flows."""
-
-    fake_api = FakeAPI()
-    output_dir = Path("/tmp/python-test-results/test_cmdline/notes")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    recent_result = _invoke(fake_api, "notes", "recent", "--limit", "1")
-    include_deleted_result = _invoke(
-        fake_api, "notes", "recent", "--limit", "1", "--include-deleted"
-    )
-    render_result = _invoke(
-        fake_api,
-        "notes",
-        "render",
-        "note-1",
-        output_format="json",
-    )
-    export_result = _invoke(
-        fake_api,
-        "notes",
-        "export",
-        "note-1",
-        str(output_dir),
-        output_format="json",
-    )
-    assert recent_result.exit_code == 0
-    assert "Daily Plan" in recent_result.stdout
-    assert "Deleted Note" not in recent_result.stdout
-    assert include_deleted_result.exit_code == 0
-    assert "Deleted Note" in include_deleted_result.stdout
-    assert render_result.exit_code == 0
-    assert json.loads(render_result.stdout)["html"] == "<p>note-1</p>"
-    assert export_result.exit_code == 0
-    assert json.loads(export_result.stdout)["path"] == str(output_dir / "note-1.html")
 
 
 def test_main_returns_clean_error_for_user_abort(capsys) -> None:
