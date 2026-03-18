@@ -382,8 +382,10 @@ def devices_export(
     if raw and normalized:
         raise typer.BadParameter("Choose either --raw or --normalized, not both.")
 
-    use_raw = raw is not False and not normalized
-    payload = idevice.data if use_raw else normalize_device_details(idevice)
+    use_raw = raw is True and not normalized
+    payload = (
+        idevice.data if use_raw else normalize_device_details(idevice, locate=False)
+    )
     write_json_file(output, payload)
     if state.json_output:
         state.write_json({"device_id": idevice.id, "path": str(output), "raw": use_raw})

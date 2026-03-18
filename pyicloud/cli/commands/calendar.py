@@ -82,9 +82,16 @@ def calendar_events(
     to_dt: Optional[str] = typer.Option(None, "--to", help="End datetime."),
     period: str = typer.Option("month", "--period", help="Calendar period shortcut."),
     calendar_guid: Optional[str] = typer.Option(
-        None, "--calendar-guid", help="Only show events from one calendar."
+        None,
+        "--calendar-guid",
+        help="Only show events from one calendar. Filtering is applied client-side.",
     ),
-    limit: int = typer.Option(50, "--limit", min=1, help="Maximum events to show."),
+    limit: int = typer.Option(
+        50,
+        "--limit",
+        min=1,
+        help="Maximum events to show after filtering.",
+    ),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,

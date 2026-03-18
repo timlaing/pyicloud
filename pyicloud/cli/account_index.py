@@ -89,6 +89,12 @@ def _locked_index(session_root: str | Path) -> Iterator[Path]:
             yield index_path
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
 
 
 def _save_accounts(

@@ -48,10 +48,11 @@ def hidemyemail_list(
     )
     state = get_state(ctx)
     api = state.get_api()
-    payload = [
-        normalize_alias(alias)
-        for alias in service_call("Hide My Email", lambda: api.hidemyemail)
-    ]
+    payload = service_call(
+        "Hide My Email",
+        lambda: [normalize_alias(alias) for alias in api.hidemyemail],
+        account_name=api.account_name,
+    )
     if state.json_output:
         state.write_json(payload)
         return
@@ -92,7 +93,11 @@ def hidemyemail_generate(
     )
     state = get_state(ctx)
     api = state.get_api()
-    alias = service_call("Hide My Email", lambda: api.hidemyemail.generate())
+    alias = service_call(
+        "Hide My Email",
+        lambda: api.hidemyemail.generate(),
+        account_name=api.account_name,
+    )
     payload = {"email": alias}
     if state.json_output:
         state.write_json(payload)
@@ -131,6 +136,7 @@ def hidemyemail_reserve(
     payload = service_call(
         "Hide My Email",
         lambda: api.hidemyemail.reserve(email=email, label=label, note=note),
+        account_name=api.account_name,
     )
     if state.json_output:
         state.write_json(payload)
@@ -169,6 +175,7 @@ def hidemyemail_update(
     payload = service_call(
         "Hide My Email",
         lambda: api.hidemyemail.update_metadata(anonymous_id, label, note),
+        account_name=api.account_name,
     )
     if state.json_output:
         state.write_json(payload)
@@ -203,7 +210,9 @@ def hidemyemail_deactivate(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email", lambda: api.hidemyemail.deactivate(anonymous_id)
+        "Hide My Email",
+        lambda: api.hidemyemail.deactivate(anonymous_id),
+        account_name=api.account_name,
     )
     if state.json_output:
         state.write_json(payload)
@@ -238,7 +247,9 @@ def hidemyemail_reactivate(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email", lambda: api.hidemyemail.reactivate(anonymous_id)
+        "Hide My Email",
+        lambda: api.hidemyemail.reactivate(anonymous_id),
+        account_name=api.account_name,
     )
     if state.json_output:
         state.write_json(payload)
@@ -273,7 +284,9 @@ def hidemyemail_delete(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email", lambda: api.hidemyemail.delete(anonymous_id)
+        "Hide My Email",
+        lambda: api.hidemyemail.delete(anonymous_id),
+        account_name=api.account_name,
     )
     if state.json_output:
         state.write_json(payload)

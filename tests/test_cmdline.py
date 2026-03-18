@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import tempfile
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +22,7 @@ context_module = importlib.import_module("pyicloud.cli.context")
 output_module = importlib.import_module("pyicloud.cli.output")
 app = cli_module.app
 
-TEST_ROOT = Path("/tmp/python-test-results/test_cmdline")
+TEST_ROOT = Path(tempfile.gettempdir()) / "python-test-results" / "test_cmdline"
 
 
 class FakeDevice:
@@ -1796,7 +1797,7 @@ def test_devices_mutations_and_export() -> None:
     """Device actions should map to the Find My device methods."""
 
     fake_api = FakeAPI()
-    export_path = Path("/tmp/python-test-results/test_cmdline/device.json")
+    export_path = TEST_ROOT / "device.json"
     export_path.parent.mkdir(parents=True, exist_ok=True)
     sound_result = _invoke(
         fake_api,
@@ -1848,10 +1849,14 @@ def test_devices_mutations_and_export() -> None:
         "newpasscode": "4567",
     }
     assert export_result.exit_code == 0
-    assert json.loads(export_result.stdout)["path"] == str(export_path)
-    assert (
-        json.loads(export_path.read_text(encoding="utf-8"))["name"] == "Example iPhone"
-    )
+    export_payload = json.loads(export_result.stdout)
+    written_payload = json.loads(export_path.read_text(encoding="utf-8"))
+    assert export_payload["path"] == str(export_path)
+    assert export_payload["raw"] is False
+    assert written_payload["name"] == "Example iPhone"
+    assert written_payload["display_name"] == "iPhone"
+    assert "raw_data" in written_payload
+    assert "deviceDisplayName" not in written_payload
 
 
 def test_device_mutation_reports_reauthentication_requirement() -> None:
@@ -1906,8 +1911,8 @@ def test_drive_and_photos_commands() -> None:
     """Drive and photos commands should expose listing and download flows."""
 
     fake_api = FakeAPI()
-    output_path = Path("/tmp/python-test-results/test_cmdline/photo.bin")
-    json_output_path = Path("/tmp/python-test-results/test_cmdline/report.txt")
+    output_path = TEST_ROOT / "photo.bin"
+    json_output_path = TEST_ROOT / "report.txt"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     drive_result = _invoke(fake_api, "drive", "list", "/")
     photo_result = _invoke(
@@ -1939,7 +1944,7 @@ def test_drive_missing_paths_report_cli_abort() -> None:
     """Drive commands should collapse missing path lookups into CLIAbort errors."""
 
     fake_api = FakeAPI()
-    output_path = Path("/tmp/python-test-results/test_cmdline/missing.txt")
+    output_path = TEST_ROOT / "missing.txt"
 
     list_result = _invoke(fake_api, "drive", "list", "/missing")
     download_result = _invoke(
@@ -1986,7 +1991,7 @@ def test_photos_commands_report_reauthentication_requirement() -> None:
         albums=FakeAlbumContainer([photo_album]),
         all=photo_album,
     )
-    output_path = Path("/tmp/python-test-results/test_cmdline/photo-reauth.bin")
+    output_path = TEST_ROOT / "photo-reauth.bin"
 
     download_result = _invoke(
         fake_api,
@@ -2014,6 +2019,28 @@ def test_hidemyemail_commands() -> None:
     assert "Shopping" in list_result.stdout
     assert generate_result.exit_code == 0
     assert "generated@privaterelay.appleid.com" in generate_result.stdout
+
+
+def test_hidemyemail_list_reports_reauthentication_requirement() -> None:
+    """Hide My Email iteration errors should be wrapped in a CLIAbort."""
+
+    class ReauthHideMyEmail:
+        def __iter__(self):
+            raise context_module.PyiCloudFailedLoginException("No password set")
+
+        def generate(self) -> str:  # pragma: no cover - not used in this test
+            return "ignored"
+
+    fake_api = FakeAPI()
+    fake_api.hidemyemail = ReauthHideMyEmail()
+
+    result = _invoke(fake_api, "hidemyemail", "list")
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Hide My Email requires re-authentication for user@example.com. "
+        "Run: icloud auth login --username user@example.com"
+    )
 
 
 def test_main_returns_clean_error_for_user_abort(capsys) -> None:
