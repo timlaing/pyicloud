@@ -2055,6 +2055,20 @@ def test_hidemyemail_commands() -> None:
     assert "generated@privaterelay.appleid.com" in generate_result.stdout
 
 
+def test_hidemyemail_generate_requires_alias() -> None:
+    """Generate should fail when the backend returns an empty alias."""
+
+    fake_api = FakeAPI()
+    fake_api.hidemyemail.generate = MagicMock(return_value=None)
+
+    result = _invoke(fake_api, "hidemyemail", "generate")
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Hide My Email generate returned an empty alias."
+    )
+
+
 def test_hidemyemail_update_omits_note_when_not_provided() -> None:
     """Label-only updates should not overwrite notes with a synthetic default."""
 
@@ -2079,6 +2093,22 @@ def test_hidemyemail_mutations_require_valid_payload() -> None:
     assert result.exit_code != 0
     assert result.exception.args[0] == (
         "Hide My Email delete returned an invalid response: {}"
+    )
+
+    fake_api = FakeAPI()
+    fake_api.hidemyemail.reserve = MagicMock(return_value={})
+
+    result = _invoke(
+        fake_api,
+        "hidemyemail",
+        "reserve",
+        "alias@example.com",
+        "Shopping",
+    )
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Hide My Email reserve returned an invalid response: {}"
     )
 
 

@@ -23,6 +23,14 @@ from pyicloud.cli.output import console_table
 app = typer.Typer(help="Manage Hide My Email aliases.")
 
 
+def _require_generated_alias(alias: str | None) -> str:
+    """Return a generated alias or abort on an empty response."""
+
+    if isinstance(alias, str) and alias:
+        return alias
+    raise CLIAbort("Hide My Email generate returned an empty alias.")
+
+
 def _require_mutation_result(payload: dict, operation: str) -> str:
     """Return the alias id from a successful mutator response."""
 
@@ -109,11 +117,12 @@ def hidemyemail_generate(
         lambda: api.hidemyemail.generate(),
         account_name=api.account_name,
     )
+    alias = _require_generated_alias(alias)
     payload = {"email": alias}
     if state.json_output:
         state.write_json(payload)
         return
-    state.console.print(alias or "")
+    state.console.print(alias)
 
 
 @app.command("reserve")
@@ -149,10 +158,11 @@ def hidemyemail_reserve(
         lambda: api.hidemyemail.reserve(email=email, label=label, note=note),
         account_name=api.account_name,
     )
+    reserved_id = _require_mutation_result(payload, "reserve")
     if state.json_output:
         state.write_json(payload)
         return
-    state.console.print(payload.get("anonymousId", "reserved"))
+    state.console.print(reserved_id)
 
 
 @app.command("update")
