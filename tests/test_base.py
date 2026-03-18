@@ -13,6 +13,7 @@ from fido2.hid import CtapHidDevice
 from requests import HTTPError, Response
 
 from pyicloud import PyiCloudService
+from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
     PyiCloudAcceptTermsException,
@@ -439,6 +440,23 @@ def test_clear_persistence_removes_session_and_cookie_files(
         pyicloud_session.cookiejar_path,
         pyicloud_session.session_path,
     }
+
+
+def test_clear_persistence_replaces_cookiejar_after_clear_failure(
+    pyicloud_session: PyiCloudSession,
+) -> None:
+    """Cookie clear failures should reset the in-memory jar before cleanup continues."""
+
+    broken_cookie_jar = MagicMock()
+    broken_cookie_jar.clear.side_effect = RuntimeError("boom")
+    pyicloud_session.cookies = broken_cookie_jar
+
+    with patch("pyicloud.session.os.remove"):
+        pyicloud_session.clear_persistence()
+
+    broken_cookie_jar.clear.assert_called_once_with()
+    assert isinstance(pyicloud_session.cookies, PyiCloudCookieJar)
+    assert pyicloud_session.cookies.filename == pyicloud_session.cookiejar_path
 
 
 def test_requires_2sa_property(pyicloud_service: PyiCloudService) -> None:

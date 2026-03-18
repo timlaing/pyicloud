@@ -6,17 +6,46 @@ import typer
 
 from pyicloud.cli.context import get_state, service_call
 from pyicloud.cli.normalize import normalize_alias
-from pyicloud.cli.options import with_service_command_options
+from pyicloud.cli.options import (
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_OUTPUT_FORMAT,
+    HttpProxyOption,
+    HttpsProxyOption,
+    LogLevelOption,
+    NoVerifySslOption,
+    OutputFormatOption,
+    SessionDirOption,
+    UsernameOption,
+    store_command_options,
+)
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Manage Hide My Email aliases.")
 
 
 @app.command("list")
-@with_service_command_options
-def hidemyemail_list(ctx: typer.Context) -> None:
+def hidemyemail_list(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """List Hide My Email aliases."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = [
@@ -39,10 +68,28 @@ def hidemyemail_list(ctx: typer.Context) -> None:
 
 
 @app.command("generate")
-@with_service_command_options
-def hidemyemail_generate(ctx: typer.Context) -> None:
+def hidemyemail_generate(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """Generate a new relay address."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     alias = service_call("Hide My Email", lambda: api.hidemyemail.generate())
@@ -54,15 +101,31 @@ def hidemyemail_generate(ctx: typer.Context) -> None:
 
 
 @app.command("reserve")
-@with_service_command_options
 def hidemyemail_reserve(
     ctx: typer.Context,
     email: str = typer.Argument(...),
     label: str = typer.Argument(...),
     note: str = typer.Option("Generated", "--note", help="Alias note."),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Reserve a generated relay address with metadata."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
@@ -76,15 +139,31 @@ def hidemyemail_reserve(
 
 
 @app.command("update")
-@with_service_command_options
 def hidemyemail_update(
     ctx: typer.Context,
     anonymous_id: str = typer.Argument(...),
     label: str = typer.Argument(...),
     note: str = typer.Option("Generated", "--note", help="Alias note."),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Update alias metadata."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
@@ -98,12 +177,29 @@ def hidemyemail_update(
 
 
 @app.command("deactivate")
-@with_service_command_options
 def hidemyemail_deactivate(
-    ctx: typer.Context, anonymous_id: str = typer.Argument(...)
+    ctx: typer.Context,
+    anonymous_id: str = typer.Argument(...),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Deactivate an alias."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
@@ -116,12 +212,29 @@ def hidemyemail_deactivate(
 
 
 @app.command("reactivate")
-@with_service_command_options
 def hidemyemail_reactivate(
-    ctx: typer.Context, anonymous_id: str = typer.Argument(...)
+    ctx: typer.Context,
+    anonymous_id: str = typer.Argument(...),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Reactivate an alias."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
@@ -134,12 +247,29 @@ def hidemyemail_reactivate(
 
 
 @app.command("delete")
-@with_service_command_options
 def hidemyemail_delete(
-    ctx: typer.Context, anonymous_id: str = typer.Argument(...)
+    ctx: typer.Context,
+    anonymous_id: str = typer.Argument(...),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Delete an alias."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(

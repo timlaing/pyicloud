@@ -116,8 +116,13 @@ class PyiCloudSession(requests.Session):
 
         try:
             cast(PyiCloudCookieJar, self.cookies).clear()
-        except (KeyError, RuntimeError):
-            pass
+        except (KeyError, RuntimeError) as exc:
+            self._logger.warning(
+                "Failed to clear cookie jar %s: %s; resetting in-memory cookie jar",
+                self.cookiejar_path,
+                exc,
+            )
+            self.cookies = PyiCloudCookieJar(filename=self.cookiejar_path)
 
         self._data = {}
 

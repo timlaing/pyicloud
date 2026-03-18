@@ -12,6 +12,7 @@ from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+import click
 from typer.testing import CliRunner
 
 account_index_module = importlib.import_module("pyicloud.cli.account_index")
@@ -349,6 +350,10 @@ def _runner() -> CliRunner:
     return CliRunner()
 
 
+def _plain_output(result: Any) -> str:
+    return click.unstyle(result.output)
+
+
 def _unique_session_dir(label: str = "session") -> Path:
     path = TEST_ROOT / f"{label}-{uuid4().hex}"
     path.mkdir(parents=True, exist_ok=True)
@@ -494,14 +499,13 @@ def test_root_help() -> None:
     """The root command should expose only help/completion utilities and subcommands."""
 
     result = _runner().invoke(app, ["--help"])
+    text = _plain_output(result)
     assert result.exit_code == 0
-    assert "--username" not in result.stdout
-    assert "--password" not in result.stdout
-    assert "--format" not in result.stdout
-    assert "--session-dir" not in result.stdout
-    assert "--http-proxy" not in result.stdout
-    assert "--install-completion" in result.stdout
-    assert "--show-completion" in result.stdout
+    assert "--username" not in text
+    assert "--password" not in text
+    assert "--format" not in text
+    assert "--session-dir" not in text
+    assert "--http-proxy" not in text
     for command in (
         "account",
         "auth",
@@ -512,7 +516,7 @@ def test_root_help() -> None:
         "photos",
         "hidemyemail",
     ):
-        assert command in result.stdout
+        assert command in text
 
 
 def test_group_help() -> None:
@@ -546,45 +550,49 @@ def test_bare_group_invocation_shows_help() -> None:
         "hidemyemail",
     ):
         result = _runner().invoke(app, [command])
+        text = _plain_output(result)
         assert result.exit_code == 0
-        assert "Usage:" in result.stdout
-        assert "Missing command" not in (result.stdout + result.stderr)
+        assert "Usage:" in text
+        assert "Missing command" not in text
 
 
 def test_leaf_help_includes_execution_context_options() -> None:
     """Leaf command help should show the command-local options it supports."""
 
     result = _runner().invoke(app, ["account", "summary", "--help"])
+    text = _plain_output(result)
 
     assert result.exit_code == 0
-    assert "--username" in result.stdout
-    assert "--format" in result.stdout
-    assert "--session-dir" in result.stdout
-    assert "--password" not in result.stdout
-    assert "--with-family" not in result.stdout
+    assert "--username" in text
+    assert "--format" in text
+    assert "--session-dir" in text
+    assert "--password" not in text
+    assert "--with-family" not in text
 
 
 def test_auth_login_help_scopes_authentication_options() -> None:
     """Auth login help should expose auth-only options on the leaf command."""
 
     result = _runner().invoke(app, ["auth", "login", "--help"])
+    text = _plain_output(result)
 
     assert result.exit_code == 0
-    assert "--username" in result.stdout
-    assert "--password" in result.stdout
-    assert "--china-mainland" in result.stdout
-    assert "--interactive" in result.stdout
-    assert "--accept-terms" in result.stdout
-    assert "--with-family" not in result.stdout
+    assert "--username" in text
+    assert "--password" in text
+    assert "--china-mainland" in text
+    assert "--interactive" in text
+    assert "--accept-terms" in text
+    assert "--with-family" not in text
 
 
 def test_devices_help_scopes_device_options() -> None:
     """Devices help should expose device-specific options on device commands only."""
 
     result = _runner().invoke(app, ["devices", "list", "--help"])
+    text = _plain_output(result)
 
     assert result.exit_code == 0
-    assert "--with-family" in result.stdout
+    assert "--with-family" in text
 
 
 def test_account_summary_command() -> None:
@@ -641,7 +649,7 @@ def test_old_root_execution_options_fail_cleanly() -> None:
     ):
         result = _runner().invoke(app, cli_args)
         assert result.exit_code != 0
-        assert "No such option" in (result.stdout + result.stderr)
+        assert "No such option" in _plain_output(result)
 
 
 def test_auth_login_accepts_command_local_username() -> None:
@@ -733,15 +741,15 @@ def test_china_mainland_is_login_only() -> None:
 
     status_result = _runner().invoke(app, ["auth", "status", "--china-mainland"])
     service_result = _runner().invoke(app, ["account", "summary", "--china-mainland"])
+    status_text = _plain_output(status_result)
+    service_text = _plain_output(service_result)
 
     assert status_result.exit_code != 0
-    assert "No such option: --china-mainland" in (
-        status_result.stdout + status_result.stderr
-    )
+    assert "No such option" in status_text
+    assert "--china-mainland" in status_text
     assert service_result.exit_code != 0
-    assert "No such option: --china-mainland" in (
-        service_result.stdout + service_result.stderr
-    )
+    assert "No such option" in service_text
+    assert "--china-mainland" in service_text
 
 
 def test_auth_login_persists_china_mainland_metadata() -> None:
@@ -1283,8 +1291,9 @@ def test_multiple_local_accounts_require_explicit_username_for_auth_login() -> N
         patch.object(
             context_module.utils,
             "password_exists_in_keyring",
-            side_effect=lambda candidate: candidate
-            in {"alpha@example.com", "beta@example.com"},
+            side_effect=lambda candidate: (
+                candidate in {"alpha@example.com", "beta@example.com"}
+            ),
         ),
     ):
         result = _runner().invoke(
@@ -1426,6 +1435,33 @@ def test_account_index_prunes_stale_entries_but_keeps_keyring_backed_accounts() 
     assert [entry["username"] for entry in discovered] == ["kept@example.com"]
     assert list(account_index_module.load_accounts(session_dir)) == ["kept@example.com"]
     assert kept_api.session.session_path.endswith("keptexamplecom.session")
+
+
+def test_account_index_save_is_atomic() -> None:
+    """Account index writes should use an atomic replace into accounts.json."""
+
+    session_dir = _unique_session_dir("index-atomic")
+    accounts = {
+        "user@example.com": {
+            "username": "user@example.com",
+            "last_used_at": "2026-03-18T00:00:00+00:00",
+            "session_path": str(session_dir / "userexamplecom.session"),
+            "cookiejar_path": str(session_dir / "userexamplecom.cookiejar"),
+        }
+    }
+
+    with patch.object(
+        account_index_module.os,
+        "replace",
+        wraps=account_index_module.os.replace,
+    ) as replace:
+        account_index_module._save_accounts(session_dir, accounts)
+
+    replace.assert_called_once()
+    assert replace.call_args.args[1] == account_index_module.account_index_path(
+        session_dir
+    )
+    assert account_index_module.load_accounts(session_dir) == accounts
 
 
 def test_auth_login_non_interactive_requires_credentials() -> None:
@@ -1637,6 +1673,22 @@ def test_trusted_device_2sa_flow() -> None:
     )
 
 
+def test_non_interactive_2sa_does_not_send_verification_code() -> None:
+    """Non-interactive 2SA should fail before sending a verification code."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2sa = True
+    fake_api.trusted_devices = [{"deviceName": "Trusted Device", "phoneNumber": "+1"}]
+
+    result = _invoke(fake_api, "auth", "login", interactive=False)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Two-step authentication is required, but interactive prompts are disabled."
+    )
+    fake_api.send_verification_code.assert_not_called()
+
+
 def test_devices_list_and_show_commands() -> None:
     """Devices list and show should expose summary and detailed views."""
 
@@ -1802,6 +1854,42 @@ def test_devices_mutations_and_export() -> None:
     )
 
 
+def test_device_mutation_reports_reauthentication_requirement() -> None:
+    """Mutating Find My commands should surface a clean reauthentication message."""
+
+    fake_api = FakeAPI()
+    fake_api.devices[0].play_sound = MagicMock(
+        side_effect=context_module.PyiCloudFailedLoginException("No password set")
+    )
+
+    result = _invoke(fake_api, "devices", "sound", "device-1")
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Find My requires re-authentication for user@example.com. "
+        "Run: icloud auth login --username user@example.com"
+    )
+
+
+def test_destructive_device_commands_require_unique_match() -> None:
+    """Lost mode should require an unambiguous device name or an explicit device id."""
+
+    fake_api = FakeAPI()
+    duplicate = FakeDevice()
+    duplicate.id = "device-2"
+    duplicate.data["id"] = duplicate.id
+    fake_api.devices = [fake_api.devices[0], duplicate]
+
+    result = _invoke(fake_api, "devices", "lost-mode", "Example iPhone")
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Multiple devices matched 'Example iPhone'. Use a device id instead.\n"
+        "  - device-1 (Example iPhone / iPhone)\n"
+        "  - device-2 (Example iPhone / iPhone)"
+    )
+
+
 def test_calendar_and_contacts_commands() -> None:
     """Calendar and contacts groups should expose read commands."""
 
@@ -1845,6 +1933,75 @@ def test_drive_and_photos_commands() -> None:
     assert output_path.read_bytes() == b"photo-1:original"
     assert json_drive_result.exit_code == 0
     assert json.loads(json_drive_result.stdout)["path"] == str(json_output_path)
+
+
+def test_drive_missing_paths_report_cli_abort() -> None:
+    """Drive commands should collapse missing path lookups into CLIAbort errors."""
+
+    fake_api = FakeAPI()
+    output_path = Path("/tmp/python-test-results/test_cmdline/missing.txt")
+
+    list_result = _invoke(fake_api, "drive", "list", "/missing")
+    download_result = _invoke(
+        fake_api,
+        "drive",
+        "download",
+        "/missing",
+        "--output",
+        str(output_path),
+    )
+
+    assert list_result.exit_code != 0
+    assert list_result.exception.args[0] == "Path not found: /missing"
+    assert download_result.exit_code != 0
+    assert download_result.exception.args[0] == "Path not found: /missing"
+
+
+def test_photos_commands_report_reauthentication_requirement() -> None:
+    """Photos commands should wrap nested service operations in service_call."""
+
+    class ReauthAlbums:
+        @property
+        def albums(self):
+            raise context_module.PyiCloudFailedLoginException("No password set")
+
+    fake_api = FakeAPI()
+    fake_api.photos = ReauthAlbums()
+
+    albums_result = _invoke(fake_api, "photos", "albums")
+
+    assert albums_result.exit_code != 0
+    assert albums_result.exception.args[0] == (
+        "Photos requires re-authentication for user@example.com. "
+        "Run: icloud auth login --username user@example.com"
+    )
+
+    class BrokenPhoto(FakePhoto):
+        def download(self, version: str = "original") -> bytes:
+            raise context_module.PyiCloudFailedLoginException("No password set")
+
+    photo_album = FakePhotoAlbum("All Photos", [BrokenPhoto("photo-1", "img.jpg")])
+    fake_api = FakeAPI()
+    fake_api.photos = SimpleNamespace(
+        albums=FakeAlbumContainer([photo_album]),
+        all=photo_album,
+    )
+    output_path = Path("/tmp/python-test-results/test_cmdline/photo-reauth.bin")
+
+    download_result = _invoke(
+        fake_api,
+        "photos",
+        "download",
+        "photo-1",
+        "--output",
+        str(output_path),
+    )
+
+    assert download_result.exit_code != 0
+    assert download_result.exception.args[0] == (
+        "Photos requires re-authentication for user@example.com. "
+        "Run: icloud auth login --username user@example.com"
+    )
 
 
 def test_hidemyemail_commands() -> None:

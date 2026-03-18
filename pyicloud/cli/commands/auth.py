@@ -6,9 +6,20 @@ import typer
 
 from pyicloud.cli.context import CLIAbort, get_state
 from pyicloud.cli.options import (
-    with_auth_login_options,
-    with_auth_session_options,
-    with_keyring_delete_options,
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_OUTPUT_FORMAT,
+    AcceptTermsOption,
+    ChinaMainlandOption,
+    HttpProxyOption,
+    HttpsProxyOption,
+    InteractiveOption,
+    LogLevelOption,
+    NoVerifySslOption,
+    OutputFormatOption,
+    PasswordOption,
+    SessionDirOption,
+    UsernameOption,
+    store_command_options,
 )
 from pyicloud.cli.output import console_kv_table, console_table
 
@@ -78,10 +89,28 @@ def _auth_payload(state, api, status: dict[str, object]) -> dict[str, object]:
 
 
 @app.command("status")
-@with_auth_session_options
-def auth_status(ctx: typer.Context) -> None:
+def auth_status(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """Show the current authentication and session status."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     if not state.has_explicit_username:
         active_probes = state.active_session_probes()
@@ -151,10 +180,36 @@ def auth_status(ctx: typer.Context) -> None:
 
 
 @app.command("login")
-@with_auth_login_options
-def auth_login(ctx: typer.Context) -> None:
+def auth_login(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    password: PasswordOption = None,
+    china_mainland: ChinaMainlandOption = None,
+    interactive: InteractiveOption = True,
+    accept_terms: AcceptTermsOption = False,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """Authenticate and persist a usable session."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        password=password,
+        china_mainland=china_mainland,
+        interactive=interactive,
+        accept_terms=accept_terms,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_login_api()
     payload = _auth_payload(
@@ -185,7 +240,6 @@ def auth_login(ctx: typer.Context) -> None:
 
 
 @app.command("logout")
-@with_auth_session_options
 def auth_logout(
     ctx: typer.Context,
     keep_trusted: bool = typer.Option(
@@ -203,9 +257,26 @@ def auth_logout(
         "--remove-keyring",
         help="Delete the stored password for the selected account after logout.",
     ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Log out and clear local session persistence."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     if state.has_explicit_username:
         api = state.get_probe_api()
@@ -266,10 +337,22 @@ def auth_logout(
 
 
 @keyring_app.command("delete")
-@with_keyring_delete_options
-def auth_keyring_delete(ctx: typer.Context) -> None:
+def auth_keyring_delete(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """Delete a stored keyring password."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     if not state.has_explicit_username:
         raise CLIAbort("The --username option is required for auth keyring delete.")

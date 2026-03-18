@@ -29,15 +29,30 @@ def _group_root(ctx: typer.Context) -> None:
         raise typer.Exit()
 
 
-app.add_typer(account_app, name="account", invoke_without_command=True, callback=_group_root)
-app.add_typer(auth_app, name="auth", invoke_without_command=True, callback=_group_root)
-app.add_typer(devices_app, name="devices", invoke_without_command=True, callback=_group_root)
-app.add_typer(calendar_app, name="calendar", invoke_without_command=True, callback=_group_root)
-app.add_typer(contacts_app, name="contacts", invoke_without_command=True, callback=_group_root)
-app.add_typer(drive_app, name="drive", invoke_without_command=True, callback=_group_root)
-app.add_typer(photos_app, name="photos", invoke_without_command=True, callback=_group_root)
 app.add_typer(
-    hidemyemail_app, name="hidemyemail", invoke_without_command=True, callback=_group_root
+    account_app, name="account", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(auth_app, name="auth", invoke_without_command=True, callback=_group_root)
+app.add_typer(
+    devices_app, name="devices", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(
+    calendar_app, name="calendar", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(
+    contacts_app, name="contacts", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(
+    drive_app, name="drive", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(
+    photos_app, name="photos", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(
+    hidemyemail_app,
+    name="hidemyemail",
+    invoke_without_command=True,
+    callback=_group_root,
 )
 
 

@@ -11,17 +11,46 @@ from pyicloud.cli.normalize import (
     normalize_family_member,
     normalize_storage,
 )
-from pyicloud.cli.options import with_service_command_options
+from pyicloud.cli.options import (
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_OUTPUT_FORMAT,
+    HttpProxyOption,
+    HttpsProxyOption,
+    LogLevelOption,
+    NoVerifySslOption,
+    OutputFormatOption,
+    SessionDirOption,
+    UsernameOption,
+    store_command_options,
+)
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Inspect iCloud account metadata.")
 
 
 @app.command("summary")
-@with_service_command_options
-def account_summary(ctx: typer.Context) -> None:
+def account_summary(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """Show high-level account information."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     account = service_call(
@@ -41,10 +70,28 @@ def account_summary(ctx: typer.Context) -> None:
 
 
 @app.command("devices")
-@with_service_command_options
-def account_devices(ctx: typer.Context) -> None:
+def account_devices(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """List devices associated with the account profile."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = [
@@ -76,10 +123,28 @@ def account_devices(ctx: typer.Context) -> None:
 
 
 @app.command("family")
-@with_service_command_options
-def account_family(ctx: typer.Context) -> None:
+def account_family(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """List family sharing members."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = [
@@ -111,10 +176,28 @@ def account_family(ctx: typer.Context) -> None:
 
 
 @app.command("storage")
-@with_service_command_options
-def account_storage(ctx: typer.Context) -> None:
+def account_storage(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """Show iCloud storage usage."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = normalize_storage(

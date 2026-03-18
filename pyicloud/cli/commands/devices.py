@@ -8,7 +8,19 @@ import typer
 
 from pyicloud.cli.context import get_state, resolve_device, service_call
 from pyicloud.cli.normalize import normalize_device_details, normalize_device_summary
-from pyicloud.cli.options import with_devices_command_options
+from pyicloud.cli.options import (
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_OUTPUT_FORMAT,
+    HttpProxyOption,
+    HttpsProxyOption,
+    LogLevelOption,
+    NoVerifySslOption,
+    OutputFormatOption,
+    SessionDirOption,
+    UsernameOption,
+    WithFamilyOption,
+    store_command_options,
+)
 from pyicloud.cli.output import (
     console_kv_table,
     console_table,
@@ -20,15 +32,33 @@ app = typer.Typer(help="Work with Find My devices.")
 
 
 @app.command("list")
-@with_devices_command_options
 def devices_list(
     ctx: typer.Context,
     locate: bool = typer.Option(
         False, "--locate", help="Fetch current device locations."
     ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+    with_family: WithFamilyOption = False,
 ) -> None:
     """List Find My devices."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+        with_family=with_family,
+    )
     state = get_state(ctx)
     api = state.get_api()
     payload = [
@@ -62,7 +92,6 @@ def devices_list(
 
 
 @app.command("show")
-@with_devices_command_options
 def devices_show(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -70,9 +99,28 @@ def devices_show(
         False, "--locate", help="Fetch current device location."
     ),
     raw: bool = typer.Option(False, "--raw", help="Show the raw device payload."),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+    with_family: WithFamilyOption = False,
 ) -> None:
     """Show detailed information for one device."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+        with_family=with_family,
+    )
     state = get_state(ctx)
     api = state.get_api()
     idevice = resolve_device(api, device)
@@ -100,18 +148,40 @@ def devices_show(
 
 
 @app.command("sound")
-@with_devices_command_options
 def devices_sound(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
     subject: str = typer.Option("Find My iPhone Alert", "--subject"),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+    with_family: WithFamilyOption = False,
 ) -> None:
     """Play a sound on a device."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+        with_family=with_family,
+    )
     state = get_state(ctx)
     api = state.get_api()
     idevice = resolve_device(api, device)
-    idevice.play_sound(subject=subject)
+    service_call(
+        "Find My",
+        lambda: idevice.play_sound(subject=subject),
+        account_name=api.account_name,
+    )
     payload = {"device_id": idevice.id, "subject": subject}
     if state.json_output:
         state.write_json(payload)
@@ -120,20 +190,44 @@ def devices_sound(
 
 
 @app.command("message")
-@with_devices_command_options
 def devices_message(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
     message: str = typer.Argument(..., help="Message to display."),
     subject: str = typer.Option("A Message", "--subject"),
     silent: bool = typer.Option(False, "--silent", help="Do not play a sound."),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+    with_family: WithFamilyOption = False,
 ) -> None:
     """Display a message on a device."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+        with_family=with_family,
+    )
     state = get_state(ctx)
     api = state.get_api()
     idevice = resolve_device(api, device)
-    idevice.display_message(subject=subject, message=message, sounds=not silent)
+    service_call(
+        "Find My",
+        lambda: idevice.display_message(
+            subject=subject, message=message, sounds=not silent
+        ),
+        account_name=api.account_name,
+    )
     payload = {
         "device_id": idevice.id,
         "subject": subject,
@@ -147,7 +241,6 @@ def devices_message(
 
 
 @app.command("lost-mode")
-@with_devices_command_options
 def devices_lost_mode(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -158,13 +251,36 @@ def devices_lost_mode(
         help="Lost mode message.",
     ),
     passcode: str = typer.Option("", "--passcode", help="New device passcode."),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+    with_family: WithFamilyOption = False,
 ) -> None:
     """Enable lost mode for a device."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+        with_family=with_family,
+    )
     state = get_state(ctx)
     api = state.get_api()
-    idevice = resolve_device(api, device)
-    idevice.lost_device(number=phone, text=message, newpasscode=passcode)
+    idevice = resolve_device(api, device, require_unique=True)
+    service_call(
+        "Find My",
+        lambda: idevice.lost_device(number=phone, text=message, newpasscode=passcode),
+        account_name=api.account_name,
+    )
     payload = {
         "device_id": idevice.id,
         "phone": phone,
@@ -178,7 +294,6 @@ def devices_lost_mode(
 
 
 @app.command("erase")
-@with_devices_command_options
 def devices_erase(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -186,13 +301,36 @@ def devices_erase(
         "This iPhone has been lost. Please call me.",
         "--message",
     ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+    with_family: WithFamilyOption = False,
 ) -> None:
     """Request a remote erase for a device."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+        with_family=with_family,
+    )
     state = get_state(ctx)
     api = state.get_api()
-    idevice = resolve_device(api, device)
-    idevice.erase_device(message)
+    idevice = resolve_device(api, device, require_unique=True)
+    service_call(
+        "Find My",
+        lambda: idevice.erase_device(message),
+        account_name=api.account_name,
+    )
     payload = {"device_id": idevice.id, "message": message}
     if state.json_output:
         state.write_json(payload)
@@ -201,7 +339,6 @@ def devices_erase(
 
 
 @app.command("export")
-@with_devices_command_options
 def devices_export(
     ctx: typer.Context,
     device: str = typer.Argument(..., help="Device id or name."),
@@ -217,9 +354,28 @@ def devices_export(
         hidden=True,
         help="Write normalized device fields instead of the raw payload.",
     ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+    with_family: WithFamilyOption = False,
 ) -> None:
     """Export a device snapshot to JSON."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+        with_family=with_family,
+    )
     state = get_state(ctx)
     api = state.get_api()
     idevice = resolve_device(api, device)

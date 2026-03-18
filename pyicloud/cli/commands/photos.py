@@ -10,21 +10,57 @@ import typer
 
 from pyicloud.cli.context import CLIAbort, get_state, service_call
 from pyicloud.cli.normalize import normalize_album, normalize_photo
-from pyicloud.cli.options import with_service_command_options
+from pyicloud.cli.options import (
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_OUTPUT_FORMAT,
+    HttpProxyOption,
+    HttpsProxyOption,
+    LogLevelOption,
+    NoVerifySslOption,
+    OutputFormatOption,
+    SessionDirOption,
+    UsernameOption,
+    store_command_options,
+)
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Browse and download iCloud Photos.")
 
 
 @app.command("albums")
-@with_service_command_options
-def photos_albums(ctx: typer.Context) -> None:
+def photos_albums(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
     """List photo albums."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
-    photos = service_call("Photos", lambda: api.photos)
-    payload = [normalize_album(album) for album in photos.albums]
+    photos = service_call("Photos", lambda: api.photos, account_name=api.account_name)
+    payload = [
+        normalize_album(album)
+        for album in service_call(
+            "Photos",
+            lambda: list(photos.albums),
+            account_name=api.account_name,
+        )
+    ]
     if state.json_output:
         state.write_json(payload)
         return
@@ -38,24 +74,55 @@ def photos_albums(ctx: typer.Context) -> None:
 
 
 @app.command("list")
-@with_service_command_options
 def photos_list(
     ctx: typer.Context,
     album: Optional[str] = typer.Option(
         None, "--album", help="Album name. Defaults to all photos."
     ),
     limit: int = typer.Option(50, "--limit", min=1, help="Maximum photos to show."),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """List photo assets."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
-    photos = service_call("Photos", lambda: api.photos)
-    album_obj = photos.albums.find(album) if album else photos.all
+    photos = service_call("Photos", lambda: api.photos, account_name=api.account_name)
+    album_obj = service_call(
+        "Photos",
+        lambda: photos.albums.find(album) if album else photos.all,
+        account_name=api.account_name,
+    )
     if album and album_obj is None:
         raise CLIAbort(f"No album named '{album}' was found.")
-    photos_iter = album_obj.photos if album_obj is not None else photos.all.photos
-    payload = [normalize_photo(item) for item in islice(photos_iter, limit)]
+    payload = [
+        normalize_photo(item)
+        for item in service_call(
+            "Photos",
+            lambda: list(
+                islice(
+                    album_obj.photos if album_obj is not None else photos.all.photos,
+                    limit,
+                )
+            ),
+            account_name=api.account_name,
+        )
+    ]
     if state.json_output:
         state.write_json(payload)
         return
@@ -78,7 +145,6 @@ def photos_list(
 
 
 @app.command("download")
-@with_service_command_options
 def photos_download(
     ctx: typer.Context,
     photo_id: str = typer.Argument(..., help="Photo asset id."),
@@ -86,14 +152,42 @@ def photos_download(
     version: str = typer.Option(
         "original", "--version", help="Photo version to download."
     ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Download a photo asset."""
 
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
     state = get_state(ctx)
     api = state.get_api()
-    photos = service_call("Photos", lambda: api.photos)
-    photo = photos.all[photo_id]
-    data = photo.download(version=version)
+    photos = service_call("Photos", lambda: api.photos, account_name=api.account_name)
+    try:
+        photo = service_call(
+            "Photos",
+            lambda: photos.all[photo_id],
+            account_name=api.account_name,
+        )
+    except KeyError as err:
+        raise CLIAbort(f"No photo matched '{photo_id}'.") from err
+    data = service_call(
+        "Photos",
+        lambda: photo.download(version=version),
+        account_name=api.account_name,
+    )
     if data is None:
         raise CLIAbort("No data was returned for that photo version.")
     output.parent.mkdir(parents=True, exist_ok=True)

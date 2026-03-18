@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, TypedDict
+from typing import Callable, Iterator, TypedDict
 
 ACCOUNT_INDEX_FILENAME = "accounts.json"
 
@@ -26,10 +29,9 @@ def account_index_path(session_root: str | Path) -> Path:
     return Path(session_root) / ACCOUNT_INDEX_FILENAME
 
 
-def load_accounts(session_root: str | Path) -> dict[str, AccountIndexEntry]:
-    """Load indexed accounts from disk."""
+def _load_accounts_from_path(index_path: Path) -> dict[str, AccountIndexEntry]:
+    """Load indexed accounts from a specific path."""
 
-    index_path = account_index_path(session_root)
     try:
         raw = json.loads(index_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -62,12 +64,46 @@ def load_accounts(session_root: str | Path) -> dict[str, AccountIndexEntry]:
     return normalized
 
 
+def load_accounts(session_root: str | Path) -> dict[str, AccountIndexEntry]:
+    """Load indexed accounts from disk."""
+
+    return _load_accounts_from_path(account_index_path(session_root))
+
+
+@contextmanager
+def _locked_index(session_root: str | Path) -> Iterator[Path]:
+    """Serialize account index updates when the platform supports file locking."""
+
+    index_path = account_index_path(session_root)
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = index_path.with_suffix(f"{index_path.suffix}.lock")
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        try:
+            import fcntl  # pylint: disable=import-outside-toplevel
+        except ImportError:  # pragma: no cover - Windows fallback
+            yield index_path
+            return
+
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield index_path
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def _save_accounts(
     session_root: str | Path, accounts: dict[str, AccountIndexEntry]
 ) -> None:
     """Persist indexed accounts to disk."""
 
-    index_path = account_index_path(session_root)
+    _save_accounts_to_path(account_index_path(session_root), accounts)
+
+
+def _save_accounts_to_path(
+    index_path: Path, accounts: dict[str, AccountIndexEntry]
+) -> None:
+    """Persist indexed accounts to a specific path."""
+
     if not accounts:
         try:
             index_path.unlink()
@@ -79,10 +115,28 @@ def _save_accounts(
     payload = {
         "accounts": {username: accounts[username] for username in sorted(accounts)}
     }
-    index_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=index_path.parent,
+            prefix=f".{index_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_file.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+            temp_path = Path(temp_file.name)
+        os.replace(temp_path, index_path)
+    except Exception:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+        raise
 
 
 def _is_discoverable(
@@ -100,14 +154,15 @@ def prune_accounts(
 ) -> list[AccountIndexEntry]:
     """Drop stale entries and return discoverable accounts."""
 
-    accounts = load_accounts(session_root)
-    retained = {
-        username: entry
-        for username, entry in accounts.items()
-        if _is_discoverable(entry, keyring_has)
-    }
-    if retained != accounts:
-        _save_accounts(session_root, retained)
+    with _locked_index(session_root) as index_path:
+        accounts = _load_accounts_from_path(index_path)
+        retained = {
+            username: entry
+            for username, entry in accounts.items()
+            if _is_discoverable(entry, keyring_has)
+        }
+        if retained != accounts:
+            _save_accounts_to_path(index_path, retained)
     return [retained[username] for username in sorted(retained)]
 
 
@@ -122,20 +177,23 @@ def remember_account(
 ) -> AccountIndexEntry:
     """Upsert one account entry and prune any stale neighbors."""
 
-    accounts = {
-        entry["username"]: entry for entry in prune_accounts(session_root, keyring_has)
-    }
-    previous = accounts.get(username)
-    entry: AccountIndexEntry = {
-        "username": username,
-        "last_used_at": datetime.now(tz=timezone.utc).isoformat(),
-        "session_path": session_path,
-        "cookiejar_path": cookiejar_path,
-    }
-    if china_mainland is not None:
-        entry["china_mainland"] = china_mainland
-    elif previous is not None and "china_mainland" in previous:
-        entry["china_mainland"] = previous["china_mainland"]
-    accounts[username] = entry
-    _save_accounts(session_root, accounts)
-    return entry
+    with _locked_index(session_root) as index_path:
+        accounts = {
+            username_: entry
+            for username_, entry in _load_accounts_from_path(index_path).items()
+            if _is_discoverable(entry, keyring_has)
+        }
+        previous = accounts.get(username)
+        entry: AccountIndexEntry = {
+            "username": username,
+            "last_used_at": datetime.now(tz=timezone.utc).isoformat(),
+            "session_path": session_path,
+            "cookiejar_path": cookiejar_path,
+        }
+        if china_mainland is not None:
+            entry["china_mainland"] = china_mainland
+        elif previous is not None and "china_mainland" in previous:
+            entry["china_mainland"] = previous["china_mainland"]
+        accounts[username] = entry
+        _save_accounts_to_path(index_path, accounts)
+        return entry

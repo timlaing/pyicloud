@@ -352,12 +352,12 @@ class CLIState:
             self.console.print(f"  {index}: {label}")
         selected_index = self._prompt_index("Select trusted device index", len(devices))
         device = devices[selected_index]
-        if not api.send_verification_code(device):
-            raise CLIAbort("Failed to send the 2SA verification code.")
         if not self.interactive:
             raise CLIAbort(
                 "Two-step authentication is required, but interactive prompts are disabled."
             )
+        if not api.send_verification_code(device):
+            raise CLIAbort("Failed to send the 2SA verification code.")
         code = typer.prompt("Enter 2SA verification code")
         if not api.validate_verification_code(device, code):
             raise CLIAbort("Failed to verify the 2SA code.")
@@ -597,21 +597,50 @@ def parse_datetime(value: Optional[str]) -> Optional[datetime]:
     return dt
 
 
-def resolve_device(api: PyiCloudService, query: str):
+def resolve_device(api: PyiCloudService, query: str, *, require_unique: bool = False):
     """Return a device matched by id or common display names."""
 
     lowered = query.strip().lower()
-    for device in service_call(
-        "Find My", lambda: api.devices, account_name=api.account_name
-    ):
+    devices = list(
+        service_call("Find My", lambda: api.devices, account_name=api.account_name)
+    )
+    for device in devices:
+        identifier = str(getattr(device, "id", "")).strip().lower()
+        if identifier and identifier == lowered:
+            return device
+
+    matches = []
+    seen_ids: set[str] = set()
+    for device in devices:
+        identifier = str(getattr(device, "id", "")).strip()
         candidates = [
-            getattr(device, "id", ""),
             getattr(device, "name", ""),
             getattr(device, "deviceDisplayName", ""),
         ]
-        if any(str(candidate).strip().lower() == lowered for candidate in candidates):
-            return device
-    raise CLIAbort(f"No device matched '{query}'.")
+        if not any(
+            str(candidate).strip().lower() == lowered for candidate in candidates
+        ):
+            continue
+        dedupe_key = identifier or str(id(device))
+        if dedupe_key in seen_ids:
+            continue
+        seen_ids.add(dedupe_key)
+        matches.append(device)
+
+    if not matches:
+        raise CLIAbort(f"No device matched '{query}'.")
+    if require_unique and len(matches) > 1:
+        options = "\n".join(
+            "  - "
+            f"{getattr(device, 'id', '')} "
+            f"({getattr(device, 'name', '')} / "
+            f"{getattr(device, 'deviceDisplayName', '')})"
+            for device in matches
+        )
+        raise CLIAbort(
+            f"Multiple devices matched '{query}'. Use a device id instead.\n{options}"
+        )
+    return matches[0]
 
 
 def resolve_drive_node(drive, path: str, *, trash: bool = False):
