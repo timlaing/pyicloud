@@ -176,9 +176,12 @@ class FakeHideMyEmail:
         return {"anonymousId": "alias-2", "hme": email, "label": label, "note": note}
 
     def update_metadata(
-        self, anonymous_id: str, label: str, note: str
+        self, anonymous_id: str, label: str, note: Optional[str]
     ) -> dict[str, Any]:
-        return {"anonymousId": anonymous_id, "label": label, "note": note}
+        payload: dict[str, Any] = {"anonymousId": anonymous_id, "label": label}
+        if note is not None:
+            payload["note"] = note
+        return payload
 
     def deactivate(self, anonymous_id: str) -> dict[str, Any]:
         return {"anonymousId": anonymous_id, "active": False}
@@ -1858,6 +1861,37 @@ def test_devices_mutations_and_export() -> None:
     assert "raw_data" in written_payload
     assert "deviceDisplayName" not in written_payload
 
+    raw_export_path = TEST_ROOT / "device-raw.json"
+    raw_export_result = _invoke(
+        fake_api,
+        "devices",
+        "export",
+        "device-1",
+        "--output",
+        str(raw_export_path),
+        "--raw",
+        output_format="json",
+    )
+    no_raw_export_path = TEST_ROOT / "device-no-raw.json"
+    no_raw_export_result = _invoke(
+        fake_api,
+        "devices",
+        "export",
+        "device-1",
+        "--output",
+        str(no_raw_export_path),
+        "--no-raw",
+        output_format="json",
+    )
+    assert raw_export_result.exit_code == 0
+    assert json.loads(raw_export_result.stdout)["raw"] is True
+    assert "deviceDisplayName" in json.loads(
+        raw_export_path.read_text(encoding="utf-8")
+    )
+    assert no_raw_export_result.exit_code == 0
+    assert json.loads(no_raw_export_result.stdout)["raw"] is False
+    assert "display_name" in json.loads(no_raw_export_path.read_text(encoding="utf-8"))
+
 
 def test_device_mutation_reports_reauthentication_requirement() -> None:
     """Mutating Find My commands should surface a clean reauthentication message."""
@@ -2019,6 +2053,33 @@ def test_hidemyemail_commands() -> None:
     assert "Shopping" in list_result.stdout
     assert generate_result.exit_code == 0
     assert "generated@privaterelay.appleid.com" in generate_result.stdout
+
+
+def test_hidemyemail_update_omits_note_when_not_provided() -> None:
+    """Label-only updates should not overwrite notes with a synthetic default."""
+
+    fake_api = FakeAPI()
+    update_metadata = MagicMock(return_value={"anonymousId": "alias-1", "label": "New"})
+    fake_api.hidemyemail.update_metadata = update_metadata
+
+    result = _invoke(fake_api, "hidemyemail", "update", "alias-1", "New")
+
+    assert result.exit_code == 0
+    update_metadata.assert_called_once_with("alias-1", "New", None)
+
+
+def test_hidemyemail_mutations_require_valid_payload() -> None:
+    """Hide My Email mutators should reject empty success payloads."""
+
+    fake_api = FakeAPI()
+    fake_api.hidemyemail.delete = MagicMock(return_value={})
+
+    result = _invoke(fake_api, "hidemyemail", "delete", "alias-1")
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Hide My Email delete returned an invalid response: {}"
+    )
 
 
 def test_hidemyemail_list_reports_reauthentication_requirement() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from pyicloud.cli.context import get_state, service_call
+from pyicloud.cli.context import CLIAbort, get_state, service_call
 from pyicloud.cli.normalize import normalize_alias
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
@@ -21,6 +21,17 @@ from pyicloud.cli.options import (
 from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Manage Hide My Email aliases.")
+
+
+def _require_mutation_result(payload: dict, operation: str) -> str:
+    """Return the alias id from a successful mutator response."""
+
+    anonymous_id = payload.get("anonymousId")
+    if isinstance(anonymous_id, str) and anonymous_id:
+        return anonymous_id
+    raise CLIAbort(
+        f"Hide My Email {operation} returned an invalid response: {payload!r}"
+    )
 
 
 @app.command("list")
@@ -149,7 +160,7 @@ def hidemyemail_update(
     ctx: typer.Context,
     anonymous_id: str = typer.Argument(...),
     label: str = typer.Argument(...),
-    note: str = typer.Option("Generated", "--note", help="Alias note."),
+    note: str | None = typer.Option(None, "--note", help="Alias note."),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -177,10 +188,11 @@ def hidemyemail_update(
         lambda: api.hidemyemail.update_metadata(anonymous_id, label, note),
         account_name=api.account_name,
     )
+    updated_id = _require_mutation_result(payload, "update")
     if state.json_output:
         state.write_json(payload)
         return
-    state.console.print(f"Updated {anonymous_id}")
+    state.console.print(f"Updated {updated_id}")
 
 
 @app.command("deactivate")
@@ -214,10 +226,11 @@ def hidemyemail_deactivate(
         lambda: api.hidemyemail.deactivate(anonymous_id),
         account_name=api.account_name,
     )
+    deactivated_id = _require_mutation_result(payload, "deactivate")
     if state.json_output:
         state.write_json(payload)
         return
-    state.console.print(f"Deactivated {anonymous_id}")
+    state.console.print(f"Deactivated {deactivated_id}")
 
 
 @app.command("reactivate")
@@ -251,10 +264,11 @@ def hidemyemail_reactivate(
         lambda: api.hidemyemail.reactivate(anonymous_id),
         account_name=api.account_name,
     )
+    reactivated_id = _require_mutation_result(payload, "reactivate")
     if state.json_output:
         state.write_json(payload)
         return
-    state.console.print(f"Reactivated {anonymous_id}")
+    state.console.print(f"Reactivated {reactivated_id}")
 
 
 @app.command("delete")
@@ -288,7 +302,8 @@ def hidemyemail_delete(
         lambda: api.hidemyemail.delete(anonymous_id),
         account_name=api.account_name,
     )
+    deleted_id = _require_mutation_result(payload, "delete")
     if state.json_output:
         state.write_json(payload)
         return
-    state.console.print(f"Deleted {anonymous_id}")
+    state.console.print(f"Deleted {deleted_id}")

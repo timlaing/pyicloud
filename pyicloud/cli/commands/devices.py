@@ -345,7 +345,7 @@ def devices_export(
     output: Path = typer.Option(..., "--output", help="Destination JSON file."),
     raw: bool | None = typer.Option(
         None,
-        "--raw",
+        "--raw/--no-raw",
         help="Write the raw device payload.",
     ),
     normalized: bool = typer.Option(
