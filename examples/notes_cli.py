@@ -167,11 +167,8 @@ def ensure_auth(api: PyiCloudService) -> None:
         devices: List[dict[str, Any]] = api.trusted_devices
         if not devices:
             raise RuntimeError("No trusted devices available for 2SA")
-        for i, device in enumerate(devices):
-            label = (
-                "SMS trusted device" if device.get("phoneNumber") else "Trusted device"
-            )
-            logger.info("  %d: %s", i, label)
+        for i, _device in enumerate(devices):
+            logger.info("  %d: Trusted device", i)
         sel = input("Select device index [0]: ").strip()
         try:
             idx = int(sel) if sel else 0

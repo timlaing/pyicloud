@@ -176,14 +176,6 @@ def _prompt_selection(
     return selected_index
 
 
-def _trusted_device_label(device: dict[str, Any]) -> str:
-    if device.get("phoneNumber"):
-        return "SMS trusted device"
-    if device.get("deviceName") or device.get("id"):
-        return "Trusted device"
-    return "Unknown trusted device"
-
-
 def _raw_token(value: str) -> str:
     if "/" not in value:
         return value
@@ -225,8 +217,8 @@ def authenticate(args: argparse.Namespace) -> PyiCloudService:
             raise RuntimeError("2SA required but no trusted devices were returned.")
 
         print("Trusted devices:")
-        for index, device in enumerate(devices):
-            print(f"  {index}: {_trusted_device_label(device)}")
+        for index, _device in enumerate(devices):
+            print(f"  {index}: Trusted device")
 
         selected_index = _prompt_selection(
             "Select trusted device",
