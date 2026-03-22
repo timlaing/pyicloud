@@ -4,7 +4,7 @@
 [![Library version](https://img.shields.io/pypi/v/pyicloud)](https://pypi.org/project/pyicloud)
 [![Supported versions](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Ftimlaing%2Fpyicloud%2Fmain%2Fpyproject.toml)](https://pypi.org/project/pyicloud)
 [![Downloads](https://pepy.tech/badge/pyicloud)](https://pypi.org/project/pyicloud)
-[![Formatted with Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](ttps://pypi.python.org/pypi/ruff)
+[![Formatted with Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://pypi.python.org/pypi/ruff)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
@@ -18,7 +18,7 @@
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 
 PyiCloud is a module which allows pythonistas to interact with iCloud
-webservices. It\'s powered by the fantastic
+webservices. It's powered by the fantastic
 [requests](https://github.com/kennethreitz/requests) HTTP library.
 
 At its core, PyiCloud connects to the iCloud web application using your username and password, then performs regular queries against its API.
@@ -26,6 +26,16 @@ At its core, PyiCloud connects to the iCloud web application using your username
 **Please see the [terms of use](TERMS_OF_USE.md) for your responsibilities when using this library.**
 
 For support and discussions, join our Discord community: [Join our Discord community](https://discord.gg/nru3was4hk)
+
+## Installation
+
+Install the library and CLI with:
+
+```console
+$ pip install pyicloud
+```
+
+This installs the `icloud` command line interface alongside the Python package.
 
 ## Authentication
 
@@ -47,52 +57,124 @@ from pyicloud import PyiCloudService
 api = PyiCloudService('jappleseed@apple.com', 'password', china_mainland=True)
 ```
 
-If you plan to use this as a daemon / service to keep the connection alive with Apple thus reducing the volume of notification emails.
-A refresh interval can be configured (default = 5 minutes).
+If you plan to use this as a daemon or long-running service to keep the
+connection alive with Apple, a refresh interval can be configured
+(default: 5 minutes).
 
 ```python
 from pyicloud import PyiCloudService
-api = PyiCloudService('jappleseed@apple.com', 'password', refresh_interval=60) # 1 minute refresh
+
+api = PyiCloudService(
+    'jappleseed@apple.com',
+    'password',
+    refresh_interval=60,  # 1 minute refresh
+)
 api.devices
 ```
 
-You can also store your password in the system keyring using the
+## Command-Line Interface
+
+The `icloud` command line interface is organized around top-level
+subcommands such as `auth`, `account`, `devices`, `calendar`,
+`contacts`, `drive`, `photos`, and `hidemyemail`.
+
+Command options belong on the final command that uses them. For example:
+
+```console
+$ icloud auth login --username jappleseed@apple.com
+$ icloud account summary --format json
+```
+
+The root command only exposes help and shell-completion utilities.
+
+You can store your password in the system keyring using the
 command-line tool:
 
 ```console
-$ icloud --username=jappleseed@apple.com
+$ icloud auth login --username jappleseed@apple.com
 Enter iCloud password for jappleseed@apple.com:
 Save password in keyring? (y/N)
 ```
 
 If you have stored a password in the keyring, you will not be required
 to provide a password when interacting with the command-line tool or
-instantiating the `PyiCloudService` class for the username you stored
-the password for.
+instantiating the `PyiCloudService` class for that username.
 
 ```python
 api = PyiCloudService('jappleseed@apple.com')
 ```
 
-If you would like to delete a password stored in your system keyring,
-you can clear a stored password using the `--delete-from-keyring`
-command-line option:
+CLI examples:
 
 ```console
-$ icloud --username=jappleseed@apple.com --delete-from-keyring
-Enter iCloud password for jappleseed@apple.com:
-Save password in keyring? [y/N]: N
+$ icloud auth status
+$ icloud auth login --username jappleseed@apple.com
+$ icloud auth login --username jappleseed@apple.com --china-mainland
+$ icloud auth login --username jappleseed@apple.com --accept-terms
+$ icloud account summary
+$ icloud account summary --format json
+$ icloud devices list --locate
+$ icloud devices list --with-family
+$ icloud devices show "Example iPhone"
+$ icloud devices export "Example iPhone" --output ./iphone.json
+$ icloud calendar events --username jappleseed@apple.com --period week
+$ icloud contacts me --username jappleseed@apple.com
+$ icloud drive list /Documents --username jappleseed@apple.com
+$ icloud photos albums --username jappleseed@apple.com
+$ icloud hidemyemail list --username jappleseed@apple.com
+$ icloud auth logout
+$ icloud auth logout --keep-trusted
+$ icloud auth logout --all-sessions
+$ icloud auth logout --keep-trusted --all-sessions
+$ icloud auth logout --remove-keyring
+$ icloud auth keyring delete --username jappleseed@apple.com
 ```
 
-**Note**: Authentication will expire after an interval set by Apple, at
-which point you will have to re-authenticate. This interval is currently
-two months.
+If you would like to delete a password stored in your system keyring,
+use the dedicated keyring subcommand:
+
+```console
+$ icloud auth keyring delete --username jappleseed@apple.com
+```
+
+The `auth` command group lets you inspect and manage persisted sessions:
+
+- `icloud auth status`: report active logged-in iCloud sessions without prompting for password or 2FA
+- `icloud auth login`: ensure a usable authenticated session exists
+- `icloud auth logout`: sign out and clear the local session so the next login will typically require 2FA again
+- `icloud auth logout --keep-trusted`: sign out while asking Apple to preserve trusted-browser state for the next login
+- `icloud auth logout --all-sessions`: attempt to sign out all browser sessions
+- `icloud auth logout --remove-keyring`: also delete the stored password for the selected account
+- `icloud auth keyring delete --username <apple-id>`: delete the stored password without logging out
+- `icloud auth logout --keep-trusted --all-sessions`: experimental combination that requests both behaviors
+
+When only one local account is known, `auth login` can omit
+`--username`. Service commands, `auth status`, and `auth logout` without
+`--username` operate on active logged-in sessions only, similar to `gh`.
+If no active sessions exist, service commands and `auth status` report
+that no iCloud accounts are logged in and direct you to
+`icloud auth login --username <apple-id>`. If multiple logged-in
+accounts exist, pass `--username` to disambiguate account-targeted
+operations.
+
+`--keep-trusted` and `--all-sessions` are translated to Apple's logout
+payload internally; the CLI intentionally exposes user-facing semantics
+instead of the raw wire field names.
+
+Stored passwords in the system keyring are treated separately from
+authenticated sessions. A plain `icloud auth logout` ends the session
+but keeps the stored password. Use `icloud auth logout --remove-keyring`
+or `icloud auth keyring delete --username <apple-id>` if you also want
+to forget the saved password.
+
+**Note**: Authentication expires on an interval set by Apple, at which
+point you will have to authenticate again.
 
 **Note**: Apple will require you to accept new terms and conditions to
 access the iCloud web service. This will result in login failures until
 the terms are accepted. This can be automatically accepted by PyiCloud
-using the `--accept-terms` command-line option. Alternatively you can
-visit the iCloud web site to view and accept the terms.
+using `icloud auth login --accept-terms`. Alternatively you can visit
+the iCloud web site to view and accept the terms.
 
 ### Two-step and two-factor authentication (2SA/2FA)
 
@@ -101,6 +183,10 @@ authentication (2SA)](https://support.apple.com/en-us/HT204152) for the
 account you will have to do some extra work:
 
 ```python
+import sys
+
+import click
+
 if api.requires_2fa:
     security_key_names = api.security_key_names
 
@@ -151,7 +237,6 @@ if api.requires_2fa:
             )
 
 elif api.requires_2sa:
-    import click
     print("Two-step authentication required. Your trusted devices are:")
 
     devices = api.trusted_devices
@@ -486,8 +571,8 @@ You can access your iCloud contacts/address book through the `contacts`
 property:
 
 ```pycon
->>> for c in api.contacts.all():
->>> print(c.get('firstName'), c.get('phones'))
+>>> for c in api.contacts.all:
+...     print(c.get('firstName'), c.get('phones'))
 John [{'field': '+1 555-55-5555-5', 'label': 'MOBILE'}]
 ```
 

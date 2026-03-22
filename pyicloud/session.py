@@ -111,6 +111,30 @@ class PyiCloudSession(requests.Session):
         except (OSError, ValueError) as exc:
             self.logger.warning("Failed to save cookies data: %s", exc)
 
+    def clear_persistence(self, remove_files: bool = True) -> None:
+        """Clear persisted session and cookie state."""
+
+        try:
+            cast(PyiCloudCookieJar, self.cookies).clear()
+        except (KeyError, RuntimeError) as exc:
+            self._logger.warning(
+                "Failed to clear cookie jar %s: %s; resetting in-memory cookie jar",
+                self.cookiejar_path,
+                exc,
+            )
+            self.cookies = PyiCloudCookieJar(filename=self.cookiejar_path)
+
+        self._data = {}
+
+        if remove_files:
+            for persisted_path in (self.cookiejar_path, self.session_path):
+                try:
+                    os.remove(persisted_path)
+                except FileNotFoundError:
+                    continue
+        else:
+            self._save_session_data()
+
     def _update_session_data(self, response: Response) -> None:
         """Update session_data with new data."""
         for header, value in HEADER_DATA.items():
@@ -265,8 +289,9 @@ class PyiCloudSession(requests.Session):
                     self._raise_error(response, code, reason)
 
         except JSONDecodeError:
-            self.logger.warning(
-                "Failed to parse response with JSON mimetype: %s", response.text
+            self.logger.debug(
+                "Failed to parse response body as JSON despite JSON mimetype; status=%s",
+                getattr(response, "status_code", "unknown"),
             )
 
     def _raise_error(

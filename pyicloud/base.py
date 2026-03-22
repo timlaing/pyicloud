@@ -94,6 +94,16 @@ _PARAMS: dict[str, str] = {
 }
 
 
+def resolve_cookie_directory(cookie_directory: Optional[str] = None) -> str:
+    """Resolve the directory used for persisted session and cookie data."""
+
+    if cookie_directory:
+        return path.normpath(path.expanduser(cookie_directory))
+
+    topdir: str = path.join(gettempdir(), "pyicloud")
+    return path.join(topdir, getpass.getuser())
+
+
 class PyiCloudService:
     """
     A base authentication class for the iCloud service. Handles the
@@ -117,14 +127,11 @@ class PyiCloudService:
 
     def _setup_cookie_directory(self, cookie_directory: Optional[str] = None) -> str:
         """Set up the cookie directory for the service."""
-        _cookie_directory: str = ""
-        if cookie_directory:
-            _cookie_directory = path.normpath(path.expanduser(cookie_directory))
-        else:
-            topdir: str = path.join(gettempdir(), "pyicloud")
+        _cookie_directory = resolve_cookie_directory(cookie_directory)
+        if not cookie_directory:
+            topdir = path.dirname(_cookie_directory)
             makedirs(topdir, exist_ok=True)
             chmod(topdir, 0o1777)
-            _cookie_directory = path.join(topdir, getpass.getuser())
 
         old_umask = umask(0o077)
         try:
@@ -141,12 +148,16 @@ class PyiCloudService:
         verify: bool = True,
         client_id: Optional[str] = None,
         with_family: bool = True,
-        china_mainland: bool = False,
+        china_mainland: Optional[bool] = None,
         accept_terms: bool = False,
         refresh_interval: float | None = None,
+        *,
+        authenticate: bool = True,
     ) -> None:
         self._is_china_mainland: bool = (
-            china_mainland or environ.get("icloud_china", "0") == "1"
+            environ.get("icloud_china", "0") == "1"
+            if china_mainland is None
+            else china_mainland
         )
         self._setup_endpoints()
 
@@ -156,7 +167,7 @@ class PyiCloudService:
         self._accept_terms: bool = accept_terms
         self._refresh_interval: float | None = refresh_interval
 
-        if self._password_raw is None:
+        if self._password_raw is None and authenticate:
             self._password_raw = get_password_from_keyring(apple_id)
 
         self.data: dict[str, Any] = {}
@@ -207,7 +218,14 @@ class PyiCloudService:
 
         self._requires_mfa: bool = False
 
-        self.authenticate()
+        if authenticate:
+            self.authenticate()
+
+    @property
+    def is_china_mainland(self) -> bool:
+        """Return whether the current service uses China mainland endpoints."""
+
+        return self._is_china_mainland
 
     def authenticate(
         self, force_refresh: bool = False, service: Optional[str] = None
@@ -297,6 +315,100 @@ class PyiCloudService:
 
         if "webservices" in self.data:
             self._webservices = self.data["webservices"]
+
+    def _clear_authenticated_state(self) -> None:
+        """Clear in-memory auth-derived state."""
+
+        self.data = {}
+        self._auth_data = {}
+        self._webservices = None
+        self._account = None
+        self._calendar = None
+        self._contacts = None
+        self._devices = None
+        self._drive = None
+        self._files = None
+        self._hidemyemail = None
+        self._photos = None
+        self._reminders = None
+        self._requires_mfa = False
+        self.params.pop("dsid", None)
+
+    def get_auth_status(self) -> dict[str, Any]:
+        """Probe current authentication state without prompting for login."""
+
+        status: dict[str, Any] = {
+            "authenticated": False,
+            "trusted_session": False,
+            "requires_2fa": False,
+            "requires_2sa": False,
+        }
+
+        if not self.session.data.get("session_token"):
+            self._clear_authenticated_state()
+            return status
+
+        if not self.session.cookies.get("X-APPLE-WEBAUTH-TOKEN"):
+            self._clear_authenticated_state()
+            return status
+
+        try:
+            self.data = self._validate_token()
+            self._update_state()
+        except PyiCloudAPIResponseException:
+            self._clear_authenticated_state()
+            return status
+
+        status.update(
+            {
+                "authenticated": True,
+                "trusted_session": self.is_trusted_session,
+                "requires_2fa": self.requires_2fa,
+                "requires_2sa": self.requires_2sa,
+            }
+        )
+        return status
+
+    def logout(
+        self,
+        *,
+        keep_trusted: bool = False,
+        all_sessions: bool = False,
+        clear_local_session: bool = True,
+    ) -> dict[str, Any]:
+        """Log out of the current session and optionally clear local persistence."""
+
+        payload: dict[str, bool] = {
+            "trustBrowser": keep_trusted,
+            "allBrowsers": all_sessions,
+        }
+        remote_logout_confirmed = False
+
+        if self.params.get("dsid") and self.session.cookies.get(
+            "X-APPLE-WEBAUTH-TOKEN"
+        ):
+            try:
+                response = self.session.post(
+                    f"{self._setup_endpoint}/logout",
+                    params=dict(self.params),
+                    data=json.dumps(payload),
+                    headers={"Content-Type": "text/plain;charset=UTF-8"},
+                )
+                remote_logout_confirmed = bool(response.json().get("success"))
+            except (PyiCloudAPIResponseException, ValueError):
+                LOGGER.debug("Remote logout was not confirmed.", exc_info=True)
+
+        local_session_cleared = False
+        if clear_local_session:
+            self.session.clear_persistence(remove_files=True)
+            self._clear_authenticated_state()
+            local_session_cleared = True
+
+        return {
+            "payload": payload,
+            "remote_logout_confirmed": remote_logout_confirmed,
+            "local_session_cleared": local_session_cleared,
+        }
 
     def _authenticate(self) -> None:
         LOGGER.debug("Authenticating as %s", self.account_name)
@@ -669,7 +781,7 @@ class PyiCloudService:
         _check_pcs_resp: dict[str, Any] = self._check_pcs_consent()
 
         if not _check_pcs_resp.get("isICDRSDisabled", False):
-            LOGGER.warning("ICDRS is not disabled")
+            LOGGER.debug("Skipping PCS request because Apple reports ICDRS is enabled")
             return
 
         if not _check_pcs_resp.get("isDeviceConsentedForPCS", True):
