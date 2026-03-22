@@ -1,3 +1,40 @@
+categories:
+  - title: "🚀 Features"
+    labels:
+      - "feature"
+      - "enhancement"
+  - title: "🐛 Bug Fixes"
+    labels:
+      - "fix"
+      - "bugfix"
+      - "bug"
+  - title: "🧰 Maintenance"
+    labels:
+      - "chore"
+  - title: "⬆️ Dependencies"
+    labels:
+      - "dependencies"
+change-title-escapes: '\<*_&`'
+commitish: main
+
+autolabeler:
+  - label: "chore"
+    files:
+      - "*.md"
+    branch:
+      - '/docs{0,1}\/.+/'
+  - label: "bugfix"
+    branch:
+      - '/bugfix\/.+/'
+    title:
+      - "/fix/i"
+  - label: "feature"
+    branch:
+      - '/feature\/.+/'
+  - label: "dependencies"
+    branch:
+      - '/dependabot\/.+/'
+
 template: |
   ## What's Changed
 
