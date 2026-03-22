@@ -1,0 +1,16 @@
+# yamllint disable-line rule:truthy
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  auto_label:
+    permissions:
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      # runs autolabeler
+      - uses: release-drafter/release-drafter/autolabeler@v7
