@@ -1,0 +1,13 @@
+version: v1
+
+lint:
+  use:
+    - DEFAULT
+  ignore_only:
+    PACKAGE_DIRECTORY_MATCH:
+      # Intentional: package name mirrors Apple Notes wire format (`notes`).
+      - pyicloud/services/notes/protobuf/notes.proto
+      # Intentional: package name mirrors Apple Reminders wire format (`topotext`).
+      - pyicloud/services/reminders/protobuf/reminders.proto
+      # Intentional: package name mirrors Apple Reminders wire format (`versioned_document`).
+      - pyicloud/services/reminders/protobuf/versioned_document.proto

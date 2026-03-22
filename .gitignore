@@ -78,3 +78,11 @@ uv.lock
 fetch_devices_*.py
 *.jpg
 /test*.py
+
+# Workspace
+/workspace/
+
+# Security excludes
+*_examples/
+sample_*.json
+test_real_data.py

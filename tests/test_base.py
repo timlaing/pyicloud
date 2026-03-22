@@ -25,6 +25,7 @@ from pyicloud.exceptions import (
 from pyicloud.services.calendar import CalendarService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.hidemyemail import HideMyEmailService
+from pyicloud.services.notes import NotesService
 from pyicloud.services.photos import PhotosService
 from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
@@ -103,6 +104,25 @@ def test_constructor_skips_authentication_when_requested() -> None:
 
         mock_authenticate.assert_not_called()
         get_from_keyring.assert_not_called()
+
+
+def test_constructor_accepts_keyword_only_cloudkit_validation_extra() -> None:
+    """cloudkit_validation_extra remains a keyword-only escape hatch."""
+    with (
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
+        patch("builtins.open", new_callable=mock_open),
+    ):
+        mock_authenticate.return_value = None
+        mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
+
+        service = PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            cloudkit_validation_extra="ignore",
+        )
+
+        assert service._cloudkit_validation_extra == "ignore"
 
 
 def test_authenticate_with_missing_token(pyicloud_service: PyiCloudService) -> None:
@@ -1544,6 +1564,7 @@ def test_reminders_returns_service(
             service_root="https://reminders.example.com",
             session=pyicloud_service.session,
             params=pyicloud_service.params,
+            cloudkit_validation_extra=None,
         )
         assert result == mock_reminders_service
 
@@ -1579,6 +1600,95 @@ def test_reminders_raises_on_api_exception(
             match="Reminders service not available",
         ):
             _ = pyicloud_service.reminders
+
+
+def test_reminders_raises_on_not_activated_exception(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Reminders wraps missing ckdatabasews activation as service unavailable."""
+    with patch.object(
+        pyicloud_service,
+        "get_webservice_url",
+        side_effect=PyiCloudServiceNotActivatedException("error"),
+    ):
+        pyicloud_service._reminders = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable,
+            match="Reminders service not available",
+        ):
+            _ = pyicloud_service.reminders
+
+
+def test_notes_returns_new_notes_service_instance(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test notes property returns a new NotesService instance."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://notes.example.com",
+        ),
+        patch("pyicloud.base.NotesService") as mock_notes_service,
+    ):
+        mock_notes_instance = MagicMock(spec=NotesService)
+        mock_notes_service.return_value = mock_notes_instance
+
+        result = pyicloud_service.notes
+
+        mock_notes_service.assert_called_once_with(
+            service_root="https://notes.example.com",
+            session=pyicloud_service.session,
+            params=pyicloud_service.params,
+            cloudkit_validation_extra=pyicloud_service._cloudkit_validation_extra,
+        )
+        assert result == mock_notes_instance
+
+
+def test_notes_returns_cached_instance(pyicloud_service: PyiCloudService) -> None:
+    """Test notes property returns cached instance if already set."""
+    mock_notes_service = MagicMock()
+    pyicloud_service._notes = mock_notes_service
+    result: NotesService = pyicloud_service.notes
+    assert result == mock_notes_service
+
+
+def test_notes_raises_on_api_exception(pyicloud_service: PyiCloudService) -> None:
+    """Test notes property raises PyiCloudServiceUnavailable on API exception."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://notes.example.com",
+        ),
+        patch(
+            "pyicloud.base.NotesService",
+            side_effect=PyiCloudAPIResponseException("error"),
+        ),
+    ):
+        pyicloud_service._notes = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable,
+            match="Notes service not available",
+        ):
+            _ = pyicloud_service.notes
+
+
+def test_notes_raises_on_not_activated_exception(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Notes wraps missing ckdatabasews activation as service unavailable."""
+    with patch.object(
+        pyicloud_service,
+        "get_webservice_url",
+        side_effect=PyiCloudServiceNotActivatedException("error"),
+    ):
+        pyicloud_service._notes = None
+        with pytest.raises(
+            PyiCloudServiceUnavailable,
+            match="Notes service not available",
+        ):
+            _ = pyicloud_service.notes
 
 
 def test_setup_cookie_directory_with_custom_path(

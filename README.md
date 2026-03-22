@@ -921,7 +921,762 @@ deleted = api.hidemyemail.delete(anonymous_id)
 print(f"Deleted alias: {deleted}")
 ```
 
+## Reminders
+
+You can access your iCloud Reminders through the `reminders` property:
+
+```python
+reminders = api.reminders
+```
+
+The high-level Reminders service exposes typed list, reminder, alarm, hashtag,
+attachment, and recurrence-rule models for both snapshot reads and mutations.
+
+_List reminder lists:_
+
+```python
+for lst in api.reminders.lists():
+    print(lst.id, lst.title, lst.color, lst.count)
+```
+
+_List reminders globally or within one list:_
+
+```python
+reminders = api.reminders
+
+target_list = next(iter(reminders.lists()), None)
+if target_list:
+    for reminder in reminders.reminders(list_id=target_list.id):
+        print(reminder.id, reminder.title, reminder.completed)
+
+for reminder in reminders.reminders():
+    print(reminder.title)
+```
+
+_Fetch one reminder by ID:_
+
+```python
+reminder_id = "YOUR_REMINDER_ID"
+reminder = api.reminders.get(reminder_id)
+
+print(reminder.title)
+print(reminder.desc)
+print(reminder.due_date)
+```
+
+_Create, update, and delete a reminder:_
+
+```python
+from datetime import datetime, timedelta, timezone
+
+reminders = api.reminders
+target_list = next(iter(reminders.lists()), None)
+if target_list is None:
+    raise RuntimeError("No reminder lists found")
+
+created = reminders.create(
+    list_id=target_list.id,
+    title="Buy milk",
+    desc="2 percent",
+    due_date=datetime.now(timezone.utc) + timedelta(days=1),
+    priority=1,
+    flagged=True,
+)
+
+created.desc = "2 percent organic"
+created.completed = True
+reminders.update(created)
+
+fresh = reminders.get(created.id)
+reminders.delete(fresh)
+```
+
+`priority` uses Apple's numeric values. Common values are `0` (none), `1`
+(high), `5` (medium), and `9` (low).
+
+_Work with a compound list snapshot:_
+
+```python
+reminders = api.reminders
+target_list = next(iter(reminders.lists()), None)
+if target_list is None:
+    raise RuntimeError("No reminder lists found")
+
+result = api.reminders.list_reminders(
+    list_id=target_list.id,
+    include_completed=True,
+    results_limit=200,
+)
+
+print(len(result.reminders))
+print(result.alarms.keys())
+print(result.attachments.keys())
+print(result.hashtags.keys())
+```
+
+`list_reminders()` returns a `ListRemindersResult` containing:
+
+- `reminders`
+- `alarms`
+- `triggers`
+- `attachments`
+- `hashtags`
+- `recurrence_rules`
+
+_Track incremental changes:_
+
+```python
+reminders = api.reminders
+
+# Earlier run: capture and persist a cursor somewhere durable.
+cursor = reminders.sync_cursor()
+# save cursor to disk / database here
+
+# Later run: reload the previously saved cursor from disk / database.
+loaded_cursor = stored_cursor_value
+for event in reminders.iter_changes(since=loaded_cursor):
+    print(event.type, event.reminder_id)
+    if event.reminder is not None:
+        print(event.reminder.title)
+
+# After processing, persist the new high-water mark for the next run.
+next_cursor = reminders.sync_cursor()
+```
+
+`iter_changes(since=...)` yields `ReminderChangeEvent` objects. Updated
+reminders include a hydrated `reminder` payload. Deleted events may still carry
+`event.reminder` for soft-deleted records; only true tombstones guarantee
+`event.reminder is None`, in which case you should rely on `event.reminder_id`.
+
+_Add location triggers and inspect alarms:_
+
+```python
+from pyicloud.services.reminders.models import Proximity
+
+reminders = api.reminders
+reminder = next(iter(reminders.reminders()), None)
+if reminder is None:
+    raise RuntimeError("No reminders found")
+
+alarm, trigger = reminders.add_location_trigger(
+    reminder,
+    title="Office",
+    address="1 Infinite Loop, Cupertino, CA",
+    latitude=37.3318,
+    longitude=-122.0312,
+    radius=150.0,
+    proximity=Proximity.ARRIVING,
+)
+
+for row in reminders.alarms_for(reminder):
+    print(row.alarm.id, row.trigger.id if row.trigger else None)
+```
+
+_Add hashtags, URL attachments, and recurrence rules:_
+
+```python
+from pyicloud.services.reminders.models import RecurrenceFrequency
+
+reminders = api.reminders
+reminder = next(iter(reminders.reminders()), None)
+if reminder is None:
+    raise RuntimeError("No reminders found")
+
+hashtag = reminders.create_hashtag(reminder, "errands")
+attachment = reminders.create_url_attachment(
+    reminder,
+    url="https://example.com/checklist",
+)
+rule = reminders.create_recurrence_rule(
+    reminder,
+    frequency=RecurrenceFrequency.WEEKLY,
+    interval=1,
+)
+
+print(reminders.tags_for(reminder))
+print(reminders.attachments_for(reminder))
+print(reminders.recurrence_rules_for(reminder))
+```
+
+You can also update and delete related records:
+
+```python
+reminders.update_attachment(attachment, url="https://example.org/checklist")
+reminders.update_recurrence_rule(rule, interval=2)
+reminders.delete_hashtag(reminder, hashtag)
+reminders.delete_attachment(reminder, attachment)
+reminders.delete_recurrence_rule(reminder, rule)
+```
+
+Reminders caveats:
+
+- Reminder mutations operate on typed models. The normal pattern is to fetch a
+  reminder, mutate fields locally, then call `update(reminder)`.
+- Naive `datetime` values passed to `create()` are interpreted as UTC by the
+  service.
+- `update_hashtag()` exists, but the iCloud Reminders web app currently treats
+  hashtag names as effectively read-only in some live flows, so rename behavior
+  may not be reflected consistently outside the API.
+
+### Reminders Example Scripts
+
+[`example_reminders.py`](example_reminders.py) is a comprehensive live
+integration validator for the Reminders service. It exercises list discovery,
+read paths, write paths, location triggers, hashtags, attachments, recurrence
+rules, and delete flows against a real iCloud account.
+
+[`example_reminders_delta.py`](example_reminders_delta.py) is a smaller live
+validator focused on `sync_cursor()` and `iter_changes(since=...)`.
+
+## Notes
+
+You can access your iCloud Notes through the `notes` property:
+
+```python
+notes = api.notes
+```
+
+The high-level Notes service exposes typed note, folder, and attachment models
+for common workflows such as recent-note listings, full-note retrieval, HTML
+rendering, and on-disk exports. Prefer `api.notes` for normal use and treat
+`api.notes.raw` as an advanced/debug escape hatch when you need direct access to
+the underlying CloudKit client.
+
+_List recent notes:_
+
+```python
+notes = api.notes
+
+for summary in notes.recents(limit=10):
+    print(summary.id, summary.title, summary.modified_at)
+```
+
+_Iterate folders and list notes in one folder:_
+
+```python
+notes = api.notes
+
+folder = next(iter(notes.folders()), None)
+if folder:
+    print(folder.id, folder.name, folder.has_subfolders)
+    for summary in notes.in_folder(folder.id, limit=5):
+        print(summary.title)
+```
+
+_Iterate all notes or capture a sync cursor for later incremental work:_
+
+```python
+notes = api.notes
+
+for summary in notes.iter_all():
+    print(summary.id, summary.title)
+
+cursor = notes.sync_cursor()
+print(cursor)
+```
+
+Persist the sync cursor from `sync_cursor()` and pass it back to
+`iter_all(since=...)` or `iter_changes(since=...)` on a later run to enumerate
+only newer changes.
+
+_Fetch a full note with attachment metadata:_
+
+```python
+note_id = "YOUR_NOTE_ID"
+note = api.notes.get(note_id, with_attachments=True)
+
+print(note.title)
+print(note.text)
+
+for attachment in note.attachments or []:
+    print(attachment.id, attachment.filename, attachment.uti, attachment.size)
+```
+
+_Render a note to an HTML fragment:_
+
+```python
+html_fragment = api.notes.render_note(
+    note_id,
+    preview_appearance="light",
+    pdf_object_height=600,
+)
+
+print(html_fragment[:200])
+```
+
+`render_note()` returns an HTML fragment string and does not download assets or
+write files to disk.
+
+_Export a note to HTML on disk:_
+
+```python
+path = api.notes.export_note(
+    note_id,
+    "./exports/notes_html",
+    export_mode="archival",
+    assets_dir="./exports/assets",
+    full_page=True,
+)
+
+print(path)
+```
+
+`export_note()` accepts `ExportConfig` keyword arguments such as
+`export_mode`, `assets_dir`, `full_page`, `preview_appearance`, and
+`pdf_object_height`.
+
+- `export_mode="archival"` downloads assets locally and rewrites the HTML to
+  use local file references for stable, offline-friendly output.
+- `export_mode="lightweight"` skips local downloads and keeps remote/preview
+  asset references for quick inspection.
+
+_Save or stream an attachment:_
+
+```python
+note = api.notes.get(note_id, with_attachments=True)
+attachment = next(iter(note.attachments or []), None)
+
+if attachment:
+    saved_path = attachment.save_to("./exports/notes_attachments", service=api.notes)
+    print(saved_path)
+
+    with open("./attachment-copy.bin", "wb") as file_out:
+        for chunk in attachment.stream(service=api.notes):
+            file_out.write(chunk)
+```
+
+Notes caveats:
+
+- `get()` raises `NoteLockedError` for passphrase-locked notes whose content
+  cannot be read.
+- `get()`, `render_note()`, and `export_note()` raise `NoteNotFound` when the
+  note ID does not exist.
+- `api.notes.raw` is available for advanced/debug workflows, but it is not the
+  primary Notes API surface.
+
+### Notes CLI Example
+
+[`examples/notes_cli.py`](examples/notes_cli.py) is a local developer utility
+built on top of `api.notes`. It is useful for searching notes, inspecting the
+rendering pipeline, and exporting HTML, but its selection heuristics and debug
+output are convenience behavior rather than part of the Notes service contract.
+
+_Archival export (downloads local assets):_
+
+```bash
+uv run python examples/notes_cli.py \
+  --username you@example.com \
+  --title "My Note" \
+  --max 1 \
+  --output-dir ./exports/notes_html \
+  --assets-dir ./exports/assets \
+  --export-mode archival \
+  --full-page
+```
+
+_Lightweight export (skips local asset downloads):_
+
+```bash
+uv run python examples/notes_cli.py \
+  --username you@example.com \
+  --title-contains "meeting" \
+  --max 3 \
+  --output-dir ./exports/notes_html \
+  --export-mode lightweight
+```
+
+Important CLI flags:
+
+- `--title` filters by exact note title.
+- `--title-contains` filters by case-insensitive title substring.
+- `--max` limits how many matching notes are exported.
+- `--output-dir` selects the directory for saved HTML output.
+- `--export-mode archival|lightweight` controls whether assets are downloaded
+  locally (`archival`) or left as remote/preview references (`lightweight`).
+- `--assets-dir` selects the base directory for downloaded assets in archival
+  mode.
+- `--full-page` wraps saved output in a complete HTML page. If omitted, the CLI
+  saves an HTML fragment.
+- `--notes-debug` enables verbose Notes/export debugging.
+- `--dump-runs` prints attribute runs and writes an annotated mapping under
+  `workspace/notes_runs`.
+- `--preview-appearance light|dark` selects the preferred preview variant when
+  multiple appearances are available.
+- `--pdf-height` sets the pixel height for embedded PDF `<object>` elements.
+
+`--download-assets` is no longer supported in the example CLI. Use
+`--export-mode` to choose between archival and lightweight export behavior.
+
+## Reminders
+
+You can access your iCloud Reminders through the `reminders` property:
+
+```python
+reminders = api.reminders
+```
+
+The high-level Reminders service exposes typed list, reminder, alarm, hashtag,
+attachment, and recurrence-rule models for both snapshot reads and mutations.
+
+_List reminder lists:_
+
+```python
+for lst in api.reminders.lists():
+    print(lst.id, lst.title, lst.color, lst.count)
+```
+
+_List reminders globally or within one list:_
+
+```python
+reminders = api.reminders
+
+target_list = next(iter(reminders.lists()), None)
+if target_list:
+    for reminder in reminders.reminders(list_id=target_list.id):
+        print(reminder.id, reminder.title, reminder.completed)
+
+for reminder in reminders.reminders():
+    print(reminder.title)
+```
+
+_Fetch one reminder by ID:_
+
+```python
+reminder_id = "YOUR_REMINDER_ID"
+reminder = api.reminders.get(reminder_id)
+
+print(reminder.title)
+print(reminder.desc)
+print(reminder.due_date)
+```
+
+_Create, update, and delete a reminder:_
+
+```python
+from datetime import datetime, timedelta, timezone
+
+reminders = api.reminders
+target_list = next(iter(reminders.lists()))
+
+created = reminders.create(
+    list_id=target_list.id,
+    title="Buy milk",
+    desc="2 percent",
+    due_date=datetime.now(timezone.utc) + timedelta(days=1),
+    priority=1,
+    flagged=True,
+)
+
+created.desc = "2 percent organic"
+created.completed = True
+reminders.update(created)
+
+fresh = reminders.get(created.id)
+reminders.delete(fresh)
+```
+
+`priority` uses Apple's numeric values. Common values are `0` (none), `1`
+(high), `5` (medium), and `9` (low).
+
+_Work with a compound list snapshot:_
+
+```python
+reminders = api.reminders
+target_list = next(iter(reminders.lists()))
+
+result = api.reminders.list_reminders(
+    list_id=target_list.id,
+    include_completed=True,
+    results_limit=200,
+)
+
+print(len(result.reminders))
+print(result.alarms.keys())
+print(result.attachments.keys())
+print(result.hashtags.keys())
+```
+
+`list_reminders()` returns a `ListRemindersResult` containing:
+
+- `reminders`
+- `alarms`
+- `triggers`
+- `attachments`
+- `hashtags`
+- `recurrence_rules`
+
+_Track incremental changes:_
+
+```python
+reminders = api.reminders
+
+cursor = reminders.sync_cursor()
+
+for event in reminders.iter_changes(since=cursor):
+    print(event.type, event.reminder_id)
+    if event.reminder is not None:
+        print(event.reminder.title)
+```
+
+`iter_changes(since=...)` yields `ReminderChangeEvent` objects. Updated
+reminders include a hydrated `reminder` payload; deleted reminders only include
+the `reminder_id`.
+
+_Add location triggers and inspect alarms:_
+
+```python
+from pyicloud.services.reminders.models import Proximity
+
+reminders = api.reminders
+reminder = next(iter(reminders.reminders()))
+
+alarm, trigger = reminders.add_location_trigger(
+    reminder,
+    title="Office",
+    address="1 Infinite Loop, Cupertino, CA",
+    latitude=37.3318,
+    longitude=-122.0312,
+    radius=150.0,
+    proximity=Proximity.ARRIVING,
+)
+
+for row in reminders.alarms_for(reminder):
+    print(row.alarm.id, row.trigger.id if row.trigger else None)
+```
+
+_Add hashtags, URL attachments, and recurrence rules:_
+
+```python
+from pyicloud.services.reminders.models import RecurrenceFrequency
+
+reminders = api.reminders
+reminder = next(iter(reminders.reminders()))
+
+hashtag = reminders.create_hashtag(reminder, "errands")
+attachment = reminders.create_url_attachment(
+    reminder,
+    url="https://example.com/checklist",
+)
+rule = reminders.create_recurrence_rule(
+    reminder,
+    frequency=RecurrenceFrequency.WEEKLY,
+    interval=1,
+)
+
+print(reminders.tags_for(reminder))
+print(reminders.attachments_for(reminder))
+print(reminders.recurrence_rules_for(reminder))
+```
+
+You can also update and delete related records:
+
+```python
+reminders.update_attachment(attachment, url="https://example.org/checklist")
+reminders.update_recurrence_rule(rule, interval=2)
+reminders.delete_hashtag(reminder, hashtag)
+reminders.delete_attachment(reminder, attachment)
+reminders.delete_recurrence_rule(reminder, rule)
+```
+
+Reminders caveats:
+
+- Reminder mutations operate on typed models. The normal pattern is to fetch a
+  reminder, mutate fields locally, then call `update(reminder)`.
+- Naive `datetime` values passed to `create()` are interpreted as UTC by the
+  service.
+- `update_hashtag()` exists, but the iCloud Reminders web app currently treats
+  hashtag names as effectively read-only in some live flows, so rename behavior
+  may not be reflected consistently outside the API.
+
+### Reminders Example Scripts
+
+[`example_reminders.py`](example_reminders.py) is a comprehensive live
+integration validator for the Reminders service. It exercises list discovery,
+read paths, write paths, location triggers, hashtags, attachments, recurrence
+rules, and delete flows against a real iCloud account.
+
+[`example_reminders_delta.py`](example_reminders_delta.py) is a smaller live
+validator focused on `sync_cursor()` and `iter_changes(since=...)`.
+
+## Notes
+
+You can access your iCloud Notes through the `notes` property:
+
+```python
+notes = api.notes
+```
+
+The high-level Notes service exposes typed note, folder, and attachment models
+for common workflows such as recent-note listings, full-note retrieval, HTML
+rendering, and on-disk exports. Prefer `api.notes` for normal use and treat
+`api.notes.raw` as an advanced/debug escape hatch when you need direct access to
+the underlying CloudKit client.
+
+_List recent notes:_
+
+```python
+notes = api.notes
+
+for summary in notes.recents(limit=10):
+    print(summary.id, summary.title, summary.modified_at)
+```
+
+_Iterate folders and list notes in one folder:_
+
+```python
+notes = api.notes
+
+folder = next(iter(notes.folders()), None)
+if folder:
+    print(folder.id, folder.name, folder.has_subfolders)
+    for summary in notes.in_folder(folder.id, limit=5):
+        print(summary.title)
+```
+
+_Iterate all notes or capture a sync cursor for later incremental work:_
+
+```python
+notes = api.notes
+
+for summary in notes.iter_all():
+    print(summary.id, summary.title)
+
+cursor = notes.sync_cursor()
+print(cursor)
+```
+
+Persist the sync cursor from `sync_cursor()` and pass it back to
+`iter_all(since=...)` or `iter_changes(since=...)` on a later run to enumerate
+only newer changes.
+
+_Fetch a full note with attachment metadata:_
+
+```python
+note_id = "YOUR_NOTE_ID"
+note = api.notes.get(note_id, with_attachments=True)
+
+print(note.title)
+print(note.text)
+
+for attachment in note.attachments or []:
+    print(attachment.id, attachment.filename, attachment.uti, attachment.size)
+```
+
+_Render a note to an HTML fragment:_
+
+```python
+html_fragment = api.notes.render_note(
+    note_id,
+    preview_appearance="light",
+    pdf_object_height=600,
+)
+
+print(html_fragment[:200])
+```
+
+`render_note()` returns an HTML fragment string and does not download assets or
+write files to disk.
+
+_Export a note to HTML on disk:_
+
+```python
+path = api.notes.export_note(
+    note_id,
+    "./exports/notes_html",
+    export_mode="archival",
+    assets_dir="./exports/assets",
+    full_page=True,
+)
+
+print(path)
+```
+
+`export_note()` accepts `ExportConfig` keyword arguments such as
+`export_mode`, `assets_dir`, `full_page`, `preview_appearance`, and
+`pdf_object_height`.
+
+- `export_mode="archival"` downloads assets locally and rewrites the HTML to
+  use local file references for stable, offline-friendly output.
+- `export_mode="lightweight"` skips local downloads and keeps remote/preview
+  asset references for quick inspection.
+
+_Save or stream an attachment:_
+
+```python
+note = api.notes.get(note_id, with_attachments=True)
+attachment = next(iter(note.attachments or []), None)
+
+if attachment:
+    saved_path = attachment.save_to("./exports/notes_attachments", service=api.notes)
+    print(saved_path)
+
+    with open("./attachment-copy.bin", "wb") as file_out:
+        for chunk in attachment.stream(service=api.notes):
+            file_out.write(chunk)
+```
+
+Notes caveats:
+
+- `get()` raises `NoteLockedError` for passphrase-locked notes whose content
+  cannot be read.
+- `get()`, `render_note()`, and `export_note()` raise `NoteNotFound` when the
+  note ID does not exist.
+- `api.notes.raw` is available for advanced/debug workflows, but it is not the
+  primary Notes API surface.
+
+### Notes CLI Example
+
+[`examples/notes_cli.py`](examples/notes_cli.py) is a local developer utility
+built on top of `api.notes`. It is useful for searching notes, inspecting the
+rendering pipeline, and exporting HTML, but its selection heuristics and debug
+output are convenience behavior rather than part of the Notes service contract.
+
+_Archival export (downloads local assets):_
+
+```bash
+uv run python examples/notes_cli.py \
+  --username you@example.com \
+  --title "My Note" \
+  --max 1 \
+  --output-dir ./exports/notes_html \
+  --assets-dir ./exports/assets \
+  --export-mode archival \
+  --full-page
+```
+
+_Lightweight export (skips local asset downloads):_
+
+```bash
+uv run python examples/notes_cli.py \
+  --username you@example.com \
+  --title-contains "meeting" \
+  --max 3 \
+  --output-dir ./exports/notes_html \
+  --export-mode lightweight
+```
+
+Important CLI flags:
+
+- `--title` filters by exact note title.
+- `--title-contains` filters by case-insensitive title substring.
+- `--max` limits how many matching notes are exported.
+- `--output-dir` selects the directory for saved HTML output.
+- `--export-mode archival|lightweight` controls whether assets are downloaded
+  locally (`archival`) or left as remote/preview references (`lightweight`).
+- `--assets-dir` selects the base directory for downloaded assets in archival
+  mode.
+- `--full-page` wraps saved output in a complete HTML page. If omitted, the CLI
+  saves an HTML fragment.
+- `--notes-debug` enables verbose Notes/export debugging.
+- `--dump-runs` prints attribute runs and writes an annotated mapping under
+  `workspace/notes_runs`.
+- `--preview-appearance light|dark` selects the preferred preview variant when
+  multiple appearances are available.
+- `--pdf-height` sets the pixel height for embedded PDF `<object>` elements.
+
+`--download-assets` is no longer supported in the example CLI. Use
+`--export-mode` to choose between archival and lightweight export behavior.
+
 ## Examples
 
-If you want to see some code samples, see the [examples](/examples.py).
-`
+If you want to see some code samples, see the [examples](examples.py).
