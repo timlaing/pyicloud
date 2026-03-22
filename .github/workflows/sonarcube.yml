@@ -35,7 +35,7 @@ jobs:
       - name: Get coverage info
         run: pytest --cov=. --cov-config=.coveragerc --cov-report xml:coverage.xml
       - name: Upload code coverage
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: code-coverage
           path: coverage.xml
@@ -52,7 +52,7 @@ jobs:
         with:
           fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
       - name: Download coverage artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: code-coverage
           path: .
