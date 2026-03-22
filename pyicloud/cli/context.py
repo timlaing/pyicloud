@@ -657,21 +657,30 @@ def resolve_drive_node(drive, path: str, *, trash: bool = False):
     return node
 
 
+def _write_to_file(response: Any, file_out) -> None:
+    """Write a download response to a file, streaming if possible."""
+    if hasattr(response, "iter_content"):
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                file_out.write(chunk)
+        return
+    if hasattr(response, "raw") and hasattr(response.raw, "read"):
+        while True:
+            chunk = response.raw.read(8192)
+            if not chunk:
+                break
+            file_out.write(chunk)
+
+
 def write_response_to_path(response: Any, output: Path) -> None:
     """Stream a download response to disk."""
 
+    can_stream = hasattr(response, "iter_content") or (
+        hasattr(response, "raw") and hasattr(response.raw, "read")
+    )
+    if not can_stream:
+        raise CLIAbort("The download response could not be streamed.")
+
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("wb") as file_out:
-        if hasattr(response, "iter_content"):
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    file_out.write(chunk)
-            return
-        if hasattr(response, "raw") and hasattr(response.raw, "read"):
-            while True:
-                chunk = response.raw.read(8192)
-                if not chunk:
-                    break
-                file_out.write(chunk)
-            return
-    raise CLIAbort("The download response could not be streamed.")
+        _write_to_file(response, file_out)

@@ -22,13 +22,15 @@ from pyicloud.cli.output import console_table
 
 app = typer.Typer(help="Manage Hide My Email aliases.")
 
+HIDE_MY_EMAIL = "Hide My Email"
+
 
 def _require_generated_alias(alias: str | None) -> str:
     """Return a generated alias or abort on an empty response."""
 
     if isinstance(alias, str) and alias:
         return alias
-    raise CLIAbort("Hide My Email generate returned an empty alias.")
+    raise CLIAbort(f"{HIDE_MY_EMAIL} generate returned an empty alias.")
 
 
 def _require_mutation_result(payload: dict, operation: str) -> str:
@@ -38,7 +40,7 @@ def _require_mutation_result(payload: dict, operation: str) -> str:
     if isinstance(anonymous_id, str) and anonymous_id:
         return anonymous_id
     raise CLIAbort(
-        f"Hide My Email {operation} returned an invalid response: {payload!r}"
+        f"{HIDE_MY_EMAIL} {operation} returned an invalid response: {payload!r}"
     )
 
 
@@ -68,7 +70,7 @@ def hidemyemail_list(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email",
+        HIDE_MY_EMAIL,
         lambda: [normalize_alias(alias) for alias in api.hidemyemail],
         account_name=api.account_name,
     )
@@ -77,7 +79,7 @@ def hidemyemail_list(
         return
     state.console.print(
         console_table(
-            "Hide My Email",
+            HIDE_MY_EMAIL,
             ["Alias", "Label", "Anonymous ID"],
             [
                 (alias["email"], alias["label"], alias["anonymous_id"])
@@ -113,7 +115,7 @@ def hidemyemail_generate(
     state = get_state(ctx)
     api = state.get_api()
     alias = service_call(
-        "Hide My Email",
+        HIDE_MY_EMAIL,
         lambda: api.hidemyemail.generate(),
         account_name=api.account_name,
     )
@@ -154,7 +156,7 @@ def hidemyemail_reserve(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email",
+        HIDE_MY_EMAIL,
         lambda: api.hidemyemail.reserve(email=email, label=label, note=note),
         account_name=api.account_name,
     )
@@ -194,7 +196,7 @@ def hidemyemail_update(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email",
+        HIDE_MY_EMAIL,
         lambda: api.hidemyemail.update_metadata(anonymous_id, label, note),
         account_name=api.account_name,
     )
@@ -232,7 +234,7 @@ def hidemyemail_deactivate(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email",
+        HIDE_MY_EMAIL,
         lambda: api.hidemyemail.deactivate(anonymous_id),
         account_name=api.account_name,
     )
@@ -270,7 +272,7 @@ def hidemyemail_reactivate(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email",
+        HIDE_MY_EMAIL,
         lambda: api.hidemyemail.reactivate(anonymous_id),
         account_name=api.account_name,
     )
@@ -308,7 +310,7 @@ def hidemyemail_delete(
     state = get_state(ctx)
     api = state.get_api()
     payload = service_call(
-        "Hide My Email",
+        HIDE_MY_EMAIL,
         lambda: api.hidemyemail.delete(anonymous_id),
         account_name=api.account_name,
     )

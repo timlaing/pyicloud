@@ -30,6 +30,9 @@ from pyicloud.cli.output import (
 
 app = typer.Typer(help="Work with Find My devices.")
 
+FIND_MY = "Find My"
+DEVICE_ID_HELP = "Device id or name."
+
 
 @app.command("list")
 def devices_list(
@@ -64,7 +67,7 @@ def devices_list(
     payload = [
         normalize_device_summary(device, locate=locate)
         for device in service_call(
-            "Find My",
+            FIND_MY,
             lambda: api.devices,
             account_name=api.account_name,
         )
@@ -94,7 +97,7 @@ def devices_list(
 @app.command("show")
 def devices_show(
     ctx: typer.Context,
-    device: str = typer.Argument(..., help="Device id or name."),
+    device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     locate: bool = typer.Option(
         False, "--locate", help="Fetch current device location."
     ),
@@ -150,7 +153,7 @@ def devices_show(
 @app.command("sound")
 def devices_sound(
     ctx: typer.Context,
-    device: str = typer.Argument(..., help="Device id or name."),
+    device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     subject: str = typer.Option("Find My iPhone Alert", "--subject"),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -178,7 +181,7 @@ def devices_sound(
     api = state.get_api()
     idevice = resolve_device(api, device)
     service_call(
-        "Find My",
+        FIND_MY,
         lambda: idevice.play_sound(subject=subject),
         account_name=api.account_name,
     )
@@ -192,7 +195,7 @@ def devices_sound(
 @app.command("message")
 def devices_message(
     ctx: typer.Context,
-    device: str = typer.Argument(..., help="Device id or name."),
+    device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     message: str = typer.Argument(..., help="Message to display."),
     subject: str = typer.Option("A Message", "--subject"),
     silent: bool = typer.Option(False, "--silent", help="Do not play a sound."),
@@ -222,7 +225,7 @@ def devices_message(
     api = state.get_api()
     idevice = resolve_device(api, device)
     service_call(
-        "Find My",
+        FIND_MY,
         lambda: idevice.display_message(
             subject=subject, message=message, sounds=not silent
         ),
@@ -243,7 +246,7 @@ def devices_message(
 @app.command("lost-mode")
 def devices_lost_mode(
     ctx: typer.Context,
-    device: str = typer.Argument(..., help="Device id or name."),
+    device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     phone: str = typer.Option("", "--phone", help="Phone number shown in lost mode."),
     message: str = typer.Option(
         "This iPhone has been lost. Please call me.",
@@ -277,7 +280,7 @@ def devices_lost_mode(
     api = state.get_api()
     idevice = resolve_device(api, device, require_unique=True)
     service_call(
-        "Find My",
+        FIND_MY,
         lambda: idevice.lost_device(number=phone, text=message, newpasscode=passcode),
         account_name=api.account_name,
     )
@@ -296,10 +299,13 @@ def devices_lost_mode(
 @app.command("erase")
 def devices_erase(
     ctx: typer.Context,
-    device: str = typer.Argument(..., help="Device id or name."),
+    device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     message: str = typer.Option(
         "This iPhone has been lost. Please call me.",
         "--message",
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation prompt."
     ),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -326,8 +332,12 @@ def devices_erase(
     state = get_state(ctx)
     api = state.get_api()
     idevice = resolve_device(api, device, require_unique=True)
+    if not force and not typer.confirm(
+        f"This will PERMANENTLY ERASE all data on {idevice.name}. Continue?"
+    ):
+        raise typer.Abort()
     service_call(
-        "Find My",
+        FIND_MY,
         lambda: idevice.erase_device(message),
         account_name=api.account_name,
     )
@@ -341,7 +351,7 @@ def devices_erase(
 @app.command("export")
 def devices_export(
     ctx: typer.Context,
-    device: str = typer.Argument(..., help="Device id or name."),
+    device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     output: Path = typer.Option(..., "--output", help="Destination JSON file."),
     raw: bool | None = typer.Option(
         None,

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import typer
 
-from pyicloud.cli.context import CLIAbort, get_state
+from pyicloud.base import PyiCloudService
+from pyicloud.cli.context import CLIAbort, CLIState, get_state
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_OUTPUT_FORMAT,
@@ -25,6 +26,8 @@ from pyicloud.cli.output import console_kv_table, console_table
 
 app = typer.Typer(help="Manage authentication and sessions.")
 keyring_app = typer.Typer(help="Manage stored keyring credentials.")
+
+TRUSTED_SESSION = "Trusted Session"
 
 
 def _group_root(ctx: typer.Context) -> None:
@@ -57,7 +60,7 @@ def _auth_status_rows(payload: dict[str, object]) -> list[tuple[str, object]]:
     return [
         ("Account", payload["account_name"]),
         ("Authenticated", payload["authenticated"]),
-        ("Trusted Session", payload["trusted_session"]),
+        (TRUSTED_SESSION, payload["trusted_session"]),
         ("Requires 2FA", payload["requires_2fa"]),
         ("Requires 2SA", payload["requires_2sa"]),
         ("Password in Keyring", payload["has_keyring_password"]),
@@ -78,7 +81,7 @@ def _auth_status_rows(payload: dict[str, object]) -> list[tuple[str, object]]:
     ]
 
 
-def _auth_payload(state, api, status: dict[str, object]) -> dict[str, object]:
+def _auth_payload(state: CLIState, api, status: dict[str, object]) -> dict[str, object]:
     payload: dict[str, object] = {
         "account_name": api.account_name,
         "has_keyring_password": state.has_keyring_password(api.account_name),
@@ -86,6 +89,59 @@ def _auth_payload(state, api, status: dict[str, object]) -> dict[str, object]:
         **status,
     }
     return payload
+
+
+def _auth_status_authenticated(state: CLIState) -> bool:
+    """Check if the current state has an authenticated session, and print details if not."""
+    if not state.has_explicit_username:
+        active_probes = state.active_session_probes()
+        if not active_probes:
+            if state.json_output:
+                state.write_json({"authenticated": False, "accounts": []})
+                return False
+            state.console.print(state.not_logged_in_message())
+            return False
+
+        payloads = [_auth_payload(state, api, status) for api, status in active_probes]
+        if state.json_output:
+            if len(payloads) == 1:
+                state.write_json(payloads[0])
+            else:
+                state.write_json({"authenticated": True, "accounts": payloads})
+            return False
+        if len(payloads) == 1:
+            payload = payloads[0]
+            state.console.print(
+                console_kv_table(
+                    "Auth Status",
+                    _auth_status_rows(payload),
+                )
+            )
+            return False
+        state.console.print(
+            console_table(
+                "Active iCloud Sessions",
+                [
+                    "Account",
+                    TRUSTED_SESSION,
+                    "Password in Keyring",
+                    "Session File Exists",
+                    "Cookie Jar Exists",
+                ],
+                [
+                    (
+                        payload["account_name"],
+                        payload["trusted_session"],
+                        payload["has_keyring_password"],
+                        payload["has_session_file"],
+                        payload["has_cookiejar_file"],
+                    )
+                    for payload in payloads
+                ],
+            )
+        )
+        return False
+    return True
 
 
 @app.command("status")
@@ -112,53 +168,7 @@ def auth_status(
         log_level=log_level,
     )
     state = get_state(ctx)
-    if not state.has_explicit_username:
-        active_probes = state.active_session_probes()
-        if not active_probes:
-            if state.json_output:
-                state.write_json({"authenticated": False, "accounts": []})
-                return
-            state.console.print(state.not_logged_in_message())
-            return
-
-        payloads = [_auth_payload(state, api, status) for api, status in active_probes]
-        if state.json_output:
-            if len(payloads) == 1:
-                state.write_json(payloads[0])
-            else:
-                state.write_json({"authenticated": True, "accounts": payloads})
-            return
-        if len(payloads) == 1:
-            payload = payloads[0]
-            state.console.print(
-                console_kv_table(
-                    "Auth Status",
-                    _auth_status_rows(payload),
-                )
-            )
-            return
-        state.console.print(
-            console_table(
-                "Active iCloud Sessions",
-                [
-                    "Account",
-                    "Trusted Session",
-                    "Password in Keyring",
-                    "Session File Exists",
-                    "Cookie Jar Exists",
-                ],
-                [
-                    (
-                        payload["account_name"],
-                        payload["trusted_session"],
-                        payload["has_keyring_password"],
-                        payload["has_session_file"],
-                        payload["has_cookiejar_file"],
-                    )
-                    for payload in payloads
-                ],
-            )
-        )
+    if not _auth_status_authenticated(state):
         return
 
     api = state.get_probe_api()
@@ -231,12 +241,30 @@ def auth_login(
             "Auth Session",
             [
                 ("Account", payload["account_name"]),
-                ("Trusted Session", payload["trusted_session"]),
+                (TRUSTED_SESSION, payload["trusted_session"]),
                 ("Session File", payload["session_path"]),
                 ("Cookie Jar", payload["cookiejar_path"]),
             ],
         )
     )
+
+
+def _auth_logout_find_account(state: CLIState) -> PyiCloudService | None:
+    active_probes = state.active_session_probes()
+    if not active_probes:
+        if state.json_output:
+            state.write_json({"authenticated": False, "accounts": []})
+            return
+        state.console.print(state.not_logged_in_message())
+        return
+    if len(active_probes) > 1:
+        raise CLIAbort(
+            state.multiple_logged_in_accounts_message(
+                [api.account_name for api, _status in active_probes]
+            )
+        )
+    api, _status = active_probes[0]
+    return api
 
 
 @app.command("logout")
@@ -282,20 +310,9 @@ def auth_logout(
         api = state.get_probe_api()
         api.get_auth_status()
     else:
-        active_probes = state.active_session_probes()
-        if not active_probes:
-            if state.json_output:
-                state.write_json({"authenticated": False, "accounts": []})
-                return
-            state.console.print(state.not_logged_in_message())
+        api = _auth_logout_find_account(state)
+        if api is None:
             return
-        if len(active_probes) > 1:
-            raise CLIAbort(
-                state.multiple_logged_in_accounts_message(
-                    [api.account_name for api, _status in active_probes]
-                )
-            )
-        api, _status = active_probes[0]
 
     state.remember_account(api)
     try:

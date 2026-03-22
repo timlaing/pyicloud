@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from itertools import islice
 from typing import Optional
 
 import typer
@@ -129,7 +128,7 @@ def calendar_events(
         payload = [
             event for event in payload if event["calendar_guid"] == calendar_guid
         ]
-    payload = list(islice(payload, limit))
+    payload = payload[:limit]
     if state.json_output:
         state.write_json(payload)
         return

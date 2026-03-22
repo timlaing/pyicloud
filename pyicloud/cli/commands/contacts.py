@@ -103,10 +103,17 @@ def contacts_me(
     )
     state = get_state(ctx)
     api = state.get_api()
-    payload = normalize_me(service_call("Contacts", lambda: api.contacts.me))
+    me_data = service_call("Contacts", lambda: api.contacts.me)
+    if me_data is None:
+        state.console.print("No contact card found.")
+        raise typer.Exit(1)
+    payload = normalize_me(me_data)
     if state.json_output:
         state.write_json(payload)
         return
     state.console.print(f"{payload['first_name']} {payload['last_name']}")
     if payload["photo"]:
-        state.console.print(f"Photo URL: {payload['photo'].get('url')}")
+        photo = payload["photo"]
+        url = photo.get("url") if isinstance(photo, dict) else photo
+        if url:
+            state.console.print(f"Photo URL: {url}")
