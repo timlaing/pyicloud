@@ -8,6 +8,9 @@ categories:
       - "fix"
       - "bugfix"
       - "bug"
+  - title: "📚 Documentation"
+    labels:
+      - "documentation"
   - title: "🧰 Maintenance"
     labels:
       - "chore"
@@ -18,7 +21,7 @@ change-title-escapes: '\<*_&`'
 commitish: main
 
 autolabeler:
-  - label: "chore"
+  - label: "documentation"
     files:
       - "*.md"
     branch:
@@ -31,6 +34,9 @@ autolabeler:
   - label: "feature"
     branch:
       - '/feature\/.+/'
+    title:
+      - "/refactor/i"
+      - "/add/i"
   - label: "dependencies"
     branch:
       - '/dependabot\/.+/'
