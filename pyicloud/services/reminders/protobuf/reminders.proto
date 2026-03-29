@@ -1,0 +1,159 @@
+syntax = "proto2";
+
+package topotext;
+
+// Apple's topotext CRDT protocol, as extracted from iCloud Reminders main.js.
+// This is the wire format used for TitleDocument in CloudKit.
+
+message String {
+    optional string string = 2;
+
+    // Only needed for mergeable strings.
+    repeated Substring substring = 3;
+    optional VectorTimestamp timestamp = 4;
+
+    repeated AttributeRun attributeRun = 5;
+
+    // Optional attachment data.
+    repeated Attachment attachment = 6;
+}
+
+message VectorTimestamp {
+    message Clock {
+        optional bytes replicaUUID = 1;
+        message ReplicaClock {
+            optional uint32 clock = 1;
+            optional uint32 subclock = 2;
+        }
+        repeated ReplicaClock replicaClock = 2;
+    }
+    repeated Clock clock = 1;
+}
+
+message CharID {
+    optional uint32 replicaID = 1;
+    optional uint32 clock = 2;
+}
+
+message Substring {
+    optional CharID charID = 1;
+    // Length of substring in UTF-16 characters.
+    optional uint32 length = 2;
+
+    // Style timestamp.
+    optional CharID timestamp = 3;
+
+    optional bool tombstone = 4;
+
+    // Index into String.substring.
+    repeated uint32 child = 5;
+}
+
+message Selection {
+    message Range {
+        optional CharID fromChar = 1;
+        optional CharID toChar = 2;
+    };
+    repeated bytes replicaUUID = 1;
+    repeated Range range = 2;
+
+    enum Affinity {
+        Backward = 0;
+        Forward = 1;
+    }
+    optional Affinity affinity = 3;
+}
+
+message AttributeRun {
+    // Length of run in UTF-16 characters.
+    optional uint32 length = 1;
+
+    optional ParagraphStyle paragraphStyle = 2;
+
+    // Overrides bold, italic and paragraph styles.
+    optional Font font = 3;
+
+    // Modifiers applied on-top of paragraph style (bold, italic...).
+    optional uint32 fontHints = 5;
+
+    optional uint32 underline = 6;
+    optional uint32 strikethrough = 7;
+
+    optional int32 superscript = 8;
+    optional string link = 9;
+    optional Color color = 10;
+
+    enum WritingDirection {
+        NaturalDirection = 0;
+        LeftToRight = 1;
+        RightToLeft = 2;
+        LeftToRightOverride = 3;
+        RightToLeftOverride = 4;
+    }
+
+    optional WritingDirection writingDirection = 11;
+
+    optional AttachmentInfo attachmentInfo = 12;
+
+    optional uint64 timestamp = 13;
+
+    // Reminders hashtags
+    optional HashtagInfo hashtagInfo = 14;
+}
+
+message Font {
+    optional string name = 1;
+    optional float pointSize = 2;
+    optional uint32 fontHints = 3;
+}
+
+message ParagraphStyle {
+    enum Alignment {
+        Left = 0;
+        Center = 1;
+        Right = 2;
+        Justified = 3;
+        Natural = 4;
+    }
+
+    optional uint32 style = 1;
+    optional Alignment alignment = 2;
+    optional AttributeRun.WritingDirection writingDirection = 3;
+    optional int32 indent = 4;
+    optional Todo todo = 5;
+    optional uint32 paragraphHints = 6;
+    optional uint32 startingListItemNumber = 7;
+    optional uint32 blockQuoteLevel = 8;
+}
+
+message HashtagInfo {
+    optional string objectIdentifier = 1;
+}
+
+message AttachmentInfo {
+    optional string attachmentIdentifier = 1;
+    optional string typeUTI = 2;
+}
+
+message Attachment {
+    optional string identifier = 2;
+    optional bytes mergeableData = 3;
+    optional float sizeHeight = 4;
+    optional float sizeWidth = 5;
+    optional string summary = 6;
+    optional string title = 7;
+    optional string typeUTI = 8;
+    optional string urlString = 9;
+}
+
+message Todo {
+    optional bytes todoUUID = 1;
+    optional bool done = 2;
+}
+
+message Color {
+    optional float red = 1;
+    optional float green = 2;
+    optional float blue = 3;
+    optional float alpha = 4;
+}

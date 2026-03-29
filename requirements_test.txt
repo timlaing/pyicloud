@@ -1,3 +1,4 @@
+bbpb==1.4.2
 isort>=5.11.5
 prek>=0.3.1
 pylint>=3.3.4

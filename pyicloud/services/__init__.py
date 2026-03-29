@@ -6,6 +6,7 @@ from pyicloud.services.contacts import ContactsService
 from pyicloud.services.drive import DriveService
 from pyicloud.services.findmyiphone import AppleDevice, FindMyiPhoneServiceManager
 from pyicloud.services.hidemyemail import HideMyEmailService
+from pyicloud.services.notes import NotesService
 from pyicloud.services.photos import PhotosService
 from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
@@ -18,6 +19,7 @@ __all__: list[str] = [
     "DriveService",
     "FindMyiPhoneServiceManager",
     "HideMyEmailService",
+    "NotesService",
     "PhotosService",
     "RemindersService",
     "UbiquityService",
