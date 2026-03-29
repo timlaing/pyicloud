@@ -1,136 +1,86 @@
-"""Unit tests for the RemindersService class."""
-# pylint: disable=protected-access
+"""Smoke tests for the CloudKit-backed Reminders service facade."""
 
-import datetime
-from unittest.mock import MagicMock, patch
-
-from requests import Response
+from unittest.mock import MagicMock
 
 from pyicloud.services.reminders import RemindersService
-from pyicloud.session import PyiCloudSession
+from pyicloud.services.reminders.models import (
+    ListRemindersResult,
+    Reminder,
+    RemindersList,
+)
 
 
-def test_reminders_service_init(mock_session: MagicMock) -> None:
-    """Test RemindersService initialization."""
-    mock_session.get.return_value = MagicMock(
-        spec=Response, json=lambda: {"Collections": [], "Reminders": []}
-    )
+def test_reminders_service_init() -> None:
+    """The reminders facade wires the CloudKit client and typed helpers."""
     params: dict[str, str] = {"dsid": "12345"}
+    service = RemindersService("https://example.com", MagicMock(), params)
 
-    with patch("pyicloud.services.reminders.get_localzone_name", return_value="UTC"):
-        service = RemindersService("https://example.com", mock_session, params)
-
-        assert service.service_root == "https://example.com"
-        assert service.params == params
-        assert not service.lists
-        assert not service.collections
+    assert service.service_root == "https://example.com"
+    assert service.params == params
+    assert callable(service.lists)
+    assert callable(service.list_reminders)
+    assert callable(service.get)
 
 
-def test_reminders_service_refresh() -> None:
-    """Test the refresh method."""
-    mock_session = MagicMock(spec=PyiCloudSession)
-    mock_response = MagicMock(spec=Response)
-    mock_response.json.return_value = {
-        "Collections": [
-            {"title": "Work", "guid": "guid1", "ctag": "ctag1"},
-            {"title": "Personal", "guid": "guid2", "ctag": "ctag2"},
-        ],
-        "Reminders": [
-            {"title": "Task 1", "pGuid": "guid1", "dueDate": [2023, 10, 1, 12, 0, 0]},
-            {"title": "Task 2", "pGuid": "guid2", "dueDate": None},
-        ],
-    }
-    mock_session.get.return_value = mock_response
-    with patch("pyicloud.services.reminders.get_localzone_name", return_value="UTC"):
-        service = RemindersService(
-            "https://example.com", mock_session, {"dsid": "12345"}
+def test_reminders_service_lists_delegates_to_read_api() -> None:
+    service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
+    expected = [RemindersList(id="List/WORK", title="Work")]
+    service._reads.lists = MagicMock(return_value=iter(expected))
+
+    assert list(service.lists()) == expected
+
+
+def test_reminders_service_reminders_aggregates_list_snapshots() -> None:
+    service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
+    list_id = "List/WORK"
+    reminder = Reminder(id="Reminder/1", list_id=list_id, title="Task 1")
+    service.lists = MagicMock(return_value=[RemindersList(id=list_id, title="Work")])
+    service.list_reminders = MagicMock(
+        return_value=ListRemindersResult(
+            reminders=[reminder],
+            alarms={},
+            triggers={},
+            attachments={},
+            hashtags={},
+            recurrence_rules={},
         )
-        service.refresh()
+    )
 
-        assert "Work" in service.lists
-        assert "Personal" in service.lists
-        assert len(service.lists["Work"]) == 1
-        assert len(service.lists["Personal"]) == 1
-
-        work_task = service.lists["Work"][0]
-        assert work_task["title"] == "Task 1"
-        assert work_task["due"] == datetime.datetime(2023, 10, 1, 12, 0, 0)
-
-        personal_task = service.lists["Personal"][0]
-        assert personal_task["title"] == "Task 2"
-        assert personal_task["due"] is None
+    assert list(service.reminders()) == [reminder]
+    service.list_reminders.assert_called_once_with(
+        list_id=list_id,
+        include_completed=True,
+        results_limit=200,
+    )
 
 
-def test_reminders_service_post() -> None:
-    """Test the post method."""
-    mock_session = MagicMock(spec=PyiCloudSession)
-    mock_response = MagicMock(spec=Response)
-    mock_response.ok = True
-    mock_session.post.return_value = mock_response
+def test_reminders_service_create_delegates_to_write_api() -> None:
+    service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
+    created = Reminder(id="Reminder/1", list_id="List/WORK", title="New Task")
+    service._writes.create = MagicMock(return_value=created)
 
-    with patch("pyicloud.services.reminders.get_localzone_name", return_value="UTC"):
-        service = RemindersService(
-            "https://example.com", mock_session, {"dsid": "12345"}
-        )
-        service.collections = {"Work": {"guid": "guid1"}}
+    result = service.create("List/WORK", "New Task", desc="Description")
 
-        # Test posting a reminder with a due date
-        due_date = datetime.datetime(2023, 10, 1, 12, 0, 0)
-        result: bool = service.post("New Task", "Description", "Work", due_date)
-
-        assert result is True
-        mock_session.post.assert_called_once()
-        _, kwargs = mock_session.post.call_args
-        assert kwargs["json"]
-        data = kwargs["json"]
-        assert data["Reminders"]["title"] == "New Task"
-        assert data["Reminders"]["description"] == "Description"
-        assert data["Reminders"]["pGuid"] == "guid1"
-        assert data["Reminders"]["dueDate"] == [20231001, 2023, 10, 1, 12, 0]
-
-        # Test posting a reminder without a due date
-        mock_session.post.reset_mock()
-        result = service.post("Task Without Due Date", collection="Work")
-
-        assert result is True
-        mock_session.post.assert_called_once()
-        _, kwargs = mock_session.post.call_args
-        data = kwargs["json"]
-        assert data["Reminders"]["title"] == "Task Without Due Date"
-        assert data["Reminders"]["dueDate"] is None
+    assert result == created
+    service._writes.create.assert_called_once_with(
+        list_id="List/WORK",
+        title="New Task",
+        desc="Description",
+        completed=False,
+        due_date=None,
+        priority=0,
+        flagged=False,
+        all_day=False,
+        time_zone=None,
+        parent_reminder_id=None,
+    )
 
 
-def test_reminders_service_post_invalid_collection() -> None:
-    """Test the post method with an invalid collection."""
-    mock_session = MagicMock(spec=PyiCloudSession)
-    mock_response = MagicMock(spec=Response)
-    mock_response.ok = True
-    mock_session.post.return_value = mock_response
-    with patch("pyicloud.services.reminders.get_localzone_name", return_value="UTC"):
-        service = RemindersService(
-            "https://example.com", mock_session, {"dsid": "12345"}
-        )
+def test_reminders_service_delete_delegates_to_write_api() -> None:
+    service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
+    reminder = Reminder(id="Reminder/1", list_id="List/WORK", title="Delete me")
+    service._writes.delete = MagicMock()
 
-        # Post to a non-existent collection
-        result = service.post("Task", collection="NonExistent")
-        assert result is True
-        mock_session.post.assert_called_once()
-        _, kwargs = mock_session.post.call_args
-        data = kwargs["json"]
-        assert data["Reminders"]["pGuid"] == "tasks"  # Default collection
+    service.delete(reminder)
 
-
-def test_reminders_service_refresh_empty_response() -> None:
-    """Test the refresh method with an empty response."""
-    mock_session = MagicMock(spec=PyiCloudSession)
-    mock_response = MagicMock(spec=Response)
-    mock_response.json.return_value = {"Collections": [], "Reminders": []}
-    mock_session.get.return_value = mock_response
-    with patch("pyicloud.services.reminders.get_localzone_name", return_value="UTC"):
-        service = RemindersService(
-            "https://example.com", mock_session, {"dsid": "12345"}
-        )
-        service.refresh()
-
-        assert not service.lists
-        assert not service.collections
+    service._writes.delete.assert_called_once_with(reminder)

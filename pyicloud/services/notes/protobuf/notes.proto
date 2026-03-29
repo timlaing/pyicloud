@@ -1,0 +1,239 @@
+syntax = "proto3";
+
+package notes;
+
+// ===============================
+// Common classes used across types
+// ===============================
+
+message Color {
+  float red   = 1;
+  float green = 2;
+  float blue  = 3;
+  float alpha = 4;
+}
+
+message AttachmentInfo {
+  optional string attachment_identifier = 1;  // preserve HasField
+  optional string type_uti              = 2;  // preserve HasField
+}
+
+message Font {
+  // Not used in presence checks, may remain non-optional
+  string font_name  = 1;
+  float  point_size = 2;
+  int32  font_hints = 3;
+}
+
+// Observed highlight palette used by Apple Notes
+enum Highlight {
+  HIGHLIGHT_UNKNOWN = 0;
+  HIGHLIGHT_PURPLE  = 1;
+  HIGHLIGHT_PINK    = 2;
+  HIGHLIGHT_ORANGE  = 3;
+  HIGHLIGHT_MINT    = 4;
+  HIGHLIGHT_BLUE    = 5;
+}
+
+enum StyleType {
+  STYLE_TYPE_TITLE = 0;
+  STYLE_TYPE_HEADING = 1;
+  STYLE_TYPE_SUBHEADING = 2;
+  STYLE_TYPE_MONOSPACED = 4;
+  STYLE_TYPE_BULLET_LIST_ITEM = 100;
+  STYLE_TYPE_DASHED_LIST_ITEM = 101;
+  STYLE_TYPE_NUMBERED_LIST_ITEM = 102;
+  STYLE_TYPE_CHECKLIST_ITEM = 103;
+}
+
+enum WritingDirection {
+  WRITING_DIRECTION_DEFAULT = 0;
+  WRITING_DIRECTION_LTR = 1;
+  WRITING_DIRECTION_RTL = 2;
+}
+
+enum Alignment {
+  ALIGNMENT_DEFAULT = 0;
+  ALIGNMENT_CENTER = 1;
+  ALIGNMENT_RIGHT = 2;
+  ALIGNMENT_JUSTIFY = 3;
+}
+
+// Styles a "Paragraph" (any run of characters in an AttributeRun)
+message ParagraphStyle {
+  optional StyleType style_type                         = 1;  // was [default = -1] in proto2; use presence instead
+  optional Alignment alignment                          = 2;
+  optional WritingDirection writing_direction_paragraph = 3; // 1/3 LTR, 2/4 RTL (observed)
+  optional int32 indent_amount                          = 4;
+  optional Checklist checklist                          = 5;  // message presence works in proto3
+  optional int32 starting_list_item_number              = 7; // for ordered lists
+  optional int32 block_quote                            = 8;
+  optional bytes paragraph_uuid                         = 9;
+
+}
+
+
+// Represents a checklist item
+message Checklist {
+  optional bytes uuid = 1;  // presence is checked in Python
+  optional int32 done = 2;  // presence is checked in Python
+}
+
+// Represents an object that has pointers to a key and a value
+message DictionaryElement {
+  ObjectID key   = 1;
+  ObjectID value = 2;
+}
+
+message Dictionary {
+  repeated DictionaryElement element = 1;
+}
+
+// ObjectIDs are used to identify objects within the protobuf, offsets in an array, or a string.
+message ObjectID {
+  uint64 unsigned_integer_value = 2;
+  string string_value           = 4;
+  int32  object_index           = 6;
+}
+
+// Register Latest is used to identify the most recent version
+message RegisterLatest {
+  ObjectID contents = 2;
+}
+
+// MapEntries have a key that maps to a key-item array index and a value that points to an object.
+message MapItem {
+  int32   key   = 1;
+  ObjectID value = 2;
+}
+
+enum FontWeight {
+  FONT_WEIGHT_UNKNOWN = 0;
+  FONT_WEIGHT_BOLD = 1;
+  FONT_WEIGHT_ITALIC = 2;
+  FONT_WEIGHT_BOLD_ITALIC = 3;
+}
+
+// A "run" of characters that need to be styled/displayed/etc
+message AttributeRun {
+  int32 length = 1;
+
+  optional ParagraphStyle paragraph_style = 2;  // message presence
+
+  // Inline styling
+  optional Font font              = 3;           // message presence (not used today)
+  optional FontWeight font_weight = 5;
+  optional int32 underlined       = 6;
+  optional int32 strikethrough    = 7;
+  optional int32 superscript      = 8; // sign indicates super/sub
+  optional string link            = 9;
+  optional Color color            = 10;          // message presence
+  optional WritingDirection writing_direction_selection   = 11;         // may also appear here
+  optional AttachmentInfo attachment_info = 12; // message presence
+  optional int32 timestamp = 13;
+  optional int32 emphasis_style     = 14;
+  optional Highlight highlight_color = 15;         // preferred highlight palette (when present)
+}
+
+// ===============================
+// Overall Note protobufs
+// ===============================
+
+message NoteStoreProto {
+  Document document = 2;
+}
+
+message Document {
+  int32 version = 2;
+  Note  note    = 3;
+}
+
+message Note {
+  string note_text = 2;
+  repeated AttributeRun attribute_run = 5;
+}
+
+// ===============================
+// Embedded objects (mergeable data)
+// ===============================
+
+message MergableDataProto {
+  MergableDataObject mergable_data_object = 2;
+}
+
+message MergableDataObject {
+  int32 version = 2;
+  MergeableDataObjectData mergeable_data_object_data = 3;
+}
+
+message MergeableDataObjectData {
+  repeated MergeableDataObjectRow mergeable_data_object_entry = 3;
+  repeated string mergeable_data_object_key_item  = 4;
+  repeated string mergeable_data_object_type_item = 5;
+  repeated bytes  mergeable_data_object_uuid_item = 6;
+}
+
+message MergeableDataObjectRow {
+  RegisterLatest register_latest = 1;
+  optional List list                       = 5;
+  optional Dictionary dictionary           = 6;
+  optional UnknownMergeableDataObjectEntryMessage unknown_message = 9;
+  optional Note note                       = 10;
+  optional MergeableDataObjectMap custom_map = 13;
+  optional OrderedSet ordered_set          = 16;
+}
+
+message UnknownMergeableDataObjectEntryMessage {
+  optional UnknownMergeableDataObjectEntryMessageEntry unknown_entry = 1;
+}
+
+message UnknownMergeableDataObjectEntryMessageEntry {
+  optional int32 unknown_int1 = 1;
+  optional int64 unknown_int2 = 2;
+}
+
+message MergeableDataObjectMap {
+  int32 type = 1;
+  repeated MapItem map_entry = 3;
+}
+
+message OrderedSet {
+  OrderedSetOrdering ordering = 1;
+  Dictionary elements         = 2;
+}
+
+message OrderedSetOrdering {
+  OrderedSetOrderingArray array = 1;
+  Dictionary contents           = 2;
+}
+
+message OrderedSetOrderingArray {
+  Note contents = 1;
+  repeated OrderedSetOrderingArrayAttachment attachment = 2;
+}
+
+message OrderedSetOrderingArrayAttachment {
+  int32 index = 1;
+  bytes uuid  = 2;
+}
+
+// List structures (not used yet by renderer, left structurally consistent)
+message List {
+  repeated ListItem list_entry = 1;
+}
+
+message ListItem {
+  ObjectID id = 2;
+  optional ListEntryDetails details            = 3;
+  ListEntryDetails additional_details          = 4;
+}
+
+message ListEntryDetails {
+  optional ListEntryDetailsKey list_entry_details_key = 1;
+  optional ObjectID id = 2;
+}
+
+message ListEntryDetailsKey {
+  int32 list_entry_details_type_index = 1;
+  int32 list_entry_details_key        = 2;
+}

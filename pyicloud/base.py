@@ -23,6 +23,7 @@ from fido2.webauthn import (
 from requests import HTTPError
 from requests.models import Response
 
+from pyicloud.common.cloudkit.base import CloudKitExtraMode
 from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
@@ -46,6 +47,7 @@ from pyicloud.services import (
     RemindersService,
     UbiquityService,
 )
+from pyicloud.services.notes import NotesService
 from pyicloud.session import PyiCloudSession
 from pyicloud.srp_password import SrpPassword, SrpProtocolType
 from pyicloud.utils import (
@@ -153,6 +155,7 @@ class PyiCloudService:
         refresh_interval: float | None = None,
         *,
         authenticate: bool = True,
+        cloudkit_validation_extra: Optional[CloudKitExtraMode] = None,
     ) -> None:
         self._is_china_mainland: bool = (
             environ.get("icloud_china", "0") == "1"
@@ -176,6 +179,7 @@ class PyiCloudService:
         self.params: dict[str, Any] = {}
         self._client_id: str = client_id or str(uuid1()).lower()
         self._with_family: bool = with_family
+        self._cloudkit_validation_extra = cloudkit_validation_extra
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
         _headers: dict[str, str] = _HEADERS.copy()
@@ -215,6 +219,7 @@ class PyiCloudService:
         self._hidemyemail: Optional[HideMyEmailService] = None
         self._photos: Optional[PhotosService] = None
         self._reminders: Optional[RemindersService] = None
+        self._notes: Optional[NotesService] = None
 
         self._requires_mfa: bool = False
 
@@ -1043,12 +1048,18 @@ class PyiCloudService:
     def reminders(self) -> RemindersService:
         """Gets the 'Reminders' service."""
         if not self._reminders:
-            service_root: str = self.get_webservice_url("reminders")
             try:
+                service_root: str = self.get_webservice_url("ckdatabasews")
                 self._reminders = RemindersService(
-                    service_root=service_root, session=self.session, params=self.params
+                    service_root=service_root,
+                    session=self.session,
+                    params=self.params,
+                    cloudkit_validation_extra=self._cloudkit_validation_extra,
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except (
+                PyiCloudAPIResponseException,
+                PyiCloudServiceNotActivatedException,
+            ) as error:
                 raise PyiCloudServiceUnavailable(
                     "Reminders service not available"
                 ) from error
@@ -1072,6 +1083,27 @@ class PyiCloudService:
                     "Drive service not available"
                 ) from error
         return self._drive
+
+    @property
+    def notes(self) -> NotesService:
+        """Gets the 'Notes' service."""
+        if not self._notes:
+            try:
+                service_root: str = self.get_webservice_url("ckdatabasews")
+                self._notes = NotesService(
+                    service_root=service_root,
+                    session=self.session,
+                    params=self.params,
+                    cloudkit_validation_extra=self._cloudkit_validation_extra,
+                )
+            except (
+                PyiCloudAPIResponseException,
+                PyiCloudServiceNotActivatedException,
+            ) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Notes service not available"
+                ) from error
+        return self._notes
 
     @property
     def account_name(self) -> str:

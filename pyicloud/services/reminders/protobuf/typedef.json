@@ -1,0 +1,76 @@
+{
+  "2": {
+    "name": "Title",
+    "type": "message",
+    "message_typedef": {
+      "3": {
+        "name": "Content",
+        "type": "message",
+        "message_typedef": {
+          "2": {
+            "name": "Text",
+            "type": "string"
+          },
+          "3": {
+            "name": "AttributeRun",
+            "type": "message",
+            "seen_repeated": true,
+            "message_typedef": {
+              "1": {
+                "name": "Range",
+                "type": "message",
+                "message_typedef": {
+                  "1": {
+                    "name": "Location",
+                    "type": "int"
+                  },
+                  "2": {
+                    "name": "Length",
+                    "type": "int"
+                  }
+                }
+              },
+              "2": {
+                "name": "AttributeType",
+                "type": "int"
+              },
+              "3": {
+                "name": "FontInfo",
+                "type": "message",
+                "message_typedef": {
+                  "1": {
+                    "name": "FontHandle",
+                    "type": "int"
+                  },
+                  "2": {
+                    "name": "Size",
+                    "type": "int"
+                  }
+                }
+              },
+              "5": {
+                "name": "Flag",
+                "type": "int"
+              }
+            }
+          },
+          "4": {
+            "name": "AttachmentInfo",
+            "type": "message",
+            "message_typedef": {
+              "1": {
+                "name": "UUIDBytes",
+                "type": "bytes"
+              },
+              "2": {
+                "name": "Info",
+                "type": "int",
+                "seen_repeated": true
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

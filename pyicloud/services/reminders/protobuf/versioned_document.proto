@@ -1,0 +1,24 @@
+syntax = "proto2";
+
+// ==========================================================================
+// versioned_document.proto
+// Outer versioned wrapper for topotext CRDT documents.
+// Extracted from iCloud.com Reminders main.js at line 99472.
+// ==========================================================================
+package versioned_document;
+
+message Document {
+    // Just in case.
+    optional uint32 serializationVersion = 1;
+
+    repeated Version version = 2;
+}
+
+message Version {
+    optional uint32 serializationVersion = 1;
+    optional uint32 minimumSupportedVersion = 2;
+
+    // Interpreted as a topotext.String.
+    // Archived as bytes to ensure bit-perfect backward compatibility.
+    optional bytes data = 3;
+}
