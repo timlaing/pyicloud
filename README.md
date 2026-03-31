@@ -1136,9 +1136,9 @@ flows.
 _List reminder lists and open reminders:_
 
 ```bash
-uv run icloud reminders lists --username you@example.com
-uv run icloud reminders list --username you@example.com
-uv run icloud reminders list --username you@example.com --list-id INBOX --include-completed
+icloud reminders lists --username you@example.com
+icloud reminders list --username you@example.com
+icloud reminders list --username you@example.com --list-id INBOX --include-completed
 ```
 
 `icloud reminders list` defaults to open reminders only. Use
@@ -1148,36 +1148,36 @@ the query to one list.
 _Get, create, update, and delete reminders:_
 
 ```bash
-uv run icloud reminders get REMINDER_ID --username you@example.com
-uv run icloud reminders create --username you@example.com --list-id INBOX --title "Buy milk"
-uv run icloud reminders update REMINDER_ID --username you@example.com --title "Buy oat milk"
-uv run icloud reminders set-status REMINDER_ID --username you@example.com --completed
-uv run icloud reminders delete REMINDER_ID --username you@example.com
+icloud reminders get REMINDER_ID --username you@example.com
+icloud reminders create --username you@example.com --list-id INBOX --title "Buy milk"
+icloud reminders update REMINDER_ID --username you@example.com --title "Buy oat milk"
+icloud reminders set-status REMINDER_ID --username you@example.com --completed
+icloud reminders delete REMINDER_ID --username you@example.com
 ```
 
 _Inspect snapshots and incremental changes:_
 
 ```bash
-uv run icloud reminders snapshot --username you@example.com --list-id INBOX
-uv run icloud reminders changes --username you@example.com --since PREVIOUS_CURSOR
-uv run icloud reminders sync-cursor --username you@example.com
+icloud reminders snapshot --username you@example.com --list-id INBOX
+icloud reminders changes --username you@example.com --since PREVIOUS_CURSOR
+icloud reminders sync-cursor --username you@example.com
 ```
 
 _Work with reminder sub-records:_
 
 ```bash
-uv run icloud reminders alarm add-location REMINDER_ID \
+icloud reminders alarm add-location REMINDER_ID \
   --username you@example.com \
   --title "Office" \
   --address "1 Infinite Loop, Cupertino, CA" \
   --latitude 37.3318 \
   --longitude -122.0312
 
-uv run icloud reminders hashtag create REMINDER_ID errands --username you@example.com
-uv run icloud reminders attachment create-url REMINDER_ID \
+icloud reminders hashtag create REMINDER_ID errands --username you@example.com
+icloud reminders attachment create-url REMINDER_ID \
   --username you@example.com \
   --url https://example.com/checklist
-uv run icloud reminders recurrence create REMINDER_ID \
+icloud reminders recurrence create REMINDER_ID \
   --username you@example.com \
   --frequency weekly \
   --interval 1
@@ -1322,17 +1322,17 @@ folder browsing, title-based search, HTML rendering, and note-id-based export.
 _List recent notes, folders, or one folder’s notes:_
 
 ```bash
-uv run icloud notes recent --username you@example.com
-uv run icloud notes folders --username you@example.com
-uv run icloud notes list --username you@example.com --folder-id FOLDER_ID
-uv run icloud notes list --username you@example.com --all --since PREVIOUS_CURSOR
+icloud notes recent --username you@example.com
+icloud notes folders --username you@example.com
+icloud notes list --username you@example.com --folder-id FOLDER_ID
+icloud notes list --username you@example.com --all --since PREVIOUS_CURSOR
 ```
 
 _Search notes by title:_
 
 ```bash
-uv run icloud notes search --username you@example.com --title "Daily Plan"
-uv run icloud notes search --username you@example.com --title-contains "meeting"
+icloud notes search --username you@example.com --title "Daily Plan"
+icloud notes search --username you@example.com --title-contains "meeting"
 ```
 
 `icloud notes search` is the official title-filter workflow. It uses a
@@ -1341,9 +1341,9 @@ recents-first search strategy and falls back to a full feed scan when needed.
 _Fetch, render, and export one note by id:_
 
 ```bash
-uv run icloud notes get NOTE_ID --username you@example.com --with-attachments
-uv run icloud notes render NOTE_ID --username you@example.com --preview-appearance dark
-uv run icloud notes export NOTE_ID \
+icloud notes get NOTE_ID --username you@example.com --with-attachments
+icloud notes render NOTE_ID --username you@example.com --preview-appearance dark
+icloud notes export NOTE_ID \
   --username you@example.com \
   --output-dir ./exports/notes_html \
   --export-mode archival \
@@ -1356,8 +1356,8 @@ handled by `icloud notes search` rather than by bulk export flags.
 _Inspect incremental changes:_
 
 ```bash
-uv run icloud notes changes --username you@example.com --since PREVIOUS_CURSOR
-uv run icloud notes sync-cursor --username you@example.com
+icloud notes changes --username you@example.com --since PREVIOUS_CURSOR
+icloud notes sync-cursor --username you@example.com
 ```
 
 ### Notes CLI Example
