@@ -1717,6 +1717,22 @@ def test_trusted_device_2fa_flow_reports_device_prompt() -> None:
     fake_api.validate_2fa_code.assert_called_once_with("123456")
 
 
+def test_code_prompt_aborts_when_request_2fa_code_requires_security_key() -> None:
+    """Auth login should not enter the numeric 2FA prompt loop for key-only challenges."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.return_value = False
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "This 2FA challenge requires a security key. Connect one and retry."
+    )
+    fake_api.validate_2fa_code.assert_not_called()
+
+
 def test_trusted_device_2fa_retries_invalid_codes_before_success() -> None:
     """Auth login should allow up to three trusted-device 2FA attempts."""
 

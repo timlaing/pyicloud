@@ -183,8 +183,9 @@ authentication (2SA)](https://support.apple.com/en-us/HT204152) for the
 account you will have to do some extra work:
 
 For HSA2 accounts, `request_2fa_code()` now starts Apple's active delivery
-route for the current challenge. Depending on the account and session, that may
-be a trusted-device prompt, an SMS code, or a security-key flow.
+route for code-based challenges. Depending on the account and session, that may
+be a trusted-device prompt or an SMS code. Security-key challenges are handled
+separately via `security_key_names` / `confirm_security_key()`.
 
 ```python
 import sys

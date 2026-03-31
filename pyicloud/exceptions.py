@@ -99,11 +99,11 @@ class PyiCloudNoTrustedNumberAvailable(PyiCloudException):
     """iCloud no trusted number exception."""
 
 
-class PyiCloudTrustedDevicePromptException(PyiCloudException):
+class PyiCloudTrustedDevicePromptException(PyiCloudAPIResponseException):
     """Trusted-device prompt bootstrap exception."""
 
 
-class PyiCloudTrustedDeviceVerificationException(PyiCloudException):
+class PyiCloudTrustedDeviceVerificationException(PyiCloudAPIResponseException):
     """Trusted-device bridge verification exception."""
 
 

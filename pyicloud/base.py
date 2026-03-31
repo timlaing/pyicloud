@@ -36,6 +36,7 @@ from pyicloud.exceptions import (
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
     PyiCloudTrustedDevicePromptException,
+    PyiCloudTrustedDeviceVerificationException,
 )
 from pyicloud.hsa2_bridge import (
     Hsa2BootContext,
@@ -1135,6 +1136,8 @@ class PyiCloudService:
                     return False
             else:
                 self._validate_trusted_device_code(code)
+        except PyiCloudTrustedDeviceVerificationException:
+            raise
         except PyiCloudAPIResponseException:
             # Wrong verification code
             LOGGER.error("Code verification failed.")
@@ -1168,7 +1171,7 @@ class PyiCloudService:
         data: dict[str, Any] = {
             "phoneNumber": trusted_phone_number.as_phone_number_payload(),
             "securityCode": {"code": code},
-            "mode": trusted_phone_number.push_mode,
+            "mode": trusted_phone_number.push_mode or "sms",
         }
         headers: dict[str, Any] = self._get_auth_headers(
             {"Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"}

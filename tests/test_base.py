@@ -11,6 +11,7 @@ from typing import Any, List
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
+import requests
 from fido2.hid import CtapHidDevice
 from requests import HTTPError, Response
 
@@ -642,6 +643,46 @@ def test_validate_2fa_code_uses_nested_sms_phone_number(
         }
 
 
+def test_validate_2fa_code_defaults_sms_mode_when_push_mode_missing(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Missing SMS pushMode should still validate using the delivery mode used to trigger SMS."""
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 1}, "hsaChallengeRequired": False}
+    pyicloud_service._auth_data = {
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {
+                "id": 3,
+                "nonFTEU": False,
+                "pushMode": None,
+            }
+        }
+    }
+    pyicloud_service._two_factor_delivery_method = "sms"
+    pyicloud_service.trust_session = MagicMock(
+        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
+        or True
+    )
+
+    with patch("pyicloud.base.PyiCloudSession") as mock_session:
+        pyicloud_service._session = mock_session
+        mock_session.data = {
+            "scnt": "test_scnt",
+            "session_id": "test_session_id",
+            "session_token": "test_session_token",
+        }
+
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_post_response.json.return_value = {"success": True}
+        mock_session.post.return_value = mock_post_response
+
+        assert pyicloud_service.validate_2fa_code("123456")
+
+        kwargs = mock_session.post.call_args.kwargs
+        assert kwargs["json"]["mode"] == "sms"
+
+
 def test_validate_2fa_code_failure(pyicloud_service: PyiCloudService) -> None:
     """Test the validate_2fa_code method with an invalid code."""
     exception = PyiCloudAPIResponseException("Invalid code")
@@ -965,8 +1006,9 @@ def test_session_persistence_excludes_trusted_device_bridge_state(
 ) -> None:
     """Bridge-only state should remain in memory and never be written to persisted session files."""
 
-    temp_root = Path(tempfile.gettempdir()) / "python-test-results" / "bridge-auth"
-    temp_root.mkdir(parents=True, exist_ok=True)
+    test_base = Path(tempfile.gettempdir()) / "python-test-results"
+    test_base.mkdir(parents=True, exist_ok=True)
+    temp_root = Path(tempfile.mkdtemp(prefix="bridge-auth-", dir=test_base))
     session = PyiCloudSession(
         service=pyicloud_service_working,
         client_id="",
@@ -1049,6 +1091,26 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
         )
         mock_save.assert_called_once()
         assert open_mock.call_count == 2
+
+
+def test_request_raw_normalizes_transport_failure(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Raw requests should keep the session's normalized transport failure contract."""
+
+    with patch("requests.Session.request") as mock_request:
+        mock_request.side_effect = requests.exceptions.Timeout("timed out")
+        test_base = Path(tempfile.gettempdir()) / "python-test-results"
+        test_base.mkdir(parents=True, exist_ok=True)
+        temp_root = Path(tempfile.mkdtemp(prefix="request-raw-", dir=test_base))
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=str(temp_root)
+        )
+
+        with pytest.raises(
+            PyiCloudAPIResponseException, match="Request failed to iCloud"
+        ):
+            pyicloud_session.request_raw("GET", "https://example.com")
 
 
 def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) -> None:

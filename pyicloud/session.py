@@ -241,11 +241,14 @@ class PyiCloudSession(requests.Session):
             method,
             url,
         )
-        response: Response = super().request(
-            method=method,
-            url=url,
-            **kwargs,
-        )
+        try:
+            response: Response = super().request(
+                method=method,
+                url=url,
+                **kwargs,
+            )
+        except requests.exceptions.RequestException as err:
+            self._raise_request_exception(err)
         self._update_session_data(response)
         self._save_session_data()
         return response
@@ -298,13 +301,19 @@ class PyiCloudSession(requests.Session):
             self._decode_json_response(response)
 
             return response
-        except requests.HTTPError as err:
+        except requests.exceptions.RequestException as err:
+            self._raise_request_exception(err)
+
+    @staticmethod
+    def _raise_request_exception(err: requests.exceptions.RequestException) -> NoReturn:
+        """Normalize low-level requests failures into the session's public error type."""
+
+        if isinstance(err, requests.HTTPError) and err.response is not None:
             raise PyiCloudAPIResponseException(
                 reason=err.response.text,
                 code=err.response.status_code,
             ) from err
-        except requests.exceptions.RequestException as err:
-            raise PyiCloudAPIResponseException("Request failed to iCloud") from err
+        raise PyiCloudAPIResponseException("Request failed to iCloud") from err
 
     def _handle_request_error(
         self,

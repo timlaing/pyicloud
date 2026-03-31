@@ -337,20 +337,22 @@ class CLIState:
                     "Two-factor authentication is required, but interactive prompts are disabled."
                 )
             try:
-                if api.request_2fa_code():
-                    notice = getattr(api, "two_factor_delivery_notice", None)
-                    if notice:
-                        self.console.print(notice)
-
-                    delivery_method = getattr(
-                        api, "two_factor_delivery_method", "unknown"
+                if not api.request_2fa_code():
+                    raise CLIAbort(
+                        "This 2FA challenge requires a security key. Connect one and retry."
                     )
-                    if delivery_method == "trusted_device":
-                        self.console.print(
-                            "Requested a 2FA prompt on your trusted Apple devices."
-                        )
-                    elif delivery_method == "sms":
-                        self.console.print("Requested a 2FA code by SMS.")
+
+                notice = getattr(api, "two_factor_delivery_notice", None)
+                if notice:
+                    self.console.print(notice)
+
+                delivery_method = getattr(api, "two_factor_delivery_method", "unknown")
+                if delivery_method == "trusted_device":
+                    self.console.print(
+                        "Requested a 2FA prompt on your trusted Apple devices."
+                    )
+                elif delivery_method == "sms":
+                    self.console.print("Requested a 2FA code by SMS.")
             except PyiCloudNoTrustedNumberAvailable as exc:
                 raise CLIAbort(
                     "Two-factor authentication requires a trusted phone number, "
