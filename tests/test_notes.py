@@ -306,6 +306,64 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(attachments[0].id, "Attachment/CANONICAL")
         self.assertIs(self.service._attachment_meta_cache["ALIAS-1"], attachments[0])
 
+    def test_notes_service_folders_uses_supported_desired_keys(self):
+        """Folder listing should not depend on nonexistent Notes desired-key enums."""
+
+        folder_record = CKRecord.model_validate(
+            {
+                "recordName": "Folder/1",
+                "recordType": "SearchIndexes",
+                "fields": {
+                    "TitleEncrypted": {
+                        "type": "STRING",
+                        "value": "Work",
+                        "isEncrypted": True,
+                    },
+                    "HasSubfolder": {"type": "INT64", "value": 1},
+                },
+            }
+        )
+        self.service.raw.query = MagicMock(
+            return_value=MagicMock(records=[folder_record], continuationMarker=None)
+        )
+
+        folders = list(self.service.folders())
+
+        self.assertEqual(
+            self.service.raw.query.call_args.kwargs["desired_keys"],
+            ["TitleEncrypted", "HasSubfolder"],
+        )
+        self.assertEqual(len(folders), 1)
+        self.assertEqual(folders[0].id, "Folder/1")
+        self.assertEqual(folders[0].name, "Work")
+        self.assertTrue(folders[0].has_subfolders)
+
+    def test_notes_service_folders_treats_subfolder_flag_as_optional(self):
+        """Folder listing should still work when Apple omits the subfolder flag."""
+
+        folder_record = CKRecord.model_validate(
+            {
+                "recordName": "Folder/2",
+                "recordType": "SearchIndexes",
+                "fields": {
+                    "TitleEncrypted": {
+                        "type": "STRING",
+                        "value": "Personal",
+                        "isEncrypted": True,
+                    },
+                },
+            }
+        )
+        self.service.raw.query = MagicMock(
+            return_value=MagicMock(records=[folder_record], continuationMarker=None)
+        )
+
+        folders = list(self.service.folders())
+
+        self.assertEqual(len(folders), 1)
+        self.assertEqual(folders[0].name, "Personal")
+        self.assertIsNone(folders[0].has_subfolders)
+
     def test_write_html_rejects_filename_escape(self):
         out_dir = os.path.join(
             tempfile.gettempdir(),
