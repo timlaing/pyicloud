@@ -525,6 +525,16 @@ def test_root_help() -> None:
         assert command in text
 
 
+def test_root_version_prints_installed_package_version() -> None:
+    """The root --version flag should print the installed pyicloud version."""
+
+    with patch.object(cli_module, "_installed_version", return_value="9.9.9"):
+        result = _runner().invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "9.9.9"
+
+
 def test_group_help() -> None:
     """Each command group should expose help."""
 
