@@ -84,6 +84,23 @@ def _decode_attachment_url(value: str) -> str:
     return value
 
 
+def _encode_cloudkit_text_field(value: str) -> dict[str, str]:
+    """Encode text for CloudKit fields that store UTF-8 payload bytes."""
+    encoded = base64.b64encode((value or "").encode("utf-8")).decode("ascii")
+    return {"type": "ENCRYPTED_BYTES", "value": encoded}
+
+
+def _decode_cloudkit_text_value(value: object) -> str:
+    """Decode a CloudKit text field value into plain ``str``."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)
+
+
 def _decode_crdt_document(encrypted_value: str | bytes) -> str:
     """Decode a CRDT document (TitleDocument or NotesDocument)."""
     data = encrypted_value

@@ -11,6 +11,7 @@ from pyicloud.common.cloudkit import CKRecord
 from ._protocol import (
     _as_raw_id,
     _decode_attachment_url,
+    _decode_cloudkit_text_value,
     _decode_crdt_document,
     _ref_name,
 )
@@ -117,21 +118,15 @@ class RemindersRecordMapper:
 
     def _coerce_text(self, value: Any, *, field_name: str, record_name: str) -> str:
         """Normalize CloudKit text-like values into ``str`` for domain models."""
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value
-        if isinstance(value, bytes):
-            try:
-                return value.decode("utf-8")
-            except UnicodeDecodeError:
-                self._logger.warning(
-                    "Field %s on %s was undecodable bytes; replacing invalid UTF-8",
-                    field_name,
-                    record_name,
-                )
-                return value.decode("utf-8", errors="replace")
-        return str(value)
+        try:
+            return _decode_cloudkit_text_value(value)
+        except UnicodeDecodeError:
+            self._logger.warning(
+                "Field %s on %s was undecodable bytes; replacing invalid UTF-8",
+                field_name,
+                record_name,
+            )
+            return value.decode("utf-8", errors="replace")
 
     def record_to_list(self, rec: CKRecord) -> RemindersList:
         fields = rec.fields

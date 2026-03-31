@@ -257,6 +257,37 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(exported, output_path)
         mock_export.assert_called_once()
 
+    def test_iter_all_skips_changes_when_sync_cursor_is_current(self):
+        self.service._raw = MagicMock()
+        self.service._raw.current_sync_token.return_value = "tok-current"
+
+        rows = list(self.service.iter_all(since="tok-current"))
+
+        self.assertEqual(rows, [])
+        self.service._raw.current_sync_token.assert_called_once_with(zone_name="Notes")
+        self.service._raw.changes.assert_not_called()
+
+    def test_iter_changes_skips_changes_when_sync_cursor_is_current(self):
+        self.service._raw = MagicMock()
+        self.service._raw.current_sync_token.return_value = "tok-current"
+
+        rows = list(self.service.iter_changes(since="tok-current"))
+
+        self.assertEqual(rows, [])
+        self.service._raw.current_sync_token.assert_called_once_with(zone_name="Notes")
+        self.service._raw.changes.assert_not_called()
+
+    def test_iter_all_uses_changes_when_sync_cursor_is_not_current(self):
+        self.service._raw = MagicMock()
+        self.service._raw.current_sync_token.return_value = "tok-other"
+        self.service._raw.changes.return_value = []
+
+        rows = list(self.service.iter_all(since="tok-stale"))
+
+        self.assertEqual(rows, [])
+        self.service._raw.current_sync_token.assert_called_once_with(zone_name="Notes")
+        self.service._raw.changes.assert_called_once()
+
     def test_notes_service_attachment_lookup_prefers_canonical_record_names(self):
         note_record = CKRecord.model_validate(
             {
