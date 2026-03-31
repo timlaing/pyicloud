@@ -277,11 +277,7 @@ class NotesService(BaseService):
                     name = self._decode_encrypted(
                         rec.fields.get_value("TitleEncrypted")
                     )
-                    has_sub_value = getattr(
-                        rec.fields.get_field(_HAS_SUBFOLDER_FIELD) or (),
-                        "value",
-                        None,
-                    )
+                    has_sub_value = rec.fields.get_value(_HAS_SUBFOLDER_FIELD)
                     has_sub = None if has_sub_value is None else bool(has_sub_value)
                     yield NoteFolder(
                         id=folder_id, name=name, has_subfolders=has_sub, count=None
