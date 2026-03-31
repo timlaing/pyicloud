@@ -137,16 +137,23 @@ class RemindersRecordMapper:
         fields = rec.fields
         title = fields.get_value("Name")
         color = fields.get_value("Color")
+        reminder_ids = self._reminder_ids_for_list_record(rec)
+        raw_count = fields.get_value("Count")
+        count = int(raw_count) if raw_count is not None else 0
+        if count == 0 and reminder_ids:
+            # Live list records can carry complete reminder membership while the
+            # Count field stays at zero. Prefer the membership size in that case.
+            count = len(reminder_ids)
 
         return RemindersList(
             id=rec.recordName,
             title=str(title) if title else "Untitled",
             color=str(color) if color else None,
-            count=int(fields.get_value("Count") or 0),
+            count=count,
             badge_emblem=fields.get_value("BadgeEmblem"),
             sorting_style=fields.get_value("SortingStyle"),
             is_group=bool(fields.get_value("IsGroup") or 0),
-            reminder_ids=self._reminder_ids_for_list_record(rec),
+            reminder_ids=reminder_ids,
             record_change_tag=rec.recordChangeTag,
         )
 

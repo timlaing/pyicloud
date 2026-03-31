@@ -634,6 +634,40 @@ class TestRecordToList:
 
         lst = service._record_to_list(rec)
         assert lst.reminder_ids == ["REM-1", "REM-2"]
+        assert lst.count == 2
+
+    def test_list_falls_back_to_reminder_ids_length_when_count_missing(self, service):
+        rec = _ck_record(
+            "List",
+            "LIST-003A",
+            {
+                "ReminderIDs": {
+                    "type": "STRING",
+                    "value": '["REM-1","Reminder/REM-2","REM-3"]',
+                }
+            },
+        )
+
+        lst = service._record_to_list(rec)
+        assert lst.reminder_ids == ["REM-1", "REM-2", "REM-3"]
+        assert lst.count == 3
+
+    def test_list_falls_back_to_reminder_ids_length_when_count_is_zero(self, service):
+        rec = _ck_record(
+            "List",
+            "LIST-003B",
+            {
+                "Count": {"type": "INT64", "value": 0},
+                "ReminderIDs": {
+                    "type": "STRING",
+                    "value": '["REM-1","Reminder/REM-2"]',
+                },
+            },
+        )
+
+        lst = service._record_to_list(rec)
+        assert lst.reminder_ids == ["REM-1", "REM-2"]
+        assert lst.count == 2
 
     def test_list_parses_asset_backed_reminder_ids_from_downloaded_data(self, service):
         payload = base64.b64encode(b'["REM-1","Reminder/REM-2"]').decode("ascii")
@@ -650,6 +684,7 @@ class TestRecordToList:
 
         lst = service._record_to_list(rec)
         assert lst.reminder_ids == ["REM-1", "REM-2"]
+        assert lst.count == 2
         service._raw.download_asset_bytes.assert_not_called()
 
     def test_list_parses_asset_backed_reminder_ids_from_download_url(self, service):
@@ -667,6 +702,7 @@ class TestRecordToList:
 
         lst = service._record_to_list(rec)
         assert lst.reminder_ids == ["REM-3", "REM-4"]
+        assert lst.count == 2
         service._raw.download_asset_bytes.assert_called_once_with(
             "https://example.com/reminder-ids.json"
         )
