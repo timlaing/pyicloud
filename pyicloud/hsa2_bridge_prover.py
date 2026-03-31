@@ -9,6 +9,7 @@ import secrets
 from dataclasses import dataclass
 from typing import Optional
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 _SCRYPT_PARAMS = {
@@ -428,6 +429,14 @@ def _compute_w0_w1(password: str, salt_b64: str) -> tuple[int, int]:
     )
 
 
+def _random_nonzero_scalar() -> int:
+    """Return a random scalar in the non-zero P-256 subgroup range."""
+    scalar = 0
+    while scalar == 0:
+        scalar = secrets.randbelow(_P256_ORDER)
+    return scalar
+
+
 class TrustedDeviceBridgeProver:
     """Client-side prover mirroring Apple's prover worker."""
 
@@ -444,7 +453,7 @@ class TrustedDeviceBridgeProver:
         """Initialize the prover with Apple's salt and the user-entered code."""
         w0, w1 = _compute_w0_w1(code, salt_b64)
         self._client = _ClientHandshake(
-            x_scalar=secrets.randbelow(_P256_ORDER),
+            x_scalar=_random_nonzero_scalar(),
             w0=w0,
             w1=w1,
         )
@@ -497,18 +506,21 @@ class TrustedDeviceBridgeProver:
         """Decrypt Apple's final encrypted validation code."""
         if self._verifier_key is None:
             raise ValueError("Bridge verifier key is not available.")
-        payload = _b64_to_bytes(ciphertext_b64)
-        version = payload[0]
-        iv_length, tag_length = _AES_GCM_LAYOUTS[version]
-        iv = payload[1 : 1 + iv_length]
-        tag = payload[1 + iv_length : 1 + iv_length + tag_length]
-        ciphertext = payload[1 + iv_length + tag_length :]
-        plaintext = AESGCM(bytes.fromhex(self._verifier_key)).decrypt(
-            iv,
-            ciphertext + tag,
-            bytes([version]),
-        )
-        return plaintext.decode("utf-8")
+        try:
+            payload = _b64_to_bytes(ciphertext_b64)
+            version = payload[0]
+            iv_length, tag_length = _AES_GCM_LAYOUTS[version]
+            iv = payload[1 : 1 + iv_length]
+            tag = payload[1 + iv_length : 1 + iv_length + tag_length]
+            ciphertext = payload[1 + iv_length + tag_length :]
+            plaintext = AESGCM(bytes.fromhex(self._verifier_key)).decrypt(
+                iv,
+                ciphertext + tag,
+                bytes([version]),
+            )
+            return plaintext.decode("utf-8")
+        except (IndexError, KeyError, InvalidTag, UnicodeDecodeError) as exc:
+            raise ValueError("Malformed bridge payload") from exc
 
 
 class _TrustedDeviceBridgeServerProver:
@@ -519,7 +531,7 @@ class _TrustedDeviceBridgeServerProver:
         w0, w1 = _compute_w0_w1(password, salt_b64)
         verifier_point = _multiply_point(_GENERATOR, w1)
         self._server = _ServerHandshake(
-            y_scalar=secrets.randbelow(_P256_ORDER),
+            y_scalar=_random_nonzero_scalar(),
             w0=w0,
             verifier_point=verifier_point,
         )

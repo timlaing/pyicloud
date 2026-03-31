@@ -33,6 +33,30 @@ if TYPE_CHECKING:
     from pyicloud.base import PyiCloudService
 
 
+NON_PERSISTED_SESSION_KEYS = frozenset(
+    {
+        "akdata",
+        "connection_path",
+        "data",
+        "encryptedCode",
+        "encrypted_code",
+        "idmsdata",
+        "mid",
+        "nextStep",
+        "next_step",
+        "ptkn",
+        "push_token",
+        "salt",
+        "sessionUUID",
+        "session_uuid",
+        "source_app_id",
+        "topic",
+        "topics_by_hash",
+        "txnid",
+    }
+)
+
+
 class PyiCloudSession(requests.Session):
     """iCloud session."""
 
@@ -103,7 +127,14 @@ class PyiCloudSession(requests.Session):
             os.makedirs(self._cookie_directory, exist_ok=True)
         with open(self.session_path, "w", encoding="utf-8") as outfile:
             # Copy to avoid dict mutation during concurrent access
-            dump(dict(self._data), outfile)
+            dump(
+                {
+                    key: value
+                    for key, value in dict(self._data).items()
+                    if key not in NON_PERSISTED_SESSION_KEYS
+                },
+                outfile,
+            )
             self.logger.debug("Saved session data to file: %s", self.session_path)
 
         try:

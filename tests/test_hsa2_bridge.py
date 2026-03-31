@@ -361,6 +361,40 @@ def test_trusted_device_bridge_prover_roundtrip() -> None:
     assert prover.decrypt_message(encrypted_code) == "derived-device-code"
 
 
+def test_trusted_device_bridge_prover_retries_zero_ephemeral_scalars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ephemeral prover scalars must stay in the non-zero subgroup range."""
+
+    draws = iter([0, 7, 0, 9])
+    monkeypatch.setattr(
+        "pyicloud.hsa2_bridge_prover.secrets.randbelow",
+        lambda _limit: next(draws),
+    )
+
+    salt_b64 = base64.b64encode(b"0123456789abcdef").decode("ascii")
+    prover = TrustedDeviceBridgeProver()
+    prover.init_with_salt(salt_b64, "050044")
+    server = _TrustedDeviceBridgeServerProver(password="050044", salt_b64=salt_b64)
+
+    assert prover._client is not None
+    assert prover._client._x == 7
+    assert server._server._y == 9
+
+
+def test_trusted_device_bridge_prover_normalizes_malformed_bridge_payloads() -> None:
+    """Malformed encrypted payloads should surface as ValueError."""
+
+    prover = TrustedDeviceBridgeProver()
+    prover._verifier_key = "00" * 32
+
+    with pytest.raises(ValueError, match="Malformed bridge payload"):
+        prover.decrypt_message(base64.b64encode(b"").decode("ascii"))
+
+    with pytest.raises(ValueError, match="Malformed bridge payload"):
+        prover.decrypt_message(base64.b64encode(b"\x01truncated").decode("ascii"))
+
+
 def test_trusted_device_bridge_bootstrap_keeps_websocket_open_and_persists_step2() -> (
     None
 ):

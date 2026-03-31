@@ -1015,15 +1015,20 @@ def test_session_persistence_excludes_trusted_device_bridge_state(
         cookie_directory=str(temp_root),
     )
     pyicloud_service_working._session = session
-    pyicloud_service_working._trusted_device_bridge_state = MagicMock(
+    bridge_state = MagicMock(
         push_token="bridge-ptkn",
         session_uuid="bridge-session-uuid",
         idmsdata="bridge-idmsdata",
         encrypted_code="bridge-encrypted-code",
     )
+    pyicloud_service_working._trusted_device_bridge_state = bridge_state
     session._data = {
         "session_token": "valid-token",
         "session_id": "persisted-session-id",
+        "push_token": bridge_state.push_token,
+        "session_uuid": bridge_state.session_uuid,
+        "idmsdata": bridge_state.idmsdata,
+        "encrypted_code": bridge_state.encrypted_code,
     }
 
     session._save_session_data()
