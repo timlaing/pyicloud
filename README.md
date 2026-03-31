@@ -76,7 +76,7 @@ api.devices
 
 The `icloud` command line interface is organized around top-level
 subcommands such as `auth`, `account`, `devices`, `calendar`,
-`contacts`, `drive`, `photos`, and `hidemyemail`.
+`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, and `reminders`.
 
 Command options belong on the final command that uses them. For example:
 

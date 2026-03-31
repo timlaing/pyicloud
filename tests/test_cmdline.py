@@ -24,6 +24,7 @@ from pyicloud.services.notes.models import (
     NoteSummary,
 )
 from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
+from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
 from pyicloud.services.reminders.models import (
     Alarm,
     AlarmWithTrigger,
@@ -296,6 +297,7 @@ class FakeNotes:
                 is_locked=False,
             ),
             self.recent_rows[1],
+            # Duplicate entry to verify deduplication in search_notes_by_title.
             self.recent_rows[2],
         ]
         self.notes = {
@@ -2946,6 +2948,26 @@ def test_reminders_commands_report_errors() -> None:
     assert recurrence_result.exception.args[0] == (
         "No recurrence updates were requested."
     )
+
+    class ApiErrorReminders:
+        def sync_cursor(self) -> str:
+            raise RemindersApiError("sync failed")
+
+    class AuthErrorReminders:
+        def sync_cursor(self) -> str:
+            raise RemindersAuthError("token expired")
+
+    fake_api = FakeAPI()
+    fake_api.reminders = ApiErrorReminders()
+    api_error_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert api_error_result.exit_code != 0
+    assert api_error_result.exception.args[0] == "sync failed"
+
+    fake_api = FakeAPI()
+    fake_api.reminders = AuthErrorReminders()
+    auth_error_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert auth_error_result.exit_code != 0
+    assert auth_error_result.exception.args[0] == "token expired"
 
 
 def test_reminders_commands_report_reauthentication_and_unavailability() -> None:

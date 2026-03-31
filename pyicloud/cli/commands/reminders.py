@@ -22,6 +22,7 @@ from pyicloud.cli.options import (
     store_command_options,
 )
 from pyicloud.cli.output import console_kv_table, console_table, format_color_value
+from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
 from pyicloud.services.reminders.models import (
     AlarmWithTrigger,
     ImageAttachment,
@@ -133,9 +134,12 @@ def _reminders_call(api, fn):
 
     try:
         return service_call(REMINDERS, fn, account_name=api.account_name)
-    except LookupError as err:
-        raise CLIAbort(str(err)) from err
-    except ValidationError as err:
+    except (
+        LookupError,
+        ValidationError,
+        RemindersApiError,
+        RemindersAuthError,
+    ) as err:
         raise CLIAbort(str(err)) from err
 
 

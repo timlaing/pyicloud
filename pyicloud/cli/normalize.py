@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+MAX_NOTES_SEARCH_WINDOW = 5_000
+
 
 def normalize_account_summary(api, account) -> dict[str, Any]:
     """Normalize account summary data."""
@@ -232,7 +234,7 @@ def search_notes_by_title(
 
     candidates: list[Any] = []
     seen: set[Any] = set()
-    window = max(500, limit * 50)
+    window = min(MAX_NOTES_SEARCH_WINDOW, max(500, limit * 50))
 
     for note in notes_service.recents(limit=window):
         if not matches(getattr(note, "title", None)):
