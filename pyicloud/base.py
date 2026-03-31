@@ -252,6 +252,7 @@ class PyiCloudService:
         authenticate: bool = True,
         cloudkit_validation_extra: Optional[CloudKitExtraMode] = None,
     ) -> None:
+        """Initialize a service session for one Apple ID account."""
         self._is_china_mainland: bool = (
             environ.get("icloud_china", "0") == "1"
             if china_mainland is None
@@ -527,6 +528,7 @@ class PyiCloudService:
         }
 
     def _authenticate(self) -> None:
+        """Authenticate with either the cached session token or fresh credentials."""
         LOGGER.debug("Authenticating as %s", self.account_name)
 
         try:
@@ -700,6 +702,7 @@ class PyiCloudService:
     def _get_auth_headers(
         self, overrides: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
+        """Build Apple auth headers for IDMS, bridge, and verification requests."""
         headers: dict[str, Any] = _AUTH_HEADERS_JSON.copy()
         headers.update(
             {
@@ -728,6 +731,7 @@ class PyiCloudService:
         return self._session
 
     def _is_mfa_required(self) -> bool:
+        """Return whether the current auth state still requires MFA completion."""
         return (
             self.data.get("hsaChallengeRequired", False)
             or not self.is_trusted_session
@@ -1414,7 +1418,9 @@ class PyiCloudService:
         return self._apple_id
 
     def __str__(self) -> str:
+        """Return a concise human-readable service description."""
         return f"iCloud API: {self.account_name}"
 
     def __repr__(self) -> str:
+        """Mirror ``__str__`` for interactive inspection."""
         return f"<{self}>"

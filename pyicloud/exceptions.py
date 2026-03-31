@@ -31,6 +31,7 @@ class PyiCloudAPIResponseException(PyiCloudException):
         code: Optional[Union[int, str]] = None,
         response: Optional[Response] = None,
     ) -> None:
+        """Capture a normalized API error and the optional HTTP context."""
         self.reason: str = reason
         self.code: Optional[Union[int, str]] = code
         self.response: Optional[Response] = response
@@ -58,6 +59,7 @@ class PyiCloudFailedLoginException(PyiCloudException):
         *args,
         response: Optional[Response] = None,
     ) -> None:
+        """Initialize a login failure with optional HTTP response details."""
         self.response: Optional[Response] = response
         message: str = msg or "Failed login to iCloud"
         if response is not None and response.text:
@@ -73,6 +75,7 @@ class PyiCloud2FARequiredException(PyiCloudException):
     """iCloud 2FA required exception."""
 
     def __init__(self, apple_id: str, response: Response) -> None:
+        """Initialize a 2FA-required error for an HSA2 login challenge."""
         message: str = f"2FA authentication required for account: {apple_id} (HSA2)"
         super().__init__(message)
         self.response: Response = response
@@ -82,6 +85,7 @@ class PyiCloud2SARequiredException(PyiCloudException):
     """iCloud 2SA required exception."""
 
     def __init__(self, apple_id: str) -> None:
+        """Initialize a 2SA-required error for a legacy login challenge."""
         message: str = f"Two-step authentication required for account: {apple_id}"
         super().__init__(message)
 
@@ -90,6 +94,7 @@ class PyiCloudAuthRequiredException(PyiCloudException):
     """iCloud re-authentication required exception."""
 
     def __init__(self, apple_id: str, response: Response) -> None:
+        """Initialize a reauthentication-required error with the triggering response."""
         message: str = f"Re-authentication required for account: {apple_id}"
         super().__init__(message)
         self.response: Response = response

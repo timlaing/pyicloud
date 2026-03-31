@@ -99,6 +99,7 @@ class CLIState:
         log_level: LogLevel,
         output_format: OutputFormat,
     ) -> None:
+        """Capture the CLI options and shared runtime state for one invocation."""
         self.username = (username or "").strip()
         self.password = password
         self.china_mainland = china_mainland
@@ -235,6 +236,7 @@ class CLIState:
             self._resolved_username = api.account_name
 
     def _resolve_username(self) -> str:
+        """Resolve the Apple ID to use for the current CLI command."""
         if self._resolved_username:
             return self._resolved_username
 
@@ -280,6 +282,7 @@ class CLIState:
         )
 
     def _password_for_login(self, username: str) -> tuple[Optional[str], Optional[str]]:
+        """Return the password and its source for an interactive login flow."""
         if self.password:
             return self.password, "explicit"
 
@@ -293,6 +296,7 @@ class CLIState:
         return utils.get_password(username, interactive=True), "prompt"
 
     def _configure_logging(self) -> None:
+        """Apply the requested log level once for the current CLI process."""
         if self._logging_configured:
             return
         logging.basicConfig(level=self.log_level.logging_level())
@@ -306,6 +310,7 @@ class CLIState:
         return utils.get_password_from_keyring(username)
 
     def _prompt_index(self, prompt: str, count: int) -> int:
+        """Prompt for a zero-based selection index when multiple choices exist."""
         if count <= 1 or not self.interactive:
             return 0
         raw = typer.prompt(prompt, default="0")
@@ -318,6 +323,7 @@ class CLIState:
         return idx
 
     def _handle_2fa(self, api: PyiCloudService) -> None:
+        """Complete Apple's HSA2 flow using a security key or code-based challenge."""
         fido2_devices = list(getattr(api, "fido2_devices", []) or [])
         if fido2_devices:
             self.console.print("Security key verification required.")
@@ -385,6 +391,7 @@ class CLIState:
             api.trust_session()
 
     def _handle_2sa(self, api: PyiCloudService) -> None:
+        """Complete Apple's legacy two-step authentication flow."""
         devices = list(api.trusted_devices or [])
         if not devices:
             raise CLIAbort(

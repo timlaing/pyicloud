@@ -44,6 +44,7 @@ class PyiCloudSession(requests.Session):
         verify: bool = False,
         headers: Optional[dict[str, str]] = None,
     ) -> None:
+        """Initialize the persisted requests session used by the service."""
         super().__init__()
 
         self._service: PyiCloudService = service
@@ -143,6 +144,7 @@ class PyiCloudSession(requests.Session):
                 self._data.update({session_arg: response.headers.get(header)})
 
     def _is_json_response(self, response: Response) -> bool:
+        """Return whether a response advertises one of the accepted JSON mimetypes."""
         content_type: str = response.headers.get(CONTENT_TYPE, "")
         json_mimetypes: list[str] = [
             CONTENT_TYPE_JSON,
@@ -169,6 +171,7 @@ class PyiCloudSession(requests.Session):
         cert=None,
         json=None,
     ) -> Response:
+        """Dispatch a request through the normalized session request pipeline."""
         return self._request(
             method,
             url,
@@ -368,6 +371,7 @@ class PyiCloudSession(requests.Session):
     def _raise_error(
         self, response: Response, code: Optional[Union[int, str]], reason: str
     ) -> NoReturn:
+        """Raise the session's public exception for a parsed iCloud error payload."""
         if (
             self.service.requires_2sa
             and reason == "Missing X-APPLE-WEBAUTH-TOKEN cookie"

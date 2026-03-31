@@ -39,11 +39,14 @@ _AES_GCM_LAYOUTS = {0: (12, 16)}
 
 @dataclass(frozen=True)
 class _Point:
+    """Affine P-256 point used by the bridge SPAKE2 math helpers."""
+
     x: Optional[int]
     y: Optional[int]
 
     @property
     def is_infinity(self) -> bool:
+        """Return whether this point is the point at infinity."""
         return self.x is None or self.y is None
 
 
@@ -52,26 +55,31 @@ _GENERATOR = _Point(_P256_GX, _P256_GY)
 
 
 def _int_to_bytes(value: int, length: Optional[int] = None) -> bytes:
+    """Encode an integer using big-endian bytes."""
     if length is None:
         length = max(1, (value.bit_length() + 7) // 8)
     return value.to_bytes(length, "big")
 
 
 def _b64_to_bytes(value: str) -> bytes:
+    """Decode a base64 string into raw bytes."""
     return base64.b64decode(value.encode("ascii"))
 
 
 def _bytes_to_b64(value: bytes) -> str:
+    """Encode raw bytes as an ASCII base64 string."""
     return base64.b64encode(value).decode("ascii")
 
 
 def _encode_point(point: _Point) -> str:
+    """Encode a P-256 point using SEC1 uncompressed point format."""
     if point.is_infinity:
         raise ValueError("Cannot encode the point at infinity.")
     return "04" + _int_to_bytes(point.x, 32).hex() + _int_to_bytes(point.y, 32).hex()
 
 
 def _decode_point(value: str) -> _Point:
+    """Decode a compressed or uncompressed SEC1 point into affine coordinates."""
     raw = bytes.fromhex(value)
     if len(raw) == 65 and raw[0] == 0x04:
         point = _Point(
@@ -94,6 +102,7 @@ def _decode_point(value: str) -> _Point:
 
 
 def _is_on_curve(point: _Point) -> bool:
+    """Return whether a point lies on the configured P-256 curve."""
     if point.is_infinity:
         return False
     assert point.x is not None and point.y is not None
@@ -104,6 +113,7 @@ def _is_on_curve(point: _Point) -> bool:
 
 
 def _negate(point: _Point) -> _Point:
+    """Return the additive inverse of a P-256 point."""
     if point.is_infinity:
         return point
     assert point.x is not None and point.y is not None
@@ -111,6 +121,7 @@ def _negate(point: _Point) -> _Point:
 
 
 def _add_points(left: _Point, right: _Point) -> _Point:
+    """Add two affine P-256 points."""
     if left.is_infinity:
         return right
     if right.is_infinity:
@@ -137,6 +148,7 @@ def _add_points(left: _Point, right: _Point) -> _Point:
 
 
 def _multiply_point(point: _Point, scalar: int) -> _Point:
+    """Multiply a P-256 point by a scalar using double-and-add."""
     scalar %= _P256_ORDER
     result = _INFINITY
     addend = point
@@ -149,6 +161,7 @@ def _multiply_point(point: _Point, scalar: int) -> _Point:
 
 
 def _concat_length_prefixed(*parts: bytes) -> bytes:
+    """Concatenate transcript parts using the bridge's length-prefixed format."""
     output = bytearray()
     for part in parts:
         output.extend(len(part).to_bytes(8, "little"))
@@ -157,6 +170,7 @@ def _concat_length_prefixed(*parts: bytes) -> bytes:
 
 
 def _hkdf_like(ikm: bytes, salt: bytes, info: bytes, length: int) -> bytes:
+    """Derive key material using the bridge worker's HKDF-like expansion."""
     hash_len = hashlib.sha256().digest_size
     if not salt:
         salt = b"\x00" * hash_len
@@ -176,12 +190,14 @@ def _hkdf_like(ikm: bytes, salt: bytes, info: bytes, length: int) -> bytes:
 
 
 def _confirmation_key_length(info: bytes, requested_length: int) -> int:
+    """Return the bridge-specific output length for a given HKDF info label."""
     if b"ConfirmationKeys" in info:
         return 64
     return requested_length
 
 
 def _derive_key(ikm: bytes, info: bytes, length: int = 64) -> bytes:
+    """Derive one bridge sub-key from raw shared-secret material."""
     return _hkdf_like(
         ikm=ikm,
         salt=b"",
@@ -191,6 +207,7 @@ def _derive_key(ikm: bytes, info: bytes, length: int = 64) -> bytes:
 
 
 def _derive_prover_and_verifier_keys(raw_key_hex: str) -> tuple[str, str]:
+    """Split the raw bridge key into prover and verifier AES/HMAC keys."""
     raw_key = bytes.fromhex(raw_key_hex)
     verifier_key = _derive_key(raw_key, _VERIFIER_KEY_INFO, _KEY_LENGTH)
     prover_key = _derive_key(raw_key, _PROVER_KEY_INFO, _KEY_LENGTH)
@@ -199,11 +216,14 @@ def _derive_prover_and_verifier_keys(raw_key_hex: str) -> tuple[str, str]:
 
 @dataclass(frozen=True)
 class _ClientSharedSecret:
+    """Client-side shared-secret transcript and derived confirmation keys."""
+
     transcript: bytes
     share_p: str
     share_v: str
 
     def __post_init__(self) -> None:
+        """Derive confirmation keys and the final shared key from the transcript."""
         digest = hashlib.sha256(self.transcript).digest()
         object.__setattr__(self, "_hash_transcript", digest)
         confirmations = _derive_key(digest, b"ConfirmationKeys", 64)
@@ -213,6 +233,7 @@ class _ClientSharedSecret:
         object.__setattr__(self, "_shared_key", shared_key)
 
     def get_confirmation(self) -> str:
+        """Return the prover's HMAC confirmation message."""
         return hmac.new(
             self._confirm_client,
             bytes.fromhex(self.share_v),
@@ -220,6 +241,7 @@ class _ClientSharedSecret:
         ).hexdigest()
 
     def verify(self, message_hex: str) -> bytes:
+        """Verify the server confirmation and return the shared key bytes."""
         expected = hmac.new(
             self._confirm_server,
             bytes.fromhex(self.share_p),
@@ -232,11 +254,14 @@ class _ClientSharedSecret:
 
 @dataclass(frozen=True)
 class _ServerSharedSecret:
+    """Server-side shared-secret transcript and derived confirmation keys."""
+
     transcript: bytes
     share_p: str
     share_v: str
 
     def __post_init__(self) -> None:
+        """Derive confirmation keys and the final shared key from the transcript."""
         digest = hashlib.sha256(self.transcript).digest()
         confirmations = _derive_key(digest, b"ConfirmationKeys", 64)
         object.__setattr__(self, "_confirm_client", confirmations[:32])
@@ -248,6 +273,7 @@ class _ServerSharedSecret:
         )
 
     def get_confirmation(self) -> str:
+        """Return the verifier's HMAC confirmation message."""
         return hmac.new(
             self._confirm_server,
             bytes.fromhex(self.share_p),
@@ -255,6 +281,7 @@ class _ServerSharedSecret:
         ).hexdigest()
 
     def verify(self, message_hex: str) -> bytes:
+        """Verify the prover confirmation and return the shared key bytes."""
         expected = hmac.new(
             self._confirm_client,
             bytes.fromhex(self.share_v),
@@ -266,6 +293,8 @@ class _ServerSharedSecret:
 
 
 class _ClientHandshake:
+    """Client-side SPAKE2 handshake state for Apple's bridge prover."""
+
     def __init__(
         self,
         *,
@@ -273,6 +302,7 @@ class _ClientHandshake:
         w0: int,
         w1: int,
     ) -> None:
+        """Initialize the prover handshake with the derived SPAKE2 scalars."""
         self._x = x_scalar
         self._w0 = w0
         self._w1 = w1
@@ -280,6 +310,7 @@ class _ClientHandshake:
         self.share_p: Optional[str] = None
 
     def get_message(self) -> str:
+        """Return the prover's first SPAKE2 message."""
         point = _add_points(
             _multiply_point(_GENERATOR, self._x),
             _multiply_point(_decode_point(_SPAKE2_M), self._w0),
@@ -289,6 +320,7 @@ class _ClientHandshake:
         return self.share_p
 
     def finish(self, server_message_hex: str) -> _ClientSharedSecret:
+        """Finish the handshake using the verifier's first message."""
         if self._message1_point is None or self.share_p is None:
             raise ValueError("get_message must be called before finish")
 
@@ -322,6 +354,8 @@ class _ClientHandshake:
 
 
 class _ServerHandshake:
+    """Server-side SPAKE2 handshake state used by the local test helper."""
+
     def __init__(
         self,
         *,
@@ -329,6 +363,7 @@ class _ServerHandshake:
         w0: int,
         verifier_point: _Point,
     ) -> None:
+        """Initialize the verifier handshake with its scalar and verifier point."""
         self._y = y_scalar
         self._w0 = w0
         self._verifier_point = verifier_point
@@ -336,6 +371,7 @@ class _ServerHandshake:
         self.share_v: Optional[str] = None
 
     def get_message(self) -> str:
+        """Return the verifier's first SPAKE2 message."""
         point = _add_points(
             _multiply_point(_GENERATOR, self._y),
             _multiply_point(_decode_point(_SPAKE2_N), self._w0),
@@ -345,6 +381,7 @@ class _ServerHandshake:
         return self.share_v
 
     def finish(self, client_message_hex: str) -> _ServerSharedSecret:
+        """Finish the verifier handshake using the prover's first message."""
         if self._message1_point is None or self.share_v is None:
             raise ValueError("get_message must be called before finish")
 
@@ -378,6 +415,7 @@ class _ServerHandshake:
 
 
 def _compute_w0_w1(password: str, salt_b64: str) -> tuple[int, int]:
+    """Derive the SPAKE2 scalars from the user code and bridge salt."""
     derived = hashlib.scrypt(
         password.encode("utf-8"),
         salt=_b64_to_bytes(salt_b64),
@@ -394,6 +432,7 @@ class TrustedDeviceBridgeProver:
     """Client-side prover mirroring Apple's prover worker."""
 
     def __init__(self) -> None:
+        """Initialize empty prover state for one bridge verification attempt."""
         self._client: Optional[_ClientHandshake] = None
         self._shared_secret: Optional[_ClientSharedSecret] = None
         self._raw_key: Optional[str] = None
@@ -402,6 +441,7 @@ class TrustedDeviceBridgeProver:
         self._prover_key: Optional[str] = None
 
     def init_with_salt(self, salt_b64: str, code: str) -> None:
+        """Initialize the prover with Apple's salt and the user-entered code."""
         w0, w1 = _compute_w0_w1(code, salt_b64)
         self._client = _ClientHandshake(
             x_scalar=secrets.randbelow(_P256_ORDER),
@@ -415,22 +455,26 @@ class TrustedDeviceBridgeProver:
         self._prover_key = None
 
     def get_message1(self) -> str:
+        """Return the prover's first bridge message."""
         if self._client is None:
             raise ValueError("init_with_salt must be called before get_message1")
         return self._client.get_message()
 
     def process_message1(self, message_hex: str) -> str:
+        """Process Apple's first bridge message and return the prover confirmation."""
         if self._client is None:
             raise ValueError("init_with_salt must be called before process_message1")
         self._shared_secret = self._client.finish(message_hex)
         return self.get_message2()
 
     def get_message2(self) -> str:
+        """Return the prover confirmation generated from the shared transcript."""
         if self._shared_secret is None:
             raise ValueError("process_message1 must be called before get_message2")
         return self._shared_secret.get_confirmation()
 
     def process_message2(self, message_hex: str) -> dict[str, object]:
+        """Verify Apple's confirmation and persist the derived bridge keys."""
         if self._shared_secret is None:
             raise ValueError("process_message1 must be called before process_message2")
         raw_key = self._shared_secret.verify(message_hex).hex()
@@ -440,14 +484,17 @@ class TrustedDeviceBridgeProver:
         return {"isVerified": True, "key": raw_key}
 
     def is_verified(self) -> bool:
+        """Return whether the bridge confirmation exchange has completed."""
         return self._verified
 
     def get_key(self) -> str:
+        """Return the raw shared bridge key as hexadecimal."""
         if self._raw_key is None:
             raise ValueError("No bridge key is available yet.")
         return self._raw_key
 
     def decrypt_message(self, ciphertext_b64: str) -> str:
+        """Decrypt Apple's final encrypted validation code."""
         if self._verifier_key is None:
             raise ValueError("Bridge verifier key is not available.")
         payload = _b64_to_bytes(ciphertext_b64)
@@ -468,6 +515,7 @@ class _TrustedDeviceBridgeServerProver:
     """Internal test helper mirroring Apple's server-side bridge flow."""
 
     def __init__(self, *, password: str, salt_b64: str) -> None:
+        """Initialize the local verifier helper with the same password and salt."""
         w0, w1 = _compute_w0_w1(password, salt_b64)
         verifier_point = _multiply_point(_GENERATOR, w1)
         self._server = _ServerHandshake(
@@ -481,18 +529,22 @@ class _TrustedDeviceBridgeServerProver:
         self._prover_key: Optional[str] = None
 
     def get_message1(self) -> str:
+        """Return the verifier's first bridge message."""
         return self._server.get_message()
 
     def process_message1(self, client_message_hex: str) -> str:
+        """Process the prover message and return the verifier confirmation."""
         self._shared_secret = self._server.finish(client_message_hex)
         return self.get_message2()
 
     def get_message2(self) -> str:
+        """Return the verifier confirmation generated from the shared transcript."""
         if self._shared_secret is None:
             raise ValueError("process_message1 must be called before get_message2")
         return self._shared_secret.get_confirmation()
 
     def verify_message2(self, message_hex: str) -> str:
+        """Verify the prover confirmation and persist the derived bridge keys."""
         if self._shared_secret is None:
             raise ValueError("process_message1 must be called before verify_message2")
         raw_key = self._shared_secret.verify(message_hex).hex()
@@ -501,6 +553,7 @@ class _TrustedDeviceBridgeServerProver:
         return raw_key
 
     def encrypt_message(self, plaintext: str) -> str:
+        """Encrypt a plaintext validation code using Apple's AES-GCM payload layout."""
         if self._verifier_key is None:
             raise ValueError("Bridge verifier key is not available.")
         version = 0
