@@ -1259,58 +1259,6 @@ Notes caveats:
 - `api.notes.raw` is available for advanced/debug workflows, but it is not the
   primary Notes API surface.
 
-### Notes CLI
-
-### Notes CLI
-
-The official Typer CLI exposes `icloud notes ...` for recent-note inspection,
-folder browsing, title-based search, HTML rendering, and note-id-based export.
-
-_List recent notes, folders, or one folder’s notes:_
-
-```bash
-uv run icloud notes recent --username you@example.com
-uv run icloud notes folders --username you@example.com
-uv run icloud notes list --username you@example.com --folder-id FOLDER_ID
-uv run icloud notes list --username you@example.com --all --since PREVIOUS_CURSOR
-```
-
-_Search notes by title:_
-
-```bash
-uv run icloud notes search --username you@example.com --title "Daily Plan"
-uv run icloud notes search --username you@example.com --title-contains "meeting"
-```
-
-`icloud notes search` is the official title-filter workflow. It uses a
-recents-first search strategy and falls back to a full feed scan when needed.
-
-_Fetch, render, and export one note by id:_
-
-```bash
-uv run icloud notes get NOTE_ID --username you@example.com --with-attachments
-uv run icloud notes render NOTE_ID --username you@example.com --preview-appearance dark
-uv run icloud notes export NOTE_ID \
-  --username you@example.com \
-  --output-dir ./exports/notes_html \
-  --export-mode archival \
-  --assets-dir ./exports/assets
-```
-
-`icloud notes export` stays explicit by note id. Title filters are intentionally
-handled by `icloud notes search` rather than by bulk export flags.
-
-_Inspect incremental changes:_
-
-```bash
-uv run icloud notes changes --username you@example.com --since PREVIOUS_CURSOR
-uv run icloud notes sync-cursor --username you@example.com
-```
-
-### Notes CLI Example
-
-### Notes CLI Example
-
 [`examples/notes_cli.py`](examples/notes_cli.py) is a local developer utility
 built on top of `api.notes`. It is useful for searching notes, inspecting the
 rendering pipeline, and exporting HTML, but its selection heuristics and debug
