@@ -56,6 +56,7 @@ from .models.constants import NotesDesiredKey, NotesRecordType
 from .models.dto import ChangeEvent, NoteFolder
 
 LOGGER = logging.getLogger(__name__)
+_HAS_SUBFOLDER_FIELD = "HasSubfolder"
 
 
 class NoteNotFound(NotesError):
@@ -248,8 +249,7 @@ class NotesService(BaseService):
         """
         desired_keys = [
             NotesDesiredKey.TITLE_ENCRYPTED,
-            NotesDesiredKey.TITLE_MODIFICATION_DATE,
-            NotesDesiredKey.HAS_SUBFOLDER,
+            _HAS_SUBFOLDER_FIELD,
         ]
         query = CKQueryObject(
             recordType="SearchIndexes",
@@ -277,13 +277,12 @@ class NotesService(BaseService):
                     name = self._decode_encrypted(
                         rec.fields.get_value("TitleEncrypted")
                     )
-                    has_sub = bool(
-                        getattr(
-                            rec.fields.get_field(NotesDesiredKey.HAS_SUBFOLDER) or (),
-                            "value",
-                            False,
-                        )
+                    has_sub_value = getattr(
+                        rec.fields.get_field(_HAS_SUBFOLDER_FIELD) or (),
+                        "value",
+                        None,
                     )
+                    has_sub = None if has_sub_value is None else bool(has_sub_value)
                     yield NoteFolder(
                         id=folder_id, name=name, has_subfolders=has_sub, count=None
                     )
