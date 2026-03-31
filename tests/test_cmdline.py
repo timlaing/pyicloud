@@ -10,11 +10,34 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 
 import click
 from typer.testing import CliRunner
+
+from pyicloud.services.notes.models import Attachment as NoteAttachment
+from pyicloud.services.notes.models import ChangeEvent as NoteChangeEvent
+from pyicloud.services.notes.models import (
+    Note,
+    NoteFolder,
+    NoteSummary,
+)
+from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
+from pyicloud.services.reminders.models import (
+    Alarm,
+    AlarmWithTrigger,
+    Hashtag,
+    ListRemindersResult,
+    LocationTrigger,
+    Proximity,
+    RecurrenceFrequency,
+    RecurrenceRule,
+    Reminder,
+    ReminderChangeEvent,
+    RemindersList,
+    URLAttachment,
+)
 
 account_index_module = importlib.import_module("pyicloud.cli.account_index")
 cli_module = importlib.import_module("pyicloud.cli.app")
@@ -195,6 +218,613 @@ class FakeHideMyEmail:
         return {"anonymousId": anonymous_id, "deleted": True}
 
 
+class FakeNotes:
+    """Notes service fixture."""
+
+    def __init__(self) -> None:
+        attachment = NoteAttachment(
+            id="Attachment/PDF",
+            filename="agenda.pdf",
+            uti="com.adobe.pdf",
+            size=12,
+            download_url="https://example.com/agenda.pdf",
+            preview_url="https://example.com/agenda-preview.pdf",
+            thumbnail_url="https://example.com/agenda-thumb.png",
+        )
+        self.recent_requests: list[int] = []
+        self.iter_all_requests: list[str | None] = []
+        self.folder_requests: list[tuple[str, int | None]] = []
+        self.render_calls: list[dict[str, Any]] = []
+        self.export_calls: list[dict[str, Any]] = []
+        self.change_requests: list[str | None] = []
+        self.folder_rows = [
+            NoteFolder(
+                id="Folder/NOTES",
+                name="Notes",
+                has_subfolders=False,
+                count=1,
+            ),
+            NoteFolder(
+                id="Folder/WORK",
+                name="Work",
+                has_subfolders=True,
+                count=3,
+            ),
+        ]
+        self.recent_rows = [
+            NoteSummary(
+                id="Note/DELETED",
+                title="Deleted Note",
+                snippet="Old note",
+                modified_at=datetime(2026, 3, 5, tzinfo=timezone.utc),
+                folder_id="Folder/DELETED",
+                folder_name="Recently Deleted",
+                is_deleted=True,
+                is_locked=False,
+            ),
+            NoteSummary(
+                id="Note/DAILY",
+                title="Daily Plan",
+                snippet="Ship CLI",
+                modified_at=datetime(2026, 3, 4, tzinfo=timezone.utc),
+                folder_id="Folder/NOTES",
+                folder_name="Notes",
+                is_deleted=False,
+                is_locked=False,
+            ),
+            NoteSummary(
+                id="Note/MEETING",
+                title="Meeting Notes",
+                snippet="Discuss roadmap",
+                modified_at=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+            ),
+        ]
+        self.all_rows = [
+            self.recent_rows[2],
+            NoteSummary(
+                id="Note/FOLLOWUP",
+                title="Meeting Follow-up",
+                snippet="Send recap",
+                modified_at=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+            ),
+            self.recent_rows[1],
+            self.recent_rows[2],
+        ]
+        self.notes = {
+            "Note/DAILY": Note(
+                id="Note/DAILY",
+                title="Daily Plan",
+                snippet="Ship CLI",
+                modified_at=datetime(2026, 3, 4, tzinfo=timezone.utc),
+                folder_id="Folder/NOTES",
+                folder_name="Notes",
+                is_deleted=False,
+                is_locked=False,
+                text="Ship CLI",
+                html="<p>Ship CLI</p>",
+                attachments=[attachment],
+            ),
+            "Note/MEETING": Note(
+                id="Note/MEETING",
+                title="Meeting Notes",
+                snippet="Discuss roadmap",
+                modified_at=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+                text="Discuss roadmap",
+                html="<p>Discuss roadmap</p>",
+                attachments=[attachment],
+            ),
+            "Note/FOLLOWUP": Note(
+                id="Note/FOLLOWUP",
+                title="Meeting Follow-up",
+                snippet="Send recap",
+                modified_at=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+                text="Send recap",
+                html="<p>Send recap</p>",
+                attachments=None,
+            ),
+        }
+        self.change_rows = [
+            NoteChangeEvent(type="updated", note=self.recent_rows[1]),
+            NoteChangeEvent(type="deleted", note=self.recent_rows[0]),
+        ]
+        self.cursor = "notes-cursor-1"
+
+    @staticmethod
+    def _matches_id(note_id: str, query: str) -> bool:
+        return note_id == query or note_id.split("/", 1)[-1] == query
+
+    def recents(self, *, limit: int = 50):
+        self.recent_requests.append(limit)
+        return list(self.recent_rows[:limit])
+
+    def folders(self):
+        return list(self.folder_rows)
+
+    def in_folder(self, folder_id: str, limit: int | None = None):
+        self.folder_requests.append((folder_id, limit))
+        rows = [row for row in self.all_rows if row.folder_id == folder_id]
+        return list(rows[:limit] if limit is not None else rows)
+
+    def iter_all(self, *, since: Optional[str] = None):
+        self.iter_all_requests.append(since)
+        return iter(self.all_rows)
+
+    def get(self, note_id: str, *, with_attachments: bool = False):
+        if self._matches_id("Note/LOCKED", note_id):
+            raise NoteLockedError(f"Note is locked: {note_id}")
+        for candidate_id, note in self.notes.items():
+            if self._matches_id(candidate_id, note_id):
+                attachments = note.attachments if with_attachments else None
+                return note.model_copy(update={"attachments": attachments})
+        raise NoteNotFound(f"Note not found: {note_id}")
+
+    def render_note(self, note_id: str, **kwargs: Any) -> str:
+        note = self.get(note_id, with_attachments=False)
+        self.render_calls.append({"note_id": note.id, **kwargs})
+        return note.html or f"<p>{note.id}</p>"
+
+    def export_note(self, note_id: str, output_dir: str, **kwargs: Any) -> str:
+        note = self.get(note_id, with_attachments=False)
+        path = Path(output_dir) / f"{note.id.split('/', 1)[-1].lower()}.html"
+        self.export_calls.append(
+            {"note_id": note.id, "output_dir": output_dir, **kwargs}
+        )
+        return str(path)
+
+    def iter_changes(self, *, since: Optional[str] = None):
+        self.change_requests.append(since)
+        return iter(self.change_rows)
+
+    def sync_cursor(self) -> str:
+        return self.cursor
+
+
+class FakeReminders:
+    """Reminders service fixture."""
+
+    def __init__(self) -> None:
+        self.list_rows = {
+            "List/INBOX": RemindersList(
+                id="List/INBOX",
+                title="Inbox",
+                color='{"daHexString":"#007AFF","ckSymbolicColorName":"blue"}',
+                count=0,
+            ),
+            "List/WORK": RemindersList(
+                id="List/WORK",
+                title="Work",
+                color='{"daHexString":"#34C759","ckSymbolicColorName":"green"}',
+                count=0,
+            ),
+        }
+        self.reminder_rows = {
+            "Reminder/A": Reminder(
+                id="Reminder/A",
+                list_id="List/INBOX",
+                title="Buy milk",
+                desc="2 percent",
+                completed=False,
+                due_date=datetime(2026, 3, 31, 9, 0, tzinfo=timezone.utc),
+                priority=1,
+                flagged=True,
+                all_day=False,
+                time_zone="Europe/Luxembourg",
+                alarm_ids=["Alarm/A"],
+                hashtag_ids=["Hashtag/ERRANDS"],
+                attachment_ids=["Attachment/LINK"],
+                recurrence_rule_ids=["Recurrence/WEEKLY"],
+                parent_reminder_id="Reminder/PARENT",
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 4, tzinfo=timezone.utc),
+            ),
+            "Reminder/B": Reminder(
+                id="Reminder/B",
+                list_id="List/INBOX",
+                title="Pay rent",
+                desc="",
+                completed=True,
+                completed_date=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                priority=0,
+                flagged=False,
+                all_day=False,
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 2, tzinfo=timezone.utc),
+            ),
+            "Reminder/C": Reminder(
+                id="Reminder/C",
+                list_id="List/WORK",
+                title="Prepare deck",
+                desc="Slides for review",
+                completed=False,
+                priority=5,
+                flagged=False,
+                all_day=False,
+                created=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 4, tzinfo=timezone.utc),
+            ),
+        }
+        self.alarm_rows = {
+            "Alarm/A": Alarm(
+                id="Alarm/A",
+                alarm_uid="alarm-a",
+                reminder_id="Reminder/A",
+                trigger_id="Trigger/A",
+            )
+        }
+        self.trigger_rows = {
+            "Trigger/A": LocationTrigger(
+                id="Trigger/A",
+                alarm_id="Alarm/A",
+                title="Office",
+                address="1 Infinite Loop",
+                latitude=37.3318,
+                longitude=-122.0312,
+                radius=150.0,
+                proximity=Proximity.ARRIVING,
+                location_uid="office",
+            )
+        }
+        self.hashtag_rows = {
+            "Hashtag/ERRANDS": Hashtag(
+                id="Hashtag/ERRANDS",
+                name="errands",
+                reminder_id="Reminder/A",
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+            )
+        }
+        self.attachment_rows = {
+            "Attachment/LINK": URLAttachment(
+                id="Attachment/LINK",
+                reminder_id="Reminder/A",
+                url="https://example.com/checklist",
+                uti="public.url",
+            )
+        }
+        self.recurrence_rows = {
+            "Recurrence/WEEKLY": RecurrenceRule(
+                id="Recurrence/WEEKLY",
+                reminder_id="Reminder/A",
+                frequency=RecurrenceFrequency.WEEKLY,
+                interval=1,
+                occurrence_count=0,
+                first_day_of_week=1,
+            )
+        }
+        self.snapshot_requests: list[dict[str, Any]] = []
+        self.change_requests: list[str | None] = []
+        self.cursor = "reminders-cursor-1"
+
+    @staticmethod
+    def _matches_id(record_id: str, query: str) -> bool:
+        return record_id == query or record_id.split("/", 1)[-1] == query
+
+    def _find_reminder(self, reminder_id: str) -> Reminder:
+        for candidate_id, reminder in self.reminder_rows.items():
+            if self._matches_id(candidate_id, reminder_id):
+                return reminder
+        raise LookupError(f"Reminder not found: {reminder_id}")
+
+    def lists(self):
+        for row in self.list_rows.values():
+            row.count = sum(
+                1
+                for reminder in self.reminder_rows.values()
+                if reminder.list_id == row.id and not reminder.deleted
+            )
+        return list(self.list_rows.values())
+
+    def reminders(self, list_id: Optional[str] = None):
+        rows = [
+            reminder
+            for reminder in self.reminder_rows.values()
+            if not reminder.deleted and (list_id is None or reminder.list_id == list_id)
+        ]
+        return list(rows)
+
+    def list_reminders(
+        self,
+        list_id: str,
+        include_completed: bool = False,
+        results_limit: int = 200,
+    ) -> ListRemindersResult:
+        normalized = list_id if list_id.startswith("List/") else f"List/{list_id}"
+        self.snapshot_requests.append(
+            {
+                "list_id": normalized,
+                "include_completed": include_completed,
+                "results_limit": results_limit,
+            }
+        )
+        reminders = [
+            reminder
+            for reminder in self.reminder_rows.values()
+            if reminder.list_id == normalized
+            and not reminder.deleted
+            and (include_completed or not reminder.completed)
+        ][:results_limit]
+        reminder_ids = {reminder.id for reminder in reminders}
+        return ListRemindersResult(
+            reminders=reminders,
+            alarms={
+                alarm_id: alarm
+                for alarm_id, alarm in self.alarm_rows.items()
+                if alarm.reminder_id in reminder_ids
+            },
+            triggers={
+                trigger_id: trigger
+                for trigger_id, trigger in self.trigger_rows.items()
+                if any(
+                    alarm.trigger_id == trigger_id
+                    for alarm in self.alarm_rows.values()
+                    if alarm.reminder_id in reminder_ids
+                )
+            },
+            attachments={
+                attachment_id: attachment
+                for attachment_id, attachment in self.attachment_rows.items()
+                if attachment.reminder_id in reminder_ids
+            },
+            hashtags={
+                hashtag_id: hashtag
+                for hashtag_id, hashtag in self.hashtag_rows.items()
+                if hashtag.reminder_id in reminder_ids
+            },
+            recurrence_rules={
+                rule_id: rule
+                for rule_id, rule in self.recurrence_rows.items()
+                if rule.reminder_id in reminder_ids
+            },
+        )
+
+    def get(self, reminder_id: str) -> Reminder:
+        return self._find_reminder(reminder_id)
+
+    def create(
+        self,
+        list_id: str,
+        title: str,
+        desc: str = "",
+        completed: bool = False,
+        due_date: Optional[datetime] = None,
+        priority: int = 0,
+        flagged: bool = False,
+        all_day: bool = False,
+        time_zone: Optional[str] = None,
+        parent_reminder_id: Optional[str] = None,
+    ) -> Reminder:
+        next_id = f"Reminder/CREATED-{len(self.reminder_rows) + 1}"
+        reminder = Reminder(
+            id=next_id,
+            list_id=list_id,
+            title=title,
+            desc=desc,
+            completed=completed,
+            due_date=due_date,
+            priority=priority,
+            flagged=flagged,
+            all_day=all_day,
+            time_zone=time_zone,
+            parent_reminder_id=parent_reminder_id,
+            created=datetime(2026, 3, 30, tzinfo=timezone.utc),
+            modified=datetime(2026, 3, 30, tzinfo=timezone.utc),
+        )
+        self.reminder_rows[reminder.id] = reminder
+        return reminder
+
+    def update(self, reminder: Reminder) -> None:
+        self.reminder_rows[reminder.id] = reminder
+
+    def delete(self, reminder: Reminder) -> None:
+        reminder.deleted = True
+        self.reminder_rows[reminder.id] = reminder
+
+    def add_location_trigger(
+        self,
+        reminder: Reminder,
+        title: str = "",
+        address: str = "",
+        latitude: float = 0.0,
+        longitude: float = 0.0,
+        radius: float = 100.0,
+        proximity: Proximity = Proximity.ARRIVING,
+    ) -> tuple[Alarm, LocationTrigger]:
+        index = len(self.alarm_rows) + 1
+        alarm = Alarm(
+            id=f"Alarm/{index}",
+            alarm_uid=f"alarm-{index}",
+            reminder_id=reminder.id,
+            trigger_id=f"Trigger/{index}",
+        )
+        trigger = LocationTrigger(
+            id=f"Trigger/{index}",
+            alarm_id=alarm.id,
+            title=title,
+            address=address,
+            latitude=latitude,
+            longitude=longitude,
+            radius=radius,
+            proximity=proximity,
+            location_uid=f"location-{index}",
+        )
+        self.alarm_rows[alarm.id] = alarm
+        self.trigger_rows[trigger.id] = trigger
+        reminder.alarm_ids.append(alarm.id)
+        return alarm, trigger
+
+    def create_hashtag(self, reminder: Reminder, name: str) -> Hashtag:
+        hashtag = Hashtag(
+            id=f"Hashtag/{name.upper()}",
+            name=name,
+            reminder_id=reminder.id,
+            created=datetime(2026, 3, 30, tzinfo=timezone.utc),
+        )
+        self.hashtag_rows[hashtag.id] = hashtag
+        reminder.hashtag_ids.append(hashtag.id)
+        return hashtag
+
+    def update_hashtag(self, hashtag: Hashtag, name: str) -> None:
+        hashtag.name = name
+
+    def delete_hashtag(self, reminder: Reminder, hashtag: Hashtag) -> None:
+        reminder.hashtag_ids = [
+            row_id for row_id in reminder.hashtag_ids if row_id != hashtag.id
+        ]
+        self.hashtag_rows.pop(hashtag.id, None)
+
+    def create_url_attachment(
+        self, reminder: Reminder, url: str, uti: str = "public.url"
+    ) -> URLAttachment:
+        attachment = URLAttachment(
+            id=f"Attachment/{len(self.attachment_rows) + 1}",
+            reminder_id=reminder.id,
+            url=url,
+            uti=uti,
+        )
+        self.attachment_rows[attachment.id] = attachment
+        reminder.attachment_ids.append(attachment.id)
+        return attachment
+
+    def update_attachment(
+        self,
+        attachment: URLAttachment,
+        *,
+        url: Optional[str] = None,
+        uti: Optional[str] = None,
+        filename: Optional[str] = None,
+        file_size: Optional[int] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+    ) -> None:
+        if url is not None:
+            attachment.url = url
+        if uti is not None:
+            attachment.uti = uti
+
+    def delete_attachment(self, reminder: Reminder, attachment: URLAttachment) -> None:
+        reminder.attachment_ids = [
+            row_id for row_id in reminder.attachment_ids if row_id != attachment.id
+        ]
+        self.attachment_rows.pop(attachment.id, None)
+
+    def create_recurrence_rule(
+        self,
+        reminder: Reminder,
+        *,
+        frequency: RecurrenceFrequency = RecurrenceFrequency.DAILY,
+        interval: int = 1,
+        occurrence_count: int = 0,
+        first_day_of_week: int = 0,
+    ) -> RecurrenceRule:
+        rule = RecurrenceRule(
+            id=f"Recurrence/{len(self.recurrence_rows) + 1}",
+            reminder_id=reminder.id,
+            frequency=frequency,
+            interval=interval,
+            occurrence_count=occurrence_count,
+            first_day_of_week=first_day_of_week,
+        )
+        self.recurrence_rows[rule.id] = rule
+        reminder.recurrence_rule_ids.append(rule.id)
+        return rule
+
+    def update_recurrence_rule(
+        self,
+        recurrence_rule: RecurrenceRule,
+        *,
+        frequency: Optional[RecurrenceFrequency] = None,
+        interval: Optional[int] = None,
+        occurrence_count: Optional[int] = None,
+        first_day_of_week: Optional[int] = None,
+    ) -> None:
+        if frequency is not None:
+            recurrence_rule.frequency = frequency
+        if interval is not None:
+            recurrence_rule.interval = interval
+        if occurrence_count is not None:
+            recurrence_rule.occurrence_count = occurrence_count
+        if first_day_of_week is not None:
+            recurrence_rule.first_day_of_week = first_day_of_week
+
+    def delete_recurrence_rule(
+        self, reminder: Reminder, recurrence_rule: RecurrenceRule
+    ) -> None:
+        reminder.recurrence_rule_ids = [
+            row_id
+            for row_id in reminder.recurrence_rule_ids
+            if row_id != recurrence_rule.id
+        ]
+        self.recurrence_rows.pop(recurrence_rule.id, None)
+
+    def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
+        rows = []
+        for alarm_id in reminder.alarm_ids:
+            alarm = self.alarm_rows[alarm_id]
+            rows.append(
+                AlarmWithTrigger(
+                    alarm=alarm,
+                    trigger=self.trigger_rows.get(alarm.trigger_id),
+                )
+            )
+        return rows
+
+    def tags_for(self, reminder: Reminder) -> list[Hashtag]:
+        return [
+            self.hashtag_rows[row_id]
+            for row_id in reminder.hashtag_ids
+            if row_id in self.hashtag_rows
+        ]
+
+    def attachments_for(self, reminder: Reminder) -> list[URLAttachment]:
+        return [
+            self.attachment_rows[row_id]
+            for row_id in reminder.attachment_ids
+            if row_id in self.attachment_rows
+        ]
+
+    def recurrence_rules_for(self, reminder: Reminder) -> list[RecurrenceRule]:
+        return [
+            self.recurrence_rows[row_id]
+            for row_id in reminder.recurrence_rule_ids
+            if row_id in self.recurrence_rows
+        ]
+
+    def iter_changes(self, *, since: Optional[str] = None):
+        self.change_requests.append(since)
+        return iter(
+            [
+                ReminderChangeEvent(
+                    type="updated",
+                    reminder_id="Reminder/A",
+                    reminder=self.reminder_rows["Reminder/A"],
+                ),
+                ReminderChangeEvent(
+                    type="deleted",
+                    reminder_id="Reminder/Z",
+                    reminder=None,
+                ),
+            ]
+        )
+
+    def sync_cursor(self) -> str:
+        return self.cursor
+
+
 class FakeAPI:
     """Authenticated API fixture."""
 
@@ -211,6 +841,9 @@ class FakeAPI:
         self.is_china_mainland = china_mainland
         self.fido2_devices: list[dict[str, Any]] = []
         self.trusted_devices: list[dict[str, Any]] = []
+        self.two_factor_delivery_method = "unknown"
+        self.two_factor_delivery_notice = None
+        self.request_2fa_code = MagicMock(return_value=False)
         self.validate_2fa_code = MagicMock(return_value=True)
         self.confirm_security_key = MagicMock(return_value=True)
         self.send_verification_code = MagicMock(return_value=True)
@@ -322,6 +955,8 @@ class FakeAPI:
             all=photo_album,
         )
         self.hidemyemail = FakeHideMyEmail()
+        self.notes = FakeNotes()
+        self.reminders = FakeReminders()
 
     def _logout(
         self,
@@ -1677,6 +2312,180 @@ def test_trusted_device_2sa_flow() -> None:
     fake_api.validate_verification_code.assert_called_once_with(
         fake_api.trusted_devices[0], "123456"
     )
+
+
+def test_sms_2fa_flow_requests_sms_before_prompt() -> None:
+    """Auth login should request SMS delivery before prompting for the code."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "sms"
+    fake_api.request_2fa_code.return_value = True
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+    assert result.exit_code == 0
+    assert "Requested a 2FA code by SMS." in result.stdout
+    fake_api.request_2fa_code.assert_called_once_with()
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_trusted_device_2fa_flow_reports_device_prompt() -> None:
+    """Auth login should report trusted-device prompt delivery when bridge succeeds."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Requested a 2FA prompt on your trusted Apple devices." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_trusted_device_2fa_retries_invalid_codes_before_success() -> None:
+    """Auth login should allow up to three trusted-device 2FA attempts."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+    fake_api.validate_2fa_code.side_effect = [False, False, True]
+
+    with patch.object(
+        context_module.typer,
+        "prompt",
+        side_effect=["111111", "222222", "333333"],
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+
+
+def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
+    """Auth login should stop after three invalid 2FA attempts."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "sms"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [False, False, False]
+
+    with patch.object(
+        context_module.typer,
+        "prompt",
+        side_effect=["111111", "222222", "333333"],
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == "Failed to verify the 2FA code."
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+
+
+def test_trusted_device_2fa_bridge_fallback_reports_notice() -> None:
+    """Auth login should print the bridge fallback notice before the SMS message."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_sms_fallback() -> bool:
+        fake_api.two_factor_delivery_method = "sms"
+        fake_api.two_factor_delivery_notice = (
+            "Trusted-device prompt failed; falling back to SMS."
+        )
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_sms_fallback
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Trusted-device prompt failed; falling back to SMS." in result.stdout
+    assert "Requested a 2FA code by SMS." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_sms_2fa_request_failure_aborts() -> None:
+    """Auth login should surface SMS delivery request failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.side_effect = context_module.PyiCloudAPIResponseException(
+        "sms request failed"
+    )
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == "Failed to request the 2FA SMS code."
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_request_failure_aborts() -> None:
+    """Auth login should surface bridge delivery failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDevicePromptException("bridge failed")
+    )
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Failed to request the 2FA trusted-device prompt."
+    )
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_verification_failure_aborts() -> None:
+    """Auth login should surface bridge verification failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceVerificationException(
+            "bridge verification failed"
+        )
+    )
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == ("Failed to verify the 2FA trusted-device code.")
 
 
 def test_non_interactive_2sa_does_not_send_verification_code() -> None:

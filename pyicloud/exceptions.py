@@ -99,6 +99,14 @@ class PyiCloudNoTrustedNumberAvailable(PyiCloudException):
     """iCloud no trusted number exception."""
 
 
+class PyiCloudTrustedDevicePromptException(PyiCloudException):
+    """Trusted-device prompt bootstrap exception."""
+
+
+class PyiCloudTrustedDeviceVerificationException(PyiCloudException):
+    """Trusted-device bridge verification exception."""
+
+
 class PyiCloudNoStoredPasswordAvailableException(PyiCloudException):
     """iCloud no stored password exception."""
 

@@ -5,9 +5,10 @@ import getpass
 import json
 import logging
 import time
+from dataclasses import dataclass
 from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 from uuid import uuid1
 
 import srp
@@ -34,6 +35,13 @@ from pyicloud.exceptions import (
     PyiCloudPasswordException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
+    PyiCloudTrustedDevicePromptException,
+)
+from pyicloud.hsa2_bridge import (
+    Hsa2BootContext,
+    TrustedDeviceBridgeBootstrapper,
+    TrustedDeviceBridgeState,
+    parse_boot_args_html,
 )
 from pyicloud.services import (
     AccountService,
@@ -106,6 +114,92 @@ def resolve_cookie_directory(cookie_directory: Optional[str] = None) -> str:
     return path.join(topdir, getpass.getuser())
 
 
+@dataclass(frozen=True)
+class TrustedPhoneNumber:
+    """Typed view of Apple's trusted-phone metadata."""
+
+    device_id: int | str
+    non_fteu: Optional[bool] = None
+    push_mode: Optional[str] = None
+
+    @classmethod
+    def from_mapping(
+        cls, value: Optional[Mapping[str, Any]]
+    ) -> Optional["TrustedPhoneNumber"]:
+        """Return a typed phone record when Apple's payload includes one."""
+
+        if not isinstance(value, Mapping):
+            return None
+        device_id = value.get("id")
+        if not isinstance(device_id, (int, str)):
+            return None
+
+        non_fteu = value.get("nonFTEU")
+        if not isinstance(non_fteu, bool):
+            non_fteu = None
+
+        push_mode = value.get("pushMode")
+        if push_mode is not None:
+            push_mode = str(push_mode)
+
+        return cls(
+            device_id=device_id,
+            non_fteu=non_fteu,
+            push_mode=push_mode,
+        )
+
+    def as_phone_number_payload(self) -> dict[str, Any]:
+        """Return the nested phoneNumber payload expected by Apple's SMS endpoints."""
+
+        payload: dict[str, Any] = {"id": self.device_id}
+        if self.non_fteu is not None:
+            payload["nonFTEU"] = self.non_fteu
+        return payload
+
+
+@dataclass(frozen=True)
+class PhoneNumberVerification:
+    """Typed view of Apple's phone verification wrapper payload."""
+
+    trusted_phone_number: Optional[TrustedPhoneNumber] = None
+    trusted_phone_numbers: tuple[TrustedPhoneNumber, ...] = ()
+
+    @classmethod
+    def from_mapping(
+        cls, value: Optional[Mapping[str, Any]]
+    ) -> "PhoneNumberVerification":
+        """Return the parsed phone verification payload when Apple exposes one."""
+
+        if not isinstance(value, Mapping):
+            return cls()
+
+        trusted_phone_number = TrustedPhoneNumber.from_mapping(
+            value.get("trustedPhoneNumber")
+        )
+
+        trusted_phone_numbers_raw = value.get("trustedPhoneNumbers")
+        trusted_phone_numbers: list[TrustedPhoneNumber] = []
+        if isinstance(trusted_phone_numbers_raw, list):
+            for entry in trusted_phone_numbers_raw:
+                phone_number = TrustedPhoneNumber.from_mapping(entry)
+                if phone_number is not None:
+                    trusted_phone_numbers.append(phone_number)
+
+        return cls(
+            trusted_phone_number=trusted_phone_number,
+            trusted_phone_numbers=tuple(trusted_phone_numbers),
+        )
+
+    def best_trusted_phone_number(self) -> Optional[TrustedPhoneNumber]:
+        """Return the first usable trusted phone number from Apple's payload."""
+
+        if self.trusted_phone_number is not None:
+            return self.trusted_phone_number
+        if self.trusted_phone_numbers:
+            return self.trusted_phone_numbers[0]
+        return None
+
+
 class PyiCloudService:
     """
     A base authentication class for the iCloud service. Handles the
@@ -175,6 +269,11 @@ class PyiCloudService:
 
         self.data: dict[str, Any] = {}
         self._auth_data: dict[str, Any] = {}
+        self._hsa2_boot_context: Optional[Hsa2BootContext] = None
+        self._trusted_device_bridge_state: Optional[TrustedDeviceBridgeState] = None
+        self._trusted_device_bridge = TrustedDeviceBridgeBootstrapper()
+        self._two_factor_delivery_method: str = "unknown"
+        self._two_factor_delivery_notice: Optional[str] = None
 
         self.params: dict[str, Any] = {}
         self._client_id: str = client_id or str(uuid1()).lower()
@@ -326,6 +425,10 @@ class PyiCloudService:
 
         self.data = {}
         self._auth_data = {}
+        self._hsa2_boot_context = None
+        self._clear_trusted_device_bridge_state()
+        self._two_factor_delivery_method = "unknown"
+        self._two_factor_delivery_notice = None
         self._webservices = None
         self._account = None
         self._calendar = None
@@ -338,6 +441,13 @@ class PyiCloudService:
         self._reminders = None
         self._requires_mfa = False
         self.params.pop("dsid", None)
+
+    def _clear_trusted_device_bridge_state(self) -> None:
+        """Close any active trusted-device bridge session and clear in-memory state."""
+
+        if self._trusted_device_bridge_state is not None:
+            self._trusted_device_bridge.close(self._trusted_device_bridge_state)
+        self._trusted_device_bridge_state = None
 
     def get_auth_status(self) -> dict[str, Any]:
         """Probe current authentication state without prompting for login."""
@@ -542,6 +652,11 @@ class PyiCloudService:
 
             if not self.is_trusted_session:
                 raise PyiCloud2FARequiredException(self.account_name, resp)
+
+            self._auth_data = {}
+            self._hsa2_boot_context = None
+            self._clear_trusted_device_bridge_state()
+            self._set_two_factor_delivery_state("unknown")
         except (PyiCloudAPIResponseException, HTTPError) as error:
             msg = "Invalid authentication token."
             raise PyiCloudFailedLoginException(msg, error) from error
@@ -679,9 +794,111 @@ class PyiCloudService:
 
     def _get_mfa_auth_options(self) -> Dict:
         """Retrieve auth request options for assertion."""
+        # Apple exposes the HSA2 bridge bootstrap in the HTML auth shell.
+        # Requesting JSON here tends to collapse the response to the SMS-oriented shape.
+        headers = self._get_auth_headers({"Accept": "text/html"})
+        response = self.session.get(self._auth_endpoint, headers=headers)
+
+        auth_options: dict[str, Any] = {}
+        try:
+            response_json = response.json()
+        except (AttributeError, TypeError, ValueError):
+            response_json = None
+
+        if isinstance(response_json, dict):
+            auth_options.update(response_json)
+            boot_context = Hsa2BootContext.from_auth_options(auth_options)
+        else:
+            boot_context = parse_boot_args_html(getattr(response, "text", ""))
+
+        boot_auth_data = boot_context.as_auth_data()
+        auth_options.update(boot_auth_data)
+        self._hsa2_boot_context = boot_context
+        self._clear_trusted_device_bridge_state()
+        self._set_two_factor_delivery_state("unknown")
+        return auth_options
+
+    def _set_two_factor_delivery_state(
+        self, method: str, notice: Optional[str] = None
+    ) -> None:
+        """Track the active MFA delivery route for the current auth challenge."""
+
+        self._two_factor_delivery_method = method
+        self._two_factor_delivery_notice = notice
+
+    def _current_hsa2_boot_context(self) -> Hsa2BootContext:
+        """Return the best available HSA2 boot context for the active challenge."""
+
+        if self._hsa2_boot_context is not None:
+            return self._hsa2_boot_context
+
+        boot_context = Hsa2BootContext.from_auth_options(self._auth_data)
+        self._hsa2_boot_context = boot_context
+        return boot_context
+
+    def _supports_trusted_device_bridge(self) -> bool:
+        """Return whether Apple's HSA2 boot data prefers the bridge flow."""
+
+        boot_context = self._current_hsa2_boot_context()
+        return (
+            boot_context.auth_initial_route == "auth/bridge/step"
+            and boot_context.has_trusted_devices
+            and bool(boot_context.bridge_initiate_data)
+        )
+
+    def _can_request_sms_2fa_code(self) -> bool:
+        """Return whether SMS delivery is currently available."""
+
+        return (
+            self._two_factor_mode() == "sms"
+            and self._trusted_phone_number() is not None
+        )
+
+    def _request_sms_2fa_code(self, notice: Optional[str] = None) -> bool:
+        """Trigger SMS delivery for the current HSA2 challenge."""
+
+        trusted_phone_number = self._trusted_phone_number()
+        if not trusted_phone_number:
+            raise PyiCloudNoTrustedNumberAvailable()
+
+        data: dict[str, Any] = {
+            "phoneNumber": trusted_phone_number.as_phone_number_payload(),
+            "mode": "sms",
+        }
         headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
-        return self.session.get(self._auth_endpoint, headers=headers).json()
+        self.session.put(
+            f"{self._auth_endpoint}/verify/phone",
+            json=data,
+            headers=headers,
+        )
+        self._clear_trusted_device_bridge_state()
+        self._set_two_factor_delivery_state("sms", notice)
+        return True
+
+    @property
+    def two_factor_delivery_method(self) -> str:
+        """Return the current HSA2 delivery method without exposing auth internals."""
+
+        if self._two_factor_delivery_method != "unknown":
+            return self._two_factor_delivery_method
+
+        if self._auth_data.get("fsaChallenge") or self.security_key_names:
+            return "security_key"
+
+        if self._supports_trusted_device_bridge():
+            return "trusted_device"
+
+        if self._two_factor_mode() == "sms":
+            return "sms"
+
+        return "unknown"
+
+    @property
+    def two_factor_delivery_notice(self) -> Optional[str]:
+        """Return an optional user-facing note about the active 2FA delivery path."""
+
+        return self._two_factor_delivery_notice
 
     @property
     def security_key_names(self) -> Optional[List[str]]:
@@ -695,6 +912,74 @@ class PyiCloudService:
         self.session.post(
             f"{self._auth_endpoint}/verify/security/key", json=data, headers=headers
         )
+
+    def _phone_number_verification(self) -> PhoneNumberVerification:
+        """Return Apple's nested phone verification payload when present."""
+
+        phone_verification = self._auth_data.get("phoneNumberVerification")
+        return PhoneNumberVerification.from_mapping(phone_verification)
+
+    def _trusted_phone_number(self) -> Optional[TrustedPhoneNumber]:
+        """Return the best available trusted phone number description."""
+
+        trusted_phone_number = TrustedPhoneNumber.from_mapping(
+            self._auth_data.get("trustedPhoneNumber")
+        )
+        if trusted_phone_number is not None:
+            return trusted_phone_number
+
+        return self._phone_number_verification().best_trusted_phone_number()
+
+    def _two_factor_mode(self) -> Optional[str]:
+        """Return the current 2FA delivery mode reported by Apple."""
+
+        mode = self._auth_data.get("mode")
+        if isinstance(mode, str):
+            return mode
+
+        trusted_phone_number = self._trusted_phone_number()
+        if trusted_phone_number is None:
+            return None
+
+        return trusted_phone_number.push_mode
+
+    def request_2fa_code(self) -> bool:
+        """Trigger the active HSA2 delivery route for the current challenge."""
+
+        if self._auth_data.get("fsaChallenge") or self.security_key_names:
+            self._set_two_factor_delivery_state("security_key")
+            return False
+
+        self._clear_trusted_device_bridge_state()
+
+        if self._supports_trusted_device_bridge():
+            try:
+                self._trusted_device_bridge_state = self._trusted_device_bridge.start(
+                    session=self.session,
+                    auth_endpoint=self._auth_endpoint,
+                    headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+                    boot_context=self._current_hsa2_boot_context(),
+                    user_agent=self.session.headers.get(
+                        "User-Agent", _HEADERS["User-Agent"]
+                    ),
+                )
+                self._set_two_factor_delivery_state("trusted_device")
+                return True
+            except PyiCloudTrustedDevicePromptException:
+                LOGGER.debug(
+                    "Trusted-device bridge bootstrap failed; falling back to SMS when available.",
+                    exc_info=True,
+                )
+                if self._can_request_sms_2fa_code():
+                    return self._request_sms_2fa_code(
+                        notice="Trusted-device prompt failed; falling back to SMS."
+                    )
+                raise
+
+        if self._can_request_sms_2fa_code():
+            return self._request_sms_2fa_code()
+
+        return False
 
     @property
     def fido2_devices(self) -> List[CtapHidDevice]:
@@ -831,45 +1116,59 @@ class PyiCloudService:
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
+        bridge_state = self._trusted_device_bridge_state
         try:
-            if self._auth_data.get("mode") == "sms":
+            if self.two_factor_delivery_method == "sms":
                 self._validate_sms_code(code)
+            elif (
+                bridge_state is not None
+                and not bridge_state.uses_legacy_trusted_device_verifier
+            ):
+                if not self._trusted_device_bridge.validate_code(
+                    session=self.session,
+                    auth_endpoint=self._auth_endpoint,
+                    headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+                    bridge_state=bridge_state,
+                    code=code,
+                ):
+                    LOGGER.error("Code verification failed.")
+                    return False
             else:
-                data: dict[str, Any] = {"securityCode": {"code": code}}
-                headers: dict[str, Any] = self._get_auth_headers(
-                    {"Accept": CONTENT_TYPE_JSON}
-                )
-                self.session.post(
-                    f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
-                    json=data,
-                    headers=headers,
-                )
+                self._validate_trusted_device_code(code)
         except PyiCloudAPIResponseException:
             # Wrong verification code
             LOGGER.error("Code verification failed.")
             return False
+        finally:
+            if bridge_state is not None:
+                self._clear_trusted_device_bridge_state()
 
         LOGGER.debug("Code verification successful.")
 
         self.trust_session()
         return not self.requires_2sa
 
+    def _validate_trusted_device_code(self, code: str) -> None:
+        """Verifies a verification code received via Apple's legacy device endpoint."""
+
+        data: dict[str, Any] = {"securityCode": {"code": code}}
+        headers: dict[str, Any] = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
+        self.session.post(
+            f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
+            json=data,
+            headers=headers,
+        )
+
     def _validate_sms_code(self, code: str) -> None:
         """Verifies a verification code received via Apple's SMS system."""
-        trusted_phone_number: dict[str, Any] | None = self._auth_data.get(
-            "trustedPhoneNumber"
-        )
+        trusted_phone_number = self._trusted_phone_number()
         if not trusted_phone_number:
             raise PyiCloudNoTrustedNumberAvailable()
 
-        device_id: int | None = trusted_phone_number.get("id")
-        non_fteu: bool | None = trusted_phone_number.get("nonFTEU")
-        mode: str | None = trusted_phone_number.get("pushMode")
-
         data: dict[str, Any] = {
-            "phoneNumber": {"id": device_id, "nonFTEU": non_fteu},
+            "phoneNumber": trusted_phone_number.as_phone_number_payload(),
             "securityCode": {"code": code},
-            "mode": mode,
+            "mode": trusted_phone_number.push_mode,
         }
         headers: dict[str, Any] = self._get_auth_headers(
             {"Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"}

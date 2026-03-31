@@ -5,6 +5,8 @@ Test the PyiCloudService and PyiCloudSession classes."""
 
 import json
 import secrets
+import tempfile
+from pathlib import Path
 from typing import Any, List
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -21,6 +23,8 @@ from pyicloud.exceptions import (
     PyiCloudFailedLoginException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
+    PyiCloudTrustedDevicePromptException,
+    PyiCloudTrustedDeviceVerificationException,
 )
 from pyicloud.services.calendar import CalendarService
 from pyicloud.services.contacts import ContactsService
@@ -257,6 +261,387 @@ def test_validate_2fa_code(pyicloud_service: PyiCloudService) -> None:
         assert pyicloud_service.validate_2fa_code("123456")
 
 
+def test_validate_2fa_code_uses_bridge_verifier_for_step2_state(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Bridge-backed trusted-device prompts should use the bridge verifier instead of the legacy endpoint."""
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    bridge_state = MagicMock(uses_legacy_trusted_device_verifier=False)
+    pyicloud_service._trusted_device_bridge_state = bridge_state
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    pyicloud_service._trusted_device_bridge.validate_code.return_value = True
+    pyicloud_service.trust_session = MagicMock(
+        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
+        or True
+    )
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    assert pyicloud_service.validate_2fa_code("123456") is True
+
+    pyicloud_service._trusted_device_bridge.validate_code.assert_called_once()
+    pyicloud_service.session.post.assert_not_called()
+    pyicloud_service._trusted_device_bridge.close.assert_called_once_with(bridge_state)
+    pyicloud_service.trust_session.assert_called_once_with()
+
+
+def test_validate_2fa_code_keeps_legacy_endpoint_for_bridge_w_subtype(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Apple's `_W` bridge subtype should keep using the legacy trusted-device verifier."""
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    bridge_state = MagicMock(uses_legacy_trusted_device_verifier=True)
+    pyicloud_service._trusted_device_bridge_state = bridge_state
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    pyicloud_service.trust_session = MagicMock(
+        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
+        or True
+    )
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+    pyicloud_service.session.post.return_value = MagicMock(status_code=200)
+
+    assert pyicloud_service.validate_2fa_code("123456") is True
+
+    pyicloud_service._trusted_device_bridge.validate_code.assert_not_called()
+    args = pyicloud_service.session.post.call_args.args
+    assert args[0] == (
+        f"{pyicloud_service._auth_endpoint}/verify/trusteddevice/securitycode"
+    )
+    pyicloud_service._trusted_device_bridge.close.assert_called_once_with(bridge_state)
+
+
+def test_validate_2fa_code_bridge_verification_exception_propagates(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Bridge verification failures should not be downgraded to generic invalid-code results."""
+
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    bridge_state = MagicMock(uses_legacy_trusted_device_verifier=False)
+    pyicloud_service._trusted_device_bridge_state = bridge_state
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    pyicloud_service._trusted_device_bridge.validate_code.side_effect = (
+        PyiCloudTrustedDeviceVerificationException("bridge verification failed")
+    )
+
+    with pytest.raises(
+        PyiCloudTrustedDeviceVerificationException,
+        match="bridge verification failed",
+    ):
+        pyicloud_service.validate_2fa_code("123456")
+
+    pyicloud_service._trusted_device_bridge.close.assert_called_once_with(bridge_state)
+
+
+def test_request_2fa_code_requests_sms_delivery(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Nested phone verification data should trigger SMS delivery."""
+
+    pyicloud_service._auth_data = {
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {
+                "id": 3,
+                "nonFTEU": False,
+                "pushMode": "sms",
+            }
+        }
+    }
+
+    with patch("pyicloud.base.PyiCloudSession") as mock_session:
+        pyicloud_service._session = mock_session
+        mock_session.data = {
+            "scnt": "test_scnt",
+            "session_id": "test_session_id",
+        }
+
+        assert pyicloud_service.request_2fa_code() is True
+
+        args = mock_session.put.call_args.args
+        kwargs = mock_session.put.call_args.kwargs
+        assert args[0] == f"{pyicloud_service._auth_endpoint}/verify/phone"
+        assert kwargs["json"] == {
+            "phoneNumber": {"id": 3, "nonFTEU": False},
+            "mode": "sms",
+        }
+        assert kwargs["headers"]["Accept"] == "application/json"
+
+
+def test_get_mfa_auth_options_parses_hsa2_boot_html(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """GET /appleauth/auth HTML should populate the HSA2 boot context."""
+
+    response = MagicMock()
+    response.json.side_effect = ValueError("not json")
+    response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {
+          "direct": {
+            "authInitialRoute": "auth/bridge/step",
+            "hasTrustedDevices": true,
+            "twoSV": {
+              "authFactors": ["web_piggybacking", "sms"],
+              "sourceAppId": 1159,
+              "bridgeInitiateData": {
+                "apnsTopic": "com.apple.idmsauthwidget",
+                "apnsEnvironment": "prod",
+                "webSocketUrl": "websocket.push.apple.com",
+                "phoneNumberVerification": {
+                  "trustedPhoneNumber": {
+                    "id": 3,
+                    "nonFTEU": false,
+                    "pushMode": "sms"
+                  }
+                }
+              }
+            }
+          }
+        }
+      </script>
+    </html>
+    """
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.get.return_value = response
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    _, kwargs = pyicloud_service.session.get.call_args
+    assert kwargs["headers"]["Accept"] == "text/html"
+    assert auth_options["authInitialRoute"] == "auth/bridge/step"
+    assert auth_options["hasTrustedDevices"] is True
+    assert auth_options["authFactors"] == ["web_piggybacking", "sms"]
+    assert auth_options["bridgeInitiateData"]["webSocketUrl"] == (
+        "websocket.push.apple.com"
+    )
+    assert auth_options["phoneNumberVerification"]["trustedPhoneNumber"]["id"] == 3
+    assert auth_options["sourceAppId"] == "1159"
+    assert pyicloud_service._hsa2_boot_context is not None
+    assert pyicloud_service._hsa2_boot_context.auth_initial_route == (
+        "auth/bridge/step"
+    )
+    assert pyicloud_service._hsa2_boot_context.has_trusted_devices is True
+
+
+def test_request_2fa_code_prefers_trusted_device_bridge(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Request-7 style HSA2 challenges should start the bridge before SMS."""
+
+    pyicloud_service.data = {
+        "dsInfo": {"hsaVersion": 2},
+        "hsaChallengeRequired": True,
+        "hsaTrustedBrowser": False,
+    }
+    pyicloud_service._auth_data = {
+        "authInitialRoute": "auth/bridge/step",
+        "hasTrustedDevices": True,
+        "authFactors": ["web_piggybacking", "sms"],
+        "bridgeInitiateData": {
+            "apnsTopic": "com.apple.idmsauthwidget",
+            "apnsEnvironment": "prod",
+            "webSocketUrl": "websocket.push.apple.com",
+        },
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {
+                "id": 3,
+                "nonFTEU": False,
+                "pushMode": "sms",
+            }
+        },
+    }
+
+    bridge_state = MagicMock()
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    pyicloud_service._trusted_device_bridge.start.return_value = bridge_state
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.headers = {"User-Agent": "test-agent"}
+    pyicloud_service.session.data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    assert pyicloud_service.request_2fa_code() is True
+
+    pyicloud_service._trusted_device_bridge.start.assert_called_once()
+    pyicloud_service.session.put.assert_not_called()
+    assert pyicloud_service.two_factor_delivery_method == "trusted_device"
+    assert pyicloud_service._trusted_device_bridge_state is bridge_state
+
+
+def test_request_2fa_code_replaces_existing_bridge_state_before_restart(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Starting a new bridge prompt should close any previous in-memory bridge session."""
+
+    pyicloud_service._auth_data = {
+        "authInitialRoute": "auth/bridge/step",
+        "hasTrustedDevices": True,
+        "bridgeInitiateData": {
+            "apnsTopic": "com.apple.idmsauthwidget",
+            "apnsEnvironment": "prod",
+            "webSocketUrl": "websocket.push.apple.com",
+        },
+    }
+
+    previous_bridge_state = MagicMock()
+    next_bridge_state = MagicMock()
+    pyicloud_service._trusted_device_bridge_state = previous_bridge_state
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    pyicloud_service._trusted_device_bridge.start.return_value = next_bridge_state
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.headers = {"User-Agent": "test-agent"}
+    pyicloud_service.session.data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    assert pyicloud_service.request_2fa_code() is True
+
+    pyicloud_service._trusted_device_bridge.close.assert_called_once_with(
+        previous_bridge_state
+    )
+    assert pyicloud_service._trusted_device_bridge_state is next_bridge_state
+
+
+def test_request_2fa_code_falls_back_to_sms_when_bridge_fails(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Bridge bootstrap failures should fall back to SMS when Apple exposes it."""
+
+    pyicloud_service._auth_data = {
+        "authInitialRoute": "auth/bridge/step",
+        "hasTrustedDevices": True,
+        "bridgeInitiateData": {
+            "apnsTopic": "com.apple.idmsauthwidget",
+            "apnsEnvironment": "prod",
+            "webSocketUrl": "websocket.push.apple.com",
+        },
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {
+                "id": 3,
+                "nonFTEU": False,
+                "pushMode": "sms",
+            }
+        },
+    }
+
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    pyicloud_service._trusted_device_bridge.start.side_effect = (
+        PyiCloudTrustedDevicePromptException("bridge failed")
+    )
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.headers = {"User-Agent": "test-agent"}
+    pyicloud_service.session.data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    assert pyicloud_service.request_2fa_code() is True
+
+    args = pyicloud_service.session.put.call_args.args
+    kwargs = pyicloud_service.session.put.call_args.kwargs
+    assert args[0] == f"{pyicloud_service._auth_endpoint}/verify/phone"
+    assert kwargs["json"] == {
+        "phoneNumber": {"id": 3, "nonFTEU": False},
+        "mode": "sms",
+    }
+    assert pyicloud_service.two_factor_delivery_method == "sms"
+    assert pyicloud_service.two_factor_delivery_notice == (
+        "Trusted-device prompt failed; falling back to SMS."
+    )
+
+
+def test_request_2fa_code_keeps_security_key_path_separate(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Security-key challenges should not start the bridge or SMS flows."""
+
+    pyicloud_service._auth_data = {
+        "fsaChallenge": {"challenge": "abc"},
+        "authInitialRoute": "auth/bridge/step",
+        "hasTrustedDevices": True,
+        "bridgeInitiateData": {
+            "apnsTopic": "com.apple.idmsauthwidget",
+            "apnsEnvironment": "prod",
+            "webSocketUrl": "websocket.push.apple.com",
+        },
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {
+                "id": 3,
+                "nonFTEU": False,
+                "pushMode": "sms",
+            }
+        },
+    }
+
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.session.headers = {"User-Agent": "test-agent"}
+
+    assert pyicloud_service.request_2fa_code() is False
+
+    pyicloud_service._trusted_device_bridge.start.assert_not_called()
+    pyicloud_service.session.put.assert_not_called()
+    assert pyicloud_service.two_factor_delivery_method == "security_key"
+
+
+def test_validate_2fa_code_uses_nested_sms_phone_number(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Nested phone verification data should validate via the SMS endpoint."""
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 1}, "hsaChallengeRequired": False}
+    pyicloud_service._auth_data = {
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {
+                "id": 3,
+                "nonFTEU": False,
+                "pushMode": "sms",
+            }
+        }
+    }
+    pyicloud_service.trust_session = MagicMock(
+        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
+        or True
+    )
+
+    with patch("pyicloud.base.PyiCloudSession") as mock_session:
+        pyicloud_service._session = mock_session
+        mock_session.data = {
+            "scnt": "test_scnt",
+            "session_id": "test_session_id",
+            "session_token": "test_session_token",
+        }
+
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_post_response.json.return_value = {"success": True}
+        mock_session.post.return_value = mock_post_response
+
+        assert pyicloud_service.validate_2fa_code("123456")
+
+        args = mock_session.post.call_args.args
+        kwargs = mock_session.post.call_args.kwargs
+        assert args[0] == f"{pyicloud_service._auth_endpoint}/verify/phone/securitycode"
+        assert kwargs["json"] == {
+            "phoneNumber": {"id": 3, "nonFTEU": False},
+            "securityCode": {"code": "123456"},
+            "mode": "sms",
+        }
+
+
 def test_validate_2fa_code_failure(pyicloud_service: PyiCloudService) -> None:
     """Test the validate_2fa_code method with an invalid code."""
     exception = PyiCloudAPIResponseException("Invalid code")
@@ -431,6 +816,24 @@ def test_logout_clears_authenticated_state(
     assert pyicloud_service._devices is None
 
 
+def test_logout_closes_active_trusted_device_bridge_state(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Logout should close any active trusted-device bridge session before clearing state."""
+
+    bridge_state = MagicMock()
+    pyicloud_service._trusted_device_bridge_state = bridge_state
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    pyicloud_service.session.cookies = MagicMock()
+    pyicloud_service.session.cookies.get.return_value = None
+    pyicloud_service.session.clear_persistence = MagicMock()
+
+    pyicloud_service.logout()
+
+    pyicloud_service._trusted_device_bridge.close.assert_called_once_with(bridge_state)
+    assert pyicloud_service._trusted_device_bridge_state is None
+
+
 def test_cookiejar_path_property(pyicloud_session: PyiCloudSession) -> None:
     """Test the cookiejar_path property."""
     path: str = pyicloud_session.cookiejar_path
@@ -555,6 +958,53 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
             ignore_discard=True,
             ignore_expires=False,
         )
+
+
+def test_session_persistence_excludes_trusted_device_bridge_state(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """Bridge-only state should remain in memory and never be written to persisted session files."""
+
+    temp_root = Path(tempfile.gettempdir()) / "python-test-results" / "bridge-auth"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    session = PyiCloudSession(
+        service=pyicloud_service_working,
+        client_id="",
+        cookie_directory=str(temp_root),
+    )
+    pyicloud_service_working._session = session
+    pyicloud_service_working._trusted_device_bridge_state = MagicMock(
+        push_token="bridge-ptkn",
+        session_uuid="bridge-session-uuid",
+        idmsdata="bridge-idmsdata",
+        encrypted_code="bridge-encrypted-code",
+    )
+    session._data = {
+        "session_token": "valid-token",
+        "session_id": "persisted-session-id",
+    }
+
+    session._save_session_data()
+
+    persisted_session = Path(session.session_path).read_text(encoding="utf-8")
+    for secret_value in (
+        "bridge-ptkn",
+        "bridge-session-uuid",
+        "bridge-idmsdata",
+        "bridge-encrypted-code",
+    ):
+        assert secret_value not in persisted_session
+
+    cookiejar_path = Path(session.cookiejar_path)
+    if cookiejar_path.exists():
+        persisted_cookiejar = cookiejar_path.read_text(encoding="utf-8")
+        for secret_value in (
+            "bridge-ptkn",
+            "bridge-session-uuid",
+            "bridge-idmsdata",
+            "bridge-encrypted-code",
+        ):
+            assert secret_value not in persisted_cookiejar
 
 
 def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:

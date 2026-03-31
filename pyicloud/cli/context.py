@@ -17,9 +17,13 @@ from rich.console import Console
 from pyicloud import PyiCloudService, utils
 from pyicloud.base import resolve_cookie_directory
 from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
     PyiCloudFailedLoginException,
+    PyiCloudNoTrustedNumberAvailable,
     PyiCloudServiceUnavailable,
+    PyiCloudTrustedDevicePromptException,
+    PyiCloudTrustedDeviceVerificationException,
 )
 from pyicloud.ssl_context import configurable_ssl_verification
 
@@ -332,9 +336,49 @@ class CLIState:
                 raise CLIAbort(
                     "Two-factor authentication is required, but interactive prompts are disabled."
                 )
-            code = typer.prompt("Enter 2FA code")
-            if not api.validate_2fa_code(code):
-                raise CLIAbort("Failed to verify the 2FA code.")
+            try:
+                if api.request_2fa_code():
+                    notice = getattr(api, "two_factor_delivery_notice", None)
+                    if notice:
+                        self.console.print(notice)
+
+                    delivery_method = getattr(
+                        api, "two_factor_delivery_method", "unknown"
+                    )
+                    if delivery_method == "trusted_device":
+                        self.console.print(
+                            "Requested a 2FA prompt on your trusted Apple devices."
+                        )
+                    elif delivery_method == "sms":
+                        self.console.print("Requested a 2FA code by SMS.")
+            except PyiCloudNoTrustedNumberAvailable as exc:
+                raise CLIAbort(
+                    "Two-factor authentication requires a trusted phone number, "
+                    "but none was returned."
+                ) from exc
+            except PyiCloudTrustedDevicePromptException as exc:
+                raise CLIAbort(
+                    "Failed to request the 2FA trusted-device prompt."
+                ) from exc
+            except PyiCloudAPIResponseException as exc:
+                raise CLIAbort("Failed to request the 2FA SMS code.") from exc
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                code = typer.prompt("Enter 2FA code")
+                try:
+                    is_valid = api.validate_2fa_code(code)
+                except PyiCloudTrustedDeviceVerificationException as exc:
+                    raise CLIAbort(
+                        "Failed to verify the 2FA trusted-device code."
+                    ) from exc
+                if is_valid:
+                    break
+                remaining_attempts = max_attempts - attempt - 1
+                if remaining_attempts <= 0:
+                    raise CLIAbort("Failed to verify the 2FA code.")
+                self.console.print(
+                    f"Invalid 2FA code. {remaining_attempts} attempt(s) remaining."
+                )
         if not api.is_trusted_session:
             api.trust_session()
 

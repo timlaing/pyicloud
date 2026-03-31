@@ -188,6 +188,68 @@ class PyiCloudSession(requests.Session):
             json=json,
         )
 
+    def request_raw(
+        self,
+        method,
+        url,
+        params=None,
+        data=None,
+        headers=None,
+        cookies=None,
+        files=None,
+        auth=None,
+        timeout=None,
+        allow_redirects=True,
+        proxies=None,
+        hooks=None,
+        stream=None,
+        verify=None,
+        cert=None,
+        json=None,
+    ) -> Response:
+        """Dispatch a request without response-status normalization."""
+
+        return self._request_raw(
+            method,
+            url,
+            params=params,
+            data=data,
+            headers=headers,
+            cookies=cookies,
+            files=files,
+            auth=auth,
+            timeout=timeout,
+            allow_redirects=allow_redirects,
+            proxies=proxies,
+            hooks=hooks,
+            stream=stream,
+            verify=verify,
+            cert=cert,
+            json=json,
+        )
+
+    def _request_raw(
+        self,
+        method,
+        url,
+        **kwargs,
+    ) -> Response:
+        """Perform a request and persist cookies/session data without raising."""
+
+        self.logger.debug(
+            "%s %s",
+            method,
+            url,
+        )
+        response: Response = super().request(
+            method=method,
+            url=url,
+            **kwargs,
+        )
+        self._update_session_data(response)
+        self._save_session_data()
+        return response
+
     def _request(
         self,
         method,
