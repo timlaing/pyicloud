@@ -1,38 +1,27 @@
-"""Public Photos service facade."""
+"""Modern Photos CloudKit package."""
 
-from __future__ import annotations
-
-from pyicloud.services.photos_cloudkit import (
+from .constants import (
     PRIMARY_ZONE,
-    AlbumContainer,
     AlbumTypeEnum,
-    BasePhotoAlbum,
-    BasePhotoLibrary,
     DirectionEnum,
     ListTypeEnum,
     ObjectTypeEnum,
+    SmartAlbumEnum,
+)
+from .models import PhotoChangeEvent, PhotoResource, PhotosServiceException
+from .service import (
+    AlbumContainer,
+    BasePhotoAlbum,
+    BasePhotoLibrary,
     PhotoAlbum,
     PhotoAlbumFolder,
     PhotoAsset,
-    PhotoChangeEvent,
     PhotoLibrary,
-    PhotoResource,
     PhotosService,
-    PhotosServiceException,
-    PhotoSyncItem,
-    PhotoSyncOptions,
-    PhotoSyncResult,
-    SmartAlbumEnum,
     SmartPhotoAlbum,
-    SQLitePhotoSyncState,
-    SyncedPhotoResource,
-    run_photo_sync,
 )
-from pyicloud.services.photos_legacy import (
-    PhotoStreamAsset,
-    PhotoStreamLibrary,
-    SharedPhotoStreamAlbum,
-)
+from .state import SQLitePhotoSyncState, SyncedPhotoResource
+from .sync import PhotoSyncItem, PhotoSyncOptions, PhotoSyncResult, run_photo_sync
 
 __all__ = [
     "AlbumContainer",
@@ -51,13 +40,10 @@ __all__ = [
     "PhotoSyncOptions",
     "PhotoSyncResult",
     "PhotoResource",
-    "PhotoStreamAsset",
-    "PhotoStreamLibrary",
     "PhotosService",
     "PhotosServiceException",
     "PRIMARY_ZONE",
     "SQLitePhotoSyncState",
-    "SharedPhotoStreamAlbum",
     "SmartAlbumEnum",
     "SmartPhotoAlbum",
     "SyncedPhotoResource",

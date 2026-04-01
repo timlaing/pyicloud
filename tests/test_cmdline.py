@@ -126,7 +126,27 @@ class FakePhoto:
         self.filename = filename
         self.item_type = "image"
         self.created = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        self.asset_date = self.created
+        self.added_date = self.created
         self.size = 1234
+        self.dimensions = (1920, 1080)
+        self.is_live_photo = False
+        self.resources = {
+            "original": SimpleNamespace(
+                filename=filename,
+                url=f"https://example.com/{photo_id}",
+                size=self.size,
+                checksum=f"checksum-{photo_id}",
+            )
+        }
+        self.versions = {
+            "original": {
+                "filename": filename,
+                "url": f"https://example.com/{photo_id}",
+                "size": self.size,
+                "checksum": f"checksum-{photo_id}",
+            }
+        }
 
     def download(self, version: str = "original") -> bytes:
         return f"{self.id}:{version}".encode()
@@ -152,6 +172,81 @@ class FakePhotoAlbum:
             if photo.id == photo_id:
                 return photo
         raise KeyError(photo_id)
+
+
+class FakePhotoLibrary:
+    """Photo library fixture."""
+
+    def __init__(
+        self,
+        *,
+        key: str,
+        scope: str,
+        zone_name: str | None,
+        sync_cursor: str,
+        all_album: Optional[FakePhotoAlbum] = None,
+        albums: Optional[FakeAlbumContainer] = None,
+    ) -> None:
+        self.key = key
+        self.scope = scope
+        self.zone_id = {"zoneName": zone_name} if zone_name else None
+        self.current_sync_token = sync_cursor
+        self.indexing_state = "FINISHED"
+        self._sync_cursor = sync_cursor
+        self.all = all_album
+        self.albums = albums
+
+    def sync_cursor(self) -> str:
+        return self._sync_cursor
+
+    def recently_added(self):
+        return self.all
+
+
+class FakePhotosService:
+    """Photos service fixture."""
+
+    def __init__(self) -> None:
+        photo_album = FakePhotoAlbum("All Photos", [FakePhoto("photo-1", "img.jpg")])
+        self.albums = FakeAlbumContainer([photo_album])
+        self.all = photo_album
+        self.libraries = {
+            "root": FakePhotoLibrary(
+                key="root",
+                scope="private",
+                zone_name="PrimarySync",
+                sync_cursor="photo-sync-root",
+                all_album=photo_album,
+                albums=self.albums,
+            ),
+            "shared": FakePhotoLibrary(
+                key="shared",
+                scope="shared-stream",
+                zone_name=None,
+                sync_cursor="photo-sync-shared",
+            ),
+        }
+        self._changes = [
+            SimpleNamespace(
+                kind="updated",
+                record_name="photo-1",
+                record_type="CPLAsset",
+                deleted=False,
+                modified=datetime(2026, 3, 2, tzinfo=timezone.utc),
+            )
+        ]
+
+    def iter_changes(self, *, since: Optional[str] = None):
+        _ = since
+        return iter(self._changes)
+
+    def sync_cursor(self) -> str:
+        return self.libraries["root"].sync_cursor()
+
+    def sync(self, options):
+        from pyicloud.services.photos import run_photo_sync
+
+        return run_photo_sync(self, options)
 
 
 class FakeHideMyEmail:
@@ -316,11 +411,7 @@ class FakeAPI:
             root=FakeDriveNode("root", children=[drive_file]),
             trash=FakeDriveNode("trash"),
         )
-        photo_album = FakePhotoAlbum("All Photos", [FakePhoto("photo-1", "img.jpg")])
-        self.photos = SimpleNamespace(
-            albums=FakeAlbumContainer([photo_album]),
-            all=photo_album,
-        )
+        self.photos = FakePhotosService()
         self.hidemyemail = FakeHideMyEmail()
 
     def _logout(
@@ -1974,6 +2065,105 @@ def test_drive_and_photos_commands() -> None:
     assert output_path.read_bytes() == b"photo-1:original"
     assert json_drive_result.exit_code == 0
     assert json.loads(json_drive_result.stdout)["path"] == str(json_output_path)
+
+
+def test_photos_extended_commands() -> None:
+    """Photos commands should expose library, detail, change, and cursor views."""
+
+    fake_api = FakeAPI()
+
+    libraries_result = _invoke(fake_api, "photos", "libraries")
+    get_result = _invoke(fake_api, "photos", "get", "photo-1", output_format="json")
+    changes_result = _invoke(
+        fake_api, "photos", "changes", "--limit", "1", output_format="json"
+    )
+    cursor_result = _invoke(
+        fake_api, "photos", "sync-cursor", "--library", "root", output_format="json"
+    )
+
+    assert libraries_result.exit_code == 0
+    assert "PrimarySync" in libraries_result.stdout
+    assert get_result.exit_code == 0
+    assert json.loads(get_result.stdout)["id"] == "photo-1"
+    assert changes_result.exit_code == 0
+    assert json.loads(changes_result.stdout)[0]["record_name"] == "photo-1"
+    assert cursor_result.exit_code == 0
+    assert json.loads(cursor_result.stdout)["sync_cursor"] == "photo-sync-root"
+
+
+def test_photos_sync_command_downloads_and_short_circuits() -> None:
+    """Photos sync should materialize files, persist state, and short-circuit on rerun."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-output"
+    state_dir = TEST_ROOT / "photos-sync-state"
+
+    first_result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+    second_result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+
+    first_payload = json.loads(first_result.stdout)
+    second_payload = json.loads(second_result.stdout)
+
+    assert first_result.exit_code == 0
+    assert first_payload["downloaded_count"] == 1
+    assert first_payload["short_circuited"] is False
+    assert (output_dir / "img.jpg").read_bytes() == b"photo-1:original"
+    assert Path(first_payload["state_path"]).exists()
+
+    assert second_result.exit_code == 0
+    assert second_payload["downloaded_count"] == 0
+    assert second_payload["short_circuited"] is True
+
+
+def test_photos_sync_command_supports_print_only_and_album_filters() -> None:
+    """Photos sync should support preview-only output for album-scoped sync targets."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-preview"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--album",
+        "All Photos",
+        "--folder-structure",
+        "{:%Y/%m}",
+        "--only-print-filenames",
+    )
+
+    assert result.exit_code == 0
+    assert "2026/03/img.jpg" in result.stdout
+
+
+def test_photos_sync_cursor_missing_library() -> None:
+    """Photos sync-cursor should fail for unknown library keys."""
+
+    fake_api = FakeAPI()
+    result = _invoke(fake_api, "photos", "sync-cursor", "--library", "missing")
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == "No photo library matched 'missing'."
 
 
 def test_drive_missing_paths_report_cli_abort() -> None:

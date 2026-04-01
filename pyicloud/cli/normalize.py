@@ -154,6 +154,23 @@ def normalize_album(album: Any) -> dict[str, Any]:
     }
 
 
+def normalize_photo_library(key: str, library: Any) -> dict[str, Any]:
+    """Normalize a photo library."""
+
+    zone_id = getattr(library, "zone_id", None)
+    if isinstance(zone_id, dict):
+        zone_name = zone_id.get("zoneName")
+    else:
+        zone_name = None
+    return {
+        "key": key,
+        "scope": getattr(library, "scope", None),
+        "zone_name": zone_name,
+        "sync_cursor": getattr(library, "current_sync_token", None),
+        "indexing_state": getattr(library, "indexing_state", None),
+    }
+
+
 def normalize_photo(item: Any) -> dict[str, Any]:
     """Normalize a photo asset."""
 
@@ -163,6 +180,67 @@ def normalize_photo(item: Any) -> dict[str, Any]:
         "item_type": item.item_type,
         "created": item.created,
         "size": item.size,
+    }
+
+
+def normalize_photo_details(item: Any) -> dict[str, Any]:
+    """Normalize a detailed photo asset payload."""
+
+    payload = normalize_photo(item)
+    payload.update(
+        {
+            "asset_date": getattr(item, "asset_date", None),
+            "added_date": getattr(item, "added_date", None),
+            "dimensions": getattr(item, "dimensions", None),
+            "is_live_photo": getattr(item, "is_live_photo", None),
+            "versions": getattr(item, "versions", None),
+        }
+    )
+    return payload
+
+
+def normalize_photo_change(change: Any) -> dict[str, Any]:
+    """Normalize a photo change event."""
+
+    return {
+        "kind": getattr(change, "kind", None),
+        "record_name": getattr(change, "record_name", None),
+        "record_type": getattr(change, "record_type", None),
+        "deleted": getattr(change, "deleted", None),
+        "modified": getattr(change, "modified", None),
+    }
+
+
+def normalize_photo_sync_item(item: Any) -> dict[str, Any]:
+    """Normalize one photo sync action item."""
+
+    return {
+        "asset_id": getattr(item, "asset_id", None),
+        "resource_key": getattr(item, "resource_key", None),
+        "path": getattr(item, "path", None),
+        "action": getattr(item, "action", None),
+        "reason": getattr(item, "reason", None),
+    }
+
+
+def normalize_photo_sync_result(result: Any) -> dict[str, Any]:
+    """Normalize a photo sync result payload."""
+
+    return {
+        "directory": getattr(result, "directory", None),
+        "state_path": getattr(result, "state_path", None),
+        "library": getattr(result, "library", None),
+        "albums": list(getattr(result, "albums", []) or []),
+        "sync_cursor": getattr(result, "sync_cursor", None),
+        "short_circuited": getattr(result, "short_circuited", False),
+        "downloaded_count": getattr(result, "downloaded_count", 0),
+        "skipped_count": getattr(result, "skipped_count", 0),
+        "deleted_count": getattr(result, "deleted_count", 0),
+        "listed_count": getattr(result, "listed_count", 0),
+        "items": [
+            normalize_photo_sync_item(item)
+            for item in getattr(result, "items", []) or []
+        ],
     }
 
 

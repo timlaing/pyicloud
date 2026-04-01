@@ -120,7 +120,14 @@ $ icloud devices export "Example iPhone" --output ./iphone.json
 $ icloud calendar events --username jappleseed@apple.com --period week
 $ icloud contacts me --username jappleseed@apple.com
 $ icloud drive list /Documents --username jappleseed@apple.com
+$ icloud photos libraries --username jappleseed@apple.com
 $ icloud photos albums --username jappleseed@apple.com
+$ icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com
+$ icloud photos get photo-id-123 --format json --username jappleseed@apple.com
+$ icloud photos sync --directory ./downloads --username jappleseed@apple.com
+$ icloud photos sync --directory ./downloads --album Favorites --folder-structure '{:%Y/%m}' --username jappleseed@apple.com
+$ icloud photos sync-cursor --username jappleseed@apple.com
+$ icloud photos changes --since <sync-cursor> --username jappleseed@apple.com
 $ icloud hidemyemail list --username jappleseed@apple.com
 $ icloud auth logout
 $ icloud auth logout --keep-trusted
