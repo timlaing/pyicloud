@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
+
 import typer
 
 from pyicloud.cli.commands.account import app as account_app
@@ -21,12 +24,42 @@ app = typer.Typer(
 )
 
 
+def _installed_version() -> str:
+    """Return the installed pyicloud package version."""
+
+    try:
+        return package_version("pyicloud")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _version_callback(value: bool) -> None:
+    """Print the installed pyicloud version and exit."""
+
+    if value:
+        typer.echo(_installed_version())
+        raise typer.Exit()
+
+
 def _group_root(ctx: typer.Context) -> None:
     """Show mounted group help when invoked without a subcommand."""
 
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
         raise typer.Exit()
+
+
+@app.callback()
+def root_callback(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show the installed pyicloud version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Handle root CLI options before subcommand dispatch."""
 
 
 app.add_typer(
