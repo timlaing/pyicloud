@@ -14,7 +14,9 @@ from pyicloud.cli.commands.contacts import app as contacts_app
 from pyicloud.cli.commands.devices import app as devices_app
 from pyicloud.cli.commands.drive import app as drive_app
 from pyicloud.cli.commands.hidemyemail import app as hidemyemail_app
+from pyicloud.cli.commands.notes import app as notes_app
 from pyicloud.cli.commands.photos import app as photos_app
+from pyicloud.cli.commands.reminders import app as reminders_app
 from pyicloud.cli.context import CLIAbort
 
 app = typer.Typer(
@@ -86,6 +88,12 @@ app.add_typer(
     name="hidemyemail",
     invoke_without_command=True,
     callback=_group_root,
+)
+app.add_typer(
+    reminders_app, name="reminders", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(
+    notes_app, name="notes", invoke_without_command=True, callback=_group_root
 )
 
 

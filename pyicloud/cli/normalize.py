@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
+
+MAX_NOTES_SEARCH_WINDOW = 5_000
 
 
 def normalize_account_summary(api, account) -> dict[str, Any]:
@@ -174,3 +177,97 @@ def normalize_alias(alias: dict[str, Any]) -> dict[str, Any]:
         "label": alias.get("label"),
         "anonymous_id": alias.get("anonymousId"),
     }
+
+
+def select_recent_notes(
+    notes_service: Any, *, limit: int, include_deleted: bool
+) -> list[Any]:
+    """Return recent notes, excluding deleted notes by default."""
+
+    if limit <= 0:
+        return []
+    if include_deleted:
+        return list(notes_service.recents(limit=limit))
+
+    probe_limit = limit
+    max_probe = min(max(limit, 10) * 8, 500)
+    while True:
+        rows = list(notes_service.recents(limit=probe_limit))
+        filtered = [row for row in rows if not getattr(row, "is_deleted", False)]
+        if (
+            len(filtered) >= limit
+            or len(rows) < probe_limit
+            or probe_limit >= max_probe
+        ):
+            return filtered[:limit]
+        probe_limit = min(probe_limit * 2, max_probe)
+
+
+def search_notes_by_title(
+    notes_service: Any,
+    *,
+    title: str | None = None,
+    title_contains: str | None = None,
+    limit: int,
+) -> list[Any]:
+    """Return title-matched notes using recents-first search with full-scan fallback."""
+
+    if limit <= 0:
+        return []
+
+    exact = (title or "").strip()
+    contains = (title_contains or "").strip().lower()
+    if not exact and not contains:
+        return []
+
+    def matches(note_title: str | None) -> bool:
+        if not note_title:
+            return False
+        if exact and note_title == exact:
+            return True
+        if contains and contains in note_title.lower():
+            return True
+        return False
+
+    def dedupe_key(item: Any) -> Any:
+        return getattr(item, "id", None) or id(item)
+
+    candidates: list[Any] = []
+    seen: set[Any] = set()
+    window = min(MAX_NOTES_SEARCH_WINDOW, max(500, limit * 50))
+
+    for note in notes_service.recents(limit=window):
+        if not matches(getattr(note, "title", None)):
+            continue
+        key = dedupe_key(note)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(note)
+        if len(candidates) >= limit:
+            break
+
+    if len(candidates) < limit:
+        for note in notes_service.iter_all():
+            if not matches(getattr(note, "title", None)):
+                continue
+            key = dedupe_key(note)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(note)
+            if len(candidates) >= limit:
+                break
+
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+    def sort_key(item: Any) -> datetime:
+        modified_at = getattr(item, "modified_at", None)
+        if modified_at is None:
+            return epoch
+        if modified_at.tzinfo is None:
+            return modified_at.replace(tzinfo=timezone.utc)
+        return modified_at
+
+    candidates.sort(key=sort_key, reverse=True)
+    return candidates[:limit]

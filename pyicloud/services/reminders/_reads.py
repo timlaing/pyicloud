@@ -115,6 +115,10 @@ class RemindersReadAPI:
 
     def sync_cursor(self) -> str:
         """Return the latest usable sync token for the Reminders zone."""
+        query_token = self._get_raw().current_sync_token(zone_id=_REMINDERS_ZONE_REQ)
+        if query_token:
+            return query_token
+
         sync_token: Optional[str] = None
         for zone in self._iter_zone_change_pages(
             desired_record_types=[],

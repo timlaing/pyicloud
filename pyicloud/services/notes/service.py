@@ -216,6 +216,10 @@ class NotesService(BaseService):
             ``NoteSummary`` instances for full exports, indexing jobs, or local
             cache refreshes.
         """
+        if self._matches_current_sync_cursor(since):
+            LOGGER.debug("Skipping Notes full scan because sync token is current")
+            return
+
         LOGGER.debug("Iterating all notes%s", f" since={since}" if since else "")
         for zone in self._raw.changes(
             zone_req=CKZoneChangesZoneReq(
@@ -277,7 +281,11 @@ class NotesService(BaseService):
                     name = self._decode_encrypted(
                         rec.fields.get_value("TitleEncrypted")
                     )
-                    has_sub_value = rec.fields.get_value(_HAS_SUBFOLDER_FIELD)
+                    has_sub_value = getattr(
+                        rec.fields.get_field(_HAS_SUBFOLDER_FIELD) or (),
+                        "value",
+                        None,
+                    )
                     has_sub = None if has_sub_value is None else bool(has_sub_value)
                     yield NoteFolder(
                         id=folder_id, name=name, has_subfolders=has_sub, count=None
@@ -519,6 +527,10 @@ class NotesService(BaseService):
         Pass a sync token from ``sync_cursor()`` to process only new changes
         since a previous run.
         """
+        if self._matches_current_sync_cursor(since):
+            LOGGER.debug("Skipping Notes change scan because sync token is current")
+            return
+
         LOGGER.debug("Iterating changes%s", f" since={since}" if since else "")
         for zone in self._raw.changes(
             zone_req=CKZoneChangesZoneReq(
@@ -603,6 +615,17 @@ class NotesService(BaseService):
         return self._raw
 
     # -------------------------- Internal helpers -----------------------------
+
+    def _matches_current_sync_cursor(self, since: Optional[str]) -> bool:
+        """Return whether an incremental Notes cursor is already current."""
+        if not since:
+            return False
+
+        try:
+            return self._raw.current_sync_token(zone_name="Notes") == since
+        except NotesApiError as exc:
+            LOGGER.warning("Failed to preflight Notes sync token: %s", exc)
+            return False
 
     @staticmethod
     def _coerce_keys(keys: Optional[Iterable[object]]) -> Optional[List[str]]:

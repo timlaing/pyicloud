@@ -11,6 +11,7 @@ from pyicloud.common.cloudkit import CKRecord
 from ._protocol import (
     _as_raw_id,
     _decode_attachment_url,
+    _decode_cloudkit_text_value,
     _decode_crdt_document,
     _ref_name,
 )
@@ -117,36 +118,37 @@ class RemindersRecordMapper:
 
     def _coerce_text(self, value: Any, *, field_name: str, record_name: str) -> str:
         """Normalize CloudKit text-like values into ``str`` for domain models."""
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value
-        if isinstance(value, bytes):
-            try:
-                return value.decode("utf-8")
-            except UnicodeDecodeError:
-                self._logger.warning(
-                    "Field %s on %s was undecodable bytes; replacing invalid UTF-8",
-                    field_name,
-                    record_name,
-                )
-                return value.decode("utf-8", errors="replace")
-        return str(value)
+        try:
+            return _decode_cloudkit_text_value(value)
+        except UnicodeDecodeError:
+            self._logger.warning(
+                "Field %s on %s was undecodable bytes; replacing invalid UTF-8",
+                field_name,
+                record_name,
+            )
+            return value.decode("utf-8", errors="replace")
 
     def record_to_list(self, rec: CKRecord) -> RemindersList:
         fields = rec.fields
         title = fields.get_value("Name")
         color = fields.get_value("Color")
+        reminder_ids = self._reminder_ids_for_list_record(rec)
+        raw_count = fields.get_value("Count")
+        count = int(raw_count) if raw_count is not None else 0
+        if count == 0 and reminder_ids:
+            # Live list records can carry complete reminder membership while the
+            # Count field stays at zero. Prefer the membership size in that case.
+            count = len(reminder_ids)
 
         return RemindersList(
             id=rec.recordName,
             title=str(title) if title else "Untitled",
             color=str(color) if color else None,
-            count=int(fields.get_value("Count") or 0),
+            count=count,
             badge_emblem=fields.get_value("BadgeEmblem"),
             sorting_style=fields.get_value("SortingStyle"),
             is_group=bool(fields.get_value("IsGroup") or 0),
-            reminder_ids=self._reminder_ids_for_list_record(rec),
+            reminder_ids=reminder_ids,
             record_change_tag=rec.recordChangeTag,
         )
 
