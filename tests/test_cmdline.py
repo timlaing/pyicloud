@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 
 import click
@@ -2346,6 +2346,195 @@ def test_trusted_device_2sa_flow() -> None:
     fake_api.validate_verification_code.assert_called_once_with(
         fake_api.trusted_devices[0], "123456"
     )
+
+def test_sms_2fa_flow_requests_sms_before_prompt() -> None:
+    """Auth login should request SMS delivery before prompting for the code."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "sms"
+    fake_api.request_2fa_code.return_value = True
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+    assert result.exit_code == 0
+    assert "Requested a 2FA code by SMS." in result.stdout
+    fake_api.request_2fa_code.assert_called_once_with()
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_trusted_device_2fa_flow_reports_device_prompt() -> None:
+    """Auth login should report trusted-device prompt delivery when bridge succeeds."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Requested a 2FA prompt on your trusted Apple devices." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_code_prompt_aborts_when_request_2fa_code_requires_security_key() -> None:
+    """Auth login should not enter the numeric 2FA prompt loop for key-only challenges."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.return_value = False
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "This 2FA challenge requires a security key. Connect one and retry."
+    )
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_retries_invalid_codes_before_success() -> None:
+    """Auth login should allow up to three trusted-device 2FA attempts."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+    fake_api.validate_2fa_code.side_effect = [False, False, True]
+
+    with patch.object(
+        context_module.typer,
+        "prompt",
+        side_effect=["111111", "222222", "333333"],
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+
+
+def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
+    """Auth login should stop after three invalid 2FA attempts."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "sms"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [False, False, False]
+
+    with patch.object(
+        context_module.typer,
+        "prompt",
+        side_effect=["111111", "222222", "333333"],
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == "Failed to verify the 2FA code."
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+
+
+def test_trusted_device_2fa_bridge_fallback_reports_notice() -> None:
+    """Auth login should print the bridge fallback notice before the SMS message."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_sms_fallback() -> bool:
+        fake_api.two_factor_delivery_method = "sms"
+        fake_api.two_factor_delivery_notice = (
+            "Trusted-device prompt failed; falling back to SMS."
+        )
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_sms_fallback
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Trusted-device prompt failed; falling back to SMS." in result.stdout
+    assert "Requested a 2FA code by SMS." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_sms_2fa_request_failure_aborts() -> None:
+    """Auth login should surface SMS delivery request failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.side_effect = context_module.PyiCloudAPIResponseException(
+        "sms request failed"
+    )
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == "Failed to request the 2FA SMS code."
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_request_failure_aborts() -> None:
+    """Auth login should surface bridge delivery failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDevicePromptException("bridge failed")
+    )
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Failed to request the 2FA trusted-device prompt."
+    )
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_verification_failure_aborts() -> None:
+    """Auth login should surface bridge verification failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceVerificationException(
+            "bridge verification failed"
+        )
+    )
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == ("Failed to verify the 2FA trusted-device code.")
 
 
 def test_notes_commands() -> None:
