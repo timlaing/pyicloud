@@ -182,6 +182,11 @@ If you have enabled two-factor authentications (2FA) or [two-step
 authentication (2SA)](https://support.apple.com/en-us/HT204152) for the
 account you will have to do some extra work:
 
+For HSA2 accounts, `request_2fa_code()` now starts Apple's active delivery
+route for code-based challenges. Depending on the account and session, that may
+be a trusted-device prompt or an SMS code. Security-key challenges are handled
+separately via `security_key_names` / `confirm_security_key()`.
+
 ```python
 import sys
 
@@ -216,6 +221,7 @@ if api.requires_2fa:
 
     else:
         print("Two-factor authentication required.")
+        api.request_2fa_code()
         code = input(
             "Enter the code you received of one of your approved devices: "
         )
@@ -1253,8 +1259,6 @@ Notes caveats:
   note ID does not exist.
 - `api.notes.raw` is available for advanced/debug workflows, but it is not the
   primary Notes API surface.
-
-### Notes CLI Example
 
 [`examples/notes_cli.py`](examples/notes_cli.py) is a local developer utility
 built on top of `api.notes`. It is useful for searching notes, inspecting the

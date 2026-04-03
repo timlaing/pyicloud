@@ -17,9 +17,13 @@ from rich.console import Console
 from pyicloud import PyiCloudService, utils
 from pyicloud.base import resolve_cookie_directory
 from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
     PyiCloudFailedLoginException,
+    PyiCloudNoTrustedNumberAvailable,
     PyiCloudServiceUnavailable,
+    PyiCloudTrustedDevicePromptException,
+    PyiCloudTrustedDeviceVerificationException,
 )
 from pyicloud.ssl_context import configurable_ssl_verification
 
@@ -95,6 +99,7 @@ class CLIState:
         log_level: LogLevel,
         output_format: OutputFormat,
     ) -> None:
+        """Capture the CLI options and shared runtime state for one invocation."""
         self.username = (username or "").strip()
         self.password = password
         self.china_mainland = china_mainland
@@ -231,6 +236,7 @@ class CLIState:
             self._resolved_username = api.account_name
 
     def _resolve_username(self) -> str:
+        """Resolve the Apple ID to use for the current CLI command."""
         if self._resolved_username:
             return self._resolved_username
 
@@ -276,6 +282,7 @@ class CLIState:
         )
 
     def _password_for_login(self, username: str) -> tuple[Optional[str], Optional[str]]:
+        """Return the password and its source for an interactive login flow."""
         if self.password:
             return self.password, "explicit"
 
@@ -289,6 +296,7 @@ class CLIState:
         return utils.get_password(username, interactive=True), "prompt"
 
     def _configure_logging(self) -> None:
+        """Apply the requested log level once for the current CLI process."""
         if self._logging_configured:
             return
         logging.basicConfig(level=self.log_level.logging_level())
@@ -302,6 +310,7 @@ class CLIState:
         return utils.get_password_from_keyring(username)
 
     def _prompt_index(self, prompt: str, count: int) -> int:
+        """Prompt for a zero-based selection index when multiple choices exist."""
         if count <= 1 or not self.interactive:
             return 0
         raw = typer.prompt(prompt, default="0")
@@ -314,6 +323,7 @@ class CLIState:
         return idx
 
     def _handle_2fa(self, api: PyiCloudService) -> None:
+        """Complete Apple's HSA2 flow using a security key or code-based challenge."""
         fido2_devices = list(getattr(api, "fido2_devices", []) or [])
         if fido2_devices:
             self.console.print("Security key verification required.")
@@ -332,13 +342,56 @@ class CLIState:
                 raise CLIAbort(
                     "Two-factor authentication is required, but interactive prompts are disabled."
                 )
-            code = typer.prompt("Enter 2FA code")
-            if not api.validate_2fa_code(code):
-                raise CLIAbort("Failed to verify the 2FA code.")
+            try:
+                if not api.request_2fa_code():
+                    raise CLIAbort(
+                        "This 2FA challenge requires a security key. Connect one and retry."
+                    )
+
+                notice = getattr(api, "two_factor_delivery_notice", None)
+                if notice:
+                    self.console.print(notice)
+
+                delivery_method = getattr(api, "two_factor_delivery_method", "unknown")
+                if delivery_method == "trusted_device":
+                    self.console.print(
+                        "Requested a 2FA prompt on your trusted Apple devices."
+                    )
+                elif delivery_method == "sms":
+                    self.console.print("Requested a 2FA code by SMS.")
+            except PyiCloudNoTrustedNumberAvailable as exc:
+                raise CLIAbort(
+                    "Two-factor authentication requires a trusted phone number, "
+                    "but none was returned."
+                ) from exc
+            except PyiCloudTrustedDevicePromptException as exc:
+                raise CLIAbort(
+                    "Failed to request the 2FA trusted-device prompt."
+                ) from exc
+            except PyiCloudAPIResponseException as exc:
+                raise CLIAbort("Failed to request the 2FA SMS code.") from exc
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                code = typer.prompt("Enter 2FA code")
+                try:
+                    is_valid = api.validate_2fa_code(code)
+                except PyiCloudTrustedDeviceVerificationException as exc:
+                    raise CLIAbort(
+                        "Failed to verify the 2FA trusted-device code."
+                    ) from exc
+                if is_valid:
+                    break
+                remaining_attempts = max_attempts - attempt - 1
+                if remaining_attempts <= 0:
+                    raise CLIAbort("Failed to verify the 2FA code.")
+                self.console.print(
+                    f"Invalid 2FA code. {remaining_attempts} attempt(s) remaining."
+                )
         if not api.is_trusted_session:
             api.trust_session()
 
     def _handle_2sa(self, api: PyiCloudService) -> None:
+        """Complete Apple's legacy two-step authentication flow."""
         devices = list(api.trusted_devices or [])
         if not devices:
             raise CLIAbort(
