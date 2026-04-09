@@ -7,6 +7,7 @@ from typing import Dict
 from urllib.parse import urlencode
 
 from pyicloud.common.cloudkit import (
+    CKLookupResponse,
     CKModifyOperation,
     CKModifyResponse,
     CKQueryObject,
@@ -70,6 +71,19 @@ class PhotosCloudKitClient:
     ) -> CKModifyResponse:
         return self._client.modify(
             operations=operations, zone_id=zone_id, atomic=atomic
+        )
+
+    def lookup(
+        self,
+        *,
+        record_names: list[str],
+        zone_id: CKZoneIDReq,
+        desired_keys: list[str] | None = None,
+    ) -> CKLookupResponse:
+        return self._client.lookup(
+            record_names=record_names,
+            zone_id=zone_id,
+            desired_keys=desired_keys,
         )
 
     def zones_list(self):

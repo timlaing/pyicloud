@@ -1,0 +1,16 @@
+{
+  "atomic": true,
+  "operations": [
+    {
+      "operationType": "forceDelete",
+      "record": {
+        "recordName": "ASSET_RECORD_ID_031-IN-ALBUM_RECORD_ID_001"
+      }
+    }
+  ],
+  "zoneID": {
+    "zoneName": "PrimarySync",
+    "ownerRecordName": "OWNER_RECORD_NAME_001",
+    "zoneType": "REGULAR_CUSTOM_ZONE"
+  }
+}

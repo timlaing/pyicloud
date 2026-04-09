@@ -5,7 +5,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from types import TracebackType
+from typing import Iterator, Protocol, runtime_checkable
 
 
 @dataclass(slots=True)
@@ -18,6 +19,45 @@ class SyncedPhotoResource:
     size: int | None = None
     checksum: str | None = None
     downloaded_at: str | None = None
+
+
+@runtime_checkable
+class PhotoSyncState(Protocol):
+    """Backend interface for persisted or ephemeral photo sync state."""
+
+    def __enter__(self) -> "PhotoSyncState":
+        """Open the backend and return the active state object."""
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Close the backend if needed."""
+
+    def get_sync_cursor(self) -> str | None:
+        """Return the last successful sync cursor for this target."""
+
+    def set_sync_cursor(self, value: str | None) -> None:
+        """Persist the last successful sync cursor for this target."""
+
+    def get_resource(
+        self, asset_id: str, resource_key: str
+    ) -> SyncedPhotoResource | None:
+        """Look up one tracked resource."""
+
+    def upsert_resource(self, resource: SyncedPhotoResource) -> None:
+        """Insert or replace one tracked resource."""
+
+    def delete_resource(self, asset_id: str, resource_key: str) -> None:
+        """Delete one tracked resource from the manifest."""
+
+    def iter_resources(self) -> Iterator[SyncedPhotoResource]:
+        """Iterate all tracked resources."""
+
+    def resource_count(self) -> int:
+        """Return the number of tracked resources."""
 
 
 class SQLitePhotoSyncState:
@@ -246,3 +286,15 @@ class MemoryPhotoSyncState:
         """Return the number of preview manifest rows."""
 
         return len(self._resources)
+
+
+def create_photo_sync_state(
+    db_path: Path,
+    *,
+    ephemeral: bool = False,
+) -> PhotoSyncState:
+    """Return the appropriate sync-state backend for one sync target."""
+
+    if ephemeral:
+        return MemoryPhotoSyncState()
+    return SQLitePhotoSyncState(db_path)

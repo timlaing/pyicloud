@@ -1,0 +1,36 @@
+{
+  "records": [
+    {
+      "recordName": "ASSET_RECORD_ID_031-IN-ALBUM_RECORD_ID_001",
+      "recordType": "CPLContainerRelation",
+      "fields": {
+        "itemId": {
+          "value": "ASSET_RECORD_ID_031",
+          "type": "STRING"
+        },
+        "position": {
+          "value": 1024,
+          "type": "INT64"
+        },
+        "containerId": {
+          "value": "ALBUM_RECORD_ID_001",
+          "type": "STRING"
+        }
+      },
+      "pluginFields": {},
+      "recordChangeTag": "RECORD_CHANGE_TAG_284",
+      "created": {
+        "timestamp": 1775666233042,
+        "userRecordName": "OWNER_RECORD_NAME_001",
+        "deviceID": "2"
+      },
+      "modified": {
+        "timestamp": 1775666233042,
+        "userRecordName": "OWNER_RECORD_NAME_001",
+        "deviceID": "2"
+      },
+      "deleted": false
+    }
+  ],
+  "syncToken": "SYNC_TOKEN_006"
+}

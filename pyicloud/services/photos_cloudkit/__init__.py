@@ -20,8 +20,19 @@ from .service import (
     PhotosService,
     SmartPhotoAlbum,
 )
-from .state import SQLitePhotoSyncState, SyncedPhotoResource
-from .sync import PhotoSyncItem, PhotoSyncOptions, PhotoSyncResult, run_photo_sync
+from .state import (
+    PhotoSyncState,
+    SQLitePhotoSyncState,
+    SyncedPhotoResource,
+    create_photo_sync_state,
+)
+from .sync import (
+    PhotoSyncItem,
+    PhotoSyncOptions,
+    PhotoSyncResult,
+    run_photo_sync,
+    watch_photo_sync,
+)
 
 __all__ = [
     "AlbumContainer",
@@ -39,6 +50,7 @@ __all__ = [
     "PhotoSyncItem",
     "PhotoSyncOptions",
     "PhotoSyncResult",
+    "PhotoSyncState",
     "PhotoResource",
     "PhotosService",
     "PhotosServiceException",
@@ -47,5 +59,7 @@ __all__ = [
     "SmartAlbumEnum",
     "SmartPhotoAlbum",
     "SyncedPhotoResource",
+    "create_photo_sync_state",
     "run_photo_sync",
+    "watch_photo_sync",
 ]

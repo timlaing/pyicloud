@@ -1,0 +1,30 @@
+{
+  "records": [
+    {
+      "recordType": "CPLAsset",
+      "recordName": "ASSET_RECORD_ID_203",
+      "fields": {
+        "masterRef": {
+          "value": {
+            "recordName": "MASTER_RECORD_ID_203"
+          }
+        },
+        "assetDate": {
+          "value": 1775666400000
+        },
+        "addedDate": {
+          "value": 1775666500000
+        }
+      }
+    },
+    {
+      "recordType": "CPLMaster",
+      "recordName": "MASTER_RECORD_ID_203",
+      "fields": {
+        "filenameEnc": {
+          "value": "ZmF2b3JpdGVfcGhvdG8uanBn"
+        }
+      }
+    }
+  ]
+}

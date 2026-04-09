@@ -2,17 +2,42 @@
 
 from __future__ import annotations
 
+import base64
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
 
-from pyicloud.services.photos import PhotoResource, PhotoSyncOptions, run_photo_sync
-from pyicloud.services.photos_cloudkit.state import SQLitePhotoSyncState
+from pyicloud.services.photos import (
+    PhotoResource,
+    PhotoSyncOptions,
+    run_photo_sync,
+    watch_photo_sync,
+)
+from pyicloud.services.photos_cloudkit.state import (
+    MemoryPhotoSyncState,
+    SQLitePhotoSyncState,
+    create_photo_sync_state,
+)
 
 TEST_BASE = Path(tempfile.gettempdir()) / "python-test-results"
 TEST_BASE.mkdir(parents=True, exist_ok=True)
+MINIMAL_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8U"
+    "HRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgN"
+    "DRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIy"
+    "MjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQF"
+    "BgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEI"
+    "I0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNk"
+    "ZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLD"
+    "xMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEB"
+    "AQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJB"
+    "UQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZH"
+    "SElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaan"
+    "qKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oA"
+    "DAMBAAIRAxEAPwD3+iiigD//2Q=="
+)
 
 
 class DummyAlbumContainer(list):
@@ -80,6 +105,8 @@ class DummyAsset:
         is_live_photo: bool = False,
         added_days_ago: int = 0,
         resources: Optional[dict[str, PhotoResource]] = None,
+        asset_record: Optional[dict] = None,
+        payloads: Optional[dict[str, bytes]] = None,
     ) -> None:
         self.id = asset_id
         self.filename = filename
@@ -88,6 +115,9 @@ class DummyAsset:
         self.asset_date = datetime.now(timezone.utc) - timedelta(days=added_days_ago)
         self.added_date = self.asset_date
         self.downloaded_versions: list[str] = []
+        self.deleted = False
+        self._asset_record = asset_record or {"fields": {"assetDate": {"value": 0}}}
+        self._payloads = payloads or {}
         self.resources = resources or {
             "original": PhotoResource(
                 key="original",
@@ -102,7 +132,11 @@ class DummyAsset:
     def download(self, version: str = "original", **kwargs) -> bytes:
         _ = kwargs
         self.downloaded_versions.append(version)
-        return f"{self.id}:{version}".encode()
+        return self._payloads.get(version, f"{self.id}:{version}".encode())
+
+    def delete(self) -> bool:
+        self.deleted = True
+        return True
 
 
 def test_sqlite_photo_sync_state_round_trip() -> None:
@@ -139,6 +173,18 @@ def test_sqlite_photo_sync_state_round_trip() -> None:
             elif path.is_dir():
                 path.rmdir()
         temp_dir.rmdir()
+
+
+def test_create_photo_sync_state_selects_expected_backend() -> None:
+    """Sync runs should choose ephemeral or SQLite state through the factory."""
+
+    db_path = TEST_BASE / "photos-sync-factory.sqlite3"
+
+    assert isinstance(create_photo_sync_state(db_path), SQLitePhotoSyncState)
+    assert isinstance(
+        create_photo_sync_state(db_path, ephemeral=True),
+        MemoryPhotoSyncState,
+    )
 
 
 def test_run_photo_sync_downloads_and_persists_manifest() -> None:
@@ -289,6 +335,209 @@ def test_run_photo_sync_live_photos_respect_video_flags() -> None:
         assert any(item.path.endswith("live.mov") for item in first.items)
         assert second.downloaded_count == 1
         assert all(not item.path.endswith("live.mov") for item in second.items)
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_watch_photo_sync_repeats_runs_and_sleeps_between_iterations() -> None:
+    """Watch mode should rerun sync and sleep only between completed iterations."""
+
+    asset = DummyAsset("asset-1", "watch.jpg")
+    service = DummyService(DummyAlbum("All Photos", [asset]), cursor="cursor-watch")
+    slept: list[float] = []
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-watch-run-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        results = list(
+            watch_photo_sync(
+                service,
+                PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+                interval_seconds=7,
+                iterations=2,
+                sleep_fn=slept.append,
+            )
+        )
+
+        assert len(results) == 2
+        assert results[0].downloaded_count == 1
+        assert results[0].short_circuited is False
+        assert results[1].downloaded_count == 0
+        assert results[1].short_circuited is True
+        assert slept == [7]
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_align_raw_prefers_requested_representation() -> None:
+    """RAW alignment should swap original and alternative resources when requested."""
+
+    raw_asset = DummyAsset(
+        "asset-raw",
+        "IMG_0001.JPG",
+        resources={
+            "original": PhotoResource(
+                key="original",
+                filename="IMG_0001.JPG",
+                url="https://example.com/raw/jpeg",
+                size=10,
+                type="public.jpeg",
+            ),
+            "alternative": PhotoResource(
+                key="alternative",
+                filename="IMG_0001.CR2",
+                url="https://example.com/raw/cr2",
+                size=11,
+                type="com.canon.cr2-raw-image",
+            ),
+        },
+    )
+    service = DummyService(DummyAlbum("All Photos", [raw_asset]), cursor="cursor-raw")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-raw-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        default_result = run_photo_sync(
+            service,
+            PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+        )
+        raw_result = run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=temp_dir / "raw-output",
+                state_dir=temp_dir / "raw-state",
+                align_raw="original",
+            ),
+        )
+
+        assert default_result.downloaded_count == 1
+        assert raw_result.downloaded_count == 1
+        assert (output_dir / "IMG_0001.JPG").exists()
+        assert (temp_dir / "raw-output" / "IMG_0001.CR2").exists()
+        assert raw_asset.downloaded_versions == ["original", "alternative"]
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_writes_xmp_sidecar() -> None:
+    """XMP sidecar export should write metadata next to downloaded photo files."""
+
+    asset = DummyAsset(
+        "asset-xmp",
+        "photo.jpg",
+        asset_record={
+            "fields": {
+                "captionEnc": {"value": "VGl0bGUgSGVyZQ=="},
+                "assetDate": {"value": 1711929600000},
+                "isFavorite": {"value": 1},
+            }
+        },
+    )
+    service = DummyService(DummyAlbum("All Photos", [asset]), cursor="cursor-xmp")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-xmp-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                xmp_sidecar=True,
+            ),
+        )
+
+        sidecar_path = output_dir / "photo.jpg.xmp"
+        assert sidecar_path.exists()
+        xml_text = sidecar_path.read_text(encoding="utf-8")
+        assert "Title Here" in xml_text
+        assert "pyicloud photos-cloudkit" in xml_text
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_sets_exif_datetime_for_jpegs_without_exif() -> None:
+    """EXIF datetime export should populate empty JPEG timestamps."""
+
+    asset = DummyAsset(
+        "asset-exif",
+        "photo.jpg",
+        payloads={"original": MINIMAL_JPEG},
+    )
+    service = DummyService(DummyAlbum("All Photos", [asset]), cursor="cursor-exif")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-exif-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                set_exif_datetime=True,
+            ),
+        )
+
+        downloaded = output_dir / "photo.jpg"
+        contents = downloaded.read_bytes()
+        assert b"Exif\x00\x00" in contents
+        assert b"DateTimeOriginal" not in contents
+        assert b"2026:" in contents
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_keep_icloud_recent_days_deletes_old_remote_assets() -> None:
+    """Old assets should be deleted remotely once they are confirmed locally."""
+
+    old_asset = DummyAsset("asset-old", "old.jpg", added_days_ago=10)
+    service = DummyService(DummyAlbum("All Photos", [old_asset]), cursor="cursor-keep")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-keep-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                keep_icloud_recent_days=0,
+            ),
+        )
+
+        assert old_asset.deleted is True
+        assert result.deleted_count == 1
+        assert any(item.reason == "keep-icloud-recent-days" for item in result.items)
     finally:
         for path in sorted(temp_dir.rglob("*"), reverse=True):
             if path.is_file():

@@ -1,0 +1,26 @@
+{
+  "atomic": true,
+  "operations": [
+    {
+      "operationType": "update",
+      "record": {
+        "recordName": "ALBUM_RECORD_ID_001",
+        "recordChangeTag": "RECORD_CHANGE_TAG_227",
+        "recordType": "CPLAlbum",
+        "fields": {
+          "albumNameEnc": {
+            "value": "QUxCVU1fTkFNRV9FTkNfMDI4"
+          },
+          "userModificationDate": {
+            "value": 1775666024305
+          }
+        }
+      }
+    }
+  ],
+  "zoneID": {
+    "zoneName": "PrimarySync",
+    "ownerRecordName": "OWNER_RECORD_NAME_001",
+    "zoneType": "REGULAR_CUSTOM_ZONE"
+  }
+}

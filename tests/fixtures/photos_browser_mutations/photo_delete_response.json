@@ -1,0 +1,69 @@
+{
+  "records": [
+    {
+      "recordName": "ASSET_RECORD_ID_031",
+      "recordType": "CPLAsset",
+      "fields": {
+        "assetDate": {
+          "value": 1775665166911,
+          "type": "TIMESTAMP"
+        },
+        "addedDate": {
+          "value": 1775665260159,
+          "type": "TIMESTAMP"
+        },
+        "assetSubtype": {
+          "value": 0,
+          "type": "INT64"
+        },
+        "isDeleted": {
+          "value": 1,
+          "type": "INT64"
+        },
+        "timeZoneOffset": {
+          "value": 7200,
+          "type": "INT64"
+        },
+        "masterRef": {
+          "value": {
+            "recordName": "MASTER_RECORD_ID_031",
+            "action": "DELETE_SELF",
+            "zoneID": {
+              "zoneName": "PrimarySync",
+              "ownerRecordName": "OWNER_RECORD_NAME_001",
+              "zoneType": "REGULAR_CUSTOM_ZONE"
+            }
+          },
+          "type": "REFERENCE"
+        },
+        "timeZoneNameEnc": {
+          "value": "TIME_ZONE_NAME_ENC_003",
+          "type": "ENCRYPTED_BYTES"
+        },
+        "customRenderedValue": {
+          "value": 0,
+          "type": "INT64"
+        },
+        "dateExpunged": {
+          "value": 1778258717590,
+          "type": "TIMESTAMP"
+        }
+      },
+      "pluginFields": {},
+      "recordChangeTag": "RECORD_CHANGE_TAG_286",
+      "created": {
+        "timestamp": 1775665260412,
+        "userRecordName": "OWNER_RECORD_NAME_001",
+        "deviceID": "2"
+      },
+      "modified": {
+        "timestamp": 1775666717666,
+        "userRecordName": "OWNER_RECORD_NAME_001",
+        "deviceID": "2"
+      },
+      "deleted": false,
+      "expirationTime": 1779122717
+    }
+  ],
+  "syncToken": "SYNC_TOKEN_008"
+}

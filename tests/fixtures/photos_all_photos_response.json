@@ -1,0 +1,30 @@
+{
+  "records": [
+    {
+      "recordType": "CPLAsset",
+      "recordName": "ASSET_RECORD_ID_201",
+      "fields": {
+        "masterRef": {
+          "value": {
+            "recordName": "MASTER_RECORD_ID_201"
+          }
+        },
+        "assetDate": {
+          "value": 1775666000000
+        },
+        "addedDate": {
+          "value": 1775666100000
+        }
+      }
+    },
+    {
+      "recordType": "CPLMaster",
+      "recordName": "MASTER_RECORD_ID_201",
+      "fields": {
+        "filenameEnc": {
+          "value": "YWxsX3Bob3RvLmpwZw=="
+        }
+      }
+    }
+  ]
+}

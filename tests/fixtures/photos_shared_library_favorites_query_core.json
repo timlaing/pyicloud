@@ -1,0 +1,9 @@
+{
+  "recordType": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+  "resultsLimit": 2,
+  "filters": {
+    "direction": "DESCENDING",
+    "smartAlbum": "FAVORITE",
+    "startRank": 0
+  }
+}

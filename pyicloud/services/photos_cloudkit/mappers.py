@@ -147,10 +147,9 @@ def build_photo_resource(
     height = record_field_value(master_record, f"{prefix}Height")
 
     resource_filename = filename
-    if (
-        is_live_photo
-        and resource_type
-        and item_type_lookup.get(resource_type) == "movie"
+    if resource_type and (
+        (is_live_photo and item_type_lookup.get(resource_type) == "movie")
+        or item_type_extensions.get(resource_type)
     ):
         name_base, _ = os.path.splitext(filename)
         resource_filename = (

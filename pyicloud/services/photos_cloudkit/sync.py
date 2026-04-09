@@ -7,13 +7,23 @@ import json
 import os
 import re
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
+from .constants import (
+    legacy_shared_stream_unsupported_message,
+    unsupported_shared_library_album_message,
+)
+from .materialize import (
+    apply_align_raw_policy,
+    set_exif_datetime_if_missing,
+    write_xmp_sidecar,
+)
 from .models import PhotoResource, PhotosServiceException
-from .state import MemoryPhotoSyncState, SQLitePhotoSyncState, SyncedPhotoResource
+from .state import PhotoSyncState, SyncedPhotoResource, create_photo_sync_state
 
 DEFAULT_FOLDER_STRUCTURE = "none"
 PRIMARY_SYNC_VERSIONS = {"original", "medium", "thumb"}
@@ -35,6 +45,10 @@ class PhotoSyncOptions:
     until_found: int | None = None
     skip_videos: bool = False
     skip_live_photos: bool = False
+    align_raw: str = "as-is"
+    xmp_sidecar: bool = False
+    set_exif_datetime: bool = False
+    keep_icloud_recent_days: int | None = None
     only_print_filenames: bool = False
     dry_run: bool = False
     auto_delete: bool = False
@@ -57,6 +71,7 @@ class PhotoSyncOptions:
             "recent": self.recent,
             "skip_videos": self.skip_videos,
             "skip_live_photos": self.skip_live_photos,
+            "align_raw": self.align_raw,
         }
 
     def target_key(self) -> str:
@@ -141,6 +156,30 @@ class PhotoSyncResult:
         }
 
 
+def watch_photo_sync(
+    service: Any,
+    options: PhotoSyncOptions,
+    *,
+    interval_seconds: int,
+    iterations: int | None = None,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> Iterator[PhotoSyncResult]:
+    """Yield repeated sync runs for the given sync target."""
+
+    if interval_seconds < 1:
+        raise PhotosServiceException("--interval must be at least 1 second.")
+    if iterations is not None and iterations < 1:
+        raise PhotosServiceException("--iterations must be at least 1.")
+
+    completed = 0
+    while iterations is None or completed < iterations:
+        yield run_photo_sync(service, options)
+        completed += 1
+        if iterations is not None and completed >= iterations:
+            return
+        sleep_fn(interval_seconds)
+
+
 def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
     """Synchronize selected photo resources into a local output directory."""
 
@@ -153,6 +192,11 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
             "Unsupported live photo size "
             f"'{options.live_photo_size}'. Choose from: original, medium, thumb."
         )
+    if options.align_raw not in {"as-is", "original", "alternative"}:
+        raise PhotosServiceException(
+            "Unsupported RAW alignment "
+            f"'{options.align_raw}'. Choose from: as-is, original, alternative."
+        )
     if options.auto_delete and options.until_found is not None:
         raise PhotosServiceException(
             "--auto-delete cannot be combined with --until-found."
@@ -161,6 +205,11 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
         raise PhotosServiceException("--until-found must be at least 1.")
     if options.recent is not None and options.recent < 1:
         raise PhotosServiceException("--recent must be at least 1 day.")
+    if (
+        options.keep_icloud_recent_days is not None
+        and options.keep_icloud_recent_days < 0
+    ):
+        raise PhotosServiceException("--keep-icloud-recent-days must be at least 0.")
 
     options.directory.mkdir(parents=True, exist_ok=True)
     result = PhotoSyncResult(
@@ -170,13 +219,11 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
         albums=list(options.normalized_albums()),
     )
 
-    state_backend: MemoryPhotoSyncState | SQLitePhotoSyncState
-    if (
-        options.dry_run or options.only_print_filenames
-    ) and not options.state_path().exists():
-        state_backend = MemoryPhotoSyncState()
-    else:
-        state_backend = SQLitePhotoSyncState(options.state_path())
+    state_backend = create_photo_sync_state(
+        options.state_path(),
+        ephemeral=(options.dry_run or options.only_print_filenames)
+        and not options.state_path().exists(),
+    )
 
     with state_backend as state:
         selected_library = _resolve_library(service, options.library)
@@ -195,6 +242,9 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
             auto_delete=options.auto_delete,
             dry_run=options.dry_run,
             only_print_filenames=options.only_print_filenames,
+            xmp_sidecar=options.xmp_sidecar,
+            set_exif_datetime=options.set_exif_datetime,
+            keep_icloud_recent_days=options.keep_icloud_recent_days,
         ):
             result.short_circuited = True
             return result
@@ -205,6 +255,7 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
         cutoff = None
         if options.recent is not None:
             cutoff = datetime.now(timezone.utc) - timedelta(days=options.recent)
+        now_local = datetime.now().astimezone()
 
         for asset in _iter_sync_assets(service, selected_library, options):
             if cutoff is not None and getattr(asset, "added_date", None) < cutoff:
@@ -212,6 +263,9 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
             resources = _select_resources(asset, options)
             if not resources:
                 continue
+            asset_ready_for_delete = True
+            asset_confirmed_local = False
+            asset_paths: list[str] = []
             for resource_key, resource in resources:
                 relative_path = _unique_relative_path(
                     candidate=_render_relative_path(
@@ -224,6 +278,7 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                 )
                 reserved_paths.add(relative_path)
                 current_entries.add((asset.id, resource_key))
+                asset_paths.append(relative_path)
                 target_path = options.directory / relative_path
                 manifest = state.get_resource(asset.id, resource_key)
                 if _is_current_file(target_path, manifest, resource, relative_path):
@@ -237,6 +292,14 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                         )
                     )
                     result.skipped_count += 1
+                    asset_confirmed_local = True
+                    _apply_local_metadata(
+                        asset=asset,
+                        resource=resource,
+                        resource_key=resource_key,
+                        target_path=target_path,
+                        options=options,
+                    )
                     consecutive_seen += 1
                     if (
                         options.until_found is not None
@@ -260,11 +323,13 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                         )
                     )
                     result.listed_count += 1
+                    asset_ready_for_delete = False
                     continue
 
                 data = asset.download(version=resource_key)
                 if data is None:
                     sync_complete = False
+                    asset_ready_for_delete = False
                     result.items.append(
                         PhotoSyncItem(
                             asset_id=asset.id,
@@ -277,6 +342,13 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                     result.skipped_count += 1
                     continue
                 _atomic_write_bytes(target_path, data)
+                _apply_local_metadata(
+                    asset=asset,
+                    resource=resource,
+                    resource_key=resource_key,
+                    target_path=target_path,
+                    options=options,
+                )
                 downloaded_at = datetime.now(timezone.utc).isoformat()
                 state.upsert_resource(
                     SyncedPhotoResource(
@@ -297,6 +369,28 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                     )
                 )
                 result.downloaded_count += 1
+                asset_confirmed_local = True
+
+            if _should_delete_remote_asset(
+                asset=asset,
+                options=options,
+                asset_ready_for_delete=asset_ready_for_delete,
+                asset_confirmed_local=asset_confirmed_local,
+                now_local=now_local,
+            ):
+                deleted = asset.delete()
+                sync_complete = False
+                if deleted:
+                    result.items.append(
+                        PhotoSyncItem(
+                            asset_id=asset.id,
+                            resource_key="remote",
+                            path=asset_paths[0] if asset_paths else asset.filename,
+                            action="deleted",
+                            reason="keep-icloud-recent-days",
+                        )
+                    )
+                    result.deleted_count += 1
             if (
                 options.until_found is not None
                 and consecutive_seen >= options.until_found
@@ -341,6 +435,10 @@ def _resolve_library(service: Any, library_key: str):
     library = libraries.get(library_key)
     if library is None:
         raise PhotosServiceException(f"No photo library matched '{library_key}'.")
+    if library_key == "shared" or getattr(library, "scope", None) == "shared-stream":
+        raise PhotosServiceException(
+            legacy_shared_stream_unsupported_message(library_key)
+        )
     return library
 
 
@@ -354,14 +452,24 @@ def _sync_cursor(library: Any, service: Any) -> str | None:
 
 def _can_short_circuit(
     *,
-    state: SQLitePhotoSyncState,
+    state: PhotoSyncState,
     directory: Path,
     current_cursor: str | None,
     auto_delete: bool,
     dry_run: bool,
     only_print_filenames: bool,
+    xmp_sidecar: bool,
+    set_exif_datetime: bool,
+    keep_icloud_recent_days: int | None,
 ) -> bool:
-    if auto_delete or dry_run or only_print_filenames:
+    if (
+        auto_delete
+        or dry_run
+        or only_print_filenames
+        or xmp_sidecar
+        or set_exif_datetime
+        or keep_icloud_recent_days is not None
+    ):
         return False
     if current_cursor is None or state.get_sync_cursor() != current_cursor:
         return False
@@ -389,6 +497,13 @@ def _iter_sync_assets(
         for album_name in album_names:
             album = album_container.find(album_name)
             if album is None:
+                if getattr(library, "scope", None) == "shared-library":
+                    raise PhotosServiceException(
+                        unsupported_shared_library_album_message(
+                            options.library,
+                            album_name,
+                        )
+                    )
                 raise PhotosServiceException(
                     f"No album named '{album_name}' was found."
                 )
@@ -419,7 +534,9 @@ def _iter_sync_assets(
 def _select_resources(
     asset: Any, options: PhotoSyncOptions
 ) -> list[tuple[str, PhotoResource]]:
-    resources = getattr(asset, "resources", {})
+    resources = apply_align_raw_policy(
+        getattr(asset, "resources", {}), options.align_raw
+    )
     if asset.item_type == "movie":
         if options.skip_videos:
             return []
@@ -459,7 +576,7 @@ def _resolve_resource(
     for candidate in candidates:
         resource = resources.get(candidate)
         if resource is not None and resource.url:
-            return candidate, resource
+            return getattr(resource, "key", None) or candidate, resource
     return None
 
 
@@ -552,3 +669,39 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
 def _sanitize_name(value: str) -> str:
     sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-").lower()
     return sanitized or "target"
+
+
+def _apply_local_metadata(
+    *,
+    asset: Any,
+    resource: PhotoResource,
+    resource_key: str,
+    target_path: Path,
+    options: PhotoSyncOptions,
+) -> None:
+    if options.set_exif_datetime:
+        set_exif_datetime_if_missing(target_path, getattr(asset, "asset_date"))
+    if options.xmp_sidecar and not resource_key.endswith("_video"):
+        write_xmp_sidecar(
+            path=target_path,
+            asset_record=getattr(asset, "_asset_record", None),
+            dry_run=options.dry_run,
+        )
+
+
+def _should_delete_remote_asset(
+    *,
+    asset: Any,
+    options: PhotoSyncOptions,
+    asset_ready_for_delete: bool,
+    asset_confirmed_local: bool,
+    now_local: datetime,
+) -> bool:
+    if options.keep_icloud_recent_days is None:
+        return False
+    if options.only_print_filenames or options.dry_run:
+        return False
+    if not asset_ready_for_delete or not asset_confirmed_local:
+        return False
+    age_days = (now_local - getattr(asset, "asset_date").astimezone()).days
+    return age_days >= options.keep_icloud_recent_days

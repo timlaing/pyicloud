@@ -1,0 +1,13 @@
+{
+  "records": [
+    {
+      "recordName": "INDEXING_STATE_RECORD_001",
+      "recordType": "CheckIndexingState",
+      "fields": {
+        "state": {
+          "value": "NOT_FINISHED"
+        }
+      }
+    }
+  ]
+}

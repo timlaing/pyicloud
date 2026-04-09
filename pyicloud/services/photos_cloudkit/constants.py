@@ -30,6 +30,41 @@ class SmartAlbumEnum(str, Enum):
     VIDEOS = "Videos"
 
 
+SUPPORTED_SHARED_LIBRARY_SMART_ALBUMS: tuple[SmartAlbumEnum, ...] = (
+    SmartAlbumEnum.ALL_PHOTOS,
+    SmartAlbumEnum.FAVORITES,
+)
+
+
+def supported_shared_library_album_names() -> tuple[str, ...]:
+    """Return the currently supported Shared Library album filter names."""
+
+    return tuple(album.value for album in SUPPORTED_SHARED_LIBRARY_SMART_ALBUMS)
+
+
+def legacy_shared_stream_unsupported_message(library_key: str) -> str:
+    """Return a consistent error for legacy Shared Albums library misuse."""
+
+    return (
+        f"Photo library '{library_key}' uses legacy Shared Albums streams and is "
+        "not supported by this command. Use 'root' or a Shared Library key like "
+        "'shared:<zoneName>'."
+    )
+
+
+def unsupported_shared_library_album_message(
+    library_key: str,
+    album_name: str,
+) -> str:
+    """Return a consistent error for unsupported Shared Library album filters."""
+
+    supported = ", ".join(supported_shared_library_album_names())
+    return (
+        f"Shared Library '{library_key}' currently supports album filters only for "
+        f"{supported}. Album '{album_name}' is not supported yet."
+    )
+
+
 class DirectionEnum(str, Enum):
     """Direction values accepted by Photos CloudKit indexes."""
 

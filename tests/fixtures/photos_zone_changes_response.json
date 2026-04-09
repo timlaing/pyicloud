@@ -1,0 +1,45 @@
+{
+  "zones": [
+    {
+      "zoneID": {
+        "zoneName": "PrimarySync",
+        "ownerRecordName": "OWNER_RECORD_NAME_001",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "syncToken": "SYNC_TOKEN_103",
+      "moreComing": false,
+      "records": [
+        {
+          "recordName": "ASSET_RECORD_ID_101",
+          "recordType": "CPLAsset",
+          "fields": {
+            "isDeleted": {
+              "type": "INT64",
+              "value": 0
+            }
+          },
+          "modified": {
+            "timestamp": 1775666233042,
+            "userRecordName": "OWNER_RECORD_NAME_001",
+            "deviceID": "2"
+          },
+          "deleted": false,
+          "zoneID": {
+            "zoneName": "PrimarySync",
+            "ownerRecordName": "OWNER_RECORD_NAME_001",
+            "zoneType": "REGULAR_CUSTOM_ZONE"
+          }
+        },
+        {
+          "recordName": "ALBUM_RECORD_ID_999",
+          "deleted": true,
+          "zoneID": {
+            "zoneName": "PrimarySync",
+            "ownerRecordName": "OWNER_RECORD_NAME_001",
+            "zoneType": "REGULAR_CUSTOM_ZONE"
+          }
+        }
+      ]
+    }
+  ]
+}

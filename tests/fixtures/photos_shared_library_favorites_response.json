@@ -1,0 +1,63 @@
+{
+  "records": [
+    {
+      "recordType": "CPLAsset",
+      "recordName": "ASSET_RECORD_ID_110",
+      "recordChangeTag": "RECORD_CHANGE_TAG_308",
+      "zoneID": {
+        "zoneName": "SharedSync-6E1C0494-1BF4-4928-BD07-3FD81633193E",
+        "ownerRecordName": "OWNER_RECORD_NAME_002",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "fields": {
+        "masterRef": {
+          "value": {
+            "recordName": "MASTER_RECORD_ID_110",
+            "action": "DELETE_SELF",
+            "zoneID": {
+              "zoneName": "SharedSync-6E1C0494-1BF4-4928-BD07-3FD81633193E",
+              "ownerRecordName": "OWNER_RECORD_NAME_002",
+              "zoneType": "REGULAR_CUSTOM_ZONE"
+            }
+          }
+        },
+        "assetDate": {
+          "value": 1775652698554
+        },
+        "addedDate": {
+          "value": 1775652699130
+        },
+        "isFavorite": {
+          "value": 1
+        }
+      }
+    },
+    {
+      "recordType": "CPLMaster",
+      "recordName": "MASTER_RECORD_ID_110",
+      "recordChangeTag": "RECORD_CHANGE_TAG_302",
+      "zoneID": {
+        "zoneName": "SharedSync-6E1C0494-1BF4-4928-BD07-3FD81633193E",
+        "ownerRecordName": "OWNER_RECORD_NAME_002",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "fields": {
+        "filenameEnc": {
+          "value": "c2hhcmVkX2Zhdm9yaXRlX3Bob3RvLmpwZw=="
+        },
+        "itemType": {
+          "value": "public.jpeg"
+        },
+        "resOriginalFileType": {
+          "value": "public.jpeg"
+        },
+        "resOriginalRes": {
+          "value": {
+            "downloadURL": "https://example.com/shared_favorite_photo.jpg",
+            "size": 1762190
+          }
+        }
+      }
+    }
+  ]
+}

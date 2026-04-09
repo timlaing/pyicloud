@@ -1,0 +1,21 @@
+{
+  "zones": [
+    {
+      "zoneID": {
+        "zoneName": "PrimarySync",
+        "ownerRecordName": "OWNER_RECORD_NAME_001",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "syncToken": "SYNC_TOKEN_101",
+      "deleted": false
+    },
+    {
+      "zoneID": {
+        "zoneName": "CustomZone",
+        "ownerRecordName": "OWNER_RECORD_NAME_001",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "deleted": false
+    }
+  ]
+}
