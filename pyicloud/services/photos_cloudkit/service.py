@@ -957,6 +957,9 @@ class BasePhotoAlbum(Iterable, ABC):
             for photo in self._process_photo_list_response(response.json()):
                 if photo.id == photo_id:
                     return photo
+            for photo in self.photos:
+                if photo.id == photo_id:
+                    return photo
             raise KeyError(f"Photo does not exist: {photo_id}")
         response = self._client.query(
             query=query,
@@ -969,10 +972,9 @@ class BasePhotoAlbum(Iterable, ABC):
         for photo in self._process_photo_list_response(response.records):
             if photo.id == photo_id:
                 return photo
-        if self._library.scope == "shared-library":
-            for photo in self.photos:
-                if photo.id == photo_id:
-                    return photo
+        for photo in self.photos:
+            if photo.id == photo_id:
+                return photo
         raise KeyError(f"Photo does not exist: {photo_id}")
 
     def _process_photo_list_response(

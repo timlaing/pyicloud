@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, call, mock_open, patch
 
 import pytest
 
@@ -1904,6 +1904,80 @@ def test_shared_library_all_photo_lookup_falls_back_to_scanning_feed() -> None:
     lookup_query = mock_client.query.call_args_list[1].kwargs["query"]
     assert lookup_query.filterBy[-1].fieldName == "recordName"
     fallback_query = mock_client.query.call_args_list[2].kwargs["query"]
+    filter_names = [item.fieldName for item in fallback_query.filterBy]
+    assert filter_names == ["direction", "startRank"]
+    assert fallback_query.filterBy[0].fieldValue.value == DirectionEnum.DESCENDING.value
+    mock_client.batch_count.assert_called_once()
+
+
+def test_private_library_all_photo_lookup_falls_back_to_scanning_feed() -> None:
+    """Private Library lookups should also fall back to feed scanning when needed."""
+
+    mock_client = MagicMock()
+    mock_client.query.side_effect = [
+        _indexing_ready_response("SYNC_TOKEN_001"),
+        CKQueryResponse(records=[], syncToken="SYNC_TOKEN_002"),
+        CKQueryResponse(records=[], syncToken="SYNC_TOKEN_003"),
+        CKQueryResponse(
+            records=[
+                _ck_record(
+                    "CPLMaster",
+                    "MASTER_RECORD_ID_211",
+                    {
+                        "filenameEnc": {
+                            "type": "ENCRYPTED_BYTES",
+                            "value": base64.b64encode(
+                                b"private_library_photo.jpg"
+                            ).decode("utf-8"),
+                        }
+                    },
+                    zoneID=PRIMARY_ZONE,
+                ),
+                _ck_record(
+                    "CPLAsset",
+                    "ASSET_RECORD_ID_211",
+                    {
+                        "masterRef": {
+                            "type": "REFERENCE",
+                            "value": {
+                                "recordName": "MASTER_RECORD_ID_211",
+                                "action": "DELETE_SELF",
+                                "zoneID": PRIMARY_ZONE,
+                            },
+                        },
+                        "assetDate": {"type": "TIMESTAMP", "value": 1775652698554},
+                        "addedDate": {"type": "TIMESTAMP", "value": 1775652699130},
+                        "isFavorite": {"type": "INT64", "value": 0},
+                    },
+                    zoneID=PRIMARY_ZONE,
+                ),
+            ],
+            syncToken="SYNC_TOKEN_004",
+        ),
+    ]
+    mock_client.batch_count.return_value = 1
+    service = SimpleNamespace(
+        session=object(),
+        service_endpoint="https://example.com/endpoint",
+        params={"dsid": "12345"},
+    )
+    library = PhotoLibrary(
+        service=service,
+        zone_id=PRIMARY_ZONE,
+        client=mock_client,
+        upload_url="https://upload.example.com",
+        scope="private",
+    )
+
+    result = library.all.get("MASTER_RECORD_ID_211")
+
+    assert result is not None
+    assert result.id == "MASTER_RECORD_ID_211"
+    assert result.filename == "private_library_photo.jpg"
+    assert mock_client.query.call_count == 4
+    lookup_query = mock_client.query.call_args_list[2].kwargs["query"]
+    assert lookup_query.filterBy[-1].fieldName == "recordName"
+    fallback_query = mock_client.query.call_args_list[3].kwargs["query"]
     filter_names = [item.fieldName for item in fallback_query.filterBy]
     assert filter_names == ["direction", "startRank"]
     assert fallback_query.filterBy[0].fieldValue.value == DirectionEnum.DESCENDING.value
@@ -4601,9 +4675,18 @@ def test_photo_album_get_photo_not_found(mock_photo_library: MagicMock) -> None:
     with pytest.raises(KeyError, match="Photo does not exist: target_photo"):
         album._get_photo("target_photo")
 
-    mock_photo_library.service.session.post.assert_called_once_with(
+    assert mock_photo_library.service.session.post.call_args_list[0] == call(
         url="https://example.com/records/query?dsid=12345",
         json=album._get_photo_payload("target_photo"),
+        headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+    )
+    assert mock_photo_library.service.session.post.call_args_list[1] == call(
+        url="https://example.com/records/query?dsid=12345",
+        json=album._get_payload(
+            offset=0,
+            page_size=200,
+            direction=DirectionEnum.ASCENDING,
+        ),
         headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
     )
 
@@ -4627,9 +4710,18 @@ def test_photo_album_get_photo_empty_response(mock_photo_library: MagicMock) -> 
     with pytest.raises(KeyError, match="Photo does not exist: nonexistent_photo"):
         album._get_photo("nonexistent_photo")
 
-    mock_photo_library.service.session.post.assert_called_once_with(
+    assert mock_photo_library.service.session.post.call_args_list[0] == call(
         url="https://example.com/records/query?dsid=12345",
         json=album._get_photo_payload("nonexistent_photo"),
+        headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+    )
+    assert mock_photo_library.service.session.post.call_args_list[1] == call(
+        url="https://example.com/records/query?dsid=12345",
+        json=album._get_payload(
+            offset=0,
+            page_size=200,
+            direction=DirectionEnum.ASCENDING,
+        ),
         headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
     )
 
