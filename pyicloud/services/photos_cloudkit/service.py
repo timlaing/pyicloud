@@ -1068,9 +1068,45 @@ class BasePhotoAlbum(Iterable, ABC):
             setattr(photo, "_library", self._library)
             yield photo
 
+    def _iter_added_desc_photos(self) -> Generator["PhotoAsset", None, None]:
+        """
+        Iterate the recently-added index newest-first.
+
+        The ``ADDED`` index uses a trailing ``startRank`` window instead of the
+        forward paging used by the other Photos indexes. A request at rank ``n``
+        returns the newest items up to ``n`` and the window itself arrives
+        oldest-to-newest. The generic descending pager therefore under-fetches
+        recent assets when the count endpoint is unavailable and would yield the
+        wrong order even when a count exists.
+        """
+
+        seen: set[str] = set()
+        page_size = self.page_size
+        offset = max(page_size - 1, 0)
+        while True:
+            window: list[PhotoAsset] = []
+            for photo in self._get_photos_at(offset, self._direction, page_size):
+                if photo.id in seen:
+                    continue
+                seen.add(photo.id)
+                window.append(photo)
+            if not window:
+                break
+            for photo in reversed(window):
+                yield photo
+            if len(window) < page_size:
+                break
+            offset += len(window)
+
     @property
     def photos(self) -> Generator["PhotoAsset", None, None]:
         self._len = None
+        if (
+            self._list_type == ListTypeEnum.ADDED
+            and self._direction == DirectionEnum.DESCENDING
+        ):
+            yield from self._iter_added_desc_photos()
+            return
         offset = len(self) - 1 if self._direction == DirectionEnum.DESCENDING else 0
         seen: set[str] = set()
         while True:

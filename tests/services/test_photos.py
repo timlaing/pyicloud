@@ -1139,6 +1139,68 @@ def test_base_photo_album_initialization(mock_photo_library: MagicMock) -> None:
     assert album.page_size == 50
 
 
+def test_base_photo_album_added_descending_photos_use_recent_window_paging(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Added-date feeds should page newest-first without relying on count lookup."""
+
+    class MyPhotoAlbum(BasePhotoAlbum):
+        """Mock album with recently-added index semantics."""
+
+        def _get_len(self) -> int:
+            return 0
+
+        def _get_photos_at(
+            self,
+            index: int,
+            direction: DirectionEnum,
+            page_size: int,
+        ):
+            assert direction == DirectionEnum.DESCENDING
+            assert page_size == 3
+            windows = {
+                2: ["photo-2", "photo-1", "photo-0"],
+                5: ["photo-4", "photo-3"],
+            }
+            for photo_id in windows.get(index, []):
+                yield SimpleNamespace(id=photo_id)
+
+        def _get_payload(
+            self, offset: int, page_size: int, direction: DirectionEnum
+        ) -> dict[str, Any]:
+            return {}
+
+        def _get_url(self) -> str:
+            return "https://example.com/test_album"
+
+        def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
+            return {}
+
+        @property
+        def fullname(self) -> str:
+            return "Recently Added"
+
+        @property
+        def id(self) -> str:
+            return "recent"
+
+    album = MyPhotoAlbum(
+        library=mock_photo_library,
+        name="Recently Added",
+        list_type=ListTypeEnum.ADDED,
+        page_size=3,
+        direction=DirectionEnum.DESCENDING,
+    )
+
+    assert [photo.id for photo in album.photos] == [
+        "photo-0",
+        "photo-1",
+        "photo-2",
+        "photo-3",
+        "photo-4",
+    ]
+
+
 def test_base_photo_album_parse_response(mock_photo_library: MagicMock) -> None:
     """Tests the _parse_response method."""
     response = {
