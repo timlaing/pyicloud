@@ -54,6 +54,8 @@ from pyicloud.services.photos_cloudkit.mappers import (
     record_field_value,
 )
 from pyicloud.services.photos_cloudkit.queries import parent_filter, smart_album_filter
+from pyicloud.services.photos_legacy import PhotoAsset as LegacyPhotoAsset
+from pyicloud.services.photos_legacy import PhotoLibrary as LegacyPhotoLibrary
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 BROWSER_MUTATION_FIXTURE_DIR = FIXTURE_DIR / "photos_browser_mutations"
@@ -295,6 +297,20 @@ def test_photo_library_indexing_not_finished(mock_photos_service: MagicMock) -> 
     )
     with pytest.raises(PyiCloudServiceNotActivatedException):
         PhotoLibrary(
+            service=mock_photos_service,
+            zone_id={"zoneName": "PrimarySync"},
+            upload_url="https://upload.example.com",
+        )
+
+
+def test_legacy_photo_library_indexing_missing_records_raises_not_activated(
+    mock_photos_service: MagicMock,
+) -> None:
+    """Unexpected legacy indexing payloads should fail with a service-not-activated error."""
+
+    mock_photos_service.session.post.return_value.json.return_value = {}
+    with pytest.raises(PyiCloudServiceNotActivatedException):
+        LegacyPhotoLibrary(
             service=mock_photos_service,
             zone_id={"zoneName": "PrimarySync"},
             upload_url="https://upload.example.com",
@@ -3374,6 +3390,49 @@ def test_photo_asset_delete_matches_browser_request_fixture() -> None:
         ]
         == "DELETE_SELF"
     )
+
+
+def test_legacy_photo_asset_delete_returns_false_for_error_payload() -> None:
+    """Legacy raw delete should reject CloudKit payloads that carry record errors."""
+
+    master_record = {
+        "recordName": "photo_id_123",
+        "recordType": "CPLMaster",
+        "recordChangeTag": "master-tag",
+        "zoneID": {"zoneName": "PrimarySync"},
+        "fields": {},
+    }
+    asset_record = {
+        "fields": {
+            "assetDate": {"value": 1700000000000},
+            "addedDate": {"value": 1700000000000},
+        },
+        "recordName": "photo_id_123",
+        "recordType": "CPLAsset",
+        "recordChangeTag": "asset-tag",
+        "zoneID": {"zoneName": "PrimarySync"},
+    }
+    mock_service = MagicMock()
+    mock_service.service_endpoint = "https://example.com"
+    mock_service.params = {"dsid": "12345"}
+    mock_service.session.post.return_value = MagicMock(
+        json=MagicMock(
+            return_value={
+                "records": [
+                    {
+                        "recordName": "photo_id_123",
+                        "serverErrorCode": "SERVER_RECORD_CHANGED",
+                        "reason": "changed",
+                    }
+                ]
+            }
+        ),
+        status_code=200,
+    )
+
+    asset = LegacyPhotoAsset(mock_service, master_record, asset_record)
+
+    assert asset.delete() is False
 
 
 def test_photo_asset_unfavorite_matches_shared_library_browser_fixture() -> None:

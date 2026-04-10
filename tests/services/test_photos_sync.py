@@ -104,6 +104,8 @@ class DummyAsset:
         item_type: str = "image",
         is_live_photo: bool = False,
         added_days_ago: int = 0,
+        asset_date: Optional[datetime] = None,
+        added_date: Optional[datetime] = None,
         resources: Optional[dict[str, PhotoResource]] = None,
         asset_record: Optional[dict] = None,
         payloads: Optional[dict[str, bytes]] = None,
@@ -112,8 +114,13 @@ class DummyAsset:
         self.filename = filename
         self.item_type = item_type
         self.is_live_photo = is_live_photo
-        self.asset_date = datetime.now(timezone.utc) - timedelta(days=added_days_ago)
-        self.added_date = self.asset_date
+        resolved_asset_date = asset_date
+        if resolved_asset_date is None:
+            resolved_asset_date = datetime.now(timezone.utc) - timedelta(
+                days=added_days_ago
+            )
+        self.asset_date = resolved_asset_date
+        self.added_date = added_date if added_date is not None else resolved_asset_date
         self.downloaded_versions: list[str] = []
         self.deleted = False
         self._asset_record = asset_record or {"fields": {"assetDate": {"value": 0}}}
@@ -538,6 +545,80 @@ def test_run_photo_sync_keep_icloud_recent_days_deletes_old_remote_assets() -> N
         assert old_asset.deleted is True
         assert result.deleted_count == 1
         assert any(item.reason == "keep-icloud-recent-days" for item in result.items)
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_recent_uses_asset_date_when_added_date_missing() -> None:
+    """Recent filtering should fall back to asset_date when added_date is missing."""
+
+    recent_asset = DummyAsset(
+        "asset-recent",
+        "recent.jpg",
+        asset_date=datetime.now(timezone.utc) - timedelta(hours=1),
+        added_date=None,
+    )
+    old_asset = DummyAsset(
+        "asset-old",
+        "old.jpg",
+        asset_date=datetime.now(timezone.utc) - timedelta(days=10),
+        added_date=None,
+    )
+    service = DummyService(
+        DummyAlbum("All Photos", [recent_asset, old_asset]),
+        cursor="cursor-recent-fallback",
+    )
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-recent-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(directory=output_dir, state_dir=state_dir, recent=1),
+        )
+
+        assert result.downloaded_count == 1
+        assert (output_dir / "recent.jpg").exists()
+        assert not (output_dir / "old.jpg").exists()
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_keep_icloud_recent_days_skips_assets_without_asset_date() -> (
+    None
+):
+    """Remote deletion should not run when asset_date is missing."""
+
+    undated_asset = DummyAsset("asset-undated", "undated.jpg")
+    undated_asset.asset_date = None
+    service = DummyService(DummyAlbum("All Photos", [undated_asset]), cursor="cursor")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-undated-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                keep_icloud_recent_days=0,
+            ),
+        )
+
+        assert undated_asset.deleted is False
+        assert result.deleted_count == 0
     finally:
         for path in sorted(temp_dir.rglob("*"), reverse=True):
             if path.is_file():

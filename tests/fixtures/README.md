@@ -20,7 +20,7 @@ They fall into three groups:
   - `photos_video_only_response.json`
   - `photos_missing_counterparts_response.json`
 - sanitized browser-derived mutation fixtures in
-  [`photos_browser_mutations`](/Users/jacob/Documents/GitHub/pyicloud/tests/fixtures/photos_browser_mutations/README.md)
+  [`photos_browser_mutations`](photos_browser_mutations/README.md)
 - sanitized upload-response fixtures captured from live upload flows
   - `photos_upload_skeletal_response.json`
   - `photos_upload_duplicate_response.json`

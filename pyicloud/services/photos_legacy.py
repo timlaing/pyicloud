@@ -349,7 +349,16 @@ class PhotoLibrary(BasePhotoLibrary):
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         response: dict[str, Any] = request.json()
-        indexing_state: str = response["records"][0]["fields"]["state"]["value"]
+        records = response.get("records")
+        indexing_state = None
+        if isinstance(records, list) and records:
+            first_record = records[0]
+            if isinstance(first_record, dict):
+                fields = first_record.get("fields", {})
+                if isinstance(fields, dict):
+                    state = fields.get("state", {})
+                    if isinstance(state, dict):
+                        indexing_state = state.get("value")
         if indexing_state != "FINISHED":
             _LOGGER.debug("iCloud Photo Library not finished indexing")
             raise PyiCloudServiceNotActivatedException(
@@ -1771,7 +1780,25 @@ class PhotoAsset:
             },
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
-        return resp.status_code == 200
+        if resp.status_code != 200:
+            return False
+        payload: dict[str, Any] = resp.json()
+        if payload.get("errors"):
+            return False
+        records = payload.get("records")
+        if isinstance(records, list):
+            for record in records:
+                if isinstance(record, dict) and record.get("serverErrorCode"):
+                    return False
+            if records:
+                first_record = records[0]
+                if isinstance(first_record, dict):
+                    fields = first_record.get("fields", {})
+                    if isinstance(fields, dict):
+                        is_deleted = fields.get("isDeleted", {})
+                        if isinstance(is_deleted, dict) and "value" in is_deleted:
+                            return bool(is_deleted["value"])
+        return True
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: id={self.id}>"

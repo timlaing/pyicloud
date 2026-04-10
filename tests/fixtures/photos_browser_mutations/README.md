@@ -2,7 +2,7 @@ These fixtures are sanitized browser-derived CloudKit mutation payloads captured
 from iCloud Photos web flows.
 
 See also the top-level fixture guide in
-[`tests/fixtures/README.md`](/Users/jacob/Documents/GitHub/pyicloud/tests/fixtures/README.md)
+[`tests/fixtures/README.md`](../README.md)
 for how these files relate to the broader Photos protocol fixture set.
 
 They intentionally exclude raw HAR files, binary responses, cookies, and account

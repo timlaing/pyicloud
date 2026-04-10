@@ -258,7 +258,8 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
         now_local = datetime.now().astimezone()
 
         for asset in _iter_sync_assets(service, selected_library, options):
-            if cutoff is not None and getattr(asset, "added_date", None) < cutoff:
+            added_at = _asset_datetime(asset, "added_date", "asset_date")
+            if cutoff is not None and (added_at is None or added_at < cutoff):
                 continue
             resources = _select_resources(asset, options)
             if not resources:
@@ -585,7 +586,9 @@ def _render_relative_path(
 ) -> str:
     if folder_structure == "none":
         return resource.filename
-    asset_date = getattr(asset, "asset_date", datetime.fromtimestamp(0, timezone.utc))
+    asset_date = _asset_datetime(asset, "asset_date") or datetime.fromtimestamp(
+        0, timezone.utc
+    )
     try:
         if "{" in folder_structure:
             folder = folder_structure.format(asset_date)
@@ -679,14 +682,26 @@ def _apply_local_metadata(
     target_path: Path,
     options: PhotoSyncOptions,
 ) -> None:
-    if options.set_exif_datetime:
-        set_exif_datetime_if_missing(target_path, getattr(asset, "asset_date"))
+    taken_at = _asset_datetime(asset, "asset_date")
+    if options.set_exif_datetime and taken_at is not None:
+        set_exif_datetime_if_missing(target_path, taken_at)
     if options.xmp_sidecar and not resource_key.endswith("_video"):
         write_xmp_sidecar(
             path=target_path,
             asset_record=getattr(asset, "_asset_record", None),
             dry_run=options.dry_run,
         )
+
+
+def _asset_datetime(asset: Any, *attrs: str) -> datetime | None:
+    for attr in attrs:
+        value = getattr(asset, attr, None)
+        if not isinstance(value, datetime):
+            continue
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+    return None
 
 
 def _should_delete_remote_asset(
@@ -703,5 +718,8 @@ def _should_delete_remote_asset(
         return False
     if not asset_ready_for_delete or not asset_confirmed_local:
         return False
-    age_days = (now_local - getattr(asset, "asset_date").astimezone()).days
+    asset_date = _asset_datetime(asset, "asset_date")
+    if asset_date is None:
+        return False
+    age_days = (now_local - asset_date.astimezone(now_local.tzinfo)).days
     return age_days >= options.keep_icloud_recent_days

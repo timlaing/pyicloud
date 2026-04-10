@@ -32,7 +32,7 @@ For support and discussions, join our Discord community: [Join our Discord commu
 Install the library and CLI with:
 
 ```console
-$ pip install pyicloud
+pip install pyicloud
 ```
 
 This installs the `icloud` command line interface alongside the Python package.
@@ -81,8 +81,8 @@ subcommands such as `auth`, `account`, `devices`, `calendar`,
 Command options belong on the final command that uses them. For example:
 
 ```console
-$ icloud auth login --username jappleseed@apple.com
-$ icloud account summary --format json
+icloud auth login --username jappleseed@apple.com
+icloud account summary --format json
 ```
 
 The root command only exposes help and shell-completion utilities.
@@ -91,7 +91,7 @@ You can store your password in the system keyring using the
 command-line tool:
 
 ```console
-$ icloud auth login --username jappleseed@apple.com
+icloud auth login --username jappleseed@apple.com
 Enter iCloud password for jappleseed@apple.com:
 Save password in keyring? (y/N)
 ```
@@ -107,42 +107,42 @@ api = PyiCloudService('jappleseed@apple.com')
 CLI examples:
 
 ```console
-$ icloud auth status
-$ icloud auth login --username jappleseed@apple.com
-$ icloud auth login --username jappleseed@apple.com --china-mainland
-$ icloud auth login --username jappleseed@apple.com --accept-terms
-$ icloud account summary
-$ icloud account summary --format json
-$ icloud devices list --locate
-$ icloud devices list --with-family
-$ icloud devices show "Example iPhone"
-$ icloud devices export "Example iPhone" --output ./iphone.json
-$ icloud calendar events --username jappleseed@apple.com --period week
-$ icloud contacts me --username jappleseed@apple.com
-$ icloud drive list /Documents --username jappleseed@apple.com
-$ icloud photos libraries --username jappleseed@apple.com
-$ icloud photos albums --username jappleseed@apple.com
-$ icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com
-$ icloud photos get photo-id-123 --format json --username jappleseed@apple.com
-$ icloud photos sync --directory ./downloads --username jappleseed@apple.com
-$ icloud photos watch --directory ./downloads --recent 1 --interval 300 --username jappleseed@apple.com
-$ icloud photos sync --directory ./downloads --album Favorites --folder-structure '{:%Y/%m}' --username jappleseed@apple.com
-$ icloud photos sync-cursor --username jappleseed@apple.com
-$ icloud photos changes --since <sync-cursor> --username jappleseed@apple.com
-$ icloud hidemyemail list --username jappleseed@apple.com
-$ icloud auth logout
-$ icloud auth logout --keep-trusted
-$ icloud auth logout --all-sessions
-$ icloud auth logout --keep-trusted --all-sessions
-$ icloud auth logout --remove-keyring
-$ icloud auth keyring delete --username jappleseed@apple.com
+icloud auth status
+icloud auth login --username jappleseed@apple.com
+icloud auth login --username jappleseed@apple.com --china-mainland
+icloud auth login --username jappleseed@apple.com --accept-terms
+icloud account summary
+icloud account summary --format json
+icloud devices list --locate
+icloud devices list --with-family
+icloud devices show "Example iPhone"
+icloud devices export "Example iPhone" --output ./iphone.json
+icloud calendar events --username jappleseed@apple.com --period week
+icloud contacts me --username jappleseed@apple.com
+icloud drive list /Documents --username jappleseed@apple.com
+icloud photos libraries --username jappleseed@apple.com
+icloud photos albums --username jappleseed@apple.com
+icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com
+icloud photos get photo-id-123 --format json --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --username jappleseed@apple.com
+icloud photos watch --directory ./downloads --recent 1 --interval 300 --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --album Favorites --folder-structure '{:%Y/%m}' --username jappleseed@apple.com
+icloud photos sync-cursor --username jappleseed@apple.com
+icloud photos changes --since '<sync-cursor>' --username jappleseed@apple.com
+icloud hidemyemail list --username jappleseed@apple.com
+icloud auth logout
+icloud auth logout --keep-trusted
+icloud auth logout --all-sessions
+icloud auth logout --keep-trusted --all-sessions
+icloud auth logout --remove-keyring
+icloud auth keyring delete --username jappleseed@apple.com
 ```
 
 If you would like to delete a password stored in your system keyring,
 use the dedicated keyring subcommand:
 
 ```console
-$ icloud auth keyring delete --username jappleseed@apple.com
+icloud auth keyring delete --username jappleseed@apple.com
 ```
 
 The `auth` command group lets you inspect and manage persisted sessions:
@@ -807,22 +807,22 @@ Support matrix:
 Typical browse and sync examples:
 
 ```console
-$ icloud photos libraries --username jappleseed@apple.com
-$ icloud photos albums --username jappleseed@apple.com
-$ icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com
-$ icloud photos list --library shared:<zoneName> --limit 20 --username jappleseed@apple.com
-$ icloud photos list --library shared:<zoneName> --album Favorites --limit 20 --username jappleseed@apple.com
-$ icloud photos get photo-id-123 --format json --username jappleseed@apple.com
-$ icloud photos get photo-id-123 --library shared:<zoneName> --format json --username jappleseed@apple.com
-$ icloud photos sync --directory ./downloads --recent 30 --folder-structure '{:%Y/%m}' --username jappleseed@apple.com
-$ icloud photos sync --library shared:<zoneName> --directory ./shared-downloads --username jappleseed@apple.com
-$ icloud photos sync --directory ./downloads --album Favorites --size original --live-photo-size medium --username jappleseed@apple.com
-$ icloud photos watch --directory ./downloads --recent 1 --interval 300 --username jappleseed@apple.com
-$ icloud photos watch --library shared:<zoneName> --directory ./shared-downloads --interval 300 --username jappleseed@apple.com
-$ icloud photos changes --since <sync-cursor> --limit 100 --username jappleseed@apple.com
-$ icloud photos changes --library shared:<zoneName> --since <sync-cursor> --limit 100 --username jappleseed@apple.com
-$ icloud photos sync-cursor --username jappleseed@apple.com
-$ icloud photos sync-cursor --library shared:<zoneName> --username jappleseed@apple.com
+icloud photos libraries --username jappleseed@apple.com
+icloud photos albums --username jappleseed@apple.com
+icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com
+icloud photos list --library 'shared:<zoneName>' --limit 20 --username jappleseed@apple.com
+icloud photos list --library 'shared:<zoneName>' --album Favorites --limit 20 --username jappleseed@apple.com
+icloud photos get photo-id-123 --format json --username jappleseed@apple.com
+icloud photos get photo-id-123 --library 'shared:<zoneName>' --format json --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --recent 30 --folder-structure '{:%Y/%m}' --username jappleseed@apple.com
+icloud photos sync --library 'shared:<zoneName>' --directory ./shared-downloads --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --album Favorites --size original --live-photo-size medium --username jappleseed@apple.com
+icloud photos watch --directory ./downloads --recent 1 --interval 300 --username jappleseed@apple.com
+icloud photos watch --library 'shared:<zoneName>' --directory ./shared-downloads --interval 300 --username jappleseed@apple.com
+icloud photos changes --since '<sync-cursor>' --limit 100 --username jappleseed@apple.com
+icloud photos changes --library 'shared:<zoneName>' --since '<sync-cursor>' --limit 100 --username jappleseed@apple.com
+icloud photos sync-cursor --username jappleseed@apple.com
+icloud photos sync-cursor --library 'shared:<zoneName>' --username jappleseed@apple.com
 ```
 
 Library-key notes:

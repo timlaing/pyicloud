@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, List, Optional
 from unittest.mock import patch
+from uuid import uuid4
 
 import click
 from fido2.hid import CtapHidDevice
@@ -447,7 +448,9 @@ def display_hidemyemail(api: PyiCloudService) -> None:
 def album_management(api: PyiCloudService) -> None:
     """Test album management functions"""
 
-    album_name = datetime.utcnow().strftime("pyicloud-live-%Y%m%d-%H%M%S")
+    album_name = (
+        f"{datetime.utcnow().strftime('pyicloud-live-%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
+    )
     renamed_name = f"{album_name}-renamed"
     print(
         "Running live photo mutation validation against the authenticated account. "

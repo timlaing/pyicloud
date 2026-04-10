@@ -143,14 +143,14 @@ class PhotosBatchCountRequest(CKModel):
 
 
 class PhotosUploadError(CKModel):
-    """One uploadimagews error item."""
+    """One upload-image-ws error item."""
 
     code: str | None = None
     message: str | None = None
 
 
 class PhotosUploadResponse(CKModel):
-    """Uploadimagews response payload."""
+    """Upload-image-ws response payload."""
 
     records: list[CKRecord] = Field(default_factory=list)
     errors: list[PhotosUploadError] = Field(default_factory=list)
