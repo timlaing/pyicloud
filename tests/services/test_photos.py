@@ -54,8 +54,11 @@ from pyicloud.services.photos_cloudkit.mappers import (
     record_field_value,
 )
 from pyicloud.services.photos_cloudkit.queries import parent_filter, smart_album_filter
+from pyicloud.services.photos_legacy import AlbumContainer as LegacyAlbumContainer
+from pyicloud.services.photos_legacy import PhotoAlbum as LegacyPhotoAlbum
 from pyicloud.services.photos_legacy import PhotoAsset as LegacyPhotoAsset
 from pyicloud.services.photos_legacy import PhotoLibrary as LegacyPhotoLibrary
+from pyicloud.services.photos_legacy import PhotosService as LegacyPhotosService
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 BROWSER_MUTATION_FIXTURE_DIR = FIXTURE_DIR / "photos_browser_mutations"
@@ -2088,7 +2091,94 @@ def test_photos_service_albums(mock_photos_service: MagicMock) -> None:
 
 def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
     """Tests the shared_streams property."""
-    mock_photos_service.session.post.return_value.json.side_effect = [
+    mock_photos_service.session.post.return_value.json.return_value = {
+        "albums": [
+            {
+                "albumlocation": "https://shared.example.com/album/",
+                "albumctag": "ctag",
+                "albumguid": "guid",
+                "ownerdsid": "owner",
+                "attributes": {
+                    "name": "Shared Album",
+                    "creationDate": "1234567890",
+                    "allowcontributions": True,
+                    "ispublic": False,
+                },
+                "sharingtype": "owned",
+                "iswebuploadsupported": True,
+            }
+        ]
+    }
+    photos_service = LegacyPhotosService(
+        service_root="https://example.com",
+        session=mock_photos_service.session,
+        params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+        shared_streams_url="https://shared.example.com",
+    )
+    assert photos_service._root_library is None
+    shared_streams: AlbumContainer = photos_service.shared_streams
+    assert isinstance(shared_streams, LegacyAlbumContainer)
+    assert "Shared Album" in shared_streams
+    assert isinstance(shared_streams.find("Shared Album"), SharedPhotoStreamAlbum)
+    assert photos_service._root_library is None
+    mock_photos_service.session.post.assert_called()
+
+
+def test_legacy_photos_service_initialization_is_lazy_for_root_library() -> None:
+    """Legacy service should defer root-library construction until root access."""
+
+    session = MagicMock()
+    service = LegacyPhotosService(
+        service_root="https://example.com",
+        session=session,
+        params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+        shared_streams_url="https://shared.example.com",
+    )
+
+    assert service._root_library is None
+    session.post.assert_not_called()
+
+
+def test_legacy_photos_service_root_library_initializes_on_demand() -> None:
+    """Root access should still build and return the primary library lazily."""
+
+    session = MagicMock()
+    session.post.return_value.json.return_value = {
+        "records": [
+            {
+                "fields": {
+                    "state": {"value": "FINISHED"},
+                },
+            }
+        ]
+    }
+    service = LegacyPhotosService(
+        service_root="https://example.com",
+        session=session,
+        params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+        shared_streams_url="https://shared.example.com",
+    )
+
+    root_album = service.all
+
+    assert service._root_library is not None
+    assert root_album is service._root_library.all
+    assert session.post.call_count == 2
+
+
+def test_legacy_photos_service_libraries_propagate_upload_url() -> None:
+    """Discovered legacy libraries should inherit the upload endpoint."""
+
+    session = MagicMock()
+    session.post.return_value.json.side_effect = [
+        {
+            "zones": [
+                {"zoneID": {"zoneName": "CustomZone"}, "deleted": False},
+            ]
+        },
         {
             "records": [
                 {
@@ -2099,36 +2189,53 @@ def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
             ]
         },
         {
-            "albums": [
+            "records": [
                 {
-                    "albumlocation": "https://shared.example.com/album/",
-                    "albumctag": "ctag",
-                    "albumguid": "guid",
-                    "ownerdsid": "owner",
-                    "attributes": {
-                        "name": "Shared Album",
-                        "creationDate": "1234567890",
-                        "allowcontributions": True,
-                        "ispublic": False,
+                    "fields": {
+                        "state": {"value": "FINISHED"},
                     },
-                    "sharingtype": "owned",
-                    "iswebuploadsupported": True,
                 }
             ]
         },
     ]
-    photos_service = PhotosService(
+    service = LegacyPhotosService(
         service_root="https://example.com",
-        session=mock_photos_service.session,
+        session=session,
         params={"dsid": "12345"},
         upload_url="https://upload.example.com",
         shared_streams_url="https://shared.example.com",
     )
-    shared_streams: AlbumContainer = photos_service.shared_streams
-    assert isinstance(shared_streams, AlbumContainer)
-    assert "Shared Album" in shared_streams
-    assert isinstance(shared_streams.find("Shared Album"), SharedPhotoStreamAlbum)
-    mock_photos_service.session.post.assert_called()
+
+    libraries = service.libraries
+
+    assert libraries["root"]._upload_url == "https://upload.example.com"
+    assert libraries["CustomZone"]._upload_url == "https://upload.example.com"
+
+
+def test_legacy_photo_library_upload_file_without_upload_url_returns_none() -> None:
+    """Legacy upload_file should fail fast when a library has no upload endpoint."""
+
+    mock_service = MagicMock()
+    mock_service.session.post.return_value.json.return_value = {
+        "records": [
+            {
+                "fields": {
+                    "state": {"value": "FINISHED"},
+                },
+            }
+        ]
+    }
+    library = LegacyPhotoLibrary(
+        service=mock_service,
+        zone_id={"zoneName": "CustomZone"},
+        upload_url=None,
+    )
+
+    with patch("builtins.open", mock_open(read_data=b"file_content")) as mock_file:
+        result = library.upload_file("test_photo.jpg")
+
+    assert result is None
+    mock_file.assert_not_called()
 
 
 def test_photos_service_upload_root_library() -> None:
@@ -3435,6 +3542,50 @@ def test_legacy_photo_asset_delete_returns_false_for_error_payload() -> None:
     assert asset.delete() is False
 
 
+def test_legacy_photo_album_add_photo_does_not_replace_album_change_tag() -> None:
+    """Relation-create responses should not overwrite cached album metadata."""
+
+    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library.service = MagicMock()
+    mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
+    mock_photo_library.service.params = {"dsid": "12345"}
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(
+            return_value={
+                "records": [
+                    {
+                        "recordType": "CPLContainerRelation",
+                        "recordName": "asset123-IN-album123",
+                        "recordChangeTag": "relation-tag",
+                        "fields": {
+                            "recordModificationDate": {"value": "2026-04-10T00:00:00Z"}
+                        },
+                    }
+                ]
+            }
+        )
+    )
+    photo = MagicMock()
+    photo.id = "asset123"
+
+    album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        record_change_tag="album-tag",
+        zone_id={"zoneName": "TestZone"},
+    )
+    album._record_modification_date = "2026-04-09T00:00:00Z"
+
+    assert album.add_photo(photo) is True
+    assert album._record_change_tag == "album-tag"
+    assert album._record_modification_date == "2026-04-09T00:00:00Z"
+
+
 def test_photo_asset_unfavorite_matches_shared_library_browser_fixture() -> None:
     """Shared Library unfavorite should match the captured browser request exactly."""
 
@@ -3902,6 +4053,22 @@ def test_shared_photo_stream_album_properties() -> None:
     assert album._album_ctag == album_ctag
     assert album._album_guid == album_guid
     assert album._owner_dsid == owner_dsid
+
+
+def test_shared_photo_stream_album_invalid_creation_date_uses_epoch() -> None:
+    """Malformed shared-stream timestamps should fall back to the Unix epoch."""
+
+    album = SharedPhotoStreamAlbum(
+        library=MagicMock(),
+        name="Shared Album",
+        album_location="https://shared.example.com/album/",
+        album_ctag="ctag",
+        album_guid="guid",
+        owner_dsid="owner",
+        creation_date=None,
+    )
+
+    assert album.creation_date == datetime.fromtimestamp(0, timezone.utc)
 
 
 def test_shared_photo_stream_album_get_payload_and_url_and_len(
@@ -4638,6 +4805,30 @@ def test_base_photo_album_getitem_with_negative_index(
 
     assert result == mock_photo
     album._get_photos_at.assert_called_once_with(8, DirectionEnum.ASCENDING, 1)
+
+
+def test_legacy_base_photo_album_getitem_negative_out_of_range(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Legacy albums should raise IndexError for overly negative indices."""
+
+    album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+    )
+
+    album._get_len = MagicMock(return_value=10)
+    album._get_photos_at = MagicMock(return_value=iter([]))
+
+    with pytest.raises(IndexError, match="Photo index out of range"):
+        _ = album[-11]
+
+    album._get_photos_at.assert_not_called()
 
 
 def test_base_photo_album_getitem_index_out_of_range(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
@@ -28,6 +29,7 @@ from .state import PhotoSyncState, SyncedPhotoResource, create_photo_sync_state
 DEFAULT_FOLDER_STRUCTURE = "none"
 PRIMARY_SYNC_VERSIONS = {"original", "medium", "thumb"}
 LIVE_PHOTO_SYNC_VERSIONS = {"original", "medium", "thumb"}
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
@@ -409,7 +411,15 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                     continue
                 stale_path = options.directory / stale.relative_path
                 if stale_path.exists():
-                    stale_path.unlink()
+                    try:
+                        stale_path.unlink()
+                    except OSError as exc:
+                        _LOGGER.warning(
+                            "Failed to remove stale local photo '%s': %s",
+                            stale_path,
+                            exc,
+                        )
+                        continue
                 state.delete_resource(stale.asset_id, stale.resource_key)
                 result.items.append(
                     PhotoSyncItem(

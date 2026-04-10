@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
+from unittest.mock import patch
 
 from pyicloud.services.photos import (
     PhotoResource,
@@ -257,6 +258,65 @@ def test_run_photo_sync_auto_delete_removes_stale_files() -> None:
         assert result.deleted_count == 1
         assert not (output_dir / "old.jpg").exists()
         assert (output_dir / "new.jpg").exists()
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_auto_delete_continues_when_unlink_fails() -> None:
+    """Auto-delete should skip locked files without corrupting sync state."""
+
+    first_service = DummyService(
+        DummyAlbum(
+            "All Photos",
+            [
+                DummyAsset("asset-old-1", "old-1.jpg"),
+                DummyAsset("asset-old-2", "old-2.jpg"),
+            ],
+        ),
+        cursor="cursor-1",
+    )
+    second_service = DummyService(
+        DummyAlbum("All Photos", [DummyAsset("asset-new", "new.jpg")]),
+        cursor="cursor-2",
+    )
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-delete-error-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        run_photo_sync(
+            first_service,
+            PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+        )
+
+        original_unlink = Path.unlink
+
+        def flaky_unlink(path_obj: Path, *args, **kwargs) -> None:
+            if path_obj.name == "old-1.jpg":
+                raise OSError("locked")
+            return original_unlink(path_obj, *args, **kwargs)
+
+        with patch.object(Path, "unlink", autospec=True, side_effect=flaky_unlink):
+            result = run_photo_sync(
+                second_service,
+                PhotoSyncOptions(
+                    directory=output_dir,
+                    state_dir=state_dir,
+                    auto_delete=True,
+                ),
+            )
+
+        assert result.deleted_count == 1
+        assert (output_dir / "old-1.jpg").exists()
+        assert not (output_dir / "old-2.jpg").exists()
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            assert state.get_resource("asset-old-1", "original") is not None
+            assert state.get_resource("asset-old-2", "original") is None
     finally:
         for path in sorted(temp_dir.rglob("*"), reverse=True):
             if path.is_file():

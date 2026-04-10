@@ -560,6 +560,13 @@ class PhotoLibrary(BasePhotoLibrary):
     def upload_file(self, path: str) -> Optional["PhotoAsset"]:
         """Upload a photo from path, returns a recordName"""
 
+        if not self._upload_url:
+            _LOGGER.error(
+                "Uploads are not supported for photo library zone '%s'",
+                self.zone_id.get("zoneName"),
+            )
+            return None
+
         filename: str = os.path.basename(path)
 
         params: dict[str, Any] = self.service.params.copy()
@@ -652,17 +659,14 @@ class PhotosService(BaseService):
         self.service_endpoint: str = (
             f"{self.service_root}/database/1/com.apple.photos.cloud/production/private"
         )
+        self._upload_url: str = upload_url
 
         self._libraries: Optional[dict[str, BasePhotoLibrary]] = None
 
         self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
         self._photo_assets: dict = {}
 
-        self._root_library: PhotoLibrary = PhotoLibrary(
-            self,
-            PRIMARY_ZONE,
-            upload_url=upload_url,
-        )
+        self._root_library: Optional[PhotoLibrary] = None
 
         self._shared_library: PhotoStreamLibrary = PhotoStreamLibrary(
             self,
@@ -671,6 +675,17 @@ class PhotosService(BaseService):
                 "/sharedstreams/webgetalbumslist"
             ),
         )
+
+    def _get_root_library(self) -> PhotoLibrary:
+        """Build the primary library lazily so shared-only callers still work."""
+
+        if self._root_library is None:
+            self._root_library = PhotoLibrary(
+                self,
+                PRIMARY_ZONE,
+                upload_url=self._upload_url,
+            )
+        return self._root_library
 
     @property
     def libraries(self) -> dict[str, BasePhotoLibrary]:
@@ -685,13 +700,15 @@ class PhotosService(BaseService):
             zones: list[dict[str, Any]] = response["zones"]
 
             libraries: dict[str, BasePhotoLibrary] = {
-                "root": self._root_library,
+                "root": self._get_root_library(),
                 "shared": self._shared_library,
             }
             for zone in zones:
                 if not zone.get("deleted"):
                     zone_name: str = zone["zoneID"]["zoneName"]
-                    libraries[zone_name] = PhotoLibrary(self, zone["zoneID"])
+                    libraries[zone_name] = PhotoLibrary(
+                        self, zone["zoneID"], upload_url=self._upload_url
+                    )
 
             self._libraries = libraries
 
@@ -700,12 +717,12 @@ class PhotosService(BaseService):
     @property
     def all(self) -> "PhotoAlbum":
         """Returns the primary photo library."""
-        return self._root_library.all
+        return self._get_root_library().all
 
     @property
     def albums(self) -> AlbumContainer:
         """Returns the standard photo albums."""
-        return self._root_library.albums
+        return self._get_root_library().albums
 
     @property
     def shared_streams(self) -> AlbumContainer:
@@ -716,7 +733,7 @@ class PhotosService(BaseService):
         self, name: str, album_type: AlbumTypeEnum = AlbumTypeEnum.ALBUM
     ) -> Optional["PhotoAlbum"]:
         """Creates a new album in the primary photo library."""
-        return self._root_library.create_album(name, album_type)
+        return self._get_root_library().create_album(name, album_type)
 
 
 class BasePhotoAlbum(Iterable, ABC):
@@ -911,11 +928,14 @@ class BasePhotoAlbum(Iterable, ABC):
     def __getitem__(self, key: int | str) -> "PhotoAsset":
         """Gets a photo by index."""
         if isinstance(key, int):
+            album_len = len(self)
             # Emulate standard Python sequence semantics for integer indices:
             # - Negative indices are resolved relative to the end of the album.
             # - Out-of-range indices raise IndexError instead of StopIteration.
             if key < 0:
-                key = len(self) + key
+                key = album_len + key
+            if key < 0 or key >= album_len:
+                raise IndexError("Photo index out of range")
             try:
                 return next(self._get_photos_at(key, self._direction, 1))
             except StopIteration as exc:
@@ -1114,15 +1134,20 @@ class PhotoAlbum(BasePhotoAlbum):
             )
 
             payload: dict[str, Any] = response.json()
-            self._record_change_tag = payload["records"][0].get(
-                "recordChangeTag", self._record_change_tag
-            )
-            self._record_modification_date = (
-                payload["records"][0]
-                .get("fields", {})
-                .get("recordModificationDate", {})
-                .get("value", self._record_modification_date)
-            )
+            for record in payload.get("records", []):
+                if (
+                    record.get("recordType") == "CPLAlbum"
+                    or record.get("recordName") == self._record_id
+                ):
+                    self._record_change_tag = record.get(
+                        "recordChangeTag", self._record_change_tag
+                    )
+                    self._record_modification_date = (
+                        record.get("fields", {})
+                        .get("recordModificationDate", {})
+                        .get("value", self._record_modification_date)
+                    )
+                    break
         except PyiCloudAPIResponseException as ex:
             _LOGGER.error("Failed to add photo to album: %s", ex)
             return False
@@ -1442,7 +1467,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
             self.creation_date: datetime = datetime.fromtimestamp(
                 int(creation_date) / 1000.0, timezone.utc
             )
-        except ValueError:
+        except (TypeError, ValueError, OverflowError):
             self.creation_date = datetime.fromtimestamp(0, timezone.utc)
 
         # Read only properties
