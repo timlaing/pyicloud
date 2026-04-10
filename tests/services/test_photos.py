@@ -3586,6 +3586,56 @@ def test_legacy_photo_album_add_photo_does_not_replace_album_change_tag() -> Non
     assert album._record_modification_date == "2026-04-09T00:00:00Z"
 
 
+def test_legacy_photo_album_delete_without_records_keeps_cached_metadata() -> None:
+    """Legacy album deletes should tolerate empty modify responses."""
+
+    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library.service = MagicMock()
+    mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
+    mock_photo_library.service.params = {"dsid": "12345"}
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(return_value={})
+    )
+
+    album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        record_change_tag="album-tag",
+        zone_id={"zoneName": "TestZone"},
+    )
+    album._record_modification_date = "2026-04-09T00:00:00Z"
+
+    assert album.delete() is True
+    assert album._record_change_tag == "album-tag"
+    assert album._record_modification_date == "2026-04-09T00:00:00Z"
+
+
+def test_legacy_photo_asset_added_date_falls_back_to_epoch() -> None:
+    """Legacy added_date should not fail when the field is missing."""
+
+    master_record = {
+        "recordName": "photo_id_123",
+        "fields": {},
+    }
+    asset_record = {
+        "fields": {
+            "assetDate": {"value": 1700000000000},
+        },
+        "recordName": "photo_id_123",
+        "recordType": "CPLAsset",
+        "zoneID": {"zoneName": "PrimarySync"},
+    }
+
+    asset = LegacyPhotoAsset(MagicMock(), master_record, asset_record)
+
+    assert asset.added_date == datetime.fromtimestamp(0, timezone.utc)
+
+
 def test_photo_asset_unfavorite_matches_shared_library_browser_fixture() -> None:
     """Shared Library unfavorite should match the captured browser request exactly."""
 

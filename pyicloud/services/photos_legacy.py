@@ -1083,15 +1083,16 @@ class PhotoAlbum(BasePhotoAlbum):
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             payload: dict[str, Any] = response.json()
-            self._record_change_tag = payload["records"][0].get(
-                "recordChangeTag", self._record_change_tag
-            )
-            self._record_modification_date = (
-                payload["records"][0]
-                .get("fields", {})
-                .get("recordModificationDate", {})
-                .get("value", self._record_modification_date)
-            )
+            if payload.get("records"):
+                latest: dict[str, Any] = payload["records"][0]
+                self._record_change_tag = latest.get(
+                    "recordChangeTag", self._record_change_tag
+                )
+                self._record_modification_date = (
+                    latest.get("fields", {})
+                    .get("recordModificationDate", {})
+                    .get("value", self._record_modification_date)
+                )
         except PyiCloudAPIResponseException as ex:
             _LOGGER.error("Failed to delete photo from album: %s", ex)
             raise PhotosServiceException(
@@ -1643,23 +1644,23 @@ class PhotoAsset:
         """Gets the photo created date."""
         return self.asset_date
 
+    def _record_timestamp(self, field_name: str) -> datetime:
+        """Read a millisecond timestamp field from the asset record."""
+        try:
+            raw_value = self._asset_record["fields"][field_name]["value"]
+            return datetime.fromtimestamp(raw_value / 1000.0, timezone.utc)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return datetime.fromtimestamp(0, timezone.utc)
+
     @property
     def asset_date(self) -> datetime:
         """Gets the photo asset date."""
-        try:
-            return datetime.fromtimestamp(
-                self._asset_record["fields"]["assetDate"]["value"] / 1000.0,
-                timezone.utc,
-            )
-        except KeyError:
-            return datetime.fromtimestamp(0, timezone.utc)
+        return self._record_timestamp("assetDate")
 
     @property
     def added_date(self) -> datetime:
         """Gets the photo added date."""
-        return datetime.fromtimestamp(
-            self._asset_record["fields"]["addedDate"]["value"] / 1000.0, timezone.utc
-        )
+        return self._record_timestamp("addedDate")
 
     @property
     def dimensions(self):
