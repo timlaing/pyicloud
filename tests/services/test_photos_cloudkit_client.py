@@ -45,7 +45,10 @@ def test_upload_file_returns_skeletal_upload_payload() -> None:
     with patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")):
         result = client.upload_file("/virtual/new_upload.jpg", dsid="12345")
 
-    assert result == SKELETAL_UPLOAD_PAYLOAD
+    assert [record.recordType for record in result.records] == ["CPLMaster", "CPLAsset"]
+    assert [record.recordName for record in result.records] == [
+        record["recordName"] for record in SKELETAL_UPLOAD_PAYLOAD["records"]
+    ]
     assert session.post.call_args.kwargs["url"].startswith(
         "https://upload.example.com/upload?"
     )
@@ -68,9 +71,9 @@ def test_upload_file_returns_duplicate_upload_payload() -> None:
     with patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")):
         result = client.upload_file("/virtual/duplicate_upload.jpg", dsid="12345")
 
-    assert result["isDuplicate"] is True
-    assert result["records"][0]["recordType"] == "CPLMaster"
-    assert result["records"][1]["recordType"] == "CPLAsset"
+    assert result.isDuplicate is True
+    assert result.records[0].recordType == "CPLMaster"
+    assert result.records[1].recordType == "CPLAsset"
 
 
 def test_upload_file_requires_upload_url() -> None:

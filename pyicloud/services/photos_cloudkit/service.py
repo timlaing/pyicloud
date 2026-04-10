@@ -13,8 +13,11 @@ from urllib.parse import urlencode
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
+    CKFVString,
     CKModifyOperation,
     CKQueryFilterBy,
+    CKQueryObject,
+    CKQueryRequest,
     CKRecord,
     CKTombstoneRecord,
     CKWriteRecord,
@@ -51,7 +54,13 @@ from .mappers import (
     record_record_type,
     record_zone,
 )
-from .models import PhotoChangeEvent, PhotoResource, PhotosServiceException
+from .models import (
+    PhotoChangeEvent,
+    PhotoResource,
+    PhotosServiceException,
+    PhotosUploadResponse,
+    SmartAlbumSpec,
+)
 from .queries import (
     album_query,
     check_indexing_state_query,
@@ -71,6 +80,35 @@ def _new_album_position() -> int:
     """Return a fresh positive position for newly created album records."""
 
     return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+
+def _record_name_filter(record_name_value: str) -> CKQueryFilterBy:
+    """Return a typed record-name equality filter."""
+
+    return CKQueryFilterBy(
+        comparator="EQUALS",
+        fieldName="recordName",
+        fieldValue=CKFVString(type="STRING", value=record_name_value),
+    )
+
+
+def _query_request_payload(
+    *,
+    query: CKQueryObject,
+    zone_id: dict[str, str],
+    desired_keys: list[str] | None = None,
+    results_limit: int | None = None,
+    continuation: str | None = None,
+) -> dict[str, Any]:
+    """Serialize a typed CloudKit query request for legacy/raw callers."""
+
+    return CKQueryRequest(
+        query=query,
+        zoneID=CKZoneIDReq(**zone_id),
+        desiredKeys=desired_keys,
+        resultsLimit=results_limit,
+        continuationMarker=continuation,
+    ).model_dump(mode="json", exclude_none=True)
 
 
 PHOTO_DESIRED_KEYS = [
@@ -441,103 +479,91 @@ class BasePhotoLibrary(ABC):
 class PhotoLibrary(BasePhotoLibrary):
     """Represents a private or shared CloudKit photo library."""
 
-    SMART_ALBUMS: dict[SmartAlbumEnum, dict[str, Any]] = {
-        SmartAlbumEnum.ALL_PHOTOS: {
-            "obj_type": ObjectTypeEnum.ALL,
-            "list_type": ListTypeEnum.DEFAULT,
-            "direction": DirectionEnum.DESCENDING,
-            "query_filters": None,
-        },
-        SmartAlbumEnum.TIME_LAPSE: {
-            "obj_type": ObjectTypeEnum.TIMELAPSE,
-            "list_type": ListTypeEnum.SMART_ALBUM,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": [smart_album_filter("TIMELAPSE")],
-        },
-        SmartAlbumEnum.VIDEOS: {
-            "obj_type": ObjectTypeEnum.VIDEO,
-            "list_type": ListTypeEnum.SMART_ALBUM,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": [smart_album_filter("VIDEO")],
-        },
-        SmartAlbumEnum.SLO_MO: {
-            "obj_type": ObjectTypeEnum.SLOMO,
-            "list_type": ListTypeEnum.SMART_ALBUM,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": [smart_album_filter("SLOMO")],
-        },
-        SmartAlbumEnum.BURSTS: {
-            "obj_type": ObjectTypeEnum.BURST,
-            "list_type": ListTypeEnum.STACK,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": None,
-        },
-        SmartAlbumEnum.FAVORITES: {
-            "obj_type": ObjectTypeEnum.FAVORITE,
-            "list_type": ListTypeEnum.SMART_ALBUM,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": [smart_album_filter("FAVORITE")],
-        },
-        SmartAlbumEnum.PANORAMAS: {
-            "obj_type": ObjectTypeEnum.PANORAMA,
-            "list_type": ListTypeEnum.SMART_ALBUM,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": [smart_album_filter("PANORAMA")],
-        },
-        SmartAlbumEnum.SCREENSHOTS: {
-            "obj_type": ObjectTypeEnum.SCREENSHOT,
-            "list_type": ListTypeEnum.SMART_ALBUM,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": [smart_album_filter("SCREENSHOT")],
-        },
-        SmartAlbumEnum.LIVE: {
-            "obj_type": ObjectTypeEnum.LIVE,
-            "list_type": ListTypeEnum.SMART_ALBUM,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": [smart_album_filter("LIVE")],
-        },
-        SmartAlbumEnum.RECENTLY_DELETED: {
-            "obj_type": ObjectTypeEnum.DELETED,
-            "list_type": ListTypeEnum.DELETED,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": None,
-        },
-        SmartAlbumEnum.HIDDEN: {
-            "obj_type": ObjectTypeEnum.HIDDEN,
-            "list_type": ListTypeEnum.HIDDEN,
-            "direction": DirectionEnum.ASCENDING,
-            "query_filters": None,
-        },
+    SMART_ALBUMS: dict[SmartAlbumEnum, SmartAlbumSpec] = {
+        SmartAlbumEnum.ALL_PHOTOS: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.ALL,
+            list_type=ListTypeEnum.DEFAULT,
+            direction=DirectionEnum.DESCENDING,
+        ),
+        SmartAlbumEnum.TIME_LAPSE: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.TIMELAPSE,
+            list_type=ListTypeEnum.SMART_ALBUM,
+            direction=DirectionEnum.ASCENDING,
+            query_filters=(smart_album_filter("TIMELAPSE"),),
+        ),
+        SmartAlbumEnum.VIDEOS: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.VIDEO,
+            list_type=ListTypeEnum.SMART_ALBUM,
+            direction=DirectionEnum.ASCENDING,
+            query_filters=(smart_album_filter("VIDEO"),),
+        ),
+        SmartAlbumEnum.SLO_MO: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.SLOMO,
+            list_type=ListTypeEnum.SMART_ALBUM,
+            direction=DirectionEnum.ASCENDING,
+            query_filters=(smart_album_filter("SLOMO"),),
+        ),
+        SmartAlbumEnum.BURSTS: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.BURST,
+            list_type=ListTypeEnum.STACK,
+            direction=DirectionEnum.ASCENDING,
+        ),
+        SmartAlbumEnum.FAVORITES: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.FAVORITE,
+            list_type=ListTypeEnum.SMART_ALBUM,
+            direction=DirectionEnum.ASCENDING,
+            query_filters=(smart_album_filter("FAVORITE"),),
+        ),
+        SmartAlbumEnum.PANORAMAS: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.PANORAMA,
+            list_type=ListTypeEnum.SMART_ALBUM,
+            direction=DirectionEnum.ASCENDING,
+            query_filters=(smart_album_filter("PANORAMA"),),
+        ),
+        SmartAlbumEnum.SCREENSHOTS: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.SCREENSHOT,
+            list_type=ListTypeEnum.SMART_ALBUM,
+            direction=DirectionEnum.ASCENDING,
+            query_filters=(smart_album_filter("SCREENSHOT"),),
+        ),
+        SmartAlbumEnum.LIVE: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.LIVE,
+            list_type=ListTypeEnum.SMART_ALBUM,
+            direction=DirectionEnum.ASCENDING,
+            query_filters=(smart_album_filter("LIVE"),),
+        ),
+        SmartAlbumEnum.RECENTLY_DELETED: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.DELETED,
+            list_type=ListTypeEnum.DELETED,
+            direction=DirectionEnum.ASCENDING,
+        ),
+        SmartAlbumEnum.HIDDEN: SmartAlbumSpec(
+            obj_type=ObjectTypeEnum.HIDDEN,
+            list_type=ListTypeEnum.HIDDEN,
+            direction=DirectionEnum.ASCENDING,
+        ),
     }
 
     def _fetch_album_records(self, parent_id: str | None = None) -> list[CKRecord]:
         if self._client is None or not _can_use_typed_cloudkit(self.service.session):
-            query: dict[str, Any] = {
-                "query": {
-                    "recordType": "CPLAlbumByPositionLive",
-                },
-                "zoneID": self.zone_id,
-            }
-            if parent_id:
-                query["query"]["filterBy"] = [
-                    {
-                        "fieldName": "parentId",
-                        "comparator": "EQUALS",
-                        "fieldValue": {"type": "STRING", "value": parent_id},
-                    }
-                ]
+            query = album_query(parent_id)
+            payload = _query_request_payload(query=query, zone_id=self.zone_id)
             request = self.service.session.post(
                 url=self.url,
-                json=query,
+                json=payload,
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
             records = list(response.get("records", []))
             while "continuationMarker" in response:
-                query["continuationMarker"] = response["continuationMarker"]
+                payload = _query_request_payload(
+                    query=query,
+                    zone_id=self.zone_id,
+                    continuation=response["continuationMarker"],
+                )
                 request = self.service.session.post(
                     url=self.url,
-                    json=query,
+                    json=payload,
                     headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
                 )
                 response = request.json()
@@ -651,7 +677,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 for smart_album in SUPPORTED_SHARED_LIBRARY_SMART_ALBUMS
             )
         for smart_album, meta in smart_albums:
-            direction = meta["direction"]
+            direction = meta.direction
             if (
                 self.scope == "shared-library"
                 and smart_album == SmartAlbumEnum.FAVORITES
@@ -661,12 +687,12 @@ class PhotoLibrary(BasePhotoLibrary):
                 SmartPhotoAlbum(
                     library=self,
                     name=smart_album,
-                    obj_type=meta["obj_type"],
-                    list_type=meta["list_type"],
+                    obj_type=meta.obj_type,
+                    list_type=meta.list_type,
                     direction=direction,
                     client=self._client,
                     zone_id=self.zone_id,
-                    query_filters=meta["query_filters"],
+                    query_filters=list(meta.query_filters) or None,
                 )
             )
         if self.scope == "shared-library":
@@ -774,19 +800,28 @@ class PhotoLibrary(BasePhotoLibrary):
                 response = self.service.session.post(url=upload_url, data=file_obj)
 
             payload = response.json()
-            if "errors" in payload:
-                raise PyiCloudAPIResponseException("", payload["errors"])
 
-        records: list[CKRecord | dict[str, Any]] = [
-            record
-            for record in payload.get("records", [])
-            if isinstance(record, (CKRecord, dict))
-        ]
+        upload_payload = (
+            payload
+            if isinstance(payload, PhotosUploadResponse)
+            else PhotosUploadResponse.model_validate(payload)
+        )
+        if upload_payload.errors:
+            raise PyiCloudAPIResponseException(
+                "",
+                [
+                    error.model_dump(mode="json", exclude_none=True)
+                    for error in upload_payload.errors
+                ],
+            )
+
+        records: list[CKRecord] = list(upload_payload.records)
 
         records_by_type = {
             record_record_type(record): record
             for record in records
-            if record_record_type(record) in {"CPLMaster", "CPLAsset"}
+            if isinstance(record, CKRecord)
+            and record_record_type(record) in {"CPLMaster", "CPLAsset"}
         }
         master_record = records_by_type.get("CPLMaster")
         asset_record = records_by_type.get("CPLAsset")
@@ -1116,19 +1151,15 @@ class BasePhotoAlbum(Iterable, ABC):
         )
 
     def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
-        payload = self._get_payload(
+        filters = self._query_filters(offset=0, direction=DirectionEnum.ASCENDING)
+        filters.append(_record_name_filter(photo_id))
+        return self._list_query_gen(
             offset=0,
-            page_size=1,
+            list_type=self._list_type,
             direction=DirectionEnum.ASCENDING,
+            num_results=1,
+            query_filters=filters,
         )
-        payload["query"]["filterBy"].append(
-            {
-                "fieldName": "recordName",
-                "comparator": "EQUALS",
-                "fieldValue": {"type": "STRING", "value": photo_id},
-            }
-        )
-        return payload
 
     def _get_url(self) -> str:
         if hasattr(self.service, "service_endpoint"):
@@ -1143,32 +1174,26 @@ class BasePhotoAlbum(Iterable, ABC):
         direction: DirectionEnum,
         num_results: int,
         query_filter: list[dict[str, Any]] | None = None,
+        query_filters: list[CKQueryFilterBy] | None = None,
     ) -> dict[str, Any]:
-        filter_by = [
-            {
-                "fieldName": "direction",
-                "comparator": "EQUALS",
-                "fieldValue": {"type": "STRING", "value": direction.value},
-            },
-            {
-                "fieldName": "startRank",
-                "comparator": "EQUALS",
-                "fieldValue": {"type": "INT64", "value": offset},
-            },
-        ]
-        if query_filter:
-            filter_by.extend(query_filter)
-        return {
-            "query": {
-                "recordType": list_type.value,
-                "filterBy": filter_by,
-            },
-            "resultsLimit": num_results,
-            "desiredKeys": PHOTO_DESIRED_KEYS,
-            "zoneID": getattr(
+        if query_filters is None and query_filter is not None:
+            query_filters = [
+                CKQueryFilterBy.model_validate(item) for item in query_filter
+            ]
+        query = list_query(
+            list_type=list_type,
+            direction=direction,
+            offset=offset,
+            extra_filters=query_filters,
+        )
+        return _query_request_payload(
+            query=query,
+            zone_id=getattr(
                 self, "_zone_id", getattr(self._library, "zone_id", PRIMARY_ZONE)
             ),
-        }
+            desired_keys=PHOTO_DESIRED_KEYS,
+            results_limit=num_results,
+        )
 
 
 class PhotoAlbum(BasePhotoAlbum):
@@ -1203,16 +1228,7 @@ class PhotoAlbum(BasePhotoAlbum):
         )
         self._record_id = record_id
         self._obj_type = obj_type
-        self._extra_filters = query_filters or []
-        if query_filter is not None:
-            self._query_filter = query_filter
-        elif query_filters:
-            self._query_filter = [
-                query.model_dump(mode="json", exclude_none=True)
-                for query in query_filters
-            ]
-        else:
-            self._query_filter = None
+        self._extra_filters = self._coerce_query_filters(query_filter, query_filters)
         self._url = url or (
             f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
             if hasattr(self.service, "service_endpoint")
@@ -1468,6 +1484,7 @@ class PhotoAlbum(BasePhotoAlbum):
         offset: int,
         direction: DirectionEnum,
     ) -> list[CKQueryFilterBy]:
+        _ = (offset, direction)
         return list(self._extra_filters)
 
     def _get_payload(
@@ -1481,24 +1498,18 @@ class PhotoAlbum(BasePhotoAlbum):
             list_type=self._list_type,
             direction=direction,
             num_results=page_size,
-            query_filter=self._query_filter,
+            query_filters=self._query_filters(offset=offset, direction=direction),
         )
 
     def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
-        query_filter = list(self._query_filter or [])
-        query_filter.append(
-            {
-                "fieldName": "recordName",
-                "comparator": "EQUALS",
-                "fieldValue": {"type": "STRING", "value": photo_id},
-            }
-        )
+        query_filters = self._query_filters(offset=0, direction=DirectionEnum.ASCENDING)
+        query_filters.append(_record_name_filter(photo_id))
         return self._list_query_gen(
             offset=0,
             list_type=self._list_type,
             direction=DirectionEnum.ASCENDING,
             num_results=self._photo_lookup_results_limit(),
-            query_filter=query_filter,
+            query_filters=query_filters,
         )
 
     def _get_url(self) -> str:
@@ -1510,6 +1521,15 @@ class PhotoAlbum(BasePhotoAlbum):
         if isinstance(asset_id, str) and asset_id:
             return asset_id
         return photo.id
+
+    @staticmethod
+    def _coerce_query_filters(
+        query_filter: list[dict[str, Any]] | None,
+        query_filters: list[CKQueryFilterBy] | None,
+    ) -> list[CKQueryFilterBy]:
+        if query_filter is not None:
+            return [CKQueryFilterBy.model_validate(item) for item in query_filter]
+        return list(query_filters or [])
 
 
 class PhotoAlbumFolder(PhotoAlbum):

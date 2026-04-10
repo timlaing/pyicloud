@@ -21,6 +21,16 @@ from pyicloud.common.cloudkit.client import (
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 
+from .models import (
+    PhotosBatchCountFilter,
+    PhotosBatchCountQuery,
+    PhotosBatchCountRequest,
+    PhotosBatchCountRequestBatch,
+    PhotosBatchCountResponse,
+    PhotosBatchCountStringListValue,
+    PhotosUploadResponse,
+)
+
 
 class PhotosCloudKitClient:
     """Photos container adapter on top of the generic CloudKit client."""
@@ -104,38 +114,40 @@ class PhotosCloudKitClient:
         """
 
         url = self._client._http.build_url("/internal/records/query/batch")
-        payload = {
-            "batch": [
-                {
-                    "resultsLimit": 1,
-                    "query": {
-                        "recordType": "HyperionIndexCountLookup",
-                        "filterBy": {
-                            "fieldName": "indexCountID",
-                            "comparator": "IN",
-                            "fieldValue": {
-                                "type": "STRING_LIST",
-                                "value": [container_id],
-                            },
-                        },
-                    },
-                    "zoneWide": True,
-                    "zoneID": zone_id,
-                }
+        payload = PhotosBatchCountRequest(
+            batch=[
+                PhotosBatchCountRequestBatch(
+                    resultsLimit=1,
+                    query=PhotosBatchCountQuery(
+                        recordType="HyperionIndexCountLookup",
+                        filterBy=PhotosBatchCountFilter(
+                            fieldName="indexCountID",
+                            comparator="IN",
+                            fieldValue=PhotosBatchCountStringListValue(
+                                type="STRING_LIST",
+                                value=[container_id],
+                            ),
+                        ),
+                    ),
+                    zoneWide=True,
+                    zoneID=CKZoneIDReq(**zone_id),
+                )
             ]
-        }
+        ).model_dump(mode="json", exclude_none=True)
         response = self._session.post(
             url,
             json=payload,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
-        data = response.json()
+        data = PhotosBatchCountResponse.model_validate(response.json())
         try:
-            return data["batch"][0]["records"][0]["fields"]["itemCount"]["value"]
+            return data.batch[0].records[0].fields.itemCount.value
         except Exception as exc:
-            raise CloudKitApiError("Photos count query failed", payload=data) from exc
+            raise CloudKitApiError(
+                "Photos count query failed", payload=data.model_dump(mode="json")
+            ) from exc
 
-    def upload_file(self, path: str, *, dsid: str):
+    def upload_file(self, path: str, *, dsid: str) -> PhotosUploadResponse:
         """Upload a file through Apple’s uploadimagews endpoint."""
 
         if not self._upload_url:
@@ -145,10 +157,10 @@ class PhotosCloudKitClient:
         url = f"{self._upload_url}/upload?{urlencode(params)}"
         with upload_path.open("rb") as handle:
             response = self._session.post(url=url, data=handle)
-        data = response.json()
-        if data.get("errors"):
-            first = data["errors"][0]
+        data = PhotosUploadResponse.model_validate(response.json())
+        if data.errors:
+            first = data.errors[0]
             raise CloudKitApiError(
-                f"{first.get('code', 'UPLOAD_ERROR')}: {first.get('message', '')}".strip()
+                f"{first.code or 'UPLOAD_ERROR'}: {first.message or ''}".strip()
             )
         return data
