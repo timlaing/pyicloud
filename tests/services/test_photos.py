@@ -2450,7 +2450,8 @@ def test_photo_album_add_photo_success(mock_photo_library: MagicMock) -> None:
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
     photo = MagicMock(spec=PhotoAsset)
-    photo.id = "photo123"
+    photo.id = "master123"
+    photo.asset_id = "asset123"
 
     album = PhotoAlbum(
         library=mock_photo_library,
@@ -2472,10 +2473,10 @@ def test_photo_album_add_photo_success(mock_photo_library: MagicMock) -> None:
             {
                 "operationType": "create",
                 "record": {
-                    "recordName": "photo123-IN-album123",
+                    "recordName": "asset123-IN-album123",
                     "recordType": "CPLContainerRelation",
                     "fields": {
-                        "itemId": {"value": "photo123"},
+                        "itemId": {"value": "asset123"},
                         "position": {"value": 1024},
                         "containerId": {"value": "album123"},
                     },
@@ -2500,9 +2501,10 @@ def test_photo_album_add_photo_matches_browser_request_fixture() -> None:
     mock_photo_library.service.params = {"dsid": "12345"}
     mock_photo_library.service.session.post.return_value = MagicMock()
     photo = MagicMock(spec=PhotoAsset)
-    photo.id = BROWSER_ALBUM_ADD_PHOTO_REQUEST["operations"][0]["record"]["fields"][
-        "itemId"
-    ]["value"]
+    photo.id = "MASTER_RECORD_ID_031"
+    photo.asset_id = BROWSER_ALBUM_ADD_PHOTO_REQUEST["operations"][0]["record"][
+        "fields"
+    ]["itemId"]["value"]
 
     album = PhotoAlbum(
         library=mock_photo_library,
@@ -2560,6 +2562,8 @@ def test_photo_album_rename_success_typed_client() -> None:
     )
     mock_photo_library = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = SimpleNamespace(session=object())
+    mock_photo_library.zone_id = PRIMARY_ZONE
+    mock_photo_library.asset_type = PhotoAsset
 
     album = PhotoAlbum(
         library=mock_photo_library,
@@ -2629,15 +2633,15 @@ def test_photo_album_add_photo_success_typed_client() -> None:
         client=mock_client,
         zone_id={"zoneName": "TestZone"},
     )
-    photo = SimpleNamespace(id="photo123")
+    photo = SimpleNamespace(id="master123", asset_id="asset123")
 
     assert album.add_photo(photo) is True
 
     op = mock_client.modify.call_args.kwargs["operations"][0]
     assert op.operationType == "create"
-    assert op.record.recordName == "photo123-IN-album123"
+    assert op.record.recordName == "asset123-IN-album123"
     assert op.record.recordType == "CPLContainerRelation"
-    assert op.record.fields.get_value("itemId") == "photo123"
+    assert op.record.fields.get_value("itemId") == "asset123"
     assert op.record.fields.get_value("containerId") == "album123"
 
 
@@ -2645,7 +2649,8 @@ def test_photo_album_upload_success(mock_photos_service: MagicMock) -> None:
     """Tests successful photo upload to album."""
     mock_photo_library: MagicMock = MagicMock(spec=PhotoLibrary)
     mock_photo_asset = MagicMock()
-    mock_photo_asset.id = "photo123"
+    mock_photo_asset.id = "master123"
+    mock_photo_asset.asset_id = "asset123"
     mock_photo_library.service = mock_photos_service
     mock_photo_library.upload_file.return_value = mock_photo_asset
     mock_photo_library.service.session.post.return_value = MagicMock()
@@ -2676,12 +2681,12 @@ def test_photo_album_upload_success(mock_photos_service: MagicMock) -> None:
                 "operationType": "create",
                 "record": {
                     "fields": {
-                        "itemId": {"value": "photo123"},
+                        "itemId": {"value": "asset123"},
                         "position": {"value": 1024},
                         "containerId": {"value": "album123"},
                     },
                     "recordType": "CPLContainerRelation",
-                    "recordName": "photo123-IN-album123",
+                    "recordName": "asset123-IN-album123",
                 },
             }
         ],
@@ -2954,6 +2959,28 @@ def test_photo_album_get_payload(mock_photo_library: MagicMock) -> None:
     }
 
     assert payload == expected_payload
+
+
+def test_photo_album_get_photo_payload_uses_minimum_album_lookup_limit(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Album lookups should request at least three records from CloudKit."""
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        zone_id={"zoneName": "TestZone"},
+    )
+
+    payload = album._get_photo_payload("photo123")
+
+    assert payload["resultsLimit"] == 3
+    assert _payload_filter_map(payload)["recordName"] == "photo123"
 
 
 def test_photo_album_get_payload_no_query_filter(mock_photo_library: MagicMock) -> None:
@@ -3877,6 +3904,7 @@ def test_create_album_success(mock_photos_service: MagicMock) -> None:
         kwargs["json"]["operations"][0]["record"]["fields"]["albumNameEnc"]["value"]
         == expected_data["operations"][0]["record"]["fields"]["albumNameEnc"]["value"]
     )
+    assert kwargs["json"]["operations"][0]["record"]["fields"]["position"]["value"] > 0
 
 
 def test_create_album_browser_fixture_matches_core_request_fields() -> None:
@@ -3922,8 +3950,9 @@ def test_create_album_browser_fixture_matches_core_request_fields() -> None:
         assert (
             request_record["fields"][field_name] == browser_record["fields"][field_name]
         )
-    assert "position" not in request_record["fields"]
+    assert "position" in request_record["fields"]
     assert "position" in browser_record["fields"]
+    assert request_record["fields"]["position"]["value"] > 0
     assert BROWSER_ALBUM_CREATE_RESPONSE["records"][0]["recordType"] == "CPLAlbum"
 
 
@@ -4074,6 +4103,7 @@ def test_create_album_success_typed_client() -> None:
     assert album.id == "album123"
     op = mock_client.modify.call_args.kwargs["operations"][0]
     assert op.operationType == "create"
+    assert op.record.fields.get_value("position") > 0
 
 
 def test_create_album_success_typed_client_populates_uncached_album_list() -> None:
@@ -4642,6 +4672,66 @@ def test_photo_album_get_photo_success(mock_photo_library: MagicMock) -> None:
         json=album._get_photo_payload("target_photo"),
         headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
     )
+
+
+def test_photo_album_get_photo_success_typed_client_uses_minimum_lookup_limit() -> None:
+    """Album lookups should use Apple's minimum accepted typed-query result size."""
+
+    mock_client = MagicMock()
+    mock_client.query.return_value = CKQueryResponse(
+        records=[
+            _ck_record(
+                "CPLMaster",
+                "target_photo",
+                {
+                    "filenameEnc": {
+                        "type": "ENCRYPTED_BYTES",
+                        "value": base64.b64encode(b"target.jpg").decode("utf-8"),
+                    }
+                },
+                zoneID=PRIMARY_ZONE,
+            ),
+            _ck_record(
+                "CPLAsset",
+                "asset_photo",
+                {
+                    "masterRef": {
+                        "type": "REFERENCE",
+                        "value": {
+                            "recordName": "target_photo",
+                            "action": "DELETE_SELF",
+                            "zoneID": PRIMARY_ZONE,
+                        },
+                    },
+                    "assetDate": {"type": "TIMESTAMP", "value": 1775652698554},
+                    "addedDate": {"type": "TIMESTAMP", "value": 1775652699130},
+                    "isFavorite": {"type": "INT64", "value": 0},
+                },
+                zoneID=PRIMARY_ZONE,
+            ),
+        ],
+        syncToken="sync-token",
+    )
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
+    mock_photo_library.service = SimpleNamespace(session=object())
+    mock_photo_library.zone_id = PRIMARY_ZONE
+    mock_photo_library.asset_type = PhotoAsset
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        client=mock_client,
+        zone_id=PRIMARY_ZONE,
+    )
+
+    result = album._get_photo("target_photo")
+
+    assert result.id == "target_photo"
+    assert mock_client.query.call_args.kwargs["results_limit"] == 3
 
 
 def test_photo_album_get_photo_not_found(mock_photo_library: MagicMock) -> None:

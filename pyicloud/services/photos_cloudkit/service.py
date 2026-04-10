@@ -66,6 +66,13 @@ LOGGER = logging.getLogger(__name__)
 
 SHARED_LIBRARY_ZONE_PREFIX = "SharedSync-"
 
+
+def _new_album_position() -> int:
+    """Return a fresh positive position for newly created album records."""
+
+    return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+
 PHOTO_DESIRED_KEYS = [
     "resJPEGFullWidth",
     "resJPEGFullHeight",
@@ -676,6 +683,7 @@ class PhotoLibrary(BasePhotoLibrary):
         album_type: AlbumTypeEnum = AlbumTypeEnum.ALBUM,
     ) -> Optional["PhotoAlbum"]:
         encoded = base64.b64encode(name.encode("utf-8")).decode("utf-8")
+        position = _new_album_position()
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             op = CKModifyOperation(
                 operationType="create",
@@ -690,6 +698,7 @@ class PhotoLibrary(BasePhotoLibrary):
                         "albumType": {"type": "INT64", "value": int(album_type.value)},
                         "isDeleted": {"type": "INT64", "value": 0},
                         "isExpunged": {"type": "INT64", "value": 0},
+                        "position": {"type": "INT64", "value": position},
                         "sortType": {"type": "INT64", "value": 1},
                         "sortAscending": {"type": "INT64", "value": 1},
                     },
@@ -723,6 +732,7 @@ class PhotoLibrary(BasePhotoLibrary):
                                     "albumType": {"value": album_type.value},
                                     "isDeleted": {"value": 0},
                                     "isExpunged": {"value": 0},
+                                    "position": {"value": position},
                                     "sortType": {"value": 1},
                                     "sortAscending": {"value": 1},
                                 },
@@ -964,7 +974,7 @@ class BasePhotoAlbum(Iterable, ABC):
         response = self._client.query(
             query=query,
             zone_id=CKZoneIDReq(**self._library.zone_id),
-            results_limit=2,
+            results_limit=self._photo_lookup_results_limit(),
         )
         self._library._current_sync_token = (
             response.syncToken or self._library._current_sync_token
@@ -976,6 +986,13 @@ class BasePhotoAlbum(Iterable, ABC):
             if photo.id == photo_id:
                 return photo
         raise KeyError(f"Photo does not exist: {photo_id}")
+
+    def _photo_lookup_results_limit(self) -> int:
+        """Return the minimum CloudKit result size for direct list-index lookups."""
+
+        if self._list_type == ListTypeEnum.CONTAINER:
+            return 3
+        return 2
 
     def _process_photo_list_response(
         self,
@@ -1334,14 +1351,15 @@ class PhotoAlbum(BasePhotoAlbum):
         return True
 
     def add_photo(self, photo: "PhotoAsset") -> bool:
+        item_id = self._relation_item_id(photo)
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             op = CKModifyOperation(
                 operationType="create",
                 record=CKWriteRecord(
-                    recordName=f"{photo.id}-IN-{self._record_id}",
+                    recordName=f"{item_id}-IN-{self._record_id}",
                     recordType="CPLContainerRelation",
                     fields={
-                        "itemId": {"type": "STRING", "value": photo.id},
+                        "itemId": {"type": "STRING", "value": item_id},
                         "position": {"type": "INT64", "value": 1024},
                         "containerId": {"type": "STRING", "value": self._record_id},
                     },
@@ -1365,10 +1383,10 @@ class PhotoAlbum(BasePhotoAlbum):
                         {
                             "operationType": "create",
                             "record": {
-                                "recordName": f"{photo.id}-IN-{self._record_id}",
+                                "recordName": f"{item_id}-IN-{self._record_id}",
                                 "recordType": "CPLContainerRelation",
                                 "fields": {
-                                    "itemId": {"value": photo.id},
+                                    "itemId": {"value": item_id},
                                     "position": {"value": 1024},
                                     "containerId": {"value": self._record_id},
                                 },
@@ -1479,12 +1497,19 @@ class PhotoAlbum(BasePhotoAlbum):
             offset=0,
             list_type=self._list_type,
             direction=DirectionEnum.ASCENDING,
-            num_results=1,
+            num_results=self._photo_lookup_results_limit(),
             query_filter=query_filter,
         )
 
     def _get_url(self) -> str:
         return self._url
+
+    @staticmethod
+    def _relation_item_id(photo: "PhotoAsset") -> str:
+        asset_id = getattr(photo, "asset_id", None)
+        if isinstance(asset_id, str) and asset_id:
+            return asset_id
+        return photo.id
 
 
 class PhotoAlbumFolder(PhotoAlbum):
@@ -1612,6 +1637,10 @@ class PhotoAsset:
     @property
     def id(self) -> str:
         return record_name(self._master_record)
+
+    @property
+    def asset_id(self) -> str:
+        return record_name(self._asset_record)
 
     @property
     def filename(self) -> str:
