@@ -59,6 +59,9 @@ from pyicloud.services.photos_legacy import PhotoAlbum as LegacyPhotoAlbum
 from pyicloud.services.photos_legacy import PhotoAsset as LegacyPhotoAsset
 from pyicloud.services.photos_legacy import PhotoLibrary as LegacyPhotoLibrary
 from pyicloud.services.photos_legacy import PhotosService as LegacyPhotosService
+from pyicloud.services.photos_legacy import (
+    PhotosServiceException as LegacyPhotosServiceException,
+)
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 BROWSER_MUTATION_FIXTURE_DIR = FIXTURE_DIR / "photos_browser_mutations"
@@ -1238,6 +1241,36 @@ def test_base_photo_album_parse_response(mock_photo_library: MagicMock) -> None:
     assert "master1" in asset_records
     assert len(master_records) == 1
     assert master_records[0]["recordName"] == "master1"
+
+
+def test_base_photo_album_parse_response_skips_malformed_records() -> None:
+    """Malformed legacy asset payload entries should be ignored."""
+
+    response = {
+        "records": [
+            "not-a-record",
+            {
+                "recordType": "CPLAsset",
+                "fields": {"masterRef": {"value": {"missing": "recordName"}}},
+            },
+            {"recordType": "CPLMaster"},
+            {
+                "recordType": "CPLAsset",
+                "fields": {"masterRef": {"value": {"recordName": "master2"}}},
+            },
+            {
+                "recordType": "CPLMaster",
+                "recordName": "master2",
+            },
+        ]
+    }
+
+    legacy_library = LegacyPhotoLibrary.__new__(LegacyPhotoLibrary)
+
+    asset_records, master_records = legacy_library.parse_asset_response(response)
+
+    assert asset_records == {"master2": response["records"][3]}
+    assert master_records == [response["records"][4]]
 
 
 def test_base_photo_album_get_photos_at(mock_photo_library: MagicMock) -> None:
@@ -2549,6 +2582,45 @@ def test_photo_album_rename_same_name(mock_photo_library: MagicMock) -> None:
     mock_photo_library.service.session.post.assert_not_called()
 
 
+def test_legacy_photo_album_rename_raises_for_error_payload() -> None:
+    """Legacy raw rename should not update state when CloudKit returns errors."""
+
+    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library.service = MagicMock()
+    mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
+    mock_photo_library.service.params = {"dsid": "12345"}
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(
+            return_value={
+                "records": [
+                    {
+                        "recordName": "album123",
+                        "serverErrorCode": "SERVER_RECORD_CHANGED",
+                    }
+                ]
+            }
+        )
+    )
+
+    album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Old Name",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        record_change_tag="tag123",
+        zone_id={"zoneName": "TestZone"},
+    )
+
+    with pytest.raises(LegacyPhotosServiceException, match="Failed to rename album"):
+        album.rename("New Name")
+
+    assert album.name == "Old Name"
+    assert album._record_change_tag == "tag123"
+
+
 def test_photo_album_delete_success(mock_photo_library: MagicMock) -> None:
     """Tests successful album deletion."""
     mock_photo_library.service.session.post.return_value = MagicMock()
@@ -3587,7 +3659,7 @@ def test_legacy_photo_album_add_photo_does_not_replace_album_change_tag() -> Non
 
 
 def test_legacy_photo_album_delete_without_records_keeps_cached_metadata() -> None:
-    """Legacy album deletes should tolerate empty modify responses."""
+    """Legacy album deletes should fail safely for empty modify responses."""
 
     mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
     mock_photo_library.service = MagicMock()
@@ -3610,7 +3682,47 @@ def test_legacy_photo_album_delete_without_records_keeps_cached_metadata() -> No
     )
     album._record_modification_date = "2026-04-09T00:00:00Z"
 
-    assert album.delete() is True
+    assert album.delete() is False
+    assert album._record_change_tag == "album-tag"
+    assert album._record_modification_date == "2026-04-09T00:00:00Z"
+
+
+def test_legacy_photo_album_add_photo_returns_false_for_error_payload() -> None:
+    """Legacy album membership writes should reject CloudKit payload errors."""
+
+    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library.service = MagicMock()
+    mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
+    mock_photo_library.service.params = {"dsid": "12345"}
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(
+            return_value={
+                "records": [
+                    {
+                        "recordName": "asset123-IN-album123",
+                        "serverErrorCode": "SERVER_RECORD_CHANGED",
+                    }
+                ]
+            }
+        )
+    )
+    photo = MagicMock()
+    photo.id = "asset123"
+
+    album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        record_change_tag="album-tag",
+        zone_id={"zoneName": "TestZone"},
+    )
+    album._record_modification_date = "2026-04-09T00:00:00Z"
+
+    assert album.add_photo(photo) is False
     assert album._record_change_tag == "album-tag"
     assert album._record_modification_date == "2026-04-09T00:00:00Z"
 
@@ -4148,9 +4260,7 @@ def test_shared_photo_stream_album_get_payload_and_url_and_len(
     assert payload["albumguid"] == "guid"
     assert payload["albumctag"] == "ctag"
     assert payload["offset"] == "2"
-    # limit should be offset+page_size or len(self), whichever is smaller
-    # Since __len__ is not set, it will call _get_len, which returns 7
-    assert payload["limit"] == str(min(2 + 5, 7))
+    assert payload["limit"] == "7"
 
     # Test _get_url
     url = mock_album._get_url()
@@ -4164,6 +4274,28 @@ def test_shared_photo_stream_album_get_payload_and_url_and_len(
         json={"albumguid": "guid"},
         headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
     )
+
+
+def test_shared_photo_stream_album_payload_does_not_call_len() -> None:
+    """Shared stream paging payloads should not trigger eager size lookups."""
+
+    album = SharedPhotoStreamAlbum(
+        library=MagicMock(),
+        name="Shared Album",
+        album_location="https://shared.example.com/album/",
+        album_ctag="ctag",
+        album_guid="guid",
+        owner_dsid="owner",
+        creation_date="1700000000000",
+    )
+    album._get_len = MagicMock(side_effect=AssertionError("len should not be called"))
+
+    payload = album._get_payload(
+        offset=10, page_size=5, direction=DirectionEnum.ASCENDING
+    )
+
+    assert payload["limit"] == "15"
+    album._get_len.assert_not_called()
 
 
 def test_shared_photo_stream_album_delete_and_rename_are_noops() -> None:

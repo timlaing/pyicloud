@@ -37,6 +37,23 @@ class PhotosServiceException(PyiCloudException):
         self.album: "BasePhotoAlbum|None" = album
 
 
+def _valid_modify_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return non-error record dicts from a CloudKit modify payload."""
+    if payload.get("errors"):
+        return []
+    records = payload.get("records")
+    if not isinstance(records, list):
+        return []
+    valid_records: list[dict[str, Any]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if record.get("serverErrorCode"):
+            return []
+        valid_records.append(record)
+    return valid_records
+
+
 @unique
 class AlbumTypeEnum(IntEnum):
     """Album types"""
@@ -202,11 +219,28 @@ class BasePhotoLibrary(ABC):
         """Parses the asset response."""
         asset_records: dict[str, dict[str, Any]] = {}
         master_records: list[dict[str, Any]] = []
-        for rec in response["records"]:
-            if rec["recordType"] == "CPLAsset":
-                master_id: str = rec["fields"]["masterRef"]["value"]["recordName"]
-                asset_records[master_id] = rec
-            elif rec["recordType"] == "CPLMaster":
+        records = response.get("records", [])
+        if not isinstance(records, list):
+            return (asset_records, master_records)
+
+        for rec in records:
+            if not isinstance(rec, dict):
+                continue
+            record_type = rec.get("recordType")
+            if record_type == "CPLAsset":
+                fields = rec.get("fields", {})
+                if not isinstance(fields, dict):
+                    continue
+                master_ref = fields.get("masterRef", {})
+                if not isinstance(master_ref, dict):
+                    continue
+                master_value = master_ref.get("value", {})
+                if not isinstance(master_value, dict):
+                    continue
+                master_id = master_value.get("recordName")
+                if isinstance(master_id, str):
+                    asset_records[master_id] = rec
+            elif record_type == "CPLMaster" and isinstance(rec.get("recordName"), str):
                 master_records.append(rec)
         return (asset_records, master_records)
 
@@ -1040,8 +1074,11 @@ class PhotoAlbum(BasePhotoAlbum):
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
         payload: dict[str, Any] = response.json()
-        if payload.get("records"):
-            latest: dict[str, Any] = payload["records"][0]
+        records = _valid_modify_records(payload)
+        if not records:
+            raise PhotosServiceException("Failed to rename album", album=self)
+        latest: dict[str, Any] = records[0]
+        if isinstance(latest, dict):
             self._record_change_tag = latest.get(
                 "recordChangeTag", self._record_change_tag
             )
@@ -1083,8 +1120,11 @@ class PhotoAlbum(BasePhotoAlbum):
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             payload: dict[str, Any] = response.json()
-            if payload.get("records"):
-                latest: dict[str, Any] = payload["records"][0]
+            records = _valid_modify_records(payload)
+            if not records:
+                return False
+            latest: dict[str, Any] = records[0]
+            if isinstance(latest, dict):
                 self._record_change_tag = latest.get(
                     "recordChangeTag", self._record_change_tag
                 )
@@ -1135,7 +1175,10 @@ class PhotoAlbum(BasePhotoAlbum):
             )
 
             payload: dict[str, Any] = response.json()
-            for record in payload.get("records", []):
+            records = _valid_modify_records(payload)
+            if not records:
+                return False
+            for record in records:
                 if (
                     record.get("recordType") == "CPLAlbum"
                     or record.get("recordName") == self._record_id
@@ -1518,7 +1561,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         return {
             "albumguid": self._album_guid,
             "albumctag": self._album_ctag,
-            "limit": str(min(offset + page_size, len(self))),
+            "limit": str(offset + page_size),
             "offset": str(offset),
         }
 
