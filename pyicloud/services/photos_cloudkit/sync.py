@@ -29,6 +29,7 @@ from .state import PhotoSyncState, SyncedPhotoResource, create_photo_sync_state
 DEFAULT_FOLDER_STRUCTURE = "none"
 PRIMARY_SYNC_VERSIONS = {"original", "medium", "thumb"}
 LIVE_PHOTO_SYNC_VERSIONS = {"original", "medium", "thumb"}
+UNSAFE_PATH_COMPONENT_CHARS = re.compile(r"[\x00-\x1f/\\:]+")
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -282,7 +283,7 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                 reserved_paths.add(relative_path)
                 current_entries.add((asset.id, resource_key))
                 asset_paths.append(relative_path)
-                target_path = options.directory / relative_path
+                target_path = _safe_target_path(options.directory, relative_path)
                 manifest = state.get_resource(asset.id, resource_key)
                 if _is_current_file(target_path, manifest, resource, relative_path):
                     result.items.append(
@@ -409,7 +410,28 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                 key = (stale.asset_id, stale.resource_key)
                 if key in current_entries:
                     continue
-                stale_path = options.directory / stale.relative_path
+                try:
+                    stale_path = _safe_target_path(
+                        options.directory, stale.relative_path
+                    )
+                except PhotosServiceException as exc:
+                    _LOGGER.warning(
+                        "Ignoring unsafe stale local photo path '%s': %s",
+                        stale.relative_path,
+                        exc,
+                    )
+                    state.delete_resource(stale.asset_id, stale.resource_key)
+                    result.items.append(
+                        PhotoSyncItem(
+                            asset_id=stale.asset_id,
+                            resource_key=stale.resource_key,
+                            path=stale.relative_path,
+                            action="skipped",
+                            reason="unsafe-path",
+                        )
+                    )
+                    result.skipped_count += 1
+                    continue
                 if stale_path.exists():
                     try:
                         stale_path.unlink()
@@ -487,7 +509,11 @@ def _can_short_circuit(
     if state.resource_count() == 0:
         return False
     for entry in state.iter_resources():
-        if not (directory / entry.relative_path).exists():
+        try:
+            path = _safe_target_path(directory, entry.relative_path)
+        except PhotosServiceException:
+            return False
+        if not path.exists():
             return False
     return True
 
@@ -594,8 +620,9 @@ def _resolve_resource(
 def _render_relative_path(
     asset: Any, resource: PhotoResource, folder_structure: str
 ) -> str:
+    filename = _safe_resource_filename(resource)
     if folder_structure == "none":
-        return resource.filename
+        return filename
     asset_date = _asset_datetime(asset, "asset_date") or datetime.fromtimestamp(
         0, timezone.utc
     )
@@ -608,10 +635,10 @@ def _render_relative_path(
         raise PhotosServiceException(
             f"Invalid folder structure format '{folder_structure}'."
         ) from exc
-    folder = folder.strip().strip("/")
+    folder = _safe_relative_folder(folder)
     if not folder:
-        return resource.filename
-    relative = PurePosixPath(folder) / resource.filename
+        return filename
+    relative = PurePosixPath(folder) / filename
     return relative.as_posix()
 
 
@@ -628,10 +655,10 @@ def _unique_relative_path(
         owner is None or owner == (asset_id, resource_key)
     ):
         return candidate
-    path = Path(candidate)
+    path = PurePosixPath(candidate)
     stem = path.stem
     suffix = path.suffix
-    directory = Path(candidate).parent
+    directory = path.parent
     discriminator = asset_id[:8]
     index = 1
     while True:
@@ -643,6 +670,42 @@ def _unique_relative_path(
         ):
             return next_path
         index += 1
+
+
+def _safe_resource_filename(resource: PhotoResource) -> str:
+    filename = str(getattr(resource, "filename", "") or "photo")
+    filename = PurePosixPath(filename.replace("\\", "/")).name
+    return _sanitize_path_component(filename, fallback="photo")
+
+
+def _safe_relative_folder(folder: str) -> str:
+    parts: list[str] = []
+    for part in PurePosixPath(folder.replace("\\", "/")).parts:
+        if part in {"", ".", "..", "/"}:
+            continue
+        parts.append(_sanitize_path_component(part, fallback="folder"))
+    if not parts:
+        return ""
+    return PurePosixPath(*parts).as_posix()
+
+
+def _sanitize_path_component(value: str, *, fallback: str) -> str:
+    sanitized = UNSAFE_PATH_COMPONENT_CHARS.sub("-", value).strip()
+    if sanitized in {"", ".", ".."}:
+        return fallback
+    return sanitized
+
+
+def _safe_target_path(directory: Path, relative_path: str) -> Path:
+    base = directory.resolve(strict=False)
+    target = (base / relative_path).resolve(strict=False)
+    try:
+        target.relative_to(base)
+    except ValueError as exc:
+        raise PhotosServiceException(
+            f"Refusing to access path outside sync directory: {relative_path}"
+        ) from exc
+    return target
 
 
 def _is_current_file(

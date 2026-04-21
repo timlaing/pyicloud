@@ -20,6 +20,7 @@ from pyicloud.services.photos_cloudkit import sync as sync_module
 from pyicloud.services.photos_cloudkit.state import (
     MemoryPhotoSyncState,
     SQLitePhotoSyncState,
+    SyncedPhotoResource,
     create_photo_sync_state,
 )
 
@@ -227,6 +228,80 @@ def test_run_photo_sync_downloads_and_persists_manifest() -> None:
         temp_dir.rmdir()
 
 
+def test_run_photo_sync_sanitizes_remote_filenames() -> None:
+    """Remote filenames must not escape the configured output directory."""
+
+    asset = DummyAsset("asset-escape", "../escape.jpg")
+    service = DummyService(DummyAlbum("All Photos", [asset]), cursor="cursor-escape")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-escape-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+        )
+
+        assert result.downloaded_count == 1
+        assert (output_dir / "escape.jpg").read_bytes() == b"asset-escape:original"
+        assert not (temp_dir / "escape.jpg").exists()
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            manifest = state.get_resource("asset-escape", "original")
+            assert manifest is not None
+            assert manifest.relative_path == "escape.jpg"
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_sanitizes_folder_structure_paths() -> None:
+    """Folder structure output should stay under the configured directory."""
+
+    asset = DummyAsset(
+        "asset-folder-escape",
+        "photo.jpg",
+        asset_date=datetime(2026, 4, 21, tzinfo=timezone.utc),
+    )
+    service = DummyService(
+        DummyAlbum("All Photos", [asset]), cursor="cursor-folder-escape"
+    )
+
+    temp_dir = Path(
+        tempfile.mkdtemp(prefix="photos-sync-folder-escape-", dir=TEST_BASE)
+    )
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                folder_structure="../{:%Y}/../../nested",
+            ),
+        )
+
+        assert result.downloaded_count == 1
+        assert (output_dir / "2026" / "nested" / "photo.jpg").exists()
+        assert not (temp_dir / "nested" / "photo.jpg").exists()
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            manifest = state.get_resource("asset-folder-escape", "original")
+            assert manifest is not None
+            assert manifest.relative_path == "2026/nested/photo.jpg"
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
 def test_run_photo_sync_auto_delete_removes_stale_files() -> None:
     """Auto-delete should remove previously tracked files absent from the latest run."""
 
@@ -259,6 +334,58 @@ def test_run_photo_sync_auto_delete_removes_stale_files() -> None:
         assert result.deleted_count == 1
         assert not (output_dir / "old.jpg").exists()
         assert (output_dir / "new.jpg").exists()
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_auto_delete_ignores_unsafe_stale_paths() -> None:
+    """Auto-delete must not remove paths outside the configured output directory."""
+
+    service = DummyService(DummyAlbum("All Photos", []), cursor="cursor-clean")
+
+    temp_dir = Path(
+        tempfile.mkdtemp(prefix="photos-sync-unsafe-delete-", dir=TEST_BASE)
+    )
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        output_dir.mkdir()
+        outside_path = temp_dir / "outside.jpg"
+        outside_path.write_bytes(b"keep")
+
+        options = PhotoSyncOptions(directory=output_dir, state_dir=state_dir)
+        with SQLitePhotoSyncState(options.state_path()) as state:
+            state.upsert_resource(
+                SyncedPhotoResource(
+                    asset_id="asset-stale",
+                    resource_key="original",
+                    relative_path="../outside.jpg",
+                    size=None,
+                    checksum=None,
+                    downloaded_at="2026-04-21T00:00:00+00:00",
+                )
+            )
+
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                auto_delete=True,
+            ),
+        )
+
+        assert outside_path.read_bytes() == b"keep"
+        assert result.deleted_count == 0
+        assert result.skipped_count == 1
+        assert result.items[0].reason == "unsafe-path"
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            assert state.get_resource("asset-stale", "original") is None
     finally:
         for path in sorted(temp_dir.rglob("*"), reverse=True):
             if path.is_file():
