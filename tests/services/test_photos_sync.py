@@ -16,6 +16,7 @@ from pyicloud.services.photos import (
     run_photo_sync,
     watch_photo_sync,
 )
+from pyicloud.services.photos_cloudkit import sync as sync_module
 from pyicloud.services.photos_cloudkit.state import (
     MemoryPhotoSyncState,
     SQLitePhotoSyncState,
@@ -581,6 +582,42 @@ def test_run_photo_sync_sets_exif_datetime_for_jpegs_without_exif() -> None:
             elif path.is_dir():
                 path.rmdir()
         temp_dir.rmdir()
+
+
+def test_apply_local_metadata_skips_mutations_for_preview_modes() -> None:
+    """Dry-run and filename-only previews must not mutate existing local files."""
+
+    asset = DummyAsset("asset-preview", "photo.jpg")
+    for options in (
+        PhotoSyncOptions(
+            directory=Path("/tmp"),
+            dry_run=True,
+            set_exif_datetime=True,
+            xmp_sidecar=True,
+        ),
+        PhotoSyncOptions(
+            directory=Path("/tmp"),
+            only_print_filenames=True,
+            set_exif_datetime=True,
+            xmp_sidecar=True,
+        ),
+    ):
+        with (
+            patch(
+                "pyicloud.services.photos_cloudkit.sync.set_exif_datetime_if_missing"
+            ) as set_exif,
+            patch("pyicloud.services.photos_cloudkit.sync.write_xmp_sidecar") as xmp,
+        ):
+            sync_module._apply_local_metadata(
+                asset=asset,
+                resource=asset.resources["original"],
+                resource_key="original",
+                target_path=Path("/tmp/photo.jpg"),
+                options=options,
+            )
+
+        set_exif.assert_not_called()
+        xmp.assert_not_called()
 
 
 def test_run_photo_sync_keep_icloud_recent_days_deletes_old_remote_assets() -> None:

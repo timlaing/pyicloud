@@ -692,6 +692,8 @@ def _apply_local_metadata(
     target_path: Path,
     options: PhotoSyncOptions,
 ) -> None:
+    if options.dry_run or options.only_print_filenames:
+        return
     taken_at = _asset_datetime(asset, "asset_date")
     if options.set_exif_datetime and taken_at is not None:
         set_exif_datetime_if_missing(target_path, taken_at)

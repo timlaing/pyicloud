@@ -82,10 +82,16 @@ class _CloudKitHTTP:
         q = urlencode(self._params)
         return f"{self._base_url}{path}" + (f"?{q}" if q else "")
 
-    def post(self, path: str, payload: Dict) -> Dict:
+    def post(self, path: str, payload: Dict, *, headers: Dict | None = None) -> Dict:
         url = self.build_url(path)
         LOGGER.debug("CloudKit POST %s", url)
-        resp = self._session.post(url, json=payload, timeout=self._REQUEST_TIMEOUT)
+        kwargs = {"json": payload, "timeout": self._REQUEST_TIMEOUT}
+        if headers is not None:
+            kwargs["headers"] = headers
+        resp = self._session.post(
+            url,
+            **kwargs,
+        )
         code = getattr(resp, "status_code", 0)
         if not isinstance(code, int):
             code = 200

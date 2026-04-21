@@ -54,6 +54,7 @@ def test_upload_file_returns_skeletal_upload_payload() -> None:
     )
     assert "dsid=12345" in session.post.call_args.kwargs["url"]
     assert "filename=new_upload.jpg" in session.post.call_args.kwargs["url"]
+    assert session.post.call_args.kwargs["timeout"] == (10.0, 60.0)
 
 
 def test_upload_file_returns_duplicate_upload_payload() -> None:
@@ -120,6 +121,48 @@ def test_upload_file_raises_cloudkit_error_for_upload_errors() -> None:
         client.upload_file("/virtual/bad_upload.png", dsid="12345")
 
 
+def test_upload_file_raises_cloudkit_error_for_http_error() -> None:
+    """Upload HTTP failures should be raised before response validation."""
+
+    session = MagicMock()
+    response = MagicMock(status_code=503, text="upstream unavailable")
+    response.json.side_effect = ValueError("not json")
+    session.post.return_value = response
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=session,
+        base_params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+    )
+
+    with (
+        patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")),
+        pytest.raises(CloudKitApiError, match="Photos upload failed with HTTP 503"),
+    ):
+        client.upload_file("/virtual/http_error.jpg", dsid="12345")
+
+
+def test_upload_file_raises_cloudkit_error_for_invalid_json() -> None:
+    """Upload responses should fail clearly when Apple returns invalid JSON."""
+
+    session = MagicMock()
+    response = MagicMock(status_code=200, text="not-json")
+    response.json.side_effect = ValueError("not json")
+    session.post.return_value = response
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=session,
+        base_params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+    )
+
+    with (
+        patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")),
+        pytest.raises(CloudKitApiError, match="Photos upload returned invalid JSON"),
+    ):
+        client.upload_file("/virtual/invalid_json.jpg", dsid="12345")
+
+
 def test_batch_count_posts_expected_internal_query_payload() -> None:
     """Photos count queries should hit the internal batch endpoint with the expected payload."""
 
@@ -148,6 +191,7 @@ def test_batch_count_posts_expected_internal_query_payload() -> None:
 
     assert result == 42
     assert session.post.call_args.kwargs["headers"] == {CONTENT_TYPE: CONTENT_TYPE_TEXT}
+    assert session.post.call_args.kwargs["timeout"] == (10.0, 60.0)
     payload = session.post.call_args.kwargs["json"]
     assert payload["batch"][0]["query"]["recordType"] == "HyperionIndexCountLookup"
     assert payload["batch"][0]["query"]["filterBy"]["fieldValue"]["value"] == [
@@ -168,6 +212,27 @@ def test_batch_count_raises_on_malformed_payload() -> None:
     )
 
     with pytest.raises(CloudKitApiError, match="Photos count query failed"):
+        client.batch_count(
+            container_id="CPLContainerRelationLiveByPosition:album123",
+            zone_id={"zoneName": "PrimarySync"},
+        )
+
+
+def test_batch_count_raises_cloudkit_error_for_http_error() -> None:
+    """Batch count queries should use shared CloudKit HTTP error handling."""
+
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        status_code=500,
+        json=lambda: {"error": "bad"},
+    )
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=session,
+        base_params={"dsid": "12345"},
+    )
+
+    with pytest.raises(CloudKitApiError, match="HTTP 500"):
         client.batch_count(
             container_id="CPLContainerRelationLiveByPosition:album123",
             zone_id={"zoneName": "PrimarySync"},

@@ -113,7 +113,6 @@ class PhotosCloudKitClient:
         request models do not yet represent the batched internal count API.
         """
 
-        url = self._client._http.build_url("/internal/records/query/batch")
         payload = PhotosBatchCountRequest(
             batch=[
                 PhotosBatchCountRequestBatch(
@@ -134,17 +133,38 @@ class PhotosCloudKitClient:
                 )
             ]
         ).model_dump(mode="json", exclude_none=True)
-        response = self._session.post(
-            url,
-            json=payload,
+        raw_data = self._client._http.post(
+            "/internal/records/query/batch",
+            payload,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
-        data = PhotosBatchCountResponse.model_validate(response.json())
+        data = PhotosBatchCountResponse.model_validate(raw_data)
         try:
             return data.batch[0].records[0].fields.itemCount.value
         except Exception as exc:
             raise CloudKitApiError(
                 "Photos count query failed", payload=data.model_dump(mode="json")
+            ) from exc
+
+    @staticmethod
+    def _response_json(response, *, context: str) -> Dict:
+        code = getattr(response, "status_code", 0)
+        if not isinstance(code, int):
+            code = 200
+        if code >= 400:
+            try:
+                payload = response.json()
+            except Exception:
+                payload = getattr(response, "text", None)
+            raise CloudKitApiError(
+                f"{context} failed with HTTP {code}", payload=payload
+            )
+        try:
+            return response.json()
+        except Exception as exc:
+            raise CloudKitApiError(
+                f"{context} returned invalid JSON",
+                payload=getattr(response, "text", None),
             ) from exc
 
     def upload_file(self, path: str, *, dsid: str) -> PhotosUploadResponse:
@@ -156,8 +176,14 @@ class PhotosCloudKitClient:
         params = {"dsid": dsid, "filename": upload_path.name}
         url = f"{self._upload_url}/upload?{urlencode(params)}"
         with upload_path.open("rb") as handle:
-            response = self._session.post(url=url, data=handle)
-        data = PhotosUploadResponse.model_validate(response.json())
+            response = self._session.post(
+                url=url,
+                data=handle,
+                timeout=self._client._http._REQUEST_TIMEOUT,
+            )
+        data = PhotosUploadResponse.model_validate(
+            self._response_json(response, context="Photos upload")
+        )
         if data.errors:
             first = data.errors[0]
             raise CloudKitApiError(
