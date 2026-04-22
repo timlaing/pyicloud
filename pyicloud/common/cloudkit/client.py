@@ -84,7 +84,7 @@ class _CloudKitHTTP:
 
     def post(self, path: str, payload: Dict, *, headers: Dict | None = None) -> Dict:
         url = self.build_url(path)
-        LOGGER.debug("CloudKit POST %s", url)
+        LOGGER.debug("CloudKit POST %s", path)
         kwargs = {"json": payload, "timeout": self._REQUEST_TIMEOUT}
         if headers is not None:
             kwargs["headers"] = headers
@@ -123,7 +123,7 @@ class _CloudKitHTTP:
             ) from exc
 
     def get_bytes(self, url: str) -> bytes:
-        LOGGER.debug("CloudKit asset GET %s", url)
+        LOGGER.debug("CloudKit asset GET <redacted>")
         resp = self._session.get(url, timeout=self._REQUEST_TIMEOUT)
         code = getattr(resp, "status_code", 0)
         if not isinstance(code, int):

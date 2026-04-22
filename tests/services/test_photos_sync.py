@@ -822,6 +822,34 @@ def test_run_photo_sync_sets_exif_datetime_for_jpegs_without_exif() -> None:
         temp_dir.rmdir()
 
 
+def test_set_exif_datetime_preserves_asset_wall_clock_timezone() -> None:
+    """EXIF insertion should not convert asset timestamps to the local timezone."""
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-exif-tz-", dir=TEST_BASE))
+    try:
+        path = temp_dir / "photo.jpg"
+        path.write_bytes(MINIMAL_JPEG)
+        taken_at = datetime(
+            2026,
+            1,
+            1,
+            23,
+            30,
+            tzinfo=timezone(timedelta(hours=-5)),
+        )
+
+        materialize_module.set_exif_datetime_if_missing(path, taken_at)
+
+        assert b"2026:01:01 23:30:00" in path.read_bytes()
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
 def test_jpeg_has_exif_datetime_reads_big_endian_ifd_offsets() -> None:
     """Big-endian EXIF payloads should be inspected without inserting duplicates."""
 

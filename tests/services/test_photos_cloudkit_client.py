@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -200,6 +201,38 @@ def test_batch_count_posts_expected_internal_query_payload() -> None:
     assert payload["batch"][0]["zoneID"] == {"zoneName": "PrimarySync"}
 
 
+def test_batch_count_debug_log_omits_cloudkit_query_params(caplog) -> None:
+    """CloudKit request logs should avoid user-identifying query parameters."""
+
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        json=lambda: {
+            "batch": [
+                {
+                    "records": [
+                        {"fields": {"itemCount": {"value": 42}}},
+                    ]
+                }
+            ]
+        }
+    )
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=session,
+        base_params={"dsid": "12345"},
+    )
+    caplog.set_level(logging.DEBUG, logger="pyicloud.common.cloudkit.client")
+
+    client.batch_count(
+        container_id="CPLContainerRelationLiveByPosition:album123",
+        zone_id={"zoneName": "PrimarySync"},
+    )
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "CloudKit POST /internal/records/query/batch" in messages
+    assert "dsid=12345" not in messages
+
+
 def test_batch_count_raises_on_malformed_payload() -> None:
     """Malformed count responses should be surfaced as CloudKitApiError."""
 
@@ -265,6 +298,27 @@ def test_download_asset_bytes_preserves_rate_limit_retry_after() -> None:
         client.download_asset_bytes("https://example.com/asset")
 
     assert exc_info.value.retry_after == 2.5
+
+
+def test_download_asset_bytes_redacts_signed_url_in_debug_log(caplog) -> None:
+    """Asset GET logs should not include signed download URLs."""
+
+    session = MagicMock()
+    session.get.return_value = MagicMock(status_code=200, content=b"asset")
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=session,
+        base_params={"dsid": "12345"},
+    )
+    signed_url = "https://cvws.icloud-content.com/asset?dsid=12345&token=secret"
+    caplog.set_level(logging.DEBUG, logger="pyicloud.common.cloudkit.client")
+
+    assert client.download_asset_bytes(signed_url) == b"asset"
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "CloudKit asset GET <redacted>" in messages
+    assert signed_url not in messages
+    assert "token=secret" not in messages
 
 
 def test_batch_count_raises_cloudkit_error_for_http_error() -> None:

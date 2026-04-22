@@ -103,7 +103,7 @@ def set_exif_datetime_if_missing(path: Path, taken_at: datetime) -> None:
 
     updated = _insert_exif_datetime_segment(
         jpeg_bytes=data,
-        timestamp=taken_at.astimezone().strftime("%Y:%m:%d %H:%M:%S"),
+        timestamp=taken_at.strftime("%Y:%m:%d %H:%M:%S"),
     )
     if updated is None:
         LOGGER.debug("Failed to update EXIF datetime on %s", path)

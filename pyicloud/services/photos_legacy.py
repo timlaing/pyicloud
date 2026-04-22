@@ -1035,10 +1035,20 @@ class PhotoAlbum(BasePhotoAlbum):
 
     @property
     def fullname(self) -> str:
-        if self._parent_id is not None:
-            return f"{self._library.albums[self._parent_id].fullname}/{self.name}"
-
-        return self.name
+        parts: list[str] = [self.name]
+        visited: set[str] = {self.id}
+        parent_id = self._parent_id
+        while parent_id is not None:
+            if parent_id in visited:
+                _LOGGER.warning("Cycle detected in album parent chain for %s", self.id)
+                break
+            visited.add(parent_id)
+            parent = self._library.albums.get(parent_id)
+            if parent is None:
+                break
+            parts.append(parent.name)
+            parent_id = getattr(parent, "_parent_id", None)
+        return "/".join(reversed(parts))
 
     def rename(self, value: str) -> None:
         """Renames the album."""
@@ -1256,7 +1266,18 @@ class PhotoAlbum(BasePhotoAlbum):
         )
         response: dict[str, Any] = request.json()
 
-        return response["batch"][0]["records"][0]["fields"]["itemCount"]["value"]
+        try:
+            return int(
+                response["batch"][0]["records"][0]["fields"]["itemCount"]["value"]
+            )
+        except (IndexError, KeyError, TypeError, ValueError):
+            _LOGGER.debug(
+                "Unexpected Photos count response for %s: %r",
+                self._get_container_id,
+                response,
+                exc_info=True,
+            )
+            return 0
 
     def _get_url(self) -> str:
         return self._url
