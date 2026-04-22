@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from pyicloud.common.cloudkit.client import CloudKitApiError
+from pyicloud.common.cloudkit.client import CloudKitApiError, CloudKitRateLimited
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.services.photos_cloudkit.client import PhotosCloudKitClient
 
@@ -216,6 +216,55 @@ def test_batch_count_raises_on_malformed_payload() -> None:
             container_id="CPLContainerRelationLiveByPosition:album123",
             zone_id={"zoneName": "PrimarySync"},
         )
+
+
+def test_batch_count_raises_cloudkit_error_for_validation_failure() -> None:
+    """Invalid count response models should be normalized into CloudKitApiError."""
+
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        json=lambda: {
+            "batch": [
+                {
+                    "records": [
+                        {"fields": {"itemCount": {"value": "not-an-int"}}},
+                    ]
+                }
+            ]
+        }
+    )
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=session,
+        base_params={"dsid": "12345"},
+    )
+
+    with pytest.raises(CloudKitApiError, match="Photos count query failed"):
+        client.batch_count(
+            container_id="CPLContainerRelationLiveByPosition:album123",
+            zone_id={"zoneName": "PrimarySync"},
+        )
+
+
+def test_download_asset_bytes_preserves_rate_limit_retry_after() -> None:
+    """Asset GET rate limits should expose Retry-After like CloudKit POSTs."""
+
+    session = MagicMock()
+    session.get.return_value = MagicMock(
+        status_code=429,
+        headers={"Retry-After": "2.5"},
+        text="rate limited",
+    )
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=session,
+        base_params={"dsid": "12345"},
+    )
+
+    with pytest.raises(CloudKitRateLimited) as exc_info:
+        client.download_asset_bytes("https://example.com/asset")
+
+    assert exc_info.value.retry_after == 2.5
 
 
 def test_batch_count_raises_cloudkit_error_for_http_error() -> None:

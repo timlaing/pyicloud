@@ -130,6 +130,15 @@ class _CloudKitHTTP:
             code = 200
         if code in (401, 403):
             raise CloudKitAuthError(f"HTTP {code}: unauthorized")
+        if code == 429:
+            retry_after = None
+            try:
+                hdr = resp.headers.get("Retry-After")
+                if hdr:
+                    retry_after = float(hdr)
+            except Exception:
+                retry_after = None
+            raise CloudKitRateLimited("HTTP 429: rate limited", retry_after=retry_after)
         if code >= 400:
             raise CloudKitApiError(
                 f"HTTP {code} on asset GET",

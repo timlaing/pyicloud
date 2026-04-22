@@ -213,8 +213,13 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
         and options.keep_icloud_recent_days < 0
     ):
         raise PhotosServiceException("--keep-icloud-recent-days must be at least 0.")
+    if options.keep_icloud_recent_days is not None and options.until_found is not None:
+        raise PhotosServiceException(
+            "--keep-icloud-recent-days cannot be combined with --until-found."
+        )
 
-    options.directory.mkdir(parents=True, exist_ok=True)
+    if not options.dry_run and not options.only_print_filenames:
+        options.directory.mkdir(parents=True, exist_ok=True)
     result = PhotoSyncResult(
         directory=str(options.directory),
         state_path=str(options.state_path()),
@@ -515,6 +520,12 @@ def _can_short_circuit(
             return False
         if not path.exists():
             return False
+        if entry.size is not None:
+            try:
+                if path.stat().st_size != entry.size:
+                    return False
+            except OSError:
+                return False
     return True
 
 

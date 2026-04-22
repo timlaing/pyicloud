@@ -6,7 +6,7 @@ import http.client
 import json
 import logging
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List, Optional
 from unittest.mock import patch
@@ -448,9 +448,7 @@ def display_hidemyemail(api: PyiCloudService) -> None:
 def album_management(api: PyiCloudService) -> None:
     """Test album management functions"""
 
-    album_name = (
-        f"{datetime.utcnow().strftime('pyicloud-live-%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
-    )
+    album_name = f"{datetime.now(timezone.utc).strftime('pyicloud-live-%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
     renamed_name = f"{album_name}-renamed"
     print(
         "Running live photo mutation validation against the authenticated account. "

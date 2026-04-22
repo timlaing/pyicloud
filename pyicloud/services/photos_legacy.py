@@ -728,7 +728,10 @@ class PhotosService(BaseService):
             url: str = f"{self.service_endpoint}/changes/database"
 
             request: Response = self.session.post(
-                url, data="{}", headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
+                url,
+                params=self.params,
+                data="{}",
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response: dict[str, Any] = request.json()
             zones: list[dict[str, Any]] = response["zones"]

@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Dict
 from urllib.parse import urlencode
 
+from pydantic import ValidationError
+
 from pyicloud.common.cloudkit import (
     CKLookupResponse,
     CKModifyOperation,
@@ -138,7 +140,12 @@ class PhotosCloudKitClient:
             payload,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
         )
-        data = PhotosBatchCountResponse.model_validate(raw_data)
+        try:
+            data = PhotosBatchCountResponse.model_validate(raw_data)
+        except ValidationError as exc:
+            raise CloudKitApiError(
+                "Photos count query failed", payload=raw_data
+            ) from exc
         try:
             return data.batch[0].records[0].fields.itemCount.value
         except Exception as exc:

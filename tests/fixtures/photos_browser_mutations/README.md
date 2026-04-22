@@ -6,7 +6,7 @@ See also the top-level fixture guide in
 for how these files relate to the broader Photos protocol fixture set.
 
 They intentionally exclude raw HAR files, binary responses, cookies, and account
-identifiers. Stable placeholder values are used instead so request and response
+identifiers. Stable placeholder values are used instead, so request and response
 relationships remain testable without exposing personal data.
 
 The fixture set covers:
