@@ -103,29 +103,37 @@ class FindMyiPhoneServiceManager(BaseService):
     def _initialize_devices(self, locate: bool) -> None:
         """Initializes the devices for the FindMyiPhoneServiceManager."""
 
-        # If family sharing is enabled, we may need to poll until all devices are ready
-        # This is indicated by the deviceFetchStatus being "LOADING"
+        # If family sharing is enabled, we may need to poll until all devices are ready.
+        # This is indicated by the deviceFetchStatus being "LOADING".
+        # Some members (e.g. Macs with location sharing disabled) remain permanently
+        # LOADING and will never resolve. Track which members are LOADING between
+        # retries and stop as soon as there is no progress, rather than always
+        # exhausting _MAX_REFRESH_RETRIES for stuck members.
         retries: int = 0
+        prev_loading_keys: set[str] = set()
         while (
             self._with_family
             and self._user_info
             and self._user_info.get("hasMembers", False)
+            and retries < _MAX_REFRESH_RETRIES
         ):
-            needs_refresh: bool = False
-            for user in self._user_info.get("membersInfo", {}).values():
-                if user.get("deviceFetchStatus") == "LOADING":
-                    needs_refresh = True
-                    break
-
-            if needs_refresh:
-                time.sleep(0.1)
-                self._refresh_client(locate=locate)
-                retries += 1
-                if retries >= _MAX_REFRESH_RETRIES:
-                    _LOGGER.debug("Max retries reached when fetching family devices")
-                    break
-            else:
-                break
+            loading_keys = {
+                k
+                for k, v in self._user_info.get("membersInfo", {}).items()
+                if v.get("deviceFetchStatus") == "LOADING"
+            }
+            if not loading_keys:
+                break  # all family members ready
+            if loading_keys == prev_loading_keys:
+                _LOGGER.debug(
+                    "No progress on LOADING family members after retry %d, stopping",
+                    retries,
+                )
+                break  # no change since last retry — give up on permanently stuck members
+            prev_loading_keys = loading_keys
+            time.sleep(0.1)
+            self._refresh_client(locate=locate)
+            retries += 1
 
         if not self._devices:
             raise PyiCloudNoDevicesException()
