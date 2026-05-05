@@ -57,7 +57,7 @@ jobs:
           name: code-coverage
           path: .
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v7
+        uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
@@ -85,6 +85,6 @@ jobs:
       - name: Get coverage info
         run: pytest --cov=. --cov-config=.coveragerc --cov-report xml:coverage.xml
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v7
+        uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
