@@ -142,7 +142,9 @@ class _BridgePushPayloadModel(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-    session_uuid: StrictStr = Field(alias="sessionUUID")
+    # Apple's newer protocol sends flowid instead of echoing back sessionUUID
+    session_uuid: Optional[StrictStr] = Field(default=None, alias="sessionUUID")
+    flow_id: Optional[StrictStr] = Field(default=None, alias="flowid")
     next_step: Optional[StrictStr | StrictInt] = Field(default=None, alias="nextStep")
     rui_url_key: Optional[str] = Field(default=None, alias="ruiURLKey")
     txnid: Optional[StrictStr] = None
@@ -154,12 +156,12 @@ class _BridgePushPayloadModel(BaseModel):
     encrypted_code: Optional[StrictStr] = Field(default=None, alias="encryptedCode")
     error_code: Optional[StrictInt] = Field(default=None, alias="ec")
 
-    @field_validator("session_uuid")
+    @field_validator("session_uuid", "flow_id")
     @classmethod
-    def _validate_session_uuid(cls, value: str) -> str:
+    def _validate_session_uuid(cls, value: Optional[str]) -> Optional[str]:
         """Reject blank bridge session identifiers."""
-        if not value.strip():
-            raise ValueError("sessionUUID must not be blank")
+        if value is not None and not value.strip():
+            raise ValueError("sessionUUID/flowid must not be blank")
         return value
 
     @field_validator(
@@ -215,14 +217,16 @@ class BridgePushPayload:
                 "Malformed trusted-device bridge push payload."
             ) from exc
 
-        if not validated.session_uuid:
+        # Accept flowid (newer Apple protocol) as fallback for sessionUUID
+        resolved_session_uuid = validated.session_uuid or validated.flow_id
+        if not resolved_session_uuid:
             raise PyiCloudTrustedDevicePromptException(
-                "Trusted-device bridge push payload is missing sessionUUID."
+                "Trusted-device bridge push payload is missing sessionUUID/flowid."
             )
 
         return cls(
             payload=payload,
-            session_uuid=validated.session_uuid,
+            session_uuid=resolved_session_uuid,
             next_step=(
                 str(validated.next_step) if validated.next_step is not None else None
             ),
@@ -1130,15 +1134,10 @@ class TrustedDeviceBridgeBootstrapper:
                     push_payload.next_step,
                     push_payload.rui_url_key,
                 )
-                if push_payload.session_uuid != session_uuid:
-                    raise PyiCloudTrustedDevicePromptException(
-                        "Trusted-device bridge returned a mismatched session UUID."
-                    )
-
                 bridge_state = TrustedDeviceBridgeState(
                     connection_path=connection_path,
                     push_token=push_token_hex,
-                    session_uuid=session_uuid,
+                    session_uuid=push_payload.session_uuid,
                     websocket=websocket,
                     topic=topic,
                     topics_by_hash=dict(topics_by_hash),
