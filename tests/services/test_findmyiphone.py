@@ -691,7 +691,12 @@ def test_refresh_client_with_reauth_with_loading_to_done(
 def test_refresh_client_with_reauth_with_loading_no_complete(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Test refresh_client_with_reauth calls _refresh_client if the members are loading."""
+    """Test that the retry loop stops as soon as no LOADING members make progress.
+
+    member2 resolves after the first retry (progress made → continue).
+    member1 remains LOADING after the second retry (no change → stop early).
+    Total refresh calls: 1 initial + 2 loop iterations = 3.
+    """
     with patch(
         "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
         return_value=None,
@@ -753,69 +758,9 @@ def test_refresh_client_with_reauth_with_loading_no_complete(
                     "deviceFetchStatus": "DONE",
                 },
             },
-            True,
-            {
-                "member1": {
-                    "firstName": "Member1",
-                    "lastName": "One",
-                    "appleId": "member1@example.com",
-                    "deviceFetchStatus": "LOADING",
-                },
-                "member2": {
-                    "firstName": "Member2",
-                    "lastName": "Two",
-                    "appleId": "member2@example.com",
-                    "deviceFetchStatus": "DONE",
-                },
-            },
-            True,
-            {
-                "member1": {
-                    "firstName": "Member1",
-                    "lastName": "One",
-                    "appleId": "member1@example.com",
-                    "deviceFetchStatus": "LOADING",
-                },
-                "member2": {
-                    "firstName": "Member2",
-                    "lastName": "Two",
-                    "appleId": "member2@example.com",
-                    "deviceFetchStatus": "DONE",
-                },
-            },
-            True,
-            {
-                "member1": {
-                    "firstName": "Member1",
-                    "lastName": "One",
-                    "appleId": "member1@example.com",
-                    "deviceFetchStatus": "DONE",
-                },
-                "member2": {
-                    "firstName": "Member2",
-                    "lastName": "Two",
-                    "appleId": "member2@example.com",
-                    "deviceFetchStatus": "DONE",
-                },
-            },
-            True,
-            {
-                "member1": {
-                    "firstName": "Member1",
-                    "lastName": "One",
-                    "appleId": "member1@example.com",
-                    "deviceFetchStatus": "LOADING",
-                },
-                "member2": {
-                    "firstName": "Member2",
-                    "lastName": "Two",
-                    "appleId": "member2@example.com",
-                    "deviceFetchStatus": "DONE",
-                },
-            },
         ]
         manager._refresh_client_with_reauth(locate=True)
-        assert mock_refresh.call_count == 6
+        assert mock_refresh.call_count == 3
         mock_refresh.assert_called_with(locate=True)
 
 
