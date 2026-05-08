@@ -21,6 +21,7 @@ from ._mappers import Attachment, RemindersRecordMapper
 from ._protocol import (
     _as_raw_id,
     _as_record_name,
+    _encode_cloudkit_text_field,
     _encode_crdt_document,
     _generate_resolution_token_map,
 )
@@ -736,7 +737,7 @@ class RemindersWriteAPI:
             field_name="HashtagIDs",
             token_field_name="hashtagIDs",
             child_fields={
-                "Name": {"type": "STRING", "value": name},
+                "Name": _encode_cloudkit_text_field(name),
                 "Deleted": {"type": "INT64", "value": 0},
                 "Reminder": {
                     "type": "REFERENCE",
@@ -762,7 +763,7 @@ class RemindersWriteAPI:
     def update_hashtag(self, hashtag: Hashtag, name: str) -> None:
         """Update an existing hashtag name."""
         fields: dict[str, Any] = {
-            "Name": {"type": "STRING", "value": name},
+            "Name": _encode_cloudkit_text_field(name),
         }
         if hashtag.reminder_id:
             fields["Reminder"] = {

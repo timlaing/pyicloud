@@ -1280,6 +1280,7 @@ def test_base_photo_album_get_photos_at(mock_photo_library: MagicMock) -> None:
             "records": [
                 {
                     "recordType": "CPLAsset",
+                    "recordName": "asset1",
                     "fields": {"masterRef": {"value": {"recordName": "master1"}}},
                 },
                 {
@@ -1304,6 +1305,7 @@ def test_base_photo_album_get_photos_at(mock_photo_library: MagicMock) -> None:
     )
     photos = list(album.photos)
     assert len(photos) == 1
+    assert photos[0].id == "asset1"
     mock_photo_library.service.session.post.assert_called()
 
 
@@ -1524,6 +1526,7 @@ def test_base_photo_album_iter(mock_photo_library: MagicMock) -> None:
             "records": [
                 {
                     "recordType": "CPLAsset",
+                    "recordName": "asset1",
                     "fields": {"masterRef": {"value": {"recordName": "master1"}}},
                 },
                 {
@@ -1548,6 +1551,7 @@ def test_base_photo_album_iter(mock_photo_library: MagicMock) -> None:
     )
     photos = list(iter(album))
     assert len(photos) == 1
+    assert photos[0].id == "asset1"
     mock_photo_library.service.session.post.assert_called()
 
 
@@ -5139,11 +5143,12 @@ def test_photo_album_get_photo_success(mock_photo_library: MagicMock) -> None:
         "records": [
             {
                 "recordType": "CPLAsset",
-                "fields": {"masterRef": {"value": {"recordName": "target_photo"}}},
+                "recordName": "target_photo",
+                "fields": {"masterRef": {"value": {"recordName": "master1"}}},
             },
             {
                 "recordType": "CPLMaster",
-                "recordName": "target_photo",
+                "recordName": "master1",
             },
         ]
     }
@@ -5237,11 +5242,12 @@ def test_photo_album_get_photo_not_found(mock_photo_library: MagicMock) -> None:
         "records": [
             {
                 "recordType": "CPLAsset",
-                "fields": {"masterRef": {"value": {"recordName": "different_photo"}}},
+                "recordName": "different_photo",
+                "fields": {"masterRef": {"value": {"recordName": "master1"}}},
             },
             {
                 "recordType": "CPLMaster",
-                "recordName": "different_photo",
+                "recordName": "master1",
             },
         ]
     }
@@ -5318,27 +5324,32 @@ def test_photo_album_get_photo_multiple_photos_found_correct_one(
         "records": [
             {
                 "recordType": "CPLAsset",
-                "fields": {"masterRef": {"value": {"recordName": "photo1"}}},
-            },
-            {
-                "recordType": "CPLMaster",
                 "recordName": "photo1",
-            },
-            {
-                "recordType": "CPLAsset",
-                "fields": {"masterRef": {"value": {"recordName": "target_photo"}}},
+                "fields": {"masterRef": {"value": {"recordName": "master_photo1"}}},
             },
             {
                 "recordType": "CPLMaster",
+                "recordName": "master_photo1",
+            },
+            {
+                "recordType": "CPLAsset",
                 "recordName": "target_photo",
-            },
-            {
-                "recordType": "CPLAsset",
-                "fields": {"masterRef": {"value": {"recordName": "photo3"}}},
+                "fields": {
+                    "masterRef": {"value": {"recordName": "master_target_photo"}}
+                },
             },
             {
                 "recordType": "CPLMaster",
+                "recordName": "master_target_photo",
+            },
+            {
+                "recordType": "CPLAsset",
                 "recordName": "photo3",
+                "fields": {"masterRef": {"value": {"recordName": "master_photo3"}}},
+            },
+            {
+                "recordType": "CPLMaster",
+                "recordName": "master_photo3",
             },
         ]
     }

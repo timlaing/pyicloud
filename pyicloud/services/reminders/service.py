@@ -92,6 +92,7 @@ class RemindersService(BaseService):
         )
         base_params = {
             "remapEnums": True,
+            "getCurrentSyncToken": True,
             **(params or {}),
         }
         self._raw = CloudKitRemindersClient(

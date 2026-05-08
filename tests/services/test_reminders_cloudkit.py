@@ -319,6 +319,35 @@ def test_reminders_client_strict_mode_wraps_validation_error():
     assert isinstance(excinfo.value.__cause__, ValidationError)
 
 
+def test_reminders_client_current_sync_token_uses_query_sync_token():
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"records": [], "syncToken": "tok-query"},
+    )
+    client = CloudKitRemindersClient("https://example.com", session, {})
+
+    token = client.current_sync_token(zone_id=CKZoneIDReq(zoneName="Reminders"))
+
+    assert token == "tok-query"
+    query_payload = session.post.call_args.kwargs["json"]
+    assert query_payload["query"]["recordType"] == "reminderList"
+    assert query_payload["resultsLimit"] == 1
+
+
+def test_reminders_client_current_sync_token_returns_none_when_missing():
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"records": []},
+    )
+    client = CloudKitRemindersClient("https://example.com", session, {})
+
+    token = client.current_sync_token(zone_id=CKZoneIDReq(zoneName="Reminders"))
+
+    assert token is None
+
+
 def test_reminders_service_passes_through_validation_override():
     service = RemindersService(
         "https://example.com",
@@ -634,6 +663,40 @@ class TestRecordToList:
 
         lst = service._record_to_list(rec)
         assert lst.reminder_ids == ["REM-1", "REM-2"]
+        assert lst.count == 2
+
+    def test_list_falls_back_to_reminder_ids_length_when_count_missing(self, service):
+        rec = _ck_record(
+            "List",
+            "LIST-003A",
+            {
+                "ReminderIDs": {
+                    "type": "STRING",
+                    "value": '["REM-1","Reminder/REM-2","REM-3"]',
+                }
+            },
+        )
+
+        lst = service._record_to_list(rec)
+        assert lst.reminder_ids == ["REM-1", "REM-2", "REM-3"]
+        assert lst.count == 3
+
+    def test_list_falls_back_to_reminder_ids_length_when_count_is_zero(self, service):
+        rec = _ck_record(
+            "List",
+            "LIST-003B",
+            {
+                "Count": {"type": "INT64", "value": 0},
+                "ReminderIDs": {
+                    "type": "STRING",
+                    "value": '["REM-1","Reminder/REM-2"]',
+                },
+            },
+        )
+
+        lst = service._record_to_list(rec)
+        assert lst.reminder_ids == ["REM-1", "REM-2"]
+        assert lst.count == 2
 
     def test_list_parses_asset_backed_reminder_ids_from_downloaded_data(self, service):
         payload = base64.b64encode(b'["REM-1","Reminder/REM-2"]').decode("ascii")
@@ -650,6 +713,7 @@ class TestRecordToList:
 
         lst = service._record_to_list(rec)
         assert lst.reminder_ids == ["REM-1", "REM-2"]
+        assert lst.count == 2
         service._raw.download_asset_bytes.assert_not_called()
 
     def test_list_parses_asset_backed_reminder_ids_from_download_url(self, service):
@@ -667,6 +731,7 @@ class TestRecordToList:
 
         lst = service._record_to_list(rec)
         assert lst.reminder_ids == ["REM-3", "REM-4"]
+        assert lst.count == 2
         service._raw.download_asset_bytes.assert_called_once_with(
             "https://example.com/reminder-ids.json"
         )
@@ -1393,7 +1458,9 @@ class TestAdditionalWriteApis:
         create_ops = svc._raw.modify.call_args.kwargs["operations"]
         assert len(create_ops) == 2
         assert create_ops[1].record.recordType == "Hashtag"
-        assert create_ops[1].record.fields["Name"].value == "travel"
+        name_field = create_ops[1].record.fields["Name"].root
+        assert name_field.type == "ENCRYPTED_BYTES"
+        assert name_field.value == b"travel"
         assert svc._raw.modify.call_args.kwargs["atomic"] is True
 
         svc._raw.modify.reset_mock()
@@ -1877,6 +1944,46 @@ class TestAdditionalWriteApis:
         assert reminder.record_change_tag == "ctag-rem-new"
         assert hashtag.record_change_tag == "ctag-hash-new"
 
+    def test_create_hashtag_name_round_trips_via_mapper(self):
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.modify.return_value = self._ok_modify()
+
+        reminder = Reminder(
+            id="Reminder/REM-TAG-ROUNDTRIP",
+            list_id="List/LIST-001",
+            title="Hashtag reminder",
+            record_change_tag="ctag-rem-old",
+            hashtag_ids=[],
+        )
+
+        svc.create_hashtag(reminder, "travel")
+
+        name_field = (
+            svc._raw.modify.call_args.kwargs["operations"][1].record.fields["Name"].root
+        )
+        parsed = svc._record_to_hashtag(
+            _ck_record(
+                "Hashtag",
+                "Hashtag/HASH-ROUNDTRIP",
+                {
+                    "Name": {
+                        "type": name_field.type,
+                        "value": base64.b64encode(name_field.value).decode("ascii"),
+                    },
+                    "Reminder": {
+                        "type": "REFERENCE",
+                        "value": {
+                            "recordName": "Reminder/REM-TAG-ROUNDTRIP",
+                            "action": "VALIDATE",
+                        },
+                    },
+                },
+            )
+        )
+
+        assert parsed.name == "travel"
+
     def test_create_url_attachment_hydrates_record_change_tags(self):
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
@@ -1991,6 +2098,45 @@ class TestAdditionalWriteApis:
         )
         svc.update_recurrence_rule(recurrence_rule, interval=2)
         assert recurrence_rule.record_change_tag == "new-recurrencerule-tag"
+
+    def test_update_hashtag_writes_encoded_name_field(self):
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.modify.return_value = self._ok_modify()
+
+        hashtag = Hashtag(
+            id="Hashtag/H-UPD-ENC",
+            name="old",
+            reminder_id="Reminder/REM-UPD-ENC",
+            record_change_tag="old-hashtag-tag",
+        )
+        svc.update_hashtag(hashtag, "chores")
+
+        operation = svc._raw.modify.call_args.kwargs["operations"][0]
+        name_field = operation.record.fields["Name"].root
+        assert name_field.type == "ENCRYPTED_BYTES"
+        assert name_field.value == b"chores"
+
+        parsed = svc._record_to_hashtag(
+            _ck_record(
+                "Hashtag",
+                "Hashtag/H-UPD-ENC",
+                {
+                    "Name": {
+                        "type": name_field.type,
+                        "value": base64.b64encode(name_field.value).decode("ascii"),
+                    },
+                    "Reminder": {
+                        "type": "REFERENCE",
+                        "value": {
+                            "recordName": "Reminder/REM-UPD-ENC",
+                            "action": "VALIDATE",
+                        },
+                    },
+                },
+            )
+        )
+        assert parsed.name == "chores"
 
 
 class TestReminderReadPaths:
@@ -2661,6 +2807,7 @@ class TestReminderDeltaSync:
     def test_sync_cursor_returns_final_paged_token(self):
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
+        svc._raw.current_sync_token.return_value = None
         svc._raw.changes.side_effect = [
             self._changes_response([], sync_token="tok-1", more_coming=True),
             self._changes_response([], sync_token="tok-2", more_coming=False),
@@ -2674,6 +2821,15 @@ class TestReminderDeltaSync:
         assert second_zone_req.syncToken == "tok-1"
         assert first_zone_req.desiredRecordTypes == []
         assert first_zone_req.desiredKeys == []
+
+    def test_sync_cursor_prefers_query_sync_token(self):
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.current_sync_token.return_value = "tok-query"
+
+        assert svc.sync_cursor() == "tok-query"
+        svc._raw.current_sync_token.assert_called_once()
+        svc._raw.changes.assert_not_called()
 
     def test_iter_changes_emits_updated_deleted_and_tombstone_events(self):
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})

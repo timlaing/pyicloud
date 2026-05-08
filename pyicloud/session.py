@@ -33,6 +33,30 @@ if TYPE_CHECKING:
     from pyicloud.base import PyiCloudService
 
 
+NON_PERSISTED_SESSION_KEYS = frozenset(
+    {
+        "akdata",
+        "connection_path",
+        "data",
+        "encryptedCode",
+        "encrypted_code",
+        "idmsdata",
+        "mid",
+        "nextStep",
+        "next_step",
+        "ptkn",
+        "push_token",
+        "salt",
+        "sessionUUID",
+        "session_uuid",
+        "source_app_id",
+        "topic",
+        "topics_by_hash",
+        "txnid",
+    }
+)
+
+
 class PyiCloudSession(requests.Session):
     """iCloud session."""
 
@@ -44,6 +68,7 @@ class PyiCloudSession(requests.Session):
         verify: bool = False,
         headers: Optional[dict[str, str]] = None,
     ) -> None:
+        """Initialize the persisted requests session used by the service."""
         super().__init__()
 
         self._service: PyiCloudService = service
@@ -102,7 +127,14 @@ class PyiCloudSession(requests.Session):
             os.makedirs(self._cookie_directory, exist_ok=True)
         with open(self.session_path, "w", encoding="utf-8") as outfile:
             # Copy to avoid dict mutation during concurrent access
-            dump(dict(self._data), outfile)
+            dump(
+                {
+                    key: value
+                    for key, value in dict(self._data).items()
+                    if key not in NON_PERSISTED_SESSION_KEYS
+                },
+                outfile,
+            )
             self.logger.debug("Saved session data to file: %s", self.session_path)
 
         try:
@@ -143,6 +175,7 @@ class PyiCloudSession(requests.Session):
                 self._data.update({session_arg: response.headers.get(header)})
 
     def _is_json_response(self, response: Response) -> bool:
+        """Return whether a response advertises one of the accepted JSON mimetypes."""
         content_type: str = response.headers.get(CONTENT_TYPE, "")
         json_mimetypes: list[str] = [
             CONTENT_TYPE_JSON,
@@ -169,6 +202,7 @@ class PyiCloudSession(requests.Session):
         cert=None,
         json=None,
     ) -> Response:
+        """Dispatch a request through the normalized session request pipeline."""
         return self._request(
             method,
             url,
@@ -187,6 +221,71 @@ class PyiCloudSession(requests.Session):
             cert=cert,
             json=json,
         )
+
+    def request_raw(
+        self,
+        method,
+        url,
+        params=None,
+        data=None,
+        headers=None,
+        cookies=None,
+        files=None,
+        auth=None,
+        timeout=None,
+        allow_redirects=True,
+        proxies=None,
+        hooks=None,
+        stream=None,
+        verify=None,
+        cert=None,
+        json=None,
+    ) -> Response:
+        """Dispatch a request without response-status normalization."""
+
+        return self._request_raw(
+            method,
+            url,
+            params=params,
+            data=data,
+            headers=headers,
+            cookies=cookies,
+            files=files,
+            auth=auth,
+            timeout=timeout,
+            allow_redirects=allow_redirects,
+            proxies=proxies,
+            hooks=hooks,
+            stream=stream,
+            verify=verify,
+            cert=cert,
+            json=json,
+        )
+
+    def _request_raw(
+        self,
+        method,
+        url,
+        **kwargs,
+    ) -> Response:
+        """Perform a request and persist cookies/session data without raising."""
+
+        self.logger.debug(
+            "%s %s",
+            method,
+            url,
+        )
+        try:
+            response: Response = super().request(
+                method=method,
+                url=url,
+                **kwargs,
+            )
+        except requests.exceptions.RequestException as err:
+            self._raise_request_exception(err)
+        self._update_session_data(response)
+        self._save_session_data()
+        return response
 
     def _request(
         self,
@@ -236,13 +335,19 @@ class PyiCloudSession(requests.Session):
             self._decode_json_response(response)
 
             return response
-        except requests.HTTPError as err:
+        except requests.exceptions.RequestException as err:
+            self._raise_request_exception(err)
+
+    @staticmethod
+    def _raise_request_exception(err: requests.exceptions.RequestException) -> NoReturn:
+        """Normalize low-level requests failures into the session's public error type."""
+
+        if isinstance(err, requests.HTTPError) and err.response is not None:
             raise PyiCloudAPIResponseException(
                 reason=err.response.text,
                 code=err.response.status_code,
             ) from err
-        except requests.exceptions.RequestException as err:
-            raise PyiCloudAPIResponseException("Request failed to iCloud") from err
+        raise PyiCloudAPIResponseException("Request failed to iCloud") from err
 
     def _handle_request_error(
         self,
@@ -297,6 +402,7 @@ class PyiCloudSession(requests.Session):
     def _raise_error(
         self, response: Response, code: Optional[Union[int, str]], reason: str
     ) -> NoReturn:
+        """Raise the session's public exception for a parsed iCloud error payload."""
         if (
             self.service.requires_2sa
             and reason == "Missing X-APPLE-WEBAUTH-TOKEN cookie"

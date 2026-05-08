@@ -187,6 +187,29 @@ class CloudKitRemindersClient:
                 "Query response validation failed", payload=data
             ) from e
 
+    def current_sync_token(
+        self,
+        *,
+        zone_id: CKZoneIDReq,
+        record_type: str = "reminderList",
+    ) -> str | None:
+        """Fetch the current zone sync token using a lightweight query first."""
+        payload = CKQueryRequest(
+            query=CKQueryObject(recordType=record_type),
+            zoneID=zone_id,
+            resultsLimit=1,
+        ).model_dump(mode="json", exclude_none=True)
+
+        try:
+            data = self._http.post("/records/query", payload)
+            response = self._validate_response(CKQueryResponse, data)
+        except (RemindersApiError, ValidationError):
+            return None
+
+        if getattr(response, "syncToken", None):
+            return str(response.syncToken)
+        return None
+
     def changes(
         self,
         *,

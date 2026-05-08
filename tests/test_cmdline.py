@@ -10,11 +10,35 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 
 import click
 from typer.testing import CliRunner
+
+from pyicloud.services.notes.models import Attachment as NoteAttachment
+from pyicloud.services.notes.models import ChangeEvent as NoteChangeEvent
+from pyicloud.services.notes.models import (
+    Note,
+    NoteFolder,
+    NoteSummary,
+)
+from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
+from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
+from pyicloud.services.reminders.models import (
+    Alarm,
+    AlarmWithTrigger,
+    Hashtag,
+    ListRemindersResult,
+    LocationTrigger,
+    Proximity,
+    RecurrenceFrequency,
+    RecurrenceRule,
+    Reminder,
+    ReminderChangeEvent,
+    RemindersList,
+    URLAttachment,
+)
 
 account_index_module = importlib.import_module("pyicloud.cli.account_index")
 cli_module = importlib.import_module("pyicloud.cli.app")
@@ -340,6 +364,614 @@ class FakeHideMyEmail:
         return {"anonymousId": anonymous_id, "deleted": True}
 
 
+class FakeNotes:
+    """Notes service fixture."""
+
+    def __init__(self) -> None:
+        attachment = NoteAttachment(
+            id="Attachment/PDF",
+            filename="agenda.pdf",
+            uti="com.adobe.pdf",
+            size=12,
+            download_url="https://example.com/agenda.pdf",
+            preview_url="https://example.com/agenda-preview.pdf",
+            thumbnail_url="https://example.com/agenda-thumb.png",
+        )
+        self.recent_requests: list[int] = []
+        self.iter_all_requests: list[str | None] = []
+        self.folder_requests: list[tuple[str, int | None]] = []
+        self.render_calls: list[dict[str, Any]] = []
+        self.export_calls: list[dict[str, Any]] = []
+        self.change_requests: list[str | None] = []
+        self.folder_rows = [
+            NoteFolder(
+                id="Folder/NOTES",
+                name="Notes",
+                has_subfolders=False,
+                count=1,
+            ),
+            NoteFolder(
+                id="Folder/WORK",
+                name="Work",
+                has_subfolders=True,
+                count=3,
+            ),
+        ]
+        self.recent_rows = [
+            NoteSummary(
+                id="Note/DELETED",
+                title="Deleted Note",
+                snippet="Old note",
+                modified_at=datetime(2026, 3, 5, tzinfo=timezone.utc),
+                folder_id="Folder/DELETED",
+                folder_name="Recently Deleted",
+                is_deleted=True,
+                is_locked=False,
+            ),
+            NoteSummary(
+                id="Note/DAILY",
+                title="Daily Plan",
+                snippet="Ship CLI",
+                modified_at=datetime(2026, 3, 4, tzinfo=timezone.utc),
+                folder_id="Folder/NOTES",
+                folder_name="Notes",
+                is_deleted=False,
+                is_locked=False,
+            ),
+            NoteSummary(
+                id="Note/MEETING",
+                title="Meeting Notes",
+                snippet="Discuss roadmap",
+                modified_at=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+            ),
+        ]
+        self.all_rows = [
+            self.recent_rows[2],
+            NoteSummary(
+                id="Note/FOLLOWUP",
+                title="Meeting Follow-up",
+                snippet="Send recap",
+                modified_at=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+            ),
+            self.recent_rows[1],
+            # Duplicate entry to verify deduplication in search_notes_by_title.
+            self.recent_rows[2],
+        ]
+        self.notes = {
+            "Note/DAILY": Note(
+                id="Note/DAILY",
+                title="Daily Plan",
+                snippet="Ship CLI",
+                modified_at=datetime(2026, 3, 4, tzinfo=timezone.utc),
+                folder_id="Folder/NOTES",
+                folder_name="Notes",
+                is_deleted=False,
+                is_locked=False,
+                text="Ship CLI",
+                html="<p>Ship CLI</p>",
+                attachments=[attachment],
+            ),
+            "Note/MEETING": Note(
+                id="Note/MEETING",
+                title="Meeting Notes",
+                snippet="Discuss roadmap",
+                modified_at=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+                text="Discuss roadmap",
+                html="<p>Discuss roadmap</p>",
+                attachments=[attachment],
+            ),
+            "Note/FOLLOWUP": Note(
+                id="Note/FOLLOWUP",
+                title="Meeting Follow-up",
+                snippet="Send recap",
+                modified_at=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                folder_id="Folder/WORK",
+                folder_name="Work",
+                is_deleted=False,
+                is_locked=False,
+                text="Send recap",
+                html="<p>Send recap</p>",
+                attachments=None,
+            ),
+        }
+        self.change_rows = [
+            NoteChangeEvent(type="updated", note=self.recent_rows[1]),
+            NoteChangeEvent(type="deleted", note=self.recent_rows[0]),
+        ]
+        self.cursor = "notes-cursor-1"
+
+    @staticmethod
+    def _matches_id(note_id: str, query: str) -> bool:
+        return note_id == query or note_id.split("/", 1)[-1] == query
+
+    def recents(self, *, limit: int = 50):
+        self.recent_requests.append(limit)
+        return list(self.recent_rows[:limit])
+
+    def folders(self):
+        return list(self.folder_rows)
+
+    def in_folder(self, folder_id: str, limit: int | None = None):
+        self.folder_requests.append((folder_id, limit))
+        rows = [row for row in self.all_rows if row.folder_id == folder_id]
+        return list(rows[:limit] if limit is not None else rows)
+
+    def iter_all(self, *, since: Optional[str] = None):
+        self.iter_all_requests.append(since)
+        return iter(self.all_rows)
+
+    def get(self, note_id: str, *, with_attachments: bool = False):
+        if self._matches_id("Note/LOCKED", note_id):
+            raise NoteLockedError(f"Note is locked: {note_id}")
+        for candidate_id, note in self.notes.items():
+            if self._matches_id(candidate_id, note_id):
+                attachments = note.attachments if with_attachments else None
+                return note.model_copy(update={"attachments": attachments})
+        raise NoteNotFound(f"Note not found: {note_id}")
+
+    def render_note(self, note_id: str, **kwargs: Any) -> str:
+        note = self.get(note_id, with_attachments=False)
+        self.render_calls.append({"note_id": note.id, **kwargs})
+        return note.html or f"<p>{note.id}</p>"
+
+    def export_note(self, note_id: str, output_dir: str, **kwargs: Any) -> str:
+        note = self.get(note_id, with_attachments=False)
+        path = Path(output_dir) / f"{note.id.split('/', 1)[-1].lower()}.html"
+        self.export_calls.append(
+            {"note_id": note.id, "output_dir": output_dir, **kwargs}
+        )
+        return str(path)
+
+    def iter_changes(self, *, since: Optional[str] = None):
+        self.change_requests.append(since)
+        return iter(self.change_rows)
+
+    def sync_cursor(self) -> str:
+        return self.cursor
+
+
+class FakeReminders:
+    """Reminders service fixture."""
+
+    def __init__(self) -> None:
+        self.list_rows = {
+            "List/INBOX": RemindersList(
+                id="List/INBOX",
+                title="Inbox",
+                color='{"daHexString":"#007AFF","ckSymbolicColorName":"blue"}',
+                count=0,
+            ),
+            "List/WORK": RemindersList(
+                id="List/WORK",
+                title="Work",
+                color='{"daHexString":"#34C759","ckSymbolicColorName":"green"}',
+                count=0,
+            ),
+        }
+        self.reminder_rows = {
+            "Reminder/A": Reminder(
+                id="Reminder/A",
+                list_id="List/INBOX",
+                title="Buy milk",
+                desc="2 percent",
+                completed=False,
+                due_date=datetime(2026, 3, 31, 9, 0, tzinfo=timezone.utc),
+                priority=1,
+                flagged=True,
+                all_day=False,
+                time_zone="Europe/Luxembourg",
+                alarm_ids=["Alarm/A"],
+                hashtag_ids=["Hashtag/ERRANDS"],
+                attachment_ids=["Attachment/LINK"],
+                recurrence_rule_ids=["Recurrence/WEEKLY"],
+                parent_reminder_id="Reminder/PARENT",
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 4, tzinfo=timezone.utc),
+            ),
+            "Reminder/B": Reminder(
+                id="Reminder/B",
+                list_id="List/INBOX",
+                title="Pay rent",
+                desc="",
+                completed=True,
+                completed_date=datetime(2026, 3, 2, tzinfo=timezone.utc),
+                priority=0,
+                flagged=False,
+                all_day=False,
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 2, tzinfo=timezone.utc),
+            ),
+            "Reminder/C": Reminder(
+                id="Reminder/C",
+                list_id="List/WORK",
+                title="Prepare deck",
+                desc="Slides for review",
+                completed=False,
+                priority=5,
+                flagged=False,
+                all_day=False,
+                created=datetime(2026, 3, 3, tzinfo=timezone.utc),
+                modified=datetime(2026, 3, 4, tzinfo=timezone.utc),
+            ),
+        }
+        self.alarm_rows = {
+            "Alarm/A": Alarm(
+                id="Alarm/A",
+                alarm_uid="alarm-a",
+                reminder_id="Reminder/A",
+                trigger_id="Trigger/A",
+            )
+        }
+        self.trigger_rows = {
+            "Trigger/A": LocationTrigger(
+                id="Trigger/A",
+                alarm_id="Alarm/A",
+                title="Office",
+                address="1 Infinite Loop",
+                latitude=37.3318,
+                longitude=-122.0312,
+                radius=150.0,
+                proximity=Proximity.ARRIVING,
+                location_uid="office",
+            )
+        }
+        self.hashtag_rows = {
+            "Hashtag/ERRANDS": Hashtag(
+                id="Hashtag/ERRANDS",
+                name="errands",
+                reminder_id="Reminder/A",
+                created=datetime(2026, 3, 1, tzinfo=timezone.utc),
+            )
+        }
+        self.attachment_rows = {
+            "Attachment/LINK": URLAttachment(
+                id="Attachment/LINK",
+                reminder_id="Reminder/A",
+                url="https://example.com/checklist",
+                uti="public.url",
+            )
+        }
+        self.recurrence_rows = {
+            "Recurrence/WEEKLY": RecurrenceRule(
+                id="Recurrence/WEEKLY",
+                reminder_id="Reminder/A",
+                frequency=RecurrenceFrequency.WEEKLY,
+                interval=1,
+                occurrence_count=0,
+                first_day_of_week=1,
+            )
+        }
+        self.snapshot_requests: list[dict[str, Any]] = []
+        self.change_requests: list[str | None] = []
+        self.cursor = "reminders-cursor-1"
+
+    @staticmethod
+    def _matches_id(record_id: str, query: str) -> bool:
+        return record_id == query or record_id.split("/", 1)[-1] == query
+
+    def _find_reminder(self, reminder_id: str) -> Reminder:
+        for candidate_id, reminder in self.reminder_rows.items():
+            if self._matches_id(candidate_id, reminder_id):
+                return reminder
+        raise LookupError(f"Reminder not found: {reminder_id}")
+
+    def lists(self):
+        for row in self.list_rows.values():
+            row.count = sum(
+                1
+                for reminder in self.reminder_rows.values()
+                if reminder.list_id == row.id and not reminder.deleted
+            )
+        return list(self.list_rows.values())
+
+    def reminders(self, list_id: Optional[str] = None):
+        rows = [
+            reminder
+            for reminder in self.reminder_rows.values()
+            if not reminder.deleted and (list_id is None or reminder.list_id == list_id)
+        ]
+        return list(rows)
+
+    def list_reminders(
+        self,
+        list_id: str,
+        include_completed: bool = False,
+        results_limit: int = 200,
+    ) -> ListRemindersResult:
+        normalized = list_id if list_id.startswith("List/") else f"List/{list_id}"
+        self.snapshot_requests.append(
+            {
+                "list_id": normalized,
+                "include_completed": include_completed,
+                "results_limit": results_limit,
+            }
+        )
+        reminders = [
+            reminder
+            for reminder in self.reminder_rows.values()
+            if reminder.list_id == normalized
+            and not reminder.deleted
+            and (include_completed or not reminder.completed)
+        ][:results_limit]
+        reminder_ids = {reminder.id for reminder in reminders}
+        return ListRemindersResult(
+            reminders=reminders,
+            alarms={
+                alarm_id: alarm
+                for alarm_id, alarm in self.alarm_rows.items()
+                if alarm.reminder_id in reminder_ids
+            },
+            triggers={
+                trigger_id: trigger
+                for trigger_id, trigger in self.trigger_rows.items()
+                if any(
+                    alarm.trigger_id == trigger_id
+                    for alarm in self.alarm_rows.values()
+                    if alarm.reminder_id in reminder_ids
+                )
+            },
+            attachments={
+                attachment_id: attachment
+                for attachment_id, attachment in self.attachment_rows.items()
+                if attachment.reminder_id in reminder_ids
+            },
+            hashtags={
+                hashtag_id: hashtag
+                for hashtag_id, hashtag in self.hashtag_rows.items()
+                if hashtag.reminder_id in reminder_ids
+            },
+            recurrence_rules={
+                rule_id: rule
+                for rule_id, rule in self.recurrence_rows.items()
+                if rule.reminder_id in reminder_ids
+            },
+        )
+
+    def get(self, reminder_id: str) -> Reminder:
+        return self._find_reminder(reminder_id)
+
+    def create(
+        self,
+        list_id: str,
+        title: str,
+        desc: str = "",
+        completed: bool = False,
+        due_date: Optional[datetime] = None,
+        priority: int = 0,
+        flagged: bool = False,
+        all_day: bool = False,
+        time_zone: Optional[str] = None,
+        parent_reminder_id: Optional[str] = None,
+    ) -> Reminder:
+        next_id = f"Reminder/CREATED-{len(self.reminder_rows) + 1}"
+        reminder = Reminder(
+            id=next_id,
+            list_id=list_id,
+            title=title,
+            desc=desc,
+            completed=completed,
+            due_date=due_date,
+            priority=priority,
+            flagged=flagged,
+            all_day=all_day,
+            time_zone=time_zone,
+            parent_reminder_id=parent_reminder_id,
+            created=datetime(2026, 3, 30, tzinfo=timezone.utc),
+            modified=datetime(2026, 3, 30, tzinfo=timezone.utc),
+        )
+        self.reminder_rows[reminder.id] = reminder
+        return reminder
+
+    def update(self, reminder: Reminder) -> None:
+        self.reminder_rows[reminder.id] = reminder
+
+    def delete(self, reminder: Reminder) -> None:
+        reminder.deleted = True
+        self.reminder_rows[reminder.id] = reminder
+
+    def add_location_trigger(
+        self,
+        reminder: Reminder,
+        title: str = "",
+        address: str = "",
+        latitude: float = 0.0,
+        longitude: float = 0.0,
+        radius: float = 100.0,
+        proximity: Proximity = Proximity.ARRIVING,
+    ) -> tuple[Alarm, LocationTrigger]:
+        index = len(self.alarm_rows) + 1
+        alarm = Alarm(
+            id=f"Alarm/{index}",
+            alarm_uid=f"alarm-{index}",
+            reminder_id=reminder.id,
+            trigger_id=f"Trigger/{index}",
+        )
+        trigger = LocationTrigger(
+            id=f"Trigger/{index}",
+            alarm_id=alarm.id,
+            title=title,
+            address=address,
+            latitude=latitude,
+            longitude=longitude,
+            radius=radius,
+            proximity=proximity,
+            location_uid=f"location-{index}",
+        )
+        self.alarm_rows[alarm.id] = alarm
+        self.trigger_rows[trigger.id] = trigger
+        reminder.alarm_ids.append(alarm.id)
+        return alarm, trigger
+
+    def create_hashtag(self, reminder: Reminder, name: str) -> Hashtag:
+        hashtag = Hashtag(
+            id=f"Hashtag/{name.upper()}",
+            name=name,
+            reminder_id=reminder.id,
+            created=datetime(2026, 3, 30, tzinfo=timezone.utc),
+        )
+        self.hashtag_rows[hashtag.id] = hashtag
+        reminder.hashtag_ids.append(hashtag.id)
+        return hashtag
+
+    def update_hashtag(self, hashtag: Hashtag, name: str) -> None:
+        hashtag.name = name
+
+    def delete_hashtag(self, reminder: Reminder, hashtag: Hashtag) -> None:
+        reminder.hashtag_ids = [
+            row_id for row_id in reminder.hashtag_ids if row_id != hashtag.id
+        ]
+        self.hashtag_rows.pop(hashtag.id, None)
+
+    def create_url_attachment(
+        self, reminder: Reminder, url: str, uti: str = "public.url"
+    ) -> URLAttachment:
+        attachment = URLAttachment(
+            id=f"Attachment/{len(self.attachment_rows) + 1}",
+            reminder_id=reminder.id,
+            url=url,
+            uti=uti,
+        )
+        self.attachment_rows[attachment.id] = attachment
+        reminder.attachment_ids.append(attachment.id)
+        return attachment
+
+    def update_attachment(
+        self,
+        attachment: URLAttachment,
+        *,
+        url: Optional[str] = None,
+        uti: Optional[str] = None,
+        filename: Optional[str] = None,
+        file_size: Optional[int] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+    ) -> None:
+        if url is not None:
+            attachment.url = url
+        if uti is not None:
+            attachment.uti = uti
+
+    def delete_attachment(self, reminder: Reminder, attachment: URLAttachment) -> None:
+        reminder.attachment_ids = [
+            row_id for row_id in reminder.attachment_ids if row_id != attachment.id
+        ]
+        self.attachment_rows.pop(attachment.id, None)
+
+    def create_recurrence_rule(
+        self,
+        reminder: Reminder,
+        *,
+        frequency: RecurrenceFrequency = RecurrenceFrequency.DAILY,
+        interval: int = 1,
+        occurrence_count: int = 0,
+        first_day_of_week: int = 0,
+    ) -> RecurrenceRule:
+        rule = RecurrenceRule(
+            id=f"Recurrence/{len(self.recurrence_rows) + 1}",
+            reminder_id=reminder.id,
+            frequency=frequency,
+            interval=interval,
+            occurrence_count=occurrence_count,
+            first_day_of_week=first_day_of_week,
+        )
+        self.recurrence_rows[rule.id] = rule
+        reminder.recurrence_rule_ids.append(rule.id)
+        return rule
+
+    def update_recurrence_rule(
+        self,
+        recurrence_rule: RecurrenceRule,
+        *,
+        frequency: Optional[RecurrenceFrequency] = None,
+        interval: Optional[int] = None,
+        occurrence_count: Optional[int] = None,
+        first_day_of_week: Optional[int] = None,
+    ) -> None:
+        if frequency is not None:
+            recurrence_rule.frequency = frequency
+        if interval is not None:
+            recurrence_rule.interval = interval
+        if occurrence_count is not None:
+            recurrence_rule.occurrence_count = occurrence_count
+        if first_day_of_week is not None:
+            recurrence_rule.first_day_of_week = first_day_of_week
+
+    def delete_recurrence_rule(
+        self, reminder: Reminder, recurrence_rule: RecurrenceRule
+    ) -> None:
+        reminder.recurrence_rule_ids = [
+            row_id
+            for row_id in reminder.recurrence_rule_ids
+            if row_id != recurrence_rule.id
+        ]
+        self.recurrence_rows.pop(recurrence_rule.id, None)
+
+    def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
+        rows = []
+        for alarm_id in reminder.alarm_ids:
+            alarm = self.alarm_rows[alarm_id]
+            rows.append(
+                AlarmWithTrigger(
+                    alarm=alarm,
+                    trigger=self.trigger_rows.get(alarm.trigger_id),
+                )
+            )
+        return rows
+
+    def tags_for(self, reminder: Reminder) -> list[Hashtag]:
+        return [
+            self.hashtag_rows[row_id]
+            for row_id in reminder.hashtag_ids
+            if row_id in self.hashtag_rows
+        ]
+
+    def attachments_for(self, reminder: Reminder) -> list[URLAttachment]:
+        return [
+            self.attachment_rows[row_id]
+            for row_id in reminder.attachment_ids
+            if row_id in self.attachment_rows
+        ]
+
+    def recurrence_rules_for(self, reminder: Reminder) -> list[RecurrenceRule]:
+        return [
+            self.recurrence_rows[row_id]
+            for row_id in reminder.recurrence_rule_ids
+            if row_id in self.recurrence_rows
+        ]
+
+    def iter_changes(self, *, since: Optional[str] = None):
+        self.change_requests.append(since)
+        return iter(
+            [
+                ReminderChangeEvent(
+                    type="updated",
+                    reminder_id="Reminder/A",
+                    reminder=self.reminder_rows["Reminder/A"],
+                ),
+                ReminderChangeEvent(
+                    type="deleted",
+                    reminder_id="Reminder/Z",
+                    reminder=None,
+                ),
+            ]
+        )
+
+    def sync_cursor(self) -> str:
+        return self.cursor
+
+
 class FakeAPI:
     """Authenticated API fixture."""
 
@@ -356,6 +988,9 @@ class FakeAPI:
         self.is_china_mainland = china_mainland
         self.fido2_devices: list[dict[str, Any]] = []
         self.trusted_devices: list[dict[str, Any]] = []
+        self.two_factor_delivery_method = "unknown"
+        self.two_factor_delivery_notice = None
+        self.request_2fa_code = MagicMock(return_value=False)
         self.validate_2fa_code = MagicMock(return_value=True)
         self.confirm_security_key = MagicMock(return_value=True)
         self.send_verification_code = MagicMock(return_value=True)
@@ -463,6 +1098,8 @@ class FakeAPI:
         )
         self.photos = FakePhotosService()
         self.hidemyemail = FakeHideMyEmail()
+        self.notes = FakeNotes()
+        self.reminders = FakeReminders()
 
     def _logout(
         self,
@@ -662,8 +1299,20 @@ def test_root_help() -> None:
         "drive",
         "photos",
         "hidemyemail",
+        "notes",
+        "reminders",
     ):
         assert command in text
+
+
+def test_root_version_prints_installed_package_version() -> None:
+    """The root --version flag should print the installed pyicloud version."""
+
+    with patch.object(cli_module, "_installed_version", return_value="9.9.9"):
+        result = _runner().invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "9.9.9"
 
 
 def test_group_help() -> None:
@@ -678,6 +1327,8 @@ def test_group_help() -> None:
         "drive",
         "photos",
         "hidemyemail",
+        "notes",
+        "reminders",
     ):
         result = _runner().invoke(app, [command, "--help"])
         assert result.exit_code == 0
@@ -695,12 +1346,30 @@ def test_bare_group_invocation_shows_help() -> None:
         "drive",
         "photos",
         "hidemyemail",
+        "notes",
+        "reminders",
     ):
         result = _runner().invoke(app, [command])
         text = _plain_output(result)
         assert result.exit_code == 0
         assert "Usage:" in text
         assert "Missing command" not in text
+
+
+def test_notes_and_reminders_leaf_help() -> None:
+    """New service groups and reminder subgroups should expose leaf help."""
+
+    for cli_args in (
+        ["notes", "search", "--help"],
+        ["reminders", "create", "--help"],
+        ["reminders", "alarm", "--help"],
+        ["reminders", "alarm", "add-location", "--help"],
+        ["reminders", "hashtag", "--help"],
+        ["reminders", "attachment", "--help"],
+        ["reminders", "recurrence", "--help"],
+    ):
+        result = _runner().invoke(app, cli_args)
+        assert result.exit_code == 0
 
 
 def test_leaf_help_includes_execution_context_options() -> None:
@@ -1820,302 +2489,495 @@ def test_trusted_device_2sa_flow() -> None:
     )
 
 
+def test_sms_2fa_flow_requests_sms_before_prompt() -> None:
+    """Auth login should request SMS delivery before prompting for the code."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "sms"
+    fake_api.request_2fa_code.return_value = True
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+    assert result.exit_code == 0
+    assert "Requested a 2FA code by SMS." in result.stdout
+    fake_api.request_2fa_code.assert_called_once_with()
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_trusted_device_2fa_flow_reports_device_prompt() -> None:
+    """Auth login should report trusted-device prompt delivery when bridge succeeds."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Requested a 2FA prompt on your trusted Apple devices." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_code_prompt_aborts_when_request_2fa_code_requires_security_key() -> None:
+    """Auth login should not enter the numeric 2FA prompt loop for key-only challenges."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.return_value = False
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "This 2FA challenge requires a security key. Connect one and retry."
+    )
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_retries_invalid_codes_before_success() -> None:
+    """Auth login should allow up to three trusted-device 2FA attempts."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+    fake_api.validate_2fa_code.side_effect = [False, False, True]
+
+    with patch.object(
+        context_module.typer,
+        "prompt",
+        side_effect=["111111", "222222", "333333"],
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+
+
+def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
+    """Auth login should stop after three invalid 2FA attempts."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.two_factor_delivery_method = "sms"
+    fake_api.request_2fa_code.return_value = True
+    fake_api.validate_2fa_code.side_effect = [False, False, False]
+
+    with patch.object(
+        context_module.typer,
+        "prompt",
+        side_effect=["111111", "222222", "333333"],
+    ):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == "Failed to verify the 2FA code."
+    assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
+    assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
+    assert fake_api.validate_2fa_code.call_args_list == [
+        call("111111"),
+        call("222222"),
+        call("333333"),
+    ]
+
+
+def test_trusted_device_2fa_bridge_fallback_reports_notice() -> None:
+    """Auth login should print the bridge fallback notice before the SMS message."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_sms_fallback() -> bool:
+        fake_api.two_factor_delivery_method = "sms"
+        fake_api.two_factor_delivery_notice = (
+            "Trusted-device prompt failed; falling back to SMS."
+        )
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_sms_fallback
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code == 0
+    assert "Trusted-device prompt failed; falling back to SMS." in result.stdout
+    assert "Requested a 2FA code by SMS." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
+
+
+def test_sms_2fa_request_failure_aborts() -> None:
+    """Auth login should surface SMS delivery request failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.side_effect = context_module.PyiCloudAPIResponseException(
+        "sms request failed"
+    )
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == "Failed to request the 2FA SMS code."
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_request_failure_aborts() -> None:
+    """Auth login should surface bridge delivery failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+    fake_api.request_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDevicePromptException("bridge failed")
+    )
+
+    result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Failed to request the 2FA trusted-device prompt."
+    )
+    fake_api.validate_2fa_code.assert_not_called()
+
+
+def test_trusted_device_2fa_verification_failure_aborts() -> None:
+    """Auth login should surface bridge verification failures clearly."""
+
+    fake_api = FakeAPI()
+    fake_api.requires_2fa = True
+
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
+
+    fake_api.request_2fa_code.side_effect = request_prompt
+    fake_api.validate_2fa_code.side_effect = (
+        context_module.PyiCloudTrustedDeviceVerificationException(
+            "bridge verification failed"
+        )
+    )
+
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == ("Failed to verify the 2FA trusted-device code.")
+
+
 def test_non_interactive_2sa_does_not_send_verification_code() -> None:
     """Non-interactive 2SA should fail before sending a verification code."""
 
     fake_api = FakeAPI()
-    fake_api.requires_2sa = True
-    fake_api.trusted_devices = [{"deviceName": "Trusted Device", "phoneNumber": "+1"}]
+    fake_api.requires_2fa = True
 
-    result = _invoke(fake_api, "auth", "login", interactive=False)
+    def request_prompt() -> bool:
+        fake_api.two_factor_delivery_method = "trusted_device"
+        return True
 
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Two-step authentication is required, but interactive prompts are disabled."
-    )
-    fake_api.send_verification_code.assert_not_called()
+    fake_api.request_2fa_code.side_effect = request_prompt
 
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
 
-def test_devices_list_and_show_commands() -> None:
-    """Devices list and show should expose summary and detailed views."""
-
-    fake_api = FakeAPI()
-    list_result = _invoke(fake_api, "devices", "list", "--locate")
-    show_result = _invoke(fake_api, "devices", "show", "device-1")
-    raw_result = _invoke(
-        fake_api,
-        "devices",
-        "show",
-        "device-1",
-        "--raw",
-        output_format="json",
-    )
-    assert list_result.exit_code == 0
-    assert "Example iPhone" in list_result.stdout
-    assert show_result.exit_code == 0
-    assert "Battery Status" in show_result.stdout
-    assert raw_result.exit_code == 0
-    assert json.loads(raw_result.stdout)["deviceDisplayName"] == "iPhone"
+    assert result.exit_code == 0
+    assert "Requested a 2FA prompt on your trusted Apple devices." in result.stdout
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
 
 
-def test_devices_show_reports_reauthentication_requirement() -> None:
-    """Device resolution should collapse reauth failures into a CLIAbort."""
-
-    session_dir = _unique_session_dir("devices-show-reauth")
-
-    class ReauthAPI:
-        def __init__(self) -> None:
-            self.account_name = "user@example.com"
-            self.is_china_mainland = False
-            self.session = SimpleNamespace(
-                session_path=str(session_dir / "userexamplecom.session"),
-                cookiejar_path=str(session_dir / "userexamplecom.cookiejar"),
-            )
-            self.get_auth_status = MagicMock(
-                return_value={
-                    "authenticated": True,
-                    "trusted_session": True,
-                    "requires_2fa": False,
-                    "requires_2sa": False,
-                }
-            )
-
-        @property
-        def devices(self):
-            raise context_module.PyiCloudFailedLoginException("No password set")
-
-    result = _invoke(
-        ReauthAPI(),
-        "devices",
-        "show",
-        "Example iPhone",
-        session_dir=session_dir,
-    )
-
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Find My requires re-authentication for user@example.com. "
-        "Run: icloud auth login --username user@example.com"
-    )
-
-
-def test_account_summary_reports_reauthentication_requirement() -> None:
-    """Account commands should collapse reauth failures into a CLIAbort."""
-
-    session_dir = _unique_session_dir("account-summary-reauth")
-
-    class ReauthAPI:
-        def __init__(self) -> None:
-            self.account_name = "user@example.com"
-            self.is_china_mainland = False
-            self.session = SimpleNamespace(
-                session_path=str(session_dir / "userexamplecom.session"),
-                cookiejar_path=str(session_dir / "userexamplecom.cookiejar"),
-            )
-            self.get_auth_status = MagicMock(
-                return_value={
-                    "authenticated": True,
-                    "trusted_session": True,
-                    "requires_2fa": False,
-                    "requires_2sa": False,
-                }
-            )
-
-        @property
-        def account(self):
-            raise context_module.PyiCloudFailedLoginException("No password set")
-
-    result = _invoke(
-        ReauthAPI(),
-        "account",
-        "summary",
-        session_dir=session_dir,
-    )
-
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Account requires re-authentication for user@example.com. "
-        "Run: icloud auth login --username user@example.com"
-    )
-
-
-def test_devices_mutations_and_export() -> None:
-    """Device actions should map to the Find My device methods."""
+def test_notes_commands() -> None:
+    """Notes commands should expose list, detail, render, export, and sync flows."""
 
     fake_api = FakeAPI()
-    export_path = TEST_ROOT / "device.json"
-    export_path.parent.mkdir(parents=True, exist_ok=True)
-    sound_result = _invoke(
+
+    recent_result = _invoke(fake_api, "notes", "recent")
+    assert recent_result.exit_code == 0
+    assert "Daily Plan" in recent_result.stdout
+    assert "Deleted Note" not in recent_result.stdout
+
+    recent_json_result = _invoke(
         fake_api,
-        "devices",
-        "sound",
-        "device-1",
-        "--subject",
-        "Ping",
+        "notes",
+        "recent",
+        "--include-deleted",
         output_format="json",
     )
-    silent_result = _invoke(
+    recent_payload = json.loads(recent_json_result.stdout)
+    assert recent_json_result.exit_code == 0
+    assert [row["id"] for row in recent_payload] == [
+        "Note/DELETED",
+        "Note/DAILY",
+        "Note/MEETING",
+    ]
+
+    folders_result = _invoke(fake_api, "notes", "folders")
+    assert folders_result.exit_code == 0
+    assert "Work" in folders_result.stdout
+
+    folder_list_result = _invoke(
         fake_api,
-        "devices",
-        "message",
-        "device-1",
-        "Hello",
-        "--silent",
+        "notes",
+        "list",
+        "--folder-id",
+        "Folder/WORK",
+        "--limit",
+        "2",
+        output_format="json",
     )
-    lost_result = _invoke(
+    folder_payload = json.loads(folder_list_result.stdout)
+    assert folder_list_result.exit_code == 0
+    assert [row["id"] for row in folder_payload] == ["Note/MEETING", "Note/FOLLOWUP"]
+
+    all_notes_result = _invoke(
         fake_api,
-        "devices",
-        "lost-mode",
-        "device-1",
-        "--phone",
-        "123",
-        "--message",
-        "Lost",
-        "--passcode",
-        "4567",
+        "notes",
+        "list",
+        "--all",
+        "--since",
+        "notes-prev",
+        "--limit",
+        "2",
+        output_format="json",
     )
+    all_payload = json.loads(all_notes_result.stdout)
+    assert all_notes_result.exit_code == 0
+    assert fake_api.notes.iter_all_requests[-1] == "notes-prev"
+    assert [row["id"] for row in all_payload] == ["Note/MEETING", "Note/FOLLOWUP"]
+
+    get_result = _invoke(
+        fake_api,
+        "notes",
+        "get",
+        "Note/DAILY",
+        "--with-attachments",
+        output_format="json",
+    )
+    get_payload = json.loads(get_result.stdout)
+    assert get_result.exit_code == 0
+    assert get_payload["attachments"][0]["id"] == "Attachment/PDF"
+
+    render_result = _invoke(
+        fake_api,
+        "notes",
+        "render",
+        "Note/DAILY",
+        "--preview-appearance",
+        "dark",
+        "--pdf-height",
+        "720",
+        output_format="json",
+    )
+    render_payload = json.loads(render_result.stdout)
+    assert render_result.exit_code == 0
+    assert render_payload["html"] == "<p>Ship CLI</p>"
+    assert fake_api.notes.render_calls[-1]["preview_appearance"] == "dark"
+    assert fake_api.notes.render_calls[-1]["pdf_object_height"] == 720
+
     export_result = _invoke(
         fake_api,
-        "devices",
+        "notes",
         "export",
-        "device-1",
-        "--output",
-        str(export_path),
+        "Note/DAILY",
+        "--output-dir",
+        str(TEST_ROOT / "notes-export"),
+        "--export-mode",
+        "lightweight",
+        "--fragment",
+        "--preview-appearance",
+        "dark",
+        "--pdf-height",
+        "480",
         output_format="json",
     )
-    assert sound_result.exit_code == 0
-    assert json.loads(sound_result.stdout)["subject"] == "Ping"
-    assert fake_api.devices[0].sound_subject == "Ping"
-    assert silent_result.exit_code == 0
-    assert fake_api.devices[0].messages[-1]["sounds"] is False
-    assert lost_result.exit_code == 0
-    assert fake_api.devices[0].lost_mode == {
-        "number": "123",
-        "text": "Lost",
-        "newpasscode": "4567",
-    }
-    assert export_result.exit_code == 0
     export_payload = json.loads(export_result.stdout)
-    written_payload = json.loads(export_path.read_text(encoding="utf-8"))
-    assert export_payload["path"] == str(export_path)
-    assert export_payload["raw"] is False
-    assert written_payload["name"] == "Example iPhone"
-    assert written_payload["display_name"] == "iPhone"
-    assert "raw_data" in written_payload
-    assert "deviceDisplayName" not in written_payload
+    assert export_result.exit_code == 0
+    assert export_payload["path"].endswith("daily.html")
+    assert fake_api.notes.export_calls[-1]["export_mode"] == "lightweight"
+    assert fake_api.notes.export_calls[-1]["full_page"] is False
+    assert fake_api.notes.export_calls[-1]["preview_appearance"] == "dark"
+    assert fake_api.notes.export_calls[-1]["pdf_object_height"] == 480
 
-    raw_export_path = TEST_ROOT / "device-raw.json"
-    raw_export_result = _invoke(
+    changes_result = _invoke(
         fake_api,
-        "devices",
-        "export",
-        "device-1",
-        "--output",
-        str(raw_export_path),
-        "--raw",
+        "notes",
+        "changes",
+        "--since",
+        "notes-prev",
+        "--limit",
+        "1",
         output_format="json",
     )
-    no_raw_export_path = TEST_ROOT / "device-no-raw.json"
-    no_raw_export_result = _invoke(
-        fake_api,
-        "devices",
-        "export",
-        "device-1",
-        "--output",
-        str(no_raw_export_path),
-        "--no-raw",
-        output_format="json",
-    )
-    assert raw_export_result.exit_code == 0
-    assert json.loads(raw_export_result.stdout)["raw"] is True
-    assert "deviceDisplayName" in json.loads(
-        raw_export_path.read_text(encoding="utf-8")
-    )
-    assert no_raw_export_result.exit_code == 0
-    assert json.loads(no_raw_export_result.stdout)["raw"] is False
-    assert "display_name" in json.loads(no_raw_export_path.read_text(encoding="utf-8"))
+    changes_payload = json.loads(changes_result.stdout)
+    assert changes_result.exit_code == 0
+    assert fake_api.notes.change_requests[-1] == "notes-prev"
+    assert changes_payload[0]["type"] == "updated"
+
+    cursor_result = _invoke(fake_api, "notes", "sync-cursor")
+    assert cursor_result.exit_code == 0
+    assert cursor_result.stdout.strip() == "notes-cursor-1"
 
 
-def test_device_mutation_reports_reauthentication_requirement() -> None:
-    """Mutating Find My commands should surface a clean reauthentication message."""
+def test_notes_search_uses_recents_first_and_fallback() -> None:
+    """Notes search should probe recents first, fall back to iter_all, and dedupe."""
 
     fake_api = FakeAPI()
-    fake_api.devices[0].play_sound = MagicMock(
-        side_effect=context_module.PyiCloudFailedLoginException("No password set")
+
+    result = _invoke(
+        fake_api,
+        "notes",
+        "search",
+        "--title-contains",
+        "Meeting",
+        "--limit",
+        "2",
+        output_format="json",
     )
 
-    result = _invoke(fake_api, "devices", "sound", "device-1")
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 0
+    assert [row["id"] for row in payload] == ["Note/MEETING", "Note/FOLLOWUP"]
+    assert fake_api.notes.recent_requests[-1] == 500
+    assert fake_api.notes.iter_all_requests == [None]
 
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Find My requires re-authentication for user@example.com. "
+
+def test_notes_commands_report_errors() -> None:
+    """Notes commands should surface clean selection and note-specific errors."""
+
+    fake_api = FakeAPI()
+
+    search_result = _invoke(fake_api, "notes", "search")
+    assert search_result.exit_code != 0
+    assert search_result.exception.args[0] == (
+        "Pass --title or --title-contains to search notes."
+    )
+
+    missing_result = _invoke(fake_api, "notes", "get", "Note/MISSING")
+    assert missing_result.exit_code != 0
+    assert missing_result.exception.args[0] == "Note not found: Note/MISSING"
+
+    locked_result = _invoke(fake_api, "notes", "get", "Note/LOCKED")
+    assert locked_result.exit_code != 0
+    assert locked_result.exception.args[0] == "Note is locked: Note/LOCKED"
+
+
+def test_notes_commands_report_reauthentication_and_unavailability() -> None:
+    """Notes commands should wrap service reauth and service-unavailable failures."""
+
+    class ReauthNotes:
+        def recents(self, *, limit: int = 50):
+            raise context_module.PyiCloudFailedLoginException("No password set")
+
+    class UnavailableNotes:
+        def sync_cursor(self) -> str:
+            raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
+
+    fake_api = FakeAPI()
+    fake_api.notes = ReauthNotes()
+    reauth_result = _invoke(fake_api, "notes", "recent")
+    assert reauth_result.exit_code != 0
+    assert reauth_result.exception.args[0] == (
+        "Notes requires re-authentication for user@example.com. "
         "Run: icloud auth login --username user@example.com"
     )
 
-
-def test_destructive_device_commands_require_unique_match() -> None:
-    """Lost mode should require an unambiguous device name or an explicit device id."""
-
     fake_api = FakeAPI()
-    duplicate = FakeDevice()
-    duplicate.id = "device-2"
-    duplicate.data["id"] = duplicate.id
-    fake_api.devices = [fake_api.devices[0], duplicate]
-
-    result = _invoke(fake_api, "devices", "lost-mode", "Example iPhone")
-
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Multiple devices matched 'Example iPhone'. Use a device id instead.\n"
-        "  - device-1 (Example iPhone / iPhone)\n"
-        "  - device-2 (Example iPhone / iPhone)"
+    fake_api.notes = UnavailableNotes()
+    unavailable_result = _invoke(fake_api, "notes", "sync-cursor")
+    assert unavailable_result.exit_code != 0
+    assert unavailable_result.exception.args[0] == (
+        "Notes service unavailable: temporarily unavailable"
     )
 
 
-def test_calendar_and_contacts_commands() -> None:
-    """Calendar and contacts groups should expose read commands."""
+def test_reminders_core_commands() -> None:
+    """Reminders core commands should expose list, detail, mutation, and sync flows."""
 
     fake_api = FakeAPI()
-    calendars = _invoke(fake_api, "calendar", "calendars")
-    contacts = _invoke(fake_api, "contacts", "me")
-    assert calendars.exit_code == 0
-    assert "Home" in calendars.stdout
-    assert contacts.exit_code == 0
-    assert "John Appleseed" in contacts.stdout
 
+    lists_result = _invoke(fake_api, "reminders", "lists")
+    assert lists_result.exit_code == 0
+    assert "Inbox" in lists_result.stdout
+    assert "blue (#007AFF)" in lists_result.stdout
 
-def test_drive_and_photos_commands() -> None:
-    """Drive and photos commands should expose listing and download flows."""
+    list_result = _invoke(fake_api, "reminders", "list", output_format="json")
+    list_payload = json.loads(list_result.stdout)
+    assert list_result.exit_code == 0
+    assert [row["id"] for row in list_payload] == ["Reminder/A", "Reminder/C"]
+    assert all(not row["completed"] for row in list_payload)
 
-    fake_api = FakeAPI()
-    output_path = TEST_ROOT / "photo.bin"
-    json_output_path = TEST_ROOT / "report.txt"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    drive_result = _invoke(fake_api, "drive", "list", "/")
-    photo_result = _invoke(
+    completed_result = _invoke(
         fake_api,
-        "photos",
-        "download",
-        "photo-1",
-        "--output",
-        str(output_path),
-    )
-    json_drive_result = _invoke(
-        fake_api,
-        "drive",
-        "download",
-        "/report.txt",
-        "--output",
-        str(json_output_path),
+        "reminders",
+        "list",
+        "--list-id",
+        "INBOX",
+        "--include-completed",
         output_format="json",
     )
-    assert drive_result.exit_code == 0
-    assert "report.txt" in drive_result.stdout
-    assert photo_result.exit_code == 0
-    assert output_path.read_bytes() == b"photo-1:original"
-    assert json_drive_result.exit_code == 0
-    assert json.loads(json_drive_result.stdout)["path"] == str(json_output_path)
+    completed_payload = json.loads(completed_result.stdout)
+    assert completed_result.exit_code == 0
+    assert [row["id"] for row in completed_payload] == ["Reminder/A", "Reminder/B"]
+    assert fake_api.reminders.snapshot_requests[-1]["list_id"] == "List/INBOX"
 
+    get_result = _invoke(fake_api, "reminders", "get", "Reminder/A")
+    assert get_result.exit_code == 0
+    assert "Parent Reminder" in get_result.stdout
+
+    create_result = _invoke(
+        fake_api,
+        "reminders",
+        "create",
+        "--list-id",
+        "INBOX",
+        "--title",
+        "Call mom",
+        "--desc",
+        "Saturday",
+        "--priority",
+        "9",
+        "--flagged",
+        "--all-day",
+        output_format="json",
+    )
+    create_payload = json.loads(create_result.stdout)
+    created_id = create_payload["id"]
+    assert create_result.exit_code == 0
+    assert create_payload["list_id"] == "List/INBOX"
+    assert create_payload["flagged"] is True
+    assert create_payload["all_day"] is True
+
+    update_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--title",
+        "Buy oat milk",
+        "--not-flagged",
+        "--clear-time-zone",
+        "--clear-parent-reminder",
+        output_format="json",
+    )
+    update_payload = json.loads(update_result.stdout)
+    assert update_result.exit_code == 0
+    assert update_payload["title"] == "Buy oat milk"
+    assert update_payload["flagged"] is False
+    assert update_payload["time_zone"] is None
+    assert update_payload["parent_reminder_id"] is None
 
 def test_photos_extended_commands() -> None:
     """Photos commands should expose library, detail, change, and cursor views."""
@@ -2674,47 +3536,113 @@ def test_photos_sync_cursor_missing_library() -> None:
 def test_drive_missing_paths_report_cli_abort() -> None:
     """Drive commands should collapse missing path lookups into CLIAbort errors."""
 
-    fake_api = FakeAPI()
-    output_path = TEST_ROOT / "missing.txt"
-
-    list_result = _invoke(fake_api, "drive", "list", "/missing")
-    download_result = _invoke(
+    snapshot_result = _invoke(
         fake_api,
-        "drive",
-        "download",
-        "/missing",
-        "--output",
-        str(output_path),
+        "reminders",
+        "snapshot",
+        "--list-id",
+        "INBOX",
+        output_format="json",
     )
+    snapshot_payload = json.loads(snapshot_result.stdout)
+    assert snapshot_result.exit_code == 0
+    assert set(snapshot_payload) == {
+        "alarms",
+        "attachments",
+        "hashtags",
+        "recurrence_rules",
+        "reminders",
+        "triggers",
+    }
 
-    assert list_result.exit_code != 0
-    assert list_result.exception.args[0] == "Path not found: /missing"
-    assert download_result.exit_code != 0
-    assert download_result.exception.args[0] == "Path not found: /missing"
+    changes_result = _invoke(
+        fake_api,
+        "reminders",
+        "changes",
+        "--since",
+        "reminders-prev",
+        "--limit",
+        "1",
+        output_format="json",
+    )
+    changes_payload = json.loads(changes_result.stdout)
+    assert changes_result.exit_code == 0
+    assert fake_api.reminders.change_requests[-1] == "reminders-prev"
+    assert changes_payload[0]["type"] == "updated"
+
+    cursor_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert cursor_result.exit_code == 0
+    assert cursor_result.stdout.strip() == "reminders-cursor-1"
+
+    delete_result = _invoke(
+        fake_api,
+        "reminders",
+        "delete",
+        created_id,
+        output_format="json",
+    )
+    delete_payload = json.loads(delete_result.stdout)
+    assert delete_result.exit_code == 0
+    assert delete_payload["deleted"] is True
+    assert fake_api.reminders.reminder_rows[created_id].deleted is True
 
 
-def test_photos_commands_report_reauthentication_requirement() -> None:
-    """Photos commands should wrap nested service operations in service_call."""
-
-    class ReauthAlbums:
-        @property
-        def albums(self):
-            raise context_module.PyiCloudFailedLoginException("No password set")
+def test_reminders_subgroup_commands() -> None:
+    """Reminder subgroup commands should expose alarm, hashtag, attachment, and recurrence flows."""
 
     fake_api = FakeAPI()
-    fake_api.photos = ReauthAlbums()
 
-    albums_result = _invoke(fake_api, "photos", "albums")
+    alarm_list_result = _invoke(
+        fake_api,
+        "reminders",
+        "alarm",
+        "list",
+        "Reminder/A",
+        output_format="json",
+    )
+    alarm_list_payload = json.loads(alarm_list_result.stdout)
+    assert alarm_list_result.exit_code == 0
+    assert alarm_list_payload[0]["alarm"]["id"] == "Alarm/A"
 
-    assert albums_result.exit_code != 0
-    assert albums_result.exception.args[0] == (
-        "Photos requires re-authentication for user@example.com. "
-        "Run: icloud auth login --username user@example.com"
+    alarm_create_result = _invoke(
+        fake_api,
+        "reminders",
+        "alarm",
+        "add-location",
+        "Reminder/C",
+        "--title",
+        "Home",
+        "--address",
+        "Rue de Example",
+        "--latitude",
+        "49.61",
+        "--longitude",
+        "6.13",
+        "--radius",
+        "75",
+        "--proximity",
+        "leaving",
+        output_format="json",
+    )
+    alarm_create_payload = json.loads(alarm_create_result.stdout)
+    assert alarm_create_result.exit_code == 0
+    assert alarm_create_payload["trigger"]["title"] == "Home"
+    assert (
+        fake_api.reminders.trigger_rows[alarm_create_payload["trigger"]["id"]].proximity
+        == Proximity.LEAVING
     )
 
-    class BrokenPhoto(FakePhoto):
-        def download(self, version: str = "original") -> bytes:
-            raise context_module.PyiCloudFailedLoginException("No password set")
+    hashtag_list_result = _invoke(
+        fake_api,
+        "reminders",
+        "hashtag",
+        "list",
+        "Reminder/A",
+        output_format="json",
+    )
+    hashtag_list_payload = json.loads(hashtag_list_result.stdout)
+    assert hashtag_list_result.exit_code == 0
+    assert hashtag_list_payload[0]["id"] == "Hashtag/ERRANDS"
 
     photo_album = FakePhotoAlbum("All Photos", [BrokenPhoto("photo-1", "img.jpg")])
     fake_api = FakeAPI()
@@ -2732,112 +3660,255 @@ def test_photos_commands_report_reauthentication_requirement() -> None:
         albums=root_library.albums,
         all=root_library.all,
     )
-    output_path = TEST_ROOT / "photo-reauth.bin"
+    hashtag_create_payload = json.loads(hashtag_create_result.stdout)
+    hashtag_suffix = hashtag_create_payload["id"].split("/", 1)[1]
+    assert hashtag_create_result.exit_code == 0
 
-    download_result = _invoke(
+    hashtag_update_result = _invoke(
         fake_api,
-        "photos",
-        "download",
-        "photo-1",
-        "--output",
-        str(output_path),
+        "reminders",
+        "hashtag",
+        "update",
+        "Reminder/C",
+        hashtag_suffix,
+        "--name",
+        "chores",
+        output_format="json",
     )
+    hashtag_update_payload = json.loads(hashtag_update_result.stdout)
+    assert hashtag_update_result.exit_code == 0
+    assert hashtag_update_payload["name"] == "chores"
 
-    assert download_result.exit_code != 0
-    assert download_result.exception.args[0] == (
-        "Photos requires re-authentication for user@example.com. "
-        "Run: icloud auth login --username user@example.com"
-    )
-
-
-def test_hidemyemail_commands() -> None:
-    """Hide My Email commands should expose list and generate."""
-
-    fake_api = FakeAPI()
-    list_result = _invoke(fake_api, "hidemyemail", "list")
-    generate_result = _invoke(fake_api, "hidemyemail", "generate")
-    assert list_result.exit_code == 0
-    assert "Shopping" in list_result.stdout
-    assert generate_result.exit_code == 0
-    assert "generated@privaterelay.appleid.com" in generate_result.stdout
-
-
-def test_hidemyemail_generate_requires_alias() -> None:
-    """Generate should fail when the backend returns an empty alias."""
-
-    fake_api = FakeAPI()
-    fake_api.hidemyemail.generate = MagicMock(return_value=None)
-
-    result = _invoke(fake_api, "hidemyemail", "generate")
-
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Hide My Email generate returned an empty alias."
-    )
-
-
-def test_hidemyemail_update_omits_note_when_not_provided() -> None:
-    """Label-only updates should not overwrite notes with a synthetic default."""
-
-    fake_api = FakeAPI()
-    update_metadata = MagicMock(return_value={"anonymousId": "alias-1", "label": "New"})
-    fake_api.hidemyemail.update_metadata = update_metadata
-
-    result = _invoke(fake_api, "hidemyemail", "update", "alias-1", "New")
-
-    assert result.exit_code == 0
-    update_metadata.assert_called_once_with("alias-1", "New", None)
-
-
-def test_hidemyemail_mutations_require_valid_payload() -> None:
-    """Hide My Email mutators should reject empty success payloads."""
-
-    fake_api = FakeAPI()
-    fake_api.hidemyemail.delete = MagicMock(return_value={})
-
-    result = _invoke(fake_api, "hidemyemail", "delete", "alias-1")
-
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Hide My Email delete returned an invalid response: {}"
-    )
-
-    fake_api = FakeAPI()
-    fake_api.hidemyemail.reserve = MagicMock(return_value={})
-
-    result = _invoke(
+    hashtag_delete_result = _invoke(
         fake_api,
-        "hidemyemail",
-        "reserve",
-        "alias@example.com",
-        "Shopping",
+        "reminders",
+        "hashtag",
+        "delete",
+        "Reminder/C",
+        hashtag_suffix,
+        output_format="json",
+    )
+    hashtag_delete_payload = json.loads(hashtag_delete_result.stdout)
+    assert hashtag_delete_result.exit_code == 0
+    assert hashtag_delete_payload["deleted"] is True
+
+    attachment_list_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "list",
+        "Reminder/A",
+        output_format="json",
+    )
+    attachment_list_payload = json.loads(attachment_list_result.stdout)
+    assert attachment_list_result.exit_code == 0
+    assert attachment_list_payload[0]["id"] == "Attachment/LINK"
+
+    attachment_create_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "create-url",
+        "Reminder/C",
+        "--url",
+        "https://example.com/new",
+        output_format="json",
+    )
+    attachment_create_payload = json.loads(attachment_create_result.stdout)
+    attachment_suffix = attachment_create_payload["id"].split("/", 1)[1]
+    assert attachment_create_result.exit_code == 0
+
+    attachment_update_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "update",
+        "Reminder/C",
+        attachment_suffix,
+        "--url",
+        "https://example.org/new",
+        "--uti",
+        "public.url",
+        output_format="json",
+    )
+    attachment_update_payload = json.loads(attachment_update_result.stdout)
+    assert attachment_update_result.exit_code == 0
+    assert attachment_update_payload["url"] == "https://example.org/new"
+
+    attachment_delete_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "delete",
+        "Reminder/C",
+        attachment_suffix,
+        output_format="json",
+    )
+    attachment_delete_payload = json.loads(attachment_delete_result.stdout)
+    assert attachment_delete_result.exit_code == 0
+    assert attachment_delete_payload["deleted"] is True
+
+    recurrence_list_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "list",
+        "Reminder/A",
+        output_format="json",
+    )
+    recurrence_list_payload = json.loads(recurrence_list_result.stdout)
+    assert recurrence_list_result.exit_code == 0
+    assert recurrence_list_payload[0]["id"] == "Recurrence/WEEKLY"
+
+    recurrence_create_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "create",
+        "Reminder/C",
+        "--frequency",
+        "monthly",
+        "--interval",
+        "2",
+        output_format="json",
+    )
+    recurrence_create_payload = json.loads(recurrence_create_result.stdout)
+    recurrence_suffix = recurrence_create_payload["id"].split("/", 1)[1]
+    assert recurrence_create_result.exit_code == 0
+
+    recurrence_update_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "update",
+        "Reminder/C",
+        recurrence_suffix,
+        "--frequency",
+        "yearly",
+        "--interval",
+        "3",
+        "--occurrence-count",
+        "4",
+        output_format="json",
+    )
+    recurrence_update_payload = json.loads(recurrence_update_result.stdout)
+    assert recurrence_update_result.exit_code == 0
+    assert recurrence_update_payload["interval"] == 3
+    assert recurrence_update_payload["occurrence_count"] == 4
+
+    recurrence_delete_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "delete",
+        "Reminder/C",
+        recurrence_suffix,
+        output_format="json",
+    )
+    recurrence_delete_payload = json.loads(recurrence_delete_result.stdout)
+    assert recurrence_delete_result.exit_code == 0
+    assert recurrence_delete_payload["deleted"] is True
+
+
+def test_reminders_commands_report_errors() -> None:
+    """Reminders commands should surface clean validation and lookup errors."""
+
+    fake_api = FakeAPI()
+
+    missing_result = _invoke(fake_api, "reminders", "get", "Reminder/MISSING")
+    assert missing_result.exit_code != 0
+    assert missing_result.exception.args[0] == "Reminder not found: Reminder/MISSING"
+
+    update_result = _invoke(fake_api, "reminders", "update", "Reminder/A")
+    assert update_result.exit_code != 0
+    assert update_result.exception.args[0] == "No reminder updates were requested."
+
+    hashtag_result = _invoke(
+        fake_api,
+        "reminders",
+        "hashtag",
+        "delete",
+        "Reminder/A",
+        "missing",
+    )
+    assert hashtag_result.exit_code != 0
+    assert hashtag_result.exception.args[0] == (
+        "No hashtag matched 'missing' for reminder Reminder/A."
     )
 
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Hide My Email reserve returned an invalid response: {}"
+    attachment_result = _invoke(
+        fake_api,
+        "reminders",
+        "attachment",
+        "update",
+        "Reminder/A",
+        "LINK",
+    )
+    assert attachment_result.exit_code != 0
+    assert attachment_result.exception.args[0] == (
+        "No attachment updates were requested."
     )
 
+    recurrence_result = _invoke(
+        fake_api,
+        "reminders",
+        "recurrence",
+        "update",
+        "Reminder/A",
+        "WEEKLY",
+    )
+    assert recurrence_result.exit_code != 0
+    assert recurrence_result.exception.args[0] == (
+        "No recurrence updates were requested."
+    )
 
-def test_hidemyemail_list_reports_reauthentication_requirement() -> None:
-    """Hide My Email iteration errors should be wrapped in a CLIAbort."""
+    class ApiErrorReminders:
+        def sync_cursor(self) -> str:
+            raise RemindersApiError("sync failed")
 
-    class ReauthHideMyEmail:
-        def __iter__(self):
+    class AuthErrorReminders:
+        def sync_cursor(self) -> str:
+            raise RemindersAuthError("token expired")
+
+    fake_api = FakeAPI()
+    fake_api.reminders = ApiErrorReminders()
+    api_error_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert api_error_result.exit_code != 0
+    assert api_error_result.exception.args[0] == "sync failed"
+
+    fake_api = FakeAPI()
+    fake_api.reminders = AuthErrorReminders()
+    auth_error_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert auth_error_result.exit_code != 0
+    assert auth_error_result.exception.args[0] == "token expired"
+
+
+def test_reminders_commands_report_reauthentication_and_unavailability() -> None:
+    """Reminders commands should wrap service reauth and service-unavailable failures."""
+
+    class ReauthReminders:
+        def lists(self):
             raise context_module.PyiCloudFailedLoginException("No password set")
 
-        def generate(self) -> str:  # pragma: no cover - not used in this test
-            return "ignored"
+    class UnavailableReminders:
+        def sync_cursor(self) -> str:
+            raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 
     fake_api = FakeAPI()
-    fake_api.hidemyemail = ReauthHideMyEmail()
-
-    result = _invoke(fake_api, "hidemyemail", "list")
-
-    assert result.exit_code != 0
-    assert result.exception.args[0] == (
-        "Hide My Email requires re-authentication for user@example.com. "
+    fake_api.reminders = ReauthReminders()
+    reauth_result = _invoke(fake_api, "reminders", "lists")
+    assert reauth_result.exit_code != 0
+    assert reauth_result.exception.args[0] == (
+        "Reminders requires re-authentication for user@example.com. "
         "Run: icloud auth login --username user@example.com"
+    )
+
+    fake_api = FakeAPI()
+    fake_api.reminders = UnavailableReminders()
+    unavailable_result = _invoke(fake_api, "reminders", "sync-cursor")
+    assert unavailable_result.exit_code != 0
+    assert unavailable_result.exception.args[0] == (
+        "Reminders service unavailable: temporarily unavailable"
     )
 
 

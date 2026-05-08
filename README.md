@@ -76,7 +76,7 @@ api.devices
 
 The `icloud` command line interface is organized around top-level
 subcommands such as `auth`, `account`, `devices`, `calendar`,
-`contacts`, `drive`, `photos`, and `hidemyemail`.
+`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, and `reminders`.
 
 Command options belong on the final command that uses them. For example:
 
@@ -190,6 +190,11 @@ If you have enabled two-factor authentications (2FA) or [two-step
 authentication (2SA)](https://support.apple.com/en-us/HT204152) for the
 account you will have to do some extra work:
 
+For HSA2 accounts, `request_2fa_code()` now starts Apple's active delivery
+route for code-based challenges. Depending on the account and session, that may
+be a trusted-device prompt or an SMS code. Security-key challenges are handled
+separately via `security_key_names` / `confirm_security_key()`.
+
 ```python
 import sys
 
@@ -224,6 +229,7 @@ if api.requires_2fa:
 
     else:
         print("Two-factor authentication required.")
+        api.request_2fa_code()
         code = input(
             "Enter the code you received of one of your approved devices: "
         )
@@ -1261,6 +1267,66 @@ rules, and delete flows against a real iCloud account.
 [`example_reminders_delta.py`](example_reminders_delta.py) is a smaller live
 validator focused on `sync_cursor()` and `iter_changes(since=...)`.
 
+### Reminders CLI
+
+The official Typer CLI exposes `icloud reminders ...` for common read and write
+flows.
+
+_List reminder lists and open reminders:_
+
+```bash
+icloud reminders lists --username you@example.com
+icloud reminders list --username you@example.com
+icloud reminders list --username you@example.com --list-id INBOX --include-completed
+```
+
+`icloud reminders list` defaults to open reminders only. Use
+`--include-completed` to include completed reminders, and `--list-id` to scope
+the query to one list.
+
+_Get, create, update, and delete reminders:_
+
+```bash
+icloud reminders get REMINDER_ID --username you@example.com
+icloud reminders create --username you@example.com --list-id INBOX --title "Buy milk"
+icloud reminders update REMINDER_ID --username you@example.com --title "Buy oat milk"
+icloud reminders set-status REMINDER_ID --username you@example.com --completed
+icloud reminders delete REMINDER_ID --username you@example.com
+```
+
+_Inspect snapshots and incremental changes:_
+
+```bash
+icloud reminders snapshot --username you@example.com --list-id INBOX
+icloud reminders changes --username you@example.com --since PREVIOUS_CURSOR
+icloud reminders sync-cursor --username you@example.com
+```
+
+_Work with reminder sub-records:_
+
+```bash
+icloud reminders alarm add-location REMINDER_ID \
+  --username you@example.com \
+  --title "Office" \
+  --address "1 Infinite Loop, Cupertino, CA" \
+  --latitude 37.3318 \
+  --longitude -122.0312
+
+icloud reminders hashtag create REMINDER_ID errands --username you@example.com
+icloud reminders attachment create-url REMINDER_ID \
+  --username you@example.com \
+  --url https://example.com/checklist
+icloud reminders recurrence create REMINDER_ID \
+  --username you@example.com \
+  --frequency weekly \
+  --interval 1
+```
+
+The reminder CLI is organized as core commands plus `alarm`, `hashtag`,
+`attachment`, and `recurrence` subgroups. Hashtag rename is exposed through
+`icloud reminders hashtag update`, but Apple’s web app may still treat hashtag
+names as effectively read-only in some live flows.
+
 ## Notes
 
 You can access your iCloud Notes through the `notes` property:
@@ -1386,6 +1452,52 @@ Notes caveats:
   note ID does not exist.
 - `api.notes.raw` is available for advanced/debug workflows, but it is not the
   primary Notes API surface.
+
+### Notes CLI
+
+The official Typer CLI exposes `icloud notes ...` for recent-note inspection,
+folder browsing, title-based search, HTML rendering, and note-id-based export.
+
+_List recent notes, folders, or one folder’s notes:_
+
+```bash
+icloud notes recent --username you@example.com
+icloud notes folders --username you@example.com
+icloud notes list --username you@example.com --folder-id FOLDER_ID
+icloud notes list --username you@example.com --all --since PREVIOUS_CURSOR
+```
+
+_Search notes by title:_
+
+```bash
+icloud notes search --username you@example.com --title "Daily Plan"
+icloud notes search --username you@example.com --title-contains "meeting"
+```
+
+`icloud notes search` is the official title-filter workflow. It uses a
+recents-first search strategy and falls back to a full feed scan when needed.
+
+_Fetch, render, and export one note by id:_
+
+```bash
+icloud notes get NOTE_ID --username you@example.com --with-attachments
+icloud notes render NOTE_ID --username you@example.com --preview-appearance dark
+icloud notes export NOTE_ID \
+  --username you@example.com \
+  --output-dir ./exports/notes_html \
+  --export-mode archival \
+  --assets-dir ./exports/assets
+```
+
+`icloud notes export` stays explicit by note id. Title filters are intentionally
+handled by `icloud notes search` rather than by bulk export flags.
+
+_Inspect incremental changes:_
+
+```bash
+icloud notes changes --username you@example.com --since PREVIOUS_CURSOR
+icloud notes sync-cursor --username you@example.com
+```
 
 ### Notes CLI Example
 

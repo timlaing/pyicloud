@@ -1,3 +1,5 @@
+name: "Auto labeller"
+
 # yamllint disable-line rule:truthy
 on:
   pull_request:
@@ -5,11 +7,11 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+  issues: write
 
 jobs:
   auto_label:
-    permissions:
-      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       # runs autolabeler

@@ -119,3 +119,37 @@ def print_json_text(console: Console, payload: Any) -> None:
     """Pretty-print a JSON object in text mode."""
 
     console.print_json(json=to_json_string(payload, indent=2))
+
+
+def format_color_value(value: Any) -> str:
+    """Return a compact human-friendly representation of reminder colors."""
+
+    if not value:
+        return ""
+
+    payload = value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return ""
+        if not stripped.startswith("{"):
+            return stripped
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            return stripped
+
+    if isinstance(payload, dict):
+        hex_value = payload.get("daHexString")
+        symbolic = payload.get("ckSymbolicColorName") or payload.get(
+            "daSymbolicColorName"
+        )
+        if hex_value and symbolic and symbolic != "custom":
+            return f"{symbolic} ({hex_value})"
+        if hex_value:
+            return str(hex_value)
+        if symbolic:
+            return str(symbolic)
+        return to_json_string(payload)
+
+    return str(payload)
