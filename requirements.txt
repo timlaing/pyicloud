@@ -1,5 +1,4 @@
 certifi>=2024.12.14
-click>=8.1.8
 cryptography>=44.0.0
 fido2>=2.0.0
 keyring>=25.6.0
@@ -10,5 +9,4 @@ requests>=2.31.0
 rich>=13.0.0
 srp>=1.0.21
 tinyhtml>=1.1.0
-typer>=0.16.1
 tzlocal==5.3.1

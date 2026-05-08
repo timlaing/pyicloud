@@ -18,7 +18,6 @@
     "projectKey": "timlaing_pyicloud"
   },
   "python.terminal.activateEnvInCurrentTerminal": true,
-  "python.defaultInterpreterPath": "./.venv/bin/python",
   "git.autofetch": true,
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff"
