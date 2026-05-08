@@ -32,8 +32,13 @@ def test_main_calls_cli_main_when_available() -> None:
 
     fake_cli_app = ModuleType("pyicloud.cli.app")
     fake_cli_app.main = lambda: 7  # type: ignore[assignment]
+    fake_cli = ModuleType("pyicloud.cli")
+    fake_cli.app = fake_cli_app  # type: ignore[attr-defined]
 
-    with patch.dict("sys.modules", {"pyicloud.cli.app": fake_cli_app}):
+    with patch.dict(
+        "sys.modules",
+        {"pyicloud.cli": fake_cli, "pyicloud.cli.app": fake_cli_app},
+    ):
         assert cmdline.main() == 7
 
 
