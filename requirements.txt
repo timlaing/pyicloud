@@ -9,6 +9,6 @@ pydantic>=2.12,<3
 requests>=2.31.0
 rich>=13.0.0
 srp>=1.0.21
-tinyhtml>=1.1.0
+tinyhtml>=1.3.0
 typer>=0.16.1
 tzlocal==5.3.1
