@@ -32,7 +32,7 @@ For support and discussions, join our Discord community: [Join our Discord commu
 Install the library and CLI with:
 
 ```console
-$ pip install pyicloud
+pip install pyicloud
 ```
 
 This installs the `icloud` command line interface alongside the Python package.
@@ -81,8 +81,8 @@ subcommands such as `auth`, `account`, `devices`, `calendar`,
 Command options belong on the final command that uses them. For example:
 
 ```console
-$ icloud auth login --username jappleseed@apple.com
-$ icloud account summary --format json
+icloud auth login --username jappleseed@apple.com
+icloud account summary --format json
 ```
 
 The root command only exposes help and shell-completion utilities.
@@ -91,7 +91,7 @@ You can store your password in the system keyring using the
 command-line tool:
 
 ```console
-$ icloud auth login --username jappleseed@apple.com
+icloud auth login --username jappleseed@apple.com
 Enter iCloud password for jappleseed@apple.com:
 Save password in keyring? (y/N)
 ```
@@ -107,34 +107,42 @@ api = PyiCloudService('jappleseed@apple.com')
 CLI examples:
 
 ```console
-$ icloud auth status
-$ icloud auth login --username jappleseed@apple.com
-$ icloud auth login --username jappleseed@apple.com --china-mainland
-$ icloud auth login --username jappleseed@apple.com --accept-terms
-$ icloud account summary
-$ icloud account summary --format json
-$ icloud devices list --locate
-$ icloud devices list --with-family
-$ icloud devices show "Example iPhone"
-$ icloud devices export "Example iPhone" --output ./iphone.json
-$ icloud calendar events --username jappleseed@apple.com --period week
-$ icloud contacts me --username jappleseed@apple.com
-$ icloud drive list /Documents --username jappleseed@apple.com
-$ icloud photos albums --username jappleseed@apple.com
-$ icloud hidemyemail list --username jappleseed@apple.com
-$ icloud auth logout
-$ icloud auth logout --keep-trusted
-$ icloud auth logout --all-sessions
-$ icloud auth logout --keep-trusted --all-sessions
-$ icloud auth logout --remove-keyring
-$ icloud auth keyring delete --username jappleseed@apple.com
+icloud auth status
+icloud auth login --username jappleseed@apple.com
+icloud auth login --username jappleseed@apple.com --china-mainland
+icloud auth login --username jappleseed@apple.com --accept-terms
+icloud account summary
+icloud account summary --format json
+icloud devices list --locate
+icloud devices list --with-family
+icloud devices show "Example iPhone"
+icloud devices export "Example iPhone" --output ./iphone.json
+icloud calendar events --username jappleseed@apple.com --period week
+icloud contacts me --username jappleseed@apple.com
+icloud drive list /Documents --username jappleseed@apple.com
+icloud photos libraries --username jappleseed@apple.com
+icloud photos albums --username jappleseed@apple.com
+icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com
+icloud photos get photo-id-123 --format json --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --username jappleseed@apple.com
+icloud photos watch --directory ./downloads --recent 1 --interval 300 --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --album Favorites --folder-structure '{:%Y/%m}' --username jappleseed@apple.com
+icloud photos sync-cursor --username jappleseed@apple.com
+icloud photos changes --since '<sync-cursor>' --username jappleseed@apple.com
+icloud hidemyemail list --username jappleseed@apple.com
+icloud auth logout
+icloud auth logout --keep-trusted
+icloud auth logout --all-sessions
+icloud auth logout --keep-trusted --all-sessions
+icloud auth logout --remove-keyring
+icloud auth keyring delete --username jappleseed@apple.com
 ```
 
 If you would like to delete a password stored in your system keyring,
 use the dedicated keyring subcommand:
 
 ```console
-$ icloud auth keyring delete --username jappleseed@apple.com
+icloud auth keyring delete --username jappleseed@apple.com
 ```
 
 The `auth` command group lets you inspect and manage persisted sessions:
@@ -763,6 +771,112 @@ You can interact with the `trash` similar to a standard directory, with some res
 
 You can access the iCloud Photo Library through the `photos` property.
 
+### Photos CLI
+
+The Photos CLI is split into browse commands and sync commands:
+
+- `icloud photos libraries`, `albums`, `list`, `get`, `changes`, and `sync-cursor`
+  are read-focused inspection commands.
+- `icloud photos sync` and `icloud photos watch` are the modern replacement path
+  for `icloud_photos_downloader`.
+
+The CloudKit-backed browse/sync path targets the private iCloud Photos library
+and Shared Library zones discovered as `shared:<zoneName>` keys. Legacy Shared
+Albums / shared streams remain available through the separate shared-stream
+adapter.
+
+Current scope:
+
+- private-library browsing, download, sync, watch, and mutation flows use the
+  modern CloudKit-backed Photos service
+- Shared Library CloudKit reads are exposed through `photos libraries` as
+  `shared:<zoneName>` keys and are supported by `list`, `get`, `download`,
+  `changes`, `sync-cursor`, `sync`, and `watch`
+- Shared Library album filters are currently limited to the captured, tested
+  smart albums `Library` and `Favorites`
+- Shared Albums / shared streams continue to use the legacy shared-stream
+  adapter under the `shared` library key
+- Shared Library album-scoped browsing and mixed `Both Libraries` semantics are
+  still narrower than the private-library path and continue to rely on further
+  captures
+
+Support matrix:
+
+- Private library `root`: full browse/download/sync/watch surface plus the
+  implemented private-library mutations
+- Shared Library `shared:<zoneName>`: library-scoped reads plus `Library` /
+  `Favorites` album filters, `sync-cursor`, `sync`, `watch`, and
+  favorite/unfavorite mutations
+- Legacy Shared Albums `shared`: old shared-stream adapter only, not a valid
+  CloudKit browse/sync target
+
+Typical browse and sync examples:
+
+```console
+icloud photos libraries --username jappleseed@apple.com
+icloud photos albums --username jappleseed@apple.com
+icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com
+icloud photos list --library 'shared:<zoneName>' --limit 20 --username jappleseed@apple.com
+icloud photos list --library 'shared:<zoneName>' --album Favorites --limit 20 --username jappleseed@apple.com
+icloud photos get photo-id-123 --format json --username jappleseed@apple.com
+icloud photos get photo-id-123 --library 'shared:<zoneName>' --format json --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --recent 30 --folder-structure '{:%Y/%m}' --username jappleseed@apple.com
+icloud photos sync --library 'shared:<zoneName>' --directory ./shared-downloads --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --album Favorites --size original --live-photo-size medium --username jappleseed@apple.com
+icloud photos watch --directory ./downloads --recent 1 --interval 300 --username jappleseed@apple.com
+icloud photos watch --library 'shared:<zoneName>' --directory ./shared-downloads --interval 300 --username jappleseed@apple.com
+icloud photos changes --since '<sync-cursor>' --limit 100 --username jappleseed@apple.com
+icloud photos changes --library 'shared:<zoneName>' --since '<sync-cursor>' --limit 100 --username jappleseed@apple.com
+icloud photos sync-cursor --username jappleseed@apple.com
+icloud photos sync-cursor --library 'shared:<zoneName>' --username jappleseed@apple.com
+```
+
+Library-key notes:
+
+- `root` is the private iCloud Photos library
+- `shared:<zoneName>` is a CloudKit-backed Shared Library zone
+- `shared` is the legacy Shared Albums / shared-stream adapter and is not a
+  drop-in substitute for CloudKit library reads, `sync-cursor`, `sync`, or
+  `watch`
+
+`sync` and `watch` support downloader-style options such as `--recent`,
+`--until-found`, repeatable `--album`, `--folder-structure`, `--size`,
+`--live-photo-size`, `--skip-videos`, `--skip-live-photos`, `--align-raw`,
+`--xmp-sidecar`, `--set-exif-datetime`, `--only-print-filenames`, `--dry-run`,
+`--auto-delete`, and `--keep-icloud-recent-days`.
+
+### Migrating from `icloud_photos_downloader`
+
+If you currently use `icloudpd`, the equivalent workflow in `pyicloud` is:
+
+- Authenticate once with `icloud auth login`, then run `icloud photos sync` or
+  `icloud photos watch`.
+- Use `icloud photos sync` for one-shot materialization into a local directory.
+- Use `icloud photos watch` for repeated polling with the same sync options.
+- For private-library downloader workflows, `sync` and `watch` are the intended
+  replacement path. Shared streams remain a separate surface.
+
+Common option mappings:
+
+- `icloudpd --directory DIR` -> `icloud photos sync --directory DIR`
+- `icloudpd --recent N` -> `icloud photos sync --recent N`
+- `icloudpd --until-found N` -> `icloud photos sync --until-found N`
+- `icloudpd --album NAME` -> `icloud photos sync --album NAME`
+- `icloudpd --folder-structure FORMAT` -> `icloud photos sync --folder-structure FORMAT`
+- `icloudpd --size SIZE` -> `icloud photos sync --size SIZE`
+- `icloudpd --live-photo-size SIZE` -> `icloud photos sync --live-photo-size SIZE`
+- `icloudpd --skip-videos` -> `icloud photos sync --skip-videos`
+- `icloudpd --skip-live-photos` -> `icloud photos sync --skip-live-photos`
+- `icloudpd --align-raw MODE` -> `icloud photos sync --align-raw MODE`
+- `icloudpd --xmp-sidecar` -> `icloud photos sync --xmp-sidecar`
+- `icloudpd --set-exif-datetime` -> `icloud photos sync --set-exif-datetime`
+- `icloudpd --auto-delete` -> `icloud photos sync --auto-delete`
+- `icloudpd --only-print-filenames` -> `icloud photos sync --only-print-filenames`
+- `icloudpd --watch-with-interval SECONDS` -> `icloud photos watch --interval SECONDS`
+
+Unlike `icloudpd`, authentication and session management stay under
+`icloud auth ...`; the Photos commands do not reimplement separate auth flags.
+
 ```pycon
 >>> api.photos.all
 <PhotoAlbum: 'All Photos'>
@@ -783,6 +897,16 @@ To delete an individual album, call the `delete` method.
 >>> api.photos.albums['MyAlbum'].delete()
 True
 ```
+
+Shared streams are still available separately:
+
+```pycon
+>>> api.photos.shared_streams
+<AlbumContainer: ...>
+```
+
+Those shared-stream albums continue to use the legacy adapter, even though the
+private-library path is now CloudKit-backed.
 
 Which you can iterate to access the photo assets. The "All Photos"
 album is sorted by `added_date` so the most recently added
@@ -819,12 +943,19 @@ with open(photo.versions['thumb']['filename'], 'wb') as thumb_file:
     thumb_file.write(photo.download('thumb'))
 ```
 
-To upload a photo use the `upload` method, which will upload the file to the requested album
-this will appear automatically in your 'ALL PHOTOS' album. This will return the uploaded
+To upload a photo use the `upload` method. You can upload directly through an
+album object, or use the top-level `api.photos.upload(...)` helper to target
+the root library or a named album. Uploads to a specific album will also appear
+automatically in your `All Photos` library. Each form returns the uploaded
 PhotoAsset for further information.
 
 ```python
-api.photos.albums['Screenshots'].upload(file_path)
+api.photos.upload(file_path)
+api.photos.upload(file_path, album="Screenshots")
+```
+
+```python
+api.photos.albums["Screenshots"].upload(file_path)
 ```
 
 ```pycon
@@ -832,6 +963,8 @@ api.photos.albums['Screenshots'].upload(file_path)
 >>> album
 <PhotoAlbum: 'Screenshots'>
 >>> album.upload("./my_test_image.jpg")
+<PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jdQ> my_test_image.jpg
+>>> api.photos.upload("./my_test_image.jpg", album="Screenshots")
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jdQ> my_test_image.jpg
 ```
 

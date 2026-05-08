@@ -1,0 +1,22 @@
+{
+  "zones": [
+    {
+      "zoneID": {
+        "zoneName": "SharedSync-6E1C0494-1BF4-4928-BD07-3FD81633193E",
+        "ownerRecordName": "OWNER_RECORD_NAME_002",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "syncToken": "SYNC_TOKEN_002",
+      "deleted": false
+    },
+    {
+      "zoneID": {
+        "zoneName": "PrimarySync",
+        "ownerRecordName": "OWNER_RECORD_NAME_002",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "syncToken": "SYNC_TOKEN_001",
+      "deleted": false
+    }
+  ]
+}

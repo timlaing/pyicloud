@@ -2,6 +2,8 @@
 
 from .base import CKModel, CloudKitExtraMode, resolve_cloudkit_validation_extra
 from .models import (
+    CKDatabaseChangesResponse,
+    CKDatabaseChangesZone,
     CKErrorItem,
     CKFieldOpen,
     CKFVInt64,
@@ -30,12 +32,16 @@ from .models import (
     CKZoneChangesZoneReq,
     CKZoneID,
     CKZoneIDReq,
+    CKZoneListResponse,
+    CKZoneListZone,
     KnownCKField,
 )
 
 __all__ = [
     "CKModel",
     "CloudKitExtraMode",
+    "CKDatabaseChangesResponse",
+    "CKDatabaseChangesZone",
     "CKErrorItem",
     "CKFieldOpen",
     "CKFVInt64",
@@ -58,6 +64,8 @@ __all__ = [
     "CKWriteFields",
     "CKWriteParent",
     "CKWriteRecord",
+    "CKZoneListResponse",
+    "CKZoneListZone",
     "CKZoneChangesRequest",
     "CKZoneChangesResponse",
     "CKZoneChangesZone",

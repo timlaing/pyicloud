@@ -1,0 +1,16 @@
+{
+  "records": [
+    {
+      "recordName": "album123",
+      "recordChangeTag": "tag123",
+      "fields": {
+        "albumNameEnc": {
+          "value": "TXkgQWxidW0="
+        },
+        "isDeleted": {
+          "value": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "atomic": true,
+  "operations": [
+    {
+      "operationType": "update",
+      "record": {
+        "recordName": "ASSET_RECORD_ID_031",
+        "recordChangeTag": "RECORD_CHANGE_TAG_062",
+        "recordType": "CPLAsset",
+        "fields": {
+          "isDeleted": {
+            "value": 1
+          }
+        }
+      }
+    }
+  ],
+  "zoneID": {
+    "zoneName": "PrimarySync",
+    "ownerRecordName": "OWNER_RECORD_NAME_001",
+    "zoneType": "REGULAR_CUSTOM_ZONE"
+  }
+}

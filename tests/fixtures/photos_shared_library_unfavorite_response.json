@@ -1,0 +1,41 @@
+{
+  "records": [
+    {
+      "recordName": "ASSET_RECORD_ID_110",
+      "recordType": "CPLAsset",
+      "recordChangeTag": "RECORD_CHANGE_TAG_309",
+      "zoneID": {
+        "zoneName": "SharedSync-6E1C0494-1BF4-4928-BD07-3FD81633193E",
+        "ownerRecordName": "OWNER_RECORD_NAME_002",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "deleted": false,
+      "fields": {
+        "masterRef": {
+          "value": {
+            "recordName": "MASTER_RECORD_ID_110",
+            "action": "DELETE_SELF",
+            "zoneID": {
+              "zoneName": "SharedSync-6E1C0494-1BF4-4928-BD07-3FD81633193E",
+              "ownerRecordName": "OWNER_RECORD_NAME_002",
+              "zoneType": "REGULAR_CUSTOM_ZONE"
+            }
+          },
+          "type": "REFERENCE"
+        },
+        "assetDate": {
+          "value": 1775652698554,
+          "type": "TIMESTAMP"
+        },
+        "addedDate": {
+          "value": 1775652699130,
+          "type": "TIMESTAMP"
+        },
+        "isFavorite": {
+          "value": 0,
+          "type": "INT64"
+        }
+      }
+    }
+  ]
+}

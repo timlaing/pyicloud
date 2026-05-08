@@ -1,0 +1,28 @@
+{
+  "atomic": true,
+  "zoneID": {
+    "zoneName": "PrimarySync",
+    "ownerRecordName": "OWNER_RECORD_NAME_001",
+    "zoneType": "REGULAR_CUSTOM_ZONE"
+  },
+  "operations": [
+    {
+      "operationType": "create",
+      "record": {
+        "fields": {
+          "itemId": {
+            "value": "ASSET_RECORD_ID_031"
+          },
+          "position": {
+            "value": 1024
+          },
+          "containerId": {
+            "value": "ALBUM_RECORD_ID_001"
+          }
+        },
+        "recordType": "CPLContainerRelation",
+        "recordName": "ASSET_RECORD_ID_031-IN-ALBUM_RECORD_ID_001"
+      }
+    }
+  ]
+}

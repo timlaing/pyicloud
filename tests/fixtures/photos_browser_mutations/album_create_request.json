@@ -1,0 +1,39 @@
+{
+  "atomic": true,
+  "zoneID": {
+    "zoneName": "PrimarySync",
+    "ownerRecordName": "OWNER_RECORD_NAME_001",
+    "zoneType": "REGULAR_CUSTOM_ZONE"
+  },
+  "operations": [
+    {
+      "operationType": "create",
+      "record": {
+        "fields": {
+          "albumNameEnc": {
+            "value": "QUxCVU1fTkFNRV9FTkNfMDAx"
+          },
+          "albumType": {
+            "value": 0
+          },
+          "isDeleted": {
+            "value": 0
+          },
+          "isExpunged": {
+            "value": 0
+          },
+          "position": {
+            "value": 1051646
+          },
+          "sortAscending": {
+            "value": 1
+          },
+          "sortType": {
+            "value": 1
+          }
+        },
+        "recordType": "CPLAlbum"
+      }
+    }
+  ]
+}
