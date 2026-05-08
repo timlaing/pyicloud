@@ -71,7 +71,7 @@ class AccountService(BaseService):
             )
             response = req.json()
 
-            for member_info in response["familyMembers"]:
+            for member_info in response.get("familyMembers", []):
                 self._family.append(
                     FamilyMember(
                         member_info,

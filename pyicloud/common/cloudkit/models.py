@@ -850,6 +850,50 @@ class CKLookupResponse(CKModel):
 
 
 # ---------------------------------------------------------------------------
+# Response-side: /zones/list and /changes/database
+# ---------------------------------------------------------------------------
+
+
+class CKZoneListZone(CKModel):
+    """
+    One zone entry returned by /zones/list.
+
+    Photos uses this as the primary source of truth for available private/shared
+    libraries, so keep the model permissive while typing the fields we depend on.
+    """
+
+    zoneID: CKZoneID
+    syncToken: Optional[str] = None
+    deleted: Optional[bool] = None
+
+
+class CKZoneListResponse(CKModel):
+    """Top-level envelope for /zones/list."""
+
+    zones: List[CKZoneListZone] = Field(default_factory=list)
+
+
+class CKDatabaseChangesZone(CKModel):
+    """
+    One zone entry returned by /changes/database.
+
+    This is a database-scoped change feed used to identify which zones changed
+    before issuing per-zone /changes/zone requests.
+    """
+
+    zoneID: CKZoneID
+    deleted: Optional[bool] = None
+
+
+class CKDatabaseChangesResponse(CKModel):
+    """Top-level envelope for /changes/database."""
+
+    zones: List[CKDatabaseChangesZone] = Field(default_factory=list)
+    moreComing: Optional[bool] = None
+    syncToken: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
 # Response-side: /changes/zone responses (delta sync)
 # ---------------------------------------------------------------------------
 

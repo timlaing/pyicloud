@@ -1,0 +1,56 @@
+{
+  "records": [
+    {
+      "recordType": "CPLMaster",
+      "recordName": "MASTER_ONLY_001",
+      "fields": {
+        "filenameEnc": {
+          "value": "bWlzc2luZ19hc3NldC5qcGc="
+        }
+      }
+    },
+    {
+      "recordType": "CPLAsset",
+      "recordName": "ASSET_ONLY_001",
+      "fields": {
+        "masterRef": {
+          "value": {
+            "recordName": "MISSING_MASTER_001"
+          }
+        },
+        "assetDate": {
+          "value": 1775666600000
+        },
+        "addedDate": {
+          "value": 1775666600000
+        }
+      }
+    },
+    {
+      "recordType": "CPLAsset",
+      "recordName": "ASSET_MATCHED_001",
+      "fields": {
+        "masterRef": {
+          "value": {
+            "recordName": "MASTER_MATCHED_001"
+          }
+        },
+        "assetDate": {
+          "value": 1775666700000
+        },
+        "addedDate": {
+          "value": 1775666700000
+        }
+      }
+    },
+    {
+      "recordType": "CPLMaster",
+      "recordName": "MASTER_MATCHED_001",
+      "fields": {
+        "filenameEnc": {
+          "value": "bWF0Y2hlZF9waG90by5qcGc="
+        }
+      }
+    }
+  ]
+}

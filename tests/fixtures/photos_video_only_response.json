@@ -1,0 +1,51 @@
+{
+  "records": [
+    {
+      "recordType": "CPLAsset",
+      "recordName": "ASSET_RECORD_ID_205",
+      "fields": {
+        "masterRef": {
+          "value": {
+            "recordName": "MASTER_RECORD_ID_205"
+          }
+        },
+        "assetDate": {
+          "value": 1775666900000
+        },
+        "addedDate": {
+          "value": 1775666950000
+        }
+      }
+    },
+    {
+      "recordType": "CPLMaster",
+      "recordName": "MASTER_RECORD_ID_205",
+      "fields": {
+        "filenameEnc": {
+          "value": "dmlkZW9fb25seS5NT1Y="
+        },
+        "itemType": {
+          "value": "com.apple.quicktime-movie"
+        },
+        "resOriginalFileType": {
+          "value": "com.apple.quicktime-movie"
+        },
+        "resOriginalRes": {
+          "value": {
+            "size": 5678901,
+            "downloadURL": "https://example.com/video_only.mov"
+          }
+        },
+        "resVidSmallFileType": {
+          "value": "com.apple.quicktime-movie"
+        },
+        "resVidSmallRes": {
+          "value": {
+            "size": 123456,
+            "downloadURL": "https://example.com/video_only_small.mov"
+          }
+        }
+      }
+    }
+  ]
+}

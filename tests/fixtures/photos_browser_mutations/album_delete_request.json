@@ -1,0 +1,23 @@
+{
+  "atomic": true,
+  "operations": [
+    {
+      "operationType": "update",
+      "record": {
+        "recordName": "ALBUM_RECORD_ID_001",
+        "recordChangeTag": "RECORD_CHANGE_TAG_289",
+        "recordType": "CPLAlbum",
+        "fields": {
+          "isDeleted": {
+            "value": 1
+          }
+        }
+      }
+    }
+  ],
+  "zoneID": {
+    "zoneName": "PrimarySync",
+    "ownerRecordName": "OWNER_RECORD_NAME_001",
+    "zoneType": "REGULAR_CUSTOM_ZONE"
+  }
+}

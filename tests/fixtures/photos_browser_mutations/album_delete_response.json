@@ -1,0 +1,57 @@
+{
+  "records": [
+    {
+      "recordName": "ALBUM_RECORD_ID_001",
+      "recordType": "CPLAlbum",
+      "fields": {
+        "sortAscending": {
+          "value": 1,
+          "type": "INT64"
+        },
+        "isDeleted": {
+          "value": 1,
+          "type": "INT64"
+        },
+        "sortType": {
+          "value": 1,
+          "type": "INT64"
+        },
+        "userModificationDate": {
+          "value": 1775666420346,
+          "type": "TIMESTAMP"
+        },
+        "albumType": {
+          "value": 0,
+          "type": "INT64"
+        },
+        "albumNameEnc": {
+          "value": "ALBUM_NAME_ENC_028",
+          "type": "ENCRYPTED_BYTES"
+        },
+        "position": {
+          "value": 1051646,
+          "type": "INT64"
+        },
+        "dateExpunged": {
+          "value": 1778258501732,
+          "type": "TIMESTAMP"
+        }
+      },
+      "pluginFields": {},
+      "recordChangeTag": "RECORD_CHANGE_TAG_290",
+      "created": {
+        "timestamp": 1775665915539,
+        "userRecordName": "OWNER_RECORD_NAME_001",
+        "deviceID": "2"
+      },
+      "modified": {
+        "timestamp": 1775666501763,
+        "userRecordName": "OWNER_RECORD_NAME_001",
+        "deviceID": "2"
+      },
+      "deleted": false,
+      "expirationTime": 1779122501
+    }
+  ],
+  "syncToken": "SYNC_TOKEN_009"
+}

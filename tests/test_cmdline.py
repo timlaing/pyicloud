@@ -150,10 +150,33 @@ class FakePhoto:
         self.filename = filename
         self.item_type = "image"
         self.created = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        self.asset_date = self.created
+        self.added_date = self.created
         self.size = 1234
+        self.dimensions = (1920, 1080)
+        self.is_live_photo = False
+        self.resources = {
+            "original": SimpleNamespace(
+                filename=filename,
+                url=f"https://example.com/{photo_id}",
+                size=self.size,
+                checksum=f"checksum-{photo_id}",
+            )
+        }
+        self.versions = {
+            "original": {
+                "filename": filename,
+                "url": f"https://example.com/{photo_id}",
+                "size": self.size,
+                "checksum": f"checksum-{photo_id}",
+            }
+        }
 
     def download(self, version: str = "original") -> bytes:
         return f"{self.id}:{version}".encode()
+
+    def delete(self) -> bool:
+        return True
 
 
 class FakePhotoAlbum:
@@ -176,6 +199,128 @@ class FakePhotoAlbum:
             if photo.id == photo_id:
                 return photo
         raise KeyError(photo_id)
+
+
+class FakePhotoLibrary:
+    """Photo library fixture."""
+
+    def __init__(
+        self,
+        *,
+        key: str,
+        scope: str,
+        zone_name: str | None,
+        sync_cursor: str,
+        all_album: Optional[FakePhotoAlbum] = None,
+        albums: Optional[FakeAlbumContainer] = None,
+        changes: Optional[list[Any]] = None,
+    ) -> None:
+        self.key = key
+        self.scope = scope
+        self.zone_id = {"zoneName": zone_name} if zone_name else None
+        self.current_sync_token = sync_cursor
+        self.indexing_state = "FINISHED"
+        self._sync_cursor = sync_cursor
+        self.all = all_album
+        self.albums = albums
+        self._changes = changes or []
+
+    def sync_cursor(self) -> str:
+        return self._sync_cursor
+
+    def recently_added(self):
+        return self.all
+
+    def iter_changes(self, *, since: Optional[str] = None):
+        _ = since
+        return iter(self._changes)
+
+
+class FakePhotosService:
+    """Photos service fixture."""
+
+    def __init__(self) -> None:
+        photo_album = FakePhotoAlbum("All Photos", [FakePhoto("photo-1", "img.jpg")])
+        shared_library_album = FakePhotoAlbum(
+            "Library", [FakePhoto("shared-photo-1", "shared.jpg")]
+        )
+        shared_favorites_album = FakePhotoAlbum(
+            "Favorites", [FakePhoto("shared-photo-1", "shared.jpg")]
+        )
+        self.albums = FakeAlbumContainer([photo_album])
+        self.all = photo_album
+        root_changes = [
+            SimpleNamespace(
+                kind="updated",
+                record_name="photo-1",
+                record_type="CPLAsset",
+                deleted=False,
+                modified=datetime(2026, 3, 2, tzinfo=timezone.utc),
+            )
+        ]
+        shared_changes = [
+            SimpleNamespace(
+                kind="updated",
+                record_name="shared-photo-1",
+                record_type="CPLAsset",
+                deleted=False,
+                modified=datetime(2026, 3, 3, tzinfo=timezone.utc),
+            )
+        ]
+        self.libraries = {
+            "root": FakePhotoLibrary(
+                key="root",
+                scope="private",
+                zone_name="PrimarySync",
+                sync_cursor="photo-sync-root",
+                all_album=photo_album,
+                albums=self.albums,
+                changes=root_changes,
+            ),
+            "shared": FakePhotoLibrary(
+                key="shared",
+                scope="shared-stream",
+                zone_name=None,
+                sync_cursor="photo-sync-shared",
+            ),
+            "shared:SharedSync-TESTZONE": FakePhotoLibrary(
+                key="shared:SharedSync-TESTZONE",
+                scope="shared-library",
+                zone_name="SharedSync-TESTZONE",
+                sync_cursor="photo-sync-shared-library",
+                all_album=shared_library_album,
+                albums=FakeAlbumContainer(
+                    [shared_library_album, shared_favorites_album]
+                ),
+                changes=shared_changes,
+            ),
+        }
+        self._changes = root_changes
+
+    def iter_changes(self, *, since: Optional[str] = None):
+        _ = since
+        return iter(self._changes)
+
+    def sync_cursor(self) -> str:
+        return self.libraries["root"].sync_cursor()
+
+    def sync(self, options):
+        from pyicloud.services.photos import run_photo_sync
+
+        return run_photo_sync(self, options)
+
+    def watch(
+        self, options, *, interval_seconds: int, iterations: Optional[int] = None
+    ):
+        from pyicloud.services.photos import watch_photo_sync
+
+        return watch_photo_sync(
+            self,
+            options,
+            interval_seconds=interval_seconds,
+            iterations=iterations,
+            sleep_fn=lambda _: None,
+        )
 
 
 class FakeHideMyEmail:
@@ -951,11 +1096,7 @@ class FakeAPI:
             root=FakeDriveNode("root", children=[drive_file]),
             trash=FakeDriveNode("trash"),
         )
-        photo_album = FakePhotoAlbum("All Photos", [FakePhoto("photo-1", "img.jpg")])
-        self.photos = SimpleNamespace(
-            albums=FakeAlbumContainer([photo_album]),
-            all=photo_album,
-        )
+        self.photos = FakePhotosService()
         self.hidemyemail = FakeHideMyEmail()
         self.notes = FakeNotes()
         self.reminders = FakeReminders()
@@ -2838,17 +2979,562 @@ def test_reminders_core_commands() -> None:
     assert update_payload["time_zone"] is None
     assert update_payload["parent_reminder_id"] is None
 
-    status_result = _invoke(
+def test_photos_extended_commands() -> None:
+    """Photos commands should expose library, detail, change, and cursor views."""
+
+    fake_api = FakeAPI()
+
+    libraries_result = _invoke(fake_api, "photos", "libraries", output_format="json")
+    get_result = _invoke(fake_api, "photos", "get", "photo-1", output_format="json")
+    changes_result = _invoke(
+        fake_api, "photos", "changes", "--limit", "1", output_format="json"
+    )
+    cursor_result = _invoke(
+        fake_api, "photos", "sync-cursor", "--library", "root", output_format="json"
+    )
+
+    assert libraries_result.exit_code == 0
+    libraries_payload = json.loads(libraries_result.stdout)
+    assert any(item["zone_name"] == "PrimarySync" for item in libraries_payload)
+    assert any(
+        item["key"] == "shared:SharedSync-TESTZONE" for item in libraries_payload
+    )
+    assert get_result.exit_code == 0
+    assert json.loads(get_result.stdout)["id"] == "photo-1"
+    assert changes_result.exit_code == 0
+    assert json.loads(changes_result.stdout)[0]["record_name"] == "photo-1"
+    assert cursor_result.exit_code == 0
+    assert json.loads(cursor_result.stdout)["sync_cursor"] == "photo-sync-root"
+
+
+def test_photos_read_commands_accept_shared_library_keys() -> None:
+    """List/get/download/changes should target explicit Shared Library keys."""
+
+    fake_api = FakeAPI()
+    output_path = TEST_ROOT / "shared-photo.bin"
+
+    list_result = _invoke(
         fake_api,
-        "reminders",
-        "set-status",
-        "Reminder/A",
-        "--completed",
+        "photos",
+        "list",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--limit",
+        "1",
         output_format="json",
     )
-    status_payload = json.loads(status_result.stdout)
-    assert status_result.exit_code == 0
-    assert status_payload["completed"] is True
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "shared-photo-1",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        output_format="json",
+    )
+    download_result = _invoke(
+        fake_api,
+        "photos",
+        "download",
+        "shared-photo-1",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--output",
+        str(output_path),
+        output_format="json",
+    )
+    changes_result = _invoke(
+        fake_api,
+        "photos",
+        "changes",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--limit",
+        "1",
+        output_format="json",
+    )
+
+    assert list_result.exit_code == 0
+    assert json.loads(list_result.stdout)[0]["id"] == "shared-photo-1"
+    assert get_result.exit_code == 0
+    assert json.loads(get_result.stdout)["filename"] == "shared.jpg"
+    assert download_result.exit_code == 0
+    assert output_path.read_bytes() == b"shared-photo-1:original"
+    assert json.loads(download_result.stdout)["photo_id"] == "shared-photo-1"
+    assert changes_result.exit_code == 0
+    assert json.loads(changes_result.stdout)[0]["record_name"] == "shared-photo-1"
+
+
+def test_photos_read_commands_accept_supported_shared_library_album_filters() -> None:
+    """Shared Library reads should allow the currently supported smart albums."""
+
+    fake_api = FakeAPI()
+
+    list_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Favorites",
+        output_format="json",
+    )
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "shared-photo-1",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Favorites",
+        output_format="json",
+    )
+
+    assert list_result.exit_code == 0
+    assert json.loads(list_result.stdout)[0]["id"] == "shared-photo-1"
+    assert get_result.exit_code == 0
+    assert json.loads(get_result.stdout)["filename"] == "shared.jpg"
+
+
+def test_photos_cloudkit_read_commands_reject_legacy_shared_stream_library() -> None:
+    """CloudKit read commands should reject the legacy Shared Albums library key."""
+
+    fake_api = FakeAPI()
+    output_path = TEST_ROOT / "shared-stream.bin"
+
+    list_result = _invoke(fake_api, "photos", "list", "--library", "shared")
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "photo-1",
+        "--library",
+        "shared",
+    )
+    download_result = _invoke(
+        fake_api,
+        "photos",
+        "download",
+        "photo-1",
+        "--library",
+        "shared",
+        "--output",
+        str(output_path),
+    )
+    changes_result = _invoke(
+        fake_api,
+        "photos",
+        "changes",
+        "--library",
+        "shared",
+    )
+
+    expected = (
+        "Photo library 'shared' uses legacy Shared Albums streams and is not "
+        "supported by this command. Use 'root' or a Shared Library key like "
+        "'shared:<zoneName>'."
+    )
+    for result in (list_result, get_result, download_result, changes_result):
+        assert result.exit_code != 0
+        assert result.exception.args[0] == expected
+
+
+def test_photos_read_commands_reject_unsupported_shared_library_album_filters() -> None:
+    """Shared Library reads should fail clearly for unsupported album filters."""
+
+    fake_api = FakeAPI()
+    expected = (
+        "Shared Library 'shared:SharedSync-TESTZONE' currently supports album "
+        "filters only for Library, Favorites. Album 'Screenshots' is not "
+        "supported yet."
+    )
+
+    list_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Screenshots",
+    )
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "shared-photo-1",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Screenshots",
+    )
+
+    for result in (list_result, get_result):
+        assert result.exit_code != 0
+        assert result.exception.args[0] == expected
+
+
+def test_photos_sync_command_downloads_and_short_circuits() -> None:
+    """Photos sync should materialize files, persist state, and short-circuit on rerun."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-output"
+    state_dir = TEST_ROOT / "photos-sync-state"
+
+    first_result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+    second_result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+
+    first_payload = json.loads(first_result.stdout)
+    second_payload = json.loads(second_result.stdout)
+
+    assert first_result.exit_code == 0
+    assert first_payload["downloaded_count"] == 1
+    assert first_payload["short_circuited"] is False
+    assert (output_dir / "img.jpg").read_bytes() == b"photo-1:original"
+    assert Path(first_payload["state_path"]).exists()
+
+    assert second_result.exit_code == 0
+    assert second_payload["downloaded_count"] == 0
+    assert second_payload["short_circuited"] is True
+
+
+def test_photos_sync_cursor_accepts_shared_library_keys() -> None:
+    """Photos sync-cursor should resolve explicit Shared Library keys."""
+
+    fake_api = FakeAPI()
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync-cursor",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        output_format="json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["library"] == "shared:SharedSync-TESTZONE"
+    assert payload["sync_cursor"] == "photo-sync-shared-library"
+
+
+def test_photos_sync_style_commands_reject_legacy_shared_stream_library() -> None:
+    """sync-cursor/sync/watch should reject the legacy Shared Albums library key."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-shared-stream-output"
+    state_dir = TEST_ROOT / "photos-sync-shared-stream-state"
+    expected = (
+        "Photo library 'shared' uses legacy Shared Albums streams and is not "
+        "supported by this command. Use 'root' or a Shared Library key like "
+        "'shared:<zoneName>'."
+    )
+
+    sync_cursor_result = _invoke(
+        fake_api,
+        "photos",
+        "sync-cursor",
+        "--library",
+        "shared",
+    )
+    sync_result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--library",
+        "shared",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+    )
+    watch_result = _invoke(
+        fake_api,
+        "photos",
+        "watch",
+        "--library",
+        "shared",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--interval",
+        "1",
+        "--iterations",
+        "1",
+    )
+
+    for result in (sync_cursor_result, sync_result, watch_result):
+        assert result.exit_code != 0
+        assert result.exception.args[0] == expected
+
+
+def test_photos_sync_command_accepts_shared_library_keys() -> None:
+    """Photos sync should materialize Shared Library assets via --library."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-shared-output"
+    state_dir = TEST_ROOT / "photos-sync-shared-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["library"] == "shared:SharedSync-TESTZONE"
+    assert payload["downloaded_count"] == 1
+    assert payload["short_circuited"] is False
+    assert (output_dir / "shared.jpg").read_bytes() == b"shared-photo-1:original"
+
+
+def test_photos_sync_command_accepts_supported_shared_library_album_filters() -> None:
+    """Shared Library sync should allow the currently supported smart albums."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-shared-favorites-output"
+    state_dir = TEST_ROOT / "photos-sync-shared-favorites-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Favorites",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        output_format="json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["albums"] == ["Favorites"]
+    assert payload["downloaded_count"] == 1
+
+
+def test_photos_sync_command_rejects_unsupported_shared_library_album_filters() -> None:
+    """Shared Library sync should fail clearly for unsupported album filters."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-shared-unsupported-output"
+    state_dir = TEST_ROOT / "photos-sync-shared-unsupported-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--album",
+        "Screenshots",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+    )
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == (
+        "Shared Library 'shared:SharedSync-TESTZONE' currently supports album "
+        "filters only for Library, Favorites. Album 'Screenshots' is not "
+        "supported yet."
+    )
+
+
+def test_photos_watch_command_accepts_shared_library_keys() -> None:
+    """Photos watch should reuse sync semantics for Shared Library keys."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-watch-shared-output"
+    state_dir = TEST_ROOT / "photos-watch-shared-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "watch",
+        "--library",
+        "shared:SharedSync-TESTZONE",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--interval",
+        "1",
+        "--iterations",
+        "2",
+        output_format="json",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert len(payload) == 2
+    assert payload[0]["library"] == "shared:SharedSync-TESTZONE"
+    assert payload[0]["downloaded_count"] == 1
+    assert payload[0]["short_circuited"] is False
+    assert payload[1]["library"] == "shared:SharedSync-TESTZONE"
+    assert payload[1]["downloaded_count"] == 0
+    assert payload[1]["short_circuited"] is True
+    assert (output_dir / "shared.jpg").read_bytes() == b"shared-photo-1:original"
+
+
+def test_photos_sync_command_supports_print_only_and_album_filters() -> None:
+    """Photos sync should support preview-only output for album-scoped sync targets."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-preview"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--album",
+        "All Photos",
+        "--folder-structure",
+        "{:%Y/%m}",
+        "--only-print-filenames",
+    )
+
+    assert result.exit_code == 0
+    assert "2026/03/img.jpg" in result.stdout
+
+
+def test_photos_watch_command_streams_bounded_runs() -> None:
+    """Photos watch should reuse sync semantics across bounded iterations."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-watch-output"
+    state_dir = TEST_ROOT / "photos-watch-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "watch",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--interval",
+        "1",
+        "--iterations",
+        "2",
+        output_format="json",
+    )
+
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert len(payload) == 2
+    assert payload[0]["iteration"] == 1
+    assert payload[0]["downloaded_count"] == 1
+    assert payload[0]["short_circuited"] is False
+    assert payload[1]["iteration"] == 2
+    assert payload[1]["downloaded_count"] == 0
+    assert payload[1]["short_circuited"] is True
+
+
+def test_photos_watch_command_reports_progress_in_text_mode() -> None:
+    """Photos watch should emit immediate progress messages in text mode."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-watch-progress-output"
+    state_dir = TEST_ROOT / "photos-watch-progress-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "watch",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--interval",
+        "1",
+        "--iterations",
+        "2",
+    )
+
+    assert result.exit_code == 0
+    assert "Starting photo watch run 1 of 2" in result.stdout
+    assert "Waiting 1s before photo watch run 2 of 2" in result.stdout
+    assert "Starting photo watch run 2 of 2" in result.stdout
+    assert "Photo Watch Run 1" in result.stdout
+    assert "Photo Watch Run 2" in result.stdout
+
+
+def test_photos_sync_command_accepts_downloader_materialization_flags() -> None:
+    """Photos sync should accept the next downloader-parity flags."""
+
+    fake_api = FakeAPI()
+    output_dir = TEST_ROOT / "photos-sync-parity"
+    state_dir = TEST_ROOT / "photos-sync-parity-state"
+
+    result = _invoke(
+        fake_api,
+        "photos",
+        "sync",
+        "--directory",
+        str(output_dir),
+        "--state-dir",
+        str(state_dir),
+        "--align-raw",
+        "original",
+        "--xmp-sidecar",
+        "--set-exif-datetime",
+        "--keep-icloud-recent-days",
+        "0",
+    )
+
+    assert result.exit_code == 0
+    assert "Photo Sync" in result.stdout
+
+
+def test_photos_sync_cursor_missing_library() -> None:
+    """Photos sync-cursor should fail for unknown library keys."""
+
+    fake_api = FakeAPI()
+    result = _invoke(fake_api, "photos", "sync-cursor", "--library", "missing")
+
+    assert result.exit_code != 0
+    assert result.exception.args[0] == "No photo library matched 'missing'."
+
+
+def test_drive_missing_paths_report_cli_abort() -> None:
+    """Drive commands should collapse missing path lookups into CLIAbort errors."""
 
     snapshot_result = _invoke(
         fake_api,
@@ -2958,14 +3644,21 @@ def test_reminders_subgroup_commands() -> None:
     assert hashtag_list_result.exit_code == 0
     assert hashtag_list_payload[0]["id"] == "Hashtag/ERRANDS"
 
-    hashtag_create_result = _invoke(
-        fake_api,
-        "reminders",
-        "hashtag",
-        "create",
-        "Reminder/C",
-        "home",
-        output_format="json",
+    photo_album = FakePhotoAlbum("All Photos", [BrokenPhoto("photo-1", "img.jpg")])
+    fake_api = FakeAPI()
+    root_library = FakePhotoLibrary(
+        key="root",
+        scope="private",
+        zone_name="PrimarySync",
+        sync_cursor="photo-sync-root",
+        all_album=photo_album,
+        albums=FakeAlbumContainer([photo_album]),
+        changes=[],
+    )
+    fake_api.photos = SimpleNamespace(
+        libraries={"root": root_library},
+        albums=root_library.albums,
+        all=root_library.all,
     )
     hashtag_create_payload = json.loads(hashtag_create_result.stdout)
     hashtag_suffix = hashtag_create_payload["id"].split("/", 1)[1]

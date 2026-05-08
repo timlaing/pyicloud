@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, List, Optional
 from unittest.mock import patch
+from uuid import uuid4
 
 import click
 from fido2.hid import CtapHidDevice
@@ -447,7 +448,15 @@ def display_hidemyemail(api: PyiCloudService) -> None:
 def album_management(api: PyiCloudService) -> None:
     """Test album management functions"""
 
-    album_name = "Test Album from API"
+    album_name = (
+        f"{datetime.utcnow().strftime('pyicloud-live-%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
+    )
+    renamed_name = f"{album_name}-renamed"
+    print(
+        "Running live photo mutation validation against the authenticated account. "
+        "This example creates a disposable album, optionally uploads a sample file, "
+        "then deletes the uploaded photo and album."
+    )
     print(f"Creating album '{album_name}'...")
     album: PhotoAlbum | None = api.photos.create_album(album_name)
     print(f"Album created: {album}")
@@ -456,12 +465,15 @@ def album_management(api: PyiCloudService) -> None:
         return
 
     print(f"Album '{album_name}' created successfully.")
-    album.name = "Renamed Album"
+    album.rename(renamed_name)
     print(f"Album renamed to '{album.name}'")
 
     sample_photo: Path = Path(__file__).with_name("sample.jpg")
     if sample_photo.exists():
-        photo: PhotoAsset | None = album.upload(str(sample_photo))
+        photo: PhotoAsset | None = api.photos.upload(
+            str(sample_photo),
+            album=album.name,
+        )
         if photo:
             print(f"Photo uploaded successfully: {photo.filename} ({photo.item_type})")
             if photo.delete():

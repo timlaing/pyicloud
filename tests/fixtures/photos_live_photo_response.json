@@ -1,0 +1,57 @@
+{
+  "records": [
+    {
+      "recordType": "CPLAsset",
+      "recordName": "ASSET_RECORD_ID_204",
+      "fields": {
+        "masterRef": {
+          "value": {
+            "recordName": "MASTER_RECORD_ID_204"
+          }
+        },
+        "assetDate": {
+          "value": 1775666800000
+        },
+        "addedDate": {
+          "value": 1775666850000
+        }
+      }
+    },
+    {
+      "recordType": "CPLMaster",
+      "recordName": "MASTER_RECORD_ID_204",
+      "fields": {
+        "filenameEnc": {
+          "value": "bGl2ZV9waG90by5IRUlD"
+        },
+        "itemType": {
+          "value": "public.heic"
+        },
+        "resOriginalFileType": {
+          "value": "public.heic"
+        },
+        "resOriginalRes": {
+          "value": {
+            "size": 3456789,
+            "downloadURL": "https://example.com/live_photo.heic"
+          }
+        },
+        "resOriginalWidth": {
+          "value": 4032
+        },
+        "resOriginalHeight": {
+          "value": 3024
+        },
+        "resOriginalVidComplFileType": {
+          "value": "com.apple.quicktime-movie"
+        },
+        "resOriginalVidComplRes": {
+          "value": {
+            "size": 456789,
+            "downloadURL": "https://example.com/live_photo.mov"
+          }
+        }
+      }
+    }
+  ]
+}

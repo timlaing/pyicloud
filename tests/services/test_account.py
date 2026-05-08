@@ -5,7 +5,7 @@
 from unittest.mock import MagicMock
 
 from pyicloud import PyiCloudService
-from pyicloud.services.account import AccountStorageUsage
+from pyicloud.services.account import AccountService, AccountStorageUsage
 
 
 def test_repr(pyicloud_service_working: PyiCloudService) -> None:
@@ -72,6 +72,18 @@ def test_family(pyicloud_service_working: PyiCloudService) -> None:
             + member.age_classification
             + "}>"
         )
+
+
+def test_family_missing_key(mock_session: MagicMock) -> None:
+    """family returns [] when familyMembers key is absent from response."""
+    mock_session.get.return_value.json.return_value = {}
+    service = AccountService(
+        service_root="https://example.com",
+        session=mock_session,
+        china_mainland=False,
+        params={},
+    )
+    assert service.family == []
 
 
 def test_storage(pyicloud_service_working: PyiCloudService) -> None:

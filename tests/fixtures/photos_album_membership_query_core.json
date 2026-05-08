@@ -1,0 +1,9 @@
+{
+  "recordType": "CPLContainerRelationLiveByAssetDate",
+  "resultsLimit": 2,
+  "filters": {
+    "direction": "ASCENDING",
+    "startRank": 0,
+    "parentId": "ALBUM_RECORD_ID_301"
+  }
+}
