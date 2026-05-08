@@ -1,5 +1,5 @@
 certifi>=2026.4.22
-click>=8.1.8
+click>=8.3.3
 cryptography>=44.0.0
 fido2>=2.0.0
 keyring>=25.6.0
