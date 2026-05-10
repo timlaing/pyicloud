@@ -786,7 +786,7 @@ def test_upload_file_typed_client_hydrates_skeletal_records() -> None:
     asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
-    assert asset.id == "master123"
+    assert asset.id == "asset123"
     assert asset.filename == "uploaded_photo.jpg"
     mock_client.lookup.assert_called_once()
     assert mock_client.lookup.call_args.kwargs["record_names"] == [
@@ -874,7 +874,7 @@ def test_upload_file_typed_client_hydrates_duplicate_upload_records() -> None:
     asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
-    assert asset.id == "master123"
+    assert asset.id == "asset123"
     assert asset.filename == "existing_photo.jpg"
     mock_client.lookup.assert_called_once()
 
@@ -1335,7 +1335,7 @@ def test_all_photos_feed_uses_default_index_and_fixture_response(
     assert posted["resultsLimit"] == ALL_PHOTOS_QUERY_CORE["resultsLimit"]
     assert _payload_filter_map(posted) == ALL_PHOTOS_QUERY_CORE["filters"]
     assert len(photos) == 1
-    assert photos[0].id == "MASTER_RECORD_ID_201"
+    assert photos[0].id == "ASSET_RECORD_ID_201"
     assert photos[0].filename == "all_photo.jpg"
 
 
@@ -1366,7 +1366,7 @@ def test_recently_added_feed_uses_added_index_and_fixture_response(
     assert posted["resultsLimit"] == RECENTLY_ADDED_QUERY_CORE["resultsLimit"]
     assert _payload_filter_map(posted) == RECENTLY_ADDED_QUERY_CORE["filters"]
     assert len(photos) == 1
-    assert photos[0].id == "MASTER_RECORD_ID_202"
+    assert photos[0].id == "ASSET_RECORD_ID_202"
     assert photos[0].filename == "recent_added.jpg"
 
 
@@ -1397,7 +1397,7 @@ def test_favorites_feed_uses_smart_album_filter_and_fixture_response(
     assert posted["resultsLimit"] == FAVORITES_QUERY_CORE["resultsLimit"]
     assert _payload_filter_map(posted) == FAVORITES_QUERY_CORE["filters"]
     assert len(photos) == 1
-    assert photos[0].id == "MASTER_RECORD_ID_203"
+    assert photos[0].id == "ASSET_RECORD_ID_203"
     assert photos[0].filename == "favorite_photo.jpg"
 
 
@@ -1419,7 +1419,7 @@ def test_process_photo_list_response_skips_missing_counterparts_fixture(
     photos = list(album._process_photo_list_response(MISSING_COUNTERPARTS_RESPONSE))
 
     assert len(photos) == 1
-    assert photos[0].id == "MASTER_MATCHED_001"
+    assert photos[0].id == "ASSET_MATCHED_001"
     assert photos[0].filename == "matched_photo.jpg"
 
 
@@ -1442,7 +1442,7 @@ def test_process_photo_list_response_maps_live_photo_fixture(
 
     assert len(photos) == 1
     photo = photos[0]
-    assert photo.id == "MASTER_RECORD_ID_204"
+    assert photo.id == "ASSET_RECORD_ID_204"
     assert photo.filename == "live_photo.HEIC"
     assert photo.item_type == "image"
     assert photo.is_live_photo is True
@@ -1471,7 +1471,7 @@ def test_process_photo_list_response_maps_video_only_fixture(
 
     assert len(photos) == 1
     photo = photos[0]
-    assert photo.id == "MASTER_RECORD_ID_205"
+    assert photo.id == "ASSET_RECORD_ID_205"
     assert photo.filename == "video_only.MOV"
     assert photo.item_type == "movie"
     assert photo.is_live_photo is False
@@ -1508,7 +1508,7 @@ def test_album_membership_feed_uses_container_relation_fixture(
     assert posted["resultsLimit"] == ALBUM_MEMBERSHIP_QUERY_CORE["resultsLimit"]
     assert _payload_filter_map(posted) == ALBUM_MEMBERSHIP_QUERY_CORE["filters"]
     assert len(photos) == 1
-    assert photos[0].id == "MASTER_RECORD_ID_206"
+    assert photos[0].id == "ASSET_RECORD_ID_206"
     assert photos[0].filename == "album_membership.jpg"
 
 
@@ -1819,7 +1819,7 @@ def test_shared_library_all_photos_feed_uses_captured_fixture() -> None:
     )
 
     assert len(photos) == 1
-    assert photos[0].id == "MASTER_RECORD_ID_111"
+    assert photos[0].id == "ASSET_RECORD_ID_111"
     assert photos[0].filename == "shared_library_photo.jpg"
     posted = _last_posted_json(service.session.post)
     assert (
@@ -1896,7 +1896,7 @@ def test_shared_library_favorites_feed_uses_captured_fixture() -> None:
 
     assert album._direction == DirectionEnum.DESCENDING
     assert len(photos) == 1
-    assert photos[0].id == "MASTER_RECORD_ID_110"
+    assert photos[0].id == "ASSET_RECORD_ID_110"
     assert photos[0].filename == "shared_favorite_photo.jpg"
     posted = _last_posted_json(service.session.post)
     assert (
@@ -2013,10 +2013,10 @@ def test_shared_library_all_photo_lookup_falls_back_to_scanning_feed() -> None:
         scope="shared-library",
     )
 
-    result = library.all.get("MASTER_RECORD_ID_111")
+    result = library.all.get("ASSET_RECORD_ID_111")
 
     assert result is not None
-    assert result.id == "MASTER_RECORD_ID_111"
+    assert result.id == "ASSET_RECORD_ID_111"
     assert result.filename == "shared_library_photo.jpg"
     assert mock_client.query.call_count == 3
     lookup_query = mock_client.query.call_args_list[1].kwargs["query"]
@@ -2087,10 +2087,10 @@ def test_private_library_all_photo_lookup_falls_back_to_scanning_feed() -> None:
         scope="private",
     )
 
-    result = library.all.get("MASTER_RECORD_ID_211")
+    result = library.all.get("ASSET_RECORD_ID_211")
 
     assert result is not None
-    assert result.id == "MASTER_RECORD_ID_211"
+    assert result.id == "ASSET_RECORD_ID_211"
     assert result.filename == "private_library_photo.jpg"
     assert mock_client.query.call_count == 4
     lookup_query = mock_client.query.call_args_list[2].kwargs["query"]
@@ -3947,7 +3947,7 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
     asset._library = refreshed_library
 
     assert asset.unfavorite() is True
-    refreshed_library.all.get.assert_called_once_with("MASTER_RECORD_ID_110")
+    refreshed_library.all.get.assert_called_once_with("ASSET_RECORD_ID_110")
     assert record_field_value(asset._asset_record, "isFavorite") == 0
     assert record_change_tag(asset._asset_record) == "RECORD_CHANGE_TAG_312"
 
@@ -5181,7 +5181,7 @@ def test_photo_album_get_photo_success_typed_client_uses_minimum_lookup_limit() 
         records=[
             _ck_record(
                 "CPLMaster",
-                "target_photo",
+                "master_target_photo",
                 {
                     "filenameEnc": {
                         "type": "ENCRYPTED_BYTES",
@@ -5192,12 +5192,12 @@ def test_photo_album_get_photo_success_typed_client_uses_minimum_lookup_limit() 
             ),
             _ck_record(
                 "CPLAsset",
-                "asset_photo",
+                "target_photo",
                 {
                     "masterRef": {
                         "type": "REFERENCE",
                         "value": {
-                            "recordName": "target_photo",
+                            "recordName": "master_target_photo",
                             "action": "DELETE_SELF",
                             "zoneID": PRIMARY_ZONE,
                         },
