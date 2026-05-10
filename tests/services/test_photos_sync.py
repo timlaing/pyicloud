@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import struct
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,16 +11,21 @@ from types import SimpleNamespace
 from typing import Optional
 from unittest.mock import patch
 
+import pytest
+
 from pyicloud.services.photos import (
     PhotoResource,
+    PhotosServiceException,
     PhotoSyncOptions,
     run_photo_sync,
     watch_photo_sync,
 )
+from pyicloud.services.photos_cloudkit import materialize as materialize_module
 from pyicloud.services.photos_cloudkit import sync as sync_module
 from pyicloud.services.photos_cloudkit.state import (
     MemoryPhotoSyncState,
     SQLitePhotoSyncState,
+    SyncedPhotoResource,
     create_photo_sync_state,
 )
 
@@ -132,7 +138,7 @@ class DummyAsset:
                 key="original",
                 filename=filename,
                 url=f"https://example.com/{asset_id}/original",
-                size=32,
+                size=len(f"{asset_id}:original".encode()),
                 type="public.jpeg",
                 checksum=f"checksum-{asset_id}",
             )
@@ -227,6 +233,80 @@ def test_run_photo_sync_downloads_and_persists_manifest() -> None:
         temp_dir.rmdir()
 
 
+def test_run_photo_sync_sanitizes_remote_filenames() -> None:
+    """Remote filenames must not escape the configured output directory."""
+
+    asset = DummyAsset("asset-escape", "../escape.jpg")
+    service = DummyService(DummyAlbum("All Photos", [asset]), cursor="cursor-escape")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-escape-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+        )
+
+        assert result.downloaded_count == 1
+        assert (output_dir / "escape.jpg").read_bytes() == b"asset-escape:original"
+        assert not (temp_dir / "escape.jpg").exists()
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            manifest = state.get_resource("asset-escape", "original")
+            assert manifest is not None
+            assert manifest.relative_path == "escape.jpg"
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_sanitizes_folder_structure_paths() -> None:
+    """Folder structure output should stay under the configured directory."""
+
+    asset = DummyAsset(
+        "asset-folder-escape",
+        "photo.jpg",
+        asset_date=datetime(2026, 4, 21, tzinfo=timezone.utc),
+    )
+    service = DummyService(
+        DummyAlbum("All Photos", [asset]), cursor="cursor-folder-escape"
+    )
+
+    temp_dir = Path(
+        tempfile.mkdtemp(prefix="photos-sync-folder-escape-", dir=TEST_BASE)
+    )
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                folder_structure="../{:%Y}/../../nested",
+            ),
+        )
+
+        assert result.downloaded_count == 1
+        assert (output_dir / "2026" / "nested" / "photo.jpg").exists()
+        assert not (temp_dir / "nested" / "photo.jpg").exists()
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            manifest = state.get_resource("asset-folder-escape", "original")
+            assert manifest is not None
+            assert manifest.relative_path == "2026/nested/photo.jpg"
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
 def test_run_photo_sync_auto_delete_removes_stale_files() -> None:
     """Auto-delete should remove previously tracked files absent from the latest run."""
 
@@ -259,6 +339,110 @@ def test_run_photo_sync_auto_delete_removes_stale_files() -> None:
         assert result.deleted_count == 1
         assert not (output_dir / "old.jpg").exists()
         assert (output_dir / "new.jpg").exists()
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_auto_delete_ignores_unsafe_stale_paths() -> None:
+    """Auto-delete must not remove paths outside the configured output directory."""
+
+    service = DummyService(DummyAlbum("All Photos", []), cursor="cursor-clean")
+
+    temp_dir = Path(
+        tempfile.mkdtemp(prefix="photos-sync-unsafe-delete-", dir=TEST_BASE)
+    )
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        output_dir.mkdir()
+        outside_path = temp_dir / "outside.jpg"
+        outside_path.write_bytes(b"keep")
+
+        options = PhotoSyncOptions(directory=output_dir, state_dir=state_dir)
+        with SQLitePhotoSyncState(options.state_path()) as state:
+            state.upsert_resource(
+                SyncedPhotoResource(
+                    asset_id="asset-stale",
+                    resource_key="original",
+                    relative_path="../outside.jpg",
+                    size=None,
+                    checksum=None,
+                    downloaded_at="2026-04-21T00:00:00+00:00",
+                )
+            )
+
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                auto_delete=True,
+            ),
+        )
+
+        assert outside_path.read_bytes() == b"keep"
+        assert result.deleted_count == 0
+        assert result.skipped_count == 1
+        assert result.items[0].reason == "unsafe-path"
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            assert state.get_resource("asset-stale", "original") is None
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_skips_resource_when_safe_target_path_rejects() -> None:
+    """Unexpected path validation failures should skip the resource and continue."""
+
+    service = DummyService(
+        DummyAlbum(
+            "All Photos",
+            [
+                DummyAsset("asset-unsafe", "unsafe.jpg"),
+                DummyAsset("asset-safe", "safe.jpg"),
+            ],
+        ),
+        cursor="cursor-path-validation",
+    )
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-path-reject-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        original_safe_target_path = sync_module._safe_target_path
+
+        def reject_one_path(directory: Path, relative_path: str) -> Path:
+            if relative_path == "unsafe.jpg":
+                raise PhotosServiceException("unsafe test path")
+            return original_safe_target_path(directory, relative_path)
+
+        with patch(
+            "pyicloud.services.photos_cloudkit.sync._safe_target_path",
+            side_effect=reject_one_path,
+        ):
+            result = run_photo_sync(
+                service,
+                PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+            )
+
+        assert result.skipped_count == 1
+        assert result.downloaded_count == 1
+        assert any(item.reason == "unsafe-path" for item in result.items)
+        assert not (output_dir / "unsafe.jpg").exists()
+        assert (output_dir / "safe.jpg").exists()
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            assert state.get_sync_cursor() is None
+            assert state.get_resource("asset-unsafe", "original") is None
+            assert state.get_resource("asset-safe", "original") is not None
     finally:
         for path in sorted(temp_dir.rglob("*"), reverse=True):
             if path.is_file():
@@ -328,7 +512,7 @@ def test_run_photo_sync_auto_delete_continues_when_unlink_fails() -> None:
 
 
 def test_run_photo_sync_dry_run_does_not_create_state() -> None:
-    """Preview-only sync runs should avoid creating a new SQLite state file."""
+    """Preview-only sync runs should avoid creating output directories or state."""
 
     service = DummyService(
         DummyAlbum("All Photos", [DummyAsset("asset-1", "preview.jpg")]),
@@ -345,6 +529,7 @@ def test_run_photo_sync_dry_run_does_not_create_state() -> None:
         )
 
         assert result.listed_count == 1
+        assert not output_dir.exists()
         assert not (output_dir / "preview.jpg").exists()
         assert not Path(result.state_path).exists()
     finally:
@@ -354,6 +539,63 @@ def test_run_photo_sync_dry_run_does_not_create_state() -> None:
             elif path.is_dir():
                 path.rmdir()
         temp_dir.rmdir()
+
+
+def test_run_photo_sync_only_print_does_not_create_output_or_state() -> None:
+    """Filename-only previews should leave the filesystem untouched."""
+
+    service = DummyService(
+        DummyAlbum("All Photos", [DummyAsset("asset-1", "preview.jpg")]),
+        cursor="cursor-print-preview",
+    )
+
+    temp_dir = Path(
+        tempfile.mkdtemp(prefix="photos-sync-print-preview-", dir=TEST_BASE)
+    )
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        result = run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=output_dir,
+                state_dir=state_dir,
+                only_print_filenames=True,
+            ),
+        )
+
+        assert result.listed_count == 1
+        assert not output_dir.exists()
+        assert not Path(result.state_path).exists()
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_rejects_remote_delete_with_until_found() -> None:
+    """Remote deletion must not combine with partial until-found scans."""
+
+    service = DummyService(
+        DummyAlbum("All Photos", [DummyAsset("asset-1", "photo.jpg")]),
+        cursor="cursor-until-delete",
+    )
+
+    with pytest.raises(
+        PhotosServiceException,
+        match="--keep-icloud-recent-days cannot be combined with --until-found",
+    ):
+        run_photo_sync(
+            service,
+            PhotoSyncOptions(
+                directory=Path("/tmp/unused"),
+                keep_icloud_recent_days=0,
+                until_found=1,
+            ),
+        )
 
 
 def test_run_photo_sync_live_photos_respect_video_flags() -> None:
@@ -439,6 +681,53 @@ def test_watch_photo_sync_repeats_runs_and_sleeps_between_iterations() -> None:
         assert results[1].downloaded_count == 0
         assert results[1].short_circuited is True
         assert slept == [7]
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_run_photo_sync_short_circuit_validates_tracked_file_size() -> None:
+    """A matching cursor should not hide a truncated tracked local file."""
+
+    payload = b"complete-image-bytes"
+    asset = DummyAsset(
+        "asset-sized",
+        "photo.jpg",
+        payloads={"original": payload},
+        resources={
+            "original": PhotoResource(
+                key="original",
+                filename="photo.jpg",
+                url="https://example.com/sized/original",
+                size=len(payload),
+                type="public.jpeg",
+            )
+        },
+    )
+    service = DummyService(DummyAlbum("All Photos", [asset]), cursor="cursor-sized")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-sized-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        first = run_photo_sync(
+            service,
+            PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+        )
+        (output_dir / "photo.jpg").write_bytes(b"bad")
+        second = run_photo_sync(
+            service,
+            PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+        )
+
+        assert first.downloaded_count == 1
+        assert second.short_circuited is False
+        assert second.downloaded_count == 1
+        assert (output_dir / "photo.jpg").read_bytes() == payload
     finally:
         for path in sorted(temp_dir.rglob("*"), reverse=True):
             if path.is_file():
@@ -553,6 +842,7 @@ def test_run_photo_sync_sets_exif_datetime_for_jpegs_without_exif() -> None:
     asset = DummyAsset(
         "asset-exif",
         "photo.jpg",
+        asset_date=datetime(2026, 4, 21, tzinfo=timezone.utc),
         payloads={"original": MINIMAL_JPEG},
     )
     service = DummyService(DummyAlbum("All Photos", [asset]), cursor="cursor-exif")
@@ -582,6 +872,54 @@ def test_run_photo_sync_sets_exif_datetime_for_jpegs_without_exif() -> None:
             elif path.is_dir():
                 path.rmdir()
         temp_dir.rmdir()
+
+
+def test_set_exif_datetime_preserves_asset_wall_clock_timezone() -> None:
+    """EXIF insertion should not convert asset timestamps to the local timezone."""
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-exif-tz-", dir=TEST_BASE))
+    try:
+        path = temp_dir / "photo.jpg"
+        path.write_bytes(MINIMAL_JPEG)
+        taken_at = datetime(
+            2026,
+            1,
+            1,
+            23,
+            30,
+            tzinfo=timezone(timedelta(hours=-5)),
+        )
+
+        materialize_module.set_exif_datetime_if_missing(path, taken_at)
+
+        assert b"2026:01:01 23:30:00" in path.read_bytes()
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
+def test_jpeg_has_exif_datetime_reads_big_endian_ifd_offsets() -> None:
+    """Big-endian EXIF payloads should be inspected without inserting duplicates."""
+
+    timestamp = b"2026:04:21 12:34:56\x00"
+    tiff = (
+        b"MM"
+        + struct.pack(">H", 42)
+        + struct.pack(">I", 8)
+        + struct.pack(">H", 1)
+        + struct.pack(">HHII", 0x0132, 2, len(timestamp), 26)
+        + struct.pack(">I", 0)
+        + timestamp
+    )
+    payload = b"Exif\x00\x00" + tiff
+    segment = b"\xff\xe1" + struct.pack(">H", len(payload) + 2) + payload
+    jpeg_bytes = b"\xff\xd8" + segment + b"\xff\xd9"
+
+    assert materialize_module._jpeg_has_exif_datetime(jpeg_bytes) is True
 
 
 def test_apply_local_metadata_skips_mutations_for_preview_modes() -> None:
@@ -666,6 +1004,8 @@ def test_run_photo_sync_recent_uses_asset_date_when_added_date_missing() -> None
         asset_date=datetime.now(timezone.utc) - timedelta(days=10),
         added_date=None,
     )
+    recent_asset.added_date = None
+    old_asset.added_date = None
     service = DummyService(
         DummyAlbum("All Photos", [recent_asset, old_asset]),
         cursor="cursor-recent-fallback",

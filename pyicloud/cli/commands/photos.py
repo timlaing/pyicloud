@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from itertools import islice
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -933,27 +934,32 @@ def photos_watch(
             state.write_json(payloads)
             return
 
-        next_iteration = 1
-        watch_payloads = _iter_photo_watch_results(
-            api=api,
-            photos=photos,
-            options=options,
-            interval_seconds=interval,
-            iterations=iterations,
-        )
-        while True:
+        completed_iterations = 0
+        while iterations is None or completed_iterations < iterations:
+            next_iteration = completed_iterations + 1
+            if completed_iterations > 0:
+                _print_photo_watch_wait(
+                    state,
+                    interval_seconds=interval,
+                    next_iteration=next_iteration,
+                    iterations=iterations,
+                )
+                time.sleep(interval)
+                state.console.print()
             _print_photo_watch_start(
                 state,
                 iteration=next_iteration,
                 interval_seconds=interval,
                 iterations=iterations,
             )
-            try:
-                payload = next(watch_payloads)
-            except StopIteration:
-                return
-            if payload["iteration"] > 1:
-                state.console.print()
+            sync_result = service_call(
+                "Photos",
+                lambda: photos.sync(options),
+                account_name=api.account_name,
+            )
+            completed_iterations += 1
+            payload = normalize_photo_sync_result(sync_result)
+            payload["iteration"] = completed_iterations
             if only_print_filenames:
                 if iterations is None or (iterations and iterations > 1):
                     state.console.print(f"run {payload['iteration']}")
@@ -965,15 +971,6 @@ def photos_watch(
                     payload,
                     title=f"Photo Watch Run {payload['iteration']}",
                 )
-            next_iteration = payload["iteration"] + 1
-            if iterations is not None and payload["iteration"] >= iterations:
-                return
-            _print_photo_watch_wait(
-                state,
-                interval_seconds=interval,
-                next_iteration=next_iteration,
-                iterations=iterations,
-            )
     except PhotosServiceException as err:
         raise CLIAbort(str(err)) from err
     except KeyboardInterrupt as err:

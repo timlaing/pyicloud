@@ -50,6 +50,7 @@ from pyicloud.services.photos import (
     SmartPhotoAlbum,
 )
 from pyicloud.services.photos_cloudkit.mappers import (
+    decode_encrypted_text,
     record_change_tag,
     record_field_value,
 )
@@ -119,6 +120,19 @@ SHARED_LIBRARY_ZONE_CHANGES_RESPONSE = json.loads(
         encoding="utf-8"
     )
 )
+
+
+def test_decode_encrypted_text_returns_predecoded_unicode() -> None:
+    """Already-decoded non-ASCII text should not fail ASCII coercion."""
+
+    record = {
+        "recordName": "asset-1",
+        "fields": {"captionEnc": {"value": "\u2603"}},
+    }
+
+    assert decode_encrypted_text(record, "captionEnc") == "\u2603"
+
+
 SHARED_LIBRARY_UNFAVORITE_REQUEST = json.loads(
     (FIXTURE_DIR / "photos_shared_library_unfavorite_request.json").read_text(
         encoding="utf-8"
@@ -2245,6 +2259,7 @@ def test_legacy_photos_service_libraries_propagate_upload_url() -> None:
 
     libraries = service.libraries
 
+    assert session.post.call_args_list[0].kwargs["params"] == service.params
     assert libraries["root"]._upload_url == "https://upload.example.com"
     assert libraries["CustomZone"]._upload_url == "https://upload.example.com"
 
@@ -2434,10 +2449,11 @@ def test_photo_album_fullname_with_parent() -> None:
     """Tests fullname property when album has a parent."""
     mock_photo_library: MagicMock = MagicMock(spec=PhotoLibrary)
     parent_album = MagicMock()
+    parent_album.id = "parent123"
     parent_album.fullname = "Parent Album"
 
     mock_albums = MagicMock()
-    mock_albums.__getitem__.return_value = parent_album
+    mock_albums.get.return_value = parent_album
     mock_photo_library.albums = mock_albums
 
     album = PhotoAlbum(
@@ -2452,7 +2468,56 @@ def test_photo_album_fullname_with_parent() -> None:
     )
 
     assert album.fullname == "Parent Album/Child Album"
-    mock_albums.__getitem__.assert_called_once_with("parent123")
+    mock_albums.get.assert_called_once_with("parent123")
+
+
+def test_photo_album_fullname_missing_parent_falls_back_to_name() -> None:
+    """Malformed parent references should not make album names unreadable."""
+
+    mock_photo_library: MagicMock = MagicMock(spec=PhotoLibrary)
+    mock_photo_library.albums = AlbumContainer()
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Child Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        parent_id="missing-parent",
+    )
+
+    assert album.fullname == "Child Album"
+
+
+def test_photo_album_fullname_cycle_falls_back_without_recursing() -> None:
+    """Malformed cyclic parent graphs should not recurse forever."""
+
+    mock_photo_library: MagicMock = MagicMock(spec=PhotoLibrary)
+    parent_album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Parent Album",
+        record_id="parent123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        parent_id="child123",
+    )
+    child_album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Child Album",
+        record_id="child123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        parent_id="parent123",
+    )
+    mock_photo_library.albums = AlbumContainer([parent_album, child_album])
+
+    assert child_album.fullname == "Parent Album/Child Album"
 
 
 def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
@@ -2623,6 +2688,80 @@ def test_legacy_photo_album_rename_raises_for_error_payload() -> None:
 
     assert album.name == "Old Name"
     assert album._record_change_tag == "tag123"
+
+
+def test_legacy_photo_album_fullname_missing_parent_falls_back_to_name() -> None:
+    """Malformed legacy parent references should not raise KeyError."""
+
+    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library.albums = LegacyAlbumContainer()
+
+    album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Child Album",
+        record_id="child123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        parent_id="missing-parent",
+    )
+
+    assert album.fullname == "Child Album"
+
+
+def test_legacy_photo_album_fullname_cycle_falls_back_without_recursing() -> None:
+    """Malformed legacy cyclic parent graphs should not recurse forever."""
+
+    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    parent_album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Parent Album",
+        record_id="parent123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        parent_id="child123",
+    )
+    child_album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Child Album",
+        record_id="child123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        parent_id="parent123",
+    )
+    mock_photo_library.albums = LegacyAlbumContainer([parent_album, child_album])
+
+    assert child_album.fullname == "Parent Album/Child Album"
+
+
+def test_legacy_photo_album_get_len_returns_zero_for_malformed_response() -> None:
+    """Malformed legacy count payloads should not abort album iteration."""
+
+    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library.service = MagicMock()
+    mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
+    mock_photo_library.service.params = {"dsid": "12345"}
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(return_value={"batch": []})
+    )
+
+    album = LegacyPhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        zone_id={"zoneName": "TestZone"},
+    )
+
+    assert album._get_len() == 0
 
 
 def test_photo_album_delete_success(mock_photo_library: MagicMock) -> None:
@@ -3066,6 +3205,31 @@ def test_photo_album_get_len(mock_photo_library: MagicMock) -> None:
         json=expected_json,
         headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
     )
+
+
+def test_photo_album_get_len_returns_zero_for_malformed_legacy_response(
+    mock_photo_library: MagicMock,
+) -> None:
+    """Malformed legacy count payloads should not escape as indexing errors."""
+
+    mock_photo_library.service.session.post.return_value.json.return_value = {
+        "batch": []
+    }
+    mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
+    mock_photo_library.service.params = {"dsid": "12345"}
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Test Album",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        zone_id={"zoneName": "TestZone"},
+    )
+
+    assert album._get_len() == 0
 
 
 def test_photo_album_get_payload(mock_photo_library: MagicMock) -> None:

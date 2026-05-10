@@ -152,7 +152,7 @@ class FakePhoto:
         self.created = datetime(2026, 3, 1, tzinfo=timezone.utc)
         self.asset_date = self.created
         self.added_date = self.created
-        self.size = 1234
+        self.size = len(f"{photo_id}:original".encode())
         self.dimensions = (1920, 1080)
         self.is_live_photo = False
         self.resources = {
@@ -3398,24 +3398,29 @@ def test_photos_watch_command_reports_progress_in_text_mode() -> None:
     output_dir = TEST_ROOT / "photos-watch-progress-output"
     state_dir = TEST_ROOT / "photos-watch-progress-state"
 
-    result = _invoke(
-        fake_api,
-        "photos",
-        "watch",
-        "--directory",
-        str(output_dir),
-        "--state-dir",
-        str(state_dir),
-        "--interval",
-        "1",
-        "--iterations",
-        "2",
-    )
+    with patch("pyicloud.cli.commands.photos.time.sleep") as sleep:
+        result = _invoke(
+            fake_api,
+            "photos",
+            "watch",
+            "--directory",
+            str(output_dir),
+            "--state-dir",
+            str(state_dir),
+            "--interval",
+            "1",
+            "--iterations",
+            "2",
+        )
 
     assert result.exit_code == 0
     assert "Starting photo watch run 1 of 2" in result.stdout
     assert "Waiting 1s before photo watch run 2 of 2" in result.stdout
     assert "Starting photo watch run 2 of 2" in result.stdout
+    assert result.stdout.index(
+        "Waiting 1s before photo watch run 2 of 2"
+    ) < result.stdout.index("Starting photo watch run 2 of 2")
+    sleep.assert_called_once_with(1)
     assert "Photo Watch Run 1" in result.stdout
     assert "Photo Watch Run 2" in result.stdout
 

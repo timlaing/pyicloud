@@ -103,7 +103,7 @@ def set_exif_datetime_if_missing(path: Path, taken_at: datetime) -> None:
 
     updated = _insert_exif_datetime_segment(
         jpeg_bytes=data,
-        timestamp=taken_at.astimezone().strftime("%Y:%m:%d %H:%M:%S"),
+        timestamp=taken_at.strftime("%Y:%m:%d %H:%M:%S"),
     )
     if updated is None:
         LOGGER.debug("Failed to update EXIF datetime on %s", path)
@@ -413,7 +413,13 @@ def _jpeg_has_exif_datetime(jpeg_bytes: bytes) -> bool:
     if exif_payload is None:
         return False
 
-    parsed = _parse_tiff_ifd(exif_payload, _read_uint32(exif_payload, 4, b"<"))
+    byte_order = _tiff_byte_order(exif_payload)
+    if byte_order is None:
+        return False
+    ifd0_offset = _read_uint32(exif_payload, 4, byte_order)
+    if ifd0_offset is None:
+        return False
+    parsed = _parse_tiff_ifd(exif_payload, ifd0_offset)
     if parsed is None:
         return False
     _, ifd0 = parsed
@@ -454,6 +460,16 @@ def _extract_exif_payload(jpeg_bytes: bytes) -> bytes | None:
         ):
             return jpeg_bytes[payload_start + 6 : payload_end]
         index = payload_end
+    return None
+
+
+def _tiff_byte_order(exif_payload: bytes) -> bytes | None:
+    if len(exif_payload) < 2:
+        return None
+    if exif_payload[:2] == b"II":
+        return b"<"
+    if exif_payload[:2] == b"MM":
+        return b">"
     return None
 
 

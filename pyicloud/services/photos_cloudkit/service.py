@@ -1281,9 +1281,20 @@ class PhotoAlbum(BasePhotoAlbum):
 
     @property
     def fullname(self) -> str:
-        if self._parent_id is not None:
-            return f"{self._library.albums[self._parent_id].fullname}/{self.name}"
-        return self.name
+        return self._fullname(seen=set())
+
+    def _fullname(self, *, seen: set[str]) -> str:
+        if self.id in seen or self._parent_id is None:
+            return self.name
+        seen.add(self.id)
+        parent = self._library.albums.get(self._parent_id)
+        if parent is None or parent.id in seen:
+            return self.name
+        if isinstance(parent, PhotoAlbum):
+            parent_fullname = parent._fullname(seen=seen)
+        else:
+            parent_fullname = parent.fullname
+        return f"{parent_fullname}/{self.name}" if parent_fullname else self.name
 
     def rename(self, value: str) -> None:
         if self._name == value:
@@ -1508,7 +1519,18 @@ class PhotoAlbum(BasePhotoAlbum):
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
-            return response["batch"][0]["records"][0]["fields"]["itemCount"]["value"]
+            try:
+                return int(
+                    response["batch"][0]["records"][0]["fields"]["itemCount"]["value"]
+                )
+            except (IndexError, KeyError, TypeError, ValueError):
+                LOGGER.debug(
+                    "Unexpected Photos count response for %s: %r",
+                    self._get_container_id,
+                    response,
+                    exc_info=True,
+                )
+                return 0
         return self._client.batch_count(
             container_id=self._get_container_id,
             zone_id=self._zone_id,

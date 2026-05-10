@@ -26,7 +26,10 @@ def decode_encrypted_text(record: CKRecord, field_name: str) -> str | None:
     if isinstance(value, bytes):
         raw = value
     elif isinstance(value, str):
-        raw = value.encode("ascii")
+        try:
+            raw = value.encode("ascii")
+        except UnicodeEncodeError:
+            return value
     else:
         return None
 
