@@ -400,6 +400,58 @@ def test_run_photo_sync_auto_delete_ignores_unsafe_stale_paths() -> None:
         temp_dir.rmdir()
 
 
+def test_run_photo_sync_skips_resource_when_safe_target_path_rejects() -> None:
+    """Unexpected path validation failures should skip the resource and continue."""
+
+    service = DummyService(
+        DummyAlbum(
+            "All Photos",
+            [
+                DummyAsset("asset-unsafe", "unsafe.jpg"),
+                DummyAsset("asset-safe", "safe.jpg"),
+            ],
+        ),
+        cursor="cursor-path-validation",
+    )
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="photos-sync-path-reject-", dir=TEST_BASE))
+    try:
+        output_dir = temp_dir / "output"
+        state_dir = temp_dir / "state"
+        original_safe_target_path = sync_module._safe_target_path
+
+        def reject_one_path(directory: Path, relative_path: str) -> Path:
+            if relative_path == "unsafe.jpg":
+                raise PhotosServiceException("unsafe test path")
+            return original_safe_target_path(directory, relative_path)
+
+        with patch(
+            "pyicloud.services.photos_cloudkit.sync._safe_target_path",
+            side_effect=reject_one_path,
+        ):
+            result = run_photo_sync(
+                service,
+                PhotoSyncOptions(directory=output_dir, state_dir=state_dir),
+            )
+
+        assert result.skipped_count == 1
+        assert result.downloaded_count == 1
+        assert any(item.reason == "unsafe-path" for item in result.items)
+        assert not (output_dir / "unsafe.jpg").exists()
+        assert (output_dir / "safe.jpg").exists()
+        with SQLitePhotoSyncState(Path(result.state_path)) as state:
+            assert state.get_sync_cursor() is None
+            assert state.get_resource("asset-unsafe", "original") is None
+            assert state.get_resource("asset-safe", "original") is not None
+    finally:
+        for path in sorted(temp_dir.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                path.rmdir()
+        temp_dir.rmdir()
+
+
 def test_run_photo_sync_auto_delete_continues_when_unlink_fails() -> None:
     """Auto-delete should skip locked files without corrupting sync state."""
 

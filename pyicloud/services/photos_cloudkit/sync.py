@@ -288,7 +288,29 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                 reserved_paths.add(relative_path)
                 current_entries.add((asset.id, resource_key))
                 asset_paths.append(relative_path)
-                target_path = _safe_target_path(options.directory, relative_path)
+                try:
+                    target_path = _safe_target_path(options.directory, relative_path)
+                except PhotosServiceException as exc:
+                    _LOGGER.warning(
+                        "Skipping resource with unsafe path '%s' under '%s': %s",
+                        relative_path,
+                        options.directory,
+                        exc,
+                    )
+                    result.items.append(
+                        PhotoSyncItem(
+                            asset_id=asset.id,
+                            resource_key=resource_key,
+                            path=relative_path,
+                            action="skipped",
+                            reason="unsafe-path",
+                        )
+                    )
+                    result.skipped_count += 1
+                    asset_ready_for_delete = False
+                    consecutive_seen = 0
+                    sync_complete = False
+                    continue
                 manifest = state.get_resource(asset.id, resource_key)
                 if _is_current_file(target_path, manifest, resource, relative_path):
                     result.items.append(

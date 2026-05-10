@@ -318,6 +318,7 @@ def test_download_asset_bytes_redacts_signed_url_in_debug_log(caplog) -> None:
     messages = "\n".join(record.getMessage() for record in caplog.records)
     assert "CloudKit asset GET <redacted>" in messages
     assert signed_url not in messages
+    assert "dsid=12345" not in messages
     assert "token=secret" not in messages
 
 
