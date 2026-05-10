@@ -1668,7 +1668,7 @@ class PhotoAsset:
     @property
     def id(self) -> str:
         """Gets the photo id."""
-        return self._master_record["recordName"]
+        return self._asset_record["recordName"]
 
     @property
     def filename(self) -> str:

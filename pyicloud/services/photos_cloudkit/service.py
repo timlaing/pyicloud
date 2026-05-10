@@ -1692,11 +1692,11 @@ class PhotoAsset:
 
     @property
     def id(self) -> str:
-        return record_name(self._master_record)
+        return record_name(self._asset_record)
 
     @property
-    def asset_id(self) -> str:
-        return record_name(self._asset_record)
+    def master_id(self) -> str:
+        return record_name(self._master_record)
 
     @property
     def filename(self) -> str:

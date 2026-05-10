@@ -218,7 +218,7 @@ def normalize_photo_sync_item(item: Any) -> dict[str, Any]:
     """Normalize one photo sync action item."""
 
     return {
-        "asset_id": getattr(item, "asset_id", None),
+        "id": getattr(item, "id", None),
         "resource_key": getattr(item, "resource_key", None),
         "path": getattr(item, "path", None),
         "action": getattr(item, "action", None),
