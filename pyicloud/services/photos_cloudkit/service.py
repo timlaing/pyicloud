@@ -1692,6 +1692,10 @@ class PhotoAsset:
 
     @property
     def id(self) -> str:
+        return record_name(self._asset_record)
+
+    @property
+    def master_id(self) -> str:
         return record_name(self._master_record)
 
     @property

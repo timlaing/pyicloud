@@ -2903,82 +2903,6 @@ def test_notes_commands_report_reauthentication_and_unavailability() -> None:
     )
 
 
-def test_reminders_core_commands() -> None:
-    """Reminders core commands should expose list, detail, mutation, and sync flows."""
-
-    fake_api = FakeAPI()
-
-    lists_result = _invoke(fake_api, "reminders", "lists")
-    assert lists_result.exit_code == 0
-    assert "Inbox" in lists_result.stdout
-    assert "blue (#007AFF)" in lists_result.stdout
-
-    list_result = _invoke(fake_api, "reminders", "list", output_format="json")
-    list_payload = json.loads(list_result.stdout)
-    assert list_result.exit_code == 0
-    assert [row["id"] for row in list_payload] == ["Reminder/A", "Reminder/C"]
-    assert all(not row["completed"] for row in list_payload)
-
-    completed_result = _invoke(
-        fake_api,
-        "reminders",
-        "list",
-        "--list-id",
-        "INBOX",
-        "--include-completed",
-        output_format="json",
-    )
-    completed_payload = json.loads(completed_result.stdout)
-    assert completed_result.exit_code == 0
-    assert [row["id"] for row in completed_payload] == ["Reminder/A", "Reminder/B"]
-    assert fake_api.reminders.snapshot_requests[-1]["list_id"] == "List/INBOX"
-
-    get_result = _invoke(fake_api, "reminders", "get", "Reminder/A")
-    assert get_result.exit_code == 0
-    assert "Parent Reminder" in get_result.stdout
-
-    create_result = _invoke(
-        fake_api,
-        "reminders",
-        "create",
-        "--list-id",
-        "INBOX",
-        "--title",
-        "Call mom",
-        "--desc",
-        "Saturday",
-        "--priority",
-        "9",
-        "--flagged",
-        "--all-day",
-        output_format="json",
-    )
-    create_payload = json.loads(create_result.stdout)
-    created_id = create_payload["id"]
-    assert create_result.exit_code == 0
-    assert create_payload["list_id"] == "List/INBOX"
-    assert create_payload["flagged"] is True
-    assert create_payload["all_day"] is True
-
-    update_result = _invoke(
-        fake_api,
-        "reminders",
-        "update",
-        "Reminder/A",
-        "--title",
-        "Buy oat milk",
-        "--not-flagged",
-        "--clear-time-zone",
-        "--clear-parent-reminder",
-        output_format="json",
-    )
-    update_payload = json.loads(update_result.stdout)
-    assert update_result.exit_code == 0
-    assert update_payload["title"] == "Buy oat milk"
-    assert update_payload["flagged"] is False
-    assert update_payload["time_zone"] is None
-    assert update_payload["parent_reminder_id"] is None
-
 def test_photos_extended_commands() -> None:
     """Photos commands should expose library, detail, change, and cursor views."""
 
@@ -3536,6 +3460,113 @@ def test_photos_sync_cursor_missing_library() -> None:
 def test_drive_missing_paths_report_cli_abort() -> None:
     """Drive commands should collapse missing path lookups into CLIAbort errors."""
 
+    fake_api = FakeAPI()
+    output_path = TEST_ROOT / "missing.txt"
+
+    list_result = _invoke(fake_api, "drive", "list", "/missing")
+    download_result = _invoke(
+        fake_api,
+        "drive",
+        "download",
+        "/missing",
+        "--output",
+        str(output_path),
+    )
+
+    assert list_result.exit_code != 0
+    assert list_result.exception.args[0] == "Path not found: /missing"
+    assert download_result.exit_code != 0
+    assert download_result.exception.args[0] == "Path not found: /missing"
+
+
+def test_reminders_core_commands() -> None:
+    """Reminders core commands should expose list, detail, mutation, and sync flows."""
+
+    fake_api = FakeAPI()
+
+    lists_result = _invoke(fake_api, "reminders", "lists")
+    assert lists_result.exit_code == 0
+    assert "Inbox" in lists_result.stdout
+    assert "blue (#007AFF)" in lists_result.stdout
+
+    list_result = _invoke(fake_api, "reminders", "list", output_format="json")
+    list_payload = json.loads(list_result.stdout)
+    assert list_result.exit_code == 0
+    assert [row["id"] for row in list_payload] == ["Reminder/A", "Reminder/C"]
+    assert all(not row["completed"] for row in list_payload)
+
+    completed_result = _invoke(
+        fake_api,
+        "reminders",
+        "list",
+        "--list-id",
+        "INBOX",
+        "--include-completed",
+        output_format="json",
+    )
+    completed_payload = json.loads(completed_result.stdout)
+    assert completed_result.exit_code == 0
+    assert [row["id"] for row in completed_payload] == ["Reminder/A", "Reminder/B"]
+    assert fake_api.reminders.snapshot_requests[-1]["list_id"] == "List/INBOX"
+
+    get_result = _invoke(fake_api, "reminders", "get", "Reminder/A")
+    assert get_result.exit_code == 0
+    assert "Parent Reminder" in get_result.stdout
+
+    create_result = _invoke(
+        fake_api,
+        "reminders",
+        "create",
+        "--list-id",
+        "INBOX",
+        "--title",
+        "Call mom",
+        "--desc",
+        "Saturday",
+        "--priority",
+        "9",
+        "--flagged",
+        "--all-day",
+        output_format="json",
+    )
+    create_payload = json.loads(create_result.stdout)
+    created_id = create_payload["id"]
+    assert create_result.exit_code == 0
+    assert create_payload["list_id"] == "List/INBOX"
+    assert create_payload["flagged"] is True
+    assert create_payload["all_day"] is True
+
+    update_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--title",
+        "Buy oat milk",
+        "--not-flagged",
+        "--clear-time-zone",
+        "--clear-parent-reminder",
+        output_format="json",
+    )
+    update_payload = json.loads(update_result.stdout)
+    assert update_result.exit_code == 0
+    assert update_payload["title"] == "Buy oat milk"
+    assert update_payload["flagged"] is False
+    assert update_payload["time_zone"] is None
+    assert update_payload["parent_reminder_id"] is None
+
+    status_result = _invoke(
+        fake_api,
+        "reminders",
+        "set-status",
+        "Reminder/A",
+        "--completed",
+        output_format="json",
+    )
+    status_payload = json.loads(status_result.stdout)
+    assert status_result.exit_code == 0
+    assert status_payload["completed"] is True
+
     snapshot_result = _invoke(
         fake_api,
         "reminders",
@@ -3644,21 +3675,14 @@ def test_reminders_subgroup_commands() -> None:
     assert hashtag_list_result.exit_code == 0
     assert hashtag_list_payload[0]["id"] == "Hashtag/ERRANDS"
 
-    photo_album = FakePhotoAlbum("All Photos", [BrokenPhoto("photo-1", "img.jpg")])
-    fake_api = FakeAPI()
-    root_library = FakePhotoLibrary(
-        key="root",
-        scope="private",
-        zone_name="PrimarySync",
-        sync_cursor="photo-sync-root",
-        all_album=photo_album,
-        albums=FakeAlbumContainer([photo_album]),
-        changes=[],
-    )
-    fake_api.photos = SimpleNamespace(
-        libraries={"root": root_library},
-        albums=root_library.albums,
-        all=root_library.all,
+    hashtag_create_result = _invoke(
+        fake_api,
+        "reminders",
+        "hashtag",
+        "create",
+        "Reminder/C",
+        "home",
+        output_format="json",
     )
     hashtag_create_payload = json.loads(hashtag_create_result.stdout)
     hashtag_suffix = hashtag_create_payload["id"].split("/", 1)[1]
