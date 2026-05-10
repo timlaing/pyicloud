@@ -127,10 +127,10 @@ def test_decode_encrypted_text_returns_predecoded_unicode() -> None:
 
     record = {
         "recordName": "asset-1",
-        "fields": {"captionEnc": {"value": "Caf\u00e9"}},
+        "fields": {"captionEnc": {"value": "\u2603"}},
     }
 
-    assert decode_encrypted_text(record, "captionEnc") == "Caf\u00e9"
+    assert decode_encrypted_text(record, "captionEnc") == "\u2603"
 
 
 SHARED_LIBRARY_UNFAVORITE_REQUEST = json.loads(
