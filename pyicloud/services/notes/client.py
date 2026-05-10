@@ -34,6 +34,8 @@ from pyicloud.common.cloudkit import (
     resolve_cloudkit_validation_extra,
 )
 
+from ._constants import NOTES_ZONE_REQ
+
 LOGGER = logging.getLogger(__name__)
 _ResponseModelT = TypeVar("_ResponseModelT")
 DEFAULT_TIMEOUT = (10.0, 60.0)
@@ -299,7 +301,7 @@ class CloudKitNotesClient:
             records=[
                 CKLookupDescriptor(recordName=str(rn)) for rn in record_names_list
             ],
-            zoneID=CKZoneIDReq(zoneName="Notes"),
+            zoneID=NOTES_ZONE_REQ,
             desiredKeys=desired_keys,
         )
         payload = req.model_dump(exclude_none=True)

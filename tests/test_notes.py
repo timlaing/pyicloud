@@ -66,6 +66,17 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(summary.model_dump()["id"], "note-1")
         self.assertEqual(attachment_id.model_dump()["type_uti"], "public.jpeg")
 
+    def test_notes_cloudkit_models_module_is_compatibility_shim(self):
+        """Older Notes CloudKit model imports resolve to the common models."""
+        import pyicloud.services.notes.models.cloudkit as notes_cloudkit
+
+        self.assertIs(notes_cloudkit.CKRecord, CKRecord)
+        self.assertEqual(notes_cloudkit.CKRecordType.Note.value, "Note")
+        self.assertEqual(
+            notes_cloudkit.CKDesiredKey.TITLE_ENCRYPTED.value,
+            "TitleEncrypted",
+        )
+
     def test_note_has_attachments_is_in_model_dump(self):
         note = Note(
             id="note-1",

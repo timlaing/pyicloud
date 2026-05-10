@@ -1545,20 +1545,6 @@ class PhotoAlbum(BasePhotoAlbum):
         _ = (offset, direction)
         return list(self._extra_filters)
 
-    def _get_payload(
-        self,
-        offset: int,
-        page_size: int,
-        direction: DirectionEnum,
-    ) -> dict[str, Any]:
-        return self._list_query_gen(
-            offset=offset,
-            list_type=self._list_type,
-            direction=direction,
-            num_results=page_size,
-            query_filters=self._query_filters(offset=offset, direction=direction),
-        )
-
     def _get_photo_payload(self, photo_id: str) -> dict[str, Any]:
         query_filters = self._query_filters(offset=0, direction=DirectionEnum.ASCENDING)
         query_filters.append(_record_name_filter(photo_id))
