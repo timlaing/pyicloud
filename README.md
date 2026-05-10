@@ -1,4 +1,4 @@
-# pyiCloud
+# PyiCloud
 
 ![Build Status](https://github.com/timlaing/pyicloud/actions/workflows/tests.yml/badge.svg)
 [![Library version](https://img.shields.io/pypi/v/pyicloud)](https://pypi.org/project/pyicloud)
@@ -32,10 +32,14 @@ For support and discussions, join our Discord community: [Join our Discord commu
 Install the library and CLI with:
 
 ```console
-pip install pyicloud
+$ pip install "pyicloud[cli]"
 ```
 
-This installs the `icloud` command line interface alongside the Python package.
+This installs the `icloud` command line interface alongside the Python package. To install the library on its own run pip without the `cli` extra.
+
+```console
+$ pip install pyicloud
+```
 
 ## Authentication
 

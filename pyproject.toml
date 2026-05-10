@@ -121,4 +121,4 @@ include = ["pyicloud*"]
 [tool.setuptools.dynamic]
 readme = {file = "README.md", content-type = "text/markdown"}
 dependencies = {file = ["requirements.txt"]}
-optional-dependencies = {test = {file = ["requirements_test.txt"]}}
+optional-dependencies = { test = { file = ["requirements_test.txt", "requirements_cli.txt"] }, cli = { file = ["requirements_cli.txt"] } }
