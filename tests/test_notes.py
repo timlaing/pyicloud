@@ -6,12 +6,13 @@ import tempfile
 import unittest
 from datetime import datetime
 from typing import Annotated
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 from pydantic import BaseModel, BeforeValidator, ValidationError
 
 from pyicloud.common.cloudkit import CKLookupResponse
 from pyicloud.common.cloudkit.base import resolve_cloudkit_validation_extra
+from pyicloud.common.cloudkit.client import redact_cloudkit_url
 from pyicloud.common.cloudkit.models import (
     CKParticipant,
     CKParticipantProtectionInfo,
@@ -27,9 +28,6 @@ from pyicloud.services.notes.client import (
     NotesApiError,
 )
 from pyicloud.services.notes.client import NotesError as ClientNotesError
-from pyicloud.services.notes.client import (
-    _CloudKitClient,
-)
 from pyicloud.services.notes.rendering.exporter import decode_and_parse_note, write_html
 from pyicloud.services.notes.service import NoteNotFound
 
@@ -149,22 +147,23 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_notes_client_uses_bounded_timeouts(self):
         session = MagicMock()
-        session.post.return_value = MagicMock(status_code=200, json=lambda: {})
+        session.post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"records": []},
+        )
         session.get.return_value = MagicMock(
             status_code=200, iter_content=lambda **_: []
         )
-        client = _CloudKitClient("https://example.com", session, {})
+        client = CloudKitNotesClient("https://example.com", session, {})
 
-        client.post("/records/query", {"query": "payload"})
-        list(client.get_stream("https://example.com/asset"))
+        client.lookup(["Note/1"], desired_keys=None)
+        list(client.download_asset_stream("https://example.com/asset"))
 
         self.assertEqual(session.post.call_args.kwargs["timeout"], (10.0, 60.0))
         self.assertEqual(session.get.call_args.kwargs["timeout"], (10.0, 60.0))
 
     def test_notes_client_redacts_query_strings_in_logs(self):
-        redacted = _CloudKitClient._redact_url(
-            "https://example.com/path?token=secret&x=1#frag"
-        )
+        redacted = redact_cloudkit_url("https://example.com/path?token=secret&x=1#frag")
         self.assertEqual(redacted, "https://example.com/path")
 
     def test_notes_client_strict_mode_wraps_validation_error(self):
@@ -185,6 +184,98 @@ class NotesServiceTest(unittest.TestCase):
 
         self.assertEqual(ctx.exception.payload, payload)
         self.assertIsInstance(ctx.exception.__cause__, ValidationError)
+
+    def test_notes_client_debug_validation_logging_is_preserved(self):
+        session = MagicMock()
+        payload = {"records": [], "unexpectedTopLevel": {"present": True}}
+        session.post.return_value = MagicMock(status_code=200, json=lambda: payload)
+        client = CloudKitNotesClient(
+            "https://example.com",
+            session,
+            {},
+            validation_extra="forbid",
+        )
+
+        with (
+            patch.dict(os.environ, {"PYICLOUD_NOTES_DEBUG": "1"}, clear=False),
+            patch("os.makedirs"),
+            patch("builtins.open", mock_open()) as mocked_open,
+            self.assertRaises(NotesApiError),
+        ):
+            client.lookup(["Note/1"], desired_keys=None)
+
+        opened_paths = [call.args[0] for call in mocked_open.call_args_list]
+        self.assertTrue(
+            any(
+                path.endswith("_records.lookup_validation.json")
+                for path in opened_paths
+            )
+        )
+
+    def test_notes_client_debug_hook_writes_http_dumps(self):
+        session = MagicMock()
+        payload = {"reason": "bad request"}
+        session.post.return_value = MagicMock(
+            status_code=400,
+            headers={},
+            json=lambda: payload,
+            text="bad request",
+        )
+        client = CloudKitNotesClient(
+            "https://example.com",
+            session,
+            {"remapEnums": True},
+        )
+
+        with (
+            patch.dict(os.environ, {"PYICLOUD_NOTES_DEBUG": "1"}, clear=False),
+            patch("os.makedirs"),
+            patch("builtins.open", mock_open()) as mocked_open,
+            self.assertRaises(NotesApiError),
+        ):
+            client.lookup(["Note/1"], desired_keys=None)
+
+        opened_paths = [call.args[0] for call in mocked_open.call_args_list]
+        self.assertTrue(
+            any(
+                path.endswith("_records.lookup_http_request.json")
+                for path in opened_paths
+            )
+        )
+        self.assertTrue(
+            any(
+                path.endswith("_records.lookup_http_response.txt")
+                for path in opened_paths
+            )
+        )
+
+    def test_notes_client_current_sync_token_falls_back_to_changes(self):
+        session = MagicMock()
+        session.post.side_effect = [
+            MagicMock(status_code=200, json=lambda: {"records": []}),
+            MagicMock(
+                status_code=200,
+                json=lambda: {
+                    "zones": [
+                        {
+                            "zoneID": {
+                                "zoneName": "Notes",
+                                "zoneType": "REGULAR_CUSTOM_ZONE",
+                            },
+                            "records": [],
+                            "syncToken": "tok-changes",
+                            "moreComing": False,
+                        }
+                    ]
+                },
+            ),
+        ]
+        client = CloudKitNotesClient("https://example.com", session, {})
+
+        token = client.current_sync_token(zone_name="Notes")
+
+        self.assertEqual(token, "tok-changes")
+        self.assertEqual(session.post.call_count, 2)
 
     def test_notes_client_explicit_override_wins_over_env(self):
         session = MagicMock()

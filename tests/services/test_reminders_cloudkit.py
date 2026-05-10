@@ -48,7 +48,6 @@ from pyicloud.services.reminders._protocol import (
 from pyicloud.services.reminders.client import (
     CloudKitRemindersClient,
     RemindersApiError,
-    _CloudKitClient,
 )
 from pyicloud.services.reminders.models import (
     Alarm,
@@ -267,12 +266,15 @@ def test_mapper_asset_backed_list_membership_download():
 
 def test_cloudkit_client_uses_bounded_timeouts():
     session = MagicMock()
-    session.post.return_value = MagicMock(status_code=200, json=lambda: {})
+    session.post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {"records": []},
+    )
     session.get.return_value = MagicMock(status_code=200, content=b"asset-bytes")
-    client = _CloudKitClient("https://ckdatabasews.icloud.com", session, {})
+    client = CloudKitRemindersClient("https://ckdatabasews.icloud.com", session, {})
 
-    client.post("/records/query", {"query": "payload"})
-    client.get_bytes("https://example.test/asset")
+    client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
+    client.download_asset_bytes("https://example.test/asset")
 
     assert session.post.call_args.kwargs["timeout"] == (10.0, 60.0)
     assert session.get.call_args.kwargs["timeout"] == (10.0, 60.0)
@@ -317,6 +319,22 @@ def test_reminders_client_strict_mode_wraps_validation_error():
 
     assert excinfo.value.payload == payload
     assert isinstance(excinfo.value.__cause__, ValidationError)
+
+
+def test_reminders_client_preserves_429_as_api_error():
+    session = MagicMock()
+    payload = {"reason": "rate limited"}
+    session.post.return_value = MagicMock(
+        status_code=429,
+        headers={"Retry-After": "2.5"},
+        json=lambda: payload,
+    )
+    client = CloudKitRemindersClient("https://example.com", session, {})
+
+    with pytest.raises(RemindersApiError, match="HTTP 429") as excinfo:
+        client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
+
+    assert excinfo.value.payload == payload
 
 
 def test_reminders_client_current_sync_token_uses_query_sync_token():
