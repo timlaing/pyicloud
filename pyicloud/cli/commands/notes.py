@@ -11,6 +11,7 @@ import typer
 
 from pyicloud.cli.context import CLIAbort, get_state, service_call
 from pyicloud.cli.normalize import (
+    normalize_sync_cursor,
     search_notes_by_title,
     select_recent_notes,
 )
@@ -537,6 +538,6 @@ def notes_sync_cursor(
     notes = _notes_service(api)
     cursor = _notes_call(api, lambda: notes.sync_cursor())
     if state.json_output:
-        state.write_json({"cursor": cursor})
+        state.write_json(normalize_sync_cursor(cursor))
         return
     state.console.print(cursor)

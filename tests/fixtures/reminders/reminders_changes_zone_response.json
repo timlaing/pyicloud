@@ -1,0 +1,52 @@
+{
+  "zones": [
+    {
+      "zoneID": {
+        "zoneName": "Reminders",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "syncToken": "reminders-zone-sync-token-fixture",
+      "moreComing": false,
+      "records": [
+        {
+          "recordName": "Reminder/REM-FIXTURE",
+          "recordType": "Reminder",
+          "recordChangeTag": "reminder-change-tag-fixture",
+          "fields": {
+            "TitleDocument": {
+              "type": "ENCRYPTED_BYTES",
+              "value": "eJzjYBCS4GAQYJASEhJwy6woKS1KVQhKzc3MS0ktAgBBdwbW"
+            },
+            "List": {
+              "type": "REFERENCE",
+              "value": {
+                "recordName": "List/LIST-A",
+                "action": "VALIDATE"
+              }
+            },
+            "Completed": {
+              "type": "INT64",
+              "value": 0
+            },
+            "Deleted": {
+              "type": "INT64",
+              "value": 0
+            },
+            "Flagged": {
+              "type": "INT64",
+              "value": 0
+            },
+            "AllDay": {
+              "type": "INT64",
+              "value": 0
+            },
+            "Priority": {
+              "type": "INT64",
+              "value": 0
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

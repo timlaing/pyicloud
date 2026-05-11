@@ -1,0 +1,32 @@
+{
+  "records": [
+    {
+      "recordName": "List/LIST-A",
+      "recordType": "List",
+      "recordChangeTag": "list-change-tag-fixture",
+      "zoneID": {
+        "zoneName": "Reminders",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "fields": {
+        "Name": {
+          "type": "STRING",
+          "value": "Synthetic List"
+        },
+        "Count": {
+          "type": "INT64",
+          "value": 1
+        },
+        "Deleted": {
+          "type": "INT64",
+          "value": 0
+        },
+        "ReminderIDs": {
+          "type": "STRING",
+          "value": "[\"REM-FIXTURE\"]"
+        }
+      }
+    }
+  ],
+  "syncToken": "reminders-query-lists-sync-token-fixture"
+}

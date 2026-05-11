@@ -247,6 +247,14 @@ def normalize_photo_sync_result(result: Any) -> dict[str, Any]:
     }
 
 
+def normalize_sync_cursor(cursor: str, **metadata: Any) -> dict[str, Any]:
+    """Normalize sync cursor command output."""
+
+    payload = dict(metadata)
+    payload["sync_cursor"] = cursor
+    return payload
+
+
 def normalize_alias(alias: dict[str, Any]) -> dict[str, Any]:
     """Normalize a Hide My Email alias."""
 

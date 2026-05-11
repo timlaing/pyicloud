@@ -35,14 +35,13 @@ from pyicloud.common.cloudkit import (
     CKReference,
     CKTombstoneRecord,
     CKZoneChangesZoneReq,
-    CKZoneID,
-    CKZoneIDReq,
     CloudKitExtraMode,
 )
 from pyicloud.common.cloudkit.models import CKReferenceField, CKReferenceListField
 from pyicloud.services.base import BaseService
 from pyicloud.services.notes.decoding import BodyDecoder
 
+from ._constants import NOTES_ZONE, NOTES_ZONE_NAME, NOTES_ZONE_REQ
 from .client import (
     CloudKitNotesClient,
     NotesApiError,
@@ -157,7 +156,7 @@ class NotesService(BaseService):
                 return
             resp: CKQueryResponse = self._raw.query(
                 query=query,
-                zone_id=CKZoneIDReq(zoneName="Notes"),
+                zone_id=NOTES_ZONE_REQ,
                 desired_keys=self._coerce_keys(desired_keys),
                 results_limit=min(200, remaining),
                 continuation=cont,
@@ -223,7 +222,7 @@ class NotesService(BaseService):
         LOGGER.debug("Iterating all notes%s", f" since={since}" if since else "")
         for zone in self._raw.changes(
             zone_req=CKZoneChangesZoneReq(
-                zoneID=CKZoneID(zoneName="Notes", zoneType="REGULAR_CUSTOM_ZONE"),
+                zoneID=NOTES_ZONE,
                 desiredRecordTypes=[NotesRecordType.Note],
                 desiredKeys=self._coerce_keys(
                     [
@@ -270,7 +269,7 @@ class NotesService(BaseService):
         while True:
             resp: CKQueryResponse = self._raw.query(
                 query=query,
-                zone_id=CKZoneIDReq(zoneName="Notes"),
+                zone_id=NOTES_ZONE_REQ,
                 desired_keys=self._coerce_keys(desired_keys),
                 results_limit=200,
                 continuation=cont,
@@ -313,7 +312,7 @@ class NotesService(BaseService):
         )
         for zone in self._raw.changes(
             zone_req=CKZoneChangesZoneReq(
-                zoneID=CKZoneID(zoneName="Notes", zoneType="REGULAR_CUSTOM_ZONE"),
+                zoneID=NOTES_ZONE,
                 desiredRecordTypes=[NotesRecordType.Note],
                 desiredKeys=self._coerce_keys(
                     [
@@ -363,28 +362,18 @@ class NotesService(BaseService):
         LOGGER.debug(
             "Fetching note: note_id=%s with_attachments=%s", note_id, with_attachments
         )
-        resp: CKLookupResponse = self._raw.lookup(
-            record_names=[note_id],
-            desired_keys=self._coerce_keys(
-                [
-                    NotesDesiredKey.TITLE_ENCRYPTED,
-                    NotesDesiredKey.SNIPPET_ENCRYPTED,
-                    NotesDesiredKey.MODIFICATION_DATE,
-                    NotesDesiredKey.DELETED,
-                    NotesDesiredKey.FOLDER,
-                    NotesDesiredKey.ATTACHMENTS,
-                    "TextDataEncrypted",  # may or may not be present
-                ]
-            ),
+        target = self._lookup_note_record(
+            note_id,
+            desired_keys=[
+                NotesDesiredKey.TITLE_ENCRYPTED,
+                NotesDesiredKey.SNIPPET_ENCRYPTED,
+                NotesDesiredKey.MODIFICATION_DATE,
+                NotesDesiredKey.DELETED,
+                NotesDesiredKey.FOLDER,
+                NotesDesiredKey.ATTACHMENTS,
+                "TextDataEncrypted",  # may or may not be present
+            ],
         )
-        target: Optional[CKRecord] = None
-        for rec in resp.records:
-            if isinstance(rec, CKRecord) and rec.recordName == note_id:
-                target = rec
-                break
-        if target is None:
-            LOGGER.warning("Note not found: %s", note_id)
-            raise NoteNotFound(f"Note not found: {note_id}")
 
         summary = self._summary_from_record(target)
         if summary.is_locked:
@@ -444,7 +433,7 @@ class NotesService(BaseService):
         ``iter_changes(since=...)`` on a later run to perform incremental syncs.
         """
         LOGGER.debug("Fetching sync cursor for Notes zone")
-        return self._raw.current_sync_token(zone_name="Notes")
+        return self._raw.current_sync_token(zone_name=NOTES_ZONE_NAME)
 
     def export_note(self, note_id: str, output_dir: str, **config_kwargs) -> str:
         """
@@ -465,14 +454,7 @@ class NotesService(BaseService):
             By default, this produces archival output: a full HTML page with
             local asset downloads.
         """
-        resp = self._raw.lookup([note_id])
-        target = None
-        for rec in resp.records:
-            if isinstance(rec, CKRecord) and rec.recordName == note_id:
-                target = rec
-                break
-        if not target:
-            raise NoteNotFound(f"Note not found: {note_id}")
+        target = self._lookup_note_record(note_id)
 
         # Lazy import to avoid circular dependency
         from .rendering.exporter import NoteExporter
@@ -498,14 +480,7 @@ class NotesService(BaseService):
             An HTML fragment string. This method does not download assets or
             write files to disk.
         """
-        resp = self._raw.lookup([note_id])
-        target = None
-        for rec in resp.records:
-            if isinstance(rec, CKRecord) and rec.recordName == note_id:
-                target = rec
-                break
-        if not target:
-            raise NoteNotFound(f"Note not found: {note_id}")
+        target = self._lookup_note_record(note_id)
 
         from .rendering.exporter import build_datasource, decode_and_parse_note
         from .rendering.options import ExportConfig
@@ -534,7 +509,7 @@ class NotesService(BaseService):
         LOGGER.debug("Iterating changes%s", f" since={since}" if since else "")
         for zone in self._raw.changes(
             zone_req=CKZoneChangesZoneReq(
-                zoneID=CKZoneID(zoneName="Notes", zoneType="REGULAR_CUSTOM_ZONE"),
+                zoneID=NOTES_ZONE,
                 desiredRecordTypes=[NotesRecordType.Note],
                 desiredKeys=self._coerce_keys(
                     [
@@ -622,10 +597,28 @@ class NotesService(BaseService):
             return False
 
         try:
-            return self._raw.current_sync_token(zone_name="Notes") == since
+            return self._raw.current_sync_token(zone_name=NOTES_ZONE_NAME) == since
         except NotesApiError as exc:
             LOGGER.warning("Failed to preflight Notes sync token: %s", exc)
             return False
+
+    def _lookup_note_record(
+        self,
+        note_id: str,
+        *,
+        desired_keys: Optional[Iterable[object]] = None,
+    ) -> CKRecord:
+        """Return one Notes record or raise ``NoteNotFound``."""
+        resp = self._raw.lookup(
+            record_names=[note_id],
+            desired_keys=self._coerce_keys(desired_keys),
+        )
+        for rec in resp.records:
+            if isinstance(rec, CKRecord) and rec.recordName == note_id:
+                return rec
+
+        LOGGER.warning("Note not found: %s", note_id)
+        raise NoteNotFound(f"Note not found: {note_id}")
 
     @staticmethod
     def _coerce_keys(keys: Optional[Iterable[object]]) -> Optional[List[str]]:

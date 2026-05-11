@@ -17,6 +17,7 @@ from pyicloud.cli.normalize import (
     normalize_photo_details,
     normalize_photo_library,
     normalize_photo_sync_result,
+    normalize_sync_cursor,
 )
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
@@ -543,7 +544,7 @@ def photos_sync_cursor(
         lambda: library_obj.sync_cursor(),
         account_name=api.account_name,
     )
-    payload = {"library": library, "sync_cursor": cursor}
+    payload = normalize_sync_cursor(cursor, library=library)
     if state.json_output:
         state.write_json(payload)
         return

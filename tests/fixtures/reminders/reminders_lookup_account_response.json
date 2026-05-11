@@ -1,0 +1,20 @@
+{
+  "records": [
+    {
+      "recordName": "Account/ACCOUNT-FIXTURE",
+      "recordType": "Account",
+      "recordChangeTag": "account-change-tag-fixture",
+      "zoneID": {
+        "zoneName": "Reminders",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "fields": {
+        "Name": {
+          "type": "STRING",
+          "value": "Synthetic Account"
+        }
+      }
+    }
+  ],
+  "syncToken": "reminders-lookup-account-sync-token-fixture"
+}

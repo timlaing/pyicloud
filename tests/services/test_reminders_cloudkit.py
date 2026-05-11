@@ -9,6 +9,7 @@ import base64
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -48,7 +49,6 @@ from pyicloud.services.reminders._protocol import (
 from pyicloud.services.reminders.client import (
     CloudKitRemindersClient,
     RemindersApiError,
-    _CloudKitClient,
 )
 from pyicloud.services.reminders.models import (
     Alarm,
@@ -66,6 +66,15 @@ from pyicloud.services.reminders.models import (
     URLAttachment,
 )
 from pyicloud.services.reminders.service import RemindersService
+
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
+REMINDERS_FIXTURE_DIR = FIXTURE_DIR / "reminders"
+
+
+def load_reminders_fixture(name):
+    """Load a synthetic Reminders CloudKit fixture."""
+    return json.loads((REMINDERS_FIXTURE_DIR / name).read_text(encoding="utf-8"))
+
 
 # ---------------------------------------------------------------------------
 # Fixture: a stubbed RemindersService (no network, just parsing)
@@ -267,12 +276,15 @@ def test_mapper_asset_backed_list_membership_download():
 
 def test_cloudkit_client_uses_bounded_timeouts():
     session = MagicMock()
-    session.post.return_value = MagicMock(status_code=200, json=lambda: {})
+    session.post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: load_reminders_fixture("reminders_lookup_account_response.json"),
+    )
     session.get.return_value = MagicMock(status_code=200, content=b"asset-bytes")
-    client = _CloudKitClient("https://ckdatabasews.icloud.com", session, {})
+    client = CloudKitRemindersClient("https://ckdatabasews.icloud.com", session, {})
 
-    client.post("/records/query", {"query": "payload"})
-    client.get_bytes("https://example.test/asset")
+    client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
+    client.download_asset_bytes("https://example.test/asset")
 
     assert session.post.call_args.kwargs["timeout"] == (10.0, 60.0)
     assert session.get.call_args.kwargs["timeout"] == (10.0, 60.0)
@@ -287,9 +299,13 @@ def test_resolve_cloudkit_validation_extra_honors_explicit_override(monkeypatch)
 def test_reminders_client_allows_unexpected_fields_by_default(monkeypatch):
     monkeypatch.delenv("PYICLOUD_CK_EXTRA", raising=False)
     session = MagicMock()
+    payload = {
+        **load_reminders_fixture("reminders_lookup_account_response.json"),
+        "unexpectedTopLevel": {"present": True},
+    }
     session.post.return_value = MagicMock(
         status_code=200,
-        json=lambda: {"records": [], "unexpectedTopLevel": {"present": True}},
+        json=lambda: payload,
     )
     client = CloudKitRemindersClient("https://example.com", session, {})
 
@@ -301,7 +317,10 @@ def test_reminders_client_allows_unexpected_fields_by_default(monkeypatch):
 
 def test_reminders_client_strict_mode_wraps_validation_error():
     session = MagicMock()
-    payload = {"records": [], "unexpectedTopLevel": {"present": True}}
+    payload = {
+        **load_reminders_fixture("reminders_lookup_account_response.json"),
+        "unexpectedTopLevel": {"present": True},
+    }
     session.post.return_value = MagicMock(status_code=200, json=lambda: payload)
     client = CloudKitRemindersClient(
         "https://example.com",
@@ -319,17 +338,31 @@ def test_reminders_client_strict_mode_wraps_validation_error():
     assert isinstance(excinfo.value.__cause__, ValidationError)
 
 
+def test_reminders_client_preserves_429_as_api_error():
+    session = MagicMock()
+    payload = {"reason": "rate limited"}
+    session.post.return_value = MagicMock(status_code=429, json=lambda: payload)
+    client = CloudKitRemindersClient("https://example.com", session, {})
+
+    with pytest.raises(RemindersApiError, match="HTTP 429") as excinfo:
+        client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
+
+    assert excinfo.value.payload == payload
+
+
 def test_reminders_client_current_sync_token_uses_query_sync_token():
     session = MagicMock()
     session.post.return_value = MagicMock(
         status_code=200,
-        json=lambda: {"records": [], "syncToken": "tok-query"},
+        json=lambda: load_reminders_fixture(
+            "reminders_current_sync_token_query_response.json"
+        ),
     )
     client = CloudKitRemindersClient("https://example.com", session, {})
 
     token = client.current_sync_token(zone_id=CKZoneIDReq(zoneName="Reminders"))
 
-    assert token == "tok-query"
+    assert token == "reminders-current-sync-token-fixture"
     query_payload = session.post.call_args.kwargs["json"]
     assert query_payload["query"]["recordType"] == "reminderList"
     assert query_payload["resultsLimit"] == 1
@@ -642,6 +675,18 @@ class TestRecordToList:
         assert lst.color == "#FF6600"
         assert lst.count == 16
         assert lst.is_group is False
+
+    def test_fixture_list_query_record(self, service):
+        response = CKQueryResponse.model_validate(
+            load_reminders_fixture("reminders_query_lists_response.json")
+        )
+
+        lst = service._record_to_list(response.records[0])
+
+        assert lst.id == "List/LIST-A"
+        assert lst.title == "Synthetic List"
+        assert lst.count == 1
+        assert lst.reminder_ids == ["REM-FIXTURE"]
 
     def test_list_untitled(self, service):
         rec = _ck_record("List", "LIST-002", {})
@@ -2433,6 +2478,24 @@ class TestReminderReadPaths:
         assert set(result.hashtags.keys()) == {"Hashtag/TAG-A"}
         assert set(result.recurrence_rules.keys()) == {"RecurrenceRule/RR-A"}
 
+    def test_list_reminders_maps_fixture_query_response(self):
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.query.return_value = CKQueryResponse.model_validate(
+            load_reminders_fixture("reminders_query_reminders_response.json")
+        )
+
+        result = svc.list_reminders(list_id=self.LIST_A, include_completed=True)
+
+        assert isinstance(result, ListRemindersResult)
+        assert len(result.reminders) == 1
+        reminder = result.reminders[0]
+        assert reminder.id == "Reminder/REM-FIXTURE"
+        assert reminder.title == "Fixture Reminder"
+        assert reminder.desc == "Fixture notes"
+        assert reminder.list_id == self.LIST_A
+        assert reminder.due_date is not None
+
     def test_list_reminders_paginates_query_results(self):
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
@@ -2883,6 +2946,21 @@ class TestReminderDeltaSync:
         zone_req = svc._raw.changes.call_args.kwargs["zone_req"]
         assert zone_req.syncToken == "tok-0"
         assert zone_req.desiredRecordTypes == ["Reminder"]
+
+    def test_iter_changes_maps_fixture_zone_response(self):
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse.model_validate(
+            load_reminders_fixture("reminders_changes_zone_response.json")
+        )
+
+        out = list(svc.iter_changes(since="tok-0"))
+
+        assert len(out) == 1
+        assert out[0].type == "updated"
+        assert out[0].reminder_id == "Reminder/REM-FIXTURE"
+        assert out[0].reminder is not None
+        assert out[0].reminder.title == "Fixture Reminder"
 
     def test_iter_changes_paginates(self):
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})

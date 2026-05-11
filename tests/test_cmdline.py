@@ -2830,6 +2830,10 @@ def test_notes_commands() -> None:
     assert cursor_result.exit_code == 0
     assert cursor_result.stdout.strip() == "notes-cursor-1"
 
+    cursor_json_result = _invoke(fake_api, "notes", "sync-cursor", output_format="json")
+    assert cursor_json_result.exit_code == 0
+    assert json.loads(cursor_json_result.stdout)["sync_cursor"] == "notes-cursor-1"
+
 
 def test_notes_search_uses_recents_first_and_fallback() -> None:
     """Notes search should probe recents first, fall back to iter_all, and dedupe."""
@@ -3609,6 +3613,12 @@ def test_reminders_core_commands() -> None:
     cursor_result = _invoke(fake_api, "reminders", "sync-cursor")
     assert cursor_result.exit_code == 0
     assert cursor_result.stdout.strip() == "reminders-cursor-1"
+
+    cursor_json_result = _invoke(
+        fake_api, "reminders", "sync-cursor", output_format="json"
+    )
+    assert cursor_json_result.exit_code == 0
+    assert json.loads(cursor_json_result.stdout)["sync_cursor"] == "reminders-cursor-1"
 
     delete_result = _invoke(
         fake_api,

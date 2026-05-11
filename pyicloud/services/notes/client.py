@@ -11,31 +11,33 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Dict, Iterable, Iterator, List, Optional, TypeVar
-from urllib.parse import urlsplit, urlunsplit
+from typing import Dict, Iterable, Iterator, List, NoReturn, Optional
 
 from pydantic import ValidationError
 
 from pyicloud.common.cloudkit import (
     CKFVString,
-    CKLookupDescriptor,
-    CKLookupRequest,
     CKLookupResponse,
     CKQueryFilterBy,
     CKQueryObject,
-    CKQueryRequest,
     CKQueryResponse,
-    CKZoneChangesRequest,
-    CKZoneChangesResponse,
     CKZoneChangesZone,
     CKZoneChangesZoneReq,
+    CKZoneID,
     CKZoneIDReq,
     CloudKitExtraMode,
-    resolve_cloudkit_validation_extra,
+)
+from pyicloud.common.cloudkit.client import (
+    CloudKitApiError,
+    CloudKitAuthError,
+    CloudKitContainerClient,
+    CloudKitRateLimited,
+    redact_cloudkit_url,
 )
 
+from ._constants import NOTES_ZONE_REQ
+
 LOGGER = logging.getLogger(__name__)
-_ResponseModelT = TypeVar("_ResponseModelT")
 DEFAULT_TIMEOUT = (10.0, 60.0)
 
 
@@ -66,157 +68,6 @@ class NotesApiError(NotesError):
         self.payload = payload
 
 
-# ------------------------------- Transport -----------------------------------
-
-
-class _CloudKitClient:
-    """
-    Minimal HTTP transport:
-      - JSON requests via `json=payload`
-      - Lowercase boolean query params
-      - Bounded debug dumps (PYICLOUD_DEBUG_MAX_BYTES)
-    """
-
-    def __init__(
-        self,
-        base_url: str,
-        session,
-        base_params: Dict[str, object],
-        *,
-        timeout: tuple[float, float] = DEFAULT_TIMEOUT,
-    ):
-        self._base_url = base_url.rstrip("/")
-        self._session = session
-        self._params = self._normalize_params(base_params or {})
-        self._timeout = timeout
-        LOGGER.debug("Initialized _CloudKitClient with base_url: %s", self._base_url)
-
-    @staticmethod
-    def _normalize_params(params: Dict[str, object]) -> Dict[str, str]:
-        out: Dict[str, str] = {}
-        for k, v in params.items():
-            if isinstance(v, bool):
-                out[k] = "true" if v else "false"
-            else:
-                out[k] = str(v)
-        return out
-
-    def _build_url(self, path: str) -> str:
-        from urllib.parse import urlencode
-
-        q = urlencode(self._params)
-        return f"{self._base_url}{path}" + (f"?{q}" if q else "")
-
-    @staticmethod
-    def _redact_url(url: str) -> str:
-        parts = urlsplit(url)
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
-
-    def post(self, path: str, payload: Dict) -> Dict:
-        url = self._build_url(path)
-        redacted_url = self._redact_url(url)
-        LOGGER.info("POST to %s", redacted_url)
-        resp = self._session.post(url, json=payload, timeout=self._timeout)
-        code = getattr(resp, "status_code", 0)
-        LOGGER.debug("POST to %s returned status %d", redacted_url, code)
-        if code >= 400:
-            self._dump_http_debug(path.strip("/"), url, payload, resp)
-            if code in (401, 403):
-                LOGGER.error(
-                    "POST to %s failed with auth error: %d", redacted_url, code
-                )
-                raise NotesAuthError(f"HTTP {code}: unauthorized")
-            if code == 429:
-                retry_after = None
-                try:
-                    hdr = resp.headers.get("Retry-After")
-                    if hdr:
-                        retry_after = float(hdr)
-                except Exception:
-                    retry_after = None
-                LOGGER.warning(
-                    "POST to %s was rate-limited. Retry after: %s",
-                    redacted_url,
-                    retry_after,
-                )
-                raise NotesRateLimited(
-                    "HTTP 429: rate limited", retry_after=retry_after
-                )
-            # Try to include server json error if possible
-            try:
-                body = resp.json()
-            except Exception:
-                body = getattr(resp, "text", None)
-            LOGGER.error("POST to %s failed with code %d", redacted_url, code)
-            raise NotesApiError(f"HTTP {code}", payload=body)
-        try:
-            json_response = resp.json()
-            LOGGER.debug("Successfully parsed JSON response from %s", redacted_url)
-            return json_response
-        except Exception:
-            self._dump_http_debug(path.strip("/"), url, payload, resp)
-            LOGGER.error("Failed to parse JSON response from %s", redacted_url)
-            raise NotesApiError(
-                "Invalid JSON response", payload=getattr(resp, "text", None)
-            )
-
-    @staticmethod
-    def _dump_http_debug(op: str, url: str, payload: Dict, resp) -> None:
-        if not os.getenv("PYICLOUD_NOTES_DEBUG"):
-            return
-        ts = __import__("time").strftime("%Y%m%d-%H%M%S")
-        out_dir = os.path.join("workspace", "notes_debug")
-        try:
-            os.makedirs(out_dir, exist_ok=True)
-        except Exception:
-            return
-        # Request
-        req_path = os.path.join(out_dir, f"{ts}_{op}_http_request.json")
-        try:
-            with open(req_path, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"url": url, "payload": payload}, f, ensure_ascii=False, indent=2
-                )
-        except Exception:
-            pass
-        # Response
-        res_path = os.path.join(out_dir, f"{ts}_{op}_http_response.txt")
-        try:
-            status = getattr(resp, "status_code", None)
-            headers = getattr(resp, "headers", {})
-            body_text = None
-            try:
-                body_text = resp.text
-            except Exception:
-                body_text = None
-            with open(res_path, "w", encoding="utf-8") as f:
-                f.write(f"status={status}\nurl={url}\nheaders={dict(headers)}\n\n")
-                if body_text:
-                    max_bytes = int(os.getenv("PYICLOUD_DEBUG_MAX_BYTES", "524288"))
-                    if len(body_text) > max_bytes:
-                        f.write(body_text[:max_bytes] + "\n[truncated]\n")
-                    else:
-                        f.write(body_text)
-        except Exception:
-            pass
-
-    # Simple helpers for assets (streaming GET)
-    def get_stream(self, url: str, chunk_size: int = 65536) -> Iterator[bytes]:
-        redacted_url = self._redact_url(url)
-        LOGGER.info("GET stream from %s", redacted_url)
-        resp = self._session.get(url, stream=True, timeout=self._timeout)
-        code = getattr(resp, "status_code", 0)
-        if code >= 400:
-            self._dump_http_debug("asset_get", url, {}, resp)
-            LOGGER.error("GET stream from %s failed with code %d", redacted_url, code)
-            raise NotesApiError(
-                f"HTTP {code} on asset GET", payload=getattr(resp, "text", None)
-            )
-        for chunk in resp.iter_content(chunk_size=chunk_size):
-            if chunk:
-                yield chunk
-
-
 # ------------------------------ Raw client -----------------------------------
 
 
@@ -239,22 +90,37 @@ class CloudKitNotesClient:
         validation_extra: CloudKitExtraMode | None = None,
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
     ):
-        self._http = _CloudKitClient(
+        self._client = CloudKitContainerClient(
             base_url,
             session,
             base_params,
+            validation_extra=validation_extra,
             timeout=timeout,
+            bool_param_style="lower",
+            redact_urls=True,
+            debug_hook=self._dump_http_debug,
         )
         self._validation_extra = validation_extra
         LOGGER.info("CloudKitNotesClient initialized.")
 
-    def _validate_response(
-        self, model_cls: type[_ResponseModelT], data: Dict
-    ) -> _ResponseModelT:
-        return model_cls.model_validate(
-            data,
-            extra=resolve_cloudkit_validation_extra(self._validation_extra),
-        )
+    @staticmethod
+    def _raise_notes_error(exc: Exception) -> NoReturn:
+        cause = exc.__cause__ or exc
+        if isinstance(exc, CloudKitAuthError):
+            raise NotesAuthError(str(exc)) from cause
+        if isinstance(exc, CloudKitRateLimited):
+            raise NotesRateLimited(str(exc), retry_after=exc.retry_after) from cause
+        if isinstance(exc, CloudKitApiError):
+            raise NotesApiError(str(exc), payload=exc.payload) from cause
+        raise
+
+    def _log_cloudkit_validation(self, op: str, exc: Exception) -> bool:
+        if isinstance(exc, CloudKitApiError) and isinstance(
+            exc.__cause__, ValidationError
+        ):
+            self._log_validation(op, exc.payload or {}, exc.__cause__)
+            return True
+        return False
 
     # ----- Query -----
 
@@ -268,22 +134,20 @@ class CloudKitNotesClient:
         continuation: Optional[str] = None,
     ) -> CKQueryResponse:
         LOGGER.info("Executing query for recordType: %s", query.recordType)
-        payload = CKQueryRequest(
-            query=query,
-            zoneID=zone_id,
-            desiredKeys=desired_keys,
-            resultsLimit=results_limit,
-            continuationMarker=continuation,
-        ).model_dump(exclude_none=True)
-        data = self._http.post("/records/query", payload)
         try:
-            resp = self._validate_response(CKQueryResponse, data)
+            resp = self._client.query(
+                query=query,
+                zone_id=zone_id,
+                desired_keys=desired_keys,
+                results_limit=results_limit,
+                continuation=continuation,
+            )
             LOGGER.info("Query returned %d records.", len(resp.records))
             return resp
-        except ValidationError as e:
-            self._log_validation("records.query", data, e)
-            LOGGER.error("Query response validation failed.")
-            raise NotesApiError("Query response validation failed", payload=data) from e
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            if self._log_cloudkit_validation("records.query", exc):
+                LOGGER.error("Query response validation failed.")
+            self._raise_notes_error(exc)
 
     # ----- Lookup -----
 
@@ -295,25 +159,18 @@ class CloudKitNotesClient:
     ) -> CKLookupResponse:
         record_names_list = list(record_names)
         LOGGER.info("Executing lookup for %d records.", len(record_names_list))
-        req = CKLookupRequest(
-            records=[
-                CKLookupDescriptor(recordName=str(rn)) for rn in record_names_list
-            ],
-            zoneID=CKZoneIDReq(zoneName="Notes"),
-            desiredKeys=desired_keys,
-        )
-        payload = req.model_dump(exclude_none=True)
-        data = self._http.post("/records/lookup", payload)
         try:
-            resp = self._validate_response(CKLookupResponse, data)
+            resp = self._client.lookup(
+                record_names_list,
+                zone_id=NOTES_ZONE_REQ,
+                desired_keys=desired_keys,
+            )
             LOGGER.info("Lookup returned %d records.", len(resp.records))
             return resp
-        except ValidationError as e:
-            self._log_validation("records.lookup", data, e)
-            LOGGER.error("Lookup response validation failed.")
-            raise NotesApiError(
-                "Lookup response validation failed", payload=data
-            ) from e
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            if self._log_cloudkit_validation("records.lookup", exc):
+                LOGGER.error("Lookup response validation failed.")
+            self._raise_notes_error(exc)
 
     # ----- Changes (paged generator) -----
 
@@ -322,38 +179,25 @@ class CloudKitNotesClient:
         *,
         zone_req: CKZoneChangesZoneReq,
     ) -> Iterator[CKZoneChangesZone]:
-        req = CKZoneChangesRequest(zones=[zone_req])
         LOGGER.info("Start fetching changes for zone: %s", zone_req.zoneID.zoneName)
         page_num = 1
-        while True:
-            payload = req.model_dump(exclude_none=True)
-            LOGGER.debug("Fetching changes page %d", page_num)
-            data = self._http.post("/changes/zone", payload)
-            try:
-                envelope = self._validate_response(CKZoneChangesResponse, data)
-            except ValidationError as e:
-                self._log_validation("changes.zone", data, e)
+        try:
+            for zone in self._client.iter_changes(zone_req=zone_req):
+                LOGGER.info(
+                    "Changes page %d returned %d records.",
+                    page_num,
+                    len(zone.records),
+                )
+                yield zone
+                if zone.moreComing:
+                    LOGGER.debug("More changes to come, advancing sync token.")
+                else:
+                    LOGGER.info("All changes fetched.")
+                page_num += 1
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            if self._log_cloudkit_validation("changes.zone", exc):
                 LOGGER.error("Changes response validation failed.")
-                raise NotesApiError(
-                    "Changes response validation failed", payload=data
-                ) from e
-            zone = envelope.zones[0] if envelope.zones else None
-            if not zone:
-                LOGGER.info("No more changes available.")
-                return
-
-            LOGGER.info(
-                "Changes page %d returned %d records.", page_num, len(zone.records)
-            )
-            yield zone
-
-            if not zone.moreComing:
-                LOGGER.info("All changes fetched.")
-                return
-            # advance sync token
-            LOGGER.debug("More changes to come, advancing sync token.")
-            req.zones[0].syncToken = zone.syncToken
-            page_num += 1
+            self._raise_notes_error(exc)
 
     # ----- Asset helpers -----
 
@@ -363,7 +207,13 @@ class CloudKitNotesClient:
         *,
         chunk_size: int = 65536,
     ) -> Iterator[bytes]:
-        yield from self._http.get_stream(url, chunk_size=chunk_size)
+        try:
+            yield from self._client.download_asset_stream(
+                url,
+                chunk_size=chunk_size,
+            )
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_notes_error(exc)
 
     def download_asset_to(self, url: str, directory: str) -> str:
         import os
@@ -371,7 +221,7 @@ class CloudKitNotesClient:
 
         LOGGER.info(
             "Downloading asset from %s to directory %s",
-            self._http._redact_url(url),
+            redact_cloudkit_url(url),
             directory,
         )
         os.makedirs(directory, exist_ok=True)
@@ -406,17 +256,14 @@ class CloudKitNotesClient:
                 )
             ],
         )
-        payload = CKQueryRequest(
-            query=q,
-            zoneID=CKZoneIDReq(zoneName=zone_name),
-            resultsLimit=1,
-        ).model_dump(exclude_none=True)
         try:
-            data = self._http.post("/records/query", payload)
-            resp = self._validate_response(CKQueryResponse, data)
-            if getattr(resp, "syncToken", None):
+            token = self._client.query_sync_token(
+                query=q,
+                zone_id=CKZoneIDReq(zoneName=zone_name),
+            )
+            if token:
                 LOGGER.info("Successfully obtained sync token via query.")
-                return str(resp.syncToken)
+                return token
         except Exception as e:
             LOGGER.warning(
                 "Failed to get sync token via query, falling back. Error: %s", e
@@ -426,18 +273,16 @@ class CloudKitNotesClient:
 
         # Approach 2: one empty /changes/zone call to get initial token
         LOGGER.debug("Falling back to get sync token via changes call.")
-        req = CKZoneChangesRequest(
-            zones=[
-                CKZoneChangesZoneReq(
-                    zoneID={"zoneName": zone_name, "zoneType": "REGULAR_CUSTOM_ZONE"},  # type: ignore[dict-item]
-                    desiredRecordTypes=[],
-                    desiredKeys=[],
-                    reverse=False,
-                )
-            ]
+        zone_req = CKZoneChangesZoneReq(
+            zoneID=CKZoneID(zoneName=zone_name, zoneType="REGULAR_CUSTOM_ZONE"),
+            desiredRecordTypes=[],
+            desiredKeys=[],
+            reverse=False,
         )
-        data = self._http.post("/changes/zone", req.model_dump(exclude_none=True))
-        env = self._validate_response(CKZoneChangesResponse, data)
+        try:
+            env = self._client.changes(zone_req=zone_req)
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_notes_error(exc)
         z = env.zones[0] if env.zones else None
         if z and getattr(z, "syncToken", None):
             LOGGER.info("Successfully obtained sync token via changes call.")
@@ -447,6 +292,45 @@ class CloudKitNotesClient:
         raise NotesApiError("Unable to obtain sync token")
 
     # ----- Debug -----
+
+    @staticmethod
+    def _dump_http_debug(op: str, url: str, payload: Dict, resp) -> None:
+        if not os.getenv("PYICLOUD_NOTES_DEBUG"):
+            return
+        ts = __import__("time").strftime("%Y%m%d-%H%M%S")
+        safe_op = op.replace("/", ".")
+        out_dir = os.path.join("workspace", "notes_debug")
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except Exception:
+            return
+        req_path = os.path.join(out_dir, f"{ts}_{safe_op}_http_request.json")
+        try:
+            with open(req_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"url": url, "payload": payload}, f, ensure_ascii=False, indent=2
+                )
+        except Exception:
+            pass
+        res_path = os.path.join(out_dir, f"{ts}_{safe_op}_http_response.txt")
+        try:
+            status = getattr(resp, "status_code", None)
+            headers = getattr(resp, "headers", {})
+            body_text = None
+            try:
+                body_text = resp.text
+            except Exception:
+                body_text = None
+            with open(res_path, "w", encoding="utf-8") as f:
+                f.write(f"status={status}\nurl={url}\nheaders={dict(headers)}\n\n")
+                if body_text:
+                    max_bytes = int(os.getenv("PYICLOUD_DEBUG_MAX_BYTES", "524288"))
+                    if len(body_text) > max_bytes:
+                        f.write(body_text[:max_bytes] + "\n[truncated]\n")
+                    else:
+                        f.write(body_text)
+        except Exception:
+            pass
 
     @staticmethod
     def _log_validation(op: str, data: Dict, err: ValidationError) -> None:

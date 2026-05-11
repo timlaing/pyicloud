@@ -5,33 +5,27 @@ Low-level CloudKit client for the Reminders container.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional, TypeVar
-
-from pydantic import ValidationError
+from typing import Dict, List, NoReturn, Optional
 
 from pyicloud.common.cloudkit import (
-    CKLookupDescriptor,
-    CKLookupRequest,
     CKLookupResponse,
     CKModifyOperation,
-    CKModifyRequest,
     CKModifyResponse,
     CKQueryObject,
-    CKQueryRequest,
     CKQueryResponse,
-    CKZoneChangesRequest,
     CKZoneChangesResponse,
     CKZoneChangesZoneReq,
     CKZoneIDReq,
     CloudKitExtraMode,
-    resolve_cloudkit_validation_extra,
+)
+from pyicloud.common.cloudkit.client import (
+    CloudKitApiError,
+    CloudKitAuthError,
+    CloudKitContainerClient,
+    CloudKitRateLimited,
 )
 
 LOGGER = logging.getLogger(__name__)
-_ResponseModelT = TypeVar("_ResponseModelT")
-
-
-# ... (Error classes remain the same) ...
 
 
 class RemindersAuthError(Exception):
@@ -44,79 +38,6 @@ class RemindersApiError(Exception):
     def __init__(self, message: str, payload: Optional[object] = None):
         super().__init__(message)
         self.payload = payload
-
-
-class _CloudKitClient:
-    """
-    Minimal HTTP transport for CloudKit.
-    """
-
-    _REQUEST_TIMEOUT = (10.0, 60.0)
-
-    def __init__(self, base_url: str, session, base_params: Dict[str, object]):
-        self._base_url = base_url.rstrip("/")
-        self._session = session
-        self._params = self._normalize_params(base_params or {})
-
-    @staticmethod
-    def _normalize_params(params: Dict[str, object]) -> Dict[str, str]:
-        out: Dict[str, str] = {}
-        for k, v in params.items():
-            if isinstance(v, bool):
-                out[k] = "true" if v else "false"
-            else:
-                out[k] = str(v)
-        return out
-
-    def _build_url(self, path: str) -> str:
-        from urllib.parse import urlencode
-
-        q = urlencode(self._params)
-        return f"{self._base_url}{path}" + (f"?{q}" if q else "")
-
-    def post(self, path: str, payload: Dict) -> Dict:
-        url = self._build_url(path)
-        LOGGER.debug("POST to %s", url)
-        resp = self._session.post(url, json=payload, timeout=self._REQUEST_TIMEOUT)
-        code = getattr(resp, "status_code", 0)
-
-        if code in (401, 403):
-            raise RemindersAuthError(f"HTTP {code}: unauthorized")
-        if code >= 400:
-            try:
-                body = resp.json()
-            except Exception:
-                body = getattr(resp, "text", None)
-            raise RemindersApiError(f"HTTP {code}", payload=body)
-
-        try:
-            return resp.json()
-        except Exception:
-            raise RemindersApiError(
-                "Invalid JSON response", payload=getattr(resp, "text", None)
-            )
-
-    def get_bytes(self, url: str) -> bytes:
-        LOGGER.debug("GET asset from %s", url)
-        resp = self._session.get(url, timeout=self._REQUEST_TIMEOUT)
-        code = getattr(resp, "status_code", 0)
-
-        if code in (401, 403):
-            raise RemindersAuthError(f"HTTP {code}: unauthorized")
-        if code >= 400:
-            raise RemindersApiError(
-                f"HTTP {code} on asset GET", payload=getattr(resp, "text", None)
-            )
-
-        content = getattr(resp, "content", None)
-        if isinstance(content, bytes):
-            return content
-
-        text = getattr(resp, "text", None)
-        if isinstance(text, str):
-            return text.encode("utf-8")
-
-        raise RemindersApiError("Invalid asset response", payload=text)
 
 
 class CloudKitRemindersClient:
@@ -132,16 +53,28 @@ class CloudKitRemindersClient:
         *,
         validation_extra: CloudKitExtraMode | None = None,
     ):
-        self._http = _CloudKitClient(base_url, session, base_params)
+        self._client = CloudKitContainerClient(
+            base_url,
+            session,
+            base_params,
+            validation_extra=validation_extra,
+            bool_param_style="lower",
+            handle_rate_limits=False,
+        )
         self._validation_extra = validation_extra
 
-    def _validate_response(
-        self, model_cls: type[_ResponseModelT], data: Dict
-    ) -> _ResponseModelT:
-        return model_cls.model_validate(
-            data,
-            extra=resolve_cloudkit_validation_extra(self._validation_extra),
-        )
+    @staticmethod
+    def _raise_reminders_error(exc: Exception) -> NoReturn:
+        cause = exc.__cause__ or exc
+        if isinstance(exc, CloudKitAuthError):
+            raise RemindersAuthError(str(exc)) from cause
+        if isinstance(exc, CloudKitRateLimited):
+            raise RemindersApiError(
+                str(exc), payload={"retry_after": exc.retry_after}
+            ) from cause
+        if isinstance(exc, CloudKitApiError):
+            raise RemindersApiError(str(exc), payload=exc.payload) from cause
+        raise
 
     def lookup(
         self,
@@ -149,18 +82,10 @@ class CloudKitRemindersClient:
         zone_id: CKZoneIDReq,
     ) -> CKLookupResponse:
         """Fetch records by ID."""
-        payload = CKLookupRequest(
-            records=[CKLookupDescriptor(recordName=n) for n in record_names],
-            zoneID=zone_id,
-        ).model_dump(mode="json", exclude_none=True)
-
-        data = self._http.post("/records/lookup", payload)
         try:
-            return self._validate_response(CKLookupResponse, data)
-        except ValidationError as e:
-            raise RemindersApiError(
-                "Lookup response validation failed", payload=data
-            ) from e
+            return self._client.lookup(record_names, zone_id=zone_id)
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_reminders_error(exc)
 
     def query(
         self,
@@ -171,21 +96,16 @@ class CloudKitRemindersClient:
         results_limit: Optional[int] = None,
         continuation: Optional[str] = None,
     ) -> CKQueryResponse:
-        payload = CKQueryRequest(
-            query=query,
-            zoneID=zone_id,
-            desiredKeys=desired_keys,
-            resultsLimit=results_limit,
-            continuationMarker=continuation,
-        ).model_dump(mode="json", exclude_none=True)
-
-        data = self._http.post("/records/query", payload)
         try:
-            return self._validate_response(CKQueryResponse, data)
-        except ValidationError as e:
-            raise RemindersApiError(
-                "Query response validation failed", payload=data
-            ) from e
+            return self._client.query(
+                query=query,
+                zone_id=zone_id,
+                desired_keys=desired_keys,
+                results_limit=results_limit,
+                continuation=continuation,
+            )
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_reminders_error(exc)
 
     def current_sync_token(
         self,
@@ -194,21 +114,16 @@ class CloudKitRemindersClient:
         record_type: str = "reminderList",
     ) -> str | None:
         """Fetch the current zone sync token using a lightweight query first."""
-        payload = CKQueryRequest(
-            query=CKQueryObject(recordType=record_type),
-            zoneID=zone_id,
-            resultsLimit=1,
-        ).model_dump(mode="json", exclude_none=True)
-
         try:
-            data = self._http.post("/records/query", payload)
-            response = self._validate_response(CKQueryResponse, data)
-        except (RemindersApiError, ValidationError):
+            return self._client.query_sync_token(
+                query=CKQueryObject(recordType=record_type),
+                zone_id=zone_id,
+            )
+        except CloudKitAuthError as exc:
+            self._raise_reminders_error(exc)
+        except (CloudKitApiError, CloudKitRateLimited) as exc:
+            LOGGER.debug("current_sync_token suppressed CloudKit error", exc_info=exc)
             return None
-
-        if getattr(response, "syncToken", None):
-            return str(response.syncToken)
-        return None
 
     def changes(
         self,
@@ -217,19 +132,13 @@ class CloudKitRemindersClient:
         results_limit: Optional[int] = None,
     ) -> CKZoneChangesResponse:
         """Fetch changes (sync) for a zone."""
-
-        payload = CKZoneChangesRequest(
-            zones=[zone_req],
-            resultsLimit=results_limit,
-        ).model_dump(mode="json", exclude_none=True)
-
-        data = self._http.post("/changes/zone", payload)
         try:
-            return self._validate_response(CKZoneChangesResponse, data)
-        except ValidationError as e:
-            raise RemindersApiError(
-                "Changes response validation failed", payload=data
-            ) from e
+            return self._client.changes(
+                zone_req=zone_req,
+                results_limit=results_limit,
+            )
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_reminders_error(exc)
 
     def modify(
         self,
@@ -239,20 +148,18 @@ class CloudKitRemindersClient:
         atomic: Optional[bool] = None,
     ) -> CKModifyResponse:
         """Modify (create/update/delete) records."""
-        payload = CKModifyRequest(
-            operations=operations,
-            zoneID=zone_id,
-            atomic=atomic,
-        ).model_dump(mode="json", exclude_none=True)
-
-        data = self._http.post("/records/modify", payload)
         try:
-            return self._validate_response(CKModifyResponse, data)
-        except ValidationError as e:
-            raise RemindersApiError(
-                "Modify response validation failed", payload=data
-            ) from e
+            return self._client.modify(
+                operations=operations,
+                zone_id=zone_id,
+                atomic=atomic,
+            )
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_reminders_error(exc)
 
     def download_asset_bytes(self, url: str) -> bytes:
         """Download raw bytes from a CloudKit asset URL."""
-        return self._http.get_bytes(url)
+        try:
+            return self._client.download_asset_bytes(url)
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_reminders_error(exc)
