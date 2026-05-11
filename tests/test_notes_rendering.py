@@ -23,7 +23,12 @@ from pyicloud.services.notes.rendering.table_builder import (
     render_table_from_mergeable,
 )
 
-FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "note_fixture.json")
+FIXTURE_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "fixtures",
+    "notes",
+    "note_rendering_fixture.json",
+)
 with open(FIXTURE_PATH, "r", encoding="utf-8") as fixture_file:
     NOTE_FIXTURE = json.load(fixture_file)
 
@@ -53,7 +58,12 @@ class _Record:
         self.fields = _Fields(fields)
 
 
-FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "note_fixture.json")
+FIXTURE_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "fixtures",
+    "notes",
+    "note_rendering_fixture.json",
+)
 with open(FIXTURE_PATH, "r", encoding="utf-8") as fixture_file:
     NOTE_FIXTURE = json.load(fixture_file)
 
