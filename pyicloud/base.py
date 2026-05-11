@@ -959,14 +959,21 @@ class PyiCloudService:
 
         if self._supports_trusted_device_bridge():
             try:
+                user_agent: str
+                _ua_header: str | bytes = self.session.headers.get(
+                    "User-Agent", _HEADERS["User-Agent"]
+                )
+                if isinstance(_ua_header, bytes):
+                    user_agent = _ua_header.decode("utf-8")
+                else:
+                    user_agent = str(_ua_header)
+
                 self._trusted_device_bridge_state = self._trusted_device_bridge.start(
                     session=self.session,
                     auth_endpoint=self._auth_endpoint,
                     headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
                     boot_context=self._current_hsa2_boot_context(),
-                    user_agent=self.session.headers.get(
-                        "User-Agent", _HEADERS["User-Agent"]
-                    ),
+                    user_agent=user_agent,
                 )
                 self._set_two_factor_delivery_state("trusted_device")
                 return True
@@ -1362,10 +1369,7 @@ class PyiCloudService:
                     params=self.params,
                     cloudkit_validation_extra=self._cloudkit_validation_extra,
                 )
-            except (
-                PyiCloudAPIResponseException,
-                PyiCloudServiceNotActivatedException,
-            ) as error:
+            except (PyiCloudAPIResponseException,) as error:
                 raise PyiCloudServiceUnavailable(
                     "Reminders service not available"
                 ) from error
@@ -1384,7 +1388,7 @@ class PyiCloudService:
                     session=self.session,
                     params=self.params,
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Drive service not available"
                 ) from error
@@ -1402,10 +1406,7 @@ class PyiCloudService:
                     params=self.params,
                     cloudkit_validation_extra=self._cloudkit_validation_extra,
                 )
-            except (
-                PyiCloudAPIResponseException,
-                PyiCloudServiceNotActivatedException,
-            ) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Notes service not available"
                 ) from error
