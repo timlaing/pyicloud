@@ -26,8 +26,12 @@ from pyicloud.services.notes import AttachmentId, Note, NotesService, NoteSummar
 from pyicloud.services.notes.client import (
     CloudKitNotesClient,
     NotesApiError,
+    NotesAuthError,
 )
 from pyicloud.services.notes.client import NotesError as ClientNotesError
+from pyicloud.services.notes.client import (
+    NotesRateLimited,
+)
 from pyicloud.services.notes.rendering.exporter import decode_and_parse_note, write_html
 from pyicloud.services.notes.service import NoteNotFound
 
@@ -165,6 +169,40 @@ class NotesServiceTest(unittest.TestCase):
     def test_notes_client_redacts_query_strings_in_logs(self):
         redacted = redact_cloudkit_url("https://example.com/path?token=secret&x=1#frag")
         self.assertEqual(redacted, "https://example.com/path")
+
+    def test_notes_client_asset_stream_translates_auth_errors(self):
+        session = MagicMock()
+        session.get.return_value = MagicMock(status_code=403)
+        client = CloudKitNotesClient("https://example.com", session, {})
+
+        with self.assertRaisesRegex(NotesAuthError, "HTTP 403"):
+            list(client.download_asset_stream("https://example.com/asset"))
+
+    def test_notes_client_asset_stream_translates_rate_limits(self):
+        session = MagicMock()
+        session.get.return_value = MagicMock(
+            status_code=429,
+            headers={"Retry-After": "2.5"},
+        )
+        client = CloudKitNotesClient("https://example.com", session, {})
+
+        with self.assertRaisesRegex(NotesRateLimited, "HTTP 429") as ctx:
+            list(client.download_asset_stream("https://example.com/asset"))
+
+        self.assertEqual(ctx.exception.retry_after, 2.5)
+
+    def test_notes_client_asset_stream_translates_api_errors(self):
+        session = MagicMock()
+        session.get.return_value = MagicMock(
+            status_code=500,
+            text="server error",
+        )
+        client = CloudKitNotesClient("https://example.com", session, {})
+
+        with self.assertRaisesRegex(NotesApiError, "HTTP 500 on asset GET") as ctx:
+            list(client.download_asset_stream("https://example.com/asset"))
+
+        self.assertEqual(ctx.exception.payload, "server error")
 
     def test_notes_client_strict_mode_wraps_validation_error(self):
         session = MagicMock()
