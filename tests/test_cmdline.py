@@ -1372,6 +1372,17 @@ def test_notes_and_reminders_leaf_help() -> None:
         assert result.exit_code == 0
 
 
+def test_notes_list_help_uses_folder_id_label() -> None:
+    """Notes list help should label folder option with folder-specific help text."""
+
+    result = _runner().invoke(app, ["notes", "list", "--help"])
+    text = _plain_output(result)
+
+    assert result.exit_code == 0
+    assert "--folder-id" in text
+    assert "Folder id." in text
+
+
 def test_leaf_help_includes_execution_context_options() -> None:
     """Leaf command help should show the command-local options it supports."""
 

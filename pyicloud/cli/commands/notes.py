@@ -36,6 +36,7 @@ NOTES = "Notes"
 
 _MAX_NOTES_TO_SHOW_HELP = "Maximum notes to show."
 _NOTE_ID_HELP = "Note id."
+_FOLDER_ID_HELP = "Folder id."
 
 
 class PreviewAppearance(str, Enum):
@@ -176,7 +177,7 @@ def notes_folders(
 @app.command("list")
 def notes_list(
     ctx: typer.Context,
-    folder_id: Optional[str] = typer.Option(None, "--folder-id", help=_NOTE_ID_HELP),
+    folder_id: Optional[str] = typer.Option(None, "--folder-id", help=_FOLDER_ID_HELP),
     all_notes: bool = typer.Option(False, "--all", help="Iterate all notes."),
     since: Optional[str] = typer.Option(
         None,
