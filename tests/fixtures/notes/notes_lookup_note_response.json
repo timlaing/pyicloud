@@ -1,0 +1,63 @@
+{
+  "records": [
+    {
+      "recordName": "Note/NOTE-FIXTURE",
+      "recordType": "Note",
+      "recordChangeTag": "note-change-tag-fixture",
+      "created": {
+        "timestamp": 1735689600000,
+        "userRecordName": "_synthetic_user"
+      },
+      "modified": {
+        "timestamp": 1735776000000,
+        "userRecordName": "_synthetic_user"
+      },
+      "deleted": false,
+      "zoneID": {
+        "zoneName": "Notes",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "fields": {
+        "TitleEncrypted": {
+          "type": "STRING",
+          "value": "Synthetic note",
+          "isEncrypted": true
+        },
+        "SnippetEncrypted": {
+          "type": "STRING",
+          "value": "Synthetic snippet",
+          "isEncrypted": true
+        },
+        "TextDataEncrypted": {
+          "type": "ENCRYPTED_BYTES",
+          "value": "c3ludGhldGljIG5vdGUgYm9keQ=="
+        },
+        "ModificationDate": {
+          "type": "TIMESTAMP",
+          "value": 1735776000000
+        },
+        "Deleted": {
+          "type": "INT64",
+          "value": 0
+        },
+        "Folder": {
+          "type": "REFERENCE",
+          "value": {
+            "recordName": "Folder/FOLDER-FIXTURE",
+            "action": "VALIDATE"
+          }
+        },
+        "Attachments": {
+          "type": "REFERENCE_LIST",
+          "value": [
+            {
+              "recordName": "Attachment/ATTACHMENT-FIXTURE",
+              "action": "VALIDATE"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "syncToken": "notes-lookup-sync-token-fixture"
+}

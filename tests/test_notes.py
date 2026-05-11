@@ -1,16 +1,22 @@
 """Tests for the Notes service."""
 
 import importlib
+import json
 import os
 import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 from unittest.mock import MagicMock, mock_open, patch
 
 from pydantic import BaseModel, BeforeValidator, ValidationError
 
-from pyicloud.common.cloudkit import CKLookupResponse
+from pyicloud.common.cloudkit import (
+    CKLookupResponse,
+    CKQueryResponse,
+    CKZoneChangesResponse,
+)
 from pyicloud.common.cloudkit.base import resolve_cloudkit_validation_extra
 from pyicloud.common.cloudkit.client import redact_cloudkit_url
 from pyicloud.common.cloudkit.models import (
@@ -35,6 +41,14 @@ from pyicloud.services.notes.client import (
 from pyicloud.services.notes.rendering.exporter import decode_and_parse_note, write_html
 from pyicloud.services.notes.service import NoteNotFound
 
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+NOTES_FIXTURE_DIR = FIXTURE_DIR / "notes"
+
+
+def load_notes_fixture(name):
+    """Load a synthetic Notes CloudKit fixture."""
+    return json.loads((NOTES_FIXTURE_DIR / name).read_text(encoding="utf-8"))
+
 
 class NotesServiceTest(unittest.TestCase):
     """Tests for the Notes service."""
@@ -49,7 +63,24 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_get_note(self):
         """Test getting a note."""
-        self.skipTest("TODO: implement once representative note fixture is available")
+        note_response = CKLookupResponse.model_validate(
+            load_notes_fixture("notes_lookup_note_response.json")
+        )
+        folder_response = CKLookupResponse.model_validate(
+            load_notes_fixture("notes_query_folders_response.json")
+        )
+        self.service.raw.lookup = MagicMock(
+            side_effect=[note_response, folder_response]
+        )
+
+        note = self.service.get("Note/NOTE-FIXTURE")
+
+        self.assertEqual(note.id, "Note/NOTE-FIXTURE")
+        self.assertEqual(note.title, "Synthetic note")
+        self.assertEqual(note.snippet, "Synthetic snippet")
+        self.assertEqual(note.folder_id, "Folder/FOLDER-FIXTURE")
+        self.assertEqual(note.folder_name, "Synthetic Folder")
+        self.assertFalse(note.is_deleted)
 
     def test_notes_domain_models_are_pydantic(self):
         """Notes public models expose Pydantic serialization."""
@@ -134,9 +165,13 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_notes_client_allows_unexpected_fields_by_default(self):
         session = MagicMock()
+        payload = {
+            **load_notes_fixture("notes_lookup_note_response.json"),
+            "unexpectedTopLevel": {"present": True},
+        }
         session.post.return_value = MagicMock(
             status_code=200,
-            json=lambda: {"records": [], "unexpectedTopLevel": {"present": True}},
+            json=lambda: payload,
         )
         client = CloudKitNotesClient(
             "https://example.com",
@@ -206,7 +241,10 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_notes_client_strict_mode_wraps_validation_error(self):
         session = MagicMock()
-        payload = {"records": [], "unexpectedTopLevel": {"present": True}}
+        payload = {
+            **load_notes_fixture("notes_lookup_note_response.json"),
+            "unexpectedTopLevel": {"present": True},
+        }
         session.post.return_value = MagicMock(status_code=200, json=lambda: payload)
         client = CloudKitNotesClient(
             "https://example.com",
@@ -225,7 +263,10 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_notes_client_debug_validation_logging_is_preserved(self):
         session = MagicMock()
-        payload = {"records": [], "unexpectedTopLevel": {"present": True}}
+        payload = {
+            **load_notes_fixture("notes_lookup_note_response.json"),
+            "unexpectedTopLevel": {"present": True},
+        }
         session.post.return_value = MagicMock(status_code=200, json=lambda: payload)
         client = CloudKitNotesClient(
             "https://example.com",
@@ -289,37 +330,48 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_notes_client_current_sync_token_falls_back_to_changes(self):
         session = MagicMock()
+        query_payload = load_notes_fixture(
+            "notes_current_sync_token_query_empty_response.json"
+        )
+        changes_payload = load_notes_fixture(
+            "notes_current_sync_token_changes_response.json"
+        )
         session.post.side_effect = [
-            MagicMock(status_code=200, json=lambda: {"records": []}),
-            MagicMock(
-                status_code=200,
-                json=lambda: {
-                    "zones": [
-                        {
-                            "zoneID": {
-                                "zoneName": "Notes",
-                                "zoneType": "REGULAR_CUSTOM_ZONE",
-                            },
-                            "records": [],
-                            "syncToken": "tok-changes",
-                            "moreComing": False,
-                        }
-                    ]
-                },
-            ),
+            MagicMock(status_code=200, json=lambda: query_payload),
+            MagicMock(status_code=200, json=lambda: changes_payload),
         ]
         client = CloudKitNotesClient("https://example.com", session, {})
 
         token = client.current_sync_token(zone_name="Notes")
 
-        self.assertEqual(token, "tok-changes")
+        self.assertEqual(token, "notes-changes-sync-token-fixture")
         self.assertEqual(session.post.call_count, 2)
+
+    def test_notes_changes_zone_fixture_parses_mixed_records(self):
+        response = CKZoneChangesResponse.model_validate(
+            load_notes_fixture("notes_changes_zone_response.json")
+        )
+
+        self.assertEqual(len(response.zones), 1)
+        records = response.zones[0].records
+        self.assertEqual(len(records), 3)
+        self.assertIsInstance(records[0], CKRecord)
+        self.assertEqual(records[0].recordType, "Note")
+        self.assertEqual(
+            getattr(records[2], "recordName", None),
+            "Note/NOTE-DELETED-FIXTURE",
+        )
+        self.assertTrue(getattr(records[2], "deleted", False))
 
     def test_notes_client_explicit_override_wins_over_env(self):
         session = MagicMock()
+        payload = {
+            **load_notes_fixture("notes_lookup_note_response.json"),
+            "unexpectedTopLevel": {"present": True},
+        }
         session.post.return_value = MagicMock(
             status_code=200,
-            json=lambda: {"records": [], "unexpectedTopLevel": {"present": True}},
+            json=lambda: payload,
         )
         with patch.dict(os.environ, {"PYICLOUD_CK_EXTRA": "forbid"}, clear=True):
             client = CloudKitNotesClient(
@@ -429,73 +481,42 @@ class NotesServiceTest(unittest.TestCase):
         self.service._raw.changes.assert_called_once()
 
     def test_notes_service_attachment_lookup_prefers_canonical_record_names(self):
-        note_record = CKRecord.model_validate(
-            {
-                "recordName": "Note/1",
-                "recordType": "Note",
-                "fields": {
-                    "Attachments": {
-                        "type": "REFERENCE_LIST",
-                        "value": [
-                            {
-                                "recordName": "Attachment/CANONICAL",
-                                "action": "VALIDATE",
-                            }
-                        ],
-                    }
-                },
-            }
-        )
-        attachment_record = CKRecord.model_validate(
-            {
-                "recordName": "Attachment/CANONICAL",
-                "recordType": "Attachment",
-                "fields": {
-                    "AttachmentIdentifier": {"type": "STRING", "value": "ALIAS-1"},
-                    "AttachmentUTI": {"type": "STRING", "value": "public.url"},
-                    "PrimaryAsset": {
-                        "type": "ASSETID",
-                        "value": {"downloadURL": "https://example.com/file"},
-                    },
-                },
-            }
-        )
+        note_record = CKLookupResponse.model_validate(
+            load_notes_fixture("notes_lookup_note_response.json")
+        ).records[0]
+        attachment_record = CKLookupResponse.model_validate(
+            load_notes_fixture("notes_lookup_attachment_response.json")
+        ).records[0]
         self.service.raw.lookup = MagicMock(
             return_value=CKLookupResponse(records=[attachment_record])
         )
 
         attachments = self.service._resolve_attachments_for_record(
             note_record,
-            attachment_ids=[AttachmentId(identifier="ALIAS-1")],
+            attachment_ids=[AttachmentId(identifier="ATTACHMENT-ALIAS-FIXTURE")],
         )
 
         self.assertEqual(
             self.service.raw.lookup.call_args.args[0],
-            ["Attachment/CANONICAL"],
+            ["Attachment/ATTACHMENT-FIXTURE"],
         )
         self.assertEqual(len(attachments), 1)
-        self.assertEqual(attachments[0].id, "Attachment/CANONICAL")
-        self.assertIs(self.service._attachment_meta_cache["ALIAS-1"], attachments[0])
+        self.assertEqual(attachments[0].id, "Attachment/ATTACHMENT-FIXTURE")
+        self.assertEqual(
+            attachments[0].download_url, "https://example.test/notes/asset"
+        )
+        self.assertIs(
+            self.service._attachment_meta_cache["ATTACHMENT-ALIAS-FIXTURE"],
+            attachments[0],
+        )
 
     def test_notes_service_folders_uses_supported_desired_keys(self):
         """Folder listing should not depend on nonexistent Notes desired-key enums."""
 
-        folder_record = CKRecord.model_validate(
-            {
-                "recordName": "Folder/1",
-                "recordType": "SearchIndexes",
-                "fields": {
-                    "TitleEncrypted": {
-                        "type": "STRING",
-                        "value": "Work",
-                        "isEncrypted": True,
-                    },
-                    "HasSubfolder": {"type": "INT64", "value": 1},
-                },
-            }
-        )
         self.service.raw.query = MagicMock(
-            return_value=MagicMock(records=[folder_record], continuationMarker=None)
+            return_value=CKQueryResponse.model_validate(
+                load_notes_fixture("notes_query_folders_response.json")
+            )
         )
 
         folders = list(self.service.folders())
@@ -505,8 +526,8 @@ class NotesServiceTest(unittest.TestCase):
             ["TitleEncrypted", "HasSubfolder"],
         )
         self.assertEqual(len(folders), 1)
-        self.assertEqual(folders[0].id, "Folder/1")
-        self.assertEqual(folders[0].name, "Work")
+        self.assertEqual(folders[0].id, "Folder/FOLDER-FIXTURE")
+        self.assertEqual(folders[0].name, "Synthetic Folder")
         self.assertTrue(folders[0].has_subfolders)
 
     def test_notes_service_folders_treats_subfolder_flag_as_optional(self):

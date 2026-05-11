@@ -1,0 +1,13 @@
+{
+  "zones": [
+    {
+      "zoneID": {
+        "zoneName": "Notes",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "records": [],
+      "syncToken": "notes-changes-sync-token-fixture",
+      "moreComing": false
+    }
+  ]
+}

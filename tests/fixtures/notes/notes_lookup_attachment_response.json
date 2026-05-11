@@ -1,0 +1,41 @@
+{
+  "records": [
+    {
+      "recordName": "Attachment/ATTACHMENT-FIXTURE",
+      "recordType": "Attachment",
+      "recordChangeTag": "attachment-change-tag-fixture",
+      "zoneID": {
+        "zoneName": "Notes",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "fields": {
+        "AttachmentIdentifier": {
+          "type": "STRING",
+          "value": "ATTACHMENT-ALIAS-FIXTURE"
+        },
+        "AttachmentUTI": {
+          "type": "STRING",
+          "value": "public.url"
+        },
+        "Filename": {
+          "type": "STRING",
+          "value": "synthetic-link.webloc"
+        },
+        "Size": {
+          "type": "INT64",
+          "value": 128
+        },
+        "PrimaryAsset": {
+          "type": "ASSETID",
+          "value": {
+            "downloadURL": "https://example.test/notes/asset",
+            "fileChecksum": "notes-asset-checksum-fixture",
+            "referenceChecksum": "notes-asset-reference-fixture",
+            "wrappingKey": "notes-asset-wrapping-key-fixture",
+            "size": 128
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "zones": [
+    {
+      "zoneID": {
+        "zoneName": "Notes",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "syncToken": "notes-zone-sync-token-fixture",
+      "moreComing": false,
+      "records": [
+        {
+          "recordName": "Note/NOTE-FIXTURE",
+          "recordType": "Note",
+          "recordChangeTag": "note-change-tag-fixture",
+          "fields": {
+            "TitleEncrypted": {
+              "type": "STRING",
+              "value": "Synthetic note",
+              "isEncrypted": true
+            },
+            "SnippetEncrypted": {
+              "type": "STRING",
+              "value": "Synthetic snippet",
+              "isEncrypted": true
+            },
+            "ModificationDate": {
+              "type": "TIMESTAMP",
+              "value": 1735776000000
+            },
+            "Deleted": {
+              "type": "INT64",
+              "value": 0
+            },
+            "Folder": {
+              "type": "REFERENCE",
+              "value": {
+                "recordName": "Folder/FOLDER-FIXTURE",
+                "action": "VALIDATE"
+              }
+            }
+          }
+        },
+        {
+          "recordName": "Folder/FOLDER-FIXTURE",
+          "recordType": "SearchIndexes",
+          "recordChangeTag": "folder-change-tag-fixture",
+          "fields": {
+            "TitleEncrypted": {
+              "type": "STRING",
+              "value": "Synthetic Folder",
+              "isEncrypted": true
+            },
+            "HasSubfolder": {
+              "type": "INT64",
+              "value": 1
+            }
+          }
+        },
+        {
+          "recordName": "Note/NOTE-DELETED-FIXTURE",
+          "deleted": true
+        }
+      ]
+    }
+  ]
+}

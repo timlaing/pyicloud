@@ -1,0 +1,25 @@
+{
+  "records": [
+    {
+      "recordName": "Folder/FOLDER-FIXTURE",
+      "recordType": "SearchIndexes",
+      "recordChangeTag": "folder-change-tag-fixture",
+      "zoneID": {
+        "zoneName": "Notes",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "fields": {
+        "TitleEncrypted": {
+          "type": "STRING",
+          "value": "Synthetic Folder",
+          "isEncrypted": true
+        },
+        "HasSubfolder": {
+          "type": "INT64",
+          "value": 1
+        }
+      }
+    }
+  ],
+  "continuationMarker": null
+}

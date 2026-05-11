@@ -1,0 +1,91 @@
+{
+  "records": [
+    {
+      "recordName": "Reminder/REM-FIXTURE",
+      "recordType": "Reminder",
+      "recordChangeTag": "reminder-change-tag-fixture",
+      "created": {
+        "timestamp": 1735689600000,
+        "userRecordName": "_synthetic_user"
+      },
+      "modified": {
+        "timestamp": 1735776000000,
+        "userRecordName": "_synthetic_user"
+      },
+      "zoneID": {
+        "zoneName": "Reminders",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "fields": {
+        "TitleDocument": {
+          "type": "ENCRYPTED_BYTES",
+          "value": "eJzjYBCS4GAQYJASEhJwy6woKS1KVQhKzc3MS0ktAgBBdwbW"
+        },
+        "NotesDocument": {
+          "type": "ENCRYPTED_BYTES",
+          "value": "eJzjYBAS5WAQYJDiF+J1y6woKS1KVcjLL0ktBgAuaAXA"
+        },
+        "List": {
+          "type": "REFERENCE",
+          "value": {
+            "recordName": "List/LIST-A",
+            "action": "VALIDATE"
+          }
+        },
+        "Completed": {
+          "type": "INT64",
+          "value": 0
+        },
+        "CreationDate": {
+          "type": "TIMESTAMP",
+          "value": 1735689600000
+        },
+        "LastModifiedDate": {
+          "type": "TIMESTAMP",
+          "value": 1735776000000
+        },
+        "Deleted": {
+          "type": "INT64",
+          "value": 0
+        },
+        "DueDate": {
+          "type": "TIMESTAMP",
+          "value": 1735862400000
+        },
+        "Flagged": {
+          "type": "INT64",
+          "value": 0
+        },
+        "AllDay": {
+          "type": "INT64",
+          "value": 0
+        },
+        "Priority": {
+          "type": "INT64",
+          "value": 0
+        },
+        "AlarmIDs": {
+          "type": "STRING_LIST",
+          "value": []
+        },
+        "AssignmentIDs": {
+          "type": "STRING_LIST",
+          "value": []
+        },
+        "AttachmentIDs": {
+          "type": "STRING_LIST",
+          "value": []
+        },
+        "HashtagIDs": {
+          "type": "STRING_LIST",
+          "value": []
+        },
+        "RecurrenceRuleIDs": {
+          "type": "STRING_LIST",
+          "value": []
+        }
+      }
+    }
+  ],
+  "syncToken": "reminders-query-reminders-sync-token-fixture"
+}
