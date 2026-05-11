@@ -139,10 +139,11 @@ def test_cloudkit_client_download_asset_bytes():
 
 def test_cloudkit_client_download_asset_stream():
     session = MagicMock()
-    session.get.return_value = MagicMock(
+    response = MagicMock(
         status_code=200,
         iter_content=lambda **_: [b"chunk-1", b"", b"chunk-2"],
     )
+    session.get.return_value = response
     client = CloudKitContainerClient("https://example.com/database", session, {})
 
     chunks = list(client.download_asset_stream("https://example.com/asset"))
@@ -150,3 +151,16 @@ def test_cloudkit_client_download_asset_stream():
     assert chunks == [b"chunk-1", b"chunk-2"]
     assert session.get.call_args.kwargs["stream"] is True
     assert session.get.call_args.kwargs["timeout"] == (10.0, 60.0)
+    response.close.assert_called_once()
+
+
+def test_cloudkit_client_download_asset_stream_closes_on_error():
+    session = MagicMock()
+    response = MagicMock(status_code=500, text="boom")
+    session.get.return_value = response
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+
+    with pytest.raises(CloudKitApiError):
+        list(client.download_asset_stream("https://example.com/asset"))
+
+    response.close.assert_called_once()

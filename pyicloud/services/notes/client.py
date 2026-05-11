@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Dict, Iterable, Iterator, List, Optional
+from typing import Dict, Iterable, Iterator, List, NoReturn, Optional
 
 from pydantic import ValidationError
 
@@ -100,12 +100,11 @@ class CloudKitNotesClient:
             redact_urls=True,
             debug_hook=self._dump_http_debug,
         )
-        self._http = self._client._http
         self._validation_extra = validation_extra
         LOGGER.info("CloudKitNotesClient initialized.")
 
     @staticmethod
-    def _raise_notes_error(exc: Exception):
+    def _raise_notes_error(exc: Exception) -> NoReturn:
         cause = exc.__cause__ or exc
         if isinstance(exc, CloudKitAuthError):
             raise NotesAuthError(str(exc)) from cause
@@ -113,7 +112,7 @@ class CloudKitNotesClient:
             raise NotesRateLimited(str(exc), retry_after=exc.retry_after) from cause
         if isinstance(exc, CloudKitApiError):
             raise NotesApiError(str(exc), payload=exc.payload) from cause
-        raise exc
+        raise
 
     def _log_cloudkit_validation(self, op: str, exc: Exception) -> bool:
         if isinstance(exc, CloudKitApiError) and isinstance(

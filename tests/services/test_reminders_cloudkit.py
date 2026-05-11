@@ -341,11 +341,7 @@ def test_reminders_client_strict_mode_wraps_validation_error():
 def test_reminders_client_preserves_429_as_api_error():
     session = MagicMock()
     payload = {"reason": "rate limited"}
-    session.post.return_value = MagicMock(
-        status_code=429,
-        headers={"Retry-After": "2.5"},
-        json=lambda: payload,
-    )
+    session.post.return_value = MagicMock(status_code=429, json=lambda: payload)
     client = CloudKitRemindersClient("https://example.com", session, {})
 
     with pytest.raises(RemindersApiError, match="HTTP 429") as excinfo:

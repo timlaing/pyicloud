@@ -5,7 +5,7 @@ Low-level CloudKit client for the Reminders container.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, NoReturn, Optional
 
 from pyicloud.common.cloudkit import (
     CKLookupResponse,
@@ -26,9 +26,6 @@ from pyicloud.common.cloudkit.client import (
 )
 
 LOGGER = logging.getLogger(__name__)
-
-
-# ... (Error classes remain the same) ...
 
 
 class RemindersAuthError(Exception):
@@ -64,11 +61,10 @@ class CloudKitRemindersClient:
             bool_param_style="lower",
             handle_rate_limits=False,
         )
-        self._http = self._client._http
         self._validation_extra = validation_extra
 
     @staticmethod
-    def _raise_reminders_error(exc: Exception):
+    def _raise_reminders_error(exc: Exception) -> NoReturn:
         cause = exc.__cause__ or exc
         if isinstance(exc, CloudKitAuthError):
             raise RemindersAuthError(str(exc)) from cause
@@ -78,7 +74,7 @@ class CloudKitRemindersClient:
             ) from cause
         if isinstance(exc, CloudKitApiError):
             raise RemindersApiError(str(exc), payload=exc.payload) from cause
-        raise exc
+        raise
 
     def lookup(
         self,
@@ -125,7 +121,8 @@ class CloudKitRemindersClient:
             )
         except CloudKitAuthError as exc:
             self._raise_reminders_error(exc)
-        except (CloudKitApiError, CloudKitRateLimited):
+        except (CloudKitApiError, CloudKitRateLimited) as exc:
+            LOGGER.debug("current_sync_token suppressed CloudKit error", exc_info=exc)
             return None
 
     def changes(

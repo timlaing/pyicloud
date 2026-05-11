@@ -209,31 +209,41 @@ class _CloudKitHTTP:
     def get_stream(self, url: str, *, chunk_size: int = 65536) -> Iterator[bytes]:
         LOGGER.debug("CloudKit asset stream GET %s", self._display_url(url))
         resp = self._session.get(url, stream=True, timeout=self._timeout)
-        code = getattr(resp, "status_code", 0)
-        if not isinstance(code, int):
-            code = 200
-        if code in (401, 403):
-            self._run_debug_hook("asset_get", url, {}, resp)
-            raise CloudKitAuthError(f"HTTP {code}: unauthorized")
-        if code == 429 and self._handle_rate_limits:
-            self._run_debug_hook("asset_get", url, {}, resp)
-            retry_after = None
-            try:
-                hdr = resp.headers.get("Retry-After")
-                if hdr:
-                    retry_after = float(hdr)
-            except Exception:
+        try:
+            code = getattr(resp, "status_code", 0)
+            if not isinstance(code, int):
+                code = 200
+            if code in (401, 403):
+                self._run_debug_hook("asset_get", url, {}, resp)
+                raise CloudKitAuthError(f"HTTP {code}: unauthorized")
+            if code == 429 and self._handle_rate_limits:
+                self._run_debug_hook("asset_get", url, {}, resp)
                 retry_after = None
-            raise CloudKitRateLimited("HTTP 429: rate limited", retry_after=retry_after)
-        if code >= 400:
-            self._run_debug_hook("asset_get", url, {}, resp)
-            raise CloudKitApiError(
-                f"HTTP {code} on asset GET",
-                payload=getattr(resp, "text", None),
-            )
-        for chunk in resp.iter_content(chunk_size=chunk_size):
-            if chunk:
-                yield chunk
+                try:
+                    hdr = resp.headers.get("Retry-After")
+                    if hdr:
+                        retry_after = float(hdr)
+                except Exception:
+                    retry_after = None
+                raise CloudKitRateLimited(
+                    "HTTP 429: rate limited", retry_after=retry_after
+                )
+            if code >= 400:
+                self._run_debug_hook("asset_get", url, {}, resp)
+                raise CloudKitApiError(
+                    f"HTTP {code} on asset GET",
+                    payload=getattr(resp, "text", None),
+                )
+            for chunk in resp.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    yield chunk
+        finally:
+            close = getattr(resp, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
 
 
 class CloudKitContainerClient:

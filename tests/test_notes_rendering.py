@@ -58,41 +58,6 @@ class _Record:
         self.fields = _Fields(fields)
 
 
-FIXTURE_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "fixtures",
-    "notes",
-    "note_rendering_fixture.json",
-)
-with open(FIXTURE_PATH, "r", encoding="utf-8") as fixture_file:
-    NOTE_FIXTURE = json.load(fixture_file)
-
-
-class _Field:
-    def __init__(self, value):
-        self.value = value
-
-
-class _Fields:
-    def __init__(self, values):
-        self.values = values
-
-    def get_value(self, key):
-        return self.values.get(key)
-
-    def get_field(self, key):
-        if key not in self.values:
-            return None
-        return _Field(self.values[key])
-
-
-class _Record:
-    def __init__(self, record_name, fields):
-        self.recordName = record_name
-        self.recordType = "Attachment"
-        self.fields = _Fields(fields)
-
-
 class TestNoteRendering(unittest.TestCase):
     def setUp(self):
         self.fixture = NOTE_FIXTURE
@@ -370,12 +335,14 @@ class TestNoteRendering(unittest.TestCase):
             patch.object(
                 TableBuilder,
                 "parse_cell_columns",
-                lambda self, entry: self.cells.__setitem__(
-                    0,
-                    [SimpleNamespace(html=entry.cell_html)],
-                )
-                if self.cells
-                else None,
+                lambda self, entry: (
+                    self.cells.__setitem__(
+                        0,
+                        [SimpleNamespace(html=entry.cell_html)],
+                    )
+                    if self.cells
+                    else None
+                ),
             ),
         ):
             html = render_table_from_mergeable(b"candidate-scan", lambda _: "")
