@@ -9,6 +9,7 @@ import typer
 from pydantic import ValidationError
 
 from pyicloud.cli.context import CLIAbort, get_state, parse_datetime, service_call
+from pyicloud.cli.normalize import normalize_sync_cursor
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_OUTPUT_FORMAT,
@@ -242,7 +243,7 @@ def _sync_cursor_payload(state, cursor: str) -> None:
     """Render a sync cursor in JSON or text mode."""
 
     if state.json_output:
-        state.write_json({"cursor": cursor})
+        state.write_json(normalize_sync_cursor(cursor))
         return
     state.console.print(cursor)
 
