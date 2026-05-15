@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, cast
 from uuid import uuid1
 
 import srp
@@ -964,8 +964,9 @@ class PyiCloudService:
                     auth_endpoint=self._auth_endpoint,
                     headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
                     boot_context=self._current_hsa2_boot_context(),
-                    user_agent=self.session.headers.get(
-                        "User-Agent", _HEADERS["User-Agent"]
+                    user_agent=cast(
+                        str,
+                        self.session.headers.get("User-Agent", _HEADERS["User-Agent"]),
                     ),
                 )
                 self._set_two_factor_delivery_state("trusted_device")
