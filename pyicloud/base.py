@@ -56,6 +56,7 @@ from pyicloud.services import (
     RemindersService,
     UbiquityService,
 )
+from pyicloud.services.invites import InvitesService
 from pyicloud.services.notes import NotesService
 from pyicloud.session import PyiCloudSession
 from pyicloud.srp_password import SrpPassword, SrpProtocolType
@@ -321,6 +322,7 @@ class PyiCloudService:
         self._photos: Optional[PhotosService] = None
         self._reminders: Optional[RemindersService] = None
         self._notes: Optional[NotesService] = None
+        self._invites: Optional[InvitesService] = None
 
         self._requires_mfa: bool = False
 
@@ -1410,6 +1412,27 @@ class PyiCloudService:
                     "Notes service not available"
                 ) from error
         return self._notes
+
+    @property
+    def invites(self) -> InvitesService:
+        """Gets the 'Invites' service."""
+        if not self._invites:
+            try:
+                service_root: str = self.get_webservice_url("ckdatabasews")
+                self._invites = InvitesService(
+                    service_root=service_root,
+                    session=self.session,
+                    params=self.params,
+                    cloudkit_validation_extra=self._cloudkit_validation_extra,
+                )
+            except (
+                PyiCloudAPIResponseException,
+                PyiCloudServiceNotActivatedException,
+            ) as error:
+                raise PyiCloudServiceUnavailable(
+                    "Invites service not available"
+                ) from error
+        return self._invites
 
     @property
     def account_name(self) -> str:

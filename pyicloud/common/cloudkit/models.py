@@ -818,14 +818,20 @@ class CKZoneIDReq(CKModel):
 class CKQueryRequest(CKModel):
     """
     Top-level /records/query request payload.
+
+    ``zoneID`` is optional because CloudKit also accepts a ``zoneWide``-style
+    query (no specific zone, scans all zones in the database) used by the
+    Invites service to enumerate per-event zones in one round trip.
     """
 
     query: CKQueryObject
-    zoneID: CKZoneIDReq
+    zoneID: Optional[CKZoneIDReq] = None
     desiredKeys: Optional[List[str]] = None  # can include duplicates; keep order
     resultsLimit: Optional[int] = None
     # Observed as a base64-like string on the wire; keep as str for strictness
     continuationMarker: Optional[str] = None
+    # When true, query runs across all zones in the database (Invites events).
+    zoneWide: Optional[bool] = None
 
 
 class CKLookupDescriptor(CKModel):

@@ -288,10 +288,11 @@ class CloudKitContainerClient:
         self,
         *,
         query: CKQueryObject,
-        zone_id: CKZoneIDReq,
+        zone_id: Optional[CKZoneIDReq] = None,
         desired_keys: Optional[List[str]] = None,
         results_limit: Optional[int] = None,
         continuation: Optional[str] = None,
+        zone_wide: bool = False,
     ) -> CKQueryResponse:
         payload = CKQueryRequest(
             query=query,
@@ -299,6 +300,7 @@ class CloudKitContainerClient:
             desiredKeys=desired_keys,
             resultsLimit=results_limit,
             continuationMarker=continuation,
+            zoneWide=zone_wide if zone_wide else None,
         ).model_dump(mode="json", exclude_none=True)
         data = self._http.post("/records/query", payload)
         try:
