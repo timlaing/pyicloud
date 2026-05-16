@@ -294,6 +294,10 @@ class CloudKitContainerClient:
         continuation: Optional[str] = None,
         zone_wide: bool = False,
     ) -> CKQueryResponse:
+        if zone_wide and zone_id is not None:
+            raise ValueError("zone_id must be omitted when zone_wide=True")
+        if not zone_wide and zone_id is None:
+            raise ValueError("zone_id is required unless zone_wide=True")
         payload = CKQueryRequest(
             query=query,
             zoneID=zone_id,

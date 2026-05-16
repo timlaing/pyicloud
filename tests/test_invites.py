@@ -61,6 +61,12 @@ class CodecsTest(unittest.TestCase):
     def test_decode_json_bytes_accepts_bytes(self):
         self.assertEqual(decode_json_bytes(b'{"k": 1}'), {"k": 1})
 
+    def test_decode_json_bytes_accepts_base64_bytes(self):
+        # Bytes carrying the base64-encoded wire form decode the same as
+        # the str path. Catches callers passing the wire form as bytes.
+        encoded = encode_json_bytes({"k": 1}).encode("ascii")
+        self.assertEqual(decode_json_bytes(encoded), {"k": 1})
+
     def test_decode_integrations_extracts_types(self):
         blob = {
             "version": "1",
@@ -196,8 +202,11 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(second.event_id, "EVENT-FIXTURE-BBBB")
         self.assertFalse(second.is_published)
         self.assertIsNotNone(second.place)
+        assert second.place is not None  # narrow for type checker
         self.assertIsNone(second.place.latitude)
         self.assertEqual(second.place.city, "Fixture City")
+        self.assertIsNotNone(second.time)
+        assert second.time is not None
         self.assertTrue(second.time.is_open_ended)
 
     def test_events_merges_private_and_shared_with_dedup(self):

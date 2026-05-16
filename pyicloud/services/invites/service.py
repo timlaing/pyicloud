@@ -414,12 +414,30 @@ class InvitesService(BaseService):
                 else None
             ),
             email=(getattr(lookup_info, "emailAddress", None) if lookup_info else None),
-            type=ParticipantType(getattr(p, "type", "USER") or "USER"),
-            acceptance_status=AcceptanceStatus(
-                getattr(p, "acceptanceStatus", "INVITED") or "INVITED"
+            type=InvitesService._safe_participant_type(getattr(p, "type", None)),
+            acceptance_status=InvitesService._safe_acceptance_status(
+                getattr(p, "acceptanceStatus", None)
             ),
             permission=getattr(p, "permission", "READ_ONLY") or "READ_ONLY",
         )
+
+    @staticmethod
+    def _safe_participant_type(value: Any) -> ParticipantType:
+        """Map a wire participant ``type`` to the enum, defaulting on unknowns."""
+        try:
+            return ParticipantType(str(value or "USER"))
+        except ValueError:
+            LOGGER.debug("invites.participant.unknown_type %r", value)
+            return ParticipantType.USER
+
+    @staticmethod
+    def _safe_acceptance_status(value: Any) -> AcceptanceStatus:
+        """Map a wire ``acceptanceStatus`` to the enum, defaulting on unknowns."""
+        try:
+            return AcceptanceStatus(str(value or "INVITED"))
+        except ValueError:
+            LOGGER.debug("invites.participant.unknown_acceptance %r", value)
+            return AcceptanceStatus.INVITED
 
     def _rsvp_from_record(self, record: CKRecord) -> Rsvp:
         record_name = record.recordName

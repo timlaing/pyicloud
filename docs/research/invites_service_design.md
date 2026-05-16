@@ -2,9 +2,14 @@
 
 ## Status
 
-Design draft based on two Proxyman HAR captures of the iCloud Invites web UI
-(2026-05-15 owner browsing + invite/accept; 2026-05-16 RSVP status variations
-and full event lifecycle including one-time link). Not yet implemented.
+Phase 1 (read-only MVP) is implemented. Source lives under
+[`pyicloud/services/invites/`](../../pyicloud/services/invites/); the wire
+shapes are derived from four Proxyman HAR captures of the iCloud Invites web
+UI (2026-05-15 owner browsing + invite/accept; 2026-05-16 RSVP status
+variations + full event lifecycle including one-time link).
+
+Phases 2–5 (RSVP write, guest-flow polish, owner writes, OneTimeLink writes)
+are still planned per the schedule at the end of this doc.
 
 ## Summary
 
@@ -352,61 +357,75 @@ So it's really _one_ records-in-zones API (private + shared) plus _one_
 share-resolution helper (public). Treating all three symmetrically obscures
 that and creates downstream complications.
 
-#### Approach (chosen): scope-per-call in common client + Invites-local helpers for resolve/accept
+#### Approach shipped in Phase 1: two sub-clients + Invites-local public helper
 
-1. Extend
-   [`CloudKitContainerClient`](../../pyicloud/common/cloudkit/client.py)
-   methods with an optional `scope: Literal["private","shared","public"] = "private"`
-   parameter. The default preserves all existing-service behavior bit-for-bit
-   — Notes / Reminders / Photos need zero changes.
-2. Promote `zones/modify` to the common client at the same time (it's
-   clearly reusable).
-3. `CloudKitInvitesClient` holds **one** `CloudKitContainerClient` instance
-   and adds `resolve(short_guids)` / `accept(short_guids)` as service-local
-   methods. These hit `/public/records/{resolve,accept}` directly, bypassing
-   the records/zones abstraction (which doesn't fit their shape).
+The Phase 1 PR took a narrower variant of the scope-per-call idea above to
+keep the common-client surface area minimal:
+
+1. [`CloudKitInvitesClient`](../../pyicloud/services/invites/client.py)
+   holds **two** [`CloudKitContainerClient`](../../pyicloud/common/cloudkit/client.py)
+   sub-clients: one with the URL ending in `/private` and one in `/shared`.
+   Service methods pick between them via a `scope` literal.
+2. `records/resolve` and `records/accept` (public scope) are issued through
+   a small dedicated `_post_public(path, payload)` helper inside
+   `CloudKitInvitesClient`, mirroring the common HTTP wrapper's
+   auth / rate-limit / error semantics. There is no third sub-client —
+   those endpoints don't fit the records-in-zones abstraction the common
+   client is built around (they take shortGUIDs, not zoneIDs).
+3. The only common-client change made in Phase 1 was a backward-compatible
+   addition to `CloudKitContainerClient.query()`: optional `zone_wide: bool`
+   parameter (with `zoneID` becoming `Optional`), required for the
+   `EventDetails` zone-wide query in `events()`. Notes / Reminders / Photos
+   callers are unaffected — they pass neither parameter and behavior is
+   preserved.
 
 ```python
 class CloudKitInvitesClient:
-    def __init__(self, base, session, base_params, *, validation_extra=None):
-        # base = .../database/1/com.apple.icloud.events/production
-        self._client = CloudKitContainerClient(
-            base, session, base_params,
+    def __init__(self, env_base_url, session, base_params, *, validation_extra=None):
+        # env_base_url = .../database/1/com.apple.icloud.events/production
+        common_kwargs = dict(
+            session=session, base_params=base_params,
             validation_extra=validation_extra,
-            bool_param_style="lower",
-            redact_urls=True,
-            debug_hook=self._dump_http_debug,
+            bool_param_style="lower", redact_urls=True,
+        )
+        self._private = CloudKitContainerClient(f"{env_base_url}/private", **common_kwargs)
+        self._shared = CloudKitContainerClient(f"{env_base_url}/shared", **common_kwargs)
+        self._public_base = f"{env_base_url}/public"
+        # ...
+
+    def query(self, scope, *, query, zone_id=None, zone_wide=False, ...):
+        return self._client_for(scope).query(
+            query=query, zone_id=zone_id, zone_wide=zone_wide, ...
         )
 
-    def query(self, *, scope, query, zone_id, ...):
-        return self._client.query(scope=scope, query=query, zone_id=zone_id, ...)
+    def resolve(self, short_guids):
+        return self._post_public("/records/resolve",
+                                  {"shortGUIDs": [{"value": g} for g in short_guids]})
 
-    def modify(self, *, scope, operations, zone_id, atomic=True):
-        return self._client.modify(scope=scope, operations=operations, ...)
-
-    def resolve(self, short_guids: Sequence[str]) -> ResolveResponse:
-        ...  # POST <base>/public/records/resolve
-
-    def accept(self, short_guids: Sequence[str]) -> AcceptResponse:
-        ...  # POST <base>/public/records/accept
+    def accept(self, short_guids):
+        return self._post_public("/records/accept",
+                                  {"shortGUIDs": [{"value": g} for g in short_guids]})
 ```
 
 #### Alternatives considered
 
 **A. Three symmetric sub-clients.** Construct three `CloudKitContainerClient`
-instances (one per scope) inside `CloudKitInvitesClient`. Rejected because:
+instances (one per scope, including a `public` one). Rejected because it
+triplicates configuration state (validation, timeouts, debug hook, rate-limit
+policy) — a config-drift bug magnet — and forces resolve/accept into the
+records/zones abstraction they don't fit.
 
-- triplicates configuration state (validation, timeouts, debug hook,
-  rate-limit policy) — config-drift bug magnet
-- forces resolve/accept into the records/zones abstraction they don't fit
-- doesn't generalize: any future multi-scope service would re-invent it
-
-**B. Scope-per-call** (chosen, above).
+**B. Scope-per-call on the common client.** Add a `scope=` parameter to every
+`CloudKitContainerClient` method and use a single client. Cleaner long-term
+and originally proposed here, but deferred to a follow-up PR to keep the
+Phase 1 common-client change minimal (just `zone_wide`).
 
 **C. Hand-write HTTP for non-private calls.** Bypass the typed client for
 shared/public. Rejected because it re-implements validation, retry, debug
 hook, and URL redaction for half the operations and loses Pydantic-validated
 responses.
+
+**D. Two sub-clients + a small public helper** (chosen for Phase 1, above).
 
 #### Downstream complications (still apply to chosen approach)
 
@@ -430,11 +449,20 @@ shared_token)` tuple, not a single string. Don't collapse them into one
 
 #### Migration path
 
-If "scope-per-call" turns out to be wrong, falling back to three sub-clients
-is mechanical: construct three clients, always pass the matching `scope=`.
-The reverse (collapsing three sub-clients into one) is harder — config-drift
-bugs and call-site rewrites — so the asymmetry favors trying scope-per-call
-first.
+The shipped Phase 1 design (two sub-clients + a public helper) leaves three
+forward paths open without breaking callers:
+
+- **Promote `scope=` to the common client (option B above).** Collapse the
+  two sub-clients into a single `CloudKitContainerClient` and pass `scope=`
+  per call. Mechanical refactor on the Invites side; existing Notes /
+  Reminders / Photos services unaffected by the default.
+- **Add a third sub-client for `public`.** Only worth it if a future feature
+  needs to issue more than two endpoints against `public`.
+- **Stay put.** The current composition is small enough that, if no other
+  service needs multi-scope, leaving it as-is is reasonable.
+
+The reverse asymmetry of choice A (three sub-clients) — config-drift bugs
+and rewriting every call site — is why we didn't start there.
 
 #### Open questions to resolve in implementation
 

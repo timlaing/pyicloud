@@ -29,32 +29,53 @@ JSON_BYTES_FIELDS: frozenset[str] = frozenset(
 def decode_json_bytes(value: Optional[Union[str, bytes, bytearray]]) -> Optional[Any]:
     """Decode a base64-encoded JSON blob to its Python value.
 
-    Returns ``None`` when ``value`` is missing or cannot be decoded.
+    Accepts either a base64 ``str`` (the wire form) or ``bytes``/``bytearray``.
+    For ``bytes`` we try parsing as raw UTF-8 JSON first (Pydantic's
+    ``Base64Bytes`` decodes the wire base64 for us, so the value reaches
+    this codec as already-decoded JSON bytes) and fall back to a second
+    base64-decode attempt if that fails (handles callers passing the wire
+    base64 form as ``bytes``). Returns ``None`` when ``value`` is missing
+    or cannot be decoded.
     """
     if value is None:
         return None
 
-    if isinstance(value, (bytes, bytearray)):
-        raw = bytes(value)
-    elif isinstance(value, str):
+    if isinstance(value, str):
         try:
             raw = base64.b64decode(value, validate=True)
         except (binascii.Error, ValueError):
             LOGGER.debug("invites.codecs.b64_decode_fail len=%d", len(value))
             return None
-    else:
-        return None
+        return _parse_json_bytes(raw)
 
+    if isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+        parsed = _parse_json_bytes(raw, log_failures=False)
+        if parsed is not None:
+            return parsed
+        # Bytes weren't direct JSON — maybe they're the base64 wire form.
+        try:
+            decoded = base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError):
+            LOGGER.debug("invites.codecs.json_parse_fail bytes_len=%d", len(raw))
+            return None
+        return _parse_json_bytes(decoded)
+
+    return None
+
+
+def _parse_json_bytes(raw: bytes, *, log_failures: bool = True) -> Optional[Any]:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
-        LOGGER.debug("invites.codecs.utf8_decode_fail len=%d", len(raw))
+        if log_failures:
+            LOGGER.debug("invites.codecs.utf8_decode_fail len=%d", len(raw))
         return None
-
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        LOGGER.debug("invites.codecs.json_parse_fail text_len=%d", len(text))
+        if log_failures:
+            LOGGER.debug("invites.codecs.json_parse_fail text_len=%d", len(text))
         return None
 
 

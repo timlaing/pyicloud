@@ -1,18 +1,19 @@
 """Low-level CloudKit client for the Invites container.
 
-Holds three :class:`CloudKitContainerClient` sub-clients (one per CK database
-scope: ``private``, ``shared``, ``public``) since Invites operates across all
-three:
+Invites operates across three CK database scopes, but the public scope's
+endpoints (``records/resolve`` / ``records/accept``) are shaped differently
+from the records-in-zones model used by ``private`` / ``shared``, so the
+composition isn't symmetric:
 
-* ``private`` — owner's own events
-* ``shared`` — events accepted as a guest
-* ``public`` — share resolution (``records/resolve``, ``records/accept``)
-
-The ``private`` and ``shared`` sub-clients use the standard CK query/lookup/
-modify abstraction. The ``public`` sub-client is wrapped only for URL/HTTP
-plumbing reuse; its operations (``records/resolve`` / ``records/accept``)
-don't fit the records-in-zones shape and are issued via a small dedicated
-helper that mirrors the common HTTP wrapper's auth/rate-limit/error behavior.
+* ``private`` — owner's own events. Held as a
+  :class:`CloudKitContainerClient` sub-client.
+* ``shared`` — events accepted as a guest. Held as a separate
+  :class:`CloudKitContainerClient` sub-client.
+* ``public`` — share resolution. No sub-client; reached through a small
+  dedicated ``_post_public`` helper that mirrors the common HTTP wrapper's
+  auth/rate-limit/error behavior. ``records/resolve`` and ``records/accept``
+  take shortGUIDs, not zoneIDs, so they don't fit the typed query/lookup/
+  modify abstraction.
 
 A follow-up PR may promote a ``scope=`` parameter to
 :class:`CloudKitContainerClient` and collapse this composition into a single
@@ -82,9 +83,12 @@ class InvitesApiError(InvitesError):
 class CloudKitInvitesClient:
     """Raw CloudKit service for the Invites container.
 
-    Three sub-clients are constructed at init time (private, shared, public).
-    Public methods take a ``scope`` argument to select between private and
-    shared; ``resolve`` / ``accept`` are dedicated public-scope helpers.
+    Two :class:`CloudKitContainerClient` sub-clients are constructed at init
+    time (private + shared). Public methods take a ``scope`` argument to
+    select between them. ``resolve`` / ``accept`` are dedicated public-scope
+    helpers that issue their POST via :meth:`_post_public` rather than a
+    third sub-client (the public endpoints don't match the records-in-zones
+    shape the common client is built around).
     """
 
     def __init__(
@@ -142,10 +146,11 @@ class CloudKitInvitesClient:
         scope: ScopeLiteral,
         *,
         query: CKQueryObject,
-        zone_id: CKZoneIDReq,
+        zone_id: Optional[CKZoneIDReq] = None,
         desired_keys: Optional[List[str]] = None,
         results_limit: Optional[int] = None,
         continuation: Optional[str] = None,
+        zone_wide: bool = False,
     ) -> CKQueryResponse:
         try:
             return self._client_for(scope).query(
@@ -154,6 +159,7 @@ class CloudKitInvitesClient:
                 desired_keys=desired_keys,
                 results_limit=results_limit,
                 continuation=continuation,
+                zone_wide=zone_wide,
             )
         except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
             self._raise_invites_error(exc)

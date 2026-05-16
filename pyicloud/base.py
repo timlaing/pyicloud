@@ -443,6 +443,7 @@ class PyiCloudService:
         self._hidemyemail = None
         self._photos = None
         self._reminders = None
+        self._invites = None
         self._requires_mfa = False
         self.params.pop("dsid", None)
 
