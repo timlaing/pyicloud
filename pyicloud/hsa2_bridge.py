@@ -1128,6 +1128,13 @@ class TrustedDeviceBridgeBootstrapper:
                 push_payload = self._wait_for_bridge_push(
                     websocket, topic, topics_by_hash
                 )
+                if (
+                    push_payload.payload.get("sessionUUID") is not None
+                    and push_payload.session_uuid != session_uuid
+                ):
+                    raise PyiCloudTrustedDevicePromptException(
+                        "Trusted-device bridge returned a mismatched session UUID."
+                    )
                 LOGGER.debug(
                     "Received trusted-device bridge payload: sessionUUID=%s nextStep=%s ruiURLKey=%s",
                     _summarize_identifier(push_payload.session_uuid),
