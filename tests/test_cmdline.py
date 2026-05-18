@@ -247,8 +247,17 @@ class FakePhotosService:
         shared_favorites_album = FakePhotoAlbum(
             "Favorites", [FakePhoto("shared-photo-1", "shared.jpg")]
         )
+        shared_stream_album = FakePhotoAlbum(
+            "Vacation 2026", [FakePhoto("stream-photo-1", "beach.jpg")]
+        )
+        shared_stream_album2 = FakePhotoAlbum(
+            "Family Photos", [FakePhoto("stream-photo-2", "family.jpg")]
+        )
         self.albums = FakeAlbumContainer([photo_album])
         self.all = photo_album
+        self.shared_streams = FakeAlbumContainer(
+            [shared_stream_album, shared_stream_album2]
+        )
         root_changes = [
             SimpleNamespace(
                 kind="updated",
@@ -3475,6 +3484,47 @@ def test_photos_sync_cursor_missing_library() -> None:
 
     assert result.exit_code != 0
     assert result.exception.args[0] == "No photo library matched 'missing'."
+
+
+def test_photos_shared_streams_command() -> None:
+    """Photos shared-streams command should list shared photo streams."""
+
+    fake_api = FakeAPI()
+
+    text_result = _invoke(fake_api, "photos", "shared-streams")
+    json_result = _invoke(fake_api, "photos", "shared-streams", output_format="json")
+
+    assert text_result.exit_code == 0
+    assert "Vacation 2026" in text_result.stdout
+    assert "Family Photos" in text_result.stdout
+
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert len(payload) == 2
+    assert payload[0]["name"] == "Vacation 2026"
+    assert payload[0]["full_name"] == "/Vacation 2026"
+    assert payload[0]["count"] == 1
+    assert payload[1]["name"] == "Family Photos"
+    assert payload[1]["count"] == 1
+
+
+def test_photos_albums_command() -> None:
+    """Photos albums command should list photo albums."""
+
+    fake_api = FakeAPI()
+
+    text_result = _invoke(fake_api, "photos", "albums")
+    json_result = _invoke(fake_api, "photos", "albums", output_format="json")
+
+    assert text_result.exit_code == 0
+    assert "All Photos" in text_result.stdout
+
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert len(payload) == 1
+    assert payload[0]["name"] == "All Photos"
+    assert payload[0]["full_name"] == "/All Photos"
+    assert payload[0]["count"] == 1
 
 
 def test_drive_missing_paths_report_cli_abort() -> None:
