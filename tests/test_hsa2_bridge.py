@@ -323,6 +323,34 @@ def test_bridge_push_payload_preserves_unknown_extra_fields() -> None:
     assert payload.payload["extraField"] == {"foo": "bar"}
 
 
+def test_bridge_push_payload_session_uuid_takes_precedence_over_flowid() -> None:
+    """sessionUUID should be used when present, even if flowid is also supplied."""
+
+    payload = BridgePushPayload.from_payload(
+        {"sessionUUID": "uuid-value", "flowid": "flow-value"}
+    )
+
+    assert payload.session_uuid == "uuid-value"
+
+
+def test_bridge_push_payload_flowid_used_when_session_uuid_absent() -> None:
+    """flowid alone should satisfy the session-identifier requirement."""
+
+    payload = BridgePushPayload.from_payload({"flowid": "flow-value"})
+
+    assert payload.session_uuid == "flow-value"
+
+
+def test_bridge_push_payload_rejects_missing_session_identifier() -> None:
+    """A payload with neither sessionUUID nor flowid should raise."""
+
+    with pytest.raises(
+        PyiCloudTrustedDevicePromptException,
+        match="missing sessionUUID/flowid",
+    ):
+        BridgePushPayload.from_payload({"nextStep": "2"})
+
+
 def test_extract_json_payload_finds_embedded_json() -> None:
     """Request-8 style binary payloads should yield the embedded JSON envelope."""
 
