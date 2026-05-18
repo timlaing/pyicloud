@@ -1,0 +1,54 @@
+{
+  "results": [
+    {
+      "shortGUID": {
+        "value": "008TESTFIXTUREAAAA",
+        "shouldFetchRootRecord": true
+      },
+      "containerIdentifier": "com.apple.icloud.events",
+      "environment": "production",
+      "databaseScope": "PRIVATE",
+      "zoneID": {
+        "zoneName": "EVENT-FIXTURE-AAAA",
+        "ownerRecordName": "_FAKE_OWNER",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "share": {
+        "recordName": "cloudkit.zoneshare",
+        "recordType": "cloudkit.share",
+        "fields": {
+          "cloudkit.title": { "value": "Event Fixture A", "type": "STRING" },
+          "isPrivate": { "value": 0, "type": "INT64" }
+        },
+        "pluginFields": {},
+        "recordChangeTag": "shareA1",
+        "publicPermission": "NONE",
+        "participants": [
+          {
+            "participantId": "PARTICIPANT-FIXTURE-OWNER",
+            "userIdentity": {
+              "userRecordName": "_FAKE_OWNER",
+              "nameComponents": {
+                "givenName": "Owner",
+                "familyName": "Fixture"
+              },
+              "lookupInfo": { "emailAddress": "owner@example.com" }
+            },
+            "type": "OWNER",
+            "acceptanceStatus": "ACCEPTED",
+            "permission": "READ_WRITE"
+          }
+        ],
+        "shortGUID": "008TESTFIXTUREAAAA"
+      },
+      "ownerIdentity": {
+        "userRecordName": "_FAKE_OWNER",
+        "nameComponents": { "givenName": "Owner", "familyName": "Fixture" },
+        "lookupInfo": { "emailAddress": "owner@example.com" }
+      },
+      "participantType": "OWNER",
+      "participantStatus": "ACCEPTED",
+      "participantPermission": "READ_WRITE"
+    }
+  ]
+}
