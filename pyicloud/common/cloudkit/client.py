@@ -42,6 +42,8 @@ _ResponseModelT = TypeVar(
 CloudKitBoolParamStyle = Literal["python", "lower"]
 CloudKitDebugHook = Callable[[str, str, Dict, object], None]
 
+_RATE_LIMITED = "HTTP 429: rate limited"
+
 
 def redact_cloudkit_url(url: str) -> str:
     """Return a CloudKit URL without query parameters or fragments."""
@@ -155,7 +157,7 @@ class _CloudKitHTTP:
                     retry_after = float(hdr)
             except Exception:
                 retry_after = None
-            raise CloudKitRateLimited("HTTP 429: rate limited", retry_after=retry_after)
+            raise CloudKitRateLimited(_RATE_LIMITED, retry_after=retry_after)
         if code >= 400:
             self._run_debug_hook(op, url, payload, resp)
             try:
@@ -191,7 +193,7 @@ class _CloudKitHTTP:
                     retry_after = float(hdr)
             except Exception:
                 retry_after = None
-            raise CloudKitRateLimited("HTTP 429: rate limited", retry_after=retry_after)
+            raise CloudKitRateLimited(_RATE_LIMITED, retry_after=retry_after)
         if code >= 400:
             self._run_debug_hook("asset_get", url, {}, resp)
             raise CloudKitApiError(
@@ -225,9 +227,7 @@ class _CloudKitHTTP:
                         retry_after = float(hdr)
                 except Exception:
                     retry_after = None
-                raise CloudKitRateLimited(
-                    "HTTP 429: rate limited", retry_after=retry_after
-                )
+                raise CloudKitRateLimited(_RATE_LIMITED, retry_after=retry_after)
             if code >= 400:
                 self._run_debug_hook("asset_get", url, {}, resp)
                 raise CloudKitApiError(

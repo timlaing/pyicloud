@@ -38,6 +38,8 @@ from pyicloud.services.photos_cloudkit.constants import (
     unsupported_shared_library_album_message,
 )
 
+_PHOTO_LIBRARY_KEY_HELP = "Photo library key."
+
 app = typer.Typer(help="Browse and download iCloud Photos.")
 
 
@@ -346,7 +348,7 @@ def photos_list(
     album: Optional[str] = typer.Option(
         None, "--album", help="Album name. Defaults to all photos."
     ),
-    library: str = typer.Option("root", "--library", help="Photo library key."),
+    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     limit: int = typer.Option(50, "--limit", min=1, help="Maximum photos to show."),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -413,7 +415,7 @@ def photos_get(
         "--album",
         help="Album name to search before falling back to all photos.",
     ),
-    library: str = typer.Option("root", "--library", help="Photo library key."),
+    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -459,7 +461,7 @@ def photos_get(
 @app.command("changes")
 def photos_changes(
     ctx: typer.Context,
-    library: str = typer.Option("root", "--library", help="Photo library key."),
+    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     since: Optional[str] = typer.Option(
         None, "--since", help="Sync cursor to fetch changes after."
     ),
@@ -516,7 +518,7 @@ def photos_changes(
 @app.command("sync-cursor")
 def photos_sync_cursor(
     ctx: typer.Context,
-    library: str = typer.Option("root", "--library", help="Library key."),
+    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -559,7 +561,7 @@ def photos_download(
     version: str = typer.Option(
         "original", "--version", help="Photo version to download."
     ),
-    library: str = typer.Option("root", "--library", help="Photo library key."),
+    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -621,7 +623,7 @@ def photos_sync(
         "--album",
         help="Album name to sync. Repeat to sync multiple albums.",
     ),
-    library: str = typer.Option("root", "--library", help="Photo library key."),
+    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     state_dir: Optional[Path] = typer.Option(
         None,
         "--state-dir",
@@ -777,7 +779,7 @@ def photos_watch(
         "--album",
         help="Album name to sync. Repeat to sync multiple albums.",
     ),
-    library: str = typer.Option("root", "--library", help="Photo library key."),
+    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     state_dir: Optional[Path] = typer.Option(
         None,
         "--state-dir",

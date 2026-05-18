@@ -1272,7 +1272,7 @@ class PyiCloudService:
                     china_mainland=self._is_china_mainland,
                     params=self.params,
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Account service not available"
                 ) from error
@@ -1289,7 +1289,7 @@ class PyiCloudService:
                     session=self.session,
                     params=self.params,
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except PyiCloudAPIResponseException as error:
                 if "Account migrated" == error.reason:
                     raise PyiCloudServiceUnavailable(
                         "Files service not available use `api.drive` instead"
@@ -1318,7 +1318,7 @@ class PyiCloudService:
                     upload_url=upload_url,
                     shared_streams_url=shared_streams_url,
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Photos service not available"
                 ) from error
@@ -1333,7 +1333,7 @@ class PyiCloudService:
                 self._calendar = CalendarService(
                     service_root=service_root, session=self.session, params=self.params
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Calendar service not available"
                 ) from error
@@ -1348,7 +1348,7 @@ class PyiCloudService:
                 self._contacts = ContactsService(
                     service_root=service_root, session=self.session, params=self.params
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Contacts service not available"
                 ) from error
@@ -1366,10 +1366,7 @@ class PyiCloudService:
                     params=self.params,
                     cloudkit_validation_extra=self._cloudkit_validation_extra,
                 )
-            except (
-                PyiCloudAPIResponseException,
-                PyiCloudServiceNotActivatedException,
-            ) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Reminders service not available"
                 ) from error
@@ -1388,7 +1385,7 @@ class PyiCloudService:
                     session=self.session,
                     params=self.params,
                 )
-            except (PyiCloudAPIResponseException,) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Drive service not available"
                 ) from error
@@ -1406,10 +1403,7 @@ class PyiCloudService:
                     params=self.params,
                     cloudkit_validation_extra=self._cloudkit_validation_extra,
                 )
-            except (
-                PyiCloudAPIResponseException,
-                PyiCloudServiceNotActivatedException,
-            ) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Notes service not available"
                 ) from error

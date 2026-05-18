@@ -34,6 +34,10 @@ app = typer.Typer(help="Inspect, render, and export Notes.")
 
 NOTES = "Notes"
 
+_MAX_NOTES_TO_SHOW_HELP = "Maximum notes to show."
+_NOTE_ID_HELP = "Note id."
+_FOLDER_ID_HELP = "Folder id."
+
 
 class PreviewAppearance(str, Enum):
     """Supported Notes preview appearances."""
@@ -88,7 +92,7 @@ def _print_note_rows(state, title: str, rows) -> None:
 @app.command("recent")
 def notes_recent(
     ctx: typer.Context,
-    limit: int = typer.Option(10, "--limit", min=1, help="Maximum notes to show."),
+    limit: int = typer.Option(10, "--limit", min=1, help=_MAX_NOTES_TO_SHOW_HELP),
     include_deleted: bool = typer.Option(
         False,
         "--include-deleted",
@@ -173,14 +177,14 @@ def notes_folders(
 @app.command("list")
 def notes_list(
     ctx: typer.Context,
-    folder_id: Optional[str] = typer.Option(None, "--folder-id", help="Folder id."),
+    folder_id: Optional[str] = typer.Option(None, "--folder-id", help=_FOLDER_ID_HELP),
     all_notes: bool = typer.Option(False, "--all", help="Iterate all notes."),
     since: Optional[str] = typer.Option(
         None,
         "--since",
         help="Incremental sync cursor for --all.",
     ),
-    limit: int = typer.Option(50, "--limit", min=1, help="Maximum notes to show."),
+    limit: int = typer.Option(50, "--limit", min=1, help=_MAX_NOTES_TO_SHOW_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -242,7 +246,7 @@ def notes_search(
         "--title-contains",
         help="Case-insensitive note title substring.",
     ),
-    limit: int = typer.Option(10, "--limit", min=1, help="Maximum notes to show."),
+    limit: int = typer.Option(10, "--limit", min=1, help=_MAX_NOTES_TO_SHOW_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -287,7 +291,7 @@ def notes_search(
 @app.command("get")
 def notes_get(
     ctx: typer.Context,
-    note_id: str = typer.Argument(..., help="Note id."),
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
     with_attachments: bool = typer.Option(
         False,
         "--with-attachments",
@@ -394,7 +398,7 @@ def notes_render(
 @app.command("export")
 def notes_export(
     ctx: typer.Context,
-    note_id: str = typer.Argument(..., help="Note id."),
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
     output_dir: Path = typer.Option(..., "--output-dir", help="Destination directory."),
     export_mode: ExportMode = typer.Option(
         ExportMode.ARCHIVAL,

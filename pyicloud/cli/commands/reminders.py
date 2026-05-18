@@ -42,6 +42,9 @@ recurrence_app = typer.Typer(help="Work with reminder recurrence rules.")
 REMINDERS = "Reminders"
 TRelated = TypeVar("TRelated")
 
+_REMINDER_ID_HELP = "Reminder id."
+_COMPLETED_OPTION_PARAM = "--completed/--not-completed"
+
 
 class ProximityChoice(str, Enum):
     """CLI-facing proximity choice."""
@@ -357,7 +360,7 @@ def reminders_list(
 @app.command("get")
 def reminders_get(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -411,7 +414,7 @@ def reminders_create(
     desc: str = typer.Option("", "--desc", help="Reminder description."),
     completed: bool = typer.Option(
         False,
-        "--completed/--not-completed",
+        _COMPLETED_OPTION_PARAM,
         help="Create the reminder as completed or incomplete.",
     ),
     due_date: str | None = typer.Option(None, "--due-date", help="Due datetime."),
@@ -479,12 +482,12 @@ def reminders_create(
 @app.command("update")
 def reminders_update(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     title: str | None = typer.Option(None, "--title", help="Reminder title."),
     desc: str | None = typer.Option(None, "--desc", help="Reminder description."),
     completed: bool | None = typer.Option(
         None,
-        "--completed/--not-completed",
+        _COMPLETED_OPTION_PARAM,
         help="Mark the reminder completed or incomplete.",
     ),
     due_date: str | None = typer.Option(None, "--due-date", help="Due datetime."),
@@ -609,10 +612,10 @@ def reminders_update(
 @app.command("set-status")
 def reminders_set_status(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     completed: bool = typer.Option(
         True,
-        "--completed/--not-completed",
+        _COMPLETED_OPTION_PARAM,
         help="Mark the reminder completed or incomplete.",
     ),
     username: UsernameOption = None,
@@ -650,7 +653,7 @@ def reminders_set_status(
 @app.command("delete")
 def reminders_delete(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -848,7 +851,7 @@ def reminders_sync_cursor(
 @alarm_app.command("list")
 def reminders_alarm_list(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -906,7 +909,7 @@ def reminders_alarm_list(
 @alarm_app.command("add-location")
 def reminders_alarm_add_location(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     title: str = typer.Option(..., "--title", help="Location title."),
     address: str = typer.Option(..., "--address", help="Location address."),
     latitude: float = typer.Option(..., "--latitude", help="Location latitude."),
@@ -963,7 +966,7 @@ def reminders_alarm_add_location(
 @hashtag_app.command("list")
 def reminders_hashtag_list(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -1004,7 +1007,7 @@ def reminders_hashtag_list(
 @hashtag_app.command("create")
 def reminders_hashtag_create(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     name: str = typer.Argument(..., help="Hashtag name."),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -1040,7 +1043,7 @@ def reminders_hashtag_create(
 @hashtag_app.command("update")
 def reminders_hashtag_update(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     hashtag_id: str = typer.Argument(..., help="Hashtag id."),
     name: str = typer.Option(..., "--name", help="Updated hashtag name."),
     username: UsernameOption = None,
@@ -1084,7 +1087,7 @@ def reminders_hashtag_update(
 @hashtag_app.command("delete")
 def reminders_hashtag_delete(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     hashtag_id: str = typer.Argument(..., help="Hashtag id."),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -1127,7 +1130,7 @@ def reminders_hashtag_delete(
 @attachment_app.command("list")
 def reminders_attachment_list(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -1178,7 +1181,7 @@ def reminders_attachment_list(
 @attachment_app.command("create-url")
 def reminders_attachment_create_url(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     url: str = typer.Option(..., "--url", help="Attachment URL."),
     uti: str = typer.Option("public.url", "--uti", help="Attachment UTI."),
     username: UsernameOption = None,
@@ -1218,7 +1221,7 @@ def reminders_attachment_create_url(
 @attachment_app.command("update")
 def reminders_attachment_update(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     attachment_id: str = typer.Argument(..., help="Attachment id."),
     url: str | None = typer.Option(None, "--url", help="Updated attachment URL."),
     uti: str | None = typer.Option(None, "--uti", help="Updated attachment UTI."),
@@ -1311,7 +1314,7 @@ def reminders_attachment_update(
 @attachment_app.command("delete")
 def reminders_attachment_delete(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     attachment_id: str = typer.Argument(..., help="Attachment id."),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -1358,7 +1361,7 @@ def reminders_attachment_delete(
 @recurrence_app.command("list")
 def reminders_recurrence_list(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -1408,7 +1411,7 @@ def reminders_recurrence_list(
 @recurrence_app.command("create")
 def reminders_recurrence_create(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     frequency: RecurrenceFrequencyChoice = typer.Option(
         RecurrenceFrequencyChoice.DAILY,
         "--frequency",
@@ -1471,7 +1474,7 @@ def reminders_recurrence_create(
 @recurrence_app.command("update")
 def reminders_recurrence_update(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     rule_id: str = typer.Argument(..., help="Recurrence rule id."),
     frequency: RecurrenceFrequencyChoice | None = typer.Option(
         None,
@@ -1562,7 +1565,7 @@ def reminders_recurrence_update(
 @recurrence_app.command("delete")
 def reminders_recurrence_delete(
     ctx: typer.Context,
-    reminder_id: str = typer.Argument(..., help="Reminder id."),
+    reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     rule_id: str = typer.Argument(..., help="Recurrence rule id."),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
