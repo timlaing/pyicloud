@@ -1,0 +1,118 @@
+{
+  "records": [
+    {
+      "recordName": "EventDetails:EVENT-FIXTURE-AAAA",
+      "recordType": "EventDetails",
+      "fields": {
+        "isCancelled": { "value": 0, "type": "INT64" },
+        "notes": {
+          "value": "Fixture notes for event A.",
+          "type": "STRING",
+          "isEncrypted": true
+        },
+        "isPublished": { "value": 1, "type": "INT64", "isEncrypted": true },
+        "isPrivate": { "value": 0, "type": "INT64", "isEncrypted": true },
+        "title": {
+          "value": "Event Fixture A",
+          "type": "STRING",
+          "isEncrypted": true
+        },
+        "blockNewRSVPs": { "value": 0, "type": "INT64" },
+        "background": {
+          "value": "eyJraW5kIjoiaW1hZ2UiLCJ2aXNpYmlsaXR5IjoxLCJpbWFnZSI6eyJjcm9wUmVjdCI6WzAuNSwwLjUsMSwxXX19",
+          "type": "ENCRYPTED_BYTES"
+        },
+        "style": { "value": "eyJ0aXRsZUZvbnQiOjB9", "type": "ENCRYPTED_BYTES" },
+        "place": {
+          "value": "eyJsYXRpdHVkZSI6NDguODU2NiwibG9uZ2l0dWRlIjoyLjM1MjIsInRpdGxlIjoiRml4dHVyZSBIYWxsIiwic3VidGl0bGUiOiJGaXh0dXJlIENpdHksIEZpeHR1cmVsYW5kIiwiY2l0eSI6IkZpeHR1cmUgQ2l0eSIsInRpbWVab25lSWRlbnRpZmllciI6IkV1cm9wZS9QYXJpcyIsInVybCI6Imh0dHBzOi8vbWFwcy5leGFtcGxlLmNvbS9maXh0dXJlIn0=",
+          "type": "ENCRYPTED_BYTES"
+        },
+        "time": {
+          "value": "eyJzdGFydFNpbmNlMTk3MCI6MTc2ODQzNTIwMDAwMCwiZW5kU2luY2UxOTcwIjoxNzY4NDQ2MDAwMDAwLCJpc0FsbERheSI6ZmFsc2UsImlzT3BlbkVuZGVkIjpmYWxzZX0=",
+          "type": "ENCRYPTED_BYTES"
+        },
+        "integrations": {
+          "value": "eyJ2ZXJzaW9uIjoiMSIsImRhdGEiOlt7InR5cGUiOiJjb20uYXBwbGUud2lkZ2V0LndlYXRoZXIifSx7InR5cGUiOiJjb20uYXBwbGUud2lkZ2V0LmxvY2F0aW9uIn1dfQ==",
+          "type": "ENCRYPTED_BYTES"
+        },
+        "maxAttendees": { "value": 100, "type": "INT64", "isEncrypted": true },
+        "maxAdditionalGuestsPerRSVP": {
+          "value": 2,
+          "type": "INT64",
+          "isEncrypted": true
+        }
+      },
+      "pluginFields": {},
+      "recordChangeTag": "fixtureA1",
+      "created": {
+        "timestamp": 1768400000000,
+        "userRecordName": "_FAKE_OWNER",
+        "deviceID": "FIXTURE-DEVICE-A"
+      },
+      "modified": {
+        "timestamp": 1768401000000,
+        "userRecordName": "_FAKE_OWNER",
+        "deviceID": "FIXTURE-DEVICE-A"
+      },
+      "deleted": false,
+      "zoneID": {
+        "zoneName": "EVENT-FIXTURE-AAAA",
+        "ownerRecordName": "_FAKE_OWNER",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      }
+    },
+    {
+      "recordName": "cloudkit.zoneshare",
+      "recordType": "cloudkit.share",
+      "fields": {
+        "cloudkit.title": { "value": "Event Fixture A", "type": "STRING" },
+        "isPrivate": { "value": 0, "type": "INT64" },
+        "isPublished": { "value": 1, "type": "INT64" }
+      },
+      "pluginFields": {},
+      "recordChangeTag": "shareA1",
+      "created": {
+        "timestamp": 1768400500000,
+        "userRecordName": "_FAKE_OWNER",
+        "deviceID": "FIXTURE-DEVICE-A"
+      },
+      "modified": {
+        "timestamp": 1768400500000,
+        "userRecordName": "_FAKE_OWNER",
+        "deviceID": "iCloud"
+      },
+      "deleted": false,
+      "zoneID": {
+        "zoneName": "EVENT-FIXTURE-AAAA",
+        "ownerRecordName": "_FAKE_OWNER",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "publicPermission": "READ_WRITE",
+      "participants": [
+        {
+          "participantId": "PARTICIPANT-FIXTURE-OWNER",
+          "userIdentity": {
+            "userRecordName": "_FAKE_OWNER",
+            "nameComponents": { "givenName": "Owner", "familyName": "Fixture" },
+            "lookupInfo": { "emailAddress": "owner@example.com" }
+          },
+          "type": "OWNER",
+          "acceptanceStatus": "ACCEPTED",
+          "permission": "READ_WRITE"
+        },
+        {
+          "participantId": "PARTICIPANT-FIXTURE-GUEST",
+          "userIdentity": {
+            "userRecordName": "++FAKEGUESTRECORDNAME=",
+            "nameComponents": {},
+            "lookupInfo": { "emailAddress": "guest@example.com" }
+          },
+          "type": "PUBLIC_USER",
+          "acceptanceStatus": "ACCEPTED",
+          "permission": "READ_WRITE"
+        }
+      ],
+      "shortGUID": "008TESTFIXTUREAAAA"
+    }
+  ]
+}

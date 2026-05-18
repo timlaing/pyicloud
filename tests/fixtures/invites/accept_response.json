@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "shortGUID": {
+        "value": "008TESTFIXTUREAAAA",
+        "shouldFetchRootRecord": true
+      },
+      "containerIdentifier": "com.apple.icloud.events",
+      "environment": "production",
+      "databaseScope": "SHARED",
+      "zoneID": {
+        "zoneName": "EVENT-FIXTURE-AAAA",
+        "ownerRecordName": "_FAKE_OWNER",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      },
+      "share": {
+        "recordName": "cloudkit.zoneshare",
+        "recordType": "cloudkit.share",
+        "fields": {
+          "cloudkit.title": { "value": "Event Fixture A", "type": "STRING" }
+        },
+        "pluginFields": {},
+        "recordChangeTag": "shareA2",
+        "publicPermission": "READ_WRITE",
+        "participants": [
+          {
+            "participantId": "PARTICIPANT-FIXTURE-OWNER",
+            "userIdentity": {
+              "userRecordName": "_FAKE_OWNER",
+              "nameComponents": {
+                "givenName": "Owner",
+                "familyName": "Fixture"
+              },
+              "lookupInfo": { "emailAddress": "owner@example.com" }
+            },
+            "type": "OWNER",
+            "acceptanceStatus": "ACCEPTED",
+            "permission": "READ_WRITE"
+          },
+          {
+            "participantId": "PARTICIPANT-FIXTURE-GUEST",
+            "userIdentity": {
+              "userRecordName": "++FAKEGUESTRECORDNAME=",
+              "nameComponents": {},
+              "lookupInfo": { "emailAddress": "guest@example.com" }
+            },
+            "type": "PUBLIC_USER",
+            "acceptanceStatus": "ACCEPTED",
+            "permission": "READ_WRITE"
+          }
+        ],
+        "shortGUID": "008TESTFIXTUREAAAA"
+      },
+      "ownerIdentity": {
+        "userRecordName": "_FAKE_OWNER",
+        "nameComponents": { "givenName": "Owner", "familyName": "Fixture" },
+        "lookupInfo": { "emailAddress": "owner@example.com" }
+      },
+      "participantType": "PUBLIC_USER",
+      "participantStatus": "ACCEPTED",
+      "participantPermission": "READ_WRITE"
+    }
+  ]
+}
