@@ -218,6 +218,13 @@ class InvitesService(BaseService):
         Returns the freshly written :class:`Rsvp` (including the new
         ``record_change_tag``).
         """
+        if plus_one_adults < 0 or plus_one_kids < 0:
+            raise InvitesApiError(
+                "plus_one_adults and plus_one_kids must be non-negative; "
+                f"got plus_one_adults={plus_one_adults!r}, "
+                f"plus_one_kids={plus_one_kids!r}"
+            )
+
         participant_id = self._current_participant_id(event)
         record_name = f"{participant_id}{RSVP_RECORD_NAME_SUFFIX}"
         existing = self._find_existing_rsvp(event, record_name)

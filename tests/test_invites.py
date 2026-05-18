@@ -555,6 +555,19 @@ class RsvpWriteTest(unittest.TestCase):
         with self.assertRaises(InvitesApiError):
             self.service.rsvp(event, RsvpStatus.GOING)
 
+    def test_rsvp_rejects_negative_plus_one_counts(self):
+        event = _make_event_with_share()
+        # Sentinel modify mock that should never be reached.
+        self.service.raw.modify = MagicMock()
+
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING, plus_one_adults=-1)
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING, plus_one_kids=-1)
+
+        # Validation must run before any wire call.
+        self.service.raw.modify.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
