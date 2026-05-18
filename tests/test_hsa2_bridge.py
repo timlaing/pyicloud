@@ -38,6 +38,8 @@ from pyicloud.hsa2_bridge_prover import (
 
 
 class _FakeWebSocket:
+    """Mock WebSocket for testing."""
+
     def __init__(
         self,
         messages: list[bytes | Exception],
@@ -67,6 +69,8 @@ class _FakeWebSocket:
 
 
 class _FakePrivateKey:
+    """Mock private key for testing signature generation."""
+
     def sign(self, nonce: bytes, _algorithm: object) -> bytes:
         return b"signature-for-" + nonce[:4]
 

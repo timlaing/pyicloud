@@ -1,3 +1,5 @@
+"""Constants and enums for Notes CloudKit records and queries."""
+
 from enum import Enum
 
 

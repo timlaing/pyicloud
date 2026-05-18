@@ -2893,10 +2893,14 @@ def test_notes_commands_report_reauthentication_and_unavailability() -> None:
     """Notes commands should wrap service reauth and service-unavailable failures."""
 
     class ReauthNotes:
+        """Mock Notes service that raises reauth exception."""
+
         def recents(self, *, limit: int = 50):
             raise context_module.PyiCloudFailedLoginException("No password set")
 
     class UnavailableNotes:
+        """Mock Notes service that raises unavailable exception."""
+
         def sync_cursor(self) -> str:
             raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 
@@ -3913,10 +3917,14 @@ def test_reminders_commands_report_errors() -> None:
     )
 
     class ApiErrorReminders:
+        """Mock Reminders service that raises API error exception."""
+
         def sync_cursor(self) -> str:
             raise RemindersApiError("sync failed")
 
     class AuthErrorReminders:
+        """Mock Reminders service that raises auth error exception."""
+
         def sync_cursor(self) -> str:
             raise RemindersAuthError("token expired")
 
@@ -3937,10 +3945,14 @@ def test_reminders_commands_report_reauthentication_and_unavailability() -> None
     """Reminders commands should wrap service reauth and service-unavailable failures."""
 
     class ReauthReminders:
+        """Mock Reminders service that raises reauth exception."""
+
         def lists(self):
             raise context_module.PyiCloudFailedLoginException("No password set")
 
     class UnavailableReminders:
+        """Mock Reminders service that raises unavailable exception."""
+
         def sync_cursor(self) -> str:
             raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 

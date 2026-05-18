@@ -139,6 +139,8 @@ SecsOrMillisDateTime = Annotated[
 
 
 class CKZoneID(CKModel):
+    """Identifies a CloudKit zone by name, owner, and optional type."""
+
     zoneName: str
     ownerRecordName: Optional[str] = None
     zoneType: Optional[str] = None
@@ -155,10 +157,14 @@ class CKAuditInfo(CKModel):
 
 
 class CKParent(CKModel):
+    """References a parent record in a record hierarchy."""
+
     recordName: str
 
 
 class CKStableUrl(CKModel):
+    """Secure URL and access credentials for sharing a record."""
+
     routingKey: Optional[str] = None
     shortTokenHash: Optional[str] = None
     protectedFullToken: Optional[str] = None
@@ -167,6 +173,8 @@ class CKStableUrl(CKModel):
 
 
 class CKChainProtectionInfo(CKModel):
+    """End-to-end encryption chain protection metadata."""
+
     bytes: Optional[Base64Bytes] = None  # base64 string as seen on wire
     pcsChangeTag: Optional[str] = None
 
@@ -189,16 +197,22 @@ class CKShare(CKModel):
 
 
 class CKNameComponents(CKModel):
+    """User's name split into given and family names."""
+
     givenName: Optional[str] = None
     familyName: Optional[str] = None
 
 
 class CKLookupInfo(CKModel):
+    """Contact information for user lookup (email or phone)."""
+
     emailAddress: Optional[str] = None
     phoneNumber: Optional[str] = None
 
 
 class CKUserIdentity(CKModel):
+    """Complete user identity with name and contact information."""
+
     userRecordName: Optional[str] = None
     nameComponents: Optional[CKNameComponents] = None
     lookupInfo: Optional[CKLookupInfo] = None
@@ -209,6 +223,8 @@ class CKParticipantProtectionInfo(CKChainProtectionInfo):
 
 
 class CKParticipant(CKModel):
+    """Person sharing a record with permissions, status, and protection info."""
+
     participantId: Optional[str] = None
     userIdentity: Optional[CKUserIdentity] = None
     type: Optional[str] = None
@@ -243,12 +259,16 @@ class CKReference(CKModel):
 
 
 class _CKFieldBase(CKModel):
+    """Base class for CloudKit field type wrappers with discriminator support."""
+
     # Every field wrapper has a 'type' discriminator and a 'value'
     # Subclasses declare type: Literal[...] for the discriminator.
     pass
 
 
 class CKTimestampField(_CKFieldBase):
+    """Milliseconds-since-epoch timestamp field wrapper."""
+
     type: Literal["TIMESTAMP"]
     value: (
         MillisDateTimeOrNone  # Apple sometimes sends a "zero" ms sentinel; map to None
@@ -256,21 +276,29 @@ class CKTimestampField(_CKFieldBase):
 
 
 class CKInt64Field(_CKFieldBase):
+    """64-bit signed integer field wrapper."""
+
     type: Literal["INT64"]
     value: int
 
 
 class CKEncryptedBytesField(_CKFieldBase):
+    """Base64-encoded encrypted binary field wrapper."""
+
     type: Literal["ENCRYPTED_BYTES"]
     value: Base64Bytes
 
 
 class CKReferenceField(_CKFieldBase):
+    """Reference to another CloudKit record."""
+
     type: Literal["REFERENCE"]
     value: Optional[CKReference]
 
 
 class CKReferenceListField(_CKFieldBase):
+    """List of references to other CloudKit records."""
+
     type: Literal["REFERENCE_LIST"]
     value: List[CKReference]
 
@@ -278,18 +306,24 @@ class CKReferenceListField(_CKFieldBase):
 # Occasionally CloudKit also uses STRING-typed wrappers at the `fields` level;
 # keep support here for completeness.
 class CKStringField(_CKFieldBase):
+    """String value field wrapper, optionally encrypted."""
+
     type: Literal["STRING"]
     value: Optional[str]
     isEncrypted: Optional[bool] = None  # seen on some STRING wrappers (lookup)
 
 
 class CKStringListField(_CKFieldBase):
+    """List of string values field wrapper."""
+
     type: Literal["STRING_LIST"]
     value: List[str]
 
 
 # Asset thumbnails / tokens (e.g. FirstAttachmentThumbnail)
 class CKAssetToken(CKModel):
+    """Asset token with download URL, checksums, and wrapping key."""
+
     # Keep as str to preserve exact wire representation.
     fileChecksum: Optional[str] = None
     referenceChecksum: Optional[str] = None
@@ -300,17 +334,23 @@ class CKAssetToken(CKModel):
 
 
 class CKAssetIDField(_CKFieldBase):
+    """Asset ID field wrapper referencing an asset by token."""
+
     type: Literal["ASSETID"]
     value: CKAssetToken
 
 
 # Optional but seen in other CK APIs
 class CKAssetField(_CKFieldBase):
+    """Asset field wrapper for inline asset data."""
+
     type: Literal["ASSET"]
     value: CKAssetToken
 
 
 class CKDoubleField(_CKFieldBase):
+    """Floating-point field wrapper, optionally encrypted (e.g. for location data)."""
+
     type: Literal["DOUBLE"]
     value: float
     # AlarmTrigger latitude/longitude in Reminders can be encrypted doubles.
@@ -318,34 +358,46 @@ class CKDoubleField(_CKFieldBase):
 
 
 class CKBytesField(_CKFieldBase):
+    """Raw binary field wrapper as base64-encoded bytes."""
+
     # Raw bytes seen on wire (e.g., LastViewedTimestamp, CryptoPassphraseVerifier)
     type: Literal["BYTES"]
     value: Base64Bytes
 
 
 class CKDoubleListField(_CKFieldBase):
+    """List of floating-point values field wrapper."""
+
     type: Literal["DOUBLE_LIST"]
     value: List[float]
 
 
 class CKInt64ListField(_CKFieldBase):
+    """List of 64-bit integer values field wrapper."""
+
     type: Literal["INT64_LIST"]
     value: List[int]
 
 
 class CKAssetIDListField(_CKFieldBase):
+    """List of asset ID tokens field wrapper."""
+
     # e.g., PreviewImages, PaperAssets (most cases)
     type: Literal["ASSETID_LIST"]
     value: List[CKAssetToken]
 
 
 class CKUnknownListField(_CKFieldBase):
+    """Fallback list field wrapper for unexpected CloudKit types."""
+
     # Extremely rare: observed on some PaperAssets payloads as UNKNOWN_LIST.
     type: Literal["UNKNOWN_LIST"]
     value: List[JsonValue]  # keep generic to be future-proof
 
 
 class CKPassthroughField(_CKFieldBase):
+    """Generic field wrapper for unknown or future CloudKit field types."""
+
     type: str
     value: JsonValue
 
@@ -435,11 +487,13 @@ class CKFieldOpen(RootModel[Union[KnownCKField, CKPassthroughField]]):
 
     @property
     def value(self):
+        """Retrieve the inner value from the field wrapper."""
         # unified way to read the inner 'value' without touching .root
         return getattr(self.root, "value", None)
 
     @property
     def type_tag(self) -> Optional[str]:
+        """Retrieve the CloudKit type discriminator from the field wrapper."""
         # useful when inspecting unknown/passthrough fields
         return getattr(self.root, "type", None)
 
@@ -498,16 +552,19 @@ class CKFields(dict[str, CKFieldOpen]):
     """
 
     def __getattr__(self, name: str) -> CKFieldOpen:
+        """Retrieve field value by attribute name instead of dictionary key."""
         try:
             return dict.__getitem__(self, name)
         except KeyError as e:
             raise AttributeError(name) from e
 
     def __dir__(self):
+        """List available field names for attribute access."""
         base = set(super().__dir__())
         return sorted(base | set(self.keys()))
 
     def get_field(self, key: str):
+        """Retrieve the inner typed field wrapper for isinstance checks."""
         f = self.get(key)
         if f is None:
             return None
@@ -515,6 +572,7 @@ class CKFields(dict[str, CKFieldOpen]):
         return f.unwrap() if hasattr(f, "unwrap") else f
 
     def get_value(self, key: str):
+        """Retrieve the decoded value of a field by key."""
         f = self.get_field(key)
         return None if f is None else getattr(f, "value", None)
 
@@ -633,7 +691,9 @@ class CKWriteParent(CKModel):
 
 
 class CKWriteFields(CKFields):
-    """Write-side field mapping for modify requests."""
+    """Field mapping specialized for CloudKit record modify requests."""
+
+    pass
 
 
 class CKWriteRecord(CKModel):
@@ -655,6 +715,7 @@ class CKWriteRecord(CKModel):
     @field_validator("fields", mode="before")
     @classmethod
     def _coerce_fields(cls, v):
+        """Convert raw field mapping into typed CKWriteFields container."""
         return _coerce_field_mapping(v, CKWriteFields)
 
 
@@ -711,6 +772,8 @@ class CKQueryResponse(CKModel):
 
 # Comparators seen on the wire. Keep Union[str, Enum] to be forward-compatible.
 class CKComparator(str, Enum):
+    """CloudKit query filter comparison operators."""
+
     EQUALS = "EQUALS"
     IN_ = "IN"  # 'IN' is a reserved word in Python, keep name distinct
     CONTAINS_ANY = "CONTAINS_ANY"
@@ -724,30 +787,42 @@ class CKComparator(str, Enum):
 
 # FieldValue typed wrappers (request side) — discriminated by 'type'
 class _CKFilterValueBase(CKModel):
+    """Base class for filter value wrappers with type discriminator."""
+
     pass  # Subclasses declare type: Literal[...] for the discriminator.
 
 
 class CKFVString(_CKFilterValueBase):
+    """String literal value in a query filter."""
+
     type: Literal["STRING"]
     value: str
 
 
 class CKFVInt64(_CKFilterValueBase):
+    """Integer literal value in a query filter."""
+
     type: Literal["INT64"]
     value: int
 
 
 class CKFVStringList(_CKFilterValueBase):
+    """List of string values in a query filter."""
+
     type: Literal["STRING_LIST"]
     value: List[str]
 
 
 class CKFVReference(_CKFilterValueBase):
+    """Record reference value in a query filter."""
+
     type: Literal["REFERENCE"]
     value: CKReference  # zoneID is optional in observed payloads
 
 
 class CKFVReferenceList(_CKFilterValueBase):
+    """List of record references in a query filter."""
+
     type: Literal["REFERENCE_LIST"]
     value: List[CKReference]
 
@@ -810,6 +885,8 @@ class CKQueryObject(CKModel):
 
 # Request side (only what you actually send on the wire)
 class CKZoneIDReq(CKModel):
+    """Zone identifier for requests (without redundant fields)."""
+
     zoneName: str
     zoneType: Optional[str] = None
     ownerRecordName: Optional[str] = None
@@ -835,6 +912,8 @@ class CKQueryRequest(CKModel):
 
 
 class CKLookupDescriptor(CKModel):
+    """Specifies a record to fetch by name."""
+
     recordName: str
 
 
@@ -844,12 +923,16 @@ class CKLookupDescriptor(CKModel):
 
 
 class CKLookupRequest(CKModel):
+    """Payload for fetching specific records by their names."""
+
     records: List[CKLookupDescriptor]
     zoneID: CKZoneIDReq
     desiredKeys: Optional[List[str]] = None
 
 
 class CKLookupResponse(CKModel):
+    """Response containing records fetched by lookup request."""
+
     records: List[Union[CKRecord, CKTombstoneRecord, CKErrorItem]]
     # Server returns a top-level syncToken when getCurrentSyncToken=true
     syncToken: Optional[str] = None
@@ -955,6 +1038,8 @@ class CKZoneChangesZoneReq(CKModel):
 
 
 class CKZoneChangesRequest(CKModel):
+    """Payload for fetching zone changes since a specific sync token."""
+
     zones: List[CKZoneChangesZoneReq]
     resultsLimit: Optional[int] = None
 
@@ -965,6 +1050,8 @@ class CKZoneChangesRequest(CKModel):
 
 
 class CKModifyOperation(CKModel):
+    """Single record operation in a modify request (create/update/delete)."""
+
     operationType: Literal[
         "create",
         "update",
@@ -978,12 +1065,16 @@ class CKModifyOperation(CKModel):
 
 
 class CKModifyRequest(CKModel):
+    """Payload for modifying records in a zone."""
+
     operations: List[CKModifyOperation]
     zoneID: CKZoneIDReq
     atomic: Optional[bool] = None
 
 
 class CKModifyResponse(CKModel):
+    """Response containing records after modification operations."""
+
     records: List[Union[CKRecord, CKTombstoneRecord, CKErrorItem]] = Field(
         default_factory=list
     )

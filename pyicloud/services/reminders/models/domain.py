@@ -1,3 +1,5 @@
+"""Domain models for reminders and related data structures."""
+
 from datetime import datetime
 from enum import IntEnum
 from typing import Literal, Optional
@@ -8,6 +10,8 @@ from pyicloud.common.models import FrozenServiceModel, MutableServiceModel
 
 
 class Reminder(MutableServiceModel):
+    """A reminder in a reminders list with metadata and related IDs."""
+
     id: str
     list_id: str
     title: str
@@ -40,6 +44,8 @@ class ReminderChangeEvent(FrozenServiceModel):
 
 
 class RemindersList(MutableServiceModel):
+    """A collection of reminders with list metadata."""
+
     id: str
     title: str
     color: Optional[str] = None

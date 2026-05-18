@@ -1,3 +1,5 @@
+"""Configuration and base models for CloudKit validation."""
+
 from __future__ import annotations
 
 import os

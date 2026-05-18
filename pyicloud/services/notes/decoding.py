@@ -1,3 +1,5 @@
+"""Decoding of compressed note data from TextDataEncrypted format."""
+
 from __future__ import annotations
 
 import base64

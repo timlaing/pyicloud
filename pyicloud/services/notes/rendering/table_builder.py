@@ -20,10 +20,14 @@ from ..protobuf import notes_pb2 as pb
 
 
 class TypeName(str, Enum):
+    """Enum for CloudKit table type names."""
+
     ICTABLE = "com.apple.notes.ICTable"
 
 
 class MapKey(str, Enum):
+    """Enum for CloudKit table structure keys."""
+
     CR_ROWS = "crRows"
     CR_COLUMNS = "crColumns"
     CELL_COLUMNS = "cellColumns"
@@ -31,6 +35,8 @@ class MapKey(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class TableSpec:
+    """Configuration for table structure parsing."""
+
     type_name: TypeName
     rows_key: MapKey
     cols_key: MapKey
@@ -50,17 +56,23 @@ MAX_TABLE_CELLS = 50_000
 
 @dataclass(slots=True)
 class Cell:
+    """Table cell containing rendered HTML content."""
+
     html: str = ""
 
 
 @dataclass(slots=True)
 class AxisState:
+    """Tracks row or column indices and total count."""
+
     indices: dict[int, int] = field(default_factory=dict)
     total: int = 0
 
 
 @dataclass(slots=True)
 class TableBuilder:
+    """Reconstructs and renders tables from MergeableData protobuf payloads."""
+
     key_items: List[str]
     type_items: List[str]
     uuid_items: List[bytes]
@@ -73,9 +85,11 @@ class TableBuilder:
     cells: List[List[Cell]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        """Initialize UUID index for efficient lookups."""
         self.uuid_index = {u: i for i, u in enumerate(self.uuid_items)}
 
     def _uuid_index_from_entry(self, entry: pb.MergeableDataObjectRow) -> Optional[int]:
+        """Extract UUID index from a mergeable data entry."""
         try:
             # custom_map.map_entry[0].value.unsigned_integer_value -> UUID VALUE
             val = entry.custom_map.map_entry[0].value.unsigned_integer_value
@@ -88,6 +102,7 @@ class TableBuilder:
             return None
 
     def _parse_axis(self, entry: pb.MergeableDataObjectRow, axis: AxisState) -> None:
+        """Parse row or column ordering from a mergeable data entry."""
         axis.total = 0
         axis.indices.clear()
         # 1) Array attachments reference UUID VALUES directly
@@ -116,12 +131,15 @@ class TableBuilder:
             pass
 
     def parse_rows(self, entry: pb.MergeableDataObjectRow) -> None:
+        """Parse and cache row ordering from table data."""
         self._parse_axis(entry, self.rows)
 
     def parse_cols(self, entry: pb.MergeableDataObjectRow) -> None:
+        """Parse and cache column ordering from table data."""
         self._parse_axis(entry, self.cols)
 
     def init_table_buffers(self) -> None:
+        """Initialize cell buffer grid with correct dimensions."""
         if (
             self.rows.total <= 0
             or self.cols.total <= 0
@@ -136,6 +154,7 @@ class TableBuilder:
         ]
 
     def parse_cell_columns(self, entry: pb.MergeableDataObjectRow) -> None:
+        """Extract and render cell contents into the cell buffer."""
         # entry.dictionary.element: key -> column dict
         for col in entry.dictionary.element:
             try:
@@ -173,6 +192,7 @@ class TableBuilder:
                     continue
 
     def render_html_table(self) -> Optional[str]:
+        """Generate HTML table from parsed cells and structure."""
         if not self.cells or self.rows.total == 0 or self.cols.total == 0:
             return None
         trs: List[object] = []
@@ -195,6 +215,7 @@ ALLOWED_TABLE_TYPES = {
 def render_table_from_mergeable(
     gz_bytes: bytes, render_note_cb: Callable[[pb.Note], str]
 ) -> Optional[str]:
+    """Parse gzipped MergeableData and render as HTML table, or None if invalid."""
     if not gz_bytes:
         return None
     try:

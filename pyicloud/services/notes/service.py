@@ -59,10 +59,14 @@ _HAS_SUBFOLDER_FIELD = "HasSubfolder"
 
 
 class NoteNotFound(NotesError):
+    """Raised when a note cannot be found."""
+
     pass
 
 
 class NoteLockedError(NotesError):
+    """Raised when a note is password protected and cannot be accessed."""
+
     pass
 
 
