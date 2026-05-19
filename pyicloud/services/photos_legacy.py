@@ -1937,4 +1937,10 @@ class PhotoStreamAsset(PhotoAsset):
     @property
     def size(self) -> int:
         """Gets the photo asset size."""
-        return self._master_record["fields"]["resOriginalFileSize"]["value"]
+        try:
+            fields = self._master_record.get("fields", {})
+            res_size = fields.get("resOriginalFileSize", {})
+            value = res_size.get("value", 0)
+            return int(value) if value is not None else 0
+        except (KeyError, TypeError, ValueError):
+            return 0
