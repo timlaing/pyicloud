@@ -1721,10 +1721,11 @@ class PhotoAsset:
         """Gets the photo created date."""
         return self.asset_date
 
-    def _record_timestamp(self, field_name: str) -> datetime:
+    def _record_timestamp(self, field_name: str, master: bool = False) -> datetime:
         """Read a millisecond timestamp field from the asset record."""
         try:
-            raw_value = self._asset_record["fields"][field_name]["value"]
+            record = self._master_record if master else self._asset_record
+            raw_value = record["fields"][field_name]["value"]
             return datetime.fromtimestamp(raw_value / 1000.0, timezone.utc)
         except (KeyError, TypeError, ValueError, OverflowError):
             return datetime.fromtimestamp(0, timezone.utc)
@@ -1927,3 +1928,13 @@ class PhotoStreamAsset(PhotoAsset):
             .get("likedByCaller", {})
             .get("value", False)
         )
+
+    @property
+    def asset_date(self) -> datetime:
+        """Gets the photo asset date."""
+        return self._record_timestamp("originalCreationDate", master=True)
+
+    @property
+    def size(self) -> int:
+        """Gets the photo asset size."""
+        return self._master_record["fields"]["resOriginalFileSize"]["value"]
