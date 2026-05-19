@@ -1,3 +1,5 @@
+"""Tests for the example reminders delta script."""
+
 import importlib.util
 import os
 import sys
@@ -26,6 +28,8 @@ def _load_example_reminders_delta():
 
 
 class TestExampleRemindersDelta(unittest.TestCase):
+    """Tests for the example reminders delta script."""
+
     def test_authenticate_uses_security_key_when_fido2_devices_are_available(self):
         module = _load_example_reminders_delta()
         api = MagicMock()

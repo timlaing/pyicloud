@@ -1,3 +1,5 @@
+"""Protocol buffer type definitions for Reminders service."""
+
 TITLE_DOCUMENT_TYPEDEF = {
     "2": {
         "type": "message",

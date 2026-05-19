@@ -1,3 +1,5 @@
+"""Domain models for note attachments and body content."""
+
 from __future__ import annotations
 
 from typing import List, Optional

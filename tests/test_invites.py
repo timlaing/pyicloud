@@ -42,6 +42,8 @@ def load_invites_fixture(name: str) -> dict:
 
 
 class CodecsTest(unittest.TestCase):
+    """Tests for invite codecs."""
+
     def test_decode_json_bytes_round_trip(self):
         original = {"startSince1970": 1768435200000, "isAllDay": False}
         enc = encode_json_bytes(original)
@@ -93,6 +95,8 @@ class CodecsTest(unittest.TestCase):
 
 
 class DtoTest(unittest.TestCase):
+    """Tests for invites data transfer objects."""
+
     def test_rsvp_status_enum(self):
         self.assertEqual(int(RsvpStatus.NO_RESPONSE), 0)
         self.assertEqual(int(RsvpStatus.NOT_GOING), 1)
@@ -124,6 +128,8 @@ class DtoTest(unittest.TestCase):
 
 
 class InvitesServiceTest(unittest.TestCase):
+    """Tests for Invites service."""
+
     def setUp(self):
         self.service = InvitesService(
             service_root="https://example.com",
@@ -351,6 +357,8 @@ class InvitesServiceTest(unittest.TestCase):
 
 
 class OneTimeLinkGuestTest(unittest.TestCase):
+    """Tests for OneTimeLink guest models."""
+
     def test_default_collections_are_empty_tuples(self):
         otl = OneTimeLinkGuest(
             record_name="PARTICIPANT-X_otl",

@@ -1,3 +1,5 @@
+"""Tests for the notes CLI example script."""
+
 import argparse
 import importlib.util
 import os
@@ -21,6 +23,8 @@ def _load_notes_cli():
 
 
 class TestNotesCli(unittest.TestCase):
+    """Tests for the notes CLI example script."""
+
     def _output_dir(self, name):
         path = os.path.join("/tmp/python-test-results", "notes-cli", name)
         os.makedirs(path, exist_ok=True)

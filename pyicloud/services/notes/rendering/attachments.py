@@ -30,6 +30,8 @@ from .table_builder import render_table_from_mergeable
 
 @dataclass(frozen=True)
 class AttachmentContext:
+    """Immutable bundle of attachment metadata for rendering."""
+
     id: str
     uti: str
     title: Optional[str]
@@ -45,6 +47,7 @@ class AttachmentContext:
     pdf_object_height: Optional[int] = None
 
     def base_attrs(self, extra: dict[str, str] | None = None) -> dict[str, str]:
+        """Build base HTML attributes for attachment elements."""
         base = {
             "class": "attachment",
             "data-uti": self.uti,
@@ -105,13 +108,18 @@ def _link_attrs(
 
 
 class _Renderer:
+    """Base class for attachment type renderers."""
+
     def render(
         self, ctx: AttachmentContext, render_note_cb: Callable
     ) -> str:  # pragma: no cover - interface
+        """Render attachment to HTML fragment based on its type."""
         raise NotImplementedError
 
 
 class _DefaultRenderer(_Renderer):
+    """Fallback renderer for unknown attachment types."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         label = ctx.title or ctx.uti or "attachment"
         href = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
@@ -122,6 +130,8 @@ class _DefaultRenderer(_Renderer):
 
 
 class _TableRenderer(_Renderer):
+    """Render table attachments with embedded table data."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         if ctx.mergeable_gz:
             html_tbl = render_table_from_mergeable(ctx.mergeable_gz, render_note_cb)
@@ -137,6 +147,8 @@ class _TableRenderer(_Renderer):
 
 
 class _UrlRenderer(_Renderer):
+    """Render URL/link attachments."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         title = ctx.title or ctx.uti or "link"
         href = _safe_url(
@@ -157,6 +169,8 @@ class _UrlRenderer(_Renderer):
 
 
 class _ImageRenderer(_Renderer):
+    """Render image attachments with responsive sizing."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         url = _safe_url(
             ctx.primary_url,
@@ -182,6 +196,8 @@ class _ImageRenderer(_Renderer):
 
 
 class _AudioRenderer(_Renderer):
+    """Render audio attachments with controls."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         url = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         if url:
@@ -193,6 +209,8 @@ class _AudioRenderer(_Renderer):
 
 
 class _VideoRenderer(_Renderer):
+    """Render video attachments with controls and responsive sizing."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         url = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         if url:
@@ -211,6 +229,8 @@ class _VideoRenderer(_Renderer):
 
 
 class _PdfRenderer(_Renderer):
+    """Render PDF attachments embedded or as links."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         title = ctx.title or "PDF"
         url = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
@@ -252,6 +272,8 @@ class _PdfRenderer(_Renderer):
 
 
 class _VCardRenderer(_Renderer):
+    """Render contact/vCard attachments."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         title = ctx.title or "contact"
         href = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
@@ -266,6 +288,8 @@ class _VCardRenderer(_Renderer):
 
 
 class _HashtagRenderer(_Renderer):
+    """Render hashtag inline attachments."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         # Avoid double prefix when AltText already includes '#'
         if ctx.title:
@@ -280,6 +304,8 @@ class _HashtagRenderer(_Renderer):
 
 
 class _CalculatorRenderer(_Renderer):
+    """Render calculator result inline attachments."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         # Render exactly what the server provides (AltTextEncrypted/TitleEncrypted/SummaryEncrypted),
         # without any additional normalization.
@@ -291,6 +317,8 @@ class _CalculatorRenderer(_Renderer):
 # side of an equation (e.g., "y = "). We mirror calculator's behavior and render
 # a semantic, non-clickable span with a distinct class.
 class _GraphExpressionRenderer(_Renderer):
+    """Render graph expression inline attachments from calculator."""
+
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         label = ctx.title or ctx.uti or "expression"
         return h("span", **ctx.base_attrs({"class": "attachment calc-graph"}))(
