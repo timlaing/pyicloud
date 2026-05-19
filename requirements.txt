@@ -1,5 +1,5 @@
 certifi>=2026.4.22
-cryptography>=44.0.0
+cryptography>=48.0.0
 fido2>=2.0.0
 keyring>=25.7.0
 keyrings.alt>=5.0.2
