@@ -1,0 +1,54 @@
+{
+  "records": [
+    {
+      "recordName": "PARTICIPANT-FIXTURE-GUEST_rsvp",
+      "recordType": "RSVP",
+      "fields": {
+        "status": { "value": 2, "type": "INT64", "isEncrypted": true },
+        "name": {
+          "value": "Fixture Guest",
+          "type": "STRING",
+          "isEncrypted": true
+        },
+        "message": {
+          "value": "Tentative",
+          "type": "STRING",
+          "isEncrypted": true
+        },
+        "numAdditionalGuests": {
+          "value": 0,
+          "type": "INT64",
+          "isEncrypted": true
+        },
+        "numAdditionalAdults": {
+          "value": 0,
+          "type": "INT64",
+          "isEncrypted": true
+        },
+        "numAdditionalKids": {
+          "value": 0,
+          "type": "INT64",
+          "isEncrypted": true
+        }
+      },
+      "pluginFields": {},
+      "recordChangeTag": "rsvpFixture2",
+      "created": {
+        "timestamp": 1768410000000,
+        "userRecordName": "++FAKEGUESTRECORDNAME=",
+        "deviceID": "FIXTURE-DEVICE-GUEST"
+      },
+      "modified": {
+        "timestamp": 1768420000000,
+        "userRecordName": "++FAKEGUESTRECORDNAME=",
+        "deviceID": "FIXTURE-DEVICE-GUEST"
+      },
+      "deleted": false,
+      "zoneID": {
+        "zoneName": "EVENT-FIXTURE-AAAA",
+        "ownerRecordName": "_FAKE_OWNER",
+        "zoneType": "REGULAR_CUSTOM_ZONE"
+      }
+    }
+  ]
+}
