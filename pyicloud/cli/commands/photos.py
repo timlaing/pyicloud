@@ -100,6 +100,55 @@ def _album_lookup_error(library: Any, library_key: str, album_name: str) -> CLIA
     return CLIAbort(f"No album named '{album_name}' was found.")
 
 
+def _resolve_album(
+    api: Any,
+    photos: Any,
+    *,
+    album: Optional[str],
+    library: str,
+    shared_stream: bool,
+) -> Any:
+    """Resolve album object from either CloudKit library or shared streams.
+
+    Args:
+        api: PyiCloudService instance
+        photos: Photos service instance
+        album: Album name (optional for CloudKit, required for shared streams)
+        library: Library key (used only for CloudKit path)
+        shared_stream: Whether to use shared streams instead of CloudKit
+
+    Returns:
+        Resolved album object
+
+    Raises:
+        CLIAbort: If album resolution fails or constraints are violated
+    """
+    if not shared_stream:
+        library_obj = _resolve_cloudkit_photo_library(api, photos, library)
+        album_obj = service_call(
+            "Photos",
+            lambda: library_obj.albums.find(album) if album else library_obj.all,
+            account_name=api.account_name,
+        )
+
+        if album and album_obj is None:
+            raise _album_lookup_error(library_obj, library, album)
+
+    elif album:
+        album_obj = service_call(
+            "Photos",
+            lambda: photos.shared_streams.find(album),
+            account_name=api.account_name,
+        )
+        if album_obj is None:
+            raise _album_lookup_error(photos.shared_streams, library, album)
+
+    else:
+        raise CLIAbort("The --shared-stream option requires an --album name.")
+
+    return album_obj
+
+
 def _build_photo_sync_options(
     *,
     directory: Path,
@@ -415,28 +464,13 @@ def photos_list(
         log_level=log_level,
     )
 
-    if not shared_stream:
-        library_obj = _resolve_cloudkit_photo_library(api, photos, library)
-        album_obj = service_call(
-            "Photos",
-            lambda: library_obj.albums.find(album) if album else library_obj.all,
-            account_name=api.account_name,
-        )
-
-        if album and album_obj is None:
-            raise _album_lookup_error(library_obj, library, album)
-
-    elif album:
-        album_obj = service_call(
-            "Photos",
-            lambda: photos.shared_streams.find(album),
-            account_name=api.account_name,
-        )
-        if album_obj is None:
-            raise _album_lookup_error(photos.shared_streams, library, album)
-
-    else:
-        raise CLIAbort("The --shared-stream option requires an --album name.")
+    album_obj = _resolve_album(
+        api,
+        photos,
+        album=album,
+        library=library,
+        shared_stream=shared_stream,
+    )
 
     payload = [
         normalize_photo(item)
@@ -503,28 +537,13 @@ def photos_get(
         log_level=log_level,
     )
 
-    if not shared_stream:
-        library_obj = _resolve_cloudkit_photo_library(api, photos, library)
-        album_obj = service_call(
-            "Photos",
-            lambda: library_obj.albums.find(album) if album else library_obj.all,
-            account_name=api.account_name,
-        )
-
-        if album and album_obj is None:
-            raise _album_lookup_error(library_obj, library, album)
-
-    elif album:
-        album_obj = service_call(
-            "Photos",
-            lambda: photos.shared_streams.find(album),
-            account_name=api.account_name,
-        )
-        if album_obj is None:
-            raise _album_lookup_error(photos.shared_streams, library, album)
-
-    else:
-        raise CLIAbort("The --shared-stream option requires an --album name.")
+    album_obj = _resolve_album(
+        api,
+        photos,
+        album=album,
+        library=library,
+        shared_stream=shared_stream,
+    )
 
     try:
         photo = service_call(
@@ -672,28 +691,14 @@ def photos_download(
         output_format=output_format,
         log_level=log_level,
     )
-    if not shared_stream:
-        library_obj = _resolve_cloudkit_photo_library(api, photos, library)
-        album_obj = service_call(
-            "Photos",
-            lambda: library_obj.albums.find(album) if album else library_obj.all,
-            account_name=api.account_name,
-        )
 
-        if album and album_obj is None:
-            raise _album_lookup_error(library_obj, library, album)
-
-    elif album:
-        album_obj = service_call(
-            "Photos",
-            lambda: photos.shared_streams.find(album),
-            account_name=api.account_name,
-        )
-        if album_obj is None:
-            raise _album_lookup_error(photos.shared_streams, library, album)
-
-    else:
-        raise CLIAbort("The --shared-stream option requires an --album name.")
+    album_obj = _resolve_album(
+        api,
+        photos,
+        album=album,
+        library=library,
+        shared_stream=shared_stream,
+    )
 
     try:
         photo = service_call(
