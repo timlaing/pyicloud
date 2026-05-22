@@ -152,6 +152,6 @@ class RecurrenceRule(MutableServiceModel):
     reminder_id: str
     frequency: RecurrenceFrequency = RecurrenceFrequency.DAILY
     interval: int = Field(default=1, ge=1)
-    occurrence_count: int = Field(default=0, ge=0)  # 0 = infinite
+    occurrence_count: int = Field(default=0, ge=0)  # 0 == infinite
     first_day_of_week: int = Field(default=0, ge=0, le=6)
     record_change_tag: Optional[str] = None
