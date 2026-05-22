@@ -35,6 +35,8 @@ class ParticipantType(str, Enum):
 
 
 class AcceptanceStatus(str, Enum):
+    """Guest's acceptance status for an invitation."""
+
     ACCEPTED = "ACCEPTED"
     INVITED = "INVITED"
     REMOVED = "REMOVED"

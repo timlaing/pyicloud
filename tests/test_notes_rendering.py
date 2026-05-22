@@ -1,3 +1,5 @@
+"""Tests for notes rendering functionality."""
+
 import json
 import os
 import tempfile
@@ -34,11 +36,15 @@ with open(FIXTURE_PATH, "r", encoding="utf-8") as fixture_file:
 
 
 class _Field:
+    """Mock CloudKit field for testing."""
+
     def __init__(self, value):
         self.value = value
 
 
 class _Fields:
+    """Mock CloudKit fields collection for testing."""
+
     def __init__(self, values):
         self.values = values
 
@@ -52,6 +58,8 @@ class _Fields:
 
 
 class _Record:
+    """Mock CloudKit record for testing."""
+
     def __init__(self, record_name, fields):
         self.recordName = record_name
         self.recordType = "Attachment"
@@ -59,6 +67,8 @@ class _Record:
 
 
 class TestNoteRendering(unittest.TestCase):
+    """Tests for note rendering functionality."""
+
     def setUp(self):
         self.fixture = NOTE_FIXTURE
 
@@ -66,6 +76,8 @@ class TestNoteRendering(unittest.TestCase):
         # Helper to rebuild a pseudo-CKRecord from the JSON dict
         # We need to minimally satisfy what build_datasource expects (fields.get_value)
         class MockFields:
+            """Mock CloudKit fields for test record reconstruction."""
+
             def __init__(self, fields_dict):
                 self.d = fields_dict
 
@@ -125,7 +137,7 @@ class TestNoteRendering(unittest.TestCase):
         )
         # The test note had "pyicloud notes service test" in title, likely not in body.
         # But we expect SOME content.
-        self.assertTrue(len(html) > 0)
+        self.assertGreater(len(html), 0)
 
         print("\n--- Rendered HTML Preview (First 500 chars) ---")
         print(html[:500])
@@ -257,15 +269,21 @@ class TestNoteRendering(unittest.TestCase):
 
     def test_render_table_from_mergeable_uses_later_valid_root_candidate(self):
         class _FakeValue:
+            """Mock value object for testing."""
+
             def __init__(self, object_index):
                 self.object_index = object_index
 
         class _FakeMapEntry:
+            """Mock map entry for testing table data."""
+
             def __init__(self, key, object_index):
                 self.key = key
                 self.value = _FakeValue(object_index)
 
         class _FakeRootEntry:
+            """Mock root entry for testing table structure."""
+
             def __init__(self, *map_entries):
                 self.custom_map = SimpleNamespace(type=0, map_entry=list(map_entries))
 
@@ -273,14 +291,20 @@ class TestNoteRendering(unittest.TestCase):
                 return field_name == "custom_map"
 
         class _AxisEntry:
+            """Mock axis entry for testing table dimensions."""
+
             def __init__(self, total):
                 self.total = total
 
         class _CellEntry:
+            """Mock cell entry for testing table content."""
+
             def __init__(self, html):
                 self.cell_html = html
 
         class _FakeProto:
+            """Mock protobuf for testing table rendering."""
+
             def __init__(self):
                 entries = [
                     _FakeRootEntry(
@@ -409,6 +433,8 @@ class TestNoteRendering(unittest.TestCase):
 
 
 class TestNoteExporter(unittest.TestCase):
+    """Tests for note export functionality."""
+
     def _note_record(self, record_name="note-1", title=b"Example Title"):
         return _Record(record_name, {"TitleEncrypted": title})
 

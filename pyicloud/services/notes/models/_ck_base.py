@@ -1,3 +1,5 @@
+"""Base models and configuration for CloudKit Notes models."""
+
 from __future__ import annotations
 
 import os

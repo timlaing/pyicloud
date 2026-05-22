@@ -183,6 +183,8 @@ def normalize_photo(item: Any) -> dict[str, Any]:
         "item_type": item.item_type,
         "created": item.created,
         "size": item.size,
+        "liked": getattr(item, "liked", None),
+        "like_count": getattr(item, "like_count", None),
     }
 
 

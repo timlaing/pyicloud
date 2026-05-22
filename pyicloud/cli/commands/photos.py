@@ -39,6 +39,7 @@ from pyicloud.services.photos_cloudkit.constants import (
 )
 
 _PHOTO_LIBRARY_KEY_HELP = "Photo library key."
+_PHOTO_SHARED_STREAM_HELP = "Use shared photo stream."
 
 app = typer.Typer(help="Browse and download iCloud Photos.")
 
@@ -98,6 +99,55 @@ def _album_lookup_error(library: Any, library_key: str, album_name: str) -> CLIA
             unsupported_shared_library_album_message(library_key, album_name)
         )
     return CLIAbort(f"No album named '{album_name}' was found.")
+
+
+def _resolve_album(
+    api: Any,
+    photos: Any,
+    *,
+    album: Optional[str],
+    library: str,
+    shared_stream: bool,
+) -> Any:
+    """Resolve album object from either CloudKit library or shared streams.
+
+    Args:
+        api: PyiCloudService instance
+        photos: Photos service instance
+        album: Album name (optional for CloudKit, required for shared streams)
+        library: Library key (used only for CloudKit path)
+        shared_stream: Whether to use shared streams instead of CloudKit
+
+    Returns:
+        Resolved album object
+
+    Raises:
+        CLIAbort: If album resolution fails or constraints are violated
+    """
+    if not shared_stream:
+        library_obj = _resolve_cloudkit_photo_library(api, photos, library)
+        album_obj = service_call(
+            "Photos",
+            lambda: library_obj.albums.find(album) if album else library_obj.all,
+            account_name=api.account_name,
+        )
+
+        if album and album_obj is None:
+            raise _album_lookup_error(library_obj, library, album)
+
+    elif album:
+        album_obj = service_call(
+            "Photos",
+            lambda: photos.shared_streams.find(album),
+            account_name=api.account_name,
+        )
+        if album_obj is None:
+            raise _album_lookup_error(photos.shared_streams, library, album)
+
+    else:
+        raise CLIAbort("The --shared-stream option requires an --album name.")
+
+    return album_obj
 
 
 def _build_photo_sync_options(
@@ -291,6 +341,48 @@ def photos_albums(
     )
 
 
+@app.command("shared-streams")
+def photos_shared_streams(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """List shared photo streams."""
+    state, api, photos = _resolve_photos_service(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    payload = [
+        normalize_album(album)
+        for album in service_call(
+            "Photos",
+            lambda: list(photos.shared_streams),
+            account_name=api.account_name,
+        )
+    ]
+    if state.json_output:
+        state.write_json(payload)
+        return
+    state.console.print(
+        console_table(
+            "Shared Photo Streams",
+            ["Name", "Full Name", "Count"],
+            [(album["name"], album["full_name"], album["count"]) for album in payload],
+        )
+    )
+
+
 @app.command("libraries")
 def photos_libraries(
     ctx: typer.Context,
@@ -349,6 +441,9 @@ def photos_list(
         None, "--album", help="Album name. Defaults to all photos."
     ),
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
+    shared_stream: bool = typer.Option(
+        False, "--shared-stream", help=_PHOTO_SHARED_STREAM_HELP
+    ),
     limit: int = typer.Option(50, "--limit", min=1, help="Maximum photos to show."),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -369,14 +464,15 @@ def photos_list(
         output_format=output_format,
         log_level=log_level,
     )
-    library_obj = _resolve_cloudkit_photo_library(api, photos, library)
-    album_obj = service_call(
-        "Photos",
-        lambda: library_obj.albums.find(album) if album else library_obj.all,
-        account_name=api.account_name,
+
+    album_obj = _resolve_album(
+        api,
+        photos,
+        album=album,
+        library=library,
+        shared_stream=shared_stream,
     )
-    if album and album_obj is None:
-        raise _album_lookup_error(library_obj, library, album)
+
     payload = [
         normalize_photo(item)
         for item in service_call(
@@ -388,10 +484,12 @@ def photos_list(
     if state.json_output:
         state.write_json(payload)
         return
+
     state.console.print(
         console_table(
             "Photos",
-            ["ID", "Filename", "Type", "Created", "Size"],
+            ["ID", "Filename", "Type", "Created", "Size"]
+            + (["Liked", "Like Count"] if shared_stream else []),
             [
                 (
                     photo["id"],
@@ -400,6 +498,7 @@ def photos_list(
                     photo["created"],
                     photo["size"],
                 )
+                + ((photo["liked"], photo["like_count"]) if shared_stream else ())
                 for photo in payload
             ],
         )
@@ -414,6 +513,9 @@ def photos_get(
         None,
         "--album",
         help="Album name to search before falling back to all photos.",
+    ),
+    shared_stream: bool = typer.Option(
+        False, "--shared-stream", help=_PHOTO_SHARED_STREAM_HELP
     ),
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     username: UsernameOption = None,
@@ -435,14 +537,15 @@ def photos_get(
         output_format=output_format,
         log_level=log_level,
     )
-    library_obj = _resolve_cloudkit_photo_library(api, photos, library)
-    album_obj = service_call(
-        "Photos",
-        lambda: library_obj.albums.find(album) if album else library_obj.all,
-        account_name=api.account_name,
+
+    album_obj = _resolve_album(
+        api,
+        photos,
+        album=album,
+        library=library,
+        shared_stream=shared_stream,
     )
-    if album and album_obj is None:
-        raise _album_lookup_error(library_obj, library, album)
+
     try:
         photo = service_call(
             "Photos",
@@ -557,11 +660,19 @@ def photos_sync_cursor(
 def photos_download(
     ctx: typer.Context,
     photo_id: str = typer.Argument(..., help="Photo asset id."),
+    album: Optional[str] = typer.Option(
+        None,
+        "--album",
+        help="Album name to search before falling back to all photos.",
+    ),
+    shared_stream: bool = typer.Option(
+        False, "--shared-stream", help=_PHOTO_SHARED_STREAM_HELP
+    ),
+    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     output: Path = typer.Option(..., "--output", help="Destination file path."),
     version: str = typer.Option(
         "original", "--version", help="Photo version to download."
     ),
-    library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -581,15 +692,24 @@ def photos_download(
         output_format=output_format,
         log_level=log_level,
     )
-    library_obj = _resolve_cloudkit_photo_library(api, photos, library)
+
+    album_obj = _resolve_album(
+        api,
+        photos,
+        album=album,
+        library=library,
+        shared_stream=shared_stream,
+    )
+
     try:
         photo = service_call(
             "Photos",
-            lambda: library_obj.all[photo_id],
+            lambda: (album_obj if album_obj is not None else photos.all)[photo_id],
             account_name=api.account_name,
         )
     except KeyError as err:
         raise CLIAbort(f"No photo matched '{photo_id}'.") from err
+
     data = service_call(
         "Photos",
         lambda: photo.download(version=version),

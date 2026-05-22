@@ -145,7 +145,14 @@ class FakeAlbumContainer(list):
 class FakePhoto:
     """Photo asset fixture."""
 
-    def __init__(self, photo_id: str, filename: str) -> None:
+    def __init__(
+        self,
+        photo_id: str,
+        filename: str,
+        *,
+        liked: bool | None = None,
+        like_count: int | None = None,
+    ) -> None:
         self.id = photo_id
         self.filename = filename
         self.item_type = "image"
@@ -153,6 +160,8 @@ class FakePhoto:
         self.asset_date = self.created
         self.added_date = self.created
         self.size = len(f"{photo_id}:original".encode())
+        self.liked = liked
+        self.like_count = like_count
         self.dimensions = (1920, 1080)
         self.is_live_photo = False
         self.resources = {
@@ -184,7 +193,7 @@ class FakePhotoAlbum:
 
     def __init__(self, name: str, photos: list[FakePhoto]) -> None:
         self.name = name
-        self.fullname = f"/{name}"
+        self.fullname = f"{name}"
         self._photos = photos
 
     @property
@@ -247,8 +256,19 @@ class FakePhotosService:
         shared_favorites_album = FakePhotoAlbum(
             "Favorites", [FakePhoto("shared-photo-1", "shared.jpg")]
         )
+        shared_stream_album = FakePhotoAlbum(
+            "Vacation 2026",
+            [FakePhoto("stream-photo-1", "beach.jpg", liked=True, like_count=7)],
+        )
+        shared_stream_album2 = FakePhotoAlbum(
+            "Family Photos",
+            [FakePhoto("stream-photo-2", "family.jpg", liked=False, like_count=3)],
+        )
         self.albums = FakeAlbumContainer([photo_album])
         self.all = photo_album
+        self.shared_streams = FakeAlbumContainer(
+            [shared_stream_album, shared_stream_album2]
+        )
         root_changes = [
             SimpleNamespace(
                 kind="updated",
@@ -2893,10 +2913,14 @@ def test_notes_commands_report_reauthentication_and_unavailability() -> None:
     """Notes commands should wrap service reauth and service-unavailable failures."""
 
     class ReauthNotes:
+        """Mock Notes service that raises reauth exception."""
+
         def recents(self, *, limit: int = 50):
             raise context_module.PyiCloudFailedLoginException("No password set")
 
     class UnavailableNotes:
+        """Mock Notes service that raises unavailable exception."""
+
         def sync_cursor(self) -> str:
             raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 
@@ -3477,6 +3501,121 @@ def test_photos_sync_cursor_missing_library() -> None:
     assert result.exception.args[0] == "No photo library matched 'missing'."
 
 
+def test_photos_shared_streams_command() -> None:
+    """Photos shared-streams command should list shared photo streams."""
+
+    fake_api = FakeAPI()
+
+    text_result = _invoke(fake_api, "photos", "shared-streams")
+    json_result = _invoke(fake_api, "photos", "shared-streams", output_format="json")
+
+    assert text_result.exit_code == 0
+    assert "Vacation 2026" in text_result.stdout
+    assert "Family Photos" in text_result.stdout
+
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert len(payload) == 2
+    assert payload[0]["name"] == "Vacation 2026"
+    assert payload[0]["full_name"] == "Vacation 2026"
+    assert payload[0]["count"] == 1
+    assert payload[1]["name"] == "Family Photos"
+    assert payload[1]["count"] == 1
+
+
+def test_photos_read_commands_accept_shared_stream_albums() -> None:
+    """List/get/download should support shared stream album reads."""
+
+    fake_api = FakeAPI()
+    output_path = TEST_ROOT / "shared-stream-photo.bin"
+
+    list_text_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--shared-stream",
+        "--album",
+        "Vacation 2026",
+        "--limit",
+        "1",
+    )
+    list_json_result = _invoke(
+        fake_api,
+        "photos",
+        "list",
+        "--shared-stream",
+        "--album",
+        "Vacation 2026",
+        "--limit",
+        "1",
+        output_format="json",
+    )
+    get_result = _invoke(
+        fake_api,
+        "photos",
+        "get",
+        "stream-photo-1",
+        "--shared-stream",
+        "--album",
+        "Vacation 2026",
+        output_format="json",
+    )
+    download_result = _invoke(
+        fake_api,
+        "photos",
+        "download",
+        "stream-photo-1",
+        "--shared-stream",
+        "--album",
+        "Vacation 2026",
+        "--output",
+        str(output_path),
+        output_format="json",
+    )
+
+    assert list_text_result.exit_code == 0
+    assert "Liked" in list_text_result.stdout
+    assert "Like Count" in list_text_result.stdout
+    assert "beach.jpg" in list_text_result.stdout
+    assert "True" in list_text_result.stdout
+    assert "7" in list_text_result.stdout
+
+    assert list_json_result.exit_code == 0
+    listed_item = json.loads(list_json_result.stdout)[0]
+    assert listed_item["id"] == "stream-photo-1"
+    assert listed_item["liked"] is True
+    assert listed_item["like_count"] == 7
+
+    assert get_result.exit_code == 0
+    get_payload = json.loads(get_result.stdout)
+    assert get_payload["id"] == "stream-photo-1"
+    assert get_payload["liked"] is True
+    assert get_payload["like_count"] == 7
+
+    assert download_result.exit_code == 0
+    assert output_path.read_bytes() == b"stream-photo-1:original"
+    assert json.loads(download_result.stdout)["photo_id"] == "stream-photo-1"
+
+
+def test_photos_albums_command() -> None:
+    """Photos albums command should list photo albums."""
+
+    fake_api = FakeAPI()
+
+    text_result = _invoke(fake_api, "photos", "albums")
+    json_result = _invoke(fake_api, "photos", "albums", output_format="json")
+
+    assert text_result.exit_code == 0
+    assert "All Photos" in text_result.stdout
+
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert len(payload) == 1
+    assert payload[0]["name"] == "All Photos"
+    assert payload[0]["full_name"] == "All Photos"
+    assert payload[0]["count"] == 1
+
+
 def test_drive_missing_paths_report_cli_abort() -> None:
     """Drive commands should collapse missing path lookups into CLIAbort errors."""
 
@@ -3913,10 +4052,14 @@ def test_reminders_commands_report_errors() -> None:
     )
 
     class ApiErrorReminders:
+        """Mock Reminders service that raises API error exception."""
+
         def sync_cursor(self) -> str:
             raise RemindersApiError("sync failed")
 
     class AuthErrorReminders:
+        """Mock Reminders service that raises auth error exception."""
+
         def sync_cursor(self) -> str:
             raise RemindersAuthError("token expired")
 
@@ -3937,10 +4080,14 @@ def test_reminders_commands_report_reauthentication_and_unavailability() -> None
     """Reminders commands should wrap service reauth and service-unavailable failures."""
 
     class ReauthReminders:
+        """Mock Reminders service that raises reauth exception."""
+
         def lists(self):
             raise context_module.PyiCloudFailedLoginException("No password set")
 
     class UnavailableReminders:
+        """Mock Reminders service that raises unavailable exception."""
+
         def sync_cursor(self) -> str:
             raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 
