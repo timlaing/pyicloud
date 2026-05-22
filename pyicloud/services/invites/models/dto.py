@@ -104,6 +104,10 @@ class EventShare(FrozenServiceModel):
     public_permission: str
     participants: tuple[Participant, ...] = ()
     one_time_links: tuple[OneTimeLinkGuest, ...] = ()
+    # ``participantId`` of the current authenticated user on this share — used
+    # to locate or create the user's own ``RSVP`` record. Set from
+    # ``cloudkit.share.currentUserParticipant.participantId`` at parse time.
+    current_user_participant_id: Optional[str] = None
 
     @property
     def url(self) -> str:

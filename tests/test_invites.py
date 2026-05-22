@@ -8,7 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from pyicloud.common.cloudkit import CKLookupResponse, CKQueryResponse
+from pyicloud.common.cloudkit import (
+    CKLookupResponse,
+    CKModifyResponse,
+    CKQueryResponse,
+)
 from pyicloud.services.invites import (
     AcceptanceStatus,
     Event,
@@ -21,6 +25,7 @@ from pyicloud.services.invites import (
     Rsvp,
     RsvpStatus,
 )
+from pyicloud.services.invites.client import InvitesApiError
 from pyicloud.services.invites.codecs import (
     decode_integrations,
     decode_json_bytes,
@@ -367,6 +372,209 @@ class OneTimeLinkGuestTest(unittest.TestCase):
         self.assertEqual(otl.emails, ())
         self.assertEqual(otl.phone_numbers, ())
         self.assertEqual(otl.name, "")
+
+
+# ---------------------------------------------------------------------------
+# Service writes (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+def _make_event_with_share(
+    *,
+    scope: EventScope = EventScope.SHARED,
+    rsvps: tuple[Rsvp, ...] = (),
+    current_user_participant_id: str = "PARTICIPANT-FIXTURE-GUEST",
+) -> Event:
+    """Build a minimal Event with a share pre-populated for write tests."""
+    share = EventShare(
+        short_guid="008TESTFIXTUREAAAA",
+        public_permission="READ_WRITE",
+        current_user_participant_id=current_user_participant_id,
+    )
+    return Event(
+        event_id="EVENT-FIXTURE-AAAA",
+        scope=scope,
+        time=EventTime(start=datetime(2026, 1, 15, tzinfo=timezone.utc)),
+        share=share,
+        rsvps=rsvps,
+    )
+
+
+def _existing_going_rsvp() -> Rsvp:
+    return Rsvp(
+        record_name="PARTICIPANT-FIXTURE-GUEST_rsvp",
+        participant_id="PARTICIPANT-FIXTURE-GUEST",
+        name="Fixture Guest",
+        status=RsvpStatus.GOING,
+        message="Looking forward to it!",
+        num_additional_adults=1,
+        num_additional_kids=0,
+        record_change_tag="rsvpFixture1",
+    )
+
+
+class RsvpWriteTest(unittest.TestCase):
+    def setUp(self):
+        self.service = InvitesService(
+            service_root="https://example.com",
+            session=MagicMock(),
+            params={},
+        )
+        self.modify_response = CKModifyResponse.model_validate(
+            load_invites_fixture("rsvp_modify_response.json")
+        )
+
+    def test_rsvp_update_uses_existing_change_tag_and_update_op(self):
+        existing = _existing_going_rsvp()
+        event = _make_event_with_share(rsvps=(existing,))
+        self.service.raw.modify = MagicMock(return_value=self.modify_response)
+
+        result = self.service.rsvp(
+            event,
+            RsvpStatus.MAYBE,
+            message="Tentative",
+        )
+
+        self.assertIsInstance(result, Rsvp)
+        self.assertEqual(result.status, RsvpStatus.MAYBE)
+        self.assertEqual(result.record_change_tag, "rsvpFixture2")
+
+        call = self.service.raw.modify.call_args
+        self.assertEqual(call.args[0], "shared")
+        ops = call.kwargs["operations"]
+        self.assertEqual(len(ops), 1)
+        op = ops[0]
+        self.assertEqual(op.operationType, "update")
+        record = op.record
+        self.assertEqual(record.recordName, "PARTICIPANT-FIXTURE-GUEST_rsvp")
+        self.assertEqual(record.recordType, "RSVP")
+        self.assertEqual(record.recordChangeTag, "rsvpFixture1")
+        # Status field wrapped as encrypted INT64.
+        status_field = record.fields.get("status")
+        self.assertIsNotNone(status_field)
+        assert status_field is not None
+        self.assertEqual(status_field.value, 2)
+
+    def test_rsvp_first_response_creates_record(self):
+        # No existing RSVP in event.rsvps → create op, no recordChangeTag.
+        event = _make_event_with_share(rsvps=())
+        self.service.raw.modify = MagicMock(return_value=self.modify_response)
+
+        self.service.rsvp(event, RsvpStatus.GOING, name="Fixture Guest")
+
+        op = self.service.raw.modify.call_args.kwargs["operations"][0]
+        self.assertEqual(op.operationType, "create")
+        self.assertIsNone(op.record.recordChangeTag)
+
+    def test_rsvp_not_going_zeros_plus_ones(self):
+        existing = _existing_going_rsvp()
+        event = _make_event_with_share(rsvps=(existing,))
+        self.service.raw.modify = MagicMock(return_value=self.modify_response)
+
+        self.service.rsvp(
+            event,
+            RsvpStatus.NOT_GOING,
+            plus_one_adults=2,  # caller-supplied counts must be ignored
+            plus_one_kids=1,
+        )
+
+        record = self.service.raw.modify.call_args.kwargs["operations"][0].record
+        adults = record.fields.get("numAdditionalAdults")
+        kids = record.fields.get("numAdditionalKids")
+        guests = record.fields.get("numAdditionalGuests")
+        assert adults is not None and kids is not None and guests is not None
+        self.assertEqual(adults.value, 0)
+        self.assertEqual(kids.value, 0)
+        self.assertEqual(guests.value, 0)
+
+    def test_rsvp_plus_one_counts_sum_to_total(self):
+        event = _make_event_with_share()
+        self.service.raw.modify = MagicMock(return_value=self.modify_response)
+
+        self.service.rsvp(
+            event,
+            RsvpStatus.GOING,
+            plus_one_adults=2,
+            plus_one_kids=3,
+        )
+
+        record = self.service.raw.modify.call_args.kwargs["operations"][0].record
+        guests = record.fields.get("numAdditionalGuests")
+        assert guests is not None
+        self.assertEqual(guests.value, 5)
+
+    def test_rsvp_owner_dispatches_to_private_scope(self):
+        owner_event = _make_event_with_share(
+            scope=EventScope.PRIVATE,
+            current_user_participant_id="PARTICIPANT-FIXTURE-OWNER",
+        )
+        # Tailor the response so the modify helper can locate the owner's record.
+        owner_response = self.modify_response.model_copy(deep=True)
+        owner_response.records[0].recordName = "PARTICIPANT-FIXTURE-OWNER_rsvp"
+        self.service.raw.modify = MagicMock(return_value=owner_response)
+
+        self.service.rsvp(owner_event, RsvpStatus.GOING)
+
+        self.assertEqual(
+            self.service.raw.modify.call_args.args[0],
+            "private",
+        )
+
+    def test_rsvp_omits_name_and_message_when_not_provided(self):
+        event = _make_event_with_share()
+        self.service.raw.modify = MagicMock(return_value=self.modify_response)
+
+        self.service.rsvp(event, RsvpStatus.MAYBE)
+
+        record = self.service.raw.modify.call_args.kwargs["operations"][0].record
+        self.assertNotIn("name", record.fields)
+        self.assertNotIn("message", record.fields)
+
+    def test_rsvp_includes_name_and_message_when_provided(self):
+        event = _make_event_with_share()
+        self.service.raw.modify = MagicMock(return_value=self.modify_response)
+
+        self.service.rsvp(
+            event,
+            RsvpStatus.GOING,
+            name="Fixture Guest",
+            message="See you there",
+        )
+
+        record = self.service.raw.modify.call_args.kwargs["operations"][0].record
+        name_field = record.fields.get("name")
+        message_field = record.fields.get("message")
+        assert name_field is not None and message_field is not None
+        self.assertEqual(name_field.value, "Fixture Guest")
+        self.assertEqual(message_field.value, "See you there")
+
+    def test_rsvp_raises_when_share_not_loaded(self):
+        event = Event(
+            event_id="EVENT-FIXTURE-AAAA",
+            scope=EventScope.SHARED,
+            time=EventTime(start=datetime(2026, 1, 15, tzinfo=timezone.utc)),
+            share=None,
+        )
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING)
+
+    def test_rsvp_raises_when_share_has_no_current_participant(self):
+        event = _make_event_with_share(current_user_participant_id="")
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING)
+
+    def test_rsvp_rejects_negative_plus_one_counts(self):
+        event = _make_event_with_share()
+        # Sentinel modify mock that should never be reached.
+        self.service.raw.modify = MagicMock()
+
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING, plus_one_adults=-1)
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp(event, RsvpStatus.GOING, plus_one_kids=-1)
+
+        # Validation must run before any wire call.
+        self.service.raw.modify.assert_not_called()
 
 
 if __name__ == "__main__":

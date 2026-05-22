@@ -1,6 +1,8 @@
 """High-level Invites service built on top of the iCloud Events CloudKit API.
 
-Public API (Phase 1, read-only):
+Public API:
+
+Read (Phase 1):
   - ``InvitesService.events()`` -> ``list[Event]``
   - ``InvitesService.event(event_id)`` -> ``Event``
   - ``InvitesService.rsvps(event)`` -> ``list[Rsvp]``
@@ -8,8 +10,11 @@ Public API (Phase 1, read-only):
   - ``InvitesService.accept(short_guid)`` -> ``Event``
   - ``InvitesService.raw`` -> ``CloudKitInvitesClient``
 
-Write operations (create event, publish, cancel, RSVP, invite via link)
-arrive in later phases per the design doc.
+Write (Phase 2):
+  - ``InvitesService.rsvp(event, status, ...)`` -> ``Rsvp``
+
+Write operations on ``EventDetails`` (create event, publish, cancel, invite
+via link) arrive in later phases per the design doc.
 """
 
 from __future__ import annotations
@@ -19,9 +24,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from pyicloud.common.cloudkit import (
+    CKModifyOperation,
+    CKModifyResponse,
     CKQueryObject,
     CKQueryResponse,
     CKRecord,
+    CKWriteRecord,
     CKZoneIDReq,
 )
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
@@ -31,6 +39,7 @@ from ._constants import (
     CONTAINER,
     ENV,
     EVENT_DETAILS_RECORD_NAME_PREFIX,
+    RSVP_RECORD_NAME_SUFFIX,
     SHARE_RECORD_NAME,
 )
 from .client import (
@@ -181,6 +190,148 @@ class InvitesService(BaseService):
                 f"Accepted event {event_id!r} not visible in either scope"
             )
         return event
+
+    # ------------------------------------------------------------------
+    # Public writes
+    # ------------------------------------------------------------------
+
+    def rsvp(
+        self,
+        event: Event,
+        status: RsvpStatus,
+        *,
+        name: Optional[str] = None,
+        message: Optional[str] = None,
+        plus_one_adults: int = 0,
+        plus_one_kids: int = 0,
+    ) -> Rsvp:
+        """Submit or update the current user's RSVP for ``event``.
+
+        Dispatches to ``private`` if the current user owns the event, or
+        ``shared`` if they're a guest (per ``event.scope``). Creates the RSVP
+        record on first response and updates it on subsequent calls.
+
+        For :attr:`RsvpStatus.NOT_GOING`, plus-one counts are zeroed to mirror
+        the iCloud web UI behavior; the ``plus_one_*`` kwargs are ignored in
+        that case.
+
+        Returns the freshly written :class:`Rsvp` (including the new
+        ``record_change_tag``).
+        """
+        if plus_one_adults < 0 or plus_one_kids < 0:
+            raise InvitesApiError(
+                "plus_one_adults and plus_one_kids must be non-negative; "
+                f"got plus_one_adults={plus_one_adults!r}, "
+                f"plus_one_kids={plus_one_kids!r}"
+            )
+
+        participant_id = self._current_participant_id(event)
+        record_name = f"{participant_id}{RSVP_RECORD_NAME_SUFFIX}"
+        existing = self._find_existing_rsvp(event, record_name)
+
+        if status == RsvpStatus.NOT_GOING:
+            plus_one_adults = 0
+            plus_one_kids = 0
+
+        fields: Dict[str, Any] = {
+            RsvpField.STATUS.value: {
+                "type": "INT64",
+                "value": status.value,
+                "isEncrypted": True,
+            },
+            RsvpField.NUM_ADDITIONAL_ADULTS.value: {
+                "type": "INT64",
+                "value": plus_one_adults,
+                "isEncrypted": True,
+            },
+            RsvpField.NUM_ADDITIONAL_KIDS.value: {
+                "type": "INT64",
+                "value": plus_one_kids,
+                "isEncrypted": True,
+            },
+            RsvpField.NUM_ADDITIONAL_GUESTS.value: {
+                "type": "INT64",
+                "value": plus_one_adults + plus_one_kids,
+                "isEncrypted": True,
+            },
+        }
+        if name is not None:
+            fields[RsvpField.NAME.value] = {
+                "type": "STRING",
+                "value": name,
+                "isEncrypted": True,
+            }
+        if message is not None:
+            fields[RsvpField.MESSAGE.value] = {
+                "type": "STRING",
+                "value": message,
+                "isEncrypted": True,
+            }
+
+        record_change_tag = existing.record_change_tag if existing else None
+        op = CKModifyOperation(
+            operationType="update" if existing else "create",
+            record=CKWriteRecord(
+                recordName=record_name,
+                recordType=InvitesRecordType.Rsvp.value,
+                recordChangeTag=record_change_tag,
+                fields=fields,
+            ),
+        )
+
+        scope_str = self._scope_str(event.scope)
+        zone_id = self._zone_id_req(event.event_id, event.scope)
+        response: CKModifyResponse = self._raw.modify(
+            scope_str,
+            operations=[op],
+            zone_id=zone_id,
+            atomic=True,
+        )
+        return self._rsvp_from_modify_response(response, record_name)
+
+    # ------------------------------------------------------------------
+    # Internal: write helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _current_participant_id(event: Event) -> str:
+        """Return the current user's participant_id on ``event``'s share."""
+        if event.share is None:
+            raise InvitesApiError(
+                f"Event {event.event_id!r} has no loaded share; "
+                "fetch the event via InvitesService.event(...) first."
+            )
+        participant_id = event.share.current_user_participant_id
+        if not participant_id:
+            raise InvitesApiError(
+                f"Event {event.event_id!r} share has no currentUserParticipant; "
+                "the user may not be a participant on this event."
+            )
+        return participant_id
+
+    @staticmethod
+    def _find_existing_rsvp(event: Event, record_name: str) -> Optional[Rsvp]:
+        """Find the user's RSVP in ``event.rsvps`` matching ``record_name``."""
+        for rsvp in event.rsvps:
+            if rsvp.record_name == record_name:
+                return rsvp
+        return None
+
+    def _rsvp_from_modify_response(
+        self, response: CKModifyResponse, record_name: str
+    ) -> Rsvp:
+        """Pick the RSVP record from a modify response and convert to DTO."""
+        for record in response.records:
+            if (
+                isinstance(record, CKRecord)
+                and record.recordName == record_name
+                and record.recordType == InvitesRecordType.Rsvp.value
+            ):
+                return self._rsvp_from_record(record)
+        raise InvitesApiError(
+            f"RSVP modify response missing record {record_name!r}",
+            payload=response.model_dump(mode="json", exclude_none=True),
+        )
 
     # ------------------------------------------------------------------
     # Internal: zone-level helpers
@@ -386,11 +537,16 @@ class InvitesService(BaseService):
         participants = tuple(
             self._participant_from_ck(p) for p in (record.participants or [])
         )
+        current_user_participant_id: Optional[str] = None
+        current = getattr(record, "currentUserParticipant", None)
+        if current is not None:
+            current_user_participant_id = getattr(current, "participantId", None)
         return EventShare(
             short_guid=short_guid,
             public_permission=public_permission,
             participants=participants,
             one_time_links=(),
+            current_user_participant_id=current_user_participant_id,
         )
 
     @staticmethod
