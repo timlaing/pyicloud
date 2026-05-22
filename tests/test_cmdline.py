@@ -193,7 +193,7 @@ class FakePhotoAlbum:
 
     def __init__(self, name: str, photos: list[FakePhoto]) -> None:
         self.name = name
-        self.fullname = f"/{name}"
+        self.fullname = f"{name}"
         self._photos = photos
 
     @property
@@ -3513,7 +3513,7 @@ def test_photos_shared_streams_command() -> None:
     payload = json.loads(json_result.stdout)
     assert len(payload) == 2
     assert payload[0]["name"] == "Vacation 2026"
-    assert payload[0]["full_name"] == "/Vacation 2026"
+    assert payload[0]["full_name"] == "Vacation 2026"
     assert payload[0]["count"] == 1
     assert payload[1]["name"] == "Family Photos"
     assert payload[1]["count"] == 1
@@ -3608,7 +3608,7 @@ def test_photos_albums_command() -> None:
     payload = json.loads(json_result.stdout)
     assert len(payload) == 1
     assert payload[0]["name"] == "All Photos"
-    assert payload[0]["full_name"] == "/All Photos"
+    assert payload[0]["full_name"] == "All Photos"
     assert payload[0]["count"] == 1
 
 

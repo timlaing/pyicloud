@@ -39,6 +39,7 @@ from pyicloud.services.photos_cloudkit.constants import (
 )
 
 _PHOTO_LIBRARY_KEY_HELP = "Photo library key."
+_PHOTO_SHARED_STREAM_HELP = "Use shared photo stream."
 
 app = typer.Typer(help="Browse and download iCloud Photos.")
 
@@ -441,7 +442,7 @@ def photos_list(
     ),
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     shared_stream: bool = typer.Option(
-        False, "--shared-stream", help="Use shared photo stream."
+        False, "--shared-stream", help=_PHOTO_SHARED_STREAM_HELP
     ),
     limit: int = typer.Option(50, "--limit", min=1, help="Maximum photos to show."),
     username: UsernameOption = None,
@@ -514,7 +515,7 @@ def photos_get(
         help="Album name to search before falling back to all photos.",
     ),
     shared_stream: bool = typer.Option(
-        False, "--shared-stream", help="Use shared photo stream."
+        False, "--shared-stream", help=_PHOTO_SHARED_STREAM_HELP
     ),
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     username: UsernameOption = None,
@@ -665,7 +666,7 @@ def photos_download(
         help="Album name to search before falling back to all photos.",
     ),
     shared_stream: bool = typer.Option(
-        False, "--shared-stream", help="Use shared photo stream."
+        False, "--shared-stream", help=_PHOTO_SHARED_STREAM_HELP
     ),
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
     output: Path = typer.Option(..., "--output", help="Destination file path."),

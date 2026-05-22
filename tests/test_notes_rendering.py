@@ -125,7 +125,7 @@ class TestNoteRendering(unittest.TestCase):
         )
         # The test note had "pyicloud notes service test" in title, likely not in body.
         # But we expect SOME content.
-        self.assertTrue(len(html) > 0)
+        self.assertGreater(len(html), 0)
 
         print("\n--- Rendered HTML Preview (First 500 chars) ---")
         print(html[:500])

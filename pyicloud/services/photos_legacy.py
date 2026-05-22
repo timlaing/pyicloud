@@ -1722,7 +1722,7 @@ class PhotoAsset:
         return self.asset_date
 
     def _record_timestamp(self, field_name: str, master: bool = False) -> datetime:
-        """Read a millisecond timestamp field from the asset record."""
+        """Read a millisecond timestamp field from the master or asset records."""
         try:
             record = self._master_record if master else self._asset_record
             raw_value = record["fields"][field_name]["value"]
