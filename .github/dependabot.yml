@@ -11,19 +11,19 @@ updates:
     schedule:
       interval: weekly
     labels:
-      - dependency
+      - dependencies
       - devcontainers
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: weekly
     labels:
-      - dependency
+      - dependencies
       - pip
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: weekly
     labels:
-      - dependency
+      - dependencies
       - github_actions
