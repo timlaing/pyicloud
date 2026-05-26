@@ -68,8 +68,14 @@ jobs:
               "https://raw.githubusercontent.com/home-assistant/core/dev/"
               "requirements_all.txt"
           )
-          with urllib.request.urlopen(requirements_url, timeout=30) as response:
-              requirements = response.read().decode("utf-8")
+          try:
+              with urllib.request.urlopen(requirements_url, timeout=30) as response:
+                  requirements = response.read().decode("utf-8")
+          except OSError as err:
+              print(f"Unable to fetch Home Assistant requirements: {err}")
+              write_output("should_close", "false")
+              write_output("ha_version", "")
+              raise SystemExit(0)
 
           normalized_dependency = re.sub(r"[-_.]+", "-", dependency).lower()
           ha_version = None
@@ -79,6 +85,7 @@ jobs:
               if not line or line.startswith("#"):
                   continue
 
+              # Match: package-name[extras] == version (and similar operator forms).
               match = re.match(
                   r"^([A-Za-z0-9_.-]+)(?:\[[^]]+\])?\s*([<>=!~]{1,2})\s*([^;,\s]+)",
                   line,
