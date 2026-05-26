@@ -38,6 +38,7 @@ jobs:
           DEPENDENCY: ${{ steps.parse.outputs.dependency }}
           TARGET_VERSION: ${{ steps.parse.outputs.new_version }}
         run: |
+          python -m pip install --disable-pip-version-check packaging
           python - <<'PY'
           import os
           import re
@@ -128,7 +129,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `Closing this Dependabot PR because Home Assistant currently uses ${process.env.DEPENDENCY}==${process.env.HA_VERSION}, which is older than the proposed ${process.env.TARGET_VERSION}.`
+              body: `Closing this Dependabot PR because it proposes ${process.env.DEPENDENCY}==${process.env.TARGET_VERSION}, which is newer than the version currently used by Home Assistant (${process.env.HA_VERSION}).`
             });
 
             await github.rest.pulls.update({
