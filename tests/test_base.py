@@ -2298,3 +2298,97 @@ def test_setup_cookie_directory_with_tilde_expansion(
         mock_umask.assert_called_with(0o700)
         mock_umask.assert_any_call(0o077)
         assert result == "/home/user/.pyicloud"
+
+
+def test_private_request_2fa_code_triggers_trusted_device_push(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """_request_2fa_code should GET /verify/trusteddevice to push a code to Apple devices."""
+
+    pyicloud_service._auth_data = {}
+    with patch("pyicloud.base.PyiCloudSession") as mock_session:
+        pyicloud_service._session = mock_session
+        mock_session.data = {"scnt": "test_scnt", "session_id": "test_session_id"}
+
+        pyicloud_service._request_2fa_code()
+
+        get_calls = mock_session.get.call_args_list
+        push_call = next(
+            (c for c in get_calls if "/verify/trusteddevice" in c.args[0]),
+            None,
+        )
+        assert push_call is not None, "Expected GET /verify/trusteddevice to be called"
+        assert push_call.kwargs["headers"]["Accept"] == "application/json"
+
+
+def test_private_request_2fa_code_sends_sms_when_phone_available(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """_request_2fa_code should also PUT /verify/phone when a trusted phone number is present."""
+
+    pyicloud_service._auth_data = {
+        "trustedPhoneNumber": {
+            "id": 1,
+        }
+    }
+    with patch("pyicloud.base.PyiCloudSession") as mock_session:
+        pyicloud_service._session = mock_session
+        mock_session.data = {"scnt": "test_scnt", "session_id": "test_session_id"}
+
+        pyicloud_service._request_2fa_code()
+
+        args = mock_session.put.call_args.args
+        kwargs = mock_session.put.call_args.kwargs
+        assert args[0] == f"{pyicloud_service._auth_endpoint}/verify/phone"
+        assert kwargs["json"] == {
+            "phoneNumber": {"id": 1},
+            "mode": "sms",
+        }
+
+
+def test_srp_authentication_calls_request_2fa_code_when_2fa_required(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """_srp_authentication should invoke _request_2fa_code after Apple signals 2FA is needed."""
+
+    import base64 as _base64
+
+    from pyicloud.exceptions import PyiCloud2FARequiredException as _2FAExc
+
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": _base64.b64encode(b"\x00" * 32).decode(),
+        "b": _base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+        patch.object(pyicloud_service, "_get_mfa_auth_options", return_value={}),
+        patch.object(pyicloud_service, "_request_2fa_code") as mock_request_push,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = [
+            init_response,
+            _2FAExc("test@example.com", MagicMock()),
+        ]
+
+        pyicloud_service._srp_authentication()
+
+        mock_request_push.assert_called_once()

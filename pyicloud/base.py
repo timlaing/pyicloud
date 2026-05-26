@@ -630,6 +630,7 @@ class PyiCloudService:
         except PyiCloud2FARequiredException:
             LOGGER.debug("2FA required to complete authentication.")
             self._auth_data = self._get_mfa_auth_options()
+            self._request_2fa_code()
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
@@ -825,6 +826,42 @@ class PyiCloudService:
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("unknown")
         return auth_options
+
+    def _request_2fa_code(self) -> None:
+        """Request a 2FA code delivery after SRP authentication requires MFA.
+
+        Apple does not automatically push a verification code for API-based
+        (non-browser) sessions after SRP. This method explicitly triggers the
+        push notification to trusted devices and falls back to SMS when available.
+        """
+        headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
+
+        try:
+            self.session.get(
+                f"{self._auth_endpoint}/verify/trusteddevice",
+                headers=headers,
+            )
+            LOGGER.debug("Requested 2FA code via trusted device push")
+        except Exception:  # noqa: BLE001
+            LOGGER.debug("Could not request 2FA device push; will try SMS fallback")
+
+        trusted_phone_number = self._trusted_phone_number()
+        if trusted_phone_number is not None:
+            try:
+                self.session.put(
+                    f"{self._auth_endpoint}/verify/phone",
+                    json={
+                        "phoneNumber": trusted_phone_number.as_phone_number_payload(),
+                        "mode": "sms",
+                    },
+                    headers=headers,
+                )
+                LOGGER.debug(
+                    "Requested 2FA code via SMS (phone id %s)",
+                    trusted_phone_number.device_id,
+                )
+            except Exception:  # noqa: BLE001
+                LOGGER.debug("Could not request 2FA SMS code")
 
     def _set_two_factor_delivery_state(
         self, method: str, notice: Optional[str] = None
