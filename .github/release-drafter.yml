@@ -1,4 +1,7 @@
 categories:
+  - title: "🌱 New Contributors"
+    labels:
+      - "first-time-contributor"
   - title: "🚀 Features"
     labels:
       - "feature"
@@ -22,21 +25,14 @@ commitish: main
 
 autolabeler:
   - label: "documentation"
-    files:
-      - "*.md"
     branch:
       - '/docs{0,1}\/.+/'
   - label: "bugfix"
     branch:
       - '/bugfix\/.+/'
-    title:
-      - "/fix/i"
   - label: "feature"
     branch:
       - '/feature\/.+/'
-    title:
-      - "/refactor/i"
-      - "/add/i"
   - label: "dependencies"
     branch:
       - '/dependabot\/.+/'
@@ -45,3 +41,7 @@ template: |
   ## What's Changed
 
   $CHANGES
+
+  ## Contributors
+
+  $CONTRIBUTORS
