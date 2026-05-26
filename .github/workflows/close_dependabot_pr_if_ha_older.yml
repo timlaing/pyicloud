@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  close_pr_if_newer_than_ha:
+  close_pr_if_ha_uses_older_version:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -84,8 +84,15 @@ jobs:
               try:
                   with urllib.request.urlopen(requirements_url, timeout=30) as response:
                       requirements = response.read().decode("utf-8")
-              except (OSError, urllib.error.URLError, urllib.error.HTTPError) as err:
-                  print(f"Unable to fetch Home Assistant requirements: {err}")
+              except urllib.error.HTTPError as err:
+                  print(
+                      f"Unable to fetch Home Assistant requirements: HTTP {err.code} {err.reason}"
+                  )
+                  write_output("should_close", "false")
+                  write_output("ha_version", "")
+                  return
+              except (OSError, urllib.error.URLError) as err:
+                  print(f"Unable to fetch Home Assistant requirements: network error: {err}")
                   write_output("should_close", "false")
                   write_output("ha_version", "")
                   return
