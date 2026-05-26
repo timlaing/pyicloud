@@ -1,0 +1,132 @@
+name: Close Dependabot PR if HA older
+
+# yamllint disable-line rule:truthy
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  close_pr_when_ha_is_older:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse dependency and target version
+        id: parse
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = context.payload.pull_request.title || "";
+            const match = title.match(/^Bump (.+?) from \S+ to (\S+)$/);
+            if (!match) {
+              core.info(`Skipping PR with unsupported title format: ${title}`);
+              core.setOutput("dependency", "");
+              core.setOutput("new_version", "");
+              return;
+            }
+
+            core.setOutput("dependency", match[1]);
+            core.setOutput("new_version", match[2]);
+
+      - name: Compare with Home Assistant dependency version
+        id: compare
+        env:
+          DEPENDENCY: ${{ steps.parse.outputs.dependency }}
+          TARGET_VERSION: ${{ steps.parse.outputs.new_version }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import urllib.request
+          from packaging.version import InvalidVersion, Version
+
+          dependency = os.environ.get("DEPENDENCY", "").strip()
+          target_version_text = os.environ.get("TARGET_VERSION", "").strip()
+          output_file = os.environ["GITHUB_OUTPUT"]
+
+          def write_output(name: str, value: str) -> None:
+              with open(output_file, "a", encoding="utf-8") as handle:
+                  handle.write(f"{name}={value}\n")
+
+          if not dependency or not target_version_text:
+              write_output("should_close", "false")
+              write_output("ha_version", "")
+              raise SystemExit(0)
+
+          try:
+              target_version = Version(target_version_text.lstrip("v"))
+          except InvalidVersion:
+              write_output("should_close", "false")
+              write_output("ha_version", "")
+              raise SystemExit(0)
+
+          requirements_url = (
+              "https://raw.githubusercontent.com/home-assistant/core/dev/"
+              "requirements_all.txt"
+          )
+          with urllib.request.urlopen(requirements_url, timeout=30) as response:
+              requirements = response.read().decode("utf-8")
+
+          normalized_dependency = re.sub(r"[-_.]+", "-", dependency).lower()
+          ha_version = None
+
+          for line in requirements.splitlines():
+              line = line.strip()
+              if not line or line.startswith("#"):
+                  continue
+
+              match = re.match(
+                  r"^([A-Za-z0-9_.-]+)(?:\[[^]]+\])?\s*([<>=!~]{1,2})\s*([^;,\s]+)",
+                  line,
+              )
+              if not match:
+                  continue
+
+              package_name, operator, version_text = match.groups()
+              if re.sub(r"[-_.]+", "-", package_name).lower() != normalized_dependency:
+                  continue
+
+              if operator != "==":
+                  continue
+
+              try:
+                  ha_version = Version(version_text)
+              except InvalidVersion:
+                  ha_version = None
+              break
+
+          if ha_version is None:
+              write_output("should_close", "false")
+              write_output("ha_version", "")
+              raise SystemExit(0)
+
+          write_output("ha_version", str(ha_version))
+          write_output("should_close", "true" if ha_version < target_version else "false")
+          PY
+
+      - name: Close pull request
+        if: steps.compare.outputs.should_close == 'true'
+        uses: actions/github-script@v8
+        env:
+          DEPENDENCY: ${{ steps.parse.outputs.dependency }}
+          TARGET_VERSION: ${{ steps.parse.outputs.new_version }}
+          HA_VERSION: ${{ steps.compare.outputs.ha_version }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Closing this Dependabot PR because Home Assistant currently uses ${process.env.DEPENDENCY}==${process.env.HA_VERSION}, which is older than the proposed ${process.env.TARGET_VERSION}.`
+            });
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              state: "closed",
+            });
