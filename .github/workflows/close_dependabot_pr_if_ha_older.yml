@@ -21,16 +21,26 @@ jobs:
         with:
           script: |
             const title = context.payload.pull_request.title || "";
-            const match = title.match(/^Bump (.+?) from \S+ to (\S+)$/);
-            if (!match) {
+            if (!title.startsWith("Bump ")) {
               core.info(`Skipping PR with unsupported title format: ${title}`);
               core.setOutput("dependency", "");
               core.setOutput("new_version", "");
               return;
             }
 
-            core.setOutput("dependency", match[1]);
-            core.setOutput("new_version", match[2]);
+            const rest = title.slice("Bump ".length);
+            const toIndex = rest.lastIndexOf(" to ");
+            const fromIndex = toIndex === -1 ? -1 : rest.lastIndexOf(" from ", toIndex - 1);
+
+            if (fromIndex === -1 || toIndex === -1) {
+              core.info(`Skipping PR with unsupported title format: ${title}`);
+              core.setOutput("dependency", "");
+              core.setOutput("new_version", "");
+              return;
+            }
+
+            core.setOutput("dependency", rest.slice(0, fromIndex));
+            core.setOutput("new_version", rest.slice(toIndex + " to ".length));
 
       - name: Compare with Home Assistant dependency version
         id: compare
@@ -53,67 +63,70 @@ jobs:
               with open(output_file, "a", encoding="utf-8") as handle:
                   handle.write(f"{name}={value}\n")
 
-          if not dependency or not target_version_text:
-              write_output("should_close", "false")
-              write_output("ha_version", "")
-              raise SystemExit(0)
-
-          try:
-              target_version = Version(target_version_text.lstrip("v"))
-          except InvalidVersion:
-              write_output("should_close", "false")
-              write_output("ha_version", "")
-              raise SystemExit(0)
-
-          requirements_url = (
-              "https://raw.githubusercontent.com/home-assistant/core/dev/"
-              "requirements_all.txt"
-          )
-          try:
-              with urllib.request.urlopen(requirements_url, timeout=30) as response:
-                  requirements = response.read().decode("utf-8")
-          except OSError as err:
-              print(f"Unable to fetch Home Assistant requirements: {err}")
-              write_output("should_close", "false")
-              write_output("ha_version", "")
-              raise SystemExit(0)
-
-          normalized_dependency = re.sub(r"[-_.]+", "-", dependency).lower()
-          ha_version = None
-
-          for line in requirements.splitlines():
-              line = line.strip()
-              if not line or line.startswith("#"):
-                  continue
-
-              # Match: package-name[extras] == version (and similar operator forms).
-              match = re.match(
-                  r"^([A-Za-z0-9_.-]+)(?:\[[^]]+\])?\s*([<>=!~]{1,2})\s*([^;,\s]+)",
-                  line,
-              )
-              if not match:
-                  continue
-
-              package_name, operator, version_text = match.groups()
-              if re.sub(r"[-_.]+", "-", package_name).lower() != normalized_dependency:
-                  continue
-
-              if operator != "==":
-                  continue
+          def main() -> None:
+              if not dependency or not target_version_text:
+                  write_output("should_close", "false")
+                  write_output("ha_version", "")
+                  return
 
               try:
-                  ha_version = Version(version_text)
+                  target_version = Version(target_version_text.lstrip("v"))
               except InvalidVersion:
-                  ha_version = None
-              break
+                  write_output("should_close", "false")
+                  write_output("ha_version", "")
+                  return
 
-          if ha_version is None:
-              write_output("should_close", "false")
-              write_output("ha_version", "")
-              raise SystemExit(0)
+              requirements_url = (
+                  "https://raw.githubusercontent.com/home-assistant/core/dev/"
+                  "requirements_all.txt"
+              )
+              try:
+                  with urllib.request.urlopen(requirements_url, timeout=30) as response:
+                      requirements = response.read().decode("utf-8")
+              except OSError as err:
+                  print(f"Unable to fetch Home Assistant requirements: {err}")
+                  write_output("should_close", "false")
+                  write_output("ha_version", "")
+                  return
 
-          write_output("ha_version", str(ha_version))
-          write_output("should_close", "true" if ha_version < target_version else "false")
+              normalized_dependency = re.sub(r"[-_.]+", "-", dependency).lower()
+              ha_version = None
+
+              for line in requirements.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+
+                  # Match: package-name[extras] == version (and similar operator forms).
+                  match = re.match(
+                      r"^([A-Za-z0-9_.-]+)(?:\[[^]]+\])?\s*([<>=!~]{1,3})\s*([^;,\s]+)",
+                      line,
+                  )
+                  if not match:
+                      continue
+
+                  package_name, operator, version_text = match.groups()
+                  if re.sub(r"[-_.]+", "-", package_name).lower() != normalized_dependency:
+                      continue
+
+                  if operator != "==":
+                      continue
+
+                  try:
+                      ha_version = Version(version_text)
+                  except InvalidVersion:
+                      ha_version = None
+                  break
+
+              if ha_version is None:
+                  write_output("should_close", "false")
+                  write_output("ha_version", "")
+                  return
+
+              write_output("ha_version", str(ha_version))
+              write_output("should_close", "true" if ha_version < target_version else "false")
+
+          main()
           PY
 
       - name: Close pull request
