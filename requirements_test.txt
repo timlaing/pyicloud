@@ -1,5 +1,5 @@
 bbpb==1.4.2
-isort>=5.11.5
+isort>=8.0.1
 prek>=0.3.1
 pylint>=4.0.5
 pylint-strict-informational>=0.1
