@@ -6,5 +6,5 @@ pylint-strict-informational>=0.1
 pytest>=9.0.3
 pytest-cov>=7.1.0
 pytest-socket>=0.7.0
-ruff>=0.15.14
+ruff>=0.15.15
 types-requests>=2.32.0
