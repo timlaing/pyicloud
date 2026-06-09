@@ -640,6 +640,16 @@ class PyiCloudService:
         if not self.session.data.get("session_token"):
             raise PyiCloudFailedLoginException("No session token available")
 
+        # Auto-detect China mainland based on account country in session data
+        account_country = self.session.data.get("account_country", "")
+        if account_country == "CHN" and not self._is_china_mainland:
+            LOGGER.debug("Auto-switching to China mainland endpoints based on account_country")
+            self._is_china_mainland = True
+            self._setup_endpoints()
+            # Update session headers with new endpoint
+            self.session.headers["Origin"] = self._home_endpoint
+            self.session.headers["Referer"] = f"{self._home_endpoint}/"
+
         try:
             login_data: dict[str, Any] = {
                 "accountCountryCode": self.session.data.get("account_country"),
@@ -651,6 +661,24 @@ class PyiCloudService:
             resp: Response = self.session.post(
                 f"{self._setup_endpoint}/accountLogin", json=login_data
             )
+
+            # Check if response indicates wrong domain (China account using international endpoint)
+            if resp.status_code == 302:
+                try:
+                    body = resp.json()
+                    if body.get("domainToUse"):
+                        LOGGER.debug("Detected domain redirect to %s, switching endpoints", body["domainToUse"])
+                        # Switch to China endpoint if not already
+                        if not self._is_china_mainland and ".cn" in body["domainToUse"]:
+                            self._is_china_mainland = True
+                            self._setup_endpoints()
+                            # Retry with correct endpoint
+                            resp = self.session.post(
+                                f"{self._setup_endpoint}/accountLogin", json=login_data
+                            )
+                except (ValueError, KeyError):
+                    pass  # Not JSON or unexpected format
+
             resp.raise_for_status()
 
             self.data = resp.json()
@@ -747,7 +775,10 @@ class PyiCloudService:
         """Returns True if two-step authentication is required."""
         return (
             self._is_mfa_required()
-            and self.data.get("dsInfo", {}).get("hsaVersion", 0) >= 1
+            and (
+                self.data.get("dsInfo", {}).get("hsaVersion", 0) >= 1
+                or self._requires_mfa
+            )
         )
 
     @property
@@ -755,7 +786,10 @@ class PyiCloudService:
         """Returns True if two-factor authentication is required."""
         return (
             self._is_mfa_required()
-            and self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
+            and (
+                self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
+                or self._requires_mfa
+            )
         )
 
     @property
@@ -1235,15 +1269,55 @@ class PyiCloudService:
         headers: dict[str, Any] = self._get_auth_headers()
 
         try:
-            self.session.get(
+            response = self.session.get(
                 f"{self._auth_endpoint}/2sv/trust",
                 headers=headers,
             )
-            self._authenticate_with_token()
-            LOGGER.debug("Session trust successful.")
-            return True
-        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
-            LOGGER.error("Session trust failed.")
+            LOGGER.debug("trust_session response status: %s", response.status_code)
+            LOGGER.debug("trust_session response headers: %s", dict(response.headers))
+
+            # GET /2sv/trust returning 204 means trust was successfully established
+            if response.status_code == 204:
+                LOGGER.debug("Session trust established (server returned 204)")
+                # Extract and update session tokens from response headers
+                new_session_token = response.headers.get('X-Apple-Session-Token')
+                new_scnt = response.headers.get('scnt')
+                new_session_id = response.headers.get('X-Apple-ID-Session-Id')
+                trust_token = response.headers.get('X-Apple-TwoSV-Trust-Token')
+
+                if new_session_token:
+                    self.session.data['session_token'] = new_session_token
+                if new_scnt:
+                    self.session.data['scnt'] = new_scnt
+                if new_session_id:
+                    self.session.data['session_id'] = new_session_id
+                if trust_token:
+                    self.session.data['trust_token'] = trust_token
+
+                # Now try to get full account data.
+                # This may raise PyiCloud2FARequiredException if the session
+                # still appears to need 2FA (Apple's server behavior), but
+                # trust is already established, so we catch and return True.
+                try:
+                    self._authenticate_with_token()
+                    # Successfully authenticated with token - trust is complete
+                    self.data['hsaTrustedBrowser'] = True
+                    LOGGER.debug("Session trust successful.")
+                    return True
+                except PyiCloud2FARequiredException:
+                    # Even though _authenticate_with_token raised 2FA exception,
+                    # the trust request itself succeeded (204). So we mark as trusted.
+                    LOGGER.debug("trust_session: _authenticate_with_token raised 2FA but trust is established")
+                    self.data['hsaTrustedBrowser'] = True
+                    self.data['hsaChallengeRequired'] = False
+                    LOGGER.debug("Session trust marked as successful despite 2FA exception.")
+                    return True
+
+            # If not 204, something unexpected happened
+            LOGGER.warning("Unexpected trust response status: %s", response.status_code)
+            return False
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException) as exc:
+            LOGGER.error("Session trust failed. Exception: %s", exc)
             return False
 
     def get_webservice_url(self, ws_key: str) -> str:
