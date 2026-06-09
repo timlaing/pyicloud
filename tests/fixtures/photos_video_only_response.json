@@ -44,6 +44,24 @@
             "size": 123456,
             "downloadURL": "https://example.com/video_only_small.mov"
           }
+        },
+        "resJPEGThumbFileType": {
+          "value": "public.jpeg"
+        },
+        "resJPEGThumbRes": {
+          "value": {
+            "size": 123456,
+            "downloadURL": "https://example.com/video_only_thumb.jpg"
+          }
+        },
+        "resJPEGMedFileType": {
+          "value": "public.jpeg"
+        },
+        "resJPEGMedRes": {
+          "value": {
+            "size": 123456,
+            "downloadURL": "https://example.com/video_only_medium.jpg"
+          }
         }
       }
     }

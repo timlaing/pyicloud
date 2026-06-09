@@ -1492,6 +1492,14 @@ def test_process_photo_list_response_maps_video_only_fixture(
     assert "original_video" not in photo.versions
     assert photo.versions["original"]["url"] == "https://example.com/video_only.mov"
     assert photo.versions["thumb"]["filename"] == "video_only.MOV"
+    assert (
+        photo.versions["thumb_image"]["url"]
+        == "https://example.com/video_only_thumb.jpg"
+    )
+    assert (
+        photo.versions["medium_image"]["url"]
+        == "https://example.com/video_only_medium.jpg"
+    )
 
 
 def test_album_membership_feed_uses_container_relation_fixture(

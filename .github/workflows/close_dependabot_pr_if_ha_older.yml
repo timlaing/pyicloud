@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Parse dependency and target version
         id: parse
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const title = context.payload.pull_request.title || "";
@@ -139,7 +139,7 @@ jobs:
 
       - name: Close pull request
         if: steps.compare.outputs.should_close == 'true'
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           DEPENDENCY: ${{ steps.parse.outputs.dependency }}
           TARGET_VERSION: ${{ steps.parse.outputs.new_version }}
