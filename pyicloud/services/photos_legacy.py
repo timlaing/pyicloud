@@ -1687,6 +1687,8 @@ class PhotoAsset:
         "original": "resOriginal",
         "medium": "resVidMed",
         "thumb": "resVidSmall",
+        "thumb_image": "resJPEGThumb",
+        "medium_image": "resJPEGMed",
     }
 
     @property
