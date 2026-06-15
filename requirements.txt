@@ -1,4 +1,4 @@
-certifi>=2026.4.22
+certifi>=2026.5.20
 cryptography>=44.0.0
 fido2>=2.2.0
 keyring>=25.7.0
