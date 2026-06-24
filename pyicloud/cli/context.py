@@ -368,8 +368,12 @@ class CLIState:
                 raise CLIAbort(
                     "Failed to request the 2FA trusted-device prompt."
                 ) from exc
-            except PyiCloudAPIResponseException as exc:
-                raise CLIAbort("Failed to request the 2FA SMS code.") from exc
+            except PyiCloudAPIResponseException:
+                self.console.print(
+                    "Failed to request the 2FA SMS code. "
+                    "If your trusted Apple device already shows a code, enter it below."
+                )
+                api.use_existing_trusted_device_code()
             max_attempts = 3
             for attempt in range(max_attempts):
                 code = typer.prompt("Enter 2FA code")

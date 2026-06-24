@@ -111,6 +111,33 @@ def test_constructor_skips_authentication_when_requested() -> None:
         get_from_keyring.assert_not_called()
 
 
+def test_china_mainland_uses_global_idmsa_and_cn_icloud_endpoints() -> None:
+    """China mainland accounts use global IDMS auth and China iCloud services."""
+    with (
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
+        patch("builtins.open", new_callable=mock_open),
+    ):
+        mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
+
+        service = PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            china_mainland=True,
+            authenticate=False,
+        )
+
+    assert service._idmsa_endpoint == "https://idmsa.apple.com"
+    assert service._auth_endpoint == "https://idmsa.apple.com/appleauth/auth"
+    assert service._home_endpoint == "https://www.icloud.com.cn"
+    assert service._setup_endpoint == "https://setup.icloud.com.cn/setup/ws/1"
+    assert (
+        service._get_auth_headers()["X-Apple-OAuth-Redirect-URI"]
+        == "https://www.icloud.com.cn"
+    )
+    mock_authenticate.assert_not_called()
+
+
 def test_constructor_accepts_keyword_only_cloudkit_validation_extra() -> None:
     """cloudkit_validation_extra remains a keyword-only escape hatch."""
     with (
