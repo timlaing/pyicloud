@@ -15,6 +15,7 @@ updates:
       - devcontainers
   - package-ecosystem: "pip"
     directory: "/"
+    versioning-strategy: "increase-if-necessary"
     schedule:
       interval: weekly
     labels:
