@@ -218,7 +218,7 @@ class PyiCloudService:
         # If the country or region setting of your Apple ID is China mainland.
         # See https://support.apple.com/en-us/HT208351
         icloud_china: str = ".cn" if self._is_china_mainland else ""
-        self._idmsa_endpoint: str = f"https://idmsa.apple.com{icloud_china}"
+        self._idmsa_endpoint: str = "https://idmsa.apple.com"
         self._auth_endpoint: str = f"{self._idmsa_endpoint}/appleauth/auth"
         self._home_endpoint: str = f"https://www.icloud.com{icloud_china}"
         self._setup_endpoint: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
@@ -711,6 +711,7 @@ class PyiCloudService:
         headers.update(
             {
                 "Referer": self._idmsa_endpoint,
+                "X-Apple-OAuth-Redirect-URI": self._home_endpoint,
                 "X-Apple-OAuth-State": self._client_id,
                 "X-Apple-Frame-Id": self._client_id,
             }
@@ -870,6 +871,12 @@ class PyiCloudService:
 
         self._two_factor_delivery_method = method
         self._two_factor_delivery_notice = notice
+
+    def use_existing_trusted_device_code(self) -> None:
+        """Validate the next 2FA code as one already shown on a trusted device."""
+
+        self._clear_trusted_device_bridge_state()
+        self._set_two_factor_delivery_state("trusted_device")
 
     def _current_hsa2_boot_context(self) -> Hsa2BootContext:
         """Return the best available HSA2 boot context for the active challenge."""

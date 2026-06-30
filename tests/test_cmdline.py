@@ -1011,6 +1011,11 @@ class FakeAPI:
         self.two_factor_delivery_method = "unknown"
         self.two_factor_delivery_notice = None
         self.request_2fa_code = MagicMock(return_value=False)
+        self.use_existing_trusted_device_code = MagicMock(
+            side_effect=lambda: setattr(
+                self, "two_factor_delivery_method", "trusted_device"
+            )
+        )
         self.validate_2fa_code = MagicMock(return_value=True)
         self.confirm_security_key = MagicMock(return_value=True)
         self.send_verification_code = MagicMock(return_value=True)
@@ -2652,8 +2657,8 @@ def test_trusted_device_2fa_bridge_fallback_reports_notice() -> None:
     fake_api.validate_2fa_code.assert_called_once_with("123456")
 
 
-def test_sms_2fa_request_failure_aborts() -> None:
-    """Auth login should surface SMS delivery request failures clearly."""
+def test_sms_2fa_request_failure_still_prompts_for_existing_device_code() -> None:
+    """Auth login should accept a code that already appeared on a trusted device."""
 
     fake_api = FakeAPI()
     fake_api.requires_2fa = True
@@ -2661,11 +2666,14 @@ def test_sms_2fa_request_failure_aborts() -> None:
         "sms request failed"
     )
 
-    result = _invoke(fake_api, "auth", "login", interactive=True)
+    with patch.object(context_module.typer, "prompt", return_value="123456"):
+        result = _invoke(fake_api, "auth", "login", interactive=True)
 
-    assert result.exit_code != 0
-    assert result.exception.args[0] == "Failed to request the 2FA SMS code."
-    fake_api.validate_2fa_code.assert_not_called()
+    assert result.exit_code == 0
+    assert "Failed to request the 2FA SMS code." in result.stdout
+    fake_api.use_existing_trusted_device_code.assert_called_once_with()
+    assert fake_api.two_factor_delivery_method == "trusted_device"
+    fake_api.validate_2fa_code.assert_called_once_with("123456")
 
 
 def test_trusted_device_2fa_request_failure_aborts() -> None:
