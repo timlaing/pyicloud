@@ -64,7 +64,7 @@ profile = "black"
 local_scheme = "no-local-version"
 
 [build-system]
-requires = ["setuptools >= 77.0,< 82.1", "setuptools-scm"]
+requires = ["setuptools >= 77.0,< 83.1", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
