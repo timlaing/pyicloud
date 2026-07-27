@@ -157,7 +157,10 @@ def _decode_crdt_document(encrypted_value: str | bytes) -> str:
 
 def _encode_crdt_document(text: str) -> str:
     """Encode a string into an Apple versioned topotext CRDT document."""
-    text_length = len(text) if text else 0
+    # Apple measures topotext offsets in UTF-16 code units, not codepoints.
+    # An astral character (emoji, rarer CJK) is one codepoint but two units,
+    # so len() under-declares every length this document carries.
+    text_length = len(text.encode("utf-16-le")) // 2 if text else 0
     replica_uuid = bytes.fromhex("d46bcae41b8766c18d75efe35c9145c3")
     clock_max = 0xFFFF_FFFF
 
