@@ -8,6 +8,7 @@ realistic CKRecord JSON fixtures.
 import base64
 import json
 import logging
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -64,6 +65,10 @@ from pyicloud.services.reminders.models import (
     ReminderChangeEvent,
     RemindersList,
     URLAttachment,
+)
+from pyicloud.services.reminders.protobuf import (
+    reminders_pb2,
+    versioned_document_pb2,
 )
 from pyicloud.services.reminders.service import RemindersService
 
@@ -229,6 +234,34 @@ def test_protocol_crdt_round_trip():
 
     assert isinstance(encoded, str)
     assert decode_crdt_document(encoded) == "Round trip"
+
+
+def _decode_crdt_structure(encoded: str):
+    document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
+    document.ParseFromString(zlib.decompress(base64.b64decode(encoded)))
+    value = reminders_pb2.String()  # type: ignore[attr-defined]
+    value.ParseFromString(document.version[0].data)
+    return value
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_length"),
+    [
+        ("Round trip", 10),
+        ("coffee ☕", 8),
+        ("rocket 🚀", 9),
+        ("🚀🚀", 4),
+    ],
+)
+def test_protocol_crdt_declares_utf16_lengths(text: str, expected_length: int):
+    value = _decode_crdt_structure(encode_crdt_document(text))
+
+    assert expected_length == len(text.encode("utf-16-le")) // 2
+    assert [s.length for s in value.substring if s.length] == [expected_length]
+    assert [a.length for a in value.attributeRun] == [expected_length]
+    assert [
+        replica.clock for clock in value.timestamp.clock for replica in clock.replicaClock
+    ] == [expected_length, 1]
 
 
 def test_protocol_resolution_token_map_structure():
