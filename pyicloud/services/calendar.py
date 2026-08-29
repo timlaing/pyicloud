@@ -546,8 +546,8 @@ class CalendarService(BaseService):
 
     def obj_from_dict(self, obj: T, _dict: dict[str, Any]) -> T:
         """Creates an object from a dictionary with proper field validation."""
-        if hasattr(obj, "__dataclass_fields__"):
-            valid_fields = {f.name for f in fields(obj)}
+        if hasattr(obj, "__dataclass_fields__") and not isinstance(obj, type):
+            valid_fields = {f.name for f in fields(cast(Any, obj))}
 
             special_mappings = {
                 "pGuid": "pguid",
@@ -737,7 +737,7 @@ class CalendarService(BaseService):
 
     def get_event_detail(
         self, pguid: str, guid: str, as_obj: bool = False
-    ) -> EventObject:
+    ) -> EventObject | dict[str, Any]:
         """
         Fetches a single event's details by specifying a pguid
         (a calendar) and a guid (an event's ID).
@@ -751,10 +751,10 @@ class CalendarService(BaseService):
         url: str = f"{self._calendar_event_detail_url}/{pguid}/{guid}"
         req: Response = self.session.get(url, params=params)
         response = req.json()
-        event: EventObject = response["Event"][0]
+        event: dict[str, Any] = response["Event"][0]
 
         if as_obj and event:
-            event = self.obj_from_dict(EventObject(pguid=pguid), event)
+            return self.obj_from_dict(EventObject(pguid=pguid), event)
 
         return event
 

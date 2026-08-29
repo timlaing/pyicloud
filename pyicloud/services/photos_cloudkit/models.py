@@ -22,7 +22,7 @@ class PhotosServiceException(PyiCloudException):
 
     def __init__(
         self,
-        *args: tuple[Any, ...],
+        *args: Any,
         photo: PhotoAsset | None = None,
         album: BasePhotoAlbum | None = None,
     ) -> None:

@@ -358,11 +358,12 @@ class AccountStorage:
 
     def __init__(self, storage_data: dict[str, Any]) -> None:
         self.usage = AccountStorageUsage(
-            storage_data.get("storageUsageInfo"), storage_data.get("quotaStatus")
+            storage_data.get("storageUsageInfo") or {},
+            storage_data.get("quotaStatus") or {},
         )
         self.usages_by_media: dict[str, AccountStorageUsageForMedia] = {}
 
-        for usage_media in storage_data.get("storageUsageByMedia"):
+        for usage_media in storage_data.get("storageUsageByMedia") or []:
             self.usages_by_media[usage_media["mediaKey"]] = AccountStorageUsageForMedia(
                 usage_media
             )

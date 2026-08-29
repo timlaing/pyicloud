@@ -45,7 +45,7 @@ _ResponseModelT = TypeVar(
     CKDatabaseChangesResponse,
 )
 CloudKitBoolParamStyle = Literal["python", "lower"]
-CloudKitDebugHook = Callable[[str, str, dict[str, Any], object], None]
+CloudKitDebugHook = Callable[[str, str, dict[str, Any], Response], None]
 
 _RATE_LIMITED = "HTTP 429: rate limited"
 
@@ -154,12 +154,11 @@ class _CloudKitHTTP:
         op = path.strip("/")
         display_url = self._display_url(url) if self._redact_urls else path
         LOGGER.debug("CloudKit POST %s", display_url)
-        kwargs = {"json": payload, "timeout": self._timeout}
-        if headers is not None:
-            kwargs["headers"] = headers
         resp = self._session.post(
             url,
-            **kwargs,
+            json=payload,
+            timeout=self._timeout,
+            headers=headers,
         )
         code = getattr(resp, "status_code", 0)
         if not isinstance(code, int):

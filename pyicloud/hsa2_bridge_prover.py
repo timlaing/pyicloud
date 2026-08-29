@@ -78,7 +78,7 @@ def _bytes_to_b64(value: bytes) -> str:
 
 def _encode_point(point: _Point) -> str:
     """Encode a P-256 point using SEC1 uncompressed point format."""
-    if point.is_infinity:
+    if point.x is None or point.y is None:
         raise ValueError("Cannot encode the point at infinity.")
     return "04" + _int_to_bytes(point.x, 32).hex() + _int_to_bytes(point.y, 32).hex()
 

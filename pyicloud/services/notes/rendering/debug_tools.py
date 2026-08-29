@@ -25,7 +25,7 @@ def _enum_name(enum_cls: Any, value: int | None) -> str:
         return str(value)
 
 
-def map_attribute_runs(note: pb.Note) -> list[dict[str, object]]:
+def map_attribute_runs(note: pb.Note) -> list[dict[str, Any]]:
     """Return a list of dictionaries mapping each AttributeRun to its text.
 
     Each dict contains:

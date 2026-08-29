@@ -555,7 +555,12 @@ def _parse_tiff_ifd(
         field_type = _read_uint16(exif_payload, entry_offset + 2, fmt)
         item_count = _read_uint32(exif_payload, entry_offset + 4, fmt)
         value_offset = _read_uint32(exif_payload, entry_offset + 8, fmt)
-        if None in {tag, field_type, item_count, value_offset}:
+        if (
+            tag is None
+            or field_type is None
+            or item_count is None
+            or value_offset is None
+        ):
             return None
         entries[int(tag)] = (int(field_type), int(item_count), int(value_offset))
         entry_offset += 12

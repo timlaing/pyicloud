@@ -22,14 +22,16 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 import logging
-from typing import Any
+from typing import Any, cast
 
 from pyicloud.common.cloudkit import (
+    CKLookupResponse,
     CKModifyOperation,
     CKModifyResponse,
     CKQueryObject,
     CKQueryResponse,
     CKRecord,
+    CKWriteFields,
     CKWriteRecord,
     CKZoneIDReq,
 )
@@ -276,7 +278,7 @@ class InvitesService(BaseService):
                 recordName=record_name,
                 recordType=InvitesRecordType.Rsvp.value,
                 recordChangeTag=record_change_tag,
-                fields=fields,
+                fields=cast(CKWriteFields, fields),
             ),
         )
 
@@ -365,7 +367,9 @@ class InvitesService(BaseService):
         )
 
     @staticmethod
-    def _records_of(resp: CKQueryResponse) -> list[CKRecord]:
+    def _records_of(
+        resp: CKQueryResponse | CKLookupResponse,
+    ) -> list[CKRecord]:
         return [r for r in resp.records if isinstance(r, CKRecord)]
 
     def _iter_event_details(self, scope: EventScope) -> Iterable[CKRecord]:
@@ -475,10 +479,13 @@ class InvitesService(BaseService):
         event_id = self._event_id_from_record_name(record.recordName)
         fields = record.fields
 
-        title = self._field_str(fields, EventDetailsField.TITLE.value, default="")
-        notes = self._field_str(fields, EventDetailsField.NOTES.value, default="")
-        host_display_name = self._field_str(
-            fields, EventDetailsField.HOST_DISPLAY_NAME.value, default=""
+        title = self._field_str(fields, EventDetailsField.TITLE.value, default="") or ""
+        notes = self._field_str(fields, EventDetailsField.NOTES.value, default="") or ""
+        host_display_name = (
+            self._field_str(
+                fields, EventDetailsField.HOST_DISPLAY_NAME.value, default=""
+            )
+            or ""
         )
 
         is_published = self._field_bool(fields, EventDetailsField.IS_PUBLISHED.value)
@@ -612,7 +619,7 @@ class InvitesService(BaseService):
         return Rsvp(
             record_name=record_name,
             participant_id=participant_id,
-            name=self._field_str(fields, RsvpField.NAME.value, default=""),
+            name=self._field_str(fields, RsvpField.NAME.value, default="") or "",
             status=status,
             message=self._field_str(fields, RsvpField.MESSAGE.value, default=None),
             num_additional_adults=(
@@ -637,7 +644,7 @@ class InvitesService(BaseService):
         return OneTimeLinkGuest(
             record_name=record_name,
             participant_id=participant_id,
-            name=self._field_str(fields, OneTimeLinkField.NAME.value, default=""),
+            name=self._field_str(fields, OneTimeLinkField.NAME.value, default="") or "",
             emails=tuple(emails_raw) if isinstance(emails_raw, list) else (),
             phone_numbers=tuple(phones_raw) if isinstance(phones_raw, list) else (),
         )

@@ -702,7 +702,7 @@ class CKWriteRecord(CKModel):
 
     recordName: str
     recordType: str
-    fields: CKWriteFields = Field(default_factory=CKWriteFields)
+    fields: CKWriteFields | dict[str, Any] = Field(default_factory=CKWriteFields)
     pluginFields: dict[str, JsonValue] = Field(default_factory=dict)
     recordChangeTag: str | None = None
     parent: CKWriteParent | None = None

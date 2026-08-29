@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 import logging
-from typing import Any, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -143,7 +143,9 @@ class RemindersReadAPI:
                         continue
 
                     reminder = self._mapper.record_to_reminder(rec)
-                    evt_type = "deleted" if reminder.deleted else "updated"
+                    evt_type: Literal["updated", "deleted"] = (
+                        "deleted" if reminder.deleted else "updated"
+                    )
                     yield ReminderChangeEvent(
                         type=evt_type,
                         reminder_id=reminder.id,

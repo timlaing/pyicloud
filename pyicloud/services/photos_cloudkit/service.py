@@ -34,7 +34,12 @@ from pyicloud.exceptions import (
     PyiCloudServiceNotActivatedException,
 )
 from pyicloud.services.base import BaseService
-from pyicloud.services.photos_legacy import PhotoStreamLibrary
+from pyicloud.services.photos_legacy import (
+    PhotosService as LegacyPhotosService,
+)
+from pyicloud.services.photos_legacy import (
+    PhotoStreamLibrary,
+)
 from pyicloud.session import PyiCloudSession
 
 from .client import PhotosCloudKitClient
@@ -833,11 +838,14 @@ class PhotoLibrary(BasePhotoLibrary):
         )
         if upload_payload.errors:
             raise PyiCloudAPIResponseException(
-                "",
-                [
-                    error.model_dump(mode="json", exclude_none=True)
+                "; ".join(
+                    (
+                        f"{error.code}: {error.message}"
+                        if error.code
+                        else error.message or "Upload error"
+                    )
                     for error in upload_payload.errors
-                ],
+                )
             )
 
         records: list[CKRecord] = list(upload_payload.records)
@@ -865,6 +873,9 @@ class PhotoLibrary(BasePhotoLibrary):
             )
         )
         if needs_lookup:
+            assert self._client is not None
+            assert master_record is not None
+            assert asset_record is not None
             lookup = self._client.lookup(
                 record_names=[
                     record_name(master_record),
@@ -959,7 +970,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     @property
     def service(self) -> PhotosService:
         """Return the underlying Photos service."""
-        return getattr(self._library, "service", self._library)
+        return self._library.service
 
     @property
     @abstractmethod
@@ -1069,12 +1080,12 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         if isinstance(records, dict):
             raw_response = records
             if hasattr(self._library, "parse_asset_response"):
-                asset_records, masters = self._library.parse_asset_response(
+                asset_records, raw_masters = self._library.parse_asset_response(
                     raw_response
                 )
             else:
                 asset_records = {}
-                masters = []
+                raw_masters = []
                 for record in raw_response["records"]:
                     if record["recordType"] == "CPLAsset":
                         master_ref = record["fields"]["masterRef"]["value"][
@@ -1082,13 +1093,16 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
                         ]
                         asset_records[master_ref] = record
                     elif record["recordType"] == "CPLMaster":
-                        masters.append(record)
-            for master in masters:
+                        raw_masters.append(record)
+            for master in raw_masters:
                 asset = asset_records.get(master["recordName"])
                 if asset is None:
                     continue
                 photo = self._library.asset_type(
-                    self.service, master, asset, library=self._library
+                    self.service,
+                    cast(CKRecord, master),
+                    cast(CKRecord, asset),
+                    library=cast(PhotoLibrary | None, self._library),
                 )
                 yield photo
             return
@@ -1099,7 +1113,10 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
             if asset_record is None:
                 continue
             photo = self._library.asset_type(
-                self.service, master_record, asset_record, library=self._library
+                self.service,
+                master_record,
+                asset_record,
+                library=cast(PhotoLibrary | None, self._library),
             )
             yield photo
 
@@ -1643,7 +1660,7 @@ class SmartPhotoAlbum(PhotoAlbum):
         obj_type: ObjectTypeEnum,
         list_type: ListTypeEnum,
         direction: DirectionEnum,
-        client: PhotosCloudKitClient,
+        client: PhotosCloudKitClient | None,
         zone_id: dict[str, str],
         query_filters: list[CKQueryFilterBy] | None = None,
         page_size: int = 100,
@@ -1914,7 +1931,7 @@ class PhotoAsset:
 
     def _replace_asset_record(
         self,
-        records: Iterable[CKRecord | dict[str, Any]],
+        records: Iterable[CKRecord | dict[str, Any] | CKTombstoneRecord | CKErrorItem],
         *,
         fallback_field: str | None = None,
         fallback_value: Any = None,
@@ -1967,7 +1984,7 @@ class PhotoAsset:
 
     @staticmethod
     def _record_errors(
-        records: Iterable[CKRecord | dict[str, Any] | CKErrorItem],
+        records: Iterable[CKRecord | dict[str, Any] | CKTombstoneRecord | CKErrorItem],
     ) -> list[str]:
         errors: list[str] = []
         for record in records:
@@ -1994,7 +2011,9 @@ class PhotoAsset:
             ownerRecordName=zone_dict.get("ownerRecordName"),
             zoneType=zone_dict.get("zoneType"),
         )
-        response_records: list[CKRecord | dict[str, Any] | CKErrorItem]
+        response_records: list[
+            CKRecord | dict[str, Any] | CKTombstoneRecord | CKErrorItem
+        ]
         matched_asset = False
         if hasattr(self._service, "private_client") and _can_use_typed_cloudkit(
             getattr(self._service, "session", None)
@@ -2025,7 +2044,7 @@ class PhotoAsset:
             endpoint = self._service.service_endpoint
             params = urlencode(self._service.params)
             url = f"{endpoint}/records/modify?{params}"
-            response = self._service.session.post(
+            http_response = self._service.session.post(
                 url,
                 json={
                     "operations": [
@@ -2049,7 +2068,7 @@ class PhotoAsset:
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            payload = response.json()
+            payload = http_response.json()
             response_records = list(payload.get("records", []))
             matched_asset = self._replace_asset_record(
                 response_records,
@@ -2195,7 +2214,7 @@ class PhotosService(BaseService):
             scope="private",
         )
         self._shared_library = PhotoStreamLibrary(
-            self,
+            cast(LegacyPhotosService, self),
             shared_streams_url=shared_streams_album_url,
         )
 
@@ -2289,7 +2308,9 @@ class PhotosService(BaseService):
     @property
     def shared_streams(self) -> AlbumContainer:
         """Return the shared photo stream albums."""
-        return AlbumContainer(list(self._shared_library.albums))
+        return AlbumContainer(
+            cast(list[BasePhotoAlbum], list(self._shared_library.albums))
+        )
 
     def create_album(
         self,
@@ -2321,10 +2342,7 @@ class PhotosService(BaseService):
             if album_obj is None:
                 album_obj = self._root_library.refresh_albums().find(album)
             if album_obj is None:
-                raise PhotosServiceException(
-                    f"No album matched '{album}'",
-                    album=album,
-                )
+                raise PhotosServiceException(f"No album matched '{album}'")
         else:
             album_obj = album
 

@@ -13,6 +13,7 @@ from pyicloud.common.cloudkit import (
     CKModifyOperation,
     CKModifyResponse,
     CKRecord,
+    CKWriteFields,
     CKWriteParent,
     CKWriteRecord,
 )
@@ -169,7 +170,7 @@ class RemindersWriteAPI:
             recordName=record_name,
             recordType=record_type,
             recordChangeTag=record_change_tag,
-            fields=fields,
+            fields=cast(CKWriteFields, fields),
             parent=parent,
         )
 

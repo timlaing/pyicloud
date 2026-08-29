@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -523,7 +523,9 @@ class NotesService(BaseService):
             for rec in zone.records:
                 if isinstance(rec, CKRecord):
                     deleted_flag = bool(rec.fields.get_value("Deleted"))
-                    evt_type = "deleted" if deleted_flag else "updated"
+                    evt_type: Literal["updated", "deleted"] = (
+                        "deleted" if deleted_flag else "updated"
+                    )
                     yield ChangeEvent(
                         type=evt_type,
                         note=self._summary_from_record(rec),

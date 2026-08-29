@@ -17,7 +17,9 @@ from .models import PhotoResource
 LOGGER = logging.getLogger(__name__)
 
 
-def decode_encrypted_text(record: CKRecord, field_name: str) -> str | None:
+def decode_encrypted_text(
+    record: CKRecord | dict[str, Any], field_name: str
+) -> str | None:
     """Decode a base64-wrapped text field from STRING or ENCRYPTED_BYTES."""
 
     value = record_field_value(record, field_name)
