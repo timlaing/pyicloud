@@ -41,14 +41,14 @@ class Attachment(FrozenServiceModel):
     def save_to(self, directory: str, *, service: NotesService) -> str:
         """Download the attachment to ``directory`` using the provided service."""
 
-        return service._download_attachment_to(self, directory)
+        return service.download_attachment_to(self, directory)
 
     def stream(
         self, *, service: NotesService, chunk_size: int = 65_536
     ) -> Iterator[bytes]:
         """Yield the attachment bytes in chunks using the provided service."""
 
-        yield from service._stream_attachment(self, chunk_size=chunk_size)
+        yield from service.stream_attachment(self, chunk_size=chunk_size)
 
 
 class Note(NoteSummary):

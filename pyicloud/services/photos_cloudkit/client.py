@@ -141,7 +141,7 @@ class PhotosCloudKitClient:
                 )
             ]
         ).model_dump(mode="json", exclude_none=True)
-        raw_data = self._client._http.post(
+        raw_data = self._client.raw_post(
             "/internal/records/query/batch",
             payload,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
@@ -192,7 +192,7 @@ class PhotosCloudKitClient:
             response = self._session.post(
                 url=url,
                 data=handle,
-                timeout=self._client._http._REQUEST_TIMEOUT,
+                timeout=self._client.timeout,
             )
         data = PhotosUploadResponse.model_validate(
             self._response_json(response, context="Photos upload")

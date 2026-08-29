@@ -100,6 +100,11 @@ class _CloudKitHTTP:
         self._debug_hook = debug_hook
         self._handle_rate_limits = handle_rate_limits
 
+    @property
+    def timeout(self) -> tuple[float, float]:
+        """Return the configured request timeout."""
+        return self._timeout
+
     @staticmethod
     def _normalize_params(
         params: dict[str, object],
@@ -287,6 +292,17 @@ class CloudKitContainerClient:
             data,
             extra=resolve_cloudkit_validation_extra(self._validation_extra),
         )
+
+    @property
+    def timeout(self) -> tuple[float, float]:
+        """Return the configured request timeout."""
+        return self._http.timeout
+
+    def raw_post(
+        self, path: str, payload: dict, *, headers: dict | None = None
+    ) -> dict:
+        """POST a raw request body to an arbitrary CloudKit endpoint path."""
+        return self._http.post(path, payload, headers=headers)
 
     def query(
         self,

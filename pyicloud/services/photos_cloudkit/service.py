@@ -390,6 +390,11 @@ class BasePhotoLibrary(ABC):
         """Return the current sync token for the library."""
         return self._current_sync_token
 
+    @current_sync_token.setter
+    def current_sync_token(self, value: str | None) -> None:
+        """Set the current sync token for the library."""
+        self._current_sync_token = value
+
     @property
     def albums(self) -> AlbumContainer:
         """Return the album container, fetching it on first access."""
@@ -407,7 +412,9 @@ class BasePhotoLibrary(ABC):
         if self._albums is not None:
             self._albums.append(album)
 
-    def _remove_cached_album(self, album_id: str) -> None:
+    def remove_cached_album(self, album_id: str) -> None:
+        """Remove an album from the cached album listing."""
+
         self._pending_albums.pop(album_id, None)
         if self._albums is not None:
             self._albums.remove(album_id)
@@ -880,8 +887,8 @@ class PhotoLibrary(BasePhotoLibrary):
             self.service,
             records_by_type["CPLMaster"],
             records_by_type["CPLAsset"],
+            library=self,
         )
-        photo._library = self
         return photo
 
     @property
@@ -1006,8 +1013,8 @@ class BasePhotoAlbum(Iterable, ABC):
             zone_id=CKZoneIDReq(**self._library.zone_id),
             results_limit=page_size * 2,
         )
-        self._library._current_sync_token = (
-            response.syncToken or self._library._current_sync_token
+        self._library.current_sync_token = (
+            response.syncToken or self._library.current_sync_token
         )
         yield from self._process_photo_list_response(response.records)
 
@@ -1038,8 +1045,8 @@ class BasePhotoAlbum(Iterable, ABC):
             zone_id=CKZoneIDReq(**self._library.zone_id),
             results_limit=self._photo_lookup_results_limit(),
         )
-        self._library._current_sync_token = (
-            response.syncToken or self._library._current_sync_token
+        self._library.current_sync_token = (
+            response.syncToken or self._library.current_sync_token
         )
         for photo in self._process_photo_list_response(response.records):
             if photo.id == photo_id:
@@ -1081,8 +1088,9 @@ class BasePhotoAlbum(Iterable, ABC):
                 asset = asset_records.get(master["recordName"])
                 if asset is None:
                     continue
-                photo = self._library.asset_type(self.service, master, asset)
-                photo._library = self._library
+                photo = self._library.asset_type(
+                    self.service, master, asset, library=self._library
+                )
                 yield photo
             return
         typed_records = [record for record in records if isinstance(record, CKRecord)]
@@ -1091,8 +1099,9 @@ class BasePhotoAlbum(Iterable, ABC):
             asset_record = assets_by_master.get(master_record.recordName)
             if asset_record is None:
                 continue
-            photo = self._library.asset_type(self.service, master_record, asset_record)
-            photo._library = self._library
+            photo = self._library.asset_type(
+                self.service, master_record, asset_record, library=self._library
+            )
             yield photo
 
     def _iter_added_desc_photos(self) -> Generator[PhotoAsset, None, None]:
@@ -1316,9 +1325,11 @@ class PhotoAlbum(BasePhotoAlbum):
 
     @property
     def fullname(self) -> str:
-        return self._fullname(seen=set())
+        return self.fullname_guard(seen=set())
 
-    def _fullname(self, *, seen: set[str]) -> str:
+    def fullname_guard(self, *, seen: set[str]) -> str:
+        """Compute the album's full name, guarding against ancestor cycles."""
+
         if self.id in seen or self._parent_id is None:
             return self.name
         seen.add(self.id)
@@ -1326,7 +1337,7 @@ class PhotoAlbum(BasePhotoAlbum):
         if parent is None or parent.id in seen:
             return self.name
         if isinstance(parent, PhotoAlbum):
-            parent_fullname = parent._fullname(seen=seen)
+            parent_fullname = parent.fullname_guard(seen=seen)
         else:
             parent_fullname = parent.fullname
         return f"{parent_fullname}/{self.name}" if parent_fullname else self.name
@@ -1447,7 +1458,7 @@ class PhotoAlbum(BasePhotoAlbum):
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-        self._library._remove_cached_album(self._record_id)
+        self._library.remove_cached_album(self._record_id)
         return True
 
     def add_photo(self, photo: PhotoAsset) -> bool:
@@ -1732,12 +1743,13 @@ class PhotoAsset:
         service: PhotosService,
         master_record: CKRecord,
         asset_record: CKRecord,
+        library: PhotoLibrary | None = None,
     ) -> None:
         self._service = service
         self._master_record = master_record
         self._asset_record = asset_record
         self._resources: dict[str, PhotoResource] | None = None
-        self._library: PhotoLibrary | None = None
+        self._library: PhotoLibrary | None = library
 
     @property
     def id(self) -> str:
@@ -1753,6 +1765,16 @@ class PhotoAsset:
     def asset_id(self) -> str:
         """Return the asset record's unique name."""
         return record_name(self._asset_record)
+
+    @property
+    def master_record(self) -> CKRecord:
+        """Return the raw master CloudKit record."""
+        return self._master_record
+
+    @property
+    def asset_record(self) -> CKRecord:
+        """Return the raw asset CloudKit record."""
+        return self._asset_record
 
     @property
     def filename(self) -> str:
@@ -1884,10 +1906,10 @@ class PhotoAsset:
         url = self.download_url(version)
         if url is None:
             return None
-        if hasattr(self._service, "_private_client") and _can_use_typed_cloudkit(
+        if hasattr(self._service, "private_client") and _can_use_typed_cloudkit(
             getattr(self._service, "session", None)
         ):
-            return self._service._private_client.download_asset_bytes(url)
+            return self._service.private_client.download_asset_bytes(url)
         response = self._service.session.get(url, stream=True, **kwargs)
         return response.raw.read()
 
@@ -1940,8 +1962,8 @@ class PhotoAsset:
             return False
         if refreshed is None:
             return False
-        self._master_record = refreshed._master_record
-        self._asset_record = refreshed._asset_record
+        self._master_record = refreshed.master_record
+        self._asset_record = refreshed.asset_record
         return True
 
     @staticmethod
@@ -1975,7 +1997,7 @@ class PhotoAsset:
         )
         response_records: list[CKRecord | dict[str, Any] | CKErrorItem]
         matched_asset = False
-        if hasattr(self._service, "_private_client") and _can_use_typed_cloudkit(
+        if hasattr(self._service, "private_client") and _can_use_typed_cloudkit(
             getattr(self._service, "session", None)
         ):
             op = CKModifyOperation(
@@ -1989,7 +2011,7 @@ class PhotoAsset:
                     zoneID=CKZoneID(**zone_dict),
                 ),
             )
-            response = self._service._private_client.modify(
+            response = self._service.private_client.modify(
                 operations=[op],
                 zone_id=zone_id,
                 atomic=True,
@@ -2076,7 +2098,7 @@ class PhotoAsset:
             ownerRecordName=zone_dict.get("ownerRecordName"),
             zoneType=zone_dict.get("zoneType"),
         )
-        if hasattr(self._service, "_private_client") and _can_use_typed_cloudkit(
+        if hasattr(self._service, "private_client") and _can_use_typed_cloudkit(
             getattr(self._service, "session", None)
         ):
             op = CKModifyOperation(
@@ -2090,7 +2112,7 @@ class PhotoAsset:
                     zoneID=CKZoneID(**zone_dict),
                 ),
             )
-            self._service._private_client.modify(
+            self._service.private_client.modify(
                 operations=[op],
                 zone_id=zone_id,
                 atomic=True,
@@ -2179,6 +2201,11 @@ class PhotosService(BaseService):
         )
 
     @property
+    def private_client(self) -> PhotosCloudKitClient:
+        """Return the private CloudKit client."""
+        return self._private_client
+
+    @property
     def libraries(self) -> dict[str, BasePhotoLibrary]:
         """Return the available photo libraries, discovering them on first access."""
         if self._libraries is None:
@@ -2194,7 +2221,7 @@ class PhotosService(BaseService):
                     zone_dict = zone.zoneID.model_dump(exclude_none=True)
                     zone_name = zone.zoneID.zoneName
                     if zone_name == PRIMARY_ZONE["zoneName"]:
-                        self._root_library._current_sync_token = zone.syncToken
+                        self._root_library.current_sync_token = zone.syncToken
                         continue
                     key = zone_name
                     scope = "private"
@@ -2223,7 +2250,7 @@ class PhotosService(BaseService):
                             client=self._shared_client,
                             scope="shared-library",
                         )
-                except (CloudKitApiError, PyiCloudException):
+                except (CloudKitApiError, PyiCloudException):  # pylint: disable=broad-exception-caught
                     LOGGER.debug(
                         "Shared CloudKit photos zones unavailable", exc_info=True
                     )
@@ -2239,7 +2266,7 @@ class PhotosService(BaseService):
                     zone_id = zone.get("zoneID", {})
                     zone_name = zone_id.get("zoneName")
                     if zone_name == PRIMARY_ZONE["zoneName"]:
-                        self._root_library._current_sync_token = zone.get("syncToken")
+                        self._root_library.current_sync_token = zone.get("syncToken")
                         continue
                     key = zone_name
                     scope = "private"

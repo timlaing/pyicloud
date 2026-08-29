@@ -1247,6 +1247,16 @@ class PyiCloudService:
             LOGGER.error("Session trust failed.")
             return False
 
+    @property
+    def webservices(self) -> dict[str, dict[str, Any]] | None:
+        """Return the webservices map resolved during authentication."""
+        return self._webservices
+
+    @webservices.setter
+    def webservices(self, value: dict[str, dict[str, Any]]) -> None:
+        """Set the webservices map (used when hydrating from session probes)."""
+        self._webservices = value
+
     def get_webservice_url(self, ws_key: str) -> str:
         """Get webservice URL, raise an exception if not exists."""
         if self._webservices is None or self._webservices.get(ws_key) is None:

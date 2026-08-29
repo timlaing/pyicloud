@@ -564,7 +564,7 @@ class CLIState:
             params.update({"dsid": ds_info["dsid"]})
 
         if "webservices" in probe_data:
-            api._webservices = probe_data["webservices"]
+            api.webservices = probe_data["webservices"]
 
         return True
 

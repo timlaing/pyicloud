@@ -1055,6 +1055,16 @@ class FakeReminders:
 class FakeAPI:
     """Authenticated API fixture."""
 
+    @property
+    def webservices(self) -> Any:
+        """Return the webservices map."""
+        return self._webservices
+
+    @webservices.setter
+    def webservices(self, value: Any) -> None:
+        """Set the webservices map."""
+        self._webservices = value
+
     def __init__(
         self,
         *,

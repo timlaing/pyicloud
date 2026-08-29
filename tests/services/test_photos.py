@@ -3626,7 +3626,7 @@ def test_photo_asset_properties_and_methods() -> None:
 def test_photo_asset_delete_success_typed_client() -> None:
     """Tests photo deletion via the typed CloudKit client path."""
     mock_client = MagicMock()
-    service = SimpleNamespace(session=object(), _private_client=mock_client)
+    service = SimpleNamespace(session=object(), private_client=mock_client)
     master_record = _ck_record(
         "CPLMaster",
         "photo_id_123",
@@ -3995,7 +3995,7 @@ def test_photo_asset_set_favorite_success_typed_client() -> None:
     """
 
     mock_client = MagicMock()
-    service = SimpleNamespace(session=object(), _private_client=mock_client)
+    service = SimpleNamespace(session=object(), private_client=mock_client)
     master_record = _ck_record(
         "CPLMaster",
         "MASTER_RECORD_ID_110",
@@ -4070,7 +4070,7 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
     """Shared Library favorite writes should refresh the asset state after modify."""
 
     mock_client = MagicMock()
-    service = SimpleNamespace(session=object(), _private_client=mock_client)
+    service = SimpleNamespace(session=object(), private_client=mock_client)
     master_record = _ck_record(
         "CPLMaster",
         "MASTER_RECORD_ID_110",
@@ -4147,7 +4147,7 @@ def test_photo_asset_set_favorite_raises_on_record_error() -> None:
     """
 
     mock_client = MagicMock()
-    service = SimpleNamespace(session=object(), _private_client=mock_client)
+    service = SimpleNamespace(session=object(), private_client=mock_client)
     master_record = _ck_record(
         "CPLMaster",
         "MASTER_RECORD_ID_110",

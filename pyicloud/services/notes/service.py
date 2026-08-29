@@ -949,16 +949,20 @@ class NotesService(BaseService):
                     return url
         return None
 
-    def _download_attachment_to(self, att: Attachment, directory: str) -> str:
+    def download_attachment_to(self, att: Attachment, directory: str) -> str:
+        """Download an attachment to a directory and return the local path."""
+
         url = att.download_url or att.preview_url or att.thumbnail_url
         if not url:
             raise NotesApiError("Attachment does not expose a download URL.")
         LOGGER.debug("Downloading attachment %s to %s", att.id, directory)
         return self._raw.download_asset_to(url, directory)
 
-    def _stream_attachment(
+    def stream_attachment(
         self, att: Attachment, *, chunk_size: int = 65536
     ) -> Iterator[bytes]:
+        """Yield the attachment bytes in chunks."""
+
         url = att.download_url or att.preview_url or att.thumbnail_url
         if not url:
             raise NotesApiError("Attachment does not expose a download URL.")
