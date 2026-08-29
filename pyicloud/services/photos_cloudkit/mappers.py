@@ -44,7 +44,9 @@ def decode_encrypted_text(record: CKRecord, field_name: str) -> str | None:
             return None
 
 
-def record_field_value(record: CKRecord | dict[str, Any], field_name: str):
+def record_field_value(
+    record: CKRecord | dict[str, Any], field_name: str
+) -> Any:
     """Return a field value from a typed record or a legacy raw-dict record."""
 
     if isinstance(record, CKRecord):
@@ -111,7 +113,7 @@ def master_asset_pairs(
     return assets_by_master, masters
 
 
-def timestamp_or_epoch(value) -> datetime:
+def timestamp_or_epoch(value: Any) -> datetime:
     """Normalize optional CloudKit timestamps to a stable datetime."""
 
     if isinstance(value, datetime):

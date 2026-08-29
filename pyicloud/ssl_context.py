@@ -31,8 +31,13 @@ def configurable_ssl_verification(
     )
 
     def merge_environment_settings_with_config(
-        self, url, proxies, stream, verify, cert
-    ):
+        self,
+        url: str,
+        proxies: Any | None,
+        stream: Any | None,
+        verify: Any | None,
+        cert: Any | None,
+    ) -> dict[str, Any]:
         settings = old_merge_environment_settings(
             self, url, proxies, stream, verify, cert
         )

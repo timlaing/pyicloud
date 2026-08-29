@@ -53,7 +53,7 @@ class FindMyiPhoneServiceManager(BaseService):
         token_endpoint: str,
         session: PyiCloudSession,
         params: dict[str, Any],
-        with_family=False,
+        with_family: bool = False,
         refresh_interval: float | None = None,
     ) -> None:
         """Initialize the FindMyiPhoneServiceManager."""
@@ -302,7 +302,7 @@ class AppleDevice:
         """Gets the session."""
         return self._manager.session
 
-    def update(self, data) -> None:
+    def update(self, data: dict[str, Any]) -> None:
         """Updates the device data."""
         self._content = data
 
@@ -332,7 +332,7 @@ class AppleDevice:
             properties[field] = self._content.get(field)
         return properties
 
-    def play_sound(self, subject="Find My iPhone Alert") -> None:
+    def play_sound(self, subject: str = "Find My iPhone Alert") -> None:
         """Send a request to the device to play a sound.
 
         It's possible to pass a custom message by changing the `subject`.
@@ -349,11 +349,11 @@ class AppleDevice:
 
     def display_message(
         self,
-        subject="Find My iPhone Alert",
-        message="This is a note",
-        sounds=False,
-        vibrate=False,
-        strobe=False,
+        subject: str = "Find My iPhone Alert",
+        message: str = "This is a note",
+        sounds: bool = False,
+        vibrate: bool = False,
+        strobe: bool = False,
     ) -> None:
         """Send a request to the device to a display a message.
 
@@ -442,14 +442,14 @@ class AppleDevice:
 
         return self._content
 
-    def __getitem__(self, key) -> Any:
+    def __getitem__(self, key: str) -> Any:
         """Gets an attribute of the device data."""
         if not self._manager.is_alive:
             self._manager.refresh()
 
         return self._content[key]
 
-    def __getattr__(self, attr) -> Any:
+    def __getattr__(self, attr: str) -> Any:
         """Gets an attribute of the device data."""
         if not self._manager.is_alive:
             self._manager.refresh()

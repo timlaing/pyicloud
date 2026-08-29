@@ -488,7 +488,7 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
     return result
 
 
-def _resolve_library(service: Any, library_key: str):
+def _resolve_library(service: Any, library_key: str) -> Any:
     libraries = getattr(service, "libraries", {})
     if not isinstance(libraries, dict):
         raise PhotosServiceException(

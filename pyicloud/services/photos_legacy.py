@@ -30,7 +30,7 @@ class PhotosServiceException(PyiCloudException):
 
     def __init__(
         self,
-        *args,
+        *args: Any,
         photo: "PhotoAsset|None" = None,
         album: "BasePhotoAlbum|None" = None,
     ) -> None:
@@ -854,7 +854,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
                 continue
             yield self._library.asset_type(self.service, master_record, asset_record)
 
-    def photo(self, index) -> "PhotoAsset":
+    def photo(self, index: int) -> "PhotoAsset":
         """Returns a photo at the given index."""
         return next(self._get_photos_at(index, self._direction, 1))
 
@@ -1213,7 +1213,7 @@ class PhotoAlbum(BasePhotoAlbum):
 
         return True
 
-    def upload(self, path) -> Optional["PhotoAsset"]:
+    def upload(self, path: str) -> Optional["PhotoAsset"]:
         """Uploads a photo to the album."""
         if not isinstance(self._library, PhotoLibrary):
             return None
@@ -1316,7 +1316,7 @@ class PhotoAlbum(BasePhotoAlbum):
         list_type: ListTypeEnum,
         direction: DirectionEnum,
         num_results: int,
-        query_filter=None,
+        query_filter: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         query: dict[str, Any] = {
             "query": {
@@ -1446,7 +1446,7 @@ class PhotoAlbum(BasePhotoAlbum):
 class PhotoAlbumFolder(PhotoAlbum):
     """A Photo Album Folder."""
 
-    def upload(self, path) -> Optional["PhotoAsset"]:
+    def upload(self, path: str) -> Optional["PhotoAsset"]:
         """Uploads a photo to the album."""
         # Folders do not support uploads
         return None
@@ -1487,7 +1487,7 @@ class SmartPhotoAlbum(PhotoAlbum):
         """Gets the album id."""
         return self.name
 
-    def upload(self, path) -> Optional["PhotoAsset"]:
+    def upload(self, path: str) -> Optional["PhotoAsset"]:
         """Uploads a photo to the album."""
         # Smart albums do not support uploads
         return None
@@ -1716,7 +1716,7 @@ class PhotoAsset:
         ).decode("utf-8")
 
     @property
-    def size(self):
+    def size(self) -> Any:
         """Gets the photo size."""
         return self._master_record["fields"]["resOriginalRes"]["value"]["size"]
 
@@ -1745,7 +1745,7 @@ class PhotoAsset:
         return self._record_timestamp("addedDate")
 
     @property
-    def dimensions(self):
+    def dimensions(self) -> tuple[Any, Any]:
         """Gets the photo dimensions."""
         return (
             self._master_record["fields"]["resOriginalWidth"]["value"],
@@ -1793,7 +1793,7 @@ class PhotoAsset:
 
         return self._versions
 
-    def download_url(self, version="original") -> str | None:
+    def download_url(self, version: str = "original") -> str | None:
         """Returns the photo download URL."""
         if version not in self.versions:
             return None
@@ -1845,7 +1845,7 @@ class PhotoAsset:
 
         return version
 
-    def download(self, version="original", **kwargs) -> bytes | None:
+    def download(self, version: str = "original", **kwargs: Any) -> bytes | None:
         """Returns the photo file."""
         if version not in self.versions:
             return None

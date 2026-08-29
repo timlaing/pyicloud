@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 import uuid
 import zlib
 
+from pyicloud.common.cloudkit.models import CKFields
+
 from .protobuf import reminders_pb2, versioned_document_pb2
 
 LOGGER = logging.getLogger(__name__)
@@ -21,7 +23,7 @@ class CRDTDecodeError(ValueError):
     """Raised when a Reminders CRDT payload cannot be decoded."""
 
 
-def _ref_name(fields, key: str) -> str:
+def _ref_name(fields: CKFields, key: str) -> str:
     """Extract recordName from a REFERENCE field, or return ''."""
     field = fields.get_field(key)
     if field and field.value and hasattr(field.value, "recordName"):

@@ -10,7 +10,8 @@ from typing import Any
 
 import typer
 
-from pyicloud.cli.context import CLIAbort, get_state, service_call
+from pyicloud.base import PyiCloudService
+from pyicloud.cli.context import CLIAbort, CLIState, get_state, service_call
 from pyicloud.cli.normalize import (
     normalize_album,
     normalize_photo,
@@ -55,7 +56,7 @@ def _resolve_photos_service(
     no_verify_ssl: NoVerifySslOption,
     output_format: OutputFormatOption,
     log_level: LogLevelOption,
-):
+) -> tuple[CLIState, PyiCloudService, Any]:
     store_command_options(
         ctx,
         username=username,

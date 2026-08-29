@@ -5,10 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from pyicloud.base import PyiCloudService
+from pyicloud.services.account import AccountService
+
 MAX_NOTES_SEARCH_WINDOW = 5_000
 
 
-def normalize_account_summary(api, account) -> dict[str, Any]:
+def normalize_account_summary(
+    api: PyiCloudService, account: AccountService
+) -> dict[str, Any]:
     """Normalize account summary data."""
 
     storage = account.storage

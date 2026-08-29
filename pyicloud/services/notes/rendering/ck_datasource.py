@@ -11,11 +11,14 @@ Population is performed by feeding CloudKit records into `add_attachment_record`
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 import logging
+from typing import Any
 
 from pyicloud.common.cloudkit import CKRecord
+from pyicloud.common.cloudkit.models import CKFields
 
 from .options import ExportConfig
 from .renderer_iface import NoteDataSource
@@ -75,7 +78,7 @@ class CloudKitNoteDataSource(NoteDataSource):
             except Exception:
                 return None
 
-        def _asset_url(obj) -> str | None:
+        def _asset_url(obj: Any) -> str | None:
             """Best-effort extractor for CloudKit asset token downloadURL.
 
             Accepts a mapping (dict-like) or an object with attribute `downloadURL`.
@@ -285,7 +288,13 @@ class CloudKitNoteDataSource(NoteDataSource):
                 },
             )
 
-    def _prefer_preview_images(self, fields, keys, is_image_uti, asset_url) -> None:
+    def _prefer_preview_images(
+        self,
+        fields: CKFields,
+        keys: list[str],
+        is_image_uti: bool,
+        asset_url: Callable[[Any], str | None],
+    ) -> None:
         """If no primary asset URL is available for an image UTI, fall back to
         the first suitable PreviewImages URL (respecting appearance)."""
         if any(k in self._primary_asset_url for k in keys) or not is_image_uti:
@@ -324,7 +333,12 @@ class CloudKitNoteDataSource(NoteDataSource):
                 self._primary_asset_url[k] = selected
 
     @staticmethod
-    def _match_preview_appearance(tokens, apps, pref_code, asset_url) -> str | None:
+    def _match_preview_appearance(
+        tokens: Any,
+        apps: Any,
+        pref_code: int,
+        asset_url: Callable[[Any], str | None],
+    ) -> str | None:
         if isinstance(apps, (list, tuple)) and len(apps) == len(tokens):
             for idx, app in enumerate(apps):
                 try:

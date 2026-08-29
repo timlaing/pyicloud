@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from enum import Enum
 import logging
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, IO
+from collections.abc import Callable
 
 from click import confirm
 from rich.console import Console
@@ -25,6 +26,8 @@ from pyicloud.exceptions import (
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
+from pyicloud.services.drive import DriveNode, DriveService
+from pyicloud.services.findmyiphone import AppleDevice
 from pyicloud.ssl_context import configurable_ssl_verification
 
 from .account_index import (
@@ -624,7 +627,7 @@ def get_state(ctx: typer.Context) -> CLIState:
     return resolved
 
 
-def service_call(label: str, fn, *, account_name: str | None = None):
+def service_call(label: str, fn: Callable[[], Any], *, account_name: str | None = None) -> Any:
     """Wrap a service call with user-facing service-unavailable handling."""
 
     try:
@@ -659,7 +662,9 @@ def parse_datetime(value: str | None) -> datetime | None:
     return dt
 
 
-def resolve_device(api: PyiCloudService, query: str, *, require_unique: bool = False):
+def resolve_device(
+    api: PyiCloudService, query: str, *, require_unique: bool = False
+) -> AppleDevice:
     """Return a device matched by id or common display names."""
 
     lowered = query.strip().lower()
@@ -705,7 +710,9 @@ def resolve_device(api: PyiCloudService, query: str, *, require_unique: bool = F
     return matches[0]
 
 
-def resolve_drive_node(drive, path: str, *, trash: bool = False):
+def resolve_drive_node(
+    drive: DriveService, path: str, *, trash: bool = False
+) -> DriveNode:
     """Resolve an iCloud Drive node."""
 
     node = drive.trash if trash else drive.root
@@ -719,7 +726,7 @@ def resolve_drive_node(drive, path: str, *, trash: bool = False):
     return node
 
 
-def _write_to_file(response: Any, file_out) -> None:
+def _write_to_file(response: Any, file_out: IO[bytes]) -> None:
     """Write a download response to a file, streaming if possible."""
     if hasattr(response, "iter_content"):
         for chunk in response.iter_content(chunk_size=8192):

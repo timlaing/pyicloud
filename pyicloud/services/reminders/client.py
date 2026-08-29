@@ -24,6 +24,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitContainerClient,
     CloudKitRateLimited,
 )
+from pyicloud.session import PyiCloudSession
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,11 +49,11 @@ class CloudKitRemindersClient:
     def __init__(
         self,
         base_url: str,
-        session,
+        session: PyiCloudSession,
         base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
-    ):
+    ) -> None:
         self._client = CloudKitContainerClient(
             base_url,
             session,

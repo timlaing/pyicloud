@@ -27,14 +27,14 @@ from pyicloud.cli.options import (
     store_command_options,
 )
 from pyicloud.cli.output import console_table
-from pyicloud.services.drive import DriveService
+from pyicloud.services.drive import DriveNode, DriveService
 
 app = typer.Typer(help="Browse and download iCloud Drive files.")
 
 
 def _resolve_drive_node_or_abort(
     drive: DriveService, path: str, *, trash: bool = False
-):
+) -> DriveNode:
     """Resolve a drive path or raise a user-facing CLI error."""
 
     try:

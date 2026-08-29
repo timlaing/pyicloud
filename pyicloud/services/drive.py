@@ -73,7 +73,9 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()[0]
 
-    def get_file(self, file_id: str, zone: str = CLOUD_DOCS_ZONE, **kwargs) -> Response:
+    def get_file(
+        self, file_id: str, zone: str = CLOUD_DOCS_ZONE, **kwargs: Any
+    ) -> Response:
         """Returns iCloud Drive file."""
         file_params: dict[str, Any] = dict(self.params)
         file_params.update({"document_id": file_id})
@@ -91,7 +93,7 @@ class DriveService(BaseService):
             return self.session.get(package_token["url"], params=self.params, **kwargs)
         raise KeyError("'data_token' nor 'package_token'")
 
-    def get_app_data(self):
+    def get_app_data(self) -> Any:
         """Returns the app library (previously ubiquity)."""
         request: Response = self.session.get(
             self.service_root + "/retrieveAppLibraries",
@@ -141,8 +143,8 @@ class DriveService(BaseService):
         document_id: str,
         file_object: IO[bytes],
         zone: str = CLOUD_DOCS_ZONE,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> Any:
         data: dict[str, Any] = {
             "data": {
                 "signature": file_info["fileChecksum"],
@@ -185,7 +187,7 @@ class DriveService(BaseService):
         folder_id: str,
         file_object: IO[bytes],
         zone: str = CLOUD_DOCS_ZONE,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Send new file to iCloud Drive."""
         document_id, content_url = self._get_upload_contentws_url(
@@ -206,7 +208,7 @@ class DriveService(BaseService):
             **kwargs,
         )
 
-    def create_folders(self, parent: str, name: str):
+    def create_folders(self, parent: str, name: str) -> Any:
         """Creates a new iCloud Drive folder"""
         # when creating a folder on icloud.com, the clientID is set to the following:
         temp_client_id: str = f"FOLDER::UNKNOWN_ZONE::TempId-{uuid.uuid4()}"
@@ -227,7 +229,7 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def delete_items(self, node_id: str, etag: str):
+    def delete_items(self, node_id: str, etag: str) -> Any:
         """Deletes an iCloud Drive node"""
         request: Response = self.session.post(
             self.service_root + "/deleteItems",
@@ -245,7 +247,7 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def rename_items(self, node_id: str, etag: str, name: str):
+    def rename_items(self, node_id: str, etag: str, name: str) -> Any:
         """Renames an iCloud Drive node"""
         request: Response = self.session.post(
             self.service_root + "/renameItems",
@@ -263,7 +265,9 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def move_nodes_to_node(self, nodes: list["DriveNode"], destination: "DriveNode"):
+    def move_nodes_to_node(
+        self, nodes: list["DriveNode"], destination: "DriveNode"
+    ) -> Any:
         """Moves iCloud Drive node(s) to the specified folder"""
         node_ids = [node.data["drivewsid"] for node in nodes]
         etags = [node.data["etag"] for node in nodes]
@@ -289,7 +293,7 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def move_items_to_trash(self, node_id: str, etag: str):
+    def move_items_to_trash(self, node_id: str, etag: str) -> Any:
         """Moves an iCloud Drive node to the trash bin"""
         # when moving a node to the trash on icloud.com, the clientID is set
         # to the node_id:
@@ -310,7 +314,7 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def recover_items_from_trash(self, node_id: str, etag: str):
+    def recover_items_from_trash(self, node_id: str, etag: str) -> Any:
         """Restores an iCloud Drive node from the trash bin"""
         request: Response = self.session.post(
             self.service_root + "/putBackItemsFromTrash",
@@ -327,7 +331,7 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def delete_forever_from_trash(self, node_id: str, etag: str):
+    def delete_forever_from_trash(self, node_id: str, etag: str) -> Any:
         """Permanently deletes an iCloud Drive node from the trash bin"""
         request: Response = self.session.post(
             self.service_root + "/deleteItems",
@@ -370,7 +374,7 @@ class DriveService(BaseService):
         """Refreshes and returns a fresh trash node."""
         self._trash = DriveNode(self, self.get_node_data(CLOUD_DOCS_ZONE_ID_TRASH))
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr: str) -> Any:
         return getattr(self.root, attr)
 
     def __getitem__(self, key: str) -> "DriveNode":
@@ -483,7 +487,7 @@ class DriveNode:
         """Gets the node last open date (in UTC)."""
         return _date_to_utc(self.data.get("lastOpenTime"))  # Folder does not have date
 
-    def open(self, **kwargs):
+    def open(self, **kwargs: Any) -> Response:
         """Gets the node file."""
         # iCloud returns 400 Bad Request for 0-byte files
         if self.data["size"] == 0:
@@ -494,7 +498,7 @@ class DriveNode:
             self.data["docwsid"], zone=self.data["zone"], **kwargs
         )
 
-    def upload(self, file_object, **kwargs):
+    def upload(self, file_object: IO[bytes], **kwargs: Any) -> None:
         """Upload a new file."""
         return self.connection.send_file(
             self.data["docwsid"], file_object, zone=self.data["zone"], **kwargs
@@ -506,27 +510,27 @@ class DriveNode:
             raise NotADirectoryError(self.name)
         return [child.name for child in self.get_children()]
 
-    def mkdir(self, folder: str):
+    def mkdir(self, folder: str) -> Any:
         """Create a new directory directory."""
         return self.connection.create_folders(self.data["drivewsid"], folder)
 
-    def rename(self, name: str):
+    def rename(self, name: str) -> Any:
         """Rename an iCloud Drive item."""
         return self.connection.rename_items(
             self.data["drivewsid"], self.data["etag"], name
         )
 
-    def move_to_trash(self):
+    def move_to_trash(self) -> Any:
         """Move an iCloud Drive item to the trash bin (Recently Deleted)."""
         return self.connection.move_items_to_trash(
             self.data["drivewsid"], self.data["etag"]
         )
 
-    def delete(self):
+    def delete(self) -> Any:
         """Delete an iCloud Drive item."""
         return self.connection.delete_items(self.data["drivewsid"], self.data["etag"])
 
-    def recover(self):
+    def recover(self) -> Any:
         """Recovers an iCloud Drive item from trash."""
         # check to ensure item is in the trash - it should have a "restorePath" property
         if self.data.get("restorePath"):
@@ -535,7 +539,7 @@ class DriveNode:
             )
         raise ValueError(f"'{self.name}' does not appear to be in the Trash.")
 
-    def delete_forever(self):
+    def delete_forever(self) -> Any:
         """Permanently deletes an iCloud Drive item from trash."""
         # check to ensure item is in the trash - it should have a "restorePath" property
         if self.data.get("restorePath"):
@@ -567,7 +571,7 @@ class DriveNode:
         return f"<{type(self).__name__}: {str(self)}>"
 
 
-def _date_to_utc(date) -> datetime | None:
+def _date_to_utc(date: str | None) -> datetime | None:
     if not date:
         return None
     # jump through hoops to return time in UTC rather than California time

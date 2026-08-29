@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import ValidationError
 import typer
 
-from pyicloud.cli.context import CLIAbort, get_state, parse_datetime, service_call
+from pyicloud.base import PyiCloudService
+from pyicloud.cli.context import (
+    CLIAbort,
+    CLIState,
+    get_state,
+    parse_datetime,
+    service_call,
+)
 from pyicloud.cli.normalize import normalize_sync_cursor
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
@@ -126,13 +133,13 @@ def _id_matches(record_id: str, query: str) -> bool:
     return "/" in record_id and record_id.split("/", 1)[1] == normalized
 
 
-def _reminders_service(api):
+def _reminders_service(api: PyiCloudService) -> Any:
     """Return the Reminders service with reauthentication handling."""
 
     return service_call(REMINDERS, lambda: api.reminders, account_name=api.account_name)
 
 
-def _reminders_call(api, fn):
+def _reminders_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
     """Wrap reminder calls with reminder-specific user-facing errors."""
 
     try:
@@ -146,7 +153,7 @@ def _reminders_call(api, fn):
         raise CLIAbort(str(err)) from err
 
 
-def _resolve_reminder(api, reminder_id: str) -> Reminder:
+def _resolve_reminder(api: PyiCloudService, reminder_id: str) -> Reminder:
     """Return one reminder by id."""
 
     reminders = _reminders_service(api)
@@ -154,7 +161,7 @@ def _resolve_reminder(api, reminder_id: str) -> Reminder:
 
 
 def _list_reminder_rows(
-    api,
+    api: PyiCloudService,
     *,
     list_id: str | None = None,
     include_completed: bool,
@@ -198,7 +205,7 @@ def _list_reminder_rows(
 
 
 def _resolve_related_record(
-    api,
+    api: PyiCloudService,
     reminder_id: str,
     query: str,
     *,
@@ -242,7 +249,7 @@ def _frequency_label(frequency: RecurrenceFrequency | None) -> str | None:
     return frequency.name.lower()
 
 
-def _sync_cursor_payload(state, cursor: str) -> None:
+def _sync_cursor_payload(state: CLIState, cursor: str) -> None:
     """Render a sync cursor in JSON or text mode."""
 
     if state.json_output:

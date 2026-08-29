@@ -17,9 +17,10 @@ import re
 
 from rich.console import Console
 
-from pyicloud.common.cloudkit import CKRecord
+from pyicloud.common.cloudkit import CKLookupResponse, CKRecord
 
 from ..decoding import BodyDecoder
+from ..client import CloudKitNotesClient
 from ..protobuf import notes_pb2 as pb
 from .ck_datasource import CloudKitNoteDataSource
 from .options import ExportConfig
@@ -78,7 +79,11 @@ def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> lis
     return merged
 
 
-def _hydrate_attachment_records(ds, resp, config) -> dict[str, str]:
+def _hydrate_attachment_records(
+    ds: CloudKitNoteDataSource,
+    resp: CKLookupResponse,
+    config: ExportConfig | None,
+) -> dict[str, str]:
     """Add attachment records to the datasource and collect their Media refs.
 
     Returns a mapping of media record name → parent attachment record name.
@@ -103,7 +108,12 @@ def _hydrate_attachment_records(ds, resp, config) -> dict[str, str]:
     return media_map
 
 
-def _follow_media_references(ck_client, ds, media_map: dict[str, str], config) -> None:
+def _follow_media_references(
+    ck_client: CloudKitNotesClient,
+    ds: CloudKitNoteDataSource,
+    media_map: dict[str, str],
+    config: ExportConfig | None,
+) -> None:
     """Fetch Media records and promote their URLs onto parent attachments."""
     if not media_map:
         return
@@ -126,11 +136,11 @@ def _follow_media_references(ck_client, ds, media_map: dict[str, str], config) -
         pass
 
 
-def _media_field_url(mrec) -> str | None:
+def _media_field_url(mrec: CKRecord) -> str | None:
     """Best-effort: find any field whose value looks like an asset token."""
     url: str | None = None
     try:
-        for k in list(getattr(mrec, "fields", ()).keys()):
+        for k in list(mrec.fields.keys()):
             fld = mrec.fields.get_field(k)
             val = getattr(fld, "value", None)
             u = getattr(val, "downloadURL", None)
@@ -143,7 +153,11 @@ def _media_field_url(mrec) -> str | None:
 
 
 def _wire_media_to_parent(
-    ds, media_map: dict[str, str], mrec, url: str, config
+    ds: CloudKitNoteDataSource,
+    media_map: dict[str, str],
+    mrec: CKRecord,
+    url: str,
+    config: ExportConfig | None,
 ) -> None:
     """Promote a Media URL to the parent attachment's primary, when appropriate."""
     parent = media_map.get(mrec.recordName)
@@ -184,7 +198,7 @@ def _wire_media_to_parent(
 
 
 def build_datasource(
-    ck_client,
+    ck_client: CloudKitNotesClient,
     note_record: CKRecord,
     note: pb.Note,
     config: ExportConfig | None = None,
@@ -204,7 +218,7 @@ def build_datasource(
 
 
 def download_pdf_assets(
-    ck_client,
+    ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
@@ -263,7 +277,7 @@ def download_pdf_assets(
 
 
 def download_image_assets(
-    ck_client,
+    ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
@@ -348,7 +362,7 @@ def download_image_assets(
 
 
 def download_av_assets(
-    ck_client,
+    ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
@@ -450,7 +464,7 @@ def download_av_assets(
 
 
 def download_vcard_assets(
-    ck_client,
+    ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
@@ -538,7 +552,7 @@ def write_html(
 class NoteExporter:
     """Orchestrator for exporting notes to HTML with assets."""
 
-    def __init__(self, ck_client, config: ExportConfig | None = None):
+    def __init__(self, ck_client: CloudKitNotesClient, config: ExportConfig | None = None):
         self.client = ck_client
         self.config = config or ExportConfig()
         self.renderer = NoteRenderer(self.config)

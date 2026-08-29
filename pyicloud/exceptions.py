@@ -1,6 +1,6 @@
 """Library exceptions."""
 
-from typing import Union
+from typing import Any, Union
 
 from requests import Response
 
@@ -56,7 +56,7 @@ class PyiCloudFailedLoginException(PyiCloudException):
     def __init__(
         self,
         msg: str,
-        *args,
+        *args: Any,
         response: Response | None = None,
     ) -> None:
         """Initialize a login failure with optional HTTP response details."""

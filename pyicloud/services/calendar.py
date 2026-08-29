@@ -440,7 +440,7 @@ class EventObject:
         )
         return alarm_guid
 
-    def get(self, var: str):
+    def get(self, var: str) -> Any:
         """Get a variable"""
         return getattr(self, var, None)
 
@@ -544,7 +544,7 @@ class CalendarService(BaseService):
 
         return params
 
-    def obj_from_dict(self, obj: T, _dict) -> T:
+    def obj_from_dict(self, obj: T, _dict: dict[str, Any]) -> T:
         """Creates an object from a dictionary with proper field validation."""
         if hasattr(obj, "__dataclass_fields__"):
             valid_fields = {f.name for f in fields(obj)}
@@ -580,7 +580,9 @@ class CalendarService(BaseService):
                 return ctag
         raise ValueError("ctag not found.")
 
-    def refresh_client(self, from_dt=None, to_dt=None) -> dict[str, Any]:
+    def refresh_client(
+        self, from_dt: datetime | None = None, to_dt: datetime | None = None
+    ) -> dict[str, Any]:
         """
         Refresh the Calendar service and return a fresh event payload.
 
@@ -733,7 +735,9 @@ class CalendarService(BaseService):
 
         return events
 
-    def get_event_detail(self, pguid, guid, as_obj: bool = False) -> EventObject:
+    def get_event_detail(
+        self, pguid: str, guid: str, as_obj: bool = False
+    ) -> EventObject:
         """
         Fetches a single event's details by specifying a pguid
         (a calendar) and a guid (an event's ID).

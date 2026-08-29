@@ -102,7 +102,7 @@ class MeCard:
         return self._contact["lastName"]
 
     @property
-    def photo(self):
+    def photo(self) -> Any:
         """
         The user's photo.
         """

@@ -9,6 +9,9 @@ from typing import Any, Literal, TypeVar
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
+from requests import Response
+
+from pyicloud.session import PyiCloudSession
 
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
 from .models import (
@@ -68,7 +71,7 @@ class CloudKitRateLimited(Exception):
 class CloudKitApiError(Exception):
     """Raised for transport, validation, or server-side CloudKit failures."""
 
-    def __init__(self, message: str, *, payload=None) -> None:
+    def __init__(self, message: str, *, payload: Any | None = None) -> None:
         super().__init__(message)
         self.payload = payload
 
@@ -81,7 +84,7 @@ class _CloudKitHTTP:
     def __init__(
         self,
         base_url: str,
-        session,
+        session: PyiCloudSession,
         base_params: dict[str, object],
         *,
         timeout: tuple[float, float] | None = None,
@@ -89,7 +92,7 @@ class _CloudKitHTTP:
         redact_urls: bool = False,
         debug_hook: CloudKitDebugHook | None = None,
         handle_rate_limits: bool = True,
-    ):
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._session = session
         self._params = self._normalize_params(
@@ -130,7 +133,7 @@ class _CloudKitHTTP:
         return url
 
     def _run_debug_hook(
-        self, op: str, url: str, payload: dict[str, Any], response
+        self, op: str, url: str, payload: dict[str, Any], response: Response
     ) -> None:
         if self._debug_hook is None:
             return
@@ -269,7 +272,7 @@ class CloudKitContainerClient:
     def __init__(
         self,
         base_url: str,
-        session,
+        session: PyiCloudSession,
         base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
@@ -278,7 +281,7 @@ class CloudKitContainerClient:
         redact_urls: bool = False,
         debug_hook: CloudKitDebugHook | None = None,
         handle_rate_limits: bool = True,
-    ):
+    ) -> None:
         self._http = _CloudKitHTTP(
             base_url,
             session,

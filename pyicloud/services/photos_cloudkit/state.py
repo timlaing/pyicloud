@@ -72,7 +72,12 @@ class SQLitePhotoSyncState:
         self.open()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     def open(self) -> None:
@@ -248,7 +253,12 @@ class MemoryPhotoSyncState:
     def __enter__(self) -> MemoryPhotoSyncState:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         return None
 
     def get_sync_cursor(self) -> str | None:

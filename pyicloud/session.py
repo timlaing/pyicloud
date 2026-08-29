@@ -184,22 +184,22 @@ class PyiCloudSession(requests.Session):
 
     def request(
         self,
-        method,
-        url,
-        params=None,
-        data=None,
-        headers=None,
-        cookies=None,
-        files=None,
-        auth=None,
-        timeout=None,
-        allow_redirects=True,
-        proxies=None,
-        hooks=None,
-        stream=None,
-        verify=None,
-        cert=None,
-        json=None,
+        method: str,
+        url: str,
+        params: Any = None,
+        data: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        files: Any = None,
+        auth: Any = None,
+        timeout: Any = None,
+        allow_redirects: bool = True,
+        proxies: Any = None,
+        hooks: Any = None,
+        stream: Any = None,
+        verify: Any = None,
+        cert: Any = None,
+        json: Any = None,
     ) -> Response:
         """Dispatch a request through the normalized session request pipeline."""
         return self._request(
@@ -223,22 +223,22 @@ class PyiCloudSession(requests.Session):
 
     def request_raw(
         self,
-        method,
-        url,
-        params=None,
-        data=None,
-        headers=None,
-        cookies=None,
-        files=None,
-        auth=None,
-        timeout=None,
-        allow_redirects=True,
-        proxies=None,
-        hooks=None,
-        stream=None,
-        verify=None,
-        cert=None,
-        json=None,
+        method: str,
+        url: str,
+        params: Any = None,
+        data: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        files: Any = None,
+        auth: Any = None,
+        timeout: Any = None,
+        allow_redirects: bool = True,
+        proxies: Any = None,
+        hooks: Any = None,
+        stream: Any = None,
+        verify: Any = None,
+        cert: Any = None,
+        json: Any = None,
     ) -> Response:
         """Dispatch a request without response-status normalization."""
 
@@ -263,9 +263,9 @@ class PyiCloudSession(requests.Session):
 
     def _request_raw(
         self,
-        method,
-        url,
-        **kwargs,
+        method: str,
+        url: str,
+        **kwargs: Any,
     ) -> Response:
         """Perform a request and persist cookies/session data without raising."""
 
@@ -288,9 +288,9 @@ class PyiCloudSession(requests.Session):
 
     def _request(
         self,
-        method,
-        url,
-        **kwargs,
+        method: str,
+        url: str,
+        **kwargs: Any,
     ) -> Response:
         """Request method."""
         self.logger.debug(

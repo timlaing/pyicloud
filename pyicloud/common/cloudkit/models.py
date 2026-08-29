@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Self, Union
 
 from pydantic import (
     Base64Bytes,
@@ -38,7 +38,7 @@ SENTINEL_ZERO_MS: set[int] = {
 }
 
 
-def _from_millis_or_none(v):
+def _from_millis_or_none(v: int | float | str) -> datetime | None:
     # Accept int/float or signed numeric strings; be strict about milliseconds.
     if isinstance(v, (int, float)):
         iv = int(v)
@@ -98,7 +98,7 @@ MillisDateTimeOrNone = Annotated[
 # Some top-level properties (e.g., CKRecord.expirationTime) arrive as
 # seconds-since-epoch in this API. Be tolerant and also accept millisecond
 # values if Apple changes shape.
-def _from_secs_or_millis(v):
+def _from_secs_or_millis(v: int | float | str) -> datetime | None:
     if isinstance(v, (int, float)):
         iv = int(v)
     elif isinstance(v, str):
@@ -482,7 +482,7 @@ class CKFieldOpen(RootModel[Union[KnownCKField, CKPassthroughField]]):
     root: Union[KnownCKField, CKPassthroughField]
 
     @property
-    def value(self):
+    def value(self) -> Any:
         """Retrieve the inner value from the field wrapper."""
         # unified way to read the inner 'value' without touching .root
         return getattr(self.root, "value", None)
@@ -493,7 +493,7 @@ class CKFieldOpen(RootModel[Union[KnownCKField, CKPassthroughField]]):
         # useful when inspecting unknown/passthrough fields
         return getattr(self.root, "type", None)
 
-    def unwrap(self):
+    def unwrap(self) -> Any:
         """Return the inner typed wrapper (e.g., CKTimestampField).
         Public escape hatch; prefer `.value` for most use-cases.
         """
@@ -501,7 +501,7 @@ class CKFieldOpen(RootModel[Union[KnownCKField, CKPassthroughField]]):
 
     @model_validator(mode="before")
     @classmethod
-    def _dispatch_before(cls, obj):
+    def _dispatch_before(cls, obj: Any) -> object:
         """
         Ensure nested contexts (e.g., values inside Dict[str, CKFieldOpen]) use the same
         discriminator-based dispatch as our explicit model_validate(...) call.
@@ -554,12 +554,12 @@ class CKFields(dict[str, CKFieldOpen]):
         except KeyError as e:
             raise AttributeError(name) from e
 
-    def __dir__(self):
+    def __dir__(self) -> list[str]:
         """List available field names for attribute access."""
         base = set(super().__dir__())
         return sorted(base | set(self.keys()))
 
-    def get_field(self, key: str):
+    def get_field(self, key: str) -> Any:
         """Retrieve the inner typed field wrapper for isinstance checks."""
         f = self.get(key)
         if f is None:
@@ -567,13 +567,15 @@ class CKFields(dict[str, CKFieldOpen]):
         # Use public API; avoid touching `.root` here.
         return f.unwrap() if hasattr(f, "unwrap") else f
 
-    def get_value(self, key: str):
+    def get_value(self, key: str) -> Any:
         """Retrieve the decoded value of a field by key."""
         f = self.get_field(key)
         return None if f is None else getattr(f, "value", None)
 
 
-def _coerce_field_mapping(v, mapping_cls):
+def _coerce_field_mapping(
+    v: object, mapping_cls: type[dict[str, CKFieldOpen]]
+) -> object:
     """Validate a raw field mapping into the requested CK field container."""
     if isinstance(v, mapping_cls):
         return v
@@ -606,7 +608,7 @@ class CKRecord(CKModel):
 
     @field_validator("fields", mode="before")
     @classmethod
-    def _coerce_fields(cls, v):
+    def _coerce_fields(cls, v: object) -> object:
         """
         Ensure the mapping is validated item-by-item to CKFieldOpen
         and wrapped in CKFields to enable attribute access DX.
@@ -614,7 +616,7 @@ class CKRecord(CKModel):
         return _coerce_field_mapping(v, CKFields)
 
     @model_validator(mode="after")
-    def _validate_encrypted_fields(self):
+    def _validate_encrypted_fields(self) -> Self:
         """Validate encrypted-field wrappers against observed CloudKit shapes.
 
         Most `*Encrypted` fields use ENCRYPTED_BYTES, but shared CloudKit
@@ -708,7 +710,7 @@ class CKWriteRecord(CKModel):
 
     @field_validator("fields", mode="before")
     @classmethod
-    def _coerce_fields(cls, v):
+    def _coerce_fields(cls, v: object) -> object:
         """Convert raw field mapping into typed CKWriteFields container."""
         return _coerce_field_mapping(v, CKWriteFields)
 

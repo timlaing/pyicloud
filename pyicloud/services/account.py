@@ -95,7 +95,7 @@ class AccountService(BaseService):
         return self._storage
 
     @property
-    def summary_plan(self):
+    def summary_plan(self) -> Any:
         """Returns your subscription plan."""
         req: Response = self.session.get(
             self._gateway_summary_plan_url, params=self.params
@@ -116,7 +116,7 @@ class AccountService(BaseService):
 class AccountDevice(dict[str, Any]):
     """Account device."""
 
-    def __getattr__(self, key: str):
+    def __getattr__(self, key: str) -> Any:
         return self[underscore_to_camelcase(key)]
 
     def __str__(self) -> str:
@@ -162,7 +162,7 @@ class FamilyMember:
         return self._attrs.get("fullName")
 
     @property
-    def age_classification(self):
+    def age_classification(self) -> Any:
         """Gets the age classification."""
         return self._attrs.get("ageClassification")
 
@@ -177,7 +177,7 @@ class FamilyMember:
         return self._attrs.get("appleId")
 
     @property
-    def family_id(self):
+    def family_id(self) -> Any:
         """Gets the family id."""
         return self._attrs.get("familyId")
 
@@ -187,37 +187,37 @@ class FamilyMember:
         return self._attrs.get("firstName")
 
     @property
-    def has_parental_privileges(self):
+    def has_parental_privileges(self) -> Any:
         """Has parental privileges."""
         return self._attrs.get("hasParentalPrivileges")
 
     @property
-    def has_screen_time_enabled(self):
+    def has_screen_time_enabled(self) -> Any:
         """Has screen time enabled."""
         return self._attrs.get("hasScreenTimeEnabled")
 
     @property
-    def has_ask_to_buy_enabled(self):
+    def has_ask_to_buy_enabled(self) -> Any:
         """Has to ask for buying."""
         return self._attrs.get("hasAskToBuyEnabled")
 
     @property
-    def has_share_purchases_enabled(self):
+    def has_share_purchases_enabled(self) -> Any:
         """Has share purshases."""
         return self._attrs.get("hasSharePurchasesEnabled")
 
     @property
-    def share_my_location_enabled_family_members(self):
+    def share_my_location_enabled_family_members(self) -> Any:
         """Has share my location with family."""
         return self._attrs.get("shareMyLocationEnabledFamilyMembers")
 
     @property
-    def has_share_my_location_enabled(self):
+    def has_share_my_location_enabled(self) -> Any:
         """Has share my location."""
         return self._attrs.get("hasShareMyLocationEnabled")
 
     @property
-    def dsid_for_purchases(self):
+    def dsid_for_purchases(self) -> Any:
         """Gets the dsid for purchases."""
         return self._attrs.get("dsidForPurchases")
 
@@ -229,7 +229,7 @@ class FamilyMember:
             self._acc_family_member_photo_url, params=params_photo, stream=True
         )
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         if self._attrs.get(key):
             return self._attrs[key]
         return getattr(self, key)
@@ -246,26 +246,26 @@ class FamilyMember:
 class AccountStorageUsageForMedia:
     """Storage used for a specific media type into the account."""
 
-    def __init__(self, usage_data) -> None:
+    def __init__(self, usage_data: dict[str, Any]) -> None:
         self.usage_data: dict[str, Any] = usage_data
 
     @property
-    def key(self):
+    def key(self) -> Any:
         """Gets the key."""
         return self.usage_data["mediaKey"]
 
     @property
-    def label(self):
+    def label(self) -> Any:
         """Gets the label."""
         return self.usage_data["displayLabel"]
 
     @property
-    def color(self):
+    def color(self) -> Any:
         """Gets the HEX color."""
         return self.usage_data["displayColor"]
 
     @property
-    def usage_in_bytes(self):
+    def usage_in_bytes(self) -> Any:
         """Gets the usage in bytes."""
         return self.usage_data["usageInBytes"]
 
@@ -279,64 +279,64 @@ class AccountStorageUsageForMedia:
 class AccountStorageUsage:
     """Storage used for a specific media type into the account."""
 
-    def __init__(self, usage_data, quota_data) -> None:
+    def __init__(self, usage_data: dict[str, Any], quota_data: dict[str, Any]) -> None:
         self.usage_data: dict[str, Any] = usage_data
         self.quota_data: dict[str, Any] = quota_data
 
     @property
-    def comp_storage_in_bytes(self):
+    def comp_storage_in_bytes(self) -> Any:
         """Gets the comp storage in bytes."""
         return self.usage_data["compStorageInBytes"]
 
     @property
-    def used_storage_in_bytes(self):
+    def used_storage_in_bytes(self) -> Any:
         """Gets the used storage in bytes."""
         return self.usage_data["usedStorageInBytes"]
 
     @property
-    def used_storage_in_percent(self):
+    def used_storage_in_percent(self) -> float:
         """Gets the used storage in percent."""
         return round(self.used_storage_in_bytes * 100 / self.total_storage_in_bytes, 2)
 
     @property
-    def available_storage_in_bytes(self):
+    def available_storage_in_bytes(self) -> Any:
         """Gets the available storage in bytes."""
         return self.total_storage_in_bytes - self.used_storage_in_bytes
 
     @property
-    def available_storage_in_percent(self):
+    def available_storage_in_percent(self) -> Any:
         """Gets the available storage in percent."""
         return round(
             self.available_storage_in_bytes * 100 / self.total_storage_in_bytes, 2
         )
 
     @property
-    def total_storage_in_bytes(self):
+    def total_storage_in_bytes(self) -> Any:
         """Gets the total storage in bytes."""
         return self.usage_data["totalStorageInBytes"]
 
     @property
-    def commerce_storage_in_bytes(self):
+    def commerce_storage_in_bytes(self) -> Any:
         """Gets the commerce storage in bytes."""
         return self.usage_data["commerceStorageInBytes"]
 
     @property
-    def quota_over(self):
+    def quota_over(self) -> Any:
         """Gets the over quota."""
         return self.quota_data["overQuota"]
 
     @property
-    def quota_tier_max(self):
+    def quota_tier_max(self) -> Any:
         """Gets the max tier quota."""
         return self.quota_data["haveMaxQuotaTier"]
 
     @property
-    def quota_almost_full(self):
+    def quota_almost_full(self) -> Any:
         """Gets the almost full quota."""
         return self.quota_data["almost-full"]
 
     @property
-    def quota_paid(self):
+    def quota_paid(self) -> Any:
         """Gets the paid quota."""
         return self.quota_data["paidQuota"]
 
@@ -353,7 +353,7 @@ class AccountStorageUsage:
 class AccountStorage:
     """Storage of the account."""
 
-    def __init__(self, storage_data) -> None:
+    def __init__(self, storage_data: dict[str, Any]) -> None:
         self.usage = AccountStorageUsage(
             storage_data.get("storageUsageInfo"), storage_data.get("quotaStatus")
         )

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 import logging
+from typing import Any
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -40,6 +41,7 @@ from pyicloud.common.cloudkit import (
 from pyicloud.common.cloudkit.models import CKReferenceField, CKReferenceListField
 from pyicloud.services.base import BaseService
 from pyicloud.services.notes.decoding import BodyDecoder
+from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE, NOTES_ZONE_NAME, NOTES_ZONE_REQ
 from .client import (
@@ -89,11 +91,11 @@ class NotesService(BaseService):
     def __init__(
         self,
         service_root: str,
-        session,
+        session: PyiCloudSession,
         params: dict[str, str],
         *,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
-    ):
+    ) -> None:
         super().__init__(service_root=service_root, session=session, params=params)
         endpoint = (
             f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}/"
@@ -438,7 +440,7 @@ class NotesService(BaseService):
         LOGGER.debug("Fetching sync cursor for Notes zone")
         return self._raw.current_sync_token(zone_name=NOTES_ZONE_NAME)
 
-    def export_note(self, note_id: str, output_dir: str, **config_kwargs) -> str:
+    def export_note(self, note_id: str, output_dir: str, **config_kwargs: Any) -> str:
         """
         Export a note to HTML on disk and return the generated file path.
 
@@ -466,7 +468,7 @@ class NotesService(BaseService):
             raise NotesError(f"Failed to export note: {note_id}")
         return path
 
-    def render_note(self, note_id: str, **config_kwargs) -> str:
+    def render_note(self, note_id: str, **config_kwargs: Any) -> str:
         """
         Render a note to an HTML fragment string.
 

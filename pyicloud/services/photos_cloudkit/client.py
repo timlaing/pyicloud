@@ -2,26 +2,32 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 from pydantic import ValidationError
+from requests import Response
 
 from pyicloud.common.cloudkit import (
+    CKDatabaseChangesResponse,
     CKLookupResponse,
     CKModifyOperation,
     CKModifyResponse,
     CKQueryObject,
     CKQueryResponse,
+    CKZoneChangesZone,
     CKZoneChangesZoneReq,
     CKZoneIDReq,
+    CKZoneListResponse,
 )
 from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
     CloudKitContainerClient,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
+from pyicloud.session import PyiCloudSession
 
 from .models import (
     PhotosBatchCountFilter,
@@ -41,7 +47,7 @@ class PhotosCloudKitClient:
         self,
         *,
         base_url: str,
-        session,
+        session: PyiCloudSession,
         base_params: dict[str, object],
         upload_url: str | None = None,
     ) -> None:
@@ -72,7 +78,7 @@ class PhotosCloudKitClient:
         self,
         *,
         zone_req: CKZoneChangesZoneReq,
-    ):
+    ) -> Iterator[CKZoneChangesZone]:
         """Yield CloudKit record changes in the given zone."""
         yield from self._client.iter_changes(zone_req=zone_req)
 
@@ -102,11 +108,13 @@ class PhotosCloudKitClient:
             desired_keys=desired_keys,
         )
 
-    def zones_list(self):
+    def zones_list(self) -> CKZoneListResponse:
         """List the CloudKit zones for the Photos container."""
         return self._client.zones_list()
 
-    def database_changes(self, *, sync_token: str | None = None):
+    def database_changes(
+        self, *, sync_token: str | None = None
+    ) -> CKDatabaseChangesResponse:
         """Yield CloudKit database changes, optionally from a sync token."""
         return self._client.database_changes(sync_token=sync_token)
 
@@ -161,7 +169,7 @@ class PhotosCloudKitClient:
             ) from exc
 
     @staticmethod
-    def _response_json(response, *, context: str) -> dict[str, Any]:
+    def _response_json(response: Response, *, context: str) -> dict[str, Any]:
         code = getattr(response, "status_code", 0)
         if not isinstance(code, int):
             code = 200

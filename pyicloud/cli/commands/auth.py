@@ -81,7 +81,9 @@ def _auth_status_rows(payload: dict[str, object]) -> list[tuple[str, object]]:
     ]
 
 
-def _auth_payload(state: CLIState, api, status: dict[str, object]) -> dict[str, object]:
+def _auth_payload(
+    state: CLIState, api: PyiCloudService, status: dict[str, object]
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "account_name": api.account_name,
         "has_keyring_password": state.has_keyring_password(api.account_name),

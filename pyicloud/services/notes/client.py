@@ -16,6 +16,7 @@ from typing import Any, NoReturn
 import uuid
 
 from pydantic import ValidationError
+from requests import Response
 
 from pyicloud.common.cloudkit import (
     CKFVString,
@@ -36,6 +37,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitRateLimited,
     redact_cloudkit_url,
 )
+from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE_REQ
 
@@ -86,12 +88,12 @@ class CloudKitNotesClient:
     def __init__(
         self,
         base_url: str,
-        session,
+        session: PyiCloudSession,
         base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
-    ):
+    ) -> None:
         self._client = CloudKitContainerClient(
             base_url,
             session,
@@ -298,7 +300,9 @@ class CloudKitNotesClient:
     # ----- Debug -----
 
     @staticmethod
-    def _dump_http_debug(op: str, url: str, payload: dict[str, Any], resp) -> None:
+    def _dump_http_debug(
+        op: str, url: str, payload: dict[str, Any], resp: Response
+    ) -> None:
         if not os.getenv("PYICLOUD_NOTES_DEBUG"):
             return
         ts = __import__("time").strftime("%Y%m%d-%H%M%S")

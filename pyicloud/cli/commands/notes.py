@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
 from itertools import islice
 from pathlib import Path
+from typing import Any
 
 import typer
 
-from pyicloud.cli.context import CLIAbort, get_state, service_call
+from pyicloud.base import PyiCloudService
+from pyicloud.cli.context import CLIAbort, CLIState, get_state, service_call
 from pyicloud.cli.normalize import (
     normalize_sync_cursor,
     search_notes_by_title,
@@ -52,13 +55,13 @@ class ExportMode(str, Enum):
     LIGHTWEIGHT = "lightweight"
 
 
-def _notes_service(api):
+def _notes_service(api: PyiCloudService) -> Any:
     """Return the Notes service with reauthentication handling."""
 
     return service_call(NOTES, lambda: api.notes, account_name=api.account_name)
 
 
-def _notes_call(api, fn):
+def _notes_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
     """Wrap Notes service calls with note-specific user-facing errors."""
 
     try:
@@ -67,7 +70,7 @@ def _notes_call(api, fn):
         raise CLIAbort(str(err)) from err
 
 
-def _print_note_rows(state, title: str, rows) -> None:
+def _print_note_rows(state: CLIState, title: str, rows: list[Any]) -> None:
     """Render note summary rows in text mode."""
 
     state.console.print(

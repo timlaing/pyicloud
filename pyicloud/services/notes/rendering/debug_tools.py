@@ -8,6 +8,7 @@ perform any network I/O and can be safely used in tests.
 from __future__ import annotations
 
 import html
+from typing import Any
 
 from ..protobuf import notes_pb2 as pb
 
@@ -15,7 +16,7 @@ from ..protobuf import notes_pb2 as pb
 from .renderer import StyleSig, _merge_runs, _slice_for_run
 
 
-def _enum_name(enum_cls, value: int | None) -> str:
+def _enum_name(enum_cls: Any, value: int | None) -> str:
     if value is None:
         return "(none)"
     try:

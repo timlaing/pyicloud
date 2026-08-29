@@ -57,7 +57,9 @@ class HideMyEmailService(BaseService):
             return result.get("hme")
         return None
 
-    def reserve(self, email: str, label: str, note="Generated") -> dict[str, Any]:
+    def reserve(
+        self, email: str, label: str, note: str = "Generated"
+    ) -> dict[str, Any]:
         """
         Reserve an alias for emails.
 

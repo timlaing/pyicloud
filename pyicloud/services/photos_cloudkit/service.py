@@ -35,6 +35,7 @@ from pyicloud.exceptions import (
 )
 from pyicloud.services.base import BaseService
 from pyicloud.services.photos_legacy import PhotoStreamLibrary
+from pyicloud.session import PyiCloudSession
 
 from .client import PhotosCloudKitClient
 from .constants import (
@@ -1901,7 +1902,7 @@ class PhotoAsset:
         resource = self.resources.get(version)
         return resource.url if resource else None
 
-    def download(self, version: str = "original", **kwargs) -> bytes | None:
+    def download(self, version: str = "original", **kwargs: Any) -> bytes | None:
         """Download the asset's bytes for the given version."""
         url = self.download_url(version)
         if url is None:
@@ -2155,7 +2156,7 @@ class PhotosService(BaseService):
     def __init__(
         self,
         service_root: str,
-        session,
+        session: PyiCloudSession,
         params: dict[str, Any],
         upload_url: str,
         shared_streams_url: str,

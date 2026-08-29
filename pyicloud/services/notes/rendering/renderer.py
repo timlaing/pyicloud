@@ -6,6 +6,7 @@ Converts a parsed pb.Note into minimal, readable HTML. No I/O.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass
 from enum import IntEnum
@@ -311,7 +312,7 @@ class MergedRun:
     attachment: AttachmentRef | None
 
 
-def _merge_runs(runs) -> list[MergedRun]:
+def _merge_runs(runs: Iterable[pb.AttributeRun]) -> list[MergedRun]:
     out: list[MergedRun] = []
     for r in runs:
         sig = StyleSig.from_run(r)
