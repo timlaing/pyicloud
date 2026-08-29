@@ -148,6 +148,22 @@ jobs = 2
 persistent = false
 extension-pkg-whitelist = "ciso8601"
 
+[tool.pylint.typecheck]
+# Members of generated protobuf modules are created dynamically at import
+# time, so pylint cannot see them (E1101). They are imported under varying
+# aliases (e.g. "notes_pb2 as pb"), so matching on the module path is
+# unreliable; instead enumerate the generated member names.
+generated-members = [
+    "StyleType",
+    "Alignment",
+    "WritingDirection",
+    "NoteStoreProto",
+    "MergableDataProto",
+    "String",
+    "Document",
+    "Version",
+]
+
 [tool.pylint."messages control"]
 # Reasons disabled:
 # duplicate-code - unavoidable

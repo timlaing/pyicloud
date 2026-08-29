@@ -1,5 +1,8 @@
 """Constants and enums for Notes CloudKit records and queries."""
 
+# Enum member names mirror the CloudKit wire record-type strings verbatim.
+# pylint: disable=invalid-name
+
 from enum import Enum
 
 

@@ -1,5 +1,8 @@
 """CloudKit record-type and field-name enums for the Invites service."""
 
+# Enum member names mirror the CloudKit wire record-type strings verbatim.
+# pylint: disable=invalid-name
+
 from __future__ import annotations
 
 from enum import Enum

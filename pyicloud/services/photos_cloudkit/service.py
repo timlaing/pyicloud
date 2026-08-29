@@ -1933,7 +1933,7 @@ class PhotoAsset:
         if library is None:
             return False
         try:
-            refreshed = library.all.get(self.id)
+            refreshed = library.all.get(self.id)  # pylint: disable=no-member
         except Exception:
             return False
         if refreshed is None:

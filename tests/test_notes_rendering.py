@@ -1,5 +1,9 @@
 """Tests for notes rendering functionality."""
 
+# Mock fixtures mirror CloudKit/protobuf wire/API member names (e.g.
+# recordName, HasField, ParseFromString) which pylint rejects as invalid-name.
+# pylint: disable=invalid-name
+
 import json
 import os
 import tempfile

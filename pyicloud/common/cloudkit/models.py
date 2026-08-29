@@ -621,7 +621,7 @@ class CKRecord(CKModel):
         Most `*Encrypted` fields use ENCRYPTED_BYTES, but shared CloudKit
         records can legitimately carry STRING wrappers with `isEncrypted=true`.
         """
-        for key, wrapper in self.fields.items():
+        for key, wrapper in self.fields.items():  # pylint: disable=no-member
             if not isinstance(key, str) or not key.endswith("Encrypted"):
                 continue
 

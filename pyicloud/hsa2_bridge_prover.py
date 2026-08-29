@@ -1,5 +1,9 @@
 """Pure-Python bridge prover for Apple's trusted-device HSA2 flow."""
 
+# The frozen *_SharedSecret dataclasses set private attributes dynamically in
+# __post_init__ via object.__setattr__, which pylint cannot see.
+# pylint: disable=no-member
+
 from __future__ import annotations
 
 import base64

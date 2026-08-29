@@ -41,7 +41,7 @@ hashtag_app = typer.Typer(help="Work with reminder hashtags.")
 recurrence_app = typer.Typer(help="Work with reminder recurrence rules.")
 
 REMINDERS = "Reminders"
-TRelated = TypeVar("TRelated")
+TRelated = TypeVar("TRelated")  # pylint: disable=invalid-name
 
 _REMINDER_ID_HELP = "Reminder id."
 _COMPLETED_OPTION_PARAM = "--completed/--not-completed"

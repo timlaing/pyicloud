@@ -56,6 +56,8 @@ TEST_ROOT = Path(tempfile.mkdtemp(prefix="test_cmdline-", dir=TEST_BASE))
 class FakeDevice:
     """Find My device fixture."""
 
+    # pylint: disable=invalid-name
+    # Attribute names mirror the Find My API wire field names verbatim.
     def __init__(self) -> None:
         self.id = "device-1"
         self.name = "Example iPhone"

@@ -36,7 +36,7 @@ from .models import (
     RemindersList,
 )
 
-TRelated = TypeVar("TRelated")
+TRelated = TypeVar("TRelated")  # pylint: disable=invalid-name
 
 
 class RemindersReadAPI:
