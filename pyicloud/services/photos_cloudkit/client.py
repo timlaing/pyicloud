@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from pydantic import ValidationError
@@ -182,7 +182,7 @@ class PhotosCloudKitClient:
                 f"{context} failed with HTTP {code}", payload=payload
             )
         try:
-            return response.json()
+            return cast(dict[str, Any], response.json())
         except Exception as exc:
             raise CloudKitApiError(
                 f"{context} returned invalid JSON",

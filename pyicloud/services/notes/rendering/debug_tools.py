@@ -8,7 +8,7 @@ perform any network I/O and can be safely used in tests.
 from __future__ import annotations
 
 import html
-from typing import Any
+from typing import Any, cast
 
 from ..protobuf import notes_pb2 as pb
 
@@ -20,7 +20,7 @@ def _enum_name(enum_cls: Any, value: int | None) -> str:
     if value is None:
         return "(none)"
     try:
-        return enum_cls.Name(int(value))
+        return cast(str, enum_cls.Name(int(value)))
     except Exception:
         return str(value)
 

@@ -1,7 +1,7 @@
 """Hide my email service."""
 
 from collections.abc import Generator
-from typing import Any
+from typing import Any, cast
 
 from requests import Response
 
@@ -81,7 +81,7 @@ class HideMyEmailService(BaseService):
             },
         )
         response = req.json()
-        return response.get("result", {})
+        return cast(dict[str, Any], response.get("result", {}))
 
     def __len__(self) -> int:
         """
@@ -120,7 +120,7 @@ class HideMyEmailService(BaseService):
             json={"anonymousId": anonymous_id},
         )
         response = req.json()
-        return response.get("result", {})
+        return cast(dict[str, Any], response.get("result", {}))
 
     def update_metadata(
         self, anonymous_id: str, label: str, note: str | None = None
@@ -149,7 +149,7 @@ class HideMyEmailService(BaseService):
             json=payload,
         )
         response = req.json()
-        return response.get("result", {})
+        return cast(dict[str, Any], response.get("result", {}))
 
     def delete(self, anonymous_id: str) -> dict[str, Any]:
         """
@@ -167,7 +167,7 @@ class HideMyEmailService(BaseService):
             json={"anonymousId": anonymous_id},
         )
         response = req.json()
-        return response.get("result", {})
+        return cast(dict[str, Any], response.get("result", {}))
 
     def deactivate(self, anonymous_id: str) -> dict[str, Any]:
         """
@@ -188,7 +188,7 @@ class HideMyEmailService(BaseService):
             json={"anonymousId": anonymous_id},
         )
         response = req.json()
-        return response.get("result", {})
+        return cast(dict[str, Any], response.get("result", {}))
 
     def reactivate(self, anonymous_id: str) -> dict[str, Any]:
         """
@@ -209,4 +209,4 @@ class HideMyEmailService(BaseService):
             json={"anonymousId": anonymous_id},
         )
         response = req.json()
-        return response.get("result", {})
+        return cast(dict[str, Any], response.get("result", {}))

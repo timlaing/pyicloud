@@ -6,7 +6,6 @@ import base64
 import binascii
 import gzip
 import logging
-from typing import Union
 import zlib
 
 from .domain import AttachmentId, NoteBody
@@ -15,7 +14,7 @@ from .protobuf import notes_pb2
 LOGGER = logging.getLogger(__name__)
 
 
-def _b64_to_bytes(val: Union[str, bytes, bytearray] | None) -> bytes | None:
+def _b64_to_bytes(val: str | bytes | bytearray | None) -> bytes | None:
     """Accepts base64 string OR raw bytes and returns raw bytes."""
     if val is None:
         return None
@@ -48,7 +47,7 @@ class BodyDecoder:
     """Decode TextDataEncrypted (base64, compressed) to NoteBody."""
 
     def decode(
-        self, text_data_encrypted_b64: Union[str, bytes, bytearray] | None
+        self, text_data_encrypted_b64: str | bytes | bytearray | None
     ) -> NoteBody | None:
         """Decode a base64/compressed note body into a NoteBody."""
         if text_data_encrypted_b64 is None:

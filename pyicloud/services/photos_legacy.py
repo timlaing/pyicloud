@@ -1634,7 +1634,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         )
         response: dict[str, Any] = request.json()
 
-        return response["albumassetcount"]
+        return cast(int, response["albumassetcount"])
 
     def delete(self) -> bool:
         """Deletes the album."""
@@ -1696,17 +1696,17 @@ class PhotoAsset:
     @property
     def id(self) -> str:
         """Gets the photo id."""
-        return self._asset_record["recordName"]
+        return cast(str, self._asset_record["recordName"])
 
     @property
     def master_id(self) -> str:
         """Gets the master record id for the photo."""
-        return self._master_record["recordName"]
+        return cast(str, self._master_record["recordName"])
 
     @property
     def asset_id(self) -> str:
         """Gets the asset record id for the photo."""
-        return self._asset_record["recordName"]
+        return cast(str, self._asset_record["recordName"])
 
     @property
     def filename(self) -> str:
@@ -1798,7 +1798,7 @@ class PhotoAsset:
         if version not in self.versions:
             return None
 
-        return self.versions[version]["url"]
+        return cast(str | None, self.versions[version]["url"])
 
     def _get_photo_version(self, prefix: str) -> dict[str, Any]:
         version: dict[str, Any] = {}
@@ -1915,11 +1915,12 @@ class PhotoStreamAsset(PhotoAsset):
     @property
     def like_count(self) -> int:
         """Gets the photo like count."""
-        return (
+        return cast(
+            int,
             self._asset_record
             .get("pluginFields", {})
             .get("likeCount", {})
-            .get("value", 0)
+            .get("value", 0),
         )
 
     @property

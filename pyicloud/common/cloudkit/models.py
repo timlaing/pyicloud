@@ -479,7 +479,7 @@ class CKFieldOpen(RootModel[Union[KnownCKField, CKPassthroughField]]):
     """
 
     # v2 root models name the inner value "root"
-    root: Union[KnownCKField, CKPassthroughField]
+    root: KnownCKField | CKPassthroughField
 
     @property
     def value(self) -> Any:
@@ -752,7 +752,7 @@ class CKQueryResponse(CKModel):
     - continuationMarker: optional paging token (present if more results exist)
     """
 
-    records: list[Union[CKRecord, CKTombstoneRecord, CKErrorItem]] = Field(
+    records: list[CKRecord | CKTombstoneRecord | CKErrorItem] = Field(
         default_factory=list
     )
     continuationMarker: str | None = None
@@ -859,7 +859,7 @@ class CKQueryFilterBy(CKModel):
                       "type": "REFERENCE"}}
     """
 
-    comparator: Union[CKComparator, str]
+    comparator: CKComparator | str
     fieldName: str
     fieldValue: CKFilterValue
 
@@ -927,7 +927,7 @@ class CKLookupRequest(CKModel):
 class CKLookupResponse(CKModel):
     """Response containing records fetched by lookup request."""
 
-    records: list[Union[CKRecord, CKTombstoneRecord, CKErrorItem]]
+    records: list[CKRecord | CKTombstoneRecord | CKErrorItem]
     # Server returns a top-level syncToken when getCurrentSyncToken=true
     syncToken: str | None = None
 
@@ -990,7 +990,7 @@ class CKZoneChangesZone(CKModel):
       - moreComing is present but sometimes null (treat as Optional[bool])
     """
 
-    records: list[Union[CKRecord, CKTombstoneRecord, CKErrorItem]] = Field(
+    records: list[CKRecord | CKTombstoneRecord | CKErrorItem] = Field(
         default_factory=list
     )
     moreComing: bool | None = None
@@ -1071,7 +1071,7 @@ class CKModifyRequest(CKModel):
 class CKModifyResponse(CKModel):
     """Response containing records after modification operations."""
 
-    records: list[Union[CKRecord, CKTombstoneRecord, CKErrorItem]] = Field(
+    records: list[CKRecord | CKTombstoneRecord | CKErrorItem] = Field(
         default_factory=list
     )
     syncToken: str | None = None

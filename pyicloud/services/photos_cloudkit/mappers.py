@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.common.cloudkit.models import CKAssetToken
@@ -71,7 +71,7 @@ def record_name(record: CKRecord | dict[str, Any]) -> str:
 
     if isinstance(record, CKRecord):
         return record.recordName
-    return record["recordName"]
+    return cast(str, record["recordName"])
 
 
 def record_record_type(record: CKRecord | dict[str, Any]) -> str:
@@ -79,7 +79,7 @@ def record_record_type(record: CKRecord | dict[str, Any]) -> str:
 
     if isinstance(record, CKRecord):
         return record.recordType
-    return record["recordType"]
+    return cast(str, record["recordType"])
 
 
 def record_zone(record: CKRecord | dict[str, Any]) -> dict[str, Any] | None:

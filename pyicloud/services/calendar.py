@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from random import randint
 import time
-from typing import Any, Literal, TypeVar, Union, overload
+from typing import Any, Literal, TypeVar, cast, overload
 from uuid import uuid4
 
 from requests import Response
@@ -619,7 +619,7 @@ class CalendarService(BaseService):
             "dsid": self.session.service.data["dsInfo"]["dsid"],
         })
         req: Response = self.session.get(self._calendar_refresh_url, params=params)
-        return req.json()
+        return cast(dict[str, Any], req.json())
 
     @overload
     def get_calendars(self) -> list[dict[str, Any]]: ...
@@ -631,8 +631,8 @@ class CalendarService(BaseService):
     def get_calendars(self, as_objs: Literal[True]) -> list[CalendarObject]: ...
 
     def get_calendars(
-        self, as_objs: Union[Literal[True], Literal[False]] = False
-    ) -> Union[list[dict[str, Any]], list[CalendarObject]]:
+        self, as_objs: Literal[True] | Literal[False] = False
+    ) -> list[dict[str, Any]] | list[CalendarObject]:
         """
         Retrieves calendars of this month.
         """
@@ -658,7 +658,7 @@ class CalendarService(BaseService):
             params=params,
             json=data,
         )
-        return req.json()
+        return cast(dict[str, Any], req.json())
 
     def remove_calendar(self, cal_guid: str) -> dict[str, Any]:
         """
@@ -670,7 +670,7 @@ class CalendarService(BaseService):
         req: Response = self.session.post(
             f"{self._calendar_collections_url}/{cal_guid}", params=params, json={}
         )
-        return req.json()
+        return cast(dict[str, Any], req.json())
 
     @overload
     def get_events(
@@ -704,7 +704,7 @@ class CalendarService(BaseService):
         to_dt: datetime | None = None,
         period: str = "month",
         as_objs: bool = False,
-    ) -> Union[list[dict[str, Any]], list[EventObject]]:
+    ) -> list[dict[str, Any]] | list[EventObject]:
         """
         Retrieves events for a given date range, by default, this month.
         """
@@ -771,7 +771,7 @@ class CalendarService(BaseService):
             params=params,
             json=data,
         )
-        return req.json()
+        return cast(dict[str, Any], req.json())
 
     def remove_event(self, event: EventObject) -> dict[str, Any]:
         """
@@ -795,4 +795,4 @@ class CalendarService(BaseService):
             params=params,
             json=data,
         )
-        return req.json()
+        return cast(dict[str, Any], req.json())

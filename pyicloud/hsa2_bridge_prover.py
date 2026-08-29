@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import hashlib
 import hmac
 import secrets
+from typing import cast
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -253,7 +254,7 @@ class _ClientSharedSecret:
         ).hexdigest()
         if expected != message_hex:
             raise ValueError("invalid confirmation from server")
-        return self._shared_key
+        return cast(bytes, self._shared_key)
 
 
 @dataclass(frozen=True)
@@ -293,7 +294,7 @@ class _ServerSharedSecret:
         ).hexdigest()
         if expected != message_hex:
             raise ValueError("invalid confirmation from client")
-        return self._shared_key
+        return cast(bytes, self._shared_key)
 
 
 class _ClientHandshake:

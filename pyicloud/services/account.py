@@ -1,6 +1,6 @@
 """Account service."""
 
-from typing import Any
+from typing import Any, cast
 
 from requests import Response
 
@@ -296,7 +296,10 @@ class AccountStorageUsage:
     @property
     def used_storage_in_percent(self) -> float:
         """Gets the used storage in percent."""
-        return round(self.used_storage_in_bytes * 100 / self.total_storage_in_bytes, 2)
+        return cast(
+            float,
+            round(self.used_storage_in_bytes * 100 / self.total_storage_in_bytes, 2),
+        )
 
     @property
     def available_storage_in_bytes(self) -> Any:

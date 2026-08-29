@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 import uuid
 
 from pyicloud.common.cloudkit import (
@@ -228,7 +228,7 @@ class RemindersWriteAPI:
         )
         _assert_modify_success(modify_response, operation_name)
         _refresh_record_change_tag(modify_response, model_obj, record_name)
-        return modify_response
+        return cast(CKModifyResponse, modify_response)
 
     def _lookup_created_reminder(self, record_name: str) -> Reminder:
         """Fetch a freshly-created reminder by record name."""

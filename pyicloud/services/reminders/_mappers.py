@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import json as _json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from pyicloud.common.cloudkit import CKRecord
 
@@ -128,7 +128,7 @@ class RemindersRecordMapper:
                 field_name,
                 record_name,
             )
-            return value.decode("utf-8", errors="replace")
+            return cast(str, value.decode("utf-8", errors="replace"))
 
     def record_to_list(self, rec: CKRecord) -> RemindersList:
         """Map a CloudKit list record to a ``RemindersList`` domain model."""

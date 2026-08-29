@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import logging
 from pathlib import Path, PurePosixPath
-from typing import IO, Any
+from typing import IO, Any, cast
 
 from click import confirm
 from rich.console import Console
@@ -676,7 +676,7 @@ def resolve_device(
     for device in devices:
         identifier = str(getattr(device, "id", "")).strip().lower()
         if identifier and identifier == lowered:
-            return device
+            return cast(AppleDevice, device)
 
     matches = []
     seen_ids: set[str] = set()
@@ -709,7 +709,7 @@ def resolve_device(
         raise CLIAbort(
             f"Multiple devices matched '{query}'. Use a device id instead.\n{options}"
         )
-    return matches[0]
+    return cast(AppleDevice, matches[0])
 
 
 def resolve_drive_node(

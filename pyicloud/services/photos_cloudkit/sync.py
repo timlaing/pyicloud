@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 import re
 import tempfile
 import time
-from typing import Any
+from typing import Any, cast
 
 from .constants import (
     legacy_shared_stream_unsupported_message,
@@ -506,9 +506,9 @@ def _resolve_library(service: Any, library_key: str) -> Any:
 
 def _sync_cursor(library: Any, service: Any) -> str | None:
     if hasattr(library, "sync_cursor"):
-        return library.sync_cursor()
+        return cast(str, library.sync_cursor())
     if hasattr(service, "sync_cursor"):
-        return service.sync_cursor()
+        return cast(str, service.sync_cursor())
     return None
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 import logging
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -113,7 +113,7 @@ class RemindersReadAPI:
         """Return the latest usable sync token for the Reminders zone."""
         query_token = self._get_raw().current_sync_token(zone_id=_REMINDERS_ZONE_REQ)
         if query_token:
-            return query_token
+            return cast(str, query_token)
 
         sync_token: str | None = None
         for zone in self._iter_zone_change_pages(

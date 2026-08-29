@@ -56,9 +56,7 @@ from .mappers import (
     record_record_type,
     record_zone,
 )
-from .mappers import (
-    record_change_tag as _record_change_tag,
-)
+from .mappers import record_change_tag as _record_change_tag
 from .models import (
     PhotoChangeEvent,
     PhotoResource,
@@ -984,7 +982,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         index: int,
         direction: DirectionEnum,
         page_size: int,
-    ) -> Generator[PhotoAsset, None, None]:
+    ) -> Generator[PhotoAsset]:
         query = list_query(
             list_type=self._list_type,
             direction=direction,
@@ -1067,7 +1065,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     def _process_photo_list_response(
         self,
         records: list[CKRecord | CKTombstoneRecord | Any] | dict[str, Any],
-    ) -> Generator[PhotoAsset, None, None]:
+    ) -> Generator[PhotoAsset]:
         if isinstance(records, dict):
             raw_response = records
             if hasattr(self._library, "parse_asset_response"):
@@ -1105,7 +1103,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
             )
             yield photo
 
-    def _iter_added_desc_photos(self) -> Generator[PhotoAsset, None, None]:
+    def _iter_added_desc_photos(self) -> Generator[PhotoAsset]:
         """
         Iterate the recently-added index newest-first.
 
@@ -1135,7 +1133,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
             offset += len(window)
 
     @property
-    def photos(self) -> Generator[PhotoAsset, None, None]:
+    def photos(self) -> Generator[PhotoAsset]:
         """Yield the album's photos in order."""
         self._len = None
         if (
@@ -1173,7 +1171,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         """Delete the album."""
         raise NotImplementedError("Album delete is not implemented")
 
-    def __iter__(self) -> Generator[PhotoAsset, None, None]:
+    def __iter__(self) -> Generator[PhotoAsset]:
         return self.photos
 
     def __len__(self) -> int:
@@ -1526,7 +1524,7 @@ class PhotoAlbum(BasePhotoAlbum):
                 album=self,
                 photo=photo,
             )
-        return photo
+        return cast(PhotoAsset, photo)
 
     @property
     def _get_container_id(self) -> str:
@@ -2330,7 +2328,7 @@ class PhotosService(BaseService):
         else:
             album_obj = album
 
-        return album_obj.upload(path)
+        return cast(PhotoAsset | None, album_obj.upload(path))
 
     def sync_cursor(self) -> str:
         """Return the root library's current sync cursor."""

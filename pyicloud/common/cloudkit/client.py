@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 import logging
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
@@ -187,7 +187,7 @@ class _CloudKitHTTP:
             raise CloudKitApiError(f"HTTP {code}", payload=body)
 
         try:
-            return resp.json()
+            return cast(dict[str, Any], resp.json())
         except Exception as exc:
             self._run_debug_hook(op, url, payload, resp)
             raise CloudKitApiError(

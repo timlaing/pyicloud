@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import logging
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal, NoReturn, cast
 from urllib.parse import urlencode
 
 from pyicloud.common.cloudkit import (
@@ -271,7 +271,7 @@ class CloudKitInvitesClient:
             raise InvitesApiError(f"HTTP {code}", payload=body)
 
         try:
-            return resp.json()
+            return cast(dict[str, Any], resp.json())
         except Exception as exc:
             raise InvitesApiError(
                 "Invalid JSON response",

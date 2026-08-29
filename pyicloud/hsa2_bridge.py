@@ -16,7 +16,7 @@ import socket
 import ssl
 import struct
 import time
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urlparse
 import uuid
 
@@ -732,7 +732,7 @@ def _topic_name(topic_bytes: bytes, topics_by_hash: Mapping[str, str]) -> str:
 def _extract_json_payload(payload: bytes) -> dict[str, Any]:
     """Extract the JSON object embedded in one bridge push payload."""
     try:
-        return json.loads(payload.decode("utf-8"))
+        return cast(dict[str, Any], json.loads(payload.decode("utf-8")))
     except (UnicodeDecodeError, json.JSONDecodeError):
         text = payload.decode("utf-8", "ignore")
 
@@ -758,7 +758,7 @@ def _extract_json_payload(payload: bytes) -> dict[str, Any]:
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(text[start : index + 1])
+                        return cast(dict[str, Any], json.loads(text[start : index + 1]))
                     except json.JSONDecodeError:
                         break
         start = text.find("{", start + 1)
@@ -1379,7 +1379,7 @@ class TrustedDeviceBridgeBootstrapper:
                 idmsdata=bridge_state.idmsdata,
                 akdata=bridge_state.akdata,
             )
-            return verification_succeeded
+            return cast(bool, verification_succeeded)
         except PyiCloudTrustedDevicePromptException as exc:
             raise PyiCloudTrustedDeviceVerificationException(
                 "Trusted-device bridge verification failed while waiting "

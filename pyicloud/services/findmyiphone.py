@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 from requests import Response
 
@@ -311,7 +311,7 @@ class AppleDevice:
         """Updates the device location."""
         if self.location_available is False:
             return None
-        return self._content["location"]
+        return cast(dict[str, Any], self._content["location"])
 
     def status(self, additional: list[str] | None = None) -> dict[str, Any]:
         """Returns status information for device.
@@ -414,7 +414,7 @@ class AppleDevice:
         data = self.session.post(url=self._erase_token_url, json=data).json()
         if "tokens" not in data or "mmeFMIPWebEraseDeviceToken" not in data["tokens"]:
             raise PyiCloudServiceUnavailable("Find My iPhone erase token not available")
-        return data["tokens"]["mmeFMIPWebEraseDeviceToken"]
+        return cast(str, data["tokens"]["mmeFMIPWebEraseDeviceToken"])
 
     def erase_device(
         self,
@@ -463,42 +463,42 @@ class AppleDevice:
     @property
     def name(self) -> str:
         """Gets the device name."""
-        return self.data.get("name", "")
+        return cast(str, self.data.get("name", ""))
 
     @property
     def model(self) -> str:
         """Gets the device model."""
-        return self.data.get("deviceModel", "")
+        return cast(str, self.data.get("deviceModel", ""))
 
     @property
     def model_name(self) -> str:
         """Gets the device model name."""
-        return self.data.get("deviceDisplayName", "")
+        return cast(str, self.data.get("deviceDisplayName", ""))
 
     @property
     def device_type(self) -> str:
         """Gets the device type."""
-        return self.data.get("deviceClass", "")
+        return cast(str, self.data.get("deviceClass", ""))
 
     @property
     def lost_mode_available(self) -> bool:
         """Indicates if lost mode is available for the device."""
-        return self.data.get("lostModeCapable", False)
+        return cast(bool, self.data.get("lostModeCapable", False))
 
     @property
     def messaging_available(self) -> bool:
         """Indicates if messaging is available for the device."""
-        return self.data.get("features", {}).get("MSG", False)
+        return cast(bool, self.data.get("features", {}).get("MSG", False))
 
     @property
     def sound_available(self) -> bool:
         """Indicates if sound is available for the device."""
-        return self.data.get("features", {}).get("SND", False)
+        return cast(bool, self.data.get("features", {}).get("SND", False))
 
     @property
     def erase_available(self) -> bool:
         """Indicates if erase is available for the device."""
-        return self.data.get("features", {}).get("WIP", False)
+        return cast(bool, self.data.get("features", {}).get("WIP", False))
 
     @property
     def location_available(self) -> bool:

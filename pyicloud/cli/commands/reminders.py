@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from pydantic import ValidationError
 import typer
@@ -157,7 +157,7 @@ def _resolve_reminder(api: PyiCloudService, reminder_id: str) -> Reminder:
     """Return one reminder by id."""
 
     reminders = _reminders_service(api)
-    return _reminders_call(api, lambda: reminders.get(reminder_id))
+    return cast(Reminder, _reminders_call(api, lambda: reminders.get(reminder_id)))
 
 
 def _list_reminder_rows(
@@ -181,7 +181,7 @@ def _list_reminder_rows(
                 results_limit=results_limit,
             ),
         )
-        return snapshot.reminders[:limit]
+        return cast(list[Reminder], snapshot.reminders[:limit])
 
     rows: list[Reminder] = []
     seen_ids: set[str] = set()

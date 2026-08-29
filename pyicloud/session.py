@@ -5,7 +5,7 @@ import logging
 import os
 from os import path
 from re import match
-from typing import TYPE_CHECKING, Any, NoReturn, Union, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import requests
 from requests.models import Response
@@ -380,7 +380,7 @@ class PyiCloudSession(requests.Session):
             return
 
         try:
-            data: Union[list[dict[str, Any]], dict[str, Any]] = response.json()
+            data: list[dict[str, Any]] | dict[str, Any] = response.json()
             if isinstance(data, dict):
                 reason: str | None = data.get("errorMessage")
                 reason = reason or data.get("reason")
@@ -390,7 +390,7 @@ class PyiCloudSession(requests.Session):
                     reason = "Unknown reason"
 
                 if reason:
-                    code: Union[int, str] | None = data.get("errorCode")
+                    code: int | str | None = data.get("errorCode")
                     code = code or data.get("serverErrorCode")
                     self._raise_error(response, code, reason)
 
@@ -402,7 +402,7 @@ class PyiCloudSession(requests.Session):
             )
 
     def _raise_error(
-        self, response: Response, code: Union[int, str] | None, reason: str
+        self, response: Response, code: int | str | None, reason: str
     ) -> NoReturn:
         """Raise the session's public exception for a parsed iCloud error payload."""
         if (

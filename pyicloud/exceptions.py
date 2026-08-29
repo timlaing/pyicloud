@@ -1,6 +1,6 @@
 """Library exceptions."""
 
-from typing import Any, Union
+from typing import Any
 
 from requests import Response
 
@@ -28,12 +28,12 @@ class PyiCloudAPIResponseException(PyiCloudException):
     def __init__(
         self,
         reason: str,
-        code: Union[int, str] | None = None,
+        code: int | str | None = None,
         response: Response | None = None,
     ) -> None:
         """Capture a normalized API error and the optional HTTP context."""
         self.reason: str = reason
-        self.code: Union[int, str] | None = code
+        self.code: int | str | None = code
         self.response: Response | None = response
         message: str = reason or ""
         if code:

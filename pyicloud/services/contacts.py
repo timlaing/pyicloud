@@ -1,6 +1,6 @@
 """Contacts service."""
 
-from typing import Any
+from typing import Any, cast
 
 from requests import Response
 
@@ -92,14 +92,14 @@ class MeCard:
         """
         The user's first name.
         """
-        return self._contact["firstName"]
+        return cast(str, self._contact["firstName"])
 
     @property
     def last_name(self) -> str:
         """
         The user's last name.
         """
-        return self._contact["lastName"]
+        return cast(str, self._contact["lastName"])
 
     @property
     def photo(self) -> Any:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from pyicloud.base import PyiCloudService
 from pyicloud.services.account import AccountService
@@ -352,8 +352,8 @@ def search_notes_by_title(
         if modified_at is None:
             return epoch
         if modified_at.tzinfo is None:
-            return modified_at.replace(tzinfo=timezone.utc)
-        return modified_at
+            return cast(datetime, modified_at.replace(tzinfo=timezone.utc))
+        return cast(datetime, modified_at)
 
     candidates.sort(key=sort_key, reverse=True)
     return candidates[:limit]

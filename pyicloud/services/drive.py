@@ -7,7 +7,7 @@ import mimetypes
 import os
 from re import Match, search
 import time
-from typing import IO, Any
+from typing import IO, Any, cast
 import uuid
 
 from requests import Response
@@ -71,7 +71,7 @@ class DriveService(BaseService):
             json=payload,
         )
         self._raise_if_error(request)
-        return request.json()[0]
+        return cast(dict[str, Any], request.json()[0])
 
     def get_file(
         self, file_id: str, zone: str = CLOUD_DOCS_ZONE, **kwargs: Any

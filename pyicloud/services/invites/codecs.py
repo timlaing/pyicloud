@@ -16,7 +16,7 @@ import binascii
 from collections.abc import Mapping
 import json
 import logging
-from typing import Any, Union
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ JSON_BYTES_FIELDS: frozenset[str] = frozenset({
 })
 
 
-def decode_json_bytes(value: Union[str, bytes, bytearray] | None) -> Any | None:
+def decode_json_bytes(value: str | bytes | bytearray | None) -> Any | None:
     """Decode a base64-encoded JSON blob to its Python value.
 
     Accepts either a base64 ``str`` (the wire form) or ``bytes``/``bytearray``.

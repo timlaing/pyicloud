@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 import plistlib
 import struct
-from typing import Any
+from typing import Any, cast
 from xml.etree import ElementTree
 import zlib
 
@@ -595,10 +595,10 @@ def _read_long_tag(
 def _read_uint16(data: bytes, offset: int, fmt: bytes) -> int | None:
     if offset + 2 > len(data):
         return None
-    return struct.unpack(f"{fmt.decode()}H", data[offset : offset + 2])[0]
+    return cast(int, struct.unpack(f"{fmt.decode()}H", data[offset : offset + 2])[0])
 
 
 def _read_uint32(data: bytes, offset: int, fmt: bytes) -> int | None:
     if offset + 4 > len(data):
         return None
-    return struct.unpack(f"{fmt.decode()}I", data[offset : offset + 4])[0]
+    return cast(int, struct.unpack(f"{fmt.decode()}I", data[offset : offset + 4])[0])

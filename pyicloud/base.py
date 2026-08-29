@@ -757,7 +757,7 @@ class PyiCloudService:
     @property
     def is_trusted_session(self) -> bool:
         """Returns True if the session is trusted."""
-        return self.data.get("hsaTrustedBrowser", False)
+        return cast(bool, self.data.get("hsaTrustedBrowser", False))
 
     @property
     def trusted_devices(self) -> list[dict[str, Any]]:
@@ -765,7 +765,7 @@ class PyiCloudService:
         request: Response = self.session.get(
             f"{self._setup_endpoint}/listDevices", params=self.params
         )
-        return request.json().get("devices")
+        return cast(list[dict[str, Any]], request.json().get("devices"))
 
     def send_verification_code(self, device: dict[str, Any]) -> bool:
         """Requests that a verification code is sent to the given device."""
@@ -774,7 +774,7 @@ class PyiCloudService:
             params=self.params,
             json=device,
         )
-        return request.json().get("success", False)
+        return cast(bool, request.json().get("success", False))
 
     def validate_verification_code(self, device: dict[str, Any], code: str) -> bool:
         """Verifies a verification code received on a trusted device."""
@@ -1096,7 +1096,7 @@ class PyiCloudService:
             f"{self._setup_endpoint}/requestWebAccessState", params=self.params
         ).json()
 
-        return resp
+        return cast(dict[str, Any], resp)
 
     def _send_pcs_request(
         self, app_name: str, derived_from_user_action: bool
@@ -1104,14 +1104,17 @@ class PyiCloudService:
         """Send a request to the PCS endpoint to check the status of PCS access."""
         LOGGER.debug("Querying PCS status")
 
-        return self.session.post(
-            f"{self._setup_endpoint}/requestPCS",
-            json={
-                "appName": app_name,
-                "derivedFromUserAction": derived_from_user_action,
-            },
-            params=self.params,
-        ).json()
+        return cast(
+            dict[str, Any],
+            self.session.post(
+                f"{self._setup_endpoint}/requestPCS",
+                json={
+                    "appName": app_name,
+                    "derivedFromUserAction": derived_from_user_action,
+                },
+                params=self.params,
+            ).json(),
+        )
 
     def _request_pcs_for_service(self, app_name: str) -> None:
         """Request PCS access for a specific service."""
@@ -1264,7 +1267,7 @@ class PyiCloudService:
                 f"Webservice not available: {ws_key}"
             )
 
-        return self._webservices[ws_key]["url"]
+        return cast(str, self._webservices[ws_key]["url"])
 
     @property
     def devices(self) -> FindMyiPhoneServiceManager:

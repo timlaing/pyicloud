@@ -8,6 +8,7 @@ import gzip
 import json as _json
 import logging
 import time
+from typing import cast
 from urllib.parse import urlparse
 import uuid
 import zlib
@@ -27,7 +28,7 @@ def _ref_name(fields: CKFields, key: str) -> str:
     """Extract recordName from a REFERENCE field, or return ''."""
     field = fields.get_field(key)
     if field and field.value and hasattr(field.value, "recordName"):
-        return field.value.recordName
+        return cast(str, field.value.recordName)
     return ""
 
 
@@ -149,7 +150,7 @@ def _decode_crdt_document(encrypted_value: str | bytes) -> str:
         value = reminders_pb2.String()  # type: ignore[attr-defined]
         value.ParseFromString(data)
         if value.string:
-            return value.string
+            return cast(str, value.string)
     except Exception as exc:  # pragma: no cover - legacy fallback path
         LOGGER.debug("bare String parse failed: %s", exc)
 
