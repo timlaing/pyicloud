@@ -355,7 +355,7 @@ class InvitesService(BaseService):
         return record_name
 
     @staticmethod
-    def _zone_id_req(event_id: str, scope: EventScope) -> CKZoneIDReq:
+    def _zone_id_req(event_id: str, _scope: EventScope) -> CKZoneIDReq:
         # In the shared scope CloudKit needs the original owner record name,
         # but we don't always have it here. Most call sites work with just
         # zoneName + zoneType; expand if shared writes need ownerRecordName.

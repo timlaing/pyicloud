@@ -581,7 +581,7 @@ def _read_ascii_tag(
 
 
 def _read_long_tag(
-    exif_payload: bytes, ifd: dict[int, tuple[int, int, int]], tag: int
+    _exif_payload: bytes, ifd: dict[int, tuple[int, int, int]], tag: int
 ) -> int | None:
     entry = ifd.get(tag)
     if entry is None:

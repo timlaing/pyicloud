@@ -957,7 +957,7 @@ def test_apply_local_metadata_skips_mutations_for_preview_modes() -> None:
         ):
             sync_module._apply_local_metadata(
                 asset=asset,
-                resource=asset.resources["original"],
+                _resource=asset.resources["original"],
                 resource_key="original",
                 target_path=Path("/tmp/photo.jpg"),
                 options=options,

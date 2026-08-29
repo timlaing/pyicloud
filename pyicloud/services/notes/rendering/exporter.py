@@ -204,7 +204,7 @@ def download_pdf_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,
+    config: ExportConfig | None = None,  # pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download PDFs for attachments and rewrite datasource URLs to local paths.
 
@@ -348,7 +348,7 @@ def download_av_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,
+    config: ExportConfig | None = None,  # pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download audio/video attachments and rewrite datasource URLs to local paths.
 
@@ -450,7 +450,7 @@ def download_vcard_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,
+    config: ExportConfig | None = None,  # pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download VCard (contact) attachments and rewrite datasource URLs to local paths.
 

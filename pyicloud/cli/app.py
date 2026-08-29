@@ -53,7 +53,7 @@ def _group_root(ctx: typer.Context) -> None:
 
 @app.callback()
 def root_callback(
-    version: bool = typer.Option(
+    version: bool = typer.Option(  # pylint: disable=unused-argument
         False,
         "--version",
         help="Show the installed pyicloud version and exit.",

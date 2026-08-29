@@ -328,7 +328,7 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                     asset_confirmed_local = True
                     _apply_local_metadata(
                         asset=asset,
-                        resource=resource,
+                        _resource=resource,
                         resource_key=resource_key,
                         target_path=target_path,
                         options=options,
@@ -377,7 +377,7 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
                 _atomic_write_bytes(target_path, data)
                 _apply_local_metadata(
                     asset=asset,
-                    resource=resource,
+                    _resource=resource,
                     resource_key=resource_key,
                     target_path=target_path,
                     options=options,
@@ -783,7 +783,7 @@ def _sanitize_name(value: str) -> str:
 def _apply_local_metadata(
     *,
     asset: Any,
-    resource: PhotoResource,
+    _resource: PhotoResource,
     resource_key: str,
     target_path: Path,
     options: PhotoSyncOptions,

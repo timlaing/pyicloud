@@ -102,7 +102,9 @@ class FakeDevice:
 class FakeDriveResponse:
     """Download response fixture."""
 
-    def iter_content(self, chunk_size: int = 8192):  # pragma: no cover - trivial
+    def iter_content(  # pylint: disable=unused-argument
+        self, chunk_size: int = 8192
+    ):  # pragma: no cover - trivial
         """Yield the fake download body."""
         yield b"hello"
 
@@ -137,7 +139,9 @@ class FakeDriveNode:
                 return child
         raise KeyError(key)
 
-    def open(self, **kwargs) -> FakeDriveResponse:  # pragma: no cover - trivial
+    def open(  # pylint: disable=unused-argument
+        self, **kwargs
+    ) -> FakeDriveResponse:  # pragma: no cover - trivial
         """Return a fake download response."""
         return FakeDriveResponse()
 
@@ -917,7 +921,7 @@ class FakeReminders:
         reminder.attachment_ids.append(attachment.id)
         return attachment
 
-    def update_attachment(
+    def update_attachment(  # pylint: disable=unused-argument
         self,
         attachment: URLAttachment,
         *,
