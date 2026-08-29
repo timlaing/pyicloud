@@ -95,8 +95,9 @@ class TestNotesCli(unittest.TestCase):
             patch.object(module, "decode_and_parse_note", return_value=MagicMock()),
             patch.object(module, "console", MagicMock()),
             patch.object(module, "CKRecord", dummy_ckrecord),
-            patch(
-                "pyicloud.services.notes.rendering.exporter.NoteExporter",
+            patch.object(
+                module,
+                "NoteExporter",
                 return_value=exporter,
             ) as mock_exporter_cls,
         ):
@@ -177,8 +178,9 @@ class TestNotesCli(unittest.TestCase):
             patch.object(module, "decode_and_parse_note", return_value=MagicMock()),
             patch.object(module, "console", console),
             patch.object(module, "CKRecord", dummy_ckrecord),
-            patch(
-                "pyicloud.services.notes.rendering.exporter.NoteExporter",
+            patch.object(
+                module,
+                "NoteExporter",
                 return_value=exporter,
             ),
         ):

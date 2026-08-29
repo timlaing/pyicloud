@@ -34,6 +34,7 @@ from pyicloud.common.cloudkit import (
     CKZoneIDReq,
 )
 from pyicloud.common.cloudkit.base import resolve_cloudkit_validation_extra
+from pyicloud.common.cloudkit.models import CKStringListField
 from pyicloud.services.reminders._mappers import RemindersRecordMapper
 from pyicloud.services.reminders._protocol import (
     CRDTDecodeError,
@@ -1208,8 +1209,6 @@ class TestStringListField:
 
     def test_string_list_parsed(self):
         """STRING_LIST should be parsed as CKStringListField, not CKPassthroughField."""
-        from pyicloud.common.cloudkit.models import CKStringListField
-
         rec = _ck_record(
             "Reminder",
             "REM-SL",

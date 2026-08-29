@@ -11,14 +11,17 @@ exports, but it is not the primary public API for the Notes service.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import logging
 import os
 import re
 import sys
+import time
 from typing import Any
 
 # Ensure pyicloud can be imported when running from examples/ directly.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# pylint: disable=wrong-import-position
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -26,7 +29,15 @@ from rich.logging import RichHandler
 from pyicloud import PyiCloudService
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.exceptions import PyiCloudServiceUnavailable
-from pyicloud.services.notes.rendering.exporter import decode_and_parse_note
+from pyicloud.services.notes.rendering.debug_tools import (
+    annotate_note_runs_html,
+    dump_runs_text,
+    map_merged_runs,
+)
+from pyicloud.services.notes.rendering.exporter import (
+    NoteExporter,
+    decode_and_parse_note,
+)
 from pyicloud.services.notes.rendering.options import ExportConfig
 from pyicloud.utils import get_password
 
@@ -209,8 +220,6 @@ def main() -> None:
 
     args = parse_args()
 
-    import time
-
     t0 = time.perf_counter()
 
     def phase(msg: str) -> None:
@@ -308,8 +317,6 @@ def main() -> None:
                 phase(f"selection: total matched {len(candidates)} candidate(s)")
 
             try:
-                from datetime import datetime, timezone
-
                 epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
                 candidates.sort(key=lambda x: x.modified_at or epoch, reverse=True)
             except Exception:
@@ -352,8 +359,6 @@ def main() -> None:
             console.print("proto_note:")
             console.print(proto_note, end="\n\n")
 
-        from pyicloud.services.notes.rendering.exporter import NoteExporter
-
         phase(f"note[{idx}]: exporter init")
         config = ExportConfig(
             debug=bool(args.notes_debug),
@@ -384,12 +389,6 @@ def main() -> None:
 
         if args.dump_runs:
             try:
-                from pyicloud.services.notes.rendering.debug_tools import (
-                    annotate_note_runs_html,
-                    dump_runs_text,
-                    map_merged_runs,
-                )
-
                 console.rule("attribute runs (utf16 mapping)")
                 console.print(dump_runs_text(proto_note))
 

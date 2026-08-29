@@ -26,6 +26,7 @@ from pyicloud.services.notes.models import (
     NoteSummary,
 )
 from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
+from pyicloud.services.photos import run_photo_sync, watch_photo_sync
 from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
 from pyicloud.services.reminders.models import (
     Alarm,
@@ -353,14 +354,10 @@ class FakePhotosService:
 
     def sync(self, options):
         """Run a photo sync against this fixture."""
-        from pyicloud.services.photos import run_photo_sync
-
         return run_photo_sync(self, options)
 
     def watch(self, options, *, interval_seconds: int, iterations: int | None = None):
         """Run a photo watch loop against this fixture."""
-        from pyicloud.services.photos import watch_photo_sync
-
         return watch_photo_sync(
             self,
             options,

@@ -3,6 +3,7 @@ Test the PyiCloudService and PyiCloudSession classes."""
 
 # pylint: disable=protected-access
 
+import base64
 import json
 from pathlib import Path
 import secrets
@@ -18,6 +19,7 @@ from requests import HTTPError, Response
 from pyicloud import PyiCloudService
 from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
+    PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
@@ -2429,15 +2431,11 @@ def test_srp_authentication_calls_request_2fa_code_when_2fa_required(
     Apple signals 2FA is needed.
     """
 
-    import base64 as _base64
-
-    from pyicloud.exceptions import PyiCloud2FARequiredException as _2FAExc
-
     init_response = MagicMock()
     init_response.raise_for_status = MagicMock()
     init_response.json.return_value = {
-        "salt": _base64.b64encode(b"\x00" * 32).decode(),
-        "b": _base64.b64encode(b"\x01" * 256).decode(),
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
         "c": "session_context",
         "iteration": 1000,
         "protocol": "s2k",
@@ -2464,7 +2462,7 @@ def test_srp_authentication_calls_request_2fa_code_when_2fa_required(
         mock_session.get.return_value = authorize_response
         mock_session.post.side_effect = [
             init_response,
-            _2FAExc("test@example.com", MagicMock()),
+            PyiCloud2FARequiredException("test@example.com", MagicMock()),
         ]
 
         pyicloud_service._srp_authentication()

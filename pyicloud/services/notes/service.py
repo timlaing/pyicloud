@@ -53,6 +53,9 @@ from .domain import AttachmentId, NoteBody
 from .models import Attachment, Note, NoteSummary
 from .models.constants import NotesDesiredKey, NotesRecordType
 from .models.dto import ChangeEvent, NoteFolder
+from .rendering.exporter import NoteExporter, build_datasource, decode_and_parse_note
+from .rendering.options import ExportConfig
+from .rendering.renderer import NoteRenderer
 
 LOGGER = logging.getLogger(__name__)
 _HAS_SUBFOLDER_FIELD = "HasSubfolder"
@@ -456,10 +459,6 @@ class NotesService(BaseService):
         """
         target = self._lookup_note_record(note_id)
 
-        # Lazy import to avoid circular dependency
-        from .rendering.exporter import NoteExporter
-        from .rendering.options import ExportConfig
-
         config = ExportConfig(**config_kwargs)
         exporter = NoteExporter(self._raw, config=config)
         path = exporter.export(target, output_dir=output_dir)
@@ -481,10 +480,6 @@ class NotesService(BaseService):
             write files to disk.
         """
         target = self._lookup_note_record(note_id)
-
-        from .rendering.exporter import build_datasource, decode_and_parse_note
-        from .rendering.options import ExportConfig
-        from .rendering.renderer import NoteRenderer
 
         config = ExportConfig(**config_kwargs)
         note = decode_and_parse_note(target)

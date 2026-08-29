@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import gzip
 import json as _json
 import logging
 import time
@@ -117,9 +118,7 @@ def _decode_crdt_document(encrypted_value: str | bytes) -> str:
         data = zlib.decompress(data)
     except zlib.error:
         try:
-            import gzip as _gzip
-
-            data = _gzip.decompress(data)
+            data = gzip.decompress(data)
         except OSError as exc:
             LOGGER.debug("CRDT decompress skipped: %s (%s)", exc, data[:10])
 

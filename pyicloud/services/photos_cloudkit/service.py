@@ -34,6 +34,7 @@ from pyicloud.exceptions import (
     PyiCloudServiceNotActivatedException,
 )
 from pyicloud.services.base import BaseService
+from pyicloud.services.photos_legacy import PhotoStreamLibrary
 
 from .client import PhotosCloudKitClient
 from .constants import (
@@ -49,11 +50,13 @@ from .mappers import (
     build_photo_resource,
     decode_encrypted_text,
     master_asset_pairs,
-    record_change_tag,
     record_field_value,
     record_name,
     record_record_type,
     record_zone,
+)
+from .mappers import (
+    record_change_tag as _record_change_tag,
 )
 from .models import (
     PhotoChangeEvent,
@@ -660,7 +663,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 zone_id=self.zone_id,
                 query_filters=typed_query_filters,
                 parent_id=cast(str | None, record_field_value(record, "parentId")),
-                record_change_tag=record_change_tag(record),
+                record_change_tag=_record_change_tag(record),
                 record_modification_date=record_field_value(
                     record, "recordModificationDate"
                 ),
@@ -677,7 +680,7 @@ class PhotoLibrary(BasePhotoLibrary):
             zone_id=self.zone_id,
             query_filters=typed_query_filters,
             parent_id=cast(str | None, record_field_value(record, "parentId")),
-            record_change_tag=record_change_tag(record),
+            record_change_tag=_record_change_tag(record),
             record_modification_date=record_field_value(
                 record, "recordModificationDate"
             ),
@@ -849,8 +852,8 @@ class PhotoLibrary(BasePhotoLibrary):
             and master_record is not None
             and asset_record is not None
             and (
-                record_change_tag(master_record) is None
-                or record_change_tag(asset_record) is None
+                _record_change_tag(master_record) is None
+                or _record_change_tag(asset_record) is None
                 or record_field_value(master_record, "filenameEnc") is None
                 or record_field_value(asset_record, "masterRef") is None
             )
@@ -1980,8 +1983,8 @@ class PhotoAsset:
                 record=CKWriteRecord(
                     recordName=record_name(self._asset_record),
                     recordType=record_record_type(self._asset_record),
-                    recordChangeTag=record_change_tag(self._asset_record)
-                    or record_change_tag(self._master_record),
+                    recordChangeTag=_record_change_tag(self._asset_record)
+                    or _record_change_tag(self._master_record),
                     fields={"isFavorite": {"type": "INT64", "value": favorite_value}},
                     zoneID=CKZoneID(**zone_dict),
                 ),
@@ -2010,8 +2013,10 @@ class PhotoAsset:
                             "record": {
                                 "recordName": record_name(self._asset_record),
                                 "recordType": record_record_type(self._asset_record),
-                                "recordChangeTag": record_change_tag(self._asset_record)
-                                or record_change_tag(self._master_record),
+                                "recordChangeTag": _record_change_tag(
+                                    self._asset_record
+                                )
+                                or _record_change_tag(self._master_record),
                                 "fields": {
                                     "isFavorite": {"value": favorite_value},
                                 },
@@ -2079,8 +2084,8 @@ class PhotoAsset:
                 record=CKWriteRecord(
                     recordName=record_name(self._asset_record),
                     recordType=record_record_type(self._asset_record),
-                    recordChangeTag=record_change_tag(self._asset_record)
-                    or record_change_tag(self._master_record),
+                    recordChangeTag=_record_change_tag(self._asset_record)
+                    or _record_change_tag(self._master_record),
                     fields={"isDeleted": {"type": "INT64", "value": 1}},
                     zoneID=CKZoneID(**zone_dict),
                 ),
@@ -2103,8 +2108,10 @@ class PhotoAsset:
                             "record": {
                                 "recordName": record_name(self._asset_record),
                                 "recordType": record_record_type(self._asset_record),
-                                "recordChangeTag": record_change_tag(self._asset_record)
-                                or record_change_tag(self._master_record),
+                                "recordChangeTag": _record_change_tag(
+                                    self._asset_record
+                                )
+                                or _record_change_tag(self._master_record),
                                 "fields": {"isDeleted": {"value": 1}},
                             },
                         }
@@ -2166,8 +2173,6 @@ class PhotosService(BaseService):
             upload_url=upload_url,
             scope="private",
         )
-        from pyicloud.services.photos_legacy import PhotoStreamLibrary
-
         self._shared_library = PhotoStreamLibrary(
             self,
             shared_streams_url=shared_streams_album_url,

@@ -38,6 +38,8 @@ from pyicloud.services.notes.client import (
     NotesRateLimited,
 )
 from pyicloud.services.notes.client import NotesError as ClientNotesError
+from pyicloud.services.notes.domain import NoteBody
+import pyicloud.services.notes.models.cloudkit as notes_cloudkit
 from pyicloud.services.notes.rendering.exporter import decode_and_parse_note, write_html
 from pyicloud.services.notes.service import NoteNotFound
 
@@ -101,8 +103,6 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_notes_cloudkit_models_module_is_compatibility_shim(self):
         """Older Notes CloudKit model imports resolve to the common models."""
-        import pyicloud.services.notes.models.cloudkit as notes_cloudkit
-
         self.assertIs(notes_cloudkit.CKRecord, CKRecord)
         self.assertEqual(notes_cloudkit.CKRecordType.Note.value, "Note")
         self.assertEqual(
@@ -423,8 +423,8 @@ class NotesServiceTest(unittest.TestCase):
 
         self.assertTrue(hasattr(module, "NoteExporter"))
 
-    def test_notes_service_render_note_uses_lazy_importer(self):
-        """Render note delegates to the lazily imported exporter modules."""
+    def test_notes_service_render_note_delegates_to_exporter_modules(self):
+        """Render note delegates to the top-level ex/importer modules."""
         record = CKRecord.model_validate({
             "recordName": "Note/1",
             "recordType": "Note",
@@ -434,11 +434,11 @@ class NotesServiceTest(unittest.TestCase):
 
         with (
             patch(
-                "pyicloud.services.notes.rendering.exporter.decode_and_parse_note",
+                "pyicloud.services.notes.service.decode_and_parse_note",
                 return_value=MagicMock(name="note"),
             ),
             patch(
-                "pyicloud.services.notes.rendering.exporter.build_datasource",
+                "pyicloud.services.notes.service.build_datasource",
                 return_value=(MagicMock(name="datasource"), []),
             ),
             patch(
@@ -627,8 +627,6 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_note_body_text_defaults_to_none(self):
         """NoteBody.text defaults to None when no body text is present."""
-        from pyicloud.services.notes.domain import NoteBody
-
         body = NoteBody(bytes=b"hello")
         self.assertIsNone(body.text)
 

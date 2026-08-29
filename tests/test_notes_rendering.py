@@ -5,6 +5,7 @@
 # invalid-name / unused-argument.
 # pylint: disable=invalid-name,unused-argument
 
+import base64
 import json
 import os
 import tempfile
@@ -12,6 +13,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
+from pyicloud.services.notes.decoding import BodyDecoder
+from pyicloud.services.notes.protobuf import notes_pb2
 from pyicloud.services.notes.rendering.attachments import (
     AttachmentContext,
     _safe_url,
@@ -92,8 +95,6 @@ class TestNoteRendering(unittest.TestCase):
                 """Return the value for a key, decoding bytes if stored as dict."""
                 val = self.d.get(key)
                 if isinstance(val, dict) and "__bytes__" in val:
-                    import base64
-
                     return base64.b64decode(val["__bytes__"])
                 return val
 
@@ -117,9 +118,6 @@ class TestNoteRendering(unittest.TestCase):
         note_rec = self._reconstruct_record(note_data)
 
         # Manual decode to skip isinstance check causing issues with simple mocks
-        from pyicloud.services.notes.decoding import BodyDecoder
-        from pyicloud.services.notes.protobuf import notes_pb2
-
         raw_cypher = note_rec.fields.get_value("TextDataEncrypted")
         nb = BodyDecoder().decode(raw_cypher)
         self.assertIsNotNone(nb, "Failed to BodyDecoder.decode fixture data")
