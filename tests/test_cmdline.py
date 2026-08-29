@@ -1,5 +1,7 @@
 """Tests for the Typer-based pyicloud CLI."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 from contextlib import nullcontext, suppress

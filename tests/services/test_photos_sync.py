@@ -1,5 +1,7 @@
 """Tests for the Photos sync engine and state backend."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import base64

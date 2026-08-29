@@ -1,5 +1,7 @@
 """Smoke tests for the CloudKit-backed Reminders service facade."""
 
+# pylint: disable=protected-access
+
 from unittest.mock import MagicMock
 
 from pyicloud.services.reminders import RemindersService

@@ -1,5 +1,7 @@
 """Tests for the Notes service."""
 
+# pylint: disable=protected-access
+
 from datetime import datetime
 import importlib
 import json

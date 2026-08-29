@@ -1,5 +1,7 @@
 """Tests for the HSA2 trusted-device bridge helpers."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import base64

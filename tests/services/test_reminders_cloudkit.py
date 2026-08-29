@@ -3,7 +3,7 @@
 Tests all _record_to_*() methods and _decode_crdt_document() using
 realistic CKRecord JSON fixtures.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name
 
 import base64
 from datetime import datetime, timezone
