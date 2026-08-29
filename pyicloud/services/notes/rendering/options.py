@@ -14,6 +14,8 @@ from typing import Literal
 
 @dataclass(frozen=True, slots=True)
 class ExportConfig:
+    """Configuration flags controlling note rendering and export."""
+
     # Logging/debug
     debug: bool = False
 
@@ -55,6 +57,7 @@ class ExportConfig:
     referrer_policy: str = "no-referrer"
 
     def is_image_uti(self, uti: str | None) -> bool:
+        """Return whether the given UTI should be treated as an image."""
         if not uti:
             return False
         u = uti.casefold()

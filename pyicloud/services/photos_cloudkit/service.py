@@ -255,6 +255,7 @@ class AlbumContainer(Iterable):
         return self.find(name) is not None
 
     def find(self, name: str) -> BasePhotoAlbum | None:
+        """Find an album by its name or fullname."""
         for album in self._albums.values():
             if name == album.fullname or name == album.name:
                 return album
@@ -265,17 +266,21 @@ class AlbumContainer(Iterable):
         key: str,
         default: BasePhotoAlbum | None = None,
     ) -> BasePhotoAlbum | None:
+        """Return the album for a key or the given default."""
         return self._albums.get(key, default)
 
     def append(self, album: BasePhotoAlbum) -> None:
+        """Add an album to the container."""
         self._albums[album.id] = album
         self._index = list(self._albums.keys())
 
     def remove(self, album_id: str) -> None:
+        """Remove the album with the given ID from the container."""
         self._albums.pop(album_id, None)
         self._index = list(self._albums.keys())
 
     def index(self, idx: int) -> BasePhotoAlbum:
+        """Return the album at the given positional index."""
         if idx < 0 or idx >= len(self._index):
             raise IndexError("Photo album index out of range")
         return self._albums[self._index[idx]]
@@ -372,19 +377,23 @@ class BasePhotoLibrary(ABC):
 
     @property
     def indexing_state(self) -> str | None:
+        """Return the indexing state of the library."""
         return self._indexing_state
 
     @property
     def current_sync_token(self) -> str | None:
+        """Return the current sync token for the library."""
         return self._current_sync_token
 
     @property
     def albums(self) -> AlbumContainer:
+        """Return the album container, fetching it on first access."""
         if self._albums is None:
             self._albums = self._merge_pending_albums(self._get_albums())
         return self._albums
 
     def refresh_albums(self) -> AlbumContainer:
+        """Re-fetch albums from the server and return the refreshed container."""
         self._albums = self._merge_pending_albums(self._get_albums())
         return self._albums
 
@@ -425,6 +434,7 @@ class BasePhotoLibrary(ABC):
         return asset_records, master_records
 
     def iter_changes(self, *, since: str | None = None) -> Iterator[PhotoChangeEvent]:
+        """Yield photo change events since the given sync token."""
         zone_req = CKZoneChangesZoneReq(
             zoneID=CKZoneID(**self.zone_id),
             syncToken=since,
@@ -451,6 +461,7 @@ class BasePhotoLibrary(ABC):
                     )
 
     def sync_cursor(self) -> str:
+        """Return the current sync cursor, resolving it if not yet known."""
         if self._current_sync_token:
             return self._current_sync_token
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
@@ -710,6 +721,7 @@ class PhotoLibrary(BasePhotoLibrary):
         name: str,
         album_type: AlbumTypeEnum = AlbumTypeEnum.ALBUM,
     ) -> PhotoAlbum | None:
+        """Create a new album in the library and return it."""
         encoded = base64.b64encode(name.encode("utf-8")).decode("utf-8")
         position = _new_album_position()
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
@@ -869,9 +881,11 @@ class PhotoLibrary(BasePhotoLibrary):
 
     @property
     def all(self) -> PhotoAlbum:
+        """Return the All Photos album for the library."""
         return cast(PhotoAlbum, self.albums[SmartAlbumEnum.ALL_PHOTOS.value])
 
     def recently_added(self) -> PhotoAlbum:
+        """Return a virtual album of the most recently added photos."""
         return PhotoAlbum(
             library=self,
             name="Recently Added",
@@ -908,14 +922,17 @@ class BasePhotoAlbum(Iterable, ABC):
     @property
     @abstractmethod
     def fullname(self) -> str:
+        """Return the fully-qualified album name."""
         raise NotImplementedError
 
     @property
     def title(self) -> str:
+        """Return the album title."""
         return self.name
 
     @property
     def name(self) -> str:
+        """Return the album name."""
         return self._name
 
     @name.setter
@@ -925,15 +942,18 @@ class BasePhotoAlbum(Iterable, ABC):
 
     @property
     def page_size(self) -> int:
+        """Return the page size capped at 100."""
         return self._page_size if self._page_size < 100 else 100
 
     @property
     def service(self) -> PhotosService:
+        """Return the underlying Photos service."""
         return getattr(self._library, "service", self._library)
 
     @property
     @abstractmethod
     def id(self) -> str:
+        """Return the album's unique identifier."""
         raise NotImplementedError
 
     def _query_filters(
@@ -1102,6 +1122,7 @@ class BasePhotoAlbum(Iterable, ABC):
 
     @property
     def photos(self) -> Generator[PhotoAsset, None, None]:
+        """Yield the album's photos in order."""
         self._len = None
         if (
             self._list_type == ListTypeEnum.ADDED
@@ -1127,12 +1148,15 @@ class BasePhotoAlbum(Iterable, ABC):
                 offset += num_results
 
     def photo(self, index: int) -> PhotoAsset:
+        """Return the photo at the given positional index."""
         return next(self._get_photos_at(index, self._direction, 1))
 
     def rename(self, value: str) -> None:
+        """Rename the album to the given value."""
         raise NotImplementedError("Album name is read-only")
 
     def delete(self) -> bool:
+        """Delete the album."""
         raise NotImplementedError("Album delete is not implemented")
 
     def __iter__(self) -> Generator[PhotoAsset, None, None]:
@@ -1153,6 +1177,7 @@ class BasePhotoAlbum(Iterable, ABC):
         return f"<{type(self).__name__}: '{self}'>"
 
     def get(self, key: str) -> PhotoAsset | None:
+        """Return the photo with the given ID, or None if it does not exist."""
         try:
             return self._get_photo(key)
         except KeyError:
@@ -1418,6 +1443,7 @@ class PhotoAlbum(BasePhotoAlbum):
         return True
 
     def add_photo(self, photo: PhotoAsset) -> bool:
+        """Add the given photo to the album."""
         item_id = self._relation_item_id(photo)
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             op = CKModifyOperation(
@@ -1466,6 +1492,7 @@ class PhotoAlbum(BasePhotoAlbum):
         return True
 
     def upload(self, path: str) -> PhotoAsset | None:
+        """Upload a file into this album and return the created asset."""
         upload_file = getattr(self._library, "upload_file", None)
         if not callable(upload_file):
             return None
@@ -1706,22 +1733,27 @@ class PhotoAsset:
 
     @property
     def id(self) -> str:
+        """Return the asset's unique record name."""
         return record_name(self._asset_record)
 
     @property
     def master_id(self) -> str:
+        """Return the master record's unique name."""
         return record_name(self._master_record)
 
     @property
     def asset_id(self) -> str:
+        """Return the asset record's unique name."""
         return record_name(self._asset_record)
 
     @property
     def filename(self) -> str:
+        """Return the asset's filename, falling back to its ID."""
         return decode_encrypted_text(self._master_record, "filenameEnc") or self.id
 
     @property
     def size(self) -> int | None:
+        """Return the original file size in bytes, if known."""
         token = record_field_value(self._master_record, "resOriginalRes")
         if isinstance(token, dict):
             return cast(int | None, token.get("size"))
@@ -1729,10 +1761,12 @@ class PhotoAsset:
 
     @property
     def created(self) -> datetime:
+        """Return when the asset was captured."""
         return self.asset_date
 
     @property
     def asset_date(self) -> datetime:
+        """Return the asset's capture date."""
         value = record_field_value(self._asset_record, "assetDate")
         if isinstance(value, datetime):
             return value
@@ -1742,6 +1776,7 @@ class PhotoAsset:
 
     @property
     def added_date(self) -> datetime:
+        """Return when the asset was added to the library."""
         value = record_field_value(self._asset_record, "addedDate")
         if isinstance(value, datetime):
             return value
@@ -1751,6 +1786,7 @@ class PhotoAsset:
 
     @property
     def dimensions(self) -> tuple[int | None, int | None]:
+        """Return the original width and height of the asset."""
         return (
             cast(
                 int | None,
@@ -1764,6 +1800,7 @@ class PhotoAsset:
 
     @property
     def item_type(self) -> str:
+        """Return whether the asset is an image or a movie."""
         raw_type = record_field_value(self._master_record, "itemType")
         if raw_type in self.ITEM_TYPES:
             return self.ITEM_TYPES[raw_type]
@@ -1793,6 +1830,7 @@ class PhotoAsset:
 
     @property
     def is_live_photo(self) -> bool:
+        """Return whether the asset is a Live Photo."""
         return (
             self.item_type == "image"
             and record_field_value(self._master_record, "resOriginalVidComplFileType")
@@ -1801,6 +1839,7 @@ class PhotoAsset:
 
     @property
     def resources(self) -> dict[str, PhotoResource]:
+        """Return the available download resources for the asset."""
         if self._resources is None:
             self._resources = {}
             mapping = (
@@ -1824,13 +1863,16 @@ class PhotoAsset:
 
     @property
     def versions(self) -> dict[str, dict[str, Any]]:
+        """Return the asset's resources as plain dictionaries."""
         return {key: value.as_dict() for key, value in self.resources.items()}
 
     def download_url(self, version: str = "original") -> str | None:
+        """Return the download URL for the given version."""
         resource = self.resources.get(version)
         return resource.url if resource else None
 
     def download(self, version: str = "original", **kwargs) -> bytes | None:
+        """Download the asset's bytes for the given version."""
         url = self.download_url(version)
         if url is None:
             return None
@@ -1915,6 +1957,7 @@ class PhotoAsset:
         return errors
 
     def set_favorite(self, value: bool) -> bool:
+        """Set the favorite state of the asset and return success."""
         favorite_value = 1 if value else 0
         zone_dict = record_zone(self._asset_record) or PRIMARY_ZONE
         zone_id = CKZoneIDReq(
@@ -2008,12 +2051,15 @@ class PhotoAsset:
         return True
 
     def favorite(self) -> bool:
+        """Mark the asset as a favorite."""
         return self.set_favorite(True)
 
     def unfavorite(self) -> bool:
+        """Remove the asset from favorites."""
         return self.set_favorite(False)
 
     def delete(self) -> bool:
+        """Mark the asset as deleted in the library."""
         zone_dict = record_zone(self._asset_record) or PRIMARY_ZONE
         zone_id = CKZoneIDReq(
             zoneName=zone_dict["zoneName"],
@@ -2124,6 +2170,7 @@ class PhotosService(BaseService):
 
     @property
     def libraries(self) -> dict[str, BasePhotoLibrary]:
+        """Return the available photo libraries, discovering them on first access."""
         if self._libraries is None:
             libraries: dict[str, BasePhotoLibrary] = {
                 "root": self._root_library,
@@ -2195,14 +2242,17 @@ class PhotosService(BaseService):
 
     @property
     def all(self) -> PhotoAlbum:
+        """Return the root library's All Photos album."""
         return self._root_library.all
 
     @property
     def albums(self) -> AlbumContainer:
+        """Return the root library's albums."""
         return self._root_library.albums
 
     @property
     def shared_streams(self) -> AlbumContainer:
+        """Return the shared photo stream albums."""
         return AlbumContainer(list(self._shared_library.albums))
 
     def create_album(
@@ -2210,6 +2260,7 @@ class PhotosService(BaseService):
         name: str,
         album_type: AlbumTypeEnum = AlbumTypeEnum.ALBUM,
     ) -> PhotoAlbum | None:
+        """Create a new album in the root library and return it."""
         return self._root_library.create_album(name, album_type)
 
     def upload(
@@ -2244,9 +2295,11 @@ class PhotosService(BaseService):
         return album_obj.upload(path)
 
     def sync_cursor(self) -> str:
+        """Return the root library's current sync cursor."""
         return self._root_library.sync_cursor()
 
     def iter_changes(self, *, since: str | None = None) -> Iterator[PhotoChangeEvent]:
+        """Yield photo change events from the root library."""
         yield from self._root_library.iter_changes(since=since)
 
     def sync(self, options: PhotoSyncOptions) -> PhotoSyncResult:

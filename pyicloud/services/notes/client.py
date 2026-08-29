@@ -134,6 +134,7 @@ class CloudKitNotesClient:
         results_limit: int | None = None,
         continuation: str | None = None,
     ) -> CKQueryResponse:
+        """Query records in the Notes zone, returning the typed response."""
         LOGGER.info("Executing query for recordType: %s", query.recordType)
         try:
             resp = self._client.query(
@@ -158,6 +159,7 @@ class CloudKitNotesClient:
         *,
         desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
+        """Look up records by name in the Notes zone."""
         record_names_list = list(record_names)
         LOGGER.info("Executing lookup for %d records.", len(record_names_list))
         try:
@@ -180,6 +182,7 @@ class CloudKitNotesClient:
         *,
         zone_req: CKZoneChangesZoneReq,
     ) -> Iterator[CKZoneChangesZone]:
+        """Yield paged zone-change results for the Notes zone."""
         LOGGER.info("Start fetching changes for zone: %s", zone_req.zoneID.zoneName)
         page_num = 1
         try:
@@ -208,6 +211,7 @@ class CloudKitNotesClient:
         *,
         chunk_size: int = 65536,
     ) -> Iterator[bytes]:
+        """Stream raw bytes from a CloudKit asset URL."""
         try:
             yield from self._client.download_asset_stream(
                 url,
@@ -217,6 +221,7 @@ class CloudKitNotesClient:
             self._raise_notes_error(exc)
 
     def download_asset_to(self, url: str, directory: str) -> str:
+        """Download a CloudKit asset URL to a file in the given directory."""
         import os
         import uuid
 

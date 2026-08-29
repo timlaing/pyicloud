@@ -130,6 +130,7 @@ class RemindersRecordMapper:
             return value.decode("utf-8", errors="replace")
 
     def record_to_list(self, rec: CKRecord) -> RemindersList:
+        """Map a CloudKit list record to a ``RemindersList`` domain model."""
         fields = rec.fields
         title = fields.get_value("Name")
         color = fields.get_value("Color")
@@ -154,6 +155,7 @@ class RemindersRecordMapper:
         )
 
     def record_to_reminder(self, rec: CKRecord) -> Reminder:
+        """Map a CloudKit reminder record to a ``Reminder`` domain model."""
         fields = rec.fields
         created = fields.get_value("CreationDate")
         if created is None and rec.created is not None:
@@ -231,6 +233,7 @@ class RemindersRecordMapper:
         )
 
     def record_to_alarm(self, rec: CKRecord) -> Alarm:
+        """Map a CloudKit alarm record to an ``Alarm`` domain model."""
         fields = rec.fields
         return Alarm(
             id=rec.recordName,
@@ -241,6 +244,7 @@ class RemindersRecordMapper:
         )
 
     def record_to_alarm_trigger(self, rec: CKRecord) -> LocationTrigger | None:
+        """Map a CloudKit alarm trigger record to a ``LocationTrigger``."""
         fields = rec.fields
         trigger_type = fields.get_value("Type") or ""
         alarm_id = _ref_name(fields, "Alarm")
@@ -278,6 +282,7 @@ class RemindersRecordMapper:
         return None
 
     def record_to_attachment(self, rec: CKRecord) -> Attachment | None:
+        """Map a CloudKit attachment record to a URL or image attachment."""
         fields = rec.fields
         att_type = fields.get_value("Type") or ""
         reminder_id = _ref_name(fields, "Reminder")
@@ -317,6 +322,7 @@ class RemindersRecordMapper:
         return None
 
     def record_to_hashtag(self, rec: CKRecord) -> Hashtag:
+        """Map a CloudKit hashtag record to a ``Hashtag`` domain model."""
         fields = rec.fields
         return Hashtag(
             id=rec.recordName,
@@ -331,6 +337,7 @@ class RemindersRecordMapper:
         )
 
     def record_to_recurrence_rule(self, rec: CKRecord) -> RecurrenceRule:
+        """Map a CloudKit recurrence rule record to a ``RecurrenceRule``."""
         fields = rec.fields
         freq_raw = fields.get_value("Frequency") or 1
         try:

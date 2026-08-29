@@ -49,9 +49,11 @@ class _Fields:
         self.values = values
 
     def get_value(self, key):
+        """Return the stored value for a key."""
         return self.values.get(key)
 
     def get_field(self, key):
+        """Return the field wrapper for a key, or None if absent."""
         if key not in self.values:
             return None
         return _Field(self.values[key])
@@ -82,6 +84,7 @@ class TestNoteRendering(unittest.TestCase):
                 self.d = fields_dict
 
             def get_value(self, key):
+                """Return the value for a key, decoding bytes if stored as dict."""
                 val = self.d.get(key)
                 if isinstance(val, dict) and "__bytes__" in val:
                     import base64
@@ -90,6 +93,7 @@ class TestNoteRendering(unittest.TestCase):
                 return val
 
             def get_field(self, key):
+                """Return None, stub needed for attachment checks."""
                 # Needed for some checks like Attachments
                 # For references, we might need more complex reconstruction if the code checks types
                 # But let's start simple.
@@ -144,6 +148,7 @@ class TestNoteRendering(unittest.TestCase):
         print("-----------------------------------------------")
 
     def test_public_url_attachment_keeps_useful_title_and_href(self):
+        """A public URL attachment keeps its title and original href."""
         ds = CloudKitNoteDataSource()
         ds.add_attachment_record(
             _Record(
@@ -172,6 +177,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertIn('href="https://discord.example.com/channel/1"', html)
 
     def test_image_attachment_does_not_use_signed_url_as_alt_text(self):
+        """An image attachment does not leak its signed URL into alt text."""
         signed_url = "https://cvws.icloud-content.com/B/example-signed-asset"
         ds = CloudKitNoteDataSource()
         ds.add_attachment_record(
@@ -202,6 +208,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertNotIn(f'alt="{signed_url}"', html)
 
     def test_default_renderer_keeps_safe_relative_href(self):
+        """The default renderer preserves a safe relative href."""
         html = render_attachment(
             AttachmentContext(
                 id="att-1",
@@ -217,6 +224,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertIn('href="assets/note/file.bin"', html)
 
     def test_url_renderer_rejects_unsafe_schemes(self):
+        """The URL renderer rejects attachments with unsafe schemes."""
         html = render_attachment(
             AttachmentContext(
                 id="att-2",
@@ -233,6 +241,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertNotIn("href=", html)
 
     def test_image_renderer_rejects_protocol_relative_urls(self):
+        """The image renderer rejects protocol-relative URLs."""
         html = render_attachment(
             AttachmentContext(
                 id="att-3",
@@ -248,6 +257,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertNotIn("src=", html)
 
     def test_image_renderer_falls_back_to_valid_thumbnail(self):
+        """The image renderer falls back to a valid thumbnail when primary is unsafe."""
         html = render_attachment(
             AttachmentContext(
                 id="att-4",
@@ -263,11 +273,14 @@ class TestNoteRendering(unittest.TestCase):
         self.assertIn('src="https://example.com/thumb.png"', html)
 
     def test_render_table_from_mergeable_fails_closed_on_malformed_payload(self):
+        """Rendering a malformed payload fails closed and returns None."""
         self.assertIsNone(
             render_table_from_mergeable(b"not-a-table", lambda _: "<p>x</p>")
         )
 
     def test_render_table_from_mergeable_uses_later_valid_root_candidate(self):
+        """Table rendering picks a later valid root candidate after a bad one."""
+
         class _FakeValue:
             """Mock value object for testing."""
 
@@ -288,6 +301,7 @@ class TestNoteRendering(unittest.TestCase):
                 self.custom_map = SimpleNamespace(type=0, map_entry=list(map_entries))
 
             def HasField(self, field_name):
+                """Report that only the custom_map field is present."""
                 return field_name == "custom_map"
 
         class _AxisEntry:
@@ -339,6 +353,7 @@ class TestNoteRendering(unittest.TestCase):
                 )
 
             def ParseFromString(self, payload):
+                """No-op parse of the protobuf payload."""
                 return None
 
         with (
@@ -375,6 +390,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertIn("<p>ok</p>", html)
 
     def test_table_builder_caps_large_allocations(self):
+        """The table builder refuses to allocate oversized buffers."""
         builder = TableBuilder(
             key_items=[],
             type_items=[],
@@ -390,6 +406,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertEqual(builder.cells, [])
 
     def test_safe_anchor_href_allows_only_expected_schemes(self):
+        """Anchor hrefs only allow the expected safe schemes."""
         self.assertEqual(
             _safe_anchor_href("https://example.com"), "https://example.com"
         )
@@ -401,6 +418,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertIsNone(_safe_anchor_href("data:text/html,hi"))
 
     def test_safe_url_rejects_unsafe_and_protocol_relative_urls(self):
+        """Safe URLs reject unsafe schemes and protocol-relative URLs."""
         self.assertEqual(
             _safe_url(" https://example.com/file ", allowed_schemes={"http", "https"}),
             "https://example.com/file",
@@ -417,6 +435,7 @@ class TestNoteRendering(unittest.TestCase):
         )
 
     def test_export_config_is_image_uti_normalizes_config_values(self):
+        """ExportConfig normalizes image UTI prefixes and exacts."""
         config = ExportConfig(
             image_uti_prefixes=("Public.Image",),
             image_uti_exacts=("Com.Apple.Paper",),
@@ -426,6 +445,7 @@ class TestNoteRendering(unittest.TestCase):
         self.assertTrue(config.is_image_uti("com.apple.paper"))
 
     def test_export_config_is_image_uti_rejects_invalid_config_types(self):
+        """ExportConfig raises on invalid image UTI config types."""
         config = ExportConfig(image_uti_exacts=("public.jpeg", 123))
 
         with self.assertRaises(TypeError):
@@ -449,6 +469,7 @@ class TestNoteExporter(unittest.TestCase):
         return path
 
     def test_export_archival_mode_downloads_assets_into_custom_assets_dir(self):
+        """Archival export downloads all asset types into a custom assets dir."""
         client = MagicMock()
         datasource = MagicMock(name="datasource")
         note_record = self._note_record()
@@ -508,6 +529,7 @@ class TestNoteExporter(unittest.TestCase):
         self.assertIn("<title>Example Title</title>", html)
 
     def test_export_lightweight_mode_skips_downloads_and_writes_fragment(self):
+        """Lightweight export skips downloads and writes only the fragment."""
         client = MagicMock()
         datasource = MagicMock(name="datasource")
         note_record = self._note_record(title=b"Fragment Title")
@@ -550,9 +572,11 @@ class TestNoteExporter(unittest.TestCase):
         self.assertEqual(html, "<p>rendered</p>")
 
     def test_decode_and_parse_note_returns_none_for_invalid_record_type(self):
+        """Decoding returns None for an invalid record type."""
         self.assertIsNone(decode_and_parse_note(object()))
 
     def test_download_image_assets_uses_caller_config(self):
+        """Image asset downloads respect the caller's config."""
         ck_client = MagicMock()
         ds = MagicMock()
         ds.get_attachment_uti.return_value = "com.apple.paper"

@@ -23,6 +23,7 @@ def test_reminders_service_init() -> None:
 
 
 def test_reminders_service_lists_delegates_to_read_api() -> None:
+    """The reminders facade should forward lists to the read API."""
     service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
     expected = [RemindersList(id="List/WORK", title="Work")]
     service._reads.lists = MagicMock(return_value=iter(expected))
@@ -31,6 +32,7 @@ def test_reminders_service_lists_delegates_to_read_api() -> None:
 
 
 def test_reminders_service_reminders_aggregates_list_snapshots() -> None:
+    """The reminders facade should aggregate reminders across every list."""
     service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
     list_id = "List/WORK"
     reminder = Reminder(id="Reminder/1", list_id=list_id, title="Task 1")
@@ -55,6 +57,7 @@ def test_reminders_service_reminders_aggregates_list_snapshots() -> None:
 
 
 def test_reminders_service_create_delegates_to_write_api() -> None:
+    """The reminders facade should forward creation to the write API."""
     service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
     created = Reminder(id="Reminder/1", list_id="List/WORK", title="New Task")
     service._writes.create = MagicMock(return_value=created)
@@ -77,6 +80,7 @@ def test_reminders_service_create_delegates_to_write_api() -> None:
 
 
 def test_reminders_service_delete_delegates_to_write_api() -> None:
+    """The reminders facade should forward deletion to the write API."""
     service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
     reminder = Reminder(id="Reminder/1", list_id="List/WORK", title="Delete me")
     service._writes.delete = MagicMock()

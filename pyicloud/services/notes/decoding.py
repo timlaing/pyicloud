@@ -50,6 +50,7 @@ class BodyDecoder:
     def decode(
         self, text_data_encrypted_b64: Union[str, bytes, bytearray] | None
     ) -> NoteBody | None:
+        """Decode a base64/compressed note body into a NoteBody."""
         if text_data_encrypted_b64 is None:
             return None
         raw = _b64_to_bytes(text_data_encrypted_b64)

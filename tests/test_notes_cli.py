@@ -31,6 +31,7 @@ class TestNotesCli(unittest.TestCase):
         return path
 
     def test_parse_args_rejects_removed_download_assets_flag(self):
+        """The removed --download-assets flag should be rejected at parse time."""
         module = _load_notes_cli()
 
         with (
@@ -44,6 +45,7 @@ class TestNotesCli(unittest.TestCase):
             module.parse_args()
 
     def test_main_requests_titleencrypted_and_maps_export_config(self):
+        """Main should request TitleEncrypted records and map export options."""
         module = _load_notes_cli()
         dummy_ckrecord = type("DummyCKRecord", (), {})
         note_record = dummy_ckrecord()
@@ -114,6 +116,7 @@ class TestNotesCli(unittest.TestCase):
         self.assertEqual(config.pdf_object_height, 777)
 
     def test_parse_args_rejects_removed_password_flag(self):
+        """The removed --password flag should be rejected at parse time."""
         module = _load_notes_cli()
 
         with (
@@ -127,6 +130,7 @@ class TestNotesCli(unittest.TestCase):
             module.parse_args()
 
     def test_main_suppresses_note_dumps_without_debug_flags(self):
+        """Main should avoid dumping raw note data when debug flags are off."""
         module = _load_notes_cli()
         dummy_ckrecord = type("DummyCKRecord", (), {})
         note_record = dummy_ckrecord()
@@ -185,6 +189,7 @@ class TestNotesCli(unittest.TestCase):
         self.assertNotIn("proto_note:", printed)
 
     def test_ensure_auth_uses_security_key_when_fido2_devices_are_available(self):
+        """Auth should prefer the FIDO2 security key flow over a 2FA code."""
         module = _load_notes_cli()
         api = MagicMock()
         devices = [object(), object()]

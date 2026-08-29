@@ -23,9 +23,13 @@ from typing import Protocol
 class NoteDataSource(Protocol):
     """Minimal attachment datasource required by the renderer."""
 
-    def get_attachment_uti(self, identifier: str) -> str | None: ...
+    def get_attachment_uti(self, identifier: str) -> str | None:
+        """Return the UTI for an attachment identifier, if known."""
+        ...
 
-    def get_mergeable_gz(self, identifier: str) -> bytes | None: ...
+    def get_mergeable_gz(self, identifier: str) -> bytes | None:
+        """Return gzipped mergeable table bytes for an attachment, if any."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +40,7 @@ class AttachmentRef:
     uti_hint: str | None = None
 
     def resolved_uti(self, datasource: NoteDataSource | None) -> str | None:
+        """Return the attachment UTI, from the hint or the datasource."""
         if self.uti_hint:
             return self.uti_hint
         if datasource and self.identifier:

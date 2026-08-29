@@ -58,6 +58,7 @@ class PhotosCloudKitClient:
         continuation: str | None = None,
         desired_keys: list[str] | None = None,
     ) -> CKQueryResponse:
+        """Run a CloudKit query against a Photos zone."""
         return self._client.query(
             query=query,
             zone_id=zone_id,
@@ -71,6 +72,7 @@ class PhotosCloudKitClient:
         *,
         zone_req: CKZoneChangesZoneReq,
     ):
+        """Yield CloudKit record changes in the given zone."""
         yield from self._client.iter_changes(zone_req=zone_req)
 
     def modify(
@@ -80,6 +82,7 @@ class PhotosCloudKitClient:
         zone_id: CKZoneIDReq,
         atomic: bool | None = None,
     ) -> CKModifyResponse:
+        """Apply a batch of CloudKit modify operations in the given zone."""
         return self._client.modify(
             operations=operations, zone_id=zone_id, atomic=atomic
         )
@@ -91,6 +94,7 @@ class PhotosCloudKitClient:
         zone_id: CKZoneIDReq,
         desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
+        """Look up CloudKit records by name in the given zone."""
         return self._client.lookup(
             record_names=record_names,
             zone_id=zone_id,
@@ -98,12 +102,15 @@ class PhotosCloudKitClient:
         )
 
     def zones_list(self):
+        """List the CloudKit zones for the Photos container."""
         return self._client.zones_list()
 
     def database_changes(self, *, sync_token: str | None = None):
+        """Yield CloudKit database changes, optionally from a sync token."""
         return self._client.database_changes(sync_token=sync_token)
 
     def download_asset_bytes(self, url: str) -> bytes:
+        """Download the raw bytes of a CloudKit asset at ``url``."""
         return self._client.download_asset_bytes(url)
 
     def batch_count(self, *, container_id: str, zone_id: dict[str, str]) -> int:

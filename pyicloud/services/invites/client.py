@@ -153,6 +153,7 @@ class CloudKitInvitesClient:
         continuation: str | None = None,
         zone_wide: bool = False,
     ) -> CKQueryResponse:
+        """Query records in the given scope, returning the typed response."""
         try:
             return self._client_for(scope).query(
                 query=query,
@@ -173,6 +174,7 @@ class CloudKitInvitesClient:
         zone_id: CKZoneIDReq,
         desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
+        """Look up records by name in the given scope."""
         try:
             return self._client_for(scope).lookup(
                 record_names,
@@ -190,6 +192,7 @@ class CloudKitInvitesClient:
         zone_id: CKZoneIDReq,
         atomic: bool | None = None,
     ) -> CKModifyResponse:
+        """Create, update, or delete records in the given scope."""
         try:
             return self._client_for(scope).modify(
                 operations=operations,
@@ -206,6 +209,7 @@ class CloudKitInvitesClient:
         zone_req: CKZoneChangesZoneReq,
         results_limit: int | None = None,
     ) -> CKZoneChangesResponse:
+        """Fetch a page of zone changes for the given scope."""
         try:
             return self._client_for(scope).changes(
                 zone_req=zone_req,
@@ -287,6 +291,7 @@ class CloudKitInvitesClient:
     # ----- Asset helpers -----------------------------------------------------
 
     def download_asset_bytes(self, url: str) -> bytes:
+        """Download raw bytes from a CloudKit asset URL via the private scope."""
         try:
             return self._private.download_asset_bytes(url)
         except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:

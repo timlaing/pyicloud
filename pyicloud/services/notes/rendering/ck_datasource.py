@@ -25,6 +25,8 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class CloudKitNoteDataSource(NoteDataSource):
+    """In-memory NoteDataSource populated from CloudKit attachment records."""
+
     _uti: dict[str, str] = field(default_factory=dict)
     _mergeable_gz: dict[str, bytes] = field(default_factory=dict)
     _primary_asset_url: dict[str, str] = field(default_factory=dict)
@@ -41,22 +43,27 @@ class CloudKitNoteDataSource(NoteDataSource):
 
     # Optional richer protocol
     def get_primary_asset_url(self, identifier: str) -> str | None:
+        """Return the primary asset URL for an attachment, if known."""
         return self._primary_asset_url.get(identifier)
 
     def get_thumbnail_url(self, identifier: str) -> str | None:
+        """Return the thumbnail URL for an attachment, if known."""
         return self._thumbnail_url.get(identifier)
 
     def get_title(self, identifier: str) -> str | None:
+        """Return the display title for an attachment, if known."""
         return self._title.get(identifier)
 
     # Overrides for callers that download assets locally and want to point the
     # renderer at a local path instead of the remote CloudKit URL.
     def set_primary_asset_url(self, identifier: str, url: str) -> None:
+        """Override the primary asset URL for a locally downloaded attachment."""
         if not identifier or not url:
             return
         self._primary_asset_url[identifier] = url
 
     def add_attachment_record(self, rec: CKRecord) -> None:
+        """Index a CloudKit attachment record into this datasource."""
         fields = rec.fields
 
         # With strict model validation, *Encrypted fields are always bytes.

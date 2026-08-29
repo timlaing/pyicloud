@@ -96,6 +96,7 @@ class CloudKitRemindersClient:
         results_limit: int | None = None,
         continuation: str | None = None,
     ) -> CKQueryResponse:
+        """Query records in the Reminders zone, returning the typed response."""
         try:
             return self._client.query(
                 query=query,

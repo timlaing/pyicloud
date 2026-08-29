@@ -4,6 +4,8 @@ from enum import Enum
 
 
 class NotesRecordType(str, Enum):
+    """CloudKit record types for Notes."""
+
     Note = "Note"
     Folder = "Folder"
     PasswordProtectedNote = "PasswordProtectedNote"

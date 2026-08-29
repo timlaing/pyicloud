@@ -79,15 +79,19 @@ class FakeDevice:
         self.erase_message: str | None = None
 
     def play_sound(self, subject: str = "Find My iPhone Alert") -> None:
+        """Record the played sound subject."""
         self.sound_subject = subject
 
     def display_message(self, subject: str, message: str, sounds: bool) -> None:
+        """Record a displayed lock message."""
         self.messages.append({"subject": subject, "message": message, "sounds": sounds})
 
     def lost_device(self, number: str, text: str, newpasscode: str) -> None:
+        """Record lost-mode activation details."""
         self.lost_mode = {"number": number, "text": text, "newpasscode": newpasscode}
 
     def erase_device(self, message: str) -> None:
+        """Record the erase message."""
         self.erase_message = message
 
 
@@ -95,6 +99,7 @@ class FakeDriveResponse:
     """Download response fixture."""
 
     def iter_content(self, chunk_size: int = 8192):  # pragma: no cover - trivial
+        """Yield the fake download body."""
         yield b"hello"
 
 
@@ -118,15 +123,18 @@ class FakeDriveNode:
         self.data = {"name": name, "type": node_type, "size": size}
 
     def get_children(self) -> list[FakeDriveNode]:
+        """Return the node's children."""
         return list(self._children)
 
     def __getitem__(self, key: str) -> FakeDriveNode:
+        """Return a child node by name."""
         for child in self._children:
             if child.name == key:
                 return child
         raise KeyError(key)
 
     def open(self, **kwargs) -> FakeDriveResponse:  # pragma: no cover - trivial
+        """Return a fake download response."""
         return FakeDriveResponse()
 
 
@@ -134,6 +142,7 @@ class FakeAlbumContainer(list):
     """Photo album container fixture."""
 
     def find(self, name: str | None):
+        """Find an album by name, or None when not found."""
         if name is None:
             return None
         for album in self:
@@ -182,9 +191,11 @@ class FakePhoto:
         }
 
     def download(self, version: str = "original") -> bytes:
+        """Return fake asset bytes for the given version."""
         return f"{self.id}:{version}".encode()
 
     def delete(self) -> bool:
+        """Report a successful delete."""
         return True
 
 
@@ -198,6 +209,7 @@ class FakePhotoAlbum:
 
     @property
     def photos(self):
+        """Return an iterator over the album's photos."""
         return iter(self._photos)
 
     def __len__(self) -> int:
@@ -235,12 +247,15 @@ class FakePhotoLibrary:
         self._changes = changes or []
 
     def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
         return self._sync_cursor
 
     def recently_added(self):
+        """Return the album of recently added photos."""
         return self.all
 
     def iter_changes(self, *, since: str | None = None):
+        """Return an iterator over the recorded changes."""
         _ = since
         return iter(self._changes)
 
@@ -320,18 +335,22 @@ class FakePhotosService:
         self._changes = root_changes
 
     def iter_changes(self, *, since: str | None = None):
+        """Return an iterator over the recorded changes."""
         _ = since
         return iter(self._changes)
 
     def sync_cursor(self) -> str:
+        """Return the root library's sync cursor."""
         return self.libraries["root"].sync_cursor()
 
     def sync(self, options):
+        """Run a photo sync against this fixture."""
         from pyicloud.services.photos import run_photo_sync
 
         return run_photo_sync(self, options)
 
     def watch(self, options, *, interval_seconds: int, iterations: int | None = None):
+        """Run a photo watch loop against this fixture."""
         from pyicloud.services.photos import watch_photo_sync
 
         return watch_photo_sync(
@@ -359,28 +378,34 @@ class FakeHideMyEmail:
         return iter(self.aliases)
 
     def generate(self) -> str:
+        """Return a generated alias address."""
         return "generated@privaterelay.appleid.com"
 
     def reserve(
         self, email: str, label: str, note: str = "Generated"
     ) -> dict[str, Any]:
+        """Return a newly reserved alias."""
         return {"anonymousId": "alias-2", "hme": email, "label": label, "note": note}
 
     def update_metadata(
         self, anonymous_id: str, label: str, note: str | None
     ) -> dict[str, Any]:
+        """Return updated alias metadata for the given id."""
         payload: dict[str, Any] = {"anonymousId": anonymous_id, "label": label}
         if note is not None:
             payload["note"] = note
         return payload
 
     def deactivate(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a deactivated alias payload."""
         return {"anonymousId": anonymous_id, "active": False}
 
     def reactivate(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a reactivated alias payload."""
         return {"anonymousId": anonymous_id, "active": True}
 
     def delete(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a deleted alias payload."""
         return {"anonymousId": anonymous_id, "deleted": True}
 
 
@@ -517,22 +542,27 @@ class FakeNotes:
         return note_id == query or note_id.split("/", 1)[-1] == query
 
     def recents(self, *, limit: int = 50):
+        """Return the recent note rows up to the given limit."""
         self.recent_requests.append(limit)
         return list(self.recent_rows[:limit])
 
     def folders(self):
+        """Return the available note folders."""
         return list(self.folder_rows)
 
     def in_folder(self, folder_id: str, limit: int | None = None):
+        """Return note rows belonging to the given folder."""
         self.folder_requests.append((folder_id, limit))
         rows = [row for row in self.all_rows if row.folder_id == folder_id]
         return list(rows[:limit] if limit is not None else rows)
 
     def iter_all(self, *, since: str | None = None):
+        """Return an iterator over all note rows."""
         self.iter_all_requests.append(since)
         return iter(self.all_rows)
 
     def get(self, note_id: str, *, with_attachments: bool = False):
+        """Return the note with the given id, or raise when missing."""
         if self._matches_id("Note/LOCKED", note_id):
             raise NoteLockedError(f"Note is locked: {note_id}")
         for candidate_id, note in self.notes.items():
@@ -542,11 +572,13 @@ class FakeNotes:
         raise NoteNotFound(f"Note not found: {note_id}")
 
     def render_note(self, note_id: str, **kwargs: Any) -> str:
+        """Return rendered HTML for the given note."""
         note = self.get(note_id, with_attachments=False)
         self.render_calls.append({"note_id": note.id, **kwargs})
         return note.html or f"<p>{note.id}</p>"
 
     def export_note(self, note_id: str, output_dir: str, **kwargs: Any) -> str:
+        """Return the export path for the given note."""
         note = self.get(note_id, with_attachments=False)
         path = Path(output_dir) / f"{note.id.split('/', 1)[-1].lower()}.html"
         self.export_calls.append({
@@ -557,10 +589,12 @@ class FakeNotes:
         return str(path)
 
     def iter_changes(self, *, since: str | None = None):
+        """Return an iterator over the recorded note changes."""
         self.change_requests.append(since)
         return iter(self.change_rows)
 
     def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
         return self.cursor
 
 
@@ -690,6 +724,7 @@ class FakeReminders:
         raise LookupError(f"Reminder not found: {reminder_id}")
 
     def lists(self):
+        """Return the reminder lists with their counts refreshed."""
         for row in self.list_rows.values():
             row.count = sum(
                 1
@@ -699,6 +734,7 @@ class FakeReminders:
         return list(self.list_rows.values())
 
     def reminders(self, list_id: str | None = None):
+        """Return non-deleted reminders, optionally filtered by list."""
         rows = [
             reminder
             for reminder in self.reminder_rows.values()
@@ -712,6 +748,7 @@ class FakeReminders:
         include_completed: bool = False,
         results_limit: int = 200,
     ) -> ListRemindersResult:
+        """Return a snapshot of reminders for the given list."""
         normalized = list_id if list_id.startswith("List/") else f"List/{list_id}"
         self.snapshot_requests.append({
             "list_id": normalized,
@@ -760,6 +797,7 @@ class FakeReminders:
         )
 
     def get(self, reminder_id: str) -> Reminder:
+        """Return the reminder with the given id, or raise when missing."""
         return self._find_reminder(reminder_id)
 
     def create(
@@ -775,6 +813,7 @@ class FakeReminders:
         time_zone: str | None = None,
         parent_reminder_id: str | None = None,
     ) -> Reminder:
+        """Create and store a new reminder, returning it."""
         next_id = f"Reminder/CREATED-{len(self.reminder_rows) + 1}"
         reminder = Reminder(
             id=next_id,
@@ -795,9 +834,11 @@ class FakeReminders:
         return reminder
 
     def update(self, reminder: Reminder) -> None:
+        """Store the updated reminder."""
         self.reminder_rows[reminder.id] = reminder
 
     def delete(self, reminder: Reminder) -> None:
+        """Mark the given reminder as deleted."""
         reminder.deleted = True
         self.reminder_rows[reminder.id] = reminder
 
@@ -811,6 +852,7 @@ class FakeReminders:
         radius: float = 100.0,
         proximity: Proximity = Proximity.ARRIVING,
     ) -> tuple[Alarm, LocationTrigger]:
+        """Add and return a location trigger alarm."""
         index = len(self.alarm_rows) + 1
         alarm = Alarm(
             id=f"Alarm/{index}",
@@ -835,6 +877,7 @@ class FakeReminders:
         return alarm, trigger
 
     def create_hashtag(self, reminder: Reminder, name: str) -> Hashtag:
+        """Create and attach a hashtag, returning it."""
         hashtag = Hashtag(
             id=f"Hashtag/{name.upper()}",
             name=name,
@@ -846,9 +889,11 @@ class FakeReminders:
         return hashtag
 
     def update_hashtag(self, hashtag: Hashtag, name: str) -> None:
+        """Rename the given hashtag."""
         hashtag.name = name
 
     def delete_hashtag(self, reminder: Reminder, hashtag: Hashtag) -> None:
+        """Remove the hashtag from the reminder."""
         reminder.hashtag_ids = [
             row_id for row_id in reminder.hashtag_ids if row_id != hashtag.id
         ]
@@ -857,6 +902,7 @@ class FakeReminders:
     def create_url_attachment(
         self, reminder: Reminder, url: str, uti: str = "public.url"
     ) -> URLAttachment:
+        """Create and attach a URL attachment, returning it."""
         attachment = URLAttachment(
             id=f"Attachment/{len(self.attachment_rows) + 1}",
             reminder_id=reminder.id,
@@ -878,12 +924,14 @@ class FakeReminders:
         width: int | None = None,
         height: int | None = None,
     ) -> None:
+        """Update the attachment's url and uti if provided."""
         if url is not None:
             attachment.url = url
         if uti is not None:
             attachment.uti = uti
 
     def delete_attachment(self, reminder: Reminder, attachment: URLAttachment) -> None:
+        """Remove the attachment from the reminder."""
         reminder.attachment_ids = [
             row_id for row_id in reminder.attachment_ids if row_id != attachment.id
         ]
@@ -898,6 +946,7 @@ class FakeReminders:
         occurrence_count: int = 0,
         first_day_of_week: int = 0,
     ) -> RecurrenceRule:
+        """Create and attach a recurrence rule, returning it."""
         rule = RecurrenceRule(
             id=f"Recurrence/{len(self.recurrence_rows) + 1}",
             reminder_id=reminder.id,
@@ -919,6 +968,7 @@ class FakeReminders:
         occurrence_count: int | None = None,
         first_day_of_week: int | None = None,
     ) -> None:
+        """Update the recurrence rule's fields if provided."""
         if frequency is not None:
             recurrence_rule.frequency = frequency
         if interval is not None:
@@ -931,6 +981,7 @@ class FakeReminders:
     def delete_recurrence_rule(
         self, reminder: Reminder, recurrence_rule: RecurrenceRule
     ) -> None:
+        """Remove the recurrence rule from the reminder."""
         reminder.recurrence_rule_ids = [
             row_id
             for row_id in reminder.recurrence_rule_ids
@@ -939,6 +990,7 @@ class FakeReminders:
         self.recurrence_rows.pop(recurrence_rule.id, None)
 
     def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
+        """Return alarms with triggers for the given reminder."""
         rows = []
         for alarm_id in reminder.alarm_ids:
             alarm = self.alarm_rows[alarm_id]
@@ -951,6 +1003,7 @@ class FakeReminders:
         return rows
 
     def tags_for(self, reminder: Reminder) -> list[Hashtag]:
+        """Return the hashtags attached to the given reminder."""
         return [
             self.hashtag_rows[row_id]
             for row_id in reminder.hashtag_ids
@@ -958,6 +1011,7 @@ class FakeReminders:
         ]
 
     def attachments_for(self, reminder: Reminder) -> list[URLAttachment]:
+        """Return the attachments attached to the given reminder."""
         return [
             self.attachment_rows[row_id]
             for row_id in reminder.attachment_ids
@@ -965,6 +1019,7 @@ class FakeReminders:
         ]
 
     def recurrence_rules_for(self, reminder: Reminder) -> list[RecurrenceRule]:
+        """Return the recurrence rules for the given reminder."""
         return [
             self.recurrence_rows[row_id]
             for row_id in reminder.recurrence_rule_ids
@@ -972,6 +1027,7 @@ class FakeReminders:
         ]
 
     def iter_changes(self, *, since: str | None = None):
+        """Return an iterator over the recorded reminder changes."""
         self.change_requests.append(since)
         return iter([
             ReminderChangeEvent(
@@ -987,6 +1043,7 @@ class FakeReminders:
         ])
 
     def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
         return self.cursor
 
 
@@ -2920,12 +2977,14 @@ def test_notes_commands_report_reauthentication_and_unavailability() -> None:
         """Mock Notes service that raises reauth exception."""
 
         def recents(self, *, limit: int = 50):
+            """Raise the reauth exception."""
             raise context_module.PyiCloudFailedLoginException("No password set")
 
     class UnavailableNotes:
         """Mock Notes service that raises unavailable exception."""
 
         def sync_cursor(self) -> str:
+            """Raise the unavailable exception."""
             raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 
     fake_api = FakeAPI()
@@ -4059,12 +4118,14 @@ def test_reminders_commands_report_errors() -> None:
         """Mock Reminders service that raises API error exception."""
 
         def sync_cursor(self) -> str:
+            """Raise the API error exception."""
             raise RemindersApiError("sync failed")
 
     class AuthErrorReminders:
         """Mock Reminders service that raises auth error exception."""
 
         def sync_cursor(self) -> str:
+            """Raise the auth error exception."""
             raise RemindersAuthError("token expired")
 
     fake_api = FakeAPI()
@@ -4087,12 +4148,14 @@ def test_reminders_commands_report_reauthentication_and_unavailability() -> None
         """Mock Reminders service that raises reauth exception."""
 
         def lists(self):
+            """Raise the reauth exception."""
             raise context_module.PyiCloudFailedLoginException("No password set")
 
     class UnavailableReminders:
         """Mock Reminders service that raises unavailable exception."""
 
         def sync_cursor(self) -> str:
+            """Raise the unavailable exception."""
             raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 
     fake_api = FakeAPI()

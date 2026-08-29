@@ -30,10 +30,13 @@ from pyicloud.services.reminders.models.domain import Reminder, RemindersList
 
 @dataclass
 class ValidationTracker:
+    """Track validation check counts and failure messages."""
+
     checks: int = 0
     failures: list[str] = field(default_factory=list)
 
     def expect(self, condition: bool, label: str, detail: str = "") -> None:
+        """Record a validation check and print a PASS or FAIL line."""
         self.checks += 1
         if condition:
             print(f"  [PASS] {label}")
@@ -46,17 +49,21 @@ class ValidationTracker:
 
 @dataclass
 class RunState:
+    """Track the created reminder and whether it was deleted."""
+
     created: Reminder | None = None
     deleted: bool = False
 
 
 def banner(title: str) -> None:
+    """Print a full-width section banner."""
     print(f"\n{'=' * 78}")
     print(title)
     print(f"{'=' * 78}")
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     now = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -105,6 +112,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_credentials(args: argparse.Namespace) -> tuple[str, str | None]:
+    """Resolve Apple ID credentials from arguments or interactive prompts."""
     username = args.username or input("Apple ID: ").strip()
     if not username:
         raise ValueError("Apple ID username is required.")
@@ -137,6 +145,7 @@ def _prompt_selection(
 
 
 def authenticate(args: argparse.Namespace) -> PyiCloudService:
+    """Authenticate with iCloud, handling 2FA and 2SA flows."""
     username, password = resolve_credentials(args)
     print("Authenticating with iCloud...")
     api = PyiCloudService(apple_id=username, password=password)
@@ -189,6 +198,7 @@ def authenticate(args: argparse.Namespace) -> PyiCloudService:
 
 
 def pick_target_list(lists: Iterable[RemindersList], list_name: str) -> RemindersList:
+    """Select the account reminders list matching list_name."""
     all_lists = list(lists)
     if not all_lists:
         raise RuntimeError("No reminders lists found in iCloud account.")
@@ -214,6 +224,7 @@ def wait_until(
     timeout_seconds: float,
     poll_interval: float,
 ) -> bool:
+    """Poll the predicate until it succeeds or the timeout elapses."""
     deadline = monotonic() + timeout_seconds
     while monotonic() < deadline:
         if predicate():
@@ -224,6 +235,7 @@ def wait_until(
 
 
 def cleanup_generated(api: PyiCloudService, state: RunState) -> None:
+    """Delete the leftover reminder if validation failed before deletion."""
     if state.created is None or state.deleted:
         return
 
@@ -243,6 +255,7 @@ def cleanup_generated(api: PyiCloudService, state: RunState) -> None:
 
 
 def main() -> int:
+    """Run the reminders delta-sync validation suite."""
     args = parse_args()
     tracker = ValidationTracker()
     state = RunState()

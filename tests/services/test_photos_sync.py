@@ -51,6 +51,7 @@ class DummyAlbumContainer(list):
     """Album container fixture for sync tests."""
 
     def find(self, name: str | None):
+        """Return the album matching the given name, or None."""
         if name is None:
             return None
         for album in self:
@@ -69,6 +70,7 @@ class DummyAlbum:
 
     @property
     def photos(self):
+        """Yield this album's assets."""
         return iter(self._assets)
 
 
@@ -81,9 +83,11 @@ class DummyLibrary:
         self._cursor = cursor
 
     def sync_cursor(self) -> str:
+        """Return the library's sync cursor."""
         return self._cursor
 
     def recently_added(self):
+        """Return every photo in the library."""
         return self.all
 
 
@@ -97,6 +101,7 @@ class DummyService:
         self._cursor = cursor
 
     def sync_cursor(self) -> str:
+        """Return the service's sync cursor."""
         return self._cursor
 
 
@@ -144,11 +149,13 @@ class DummyAsset:
         }
 
     def download(self, version: str = "original", **kwargs) -> bytes:
+        """Record the download and return the requested version's payload."""
         _ = kwargs
         self.downloaded_versions.append(version)
         return self._payloads.get(version, f"{self.id}:{version}".encode())
 
     def delete(self) -> bool:
+        """Mark the asset as deleted and confirm success."""
         self.deleted = True
         return True
 

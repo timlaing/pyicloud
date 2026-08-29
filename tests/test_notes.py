@@ -109,6 +109,7 @@ class NotesServiceTest(unittest.TestCase):
         )
 
     def test_note_has_attachments_is_in_model_dump(self):
+        """Note serialization includes the has_attachments field."""
         note = Note(
             id="note-1",
             title="Hello",
@@ -125,6 +126,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertFalse(note.model_dump()["has_attachments"])
 
     def test_notes_domain_models_forbid_unknown_fields(self):
+        """NoteSummary rejects unexpected fields at validation time."""
         with self.assertRaises(ValidationError):
             NoteSummary(
                 id="note-1",
@@ -139,6 +141,7 @@ class NotesServiceTest(unittest.TestCase):
             )
 
     def test_notes_domain_models_are_frozen(self):
+        """Notes domain models reject attribute mutation."""
         summary = NoteSummary(
             id="note-1",
             title="Hello",
@@ -154,14 +157,17 @@ class NotesServiceTest(unittest.TestCase):
             summary.title = "Updated"
 
     def test_resolve_cloudkit_validation_extra_defaults_to_allow(self):
+        """Validation extra defaults to 'allow' when unset."""
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(resolve_cloudkit_validation_extra(), "allow")
 
     def test_resolve_cloudkit_validation_extra_uses_env(self):
+        """Validation extra reads the PYICLOUD_CK_EXTRA environment variable."""
         with patch.dict(os.environ, {"PYICLOUD_CK_EXTRA": "forbid"}, clear=True):
             self.assertEqual(resolve_cloudkit_validation_extra(), "forbid")
 
     def test_notes_client_allows_unexpected_fields_by_default(self):
+        """CloudKitNotesClient tolerates unexpected fields by default."""
         session = MagicMock()
         payload = {
             **load_notes_fixture("notes_lookup_note_response.json"),
@@ -183,6 +189,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(response.model_extra["unexpectedTopLevel"], {"present": True})
 
     def test_notes_client_uses_bounded_timeouts(self):
+        """CloudKitNotesClient applies bounded request timeouts."""
         session = MagicMock()
         session.post.return_value = MagicMock(
             status_code=200,
@@ -200,10 +207,12 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(session.get.call_args.kwargs["timeout"], (10.0, 60.0))
 
     def test_notes_client_redacts_query_strings_in_logs(self):
+        """CloudKit URLs have their query strings redacted for logging."""
         redacted = redact_cloudkit_url("https://example.com/path?token=secret&x=1#frag")
         self.assertEqual(redacted, "https://example.com/path")
 
     def test_notes_client_asset_stream_translates_auth_errors(self):
+        """Asset streaming raises NotesAuthError on 403 responses."""
         session = MagicMock()
         session.get.return_value = MagicMock(status_code=403)
         client = CloudKitNotesClient("https://example.com", session, {})
@@ -212,6 +221,7 @@ class NotesServiceTest(unittest.TestCase):
             list(client.download_asset_stream("https://example.com/asset"))
 
     def test_notes_client_asset_stream_translates_rate_limits(self):
+        """Asset streaming raises NotesRateLimited on 429 responses."""
         session = MagicMock()
         session.get.return_value = MagicMock(
             status_code=429,
@@ -225,6 +235,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(ctx.exception.retry_after, 2.5)
 
     def test_notes_client_asset_stream_translates_api_errors(self):
+        """Asset streaming raises NotesApiError on server errors."""
         session = MagicMock()
         session.get.return_value = MagicMock(
             status_code=500,
@@ -238,6 +249,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(ctx.exception.payload, "server error")
 
     def test_notes_client_strict_mode_wraps_validation_error(self):
+        """Strict mode wraps validation failures in a NotesApiError."""
         session = MagicMock()
         payload = {
             **load_notes_fixture("notes_lookup_note_response.json"),
@@ -260,6 +272,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertIsInstance(ctx.exception.__cause__, ValidationError)
 
     def test_notes_client_debug_validation_logging_is_preserved(self):
+        """Debug logging writes validation dumps on failure."""
         session = MagicMock()
         payload = {
             **load_notes_fixture("notes_lookup_note_response.json"),
@@ -290,6 +303,7 @@ class NotesServiceTest(unittest.TestCase):
         )
 
     def test_notes_client_debug_hook_writes_http_dumps(self):
+        """Debug logging writes HTTP request and response dumps."""
         session = MagicMock()
         payload = {"reason": "bad request"}
         session.post.return_value = MagicMock(
@@ -327,6 +341,7 @@ class NotesServiceTest(unittest.TestCase):
         )
 
     def test_notes_client_current_sync_token_falls_back_to_changes(self):
+        """Current sync token falls back to the changes endpoint on empty query."""
         session = MagicMock()
         query_payload = load_notes_fixture(
             "notes_current_sync_token_query_empty_response.json"
@@ -346,6 +361,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(session.post.call_count, 2)
 
     def test_notes_changes_zone_fixture_parses_mixed_records(self):
+        """Zone changes response parses mixed live and deleted records."""
         response = CKZoneChangesResponse.model_validate(
             load_notes_fixture("notes_changes_zone_response.json")
         )
@@ -362,6 +378,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertTrue(getattr(records[2], "deleted", False))
 
     def test_notes_client_explicit_override_wins_over_env(self):
+        """An explicit validation_extra override takes precedence over the env."""
         session = MagicMock()
         payload = {
             **load_notes_fixture("notes_lookup_note_response.json"),
@@ -384,6 +401,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(response.model_extra["unexpectedTopLevel"], {"present": True})
 
     def test_notes_service_passes_through_validation_override(self):
+        """NotesService forwards the validation_extra override to its client."""
         service = NotesService(
             service_root="https://example.com",
             session=MagicMock(),
@@ -394,14 +412,17 @@ class NotesServiceTest(unittest.TestCase):
         self.assertEqual(service.raw._validation_extra, "ignore")
 
     def test_notes_errors_share_client_base_class(self):
+        """NoteNotFound subclasses the notes client error base."""
         self.assertTrue(issubclass(NoteNotFound, ClientNotesError))
 
     def test_notes_exporter_module_imports(self):
+        """The notes exporter module imports successfully."""
         module = importlib.import_module("pyicloud.services.notes.rendering.exporter")
 
         self.assertTrue(hasattr(module, "NoteExporter"))
 
     def test_notes_service_render_note_uses_lazy_importer(self):
+        """Render note delegates to the lazily imported exporter modules."""
         record = CKRecord.model_validate({
             "recordName": "Note/1",
             "recordType": "Note",
@@ -429,6 +450,7 @@ class NotesServiceTest(unittest.TestCase):
         mock_render.assert_called_once()
 
     def test_notes_service_export_note_uses_lazy_importer(self):
+        """Export note delegates to the lazily imported exporter modules."""
         record = CKRecord.model_validate({
             "recordName": "Note/1",
             "recordType": "Note",
@@ -452,6 +474,7 @@ class NotesServiceTest(unittest.TestCase):
         mock_export.assert_called_once()
 
     def test_iter_all_skips_changes_when_sync_cursor_is_current(self):
+        """iter_all skips changes when the sync cursor is already current."""
         self.service._raw = MagicMock()
         self.service._raw.current_sync_token.return_value = "tok-current"
 
@@ -462,6 +485,7 @@ class NotesServiceTest(unittest.TestCase):
         self.service._raw.changes.assert_not_called()
 
     def test_iter_changes_skips_changes_when_sync_cursor_is_current(self):
+        """iter_changes skips changes when the sync cursor is already current."""
         self.service._raw = MagicMock()
         self.service._raw.current_sync_token.return_value = "tok-current"
 
@@ -472,6 +496,7 @@ class NotesServiceTest(unittest.TestCase):
         self.service._raw.changes.assert_not_called()
 
     def test_iter_all_uses_changes_when_sync_cursor_is_not_current(self):
+        """iter_all falls back to changes when the sync cursor is stale."""
         self.service._raw = MagicMock()
         self.service._raw.current_sync_token.return_value = "tok-other"
         self.service._raw.changes.return_value = []
@@ -483,6 +508,7 @@ class NotesServiceTest(unittest.TestCase):
         self.service._raw.changes.assert_called_once()
 
     def test_notes_service_attachment_lookup_prefers_canonical_record_names(self):
+        """Attachment lookup resolves canonical record names for aliases."""
         note_record = CKLookupResponse.model_validate(
             load_notes_fixture("notes_lookup_note_response.json")
         ).records[0]
@@ -557,6 +583,7 @@ class NotesServiceTest(unittest.TestCase):
         self.assertIsNone(folders[0].has_subfolders)
 
     def test_write_html_rejects_filename_escape(self):
+        """write_html rejects filenames that escape the output directory."""
         out_dir = os.path.join(
             tempfile.gettempdir(),
             "python-test-results",
@@ -571,6 +598,7 @@ class NotesServiceTest(unittest.TestCase):
             )
 
     def test_decode_and_parse_note_returns_none_on_parse_failure(self):
+        """decode_and_parse_note returns None when parsing the body fails."""
         record = CKRecord.model_validate({
             "recordName": "Note/1",
             "recordType": "Note",
@@ -595,12 +623,14 @@ class NotesServiceTest(unittest.TestCase):
             self.assertIsNone(decode_and_parse_note(record))
 
     def test_note_body_text_defaults_to_none(self):
+        """NoteBody.text defaults to None when no body text is present."""
         from pyicloud.services.notes.domain import NoteBody
 
         body = NoteBody(bytes=b"hello")
         self.assertIsNone(body.text)
 
     def test_shared_cloudkit_signed_string_timestamps_are_tolerated(self):
+        """CloudKit timestamps tolerate signed-string and whitespace forms."""
         created = _from_millis_or_none(" 1735689600000 ")
 
         self.assertIsNotNone(created)
@@ -608,7 +638,11 @@ class NotesServiceTest(unittest.TestCase):
         self.assertIsNone(_from_secs_or_millis("999999999999999999999999"))
 
     def test_shared_cloudkit_invalid_timestamp_types_raise_validation_error(self):
+        """Invalid timestamp types raise a validation error."""
+
         class Demo(BaseModel):
+            """A model using CloudKit timestamp validators."""
+
             created: Annotated[datetime, BeforeValidator(_from_millis_or_none)]
             expires: Annotated[datetime, BeforeValidator(_from_secs_or_millis)]
 

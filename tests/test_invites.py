@@ -52,31 +52,38 @@ class CodecsTest(unittest.TestCase):
     """Tests for invite codecs."""
 
     def test_decode_json_bytes_round_trip(self):
+        """Decoding encoded JSON bytes reproduces the original data."""
         original = {"startSince1970": 1768435200000, "isAllDay": False}
         enc = encode_json_bytes(original)
         self.assertEqual(decode_json_bytes(enc), original)
 
     def test_decode_json_bytes_none_input(self):
+        """decoding None input returns None."""
         self.assertIsNone(decode_json_bytes(None))
 
     def test_decode_json_bytes_invalid_base64(self):
+        """decoding invalid base64 returns None."""
         self.assertIsNone(decode_json_bytes("not base64!!"))
 
     def test_decode_json_bytes_invalid_json(self):
+        """decoding valid base64 of non-JSON returns None."""
         # Valid base64, but the decoded payload is not JSON.
         bogus = "bm90LWpzb24="  # base64 of "not-json"
         self.assertIsNone(decode_json_bytes(bogus))
 
     def test_decode_json_bytes_accepts_bytes(self):
+        """decoding raw bytes returns the decoded JSON."""
         self.assertEqual(decode_json_bytes(b'{"k": 1}'), {"k": 1})
 
     def test_decode_json_bytes_accepts_base64_bytes(self):
+        """decoding base64-encoded bytes matches the str path."""
         # Bytes carrying the base64-encoded wire form decode the same as
         # the str path. Catches callers passing the wire form as bytes.
         encoded = encode_json_bytes({"k": 1}).encode("ascii")
         self.assertEqual(decode_json_bytes(encoded), {"k": 1})
 
     def test_decode_integrations_extracts_types(self):
+        """decode_integrations extracts the widget type values."""
         blob = {
             "version": "1",
             "data": [
@@ -91,6 +98,7 @@ class CodecsTest(unittest.TestCase):
         )
 
     def test_decode_integrations_handles_missing(self):
+        """decode_integrations returns empty when data is missing or malformed."""
         self.assertEqual(decode_integrations(None), ())
         self.assertEqual(decode_integrations({}), ())
         self.assertEqual(decode_integrations({"data": "not-a-list"}), ())
@@ -105,16 +113,19 @@ class DtoTest(unittest.TestCase):
     """Tests for invites data transfer objects."""
 
     def test_rsvp_status_enum(self):
+        """RsvpStatus enum maps to the expected wire integer values."""
         self.assertEqual(int(RsvpStatus.NO_RESPONSE), 0)
         self.assertEqual(int(RsvpStatus.NOT_GOING), 1)
         self.assertEqual(int(RsvpStatus.MAYBE), 2)
         self.assertEqual(int(RsvpStatus.GOING), 3)
 
     def test_event_share_url(self):
+        """EventShare builds the shared invite URL from its short guid."""
         share = EventShare(short_guid="008ABC", public_permission="NONE")
         self.assertEqual(share.url, "https://www.icloud.com/invites/008ABC")
 
     def test_event_is_frozen(self):
+        """Event rejects attribute mutation."""
         event = Event(
             event_id="x",
             scope=EventScope.PRIVATE,
@@ -124,6 +135,7 @@ class DtoTest(unittest.TestCase):
             event.title = "mutated"  # type: ignore[misc]
 
     def test_invites_dtos_serialize(self):
+        """Invites DTOs serialize to dictionaries."""
         share = EventShare(short_guid="008XYZ", public_permission="READ_WRITE")
         data = share.model_dump()
         self.assertEqual(data["short_guid"], "008XYZ")
@@ -165,6 +177,7 @@ class InvitesServiceTest(unittest.TestCase):
         )
 
     def test_events_returns_dtos_from_private_query(self):
+        """events() returns DTOs populated from the private-scope query."""
         # `events()` queries both private and shared. We return the events from
         # the private side and an empty record set for shared.
         empty = CKQueryResponse(records=[])
@@ -223,6 +236,7 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertTrue(second.time.is_open_ended)
 
     def test_events_merges_private_and_shared_with_dedup(self):
+        """events() merges private and shared results and deduplicates them."""
         # Same event appears in both scopes (defensive dedup). Both passes
         # should yield distinct (scope, event_id) keys.
         first_resp = self._events_query_response()
@@ -238,6 +252,7 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(len(keys), 4)
 
     def test_event_full_lookup_includes_share_and_rsvps(self):
+        """A full event lookup returns share and RSVP details."""
         # Service tries private first; lookup returns event + share, RSVP
         # query returns one RSVP, OTL query returns empty.
         self.service.raw.lookup = MagicMock(return_value=self._event_lookup_response())
@@ -278,6 +293,7 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(rsvp.participant_id, "PARTICIPANT-FIXTURE-GUEST")
 
     def test_event_falls_through_to_shared_on_private_miss(self):
+        """event() falls back to the shared scope on a private miss."""
         # Private lookup returns no matching records; shared lookup succeeds.
         empty_lookup = CKLookupResponse(records=[])
         self.service.raw.lookup = MagicMock(
@@ -292,12 +308,14 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(event.scope, EventScope.SHARED)
 
     def test_event_missing_raises(self):
+        """event() raises EventNotFound when no matching record exists."""
         empty_lookup = CKLookupResponse(records=[])
         self.service.raw.lookup = MagicMock(return_value=empty_lookup)
         with self.assertRaises(EventNotFound):
             self.service.event("NO-SUCH-EVENT")
 
     def test_rsvps_returns_dtos(self):
+        """rsvps() returns DTOs scoped to the event's private sub-client."""
         self.service.raw.query = MagicMock(return_value=self._rsvp_query_response())
         owner_event = Event(
             event_id="EVENT-FIXTURE-AAAA",
@@ -319,6 +337,7 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(call.args[0], "private")
 
     def test_resolve_returns_resolved_share(self):
+        """resolve() returns the resolved share details."""
         self.service.raw.resolve = MagicMock(
             return_value=load_invites_fixture("resolve_response.json")
         )
@@ -337,6 +356,7 @@ class InvitesServiceTest(unittest.TestCase):
         )
 
     def test_accept_returns_full_event(self):
+        """accept() returns the full event hydrated from the shared scope."""
         # accept() POSTs to public, then fetches the full event from SHARED.
         self.service.raw.accept = MagicMock(
             return_value=load_invites_fixture("accept_response.json")
@@ -367,6 +387,7 @@ class OneTimeLinkGuestTest(unittest.TestCase):
     """Tests for OneTimeLink guest models."""
 
     def test_default_collections_are_empty_tuples(self):
+        """OneTimeLinkGuest default collections are empty tuples."""
         otl = OneTimeLinkGuest(
             record_name="PARTICIPANT-X_otl",
             participant_id="PARTICIPANT-X",
@@ -416,6 +437,8 @@ def _existing_going_rsvp() -> Rsvp:
 
 
 class RsvpWriteTest(unittest.TestCase):
+    """Tests for RSVP write operations."""
+
     def setUp(self):
         self.service = InvitesService(
             service_root="https://example.com",
@@ -427,6 +450,7 @@ class RsvpWriteTest(unittest.TestCase):
         )
 
     def test_rsvp_update_uses_existing_change_tag_and_update_op(self):
+        """Updating an existing RSVP reuses its change tag and update op."""
         existing = _existing_going_rsvp()
         event = _make_event_with_share(rsvps=(existing,))
         self.service.raw.modify = MagicMock(return_value=self.modify_response)
@@ -458,6 +482,7 @@ class RsvpWriteTest(unittest.TestCase):
         self.assertEqual(status_field.value, 2)
 
     def test_rsvp_first_response_creates_record(self):
+        """A first RSVP response creates a record with no change tag."""
         # No existing RSVP in event.rsvps → create op, no recordChangeTag.
         event = _make_event_with_share(rsvps=())
         self.service.raw.modify = MagicMock(return_value=self.modify_response)
@@ -469,6 +494,7 @@ class RsvpWriteTest(unittest.TestCase):
         self.assertIsNone(op.record.recordChangeTag)
 
     def test_rsvp_not_going_zeros_plus_ones(self):
+        """A NOT_GOING RSVP zeroes any plus-one counts."""
         existing = _existing_going_rsvp()
         event = _make_event_with_share(rsvps=(existing,))
         self.service.raw.modify = MagicMock(return_value=self.modify_response)
@@ -490,6 +516,7 @@ class RsvpWriteTest(unittest.TestCase):
         self.assertEqual(guests.value, 0)
 
     def test_rsvp_plus_one_counts_sum_to_total(self):
+        """Plus-one adult and kid counts sum to the recorded guest total."""
         event = _make_event_with_share()
         self.service.raw.modify = MagicMock(return_value=self.modify_response)
 
@@ -506,6 +533,7 @@ class RsvpWriteTest(unittest.TestCase):
         self.assertEqual(guests.value, 5)
 
     def test_rsvp_owner_dispatches_to_private_scope(self):
+        """Owner RSVPs are dispatched to the private sub-client."""
         owner_event = _make_event_with_share(
             scope=EventScope.PRIVATE,
             current_user_participant_id="PARTICIPANT-FIXTURE-OWNER",
@@ -523,6 +551,7 @@ class RsvpWriteTest(unittest.TestCase):
         )
 
     def test_rsvp_omits_name_and_message_when_not_provided(self):
+        """RSVP omits name and message fields when not provided."""
         event = _make_event_with_share()
         self.service.raw.modify = MagicMock(return_value=self.modify_response)
 
@@ -533,6 +562,7 @@ class RsvpWriteTest(unittest.TestCase):
         self.assertNotIn("message", record.fields)
 
     def test_rsvp_includes_name_and_message_when_provided(self):
+        """RSVP includes name and message fields when provided."""
         event = _make_event_with_share()
         self.service.raw.modify = MagicMock(return_value=self.modify_response)
 
@@ -551,6 +581,7 @@ class RsvpWriteTest(unittest.TestCase):
         self.assertEqual(message_field.value, "See you there")
 
     def test_rsvp_raises_when_share_not_loaded(self):
+        """rsvp() raises when the event has no share loaded."""
         event = Event(
             event_id="EVENT-FIXTURE-AAAA",
             scope=EventScope.SHARED,
@@ -561,11 +592,13 @@ class RsvpWriteTest(unittest.TestCase):
             self.service.rsvp(event, RsvpStatus.GOING)
 
     def test_rsvp_raises_when_share_has_no_current_participant(self):
+        """rsvp() raises when the share has no current participant."""
         event = _make_event_with_share(current_user_participant_id="")
         with self.assertRaises(InvitesApiError):
             self.service.rsvp(event, RsvpStatus.GOING)
 
     def test_rsvp_rejects_negative_plus_one_counts(self):
+        """rsvp() rejects negative plus-one counts before any wire call."""
         event = _make_event_with_share()
         # Sentinel modify mock that should never be reached.
         self.service.raw.modify = MagicMock()

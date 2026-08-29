@@ -20,6 +20,8 @@ from .renderer_iface import AttachmentRef, NoteDataSource
 
 
 class StyleType(IntEnum):
+    """Enum of Apple Notes paragraph and run text styles."""
+
     DEFAULT = -1
     TITLE = 0
     HEADING = 1
@@ -107,6 +109,8 @@ def _css_font_stack(name: str) -> str:
 
 @dataclass(frozen=True)
 class StyleSig:
+    """Signature of styling parsed from a protobuf AttributeRun."""
+
     # Inline styling
     font_weight: int | None
     underlined: int | None
@@ -131,6 +135,7 @@ class StyleSig:
 
     @staticmethod
     def from_run(run: pb.AttributeRun) -> StyleSig:
+        """Extract a StyleSig from a protobuf AttributeRun."""
         ps = run.paragraph_style if run.HasField("paragraph_style") else None
         st = align = indent = bq = wd = None
         start_num = None  # default when no paragraph_style/start provided
@@ -238,6 +243,7 @@ class StyleSig:
         )
 
     def same_paragraph_as(self, other: StyleSig) -> bool:
+        """Return whether two signatures share paragraph-level styling."""
         # If both runs carry a paragraph UUID and it differs, this is a new paragraph
         if (
             self.paragraph_uuid
@@ -266,6 +272,7 @@ class StyleSig:
         )
 
     def same_inline_as(self, other: StyleSig) -> bool:
+        """Return whether two signatures share inline text styling."""
         return (
             self.font_weight == other.font_weight
             and self.underlined == other.underlined
@@ -280,11 +287,14 @@ class StyleSig:
         )
 
     def same_effective_style(self, other: StyleSig) -> bool:
+        """Return whether two signatures share all effective styling."""
         return self.same_paragraph_as(other) and self.same_inline_as(other)
 
 
 @dataclass
 class MergedRun:
+    """A run of text merged from adjacent runs with uniform style."""
+
     length: int
     sig: StyleSig
     attachment: AttachmentRef | None
@@ -328,6 +338,7 @@ def render_note_fragment(
     datasource: NoteDataSource | None,
     config: ExportConfig | None = None,
 ) -> str:
+    """Render a note body to an HTML fragment string."""
     text = note.note_text or ""
     merged = _merge_runs(note.attribute_run)
 
@@ -870,6 +881,7 @@ def render_note_fragment(
 
 
 def render_note_page(title: str, html_fragment: str, extra_css: str = "") -> str:
+    """Wrap an HTML fragment in a self-contained HTML page with CSS."""
     return (
         '<!doctype html><meta charset="utf-8">'
         '<meta name="color-scheme" content="light dark">'

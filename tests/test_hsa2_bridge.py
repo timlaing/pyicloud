@@ -52,9 +52,11 @@ class _FakeWebSocket:
         self.read_count = 0
 
     def send_binary(self, payload: bytes) -> None:
+        """Record the payload as a sent binary message."""
         self.sent_messages.append(payload)
 
     def read_message(self) -> bytes:
+        """Consume the next message, raising it if it is an exception."""
         self.read_count += 1
         if self._on_read is not None:
             self._on_read(self.read_count)
@@ -64,6 +66,7 @@ class _FakeWebSocket:
         return message
 
     def close(self) -> None:
+        """Mark the websocket as closed."""
         self.closed = True
 
 
@@ -71,6 +74,7 @@ class _FakePrivateKey:
     """Mock private key for testing signature generation."""
 
     def sign(self, nonce: bytes, _algorithm: object) -> bytes:
+        """Return a deterministic signature derived from the nonce."""
         return b"signature-for-" + nonce[:4]
 
 

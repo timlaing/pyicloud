@@ -68,6 +68,8 @@ class Note(NoteSummary):
 
 
 class NoteFolder(FrozenServiceModel):
+    """Metadata for a Notes folder."""
+
     id: str
     name: str | None
     has_subfolders: bool | None
@@ -75,5 +77,7 @@ class NoteFolder(FrozenServiceModel):
 
 
 class ChangeEvent(FrozenServiceModel):
+    """A change to a note reported by the sync stream."""
+
     type: Literal["updated", "deleted"]
     note: NoteSummary

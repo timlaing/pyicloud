@@ -35,6 +35,7 @@ logger = logging.getLogger("notes.explore")
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     p = argparse.ArgumentParser(
         description="Developer utility for exploring and exporting iCloud Notes"
     )
@@ -136,6 +137,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def ensure_auth(api: PyiCloudService) -> None:
+    """Ensure the iCloud session is authenticated, handling 2FA and 2SA."""
     if api.requires_2fa:
         fido2_devices = list(api.fido2_devices)
         if fido2_devices:
@@ -186,6 +188,7 @@ def ensure_auth(api: PyiCloudService) -> None:
 
 
 def main() -> None:
+    """Explore, render, and export iCloud Notes per CLI arguments."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",

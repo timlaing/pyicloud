@@ -32,6 +32,7 @@ class TestExampleRemindersDelta(unittest.TestCase):
     """Tests for the example reminders delta script."""
 
     def test_authenticate_uses_security_key_when_fido2_devices_are_available(self):
+        """Authenticate should prefer the FIDO2 security key flow over a 2FA code."""
         module = _load_example_reminders_delta()
         api = MagicMock()
         devices = [object(), object()]
@@ -53,6 +54,7 @@ class TestExampleRemindersDelta(unittest.TestCase):
         api.trust_session.assert_called_once_with()
 
     def test_authenticate_2sa_uses_selected_trusted_device(self):
+        """Authenticate should send the code to the chosen trusted device."""
         module = _load_example_reminders_delta()
         api = MagicMock()
         devices = [

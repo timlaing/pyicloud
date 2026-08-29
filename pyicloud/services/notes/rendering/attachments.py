@@ -374,6 +374,7 @@ _PREFIX: list[tuple[str, _Renderer]] = [
 def render_attachment(
     ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
 ) -> str:
+    """Render an attachment to HTML using the renderer matching its UTI."""
     uti = (ctx.uti or "").lower()
     r = _EXACT.get(uti)
     if r is not None:

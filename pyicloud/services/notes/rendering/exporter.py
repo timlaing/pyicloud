@@ -487,6 +487,7 @@ def render_fragment(
     ds: CloudKitNoteDataSource | None,
     config: ExportConfig | None = None,
 ) -> str:
+    """Render a note body to an HTML fragment via the pure renderer."""
     return render_note_fragment(note, ds, config=config)
 
 
@@ -506,6 +507,7 @@ def write_html(
     full_page: bool = False,
     filename: str | None = None,
 ) -> str:
+    """Write an HTML page or fragment to out_dir and return its path."""
     os.makedirs(out_dir, exist_ok=True)
     page = render_note_page(title, html_fragment) if full_page else html_fragment
     fname = filename or f"{_safe_name(title)}.html"

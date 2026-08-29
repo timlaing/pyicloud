@@ -115,6 +115,7 @@ class _CloudKitHTTP:
         return out
 
     def build_url(self, path: str) -> str:
+        """Build a full request URL from a base path and query parameters."""
         q = urlencode(self._params)
         return f"{self._base_url}{path}" + (f"?{q}" if q else "")
 
@@ -132,6 +133,7 @@ class _CloudKitHTTP:
             LOGGER.debug("CloudKit debug hook failed for %s", op, exc_info=True)
 
     def post(self, path: str, payload: dict, *, headers: dict | None = None) -> dict:
+        """Send a CloudKit POST request and return the parsed JSON response."""
         url = self.build_url(path)
         op = path.strip("/")
         display_url = self._display_url(url) if self._redact_urls else path
@@ -178,6 +180,7 @@ class _CloudKitHTTP:
             ) from exc
 
     def get_bytes(self, url: str) -> bytes:
+        """Fetch an asset URL and return its contents as bytes."""
         LOGGER.debug("CloudKit asset GET <redacted>")
         resp = self._session.get(url, timeout=self._timeout)
         code = getattr(resp, "status_code", 0)
@@ -211,6 +214,7 @@ class _CloudKitHTTP:
         raise CloudKitApiError("Invalid asset response", payload=text)
 
     def get_stream(self, url: str, *, chunk_size: int = 65536) -> Iterator[bytes]:
+        """Stream an asset URL in chunks of the given size."""
         LOGGER.debug("CloudKit asset stream GET %s", self._display_url(url))
         resp = self._session.get(url, stream=True, timeout=self._timeout)
         try:
@@ -294,6 +298,7 @@ class CloudKitContainerClient:
         continuation: str | None = None,
         zone_wide: bool = False,
     ) -> CKQueryResponse:
+        """Run a CloudKit query and return the parsed response."""
         if zone_wide and zone_id is not None:
             raise ValueError("zone_id must be omitted when zone_wide=True")
         if not zone_wide and zone_id is None:
@@ -322,6 +327,7 @@ class CloudKitContainerClient:
         zone_id: CKZoneIDReq,
         desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
+        """Look up records by name and return the parsed response."""
         payload = CKLookupRequest(
             records=[CKLookupDescriptor(recordName=str(name)) for name in record_names],
             zoneID=zone_id,
@@ -342,6 +348,7 @@ class CloudKitContainerClient:
         zone_req: CKZoneChangesZoneReq,
         results_limit: int | None = None,
     ) -> Iterator[CKZoneChangesZone]:
+        """Yield zone changes, following continuation markers until done."""
         req = CKZoneChangesRequest(
             zones=[zone_req],
             resultsLimit=results_limit,
@@ -370,6 +377,7 @@ class CloudKitContainerClient:
         zone_req: CKZoneChangesZoneReq,
         results_limit: int | None = None,
     ) -> CKZoneChangesResponse:
+        """Fetch zone changes and return the parsed response."""
         payload = CKZoneChangesRequest(
             zones=[zone_req],
             resultsLimit=results_limit,
@@ -390,6 +398,7 @@ class CloudKitContainerClient:
         zone_id: CKZoneIDReq,
         atomic: bool | None = None,
     ) -> CKModifyResponse:
+        """Send record modify operations and return the parsed response."""
         payload = CKModifyRequest(
             operations=operations,
             zoneID=zone_id,
@@ -405,6 +414,7 @@ class CloudKitContainerClient:
             ) from exc
 
     def zones_list(self) -> CKZoneListResponse:
+        """List the container's zones and return the parsed response."""
         data = self._http.post("/zones/list", {})
         try:
             return self._validate_response(CKZoneListResponse, data)
@@ -419,6 +429,7 @@ class CloudKitContainerClient:
         *,
         sync_token: str | None = None,
     ) -> CKDatabaseChangesResponse:
+        """Fetch database-level changes and return the parsed response."""
         payload = {}
         if sync_token:
             payload["syncToken"] = sync_token
@@ -432,6 +443,7 @@ class CloudKitContainerClient:
             ) from exc
 
     def download_asset_bytes(self, url: str) -> bytes:
+        """Download an asset from the given URL as bytes."""
         return self._http.get_bytes(url)
 
     def download_asset_stream(
@@ -440,6 +452,7 @@ class CloudKitContainerClient:
         *,
         chunk_size: int = 65536,
     ) -> Iterator[bytes]:
+        """Stream an asset from the given URL in chunks."""
         yield from self._http.get_stream(url, chunk_size=chunk_size)
 
     def query_sync_token(
@@ -449,6 +462,7 @@ class CloudKitContainerClient:
         zone_id: CKZoneIDReq,
         results_limit: int = 1,
     ) -> str | None:
+        """Run a query and return its sync token if present."""
         payload = CKQueryRequest(
             query=query,
             zoneID=zone_id,
