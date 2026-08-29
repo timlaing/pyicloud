@@ -19,8 +19,8 @@ from rich.console import Console
 
 from pyicloud.common.cloudkit import CKLookupResponse, CKRecord
 
-from ..decoding import BodyDecoder
 from ..client import CloudKitNotesClient
+from ..decoding import BodyDecoder
 from ..protobuf import notes_pb2 as pb
 from .ck_datasource import CloudKitNoteDataSource
 from .options import ExportConfig
@@ -552,7 +552,9 @@ def write_html(
 class NoteExporter:
     """Orchestrator for exporting notes to HTML with assets."""
 
-    def __init__(self, ck_client: CloudKitNotesClient, config: ExportConfig | None = None):
+    def __init__(
+        self, ck_client: CloudKitNotesClient, config: ExportConfig | None = None
+    ):
         self.client = ck_client
         self.config = config or ExportConfig()
         self.renderer = NoteRenderer(self.config)

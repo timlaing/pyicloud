@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import logging
 from pathlib import Path, PurePosixPath
-from typing import Any, IO
-from collections.abc import Callable
+from typing import IO, Any
 
 from click import confirm
 from rich.console import Console
@@ -627,7 +627,9 @@ def get_state(ctx: typer.Context) -> CLIState:
     return resolved
 
 
-def service_call(label: str, fn: Callable[[], Any], *, account_name: str | None = None) -> Any:
+def service_call(
+    label: str, fn: Callable[[], Any], *, account_name: str | None = None
+) -> Any:
     """Wrap a service call with user-facing service-unavailable handling."""
 
     try:

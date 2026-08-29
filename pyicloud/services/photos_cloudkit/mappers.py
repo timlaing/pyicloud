@@ -44,9 +44,7 @@ def decode_encrypted_text(record: CKRecord, field_name: str) -> str | None:
             return None
 
 
-def record_field_value(
-    record: CKRecord | dict[str, Any], field_name: str
-) -> Any:
+def record_field_value(record: CKRecord | dict[str, Any], field_name: str) -> Any:
     """Return a field value from a typed record or a legacy raw-dict record."""
 
     if isinstance(record, CKRecord):
