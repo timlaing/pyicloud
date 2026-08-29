@@ -74,7 +74,7 @@ class CloudKitRemindersClient:
             ) from cause
         if isinstance(exc, CloudKitApiError):
             raise RemindersApiError(str(exc), payload=exc.payload) from cause
-        raise
+        raise exc
 
     def lookup(
         self,

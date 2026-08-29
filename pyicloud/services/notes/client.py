@@ -113,7 +113,7 @@ class CloudKitNotesClient:
             raise NotesRateLimited(str(exc), retry_after=exc.retry_after) from cause
         if isinstance(exc, CloudKitApiError):
             raise NotesApiError(str(exc), payload=exc.payload) from cause
-        raise
+        raise exc
 
     def _log_cloudkit_validation(self, op: str, exc: Exception) -> bool:
         if isinstance(exc, CloudKitApiError) and isinstance(

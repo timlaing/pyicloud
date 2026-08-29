@@ -138,7 +138,7 @@ class CloudKitInvitesClient:
             raise InvitesRateLimited(str(exc), retry_after=exc.retry_after) from cause
         if isinstance(exc, CloudKitApiError):
             raise InvitesApiError(str(exc), payload=exc.payload) from cause
-        raise
+        raise exc
 
     # ----- Records-in-zones scoped wrappers ----------------------------------
 
