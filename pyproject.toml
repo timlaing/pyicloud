@@ -142,6 +142,12 @@ exclude_gitignore = true
 strict = true
 show_error_codes = true
 pretty = true
+# Generated protobuf code is never hand-edited (see AGENTS.md); the committed
+# *_pb2.py stubs are excluded the same way the pylint sweep excludes protobuf.
+exclude = [
+    "pyicloud/services/notes/protobuf/",
+    "pyicloud/services/reminders/protobuf/",
+]
 
 [tool.pylint.main]
 jobs = 2
