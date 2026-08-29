@@ -271,7 +271,8 @@ def _print_photo_watch_start(
 
     if iterations is None:
         state.console.print(
-            f"Starting photo watch run {iteration} (poll interval {interval_seconds}s)..."
+            f"Starting photo watch run {iteration} "
+            f"(poll interval {interval_seconds}s)..."
         )
         return
     state.console.print(
@@ -296,7 +297,8 @@ def _print_photo_watch_wait(
         return
     state.console.print(
         "Waiting "
-        f"{interval_seconds}s before photo watch run {next_iteration} of {iterations}..."
+        f"{interval_seconds}s before photo watch run {next_iteration} "
+        f"of {iterations}..."
     )
 
 
@@ -753,7 +755,10 @@ def photos_sync(
         file_okay=False,
         dir_okay=True,
         resolve_path=True,
-        help="Directory for persistent sync state. Defaults to <directory>/.pyicloud-state.",
+        help=(
+            "Directory for persistent sync state. Defaults to "
+            "<directory>/.pyicloud-state."
+        ),
     ),
     size: str = typer.Option(
         "original",
@@ -768,7 +773,10 @@ def photos_sync(
     folder_structure: str = typer.Option(
         "none",
         "--folder-structure",
-        help="Datetime folder layout, for example '{:%Y/%m}', or 'none' for a flat directory.",
+        help=(
+            "Datetime folder layout, for example '{:%Y/%m}', or "
+            "'none' for a flat directory."
+        ),
     ),
     recent: int | None = typer.Option(
         None,
@@ -805,13 +813,18 @@ def photos_sync(
     set_exif_datetime: bool = typer.Option(
         False,
         "--set-exif-datetime",
-        help="Set JPEG EXIF created timestamps when the file does not already have them.",
+        help=(
+            "Set JPEG EXIF created timestamps when the file does not already have them."
+        ),
     ),
     keep_icloud_recent_days: int | None = typer.Option(
         None,
         "--keep-icloud-recent-days",
         min=0,
-        help="Delete remote assets after local confirmation unless they were taken within N days.",
+        help=(
+            "Delete remote assets after local confirmation unless they "
+            "were taken within N days."
+        ),
     ),
     only_print_filenames: bool = typer.Option(
         False,
@@ -826,7 +839,10 @@ def photos_sync(
     auto_delete: bool = typer.Option(
         False,
         "--auto-delete",
-        help="Delete local files that are no longer present remotely for this sync target.",
+        help=(
+            "Delete local files that are no longer present remotely for "
+            "this sync target."
+        ),
     ),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -909,7 +925,10 @@ def photos_watch(
         file_okay=False,
         dir_okay=True,
         resolve_path=True,
-        help="Directory for persistent sync state. Defaults to <directory>/.pyicloud-state.",
+        help=(
+            "Directory for persistent sync state. Defaults to "
+            "<directory>/.pyicloud-state."
+        ),
     ),
     size: str = typer.Option(
         "original",
@@ -924,7 +943,10 @@ def photos_watch(
     folder_structure: str = typer.Option(
         "none",
         "--folder-structure",
-        help="Datetime folder layout, for example '{:%Y/%m}', or 'none' for a flat directory.",
+        help=(
+            "Datetime folder layout, for example '{:%Y/%m}', or "
+            "'none' for a flat directory."
+        ),
     ),
     recent: int | None = typer.Option(
         None,
@@ -961,13 +983,18 @@ def photos_watch(
     set_exif_datetime: bool = typer.Option(
         False,
         "--set-exif-datetime",
-        help="Set JPEG EXIF created timestamps when the file does not already have them.",
+        help=(
+            "Set JPEG EXIF created timestamps when the file does not already have them."
+        ),
     ),
     keep_icloud_recent_days: int | None = typer.Option(
         None,
         "--keep-icloud-recent-days",
         min=0,
-        help="Delete remote assets after local confirmation unless they were taken within N days.",
+        help=(
+            "Delete remote assets after local confirmation unless they "
+            "were taken within N days."
+        ),
     ),
     only_print_filenames: bool = typer.Option(
         False,
@@ -982,7 +1009,10 @@ def photos_watch(
     auto_delete: bool = typer.Option(
         False,
         "--auto-delete",
-        help="Delete local files that are no longer present remotely for this sync target.",
+        help=(
+            "Delete local files that are no longer present remotely for "
+            "this sync target."
+        ),
     ),
     interval: int = typer.Option(
         300,

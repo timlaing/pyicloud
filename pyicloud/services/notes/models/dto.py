@@ -61,7 +61,8 @@ class Note(NoteSummary):
     @computed_field
     @property
     def has_attachments(self) -> bool | None:
-        """Return ``True``/``False`` when attachments were loaded, otherwise ``None``."""
+        """Return ``True``/``False`` when attachments were loaded, otherwise
+        ``None``."""
         if self.attachments is None:
             return None
         return bool(self.attachments)

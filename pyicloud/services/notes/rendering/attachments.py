@@ -232,7 +232,8 @@ class _PdfRenderer(_Renderer):
         title = ctx.title or "PDF"
         url = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         if url:
-            # Only embed local PDFs. Remote CloudKit URLs often force downloads and break UX.
+            # Only embed local PDFs. Remote CloudKit URLs often force
+            # downloads and break UX.
             is_remote = _is_remote_url(url)
             if not is_remote:
                 height_px = (
@@ -302,7 +303,8 @@ class _CalculatorRenderer(_Renderer):
     """Render calculator result inline attachments."""
 
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
-        # Render exactly what the server provides (AltTextEncrypted/TitleEncrypted/SummaryEncrypted),
+        # Render exactly what the server provides
+        # (AltTextEncrypted/TitleEncrypted/SummaryEncrypted),
         # without any additional normalization.
         label = ctx.title or ctx.uti or "result"
         return h("span", **ctx.base_attrs({"class": "attachment calc"}))(label).render()

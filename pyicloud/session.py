@@ -102,7 +102,8 @@ class PyiCloudSession(requests.Session):
                 cast(PyiCloudCookieJar, self.cookies).load()
             except (OSError, ValueError) as exc:
                 self._logger.warning(
-                    "Failed to load cookie jar %s: %s; starting without persisted cookies",
+                    "Failed to load cookie jar %s: %s; starting without persisted "
+                    "cookies",
                     self.cookiejar_path,
                     exc,
                 )
@@ -338,7 +339,9 @@ class PyiCloudSession(requests.Session):
 
     @staticmethod
     def _raise_request_exception(err: requests.exceptions.RequestException) -> NoReturn:
-        """Normalize low-level requests failures into the session's public error type."""
+        """Normalize low-level requests failures into the session's public error
+        type.
+        """
 
         if isinstance(err, requests.HTTPError) and err.response is not None:
             raise PyiCloudAPIResponseException(
@@ -393,7 +396,8 @@ class PyiCloudSession(requests.Session):
 
         except JSONDecodeError:
             self.logger.debug(
-                "Failed to parse response body as JSON despite JSON mimetype; status=%s",
+                "Failed to parse response body as JSON despite JSON mimetype; "
+                "status=%s",
                 getattr(response, "status_code", "unknown"),
             )
 

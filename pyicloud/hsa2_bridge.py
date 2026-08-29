@@ -1048,7 +1048,9 @@ class TrustedDeviceBridgeBootstrapper:
         boot_context: Hsa2BootContext,
         user_agent: str,
     ) -> TrustedDeviceBridgeState:
-        """Bootstrap Apple's trusted-device bridge until the first prompt payload arrives."""
+        """Bootstrap Apple's trusted-device bridge until the first prompt
+        payload arrives.
+        """
         topic = _resolve_apns_topic(boot_context)
         websocket_host = _resolve_websocket_host(boot_context)
         origin = _derive_origin(auth_endpoint)
@@ -1057,7 +1059,8 @@ class TrustedDeviceBridgeBootstrapper:
         public_key, private_key = self._generate_keypair()
 
         LOGGER.debug(
-            "Bootstrapping trusted-device bridge: auth_endpoint=%s websocket_host=%s topic=%s source_app_id=%s",
+            "Bootstrapping trusted-device bridge: auth_endpoint=%s "
+            "websocket_host=%s topic=%s source_app_id=%s",
             auth_endpoint,
             websocket_host,
             topic,
@@ -1103,7 +1106,8 @@ class TrustedDeviceBridgeBootstrapper:
                     bridge_headers["X-Apple-App-Id"] = source_app_id
 
                 LOGGER.debug(
-                    "Posting trusted-device bridge step 0 with sessionUUID=%s ptknLen=%d",
+                    "Posting trusted-device bridge step 0 with "
+                    "sessionUUID=%s ptknLen=%d",
                     _summarize_identifier(session_uuid),
                     len(push_token_hex),
                 )
@@ -1129,7 +1133,8 @@ class TrustedDeviceBridgeBootstrapper:
                         "Trusted-device bridge returned a mismatched session UUID."
                     )
                 LOGGER.debug(
-                    "Received trusted-device bridge payload: sessionUUID=%s nextStep=%s ruiURLKey=%s",
+                    "Received trusted-device bridge payload: sessionUUID=%s "
+                    "nextStep=%s ruiURLKey=%s",
                     _summarize_identifier(push_payload.session_uuid),
                     push_payload.next_step,
                     push_payload.rui_url_key,
@@ -1150,7 +1155,8 @@ class TrustedDeviceBridgeBootstrapper:
                 timestamp_ms = exc.server_timestamp_ms
                 last_error = exc
                 LOGGER.debug(
-                    "Trusted-device bridge received INVALID_NONCE; retrying with server timestamp %s",
+                    "Trusted-device bridge received INVALID_NONCE; retrying "
+                    "with server timestamp %s",
                     timestamp_ms,
                 )
             except (TimeoutError, OSError, ssl.SSLError) as exc:
@@ -1239,7 +1245,8 @@ class TrustedDeviceBridgeBootstrapper:
 
         try:
             LOGGER.debug(
-                "Starting trusted-device bridge code verification: sessionUUID=%s nextStep=%s txnid=%s",
+                "Starting trusted-device bridge code verification: "
+                "sessionUUID=%s nextStep=%s txnid=%s",
                 _summarize_identifier(bridge_state.session_uuid),
                 bridge_state.next_step,
                 _summarize_identifier(bridge_state.txnid, prefix=12),
@@ -1299,7 +1306,8 @@ class TrustedDeviceBridgeBootstrapper:
                 prover.process_message2(bridge_message2_hex)
             except ValueError:
                 LOGGER.debug(
-                    "Trusted-device bridge prover rejected the step-4 confirmation for sessionUUID=%s",
+                    "Trusted-device bridge prover rejected the step-4 "
+                    "confirmation for sessionUUID=%s",
                     _summarize_identifier(bridge_state.session_uuid),
                 )
                 return False
@@ -1355,7 +1363,8 @@ class TrustedDeviceBridgeBootstrapper:
 
             completion_step = 6 if bridge_state.next_step in {"6", 6} else 4
             LOGGER.debug(
-                "Posting trusted-device bridge completion step %s with sessionUUID=%s verifyStatus=%s",
+                "Posting trusted-device bridge completion step %s with "
+                "sessionUUID=%s verifyStatus=%s",
                 completion_step,
                 _summarize_identifier(bridge_state.session_uuid),
                 verify_response.status_code,
@@ -1373,11 +1382,13 @@ class TrustedDeviceBridgeBootstrapper:
             return verification_succeeded
         except PyiCloudTrustedDevicePromptException as exc:
             raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge verification failed while waiting for the next bridge push."
+                "Trusted-device bridge verification failed while waiting "
+                "for the next bridge push."
             ) from exc
         except (TimeoutError, OSError, ssl.SSLError) as exc:
             raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge verification failed due to a websocket transport error."
+                "Trusted-device bridge verification failed due to a "
+                "websocket transport error."
             ) from exc
         finally:
             self.close(bridge_state)
@@ -1391,7 +1402,8 @@ class TrustedDeviceBridgeBootstrapper:
             connection_response = server_message.connection_response
             if connection_response is None:
                 LOGGER.debug(
-                    "Ignoring non-connection websocket frame while waiting for push token; fields=%s",
+                    "Ignoring non-connection websocket frame while waiting for push "
+                    "token; fields=%s",
                     server_message.field_numbers,
                 )
                 continue
@@ -1444,7 +1456,8 @@ class TrustedDeviceBridgeBootstrapper:
             if server_message.channel_subscription_response is not None:
                 channel_response = server_message.channel_subscription_response
                 LOGGER.debug(
-                    "Received channel subscription response during bridge bootstrap: messageId=%s status=%s retryIntervalSeconds=%s topics=%s",
+                    "Received channel subscription response during bridge bootstrap: "
+                    "messageId=%s status=%s retryIntervalSeconds=%s topics=%s",
                     channel_response.message_id,
                     channel_response.status,
                     channel_response.retry_interval_seconds,
@@ -1459,7 +1472,8 @@ class TrustedDeviceBridgeBootstrapper:
             if server_message.push_acknowledgment is not None:
                 push_ack = server_message.push_acknowledgment
                 LOGGER.debug(
-                    "Received bridge push acknowledgment during bootstrap: messageId=%s deliveryStatus=%s topic=%s",
+                    "Received bridge push acknowledgment during bootstrap: "
+                    "messageId=%s deliveryStatus=%s topic=%s",
                     push_ack.message_id,
                     push_ack.delivery_status,
                     _topic_name(push_ack.topic, topics_by_hash),
@@ -1468,7 +1482,8 @@ class TrustedDeviceBridgeBootstrapper:
             push_message = server_message.push_message
             if push_message is None:
                 LOGGER.debug(
-                    "Ignoring non-push websocket frame during trusted-device bootstrap; fields=%s",
+                    "Ignoring non-push websocket frame during trusted-device "
+                    "bootstrap; fields=%s",
                     server_message.field_numbers,
                 )
                 continue
@@ -1503,7 +1518,8 @@ class TrustedDeviceBridgeBootstrapper:
                 "Trusted-device bridge returned a mismatched session UUID."
             )
         LOGGER.debug(
-            "Decoded trusted-device bridge payload: sessionUUID=%s nextStep=%s txnid=%s ec=%s has_data=%s has_encryptedCode=%s",
+            "Decoded trusted-device bridge payload: sessionUUID=%s nextStep=%s "
+            "txnid=%s ec=%s has_data=%s has_encryptedCode=%s",
             _summarize_identifier(push_payload.session_uuid),
             push_payload.next_step,
             _summarize_identifier(push_payload.txnid, prefix=12),
@@ -1530,7 +1546,8 @@ class TrustedDeviceBridgeBootstrapper:
                 "Trusted-device bridge returned an unexpected post-step-2 payload."
             )
         LOGGER.debug(
-            "Received trusted-device bridge payload: sessionUUID=%s nextStep=%s txnid=%s",
+            "Received trusted-device bridge payload: sessionUUID=%s nextStep=%s "
+            "txnid=%s",
             _summarize_identifier(bridge_state.session_uuid),
             bridge_state.next_step,
             _summarize_identifier(bridge_state.txnid, prefix=12),
@@ -1555,7 +1572,8 @@ class TrustedDeviceBridgeBootstrapper:
                 "Trusted-device bridge returned an unexpected final payload."
             )
         LOGGER.debug(
-            "Received trusted-device bridge final payload: sessionUUID=%s nextStep=%s txnid=%s",
+            "Received trusted-device bridge final payload: sessionUUID=%s nextStep=%s "
+            "txnid=%s",
             _summarize_identifier(bridge_state.session_uuid),
             bridge_state.next_step,
             _summarize_identifier(bridge_state.txnid, prefix=12),

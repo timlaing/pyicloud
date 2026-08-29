@@ -267,7 +267,8 @@ class StyleSig:
             # Checklist item state is part of the paragraph semantics; if it differs,
             # do not merge runs so each item carries its own done/unchecked state.
             and self.checklist_done == other.checklist_done
-            # Start number for ordered lists can differ between paragraphs; avoid merging.
+            # Start number for ordered lists can differ between
+            # paragraphs; avoid merging.
             and self.start_number == other.start_number
         )
 
@@ -349,7 +350,8 @@ def render_note_fragment(
     # strip_leading_break_next = False
 
     def _emphasis_css(emph_val: int | None) -> list[str]:
-        # Use the highlight value from the signature, which may come from emphasis_style or highlight_color
+        # Use the highlight value from the signature, which may come from
+        # emphasis_style or highlight_color
         if emph_val is None:
             return []
         # Map emphasis palette index to CSS variables that adapt to light/dark.
@@ -360,9 +362,9 @@ def render_note_fragment(
         return [f"background-color:var(--hl{idx}-bg)"]
 
     i = 0
-    list_stack: list[
-        dict
-    ] = []  # {"indent": int, "tag": str, "li_open": bool, "li_index": Optional[int], "li_has_content": bool}
+    # {"indent": int, "tag": str, "li_open": bool,
+    #  "li_index": Optional[int], "li_has_content": bool}
+    list_stack: list[dict] = []
 
     def _close_top_list() -> None:
         if not list_stack:
@@ -593,7 +595,11 @@ def render_note_fragment(
                     rp = str(config.referrer_policy)
             except Exception:
                 pass
-            styled = f'<a href="{html.escape(safe_href)}" target="_blank" rel="{html.escape(rel)}" referrerpolicy="{html.escape(rp)}">{styled}</a>'
+            styled = (
+                f'<a href="{html.escape(safe_href)}" target="_blank" '
+                f'rel="{html.escape(rel)}" referrerpolicy="{html.escape(rp)}">'
+                f"{styled}</a>"
+            )
         if sig.superscript == 1:
             styled = f"<sup>{styled}</sup>"
         elif sig.superscript == -1:
@@ -630,7 +636,8 @@ def render_note_fragment(
             primary = None
             thumb = None
             gz = None
-            # Capture preceding text on the same paragraph/line for inline renderers (e.g., calculator)
+            # Capture preceding text on the same paragraph/line for inline
+            # renderers (e.g., calculator)
             prior_text = None
             try:
                 # 'i' is the current Python-string index for this run start
@@ -702,9 +709,10 @@ def render_note_fragment(
                     segs = s.split("\n")
                     for k, seg in enumerate(segs):
                         if seg:
-                            # If we are strictly inside a list item that is a "spacer" (bulletless),
-                            # and we are about to add text, we must close the spacer and start a
-                            # real list item so the text gets a bullet.
+                            # If we are strictly inside a list item that is a
+                            # "spacer" (bulletless), and we are about to add text,
+                            # we must close the spacer and start a real list item so
+                            # the text gets a bullet.
                             if list_stack and list_stack[-1]["li_open"]:
                                 idx = list_stack[-1]["li_index"]
                                 if idx is not None and idx < len(fragments):
@@ -726,7 +734,8 @@ def render_note_fragment(
                                                 else ""
                                             )
                                             fragments.append(
-                                                f'<input type="checkbox" disabled{checked}> '
+                                                f'<input type="checkbox" '
+                                                f"disabled{checked}> "
                                             )
 
                             fragments.append(wrap_inline(mr.sig, html.escape(seg)))
@@ -736,26 +745,30 @@ def render_note_fragment(
                             # Empty segment implies a newline in the source (e.g. \n\n).
                             # Apple Notes renders this as a vertical space (blank line)
                             # but WITHOUT a bullet.
-                            # We check if this is a "trailing" newline used for nesting (handled below)
-                            # or an actual blank line.
+                            # We check if this is a "trailing" newline used
+                            # for nesting (handled below) or an actual blank line.
                             pass
 
                         if k < len(segs) - 1:
                             next_seg = segs[k + 1] if (k + 1) < len(segs) else None
-                            # If the newline is the trailing one (next seg empty and last),
-                            # keep the current <li> open so a nested list can attach to it.
+                            # If the newline is the trailing one (next seg empty
+                            # and last), keep the current <li> open so a nested
+                            # list can attach to it.
                             if next_seg == "" and (k + 1) == len(segs) - 1:
                                 continue
 
                             # Otherwise, end current item and start a new sibling item.
-                            # If the current item (seg) was empty, we want it to be "bulletless".
-                            # But we've already opened the <li> tag at the top of the loop or previous iter.
-                            # So we need to retroactively apply style or just insure content forces height?
-                            # Actually, we can just close the current <li>.
-                            # If it was empty (seg==""), the browser renders an empty bullet point <li></li>.
+                            # If the current item (seg) was empty, we want it to be
+                            # "bulletless". But we've already opened the <li> tag at
+                            # the top of the loop or previous iter. So we need to
+                            # retroactively apply style or just insure content forces
+                            # height? Actually, we can just close the current <li>.
+                            # If it was empty (seg==""), the browser renders an empty
+                            # bullet point <li></li>.
 
-                            # Correction: We want to hide the bullet for *this* item if it's empty.
-                            # But the <li> tag was emitted *before* we processed this segment
+                            # Correction: We want to hide the bullet for *this* item
+                            # if it's empty. But the <li> tag was emitted *before* we
+                            # processed this segment
                             # (at the end of the previous iteration or start of block).
                             # We can't easily change the opening tag now.
 
@@ -766,12 +779,13 @@ def render_note_fragment(
 
                             # open next
                             style_attr = ""
-                            # If next segment is empty (and not the trailing nesting case),
-                            # it's a blank line. Hide the marker.
+                            # If next segment is empty (and not the trailing
+                            # nesting case), it's a blank line. Hide the marker.
                             # We know next_seg is the content of the next item.
                             is_next_empty = next_seg == ""
-                            # Caution: if next_seg is "" AND it's the last one, we skipped above.
-                            # So if we are here, next_seg might be empty (spacer) or "Text".
+                            # Caution: if next_seg is "" AND it's the last one,
+                            # we skipped above. So if we are here, next_seg might
+                            # be empty (spacer) or "Text".
 
                             if is_next_empty:
                                 style_attr = ' style="list-style-type: none"'
@@ -813,9 +827,10 @@ def render_note_fragment(
                 if is_para_boundary:
                     s = s.rstrip("\n\u2028")
 
-                # If we are in a list item, check if it was a "spacer" (empty bulletless item)
-                # created by a previous run's trailing newlines. If so, and we have text,
-                # we should close the spacer and start a new real item.
+                # If we are in a list item, check if it was a "spacer"
+                # (empty bulletless item) created by a previous run's trailing
+                # newlines. If so, and we have text, we should close the spacer
+                # and start a new real item.
                 if list_stack and list_stack[-1]["li_open"]:
                     # Check if current item is a spacer
                     idx = list_stack[-1]["li_index"]
@@ -888,11 +903,15 @@ def render_note_page(title: str, html_fragment: str, extra_css: str = "") -> str
         f"<title>{html.escape(title)}</title>"
         "<style>"
         # Highlight palette (light)
-        " :root{--hl1-bg:#BA55D333;--hl2-bg:#D5000044;--hl3-bg:#FF6F0022;--hl4-bg:#289C8ECC;--hl5-bg:#2196F333}"
+        " :root{--hl1-bg:#BA55D333;--hl2-bg:#D5000044;"
+        "--hl3-bg:#FF6F0022;--hl4-bg:#289C8ECC;--hl5-bg:#2196F333}"
         # Base (light) styles
-        "body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.4;background:#fff;color:#000}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,"
+        "Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.4;"
+        "background:#fff;color:#000}"
         "pre{white-space:pre-wrap}"
-        "blockquote{margin:.5em 0 .5em 1em;padding-left:.8em;border-left:3px solid #ddd}"
+        "blockquote{margin:.5em 0 .5em 1em;padding-left:.8em;"
+        "border-left:3px solid #ddd}"
         "a{text-decoration:underline}"
         "img{max-width:100%;height:auto}"
         "table{border-collapse:collapse;margin:.5rem 0}"
@@ -902,7 +921,8 @@ def render_note_page(title: str, html_fragment: str, extra_css: str = "") -> str
         # Automatic dark mode via user preference
         "@media (prefers-color-scheme: dark){"
         # Highlight palette (dark) — slightly more opaque/lighter for contrast
-        " :root{--hl1-bg:#BA55D380;--hl2-bg:#FF525266;--hl3-bg:#FFB74D55;--hl4-bg:#80CBC480;--hl5-bg:#64B5F680}"
+        " :root{--hl1-bg:#BA55D380;--hl2-bg:#FF525266;"
+        "--hl3-bg:#FFB74D55;--hl4-bg:#80CBC480;--hl5-bg:#64B5F680}"
         "body{background:#111;color:#eee}"
         "a{color:#8ab4f8}"
         "blockquote{border-left-color:#444}"

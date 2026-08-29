@@ -264,7 +264,9 @@ class CLIState:
         )
 
     def not_logged_in_for_account_message(self, username: str) -> str:
-        """Return the message for account-targeted commands without an active session."""
+        """Return the message for account-targeted commands without an
+        active session.
+        """
 
         return (
             f"You are not logged into iCloud for {username}. Run: "
@@ -277,7 +279,8 @@ class CLIState:
 
         options = "\n".join(f"  - {username}" for username in usernames)
         return (
-            "Multiple logged-in iCloud accounts were found; pass --username to choose one.\n"
+            "Multiple logged-in iCloud accounts were found; pass "
+            "--username to choose one.\n"
             f"{options}"
         )
 
@@ -340,12 +343,14 @@ class CLIState:
         else:
             if not self.interactive:
                 raise CLIAbort(
-                    "Two-factor authentication is required, but interactive prompts are disabled."
+                    "Two-factor authentication is required, but interactive "
+                    "prompts are disabled."
                 )
             try:
                 if not api.request_2fa_code():
                     raise CLIAbort(
-                        "This 2FA challenge requires a security key. Connect one and retry."
+                        "This 2FA challenge requires a security key. Connect "
+                        "one and retry."
                     )
 
                 notice = getattr(api, "two_factor_delivery_notice", None)
@@ -399,7 +404,8 @@ class CLIState:
         devices = list(api.trusted_devices or [])
         if not devices:
             raise CLIAbort(
-                "Two-step authentication is required but no trusted devices are available."
+                "Two-step authentication is required but no trusted devices "
+                "are available."
             )
         self.console.print("Trusted devices:")
         for index, device in enumerate(devices):
@@ -411,7 +417,8 @@ class CLIState:
         device = devices[selected_index]
         if not self.interactive:
             raise CLIAbort(
-                "Two-step authentication is required, but interactive prompts are disabled."
+                "Two-step authentication is required, but interactive prompts "
+                "are disabled."
             )
         if not api.send_verification_code(device):
             raise CLIAbort("Failed to send the 2SA verification code.")

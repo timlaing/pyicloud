@@ -11,10 +11,14 @@ Public API:
   - RemindersService.create(...)
   - RemindersService.update(reminder) -> None
   - RemindersService.delete(reminder) -> None
-  - RemindersService.add_location_trigger(reminder, ...) -> tuple[Alarm, LocationTrigger]
-  - RemindersService.create_hashtag(...) / update_hashtag(...) / delete_hashtag(...)
-  - RemindersService.create_url_attachment(...) / update_attachment(...) / delete_attachment(...)
-  - RemindersService.create_recurrence_rule(...) / update_recurrence_rule(...) / delete_recurrence_rule(...)
+  - RemindersService.add_location_trigger(reminder, ...) ->
+    tuple[Alarm, LocationTrigger]
+  - RemindersService.create_hashtag(...) / update_hashtag(...) /
+    delete_hashtag(...)
+  - RemindersService.create_url_attachment(...) / update_attachment(...) /
+    delete_attachment(...)
+  - RemindersService.create_recurrence_rule(...) / update_recurrence_rule(...) /
+    delete_recurrence_rule(...)
   - RemindersService.alarms_for(reminder) -> list[AlarmWithTrigger]
   - RemindersService.tags_for(reminder) -> list[Hashtag]
   - RemindersService.attachments_for(reminder) -> list[Attachment]

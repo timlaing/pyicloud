@@ -1898,7 +1898,9 @@ def test_auth_status_without_username_ignores_keyring_only_accounts() -> None:
 
 
 def test_auth_status_explicit_username_marks_missing_storage_inline() -> None:
-    """Text auth status should inline missing storage markers instead of extra boolean rows."""
+    """Text auth status should inline missing storage markers instead of extra
+    boolean rows.
+    """
 
     session_dir = _unique_session_dir("status-missing-storage")
     fake_api = _remember_local_account(
@@ -2319,7 +2321,9 @@ def test_authenticated_commands_update_account_index() -> None:
 
 
 def test_account_index_prunes_stale_entries_but_keeps_keyring_backed_accounts() -> None:
-    """Local account discovery should prune stale entries and retain keyring-backed ones."""
+    """Local account discovery should prune stale entries and retain keyring-backed
+    ones.
+    """
 
     session_dir = _unique_session_dir("index-prune")
     stale_api = _remember_local_account(
@@ -2445,7 +2449,9 @@ def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() ->
 
 
 def test_auth_logout_variants_and_remote_failure() -> None:
-    """Auth logout should map semantic flags to Apple's payload and keep keyring intact."""
+    """Auth logout should map semantic flags to Apple's payload and keep keyring
+    intact.
+    """
 
     def invoke_logout(*args: str, failing_api: FakeAPI | None = None):
         session_dir = _unique_session_dir("auth-logout")
@@ -2616,7 +2622,9 @@ def test_trusted_device_2fa_flow_reports_device_prompt() -> None:
 
 
 def test_code_prompt_aborts_when_request_2fa_code_requires_security_key() -> None:
-    """Auth login should not enter the numeric 2FA prompt loop for key-only challenges."""
+    """Auth login should not enter the numeric 2FA prompt loop for key-only
+    challenges.
+    """
 
     fake_api = FakeAPI()
     fake_api.requires_2fa = True
@@ -3205,7 +3213,9 @@ def test_photos_read_commands_reject_unsupported_shared_library_album_filters() 
 
 
 def test_photos_sync_command_downloads_and_short_circuits() -> None:
-    """Photos sync should materialize files, persist state, and short-circuit on rerun."""
+    """Photos sync should materialize files, persist state, and short-circuit on
+    rerun.
+    """
 
     fake_api = FakeAPI()
     output_dir = TEST_ROOT / "photos-sync-output"
@@ -3849,7 +3859,9 @@ def test_reminders_core_commands() -> None:
 
 
 def test_reminders_subgroup_commands() -> None:
-    """Reminder subgroup commands should expose alarm, hashtag, attachment, and recurrence flows."""
+    """Reminder subgroup commands should expose alarm, hashtag, attachment, and
+    recurrence flows.
+    """
 
     fake_api = FakeAPI()
 
@@ -4144,7 +4156,9 @@ def test_reminders_commands_report_errors() -> None:
 
 
 def test_reminders_commands_report_reauthentication_and_unavailability() -> None:
-    """Reminders commands should wrap service reauth and service-unavailable failures."""
+    """Reminders commands should wrap service reauth and service-unavailable
+    failures.
+    """
 
     class ReauthReminders:
         """Mock Reminders service that raises reauth exception."""

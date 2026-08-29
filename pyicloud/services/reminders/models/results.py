@@ -23,7 +23,8 @@ class AlarmWithTrigger(FrozenServiceModel):
 
 
 class ListRemindersResult(FrozenServiceModel):
-    """Complete result of querying reminders including related alarms, attachments, and metadata."""
+    """Complete result of querying reminders including related alarms,
+    attachments, and metadata."""
 
     reminders: list[Reminder]
     alarms: dict[str, Alarm]

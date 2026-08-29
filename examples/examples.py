@@ -25,11 +25,14 @@ from pyicloud.ssl_context import configurable_ssl_verification
 END_LIST: str = "End List\n"
 MAX_DISPLAY: int = 10
 
-# Set to FALSE to disable SSL verification to use tools like charles, mitmproxy, fiddler, or similar tools to debug the data sent on the wire.
+# Set to FALSE to disable SSL verification to use tools like charles, mitmproxy,
+# fiddler, or similar tools to debug the data sent on the wire.
 # Can also use command-line argument --disable-ssl-verify
 # This uses code taken from:
-# - https://stackoverflow.com/questions/15445981/how-do-i-disable-the-security-certificate-check-in-python-requests
-# - https://stackoverflow.com/questions/16337511/log-all-requests-from-the-python-requests-module
+# - https://stackoverflow.com/questions/15445981/
+#   how-do-i-disable-the-security-certificate-check-in-python-requests
+# - https://stackoverflow.com/questions/16337511/
+#   log-all-requests-from-the-python-requests-module
 ENABLE_SSL_VERIFICATION: bool = True
 
 # Set the log level for HTTP commands
@@ -43,7 +46,8 @@ HTTPCONNECTION_DEBUG_INFO: bool = False
 HTTP_PROXY: str | None = None
 HTTPS_PROXY: str | None = None
 
-# Set where you'd like the COOKIES to be stored. Can also use command-line argument --cookie-dir
+# Set where you'd like the COOKIES to be stored. Can also use command-line
+# argument --cookie-dir
 COOKIE_DIR: str = ""  # location to store session information
 
 # Other configurable variables
@@ -54,7 +58,9 @@ CHINA: bool = False
 
 def parse_args() -> None:
     """Parse command line arguments"""
-    global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME, CHINA, HTTP_PROXY, HTTPS_PROXY  # pylint: disable=global-statement
+    # pylint: disable=global-statement
+    global ENABLE_SSL_VERIFICATION, COOKIE_DIR, APPLE_PASSWORD, APPLE_USERNAME
+    global CHINA, HTTP_PROXY, HTTPS_PROXY
     parser = argparse.ArgumentParser(description="End to End Test of Services")
 
     parser.add_argument(
@@ -211,7 +217,8 @@ def handle_2fa(api: PyiCloudService) -> None:
 
         if not result:
             print(
-                "Failed to request trust. You will likely be prompted for confirmation again in the coming weeks"
+                "Failed to request trust. You will likely be prompted for "
+                "confirmation again in the coming weeks"
             )
 
 
@@ -318,9 +325,12 @@ def display_contacts(api: PyiCloudService) -> None:
     if contacts:
         print(f"List of contacts ({len(contacts)}):")
         for idx, contact in enumerate(contacts):
-            print(
-                f"\t{idx}: {contact.get('firstName') or contact.get('lastName') or contact.get('companyName')}"
+            contact_name = (
+                contact.get("firstName")
+                or contact.get("lastName")
+                or contact.get("companyName")
             )
+            print(f"\t{idx}: {contact_name}")
             if idx >= MAX_DISPLAY - 1:
                 break
         print(END_LIST)
@@ -448,7 +458,10 @@ def display_hidemyemail(api: PyiCloudService) -> None:
 def album_management(api: PyiCloudService) -> None:
     """Test album management functions"""
 
-    album_name = f"{datetime.now(timezone.utc).strftime('pyicloud-live-%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
+    album_name = (
+        f"{datetime.now(timezone.utc).strftime('pyicloud-live-%Y%m%d-%H%M%S')}-"
+        f"{uuid4().hex[:8]}"
+    )
     renamed_name = f"{album_name}-renamed"
     print(
         "Running live photo mutation validation against the authenticated account. "

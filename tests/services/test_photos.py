@@ -326,7 +326,9 @@ def test_photo_library_indexing_not_finished(mock_photos_service: MagicMock) -> 
 def test_legacy_photo_library_indexing_missing_records_raises_not_activated(
     mock_photos_service: MagicMock,
 ) -> None:
-    """Unexpected legacy indexing payloads should fail with a service-not-activated error."""
+    """Unexpected legacy indexing payloads should fail with a service-not-activated
+    error.
+    """
 
     mock_photos_service.session.post.return_value.json.return_value = {}
     with pytest.raises(PyiCloudServiceNotActivatedException):
@@ -1329,7 +1331,9 @@ def test_base_photo_album_get_photos_at(mock_photo_library: MagicMock) -> None:
 def test_all_photos_feed_uses_default_index_and_fixture_response(
     mock_photo_library: MagicMock,
 ) -> None:
-    """The Library smart album should use the all-photos index and parse fixture data."""
+    """The Library smart album should use the all-photos index and parse fixture
+    data.
+    """
 
     mock_photo_library.zone_id = PRIMARY_ZONE
     mock_photo_library.service.session.post.return_value.json.return_value = (
@@ -1359,7 +1363,9 @@ def test_all_photos_feed_uses_default_index_and_fixture_response(
 def test_recently_added_feed_uses_added_index_and_fixture_response(
     mock_photo_library: MagicMock,
 ) -> None:
-    """The recently-added feed should use the added-date index and parse fixture data."""
+    """The recently-added feed should use the added-date index and parse fixture
+    data.
+    """
 
     mock_photo_library.zone_id = PRIMARY_ZONE
     mock_photo_library.service.session.post.return_value.json.return_value = (
@@ -1678,7 +1684,8 @@ def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
     assert libraries["root"].current_sync_token == "root-sync-token"
     mock_photos_service.session.post.assert_called_with(
         url=(
-            "https://example.com/database/1/com.apple.photos.cloud/production/private/records/query"
+            "https://example.com/database/1/com.apple.photos.cloud/production/"
+            "private/records/query"
             "?dsid=12345&remapEnums=True&getCurrentSyncToken=True"
         ),
         json={
@@ -1717,7 +1724,9 @@ def test_photos_service_libraries_cached(mock_photos_service: MagicMock) -> None
 def test_photos_service_libraries_classify_shared_sync_zone_raw_path(
     mock_photos_service: MagicMock,
 ) -> None:
-    """Raw zones/list fallback should surface SharedSync zones as Shared Library entries."""
+    """Raw zones/list fallback should surface SharedSync zones as Shared Library
+    entries.
+    """
 
     shared_zone = SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE["zones"][0]["zoneID"]
     mock_photos_service.session.post.return_value.json.side_effect = [
@@ -1759,7 +1768,8 @@ def test_photos_service_libraries_classify_shared_sync_zone_raw_path(
     assert libraries["root"].current_sync_token == "SYNC_TOKEN_001"
     mock_photos_service.session.post.assert_called_with(
         url=(
-            "https://example.com/database/1/com.apple.photos.cloud/production/private/records/query"
+            "https://example.com/database/1/com.apple.photos.cloud/production/"
+            "private/records/query"
             "?dsid=12345&remapEnums=True&getCurrentSyncToken=True"
         ),
         json={
@@ -2591,7 +2601,9 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
 
 
 def test_photo_album_rename_uses_browser_response_user_modification_date() -> None:
-    """Browser rename fixtures use userModificationDate rather than recordModificationDate."""
+    """Browser rename fixtures use userModificationDate rather than
+    recordModificationDate.
+    """
 
     mock_photo_library = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = MagicMock()
@@ -3646,7 +3658,9 @@ def test_photo_asset_delete_success_typed_client() -> None:
 
 
 def test_photo_asset_delete_success_raw_request_payload() -> None:
-    """Tests photo deletion via the raw request path uses the expected modify payload."""
+    """Tests photo deletion via the raw request path uses the expected modify
+    payload.
+    """
 
     master_record = {
         "recordName": "photo_id_123",
@@ -3976,7 +3990,9 @@ def test_photo_asset_favorite_uses_symmetric_shared_library_payload() -> None:
 
 
 def test_photo_asset_set_favorite_success_typed_client() -> None:
-    """Typed favorite mutations should target the asset zone and update the local record."""
+    """Typed favorite mutations should target the asset zone and update the local
+    record.
+    """
 
     mock_client = MagicMock()
     service = SimpleNamespace(session=object(), _private_client=mock_client)
@@ -4126,7 +4142,9 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
 
 
 def test_photo_asset_set_favorite_raises_on_record_error() -> None:
-    """Per-record CloudKit errors should surface when the server state does not change."""
+    """Per-record CloudKit errors should surface when the server state does not
+    change.
+    """
 
     mock_client = MagicMock()
     service = SimpleNamespace(session=object(), _private_client=mock_client)
@@ -4287,7 +4305,8 @@ def test_photo_asset_is_live_photo_true() -> None:
             "image",
             "fallback.HEIC",
         ),
-        # itemType and resOriginalFileType missing, filename not image, fallback to movie
+        # itemType and resOriginalFileType missing, filename not image, fallback to
+        # movie
         (
             {
                 "filenameEnc": {
@@ -4476,7 +4495,9 @@ def test_shared_photo_stream_album_payload_does_not_call_len() -> None:
 
 
 def test_shared_photo_stream_album_delete_and_rename_are_noops() -> None:
-    """Test that delete returns False and rename returns None for SharedPhotoStreamAlbum."""
+    """Test that delete returns False and rename returns None for
+    SharedPhotoStreamAlbum.
+    """
     album = SharedPhotoStreamAlbum(
         library=MagicMock(),
         name="Shared Album",
@@ -4752,7 +4773,9 @@ def test_create_album_success_typed_client() -> None:
 
 
 def test_create_album_success_typed_client_populates_uncached_album_list() -> None:
-    """Tests newly created albums become discoverable immediately when the cache was cold."""
+    """Tests newly created albums become discoverable immediately when the cache was
+    cold.
+    """
 
     mock_client = MagicMock()
     mock_client.query.return_value = CKQueryResponse(
@@ -4893,7 +4916,9 @@ def test_shared_photo_stream_album_get_photo_not_found(
 def test_shared_photo_stream_album_get_photo_found_in_first_page(
     mock_photos_service: MagicMock,
 ) -> None:
-    """Test SharedPhotoStreamAlbum _get_photo method when photo is found in first page."""
+    """Test SharedPhotoStreamAlbum _get_photo method when photo is found in first
+    page.
+    """
     mock_library = MagicMock(spec=PhotoLibrary)
     mock_library.service = mock_photos_service
     mock_photos_service.params = {"dsid": "12345"}
@@ -4930,7 +4955,9 @@ def test_shared_photo_stream_album_get_photo_found_in_first_page(
 
 
 def test_smart_photo_album_len_uses_smart_container_id() -> None:
-    """Typed smart album counts should use the smart-album object key without appending the album name."""
+    """Typed smart album counts should use the smart-album object key without
+    appending the album name.
+    """
 
     client = MagicMock()
     client.batch_count.return_value = 135
@@ -5491,7 +5518,9 @@ def test_photo_album_get_photo_empty_response(mock_photo_library: MagicMock) -> 
 def test_photo_album_get_photo_multiple_photos_found_correct_one(
     mock_photo_library: MagicMock,
 ) -> None:
-    """Tests _get_photo method when multiple photos are returned but correct one is found."""
+    """Tests _get_photo method when multiple photos are returned but correct one is
+    found.
+    """
     mock_photo_library.service.session.post.return_value.json.return_value = {
         "records": [
             {

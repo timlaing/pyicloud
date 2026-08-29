@@ -292,7 +292,10 @@ def test_validate_2fa_code(pyicloud_service: PyiCloudService) -> None:
 def test_validate_2fa_code_uses_bridge_verifier_for_step2_state(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Bridge-backed trusted-device prompts should use the bridge verifier instead of the legacy endpoint."""
+    """Bridge-backed trusted-device prompts should use the bridge verifier.
+
+    Instead of the legacy endpoint.
+    """
 
     pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
     pyicloud_service._two_factor_delivery_method = "trusted_device"
@@ -322,7 +325,10 @@ def test_validate_2fa_code_uses_bridge_verifier_for_step2_state(
 def test_validate_2fa_code_keeps_legacy_endpoint_for_bridge_w_subtype(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Apple's `_W` bridge subtype should keep using the legacy trusted-device verifier."""
+    """Apple's `_W` bridge subtype should keep using the legacy.
+
+    Trusted-device verifier.
+    """
 
     pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
     pyicloud_service._two_factor_delivery_method = "trusted_device"
@@ -354,7 +360,10 @@ def test_validate_2fa_code_keeps_legacy_endpoint_for_bridge_w_subtype(
 def test_validate_2fa_code_bridge_verification_exception_propagates(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Bridge verification failures should not be downgraded to generic invalid-code results."""
+    """Bridge verification failures should not be downgraded.
+
+    To generic invalid-code results.
+    """
 
     pyicloud_service._two_factor_delivery_method = "trusted_device"
     bridge_state = MagicMock(uses_legacy_trusted_device_verifier=False)
@@ -513,7 +522,10 @@ def test_request_2fa_code_prefers_trusted_device_bridge(
 def test_request_2fa_code_replaces_existing_bridge_state_before_restart(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Starting a new bridge prompt should close any previous in-memory bridge session."""
+    """Starting a new bridge prompt should close any previous.
+
+    In-memory bridge session.
+    """
 
     pyicloud_service._auth_data = {
         "authInitialRoute": "auth/bridge/step",
@@ -676,7 +688,10 @@ def test_validate_2fa_code_uses_nested_sms_phone_number(
 def test_validate_2fa_code_defaults_sms_mode_when_push_mode_missing(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Missing SMS pushMode should still validate using the delivery mode used to trigger SMS."""
+    """Missing SMS pushMode should still validate using the delivery.
+
+    Mode used to trigger SMS.
+    """
 
     pyicloud_service.data = {"dsInfo": {"hsaVersion": 1}, "hsaChallengeRequired": False}
     pyicloud_service._auth_data = {
@@ -889,7 +904,10 @@ def test_logout_clears_authenticated_state(
 def test_logout_closes_active_trusted_device_bridge_state(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Logout should close any active trusted-device bridge session before clearing state."""
+    """Logout should close any active trusted-device bridge session.
+
+    Before clearing state.
+    """
 
     bridge_state = MagicMock()
     pyicloud_service._trusted_device_bridge_state = bridge_state
@@ -1033,7 +1051,10 @@ def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
 def test_session_persistence_excludes_trusted_device_bridge_state(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Bridge-only state should remain in memory and never be written to persisted session files."""
+    """Bridge-only state should remain in memory and never be written.
+
+    To persisted session files.
+    """
 
     test_base = Path(tempfile.gettempdir()) / "python-test-results"
     test_base.mkdir(parents=True, exist_ok=True)
@@ -1253,7 +1274,10 @@ def test_raise_error_access_denied(pyicloud_session: PyiCloudSession) -> None:
 def test_request_pcs_for_service_icdrs_not_disabled(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _request_pcs_for_service when ICDRS is not disabled (should early return)."""
+    """Test _request_pcs_for_service when ICDRS is not disabled.
+
+    (Should early return).
+    """
     mock_logger = MagicMock()
     pyicloud_service._session = MagicMock()
     pyicloud_service.session.post = MagicMock(
@@ -1272,7 +1296,10 @@ def test_request_pcs_for_service_icdrs_not_disabled(
 def test_request_pcs_for_service_consent_needed_and_notification_sent(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _request_pcs_for_service when device consent is needed and notification is sent."""
+    """Test _request_pcs_for_service when device consent is needed.
+
+    And notification is sent.
+    """
     # First call: ICDRS disabled, device not consented
     # Second call: device consented (simulate after waiting)
     consent_states: list[dict[str, bool]] = [
@@ -1299,7 +1326,10 @@ def test_request_pcs_for_service_consent_needed_and_notification_sent(
 def test_request_pcs_for_service_consent_needed_and_notification_not_sent(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _request_pcs_for_service when device consent notification is not sent (should raise)."""
+    """Test _request_pcs_for_service when device consent notification.
+
+    Is not sent (should raise).
+    """
     pyicloud_service._check_pcs_consent = MagicMock(
         return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": False}
     )
@@ -1562,7 +1592,10 @@ def test_validate_token_missing_cookie_raises(
 def test_validate_token_post_raises_exception(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _validate_token raises when session.post raises PyiCloudAPIResponseException."""
+    """Test _validate_token raises when session.post raises.
+
+    PyiCloudAPIResponseException.
+    """
     with (
         patch.object(pyicloud_service.session.cookies, "get", return_value="token"),
         patch.object(
@@ -2290,7 +2323,10 @@ def test_setup_cookie_directory_with_none_creates_default(
 def test_setup_cookie_directory_with_empty_string(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """Test _setup_cookie_directory with empty string creates default directory structure."""
+    """Test _setup_cookie_directory with empty string creates.
+
+    Default directory structure.
+    """
     with (
         patch("pyicloud.base.gettempdir") as mock_gettempdir,
         patch("pyicloud.base.getpass.getuser") as mock_getuser,
@@ -2336,7 +2372,10 @@ def test_setup_cookie_directory_with_tilde_expansion(
 def test_private_request_2fa_code_triggers_trusted_device_push(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """_request_2fa_code should GET /verify/trusteddevice to push a code to Apple devices."""
+    """_request_2fa_code should GET /verify/trusteddevice to push a.
+
+    Code to Apple devices.
+    """
 
     pyicloud_service._auth_data = {}
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
@@ -2357,7 +2396,10 @@ def test_private_request_2fa_code_triggers_trusted_device_push(
 def test_private_request_2fa_code_sends_sms_when_phone_available(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """_request_2fa_code should also PUT /verify/phone when a trusted phone number is present."""
+    """_request_2fa_code should also PUT /verify/phone when a.
+
+    Trusted phone number is present.
+    """
 
     pyicloud_service._auth_data = {
         "trustedPhoneNumber": {
@@ -2382,7 +2424,10 @@ def test_private_request_2fa_code_sends_sms_when_phone_available(
 def test_srp_authentication_calls_request_2fa_code_when_2fa_required(
     pyicloud_service: PyiCloudService,
 ) -> None:
-    """_srp_authentication should invoke _request_2fa_code after Apple signals 2FA is needed."""
+    """_srp_authentication should invoke _request_2fa_code after.
+
+    Apple signals 2FA is needed.
+    """
 
     import base64 as _base64
 

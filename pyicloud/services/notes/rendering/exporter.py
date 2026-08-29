@@ -110,7 +110,8 @@ def build_datasource(
                         media_map[rn] = rec.recordName
                 except Exception:
                     pass
-        # Follow Media references to fetch original asset URLs and wire them to the parent
+        # Follow Media references to fetch original asset URLs and wire
+        # them to the parent
         if media_map:
             try:
                 mresp = ck_client.lookup(list(media_map.keys()))
@@ -125,7 +126,8 @@ def build_datasource(
                     if not isinstance(mrec, CKRecord):
                         continue
                     url: str | None = None
-                    # Best-effort: find any field whose value looks like an asset token with downloadURL
+                    # Best-effort: find any field whose value looks like
+                    # an asset token with downloadURL
                     try:
                         for k in list(getattr(mrec, "fields", ()).keys()):
                             fld = mrec.fields.get_field(k)
@@ -139,16 +141,19 @@ def build_datasource(
                     if url:
                         parent = media_map.get(mrec.recordName)
                         if parent:
-                            # Only promote Media-derived URLs to primary for image-like attachments.
-                            # For 'public.url' (web links) and others, keep the primary_url as the
-                            # actual destination, and use previews/Media only as thumbnails.
+                            # Only promote Media-derived URLs to primary for
+                            # image-like attachments. For 'public.url' (web
+                            # links) and others, keep the primary_url as the
+                            # actual destination, and use previews/Media only
+                            # as thumbnails.
                             try:
                                 parent_uti = (
                                     ds.get_attachment_uti(parent) or ""
                                 ).lower()
                             except Exception:
                                 parent_uti = ""
-                            # Use config-aware predicate to recognize image UTIs (jpeg/png/heic/webp...)
+                            # Use config-aware predicate to recognize image
+                            # UTIs (jpeg/png/heic/webp...)
                             conf = config or ExportConfig()
                             is_image = conf.is_image_uti(parent_uti)
                             # Simple heuristic for audio/video promotion
@@ -160,9 +165,11 @@ def build_datasource(
                             )
 
                             # Logic update:
-                            # 1. If we have no URL yet (e.g. VCard), ALWAYS take the Media URL.
-                            # 2. If we have a URL but it's an Image/AV, check if we should "upgrade"
-                            #    to the Media URL (e.g. valid preview -> full res).
+                            # 1. If we have no URL yet (e.g. VCard), ALWAYS
+                            #    take the Media URL.
+                            # 2. If we have a URL but it's an Image/AV, check
+                            #    if we should "upgrade" to the Media URL
+                            #    (e.g. valid preview -> full res).
 
                             is_media_upgrade = getattr(
                                 conf, "prefer_media_for_images", True
@@ -179,7 +186,8 @@ def build_datasource(
                                 except Exception:
                                     cur_thumb = None
 
-                                # If missing, OR (we want upgrade AND current is likely just a thumbnail)
+                                # If missing, OR (we want upgrade AND current
+                                # is likely just a thumbnail)
                                 if (not cur_primary) or (
                                     is_media_upgrade and cur_primary == cur_thumb
                                 ):
@@ -299,7 +307,8 @@ def download_image_assets(
             continue
         url = ds.get_primary_asset_url(aid)
         if not url:
-            # Fallback to thumbnail for image-like attachments that only expose previews (e.g., com.apple.paper)
+            # Fallback to thumbnail for image-like attachments that only
+            # expose previews (e.g., com.apple.paper)
             try:
                 url = ds.get_thumbnail_url(aid)
             except Exception:
@@ -536,7 +545,8 @@ class NoteExporter:
     ) -> str | None:
         """
         Export a single note record to HTML in the output directory.
-        Returns the path to the written HTML file, or None if export failed (e.g. no body).
+        Returns the path to the written HTML file, or None if export failed
+        (e.g. no body).
         """
         # 1. Decode
         note = decode_and_parse_note(note_record)

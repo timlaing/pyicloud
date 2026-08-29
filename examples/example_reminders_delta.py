@@ -101,7 +101,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="Delete the generated reminder if the script fails before the delete phase.",
+        help="Delete the generated reminder if the script fails before "
+        "the delete phase.",
     )
     parser.add_argument(
         "--debug",

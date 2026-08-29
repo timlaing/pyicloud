@@ -97,34 +97,39 @@ def parse_args() -> argparse.Namespace:
         dest="dump_runs",
         action="store_true",
         default=False,
-        help="Dump attribute runs and write an annotated mapping under workspace/notes_runs",
+        help="Dump attribute runs and write an annotated mapping under "
+        "workspace/notes_runs",
     )
     p.add_argument(
         "--assets-dir",
         dest="assets_dir",
         default=os.path.join("exports", "assets"),
-        help="Directory to store downloaded assets in archival export mode (default: exports/assets)",
+        help="Directory to store downloaded assets in archival "
+        "export mode (default: exports/assets)",
     )
     p.add_argument(
         "--export-mode",
         dest="export_mode",
         choices=["archival", "lightweight"],
         default="archival",
-        help="Export intent: 'archival' downloads assets for stable, offline HTML (default); 'lightweight' skips downloads for quick previews",
+        help="Export intent: 'archival' downloads assets for stable, offline "
+        "HTML (default); 'lightweight' skips downloads for quick previews",
     )
     p.add_argument(
         "--notes-debug",
         dest="notes_debug",
         action="store_true",
         default=False,
-        help="Enable verbose Notes/export debug output (datasource, attachments, and rendering)",
+        help="Enable verbose Notes/export debug output "
+        "(datasource, attachments, and rendering)",
     )
     p.add_argument(
         "--preview-appearance",
         dest="preview_appearance",
         choices=["light", "dark"],
         default="light",
-        help="Select which preview appearance to prefer for image previews (light/dark)",
+        help="Select which preview appearance to prefer "
+        "for image previews (light/dark)",
     )
     p.add_argument(
         "--pdf-height",
@@ -288,7 +293,8 @@ def main() -> None:
                     if len(candidates) >= max_items:
                         break
             phase(
-                f"selection: recents matched {len(candidates)} candidate(s) in window={window}"
+                f"selection: recents matched {len(candidates)} "
+                f"candidate(s) in window={window}"
             )
 
             if len(candidates) < max_items:
@@ -400,13 +406,17 @@ def main() -> None:
                         .replace("\ufffc", "{OBJ}")
                     )
                     lines.append(
-                        f"[{row['index']:03d}] off={row['utf16_start']:<5} len={row['utf16_len']:<4} text=“{pretty}”"
+                        f"[{row['index']:03d}] off={row['utf16_start']:<5} "
+                        f"len={row['utf16_len']:<4} text=“{pretty}”"
                     )
                 console.print("\n".join(lines))
 
                 runs_dir = os.path.join("workspace", "notes_runs")
                 os.makedirs(runs_dir, exist_ok=True)
-                runs_name = f"{idx:02d}_{_safe_name(item.title)}_{(item.id or 'note')[:8]}_runs.html"
+                runs_name = (
+                    f"{idx:02d}_{_safe_name(item.title)}_"
+                    f"{(item.id or 'note')[:8]}_runs.html"
+                )
                 runs_path = os.path.join(runs_dir, runs_name)
                 with open(runs_path, "w", encoding="utf-8") as handle:
                     handle.write(annotate_note_runs_html(proto_note))

@@ -244,7 +244,8 @@ class CloudKitNotesClient:
     def current_sync_token(self, *, zone_name: str) -> str:
         """
         Fetch a current sync token cheaply by issuing a zero-limit query that
-        requests getCurrentSyncToken=true (already in params) and reading the top-level token.
+        requests getCurrentSyncToken=true (already in params) and reading the
+        top-level token.
 
         Some deployments place the token in CKQueryResponse.syncToken; if absent,
         we fall back to a one-shot changes call (no records) to harvest a token.

@@ -619,7 +619,10 @@ def test_trusted_device_bridge_start_propagates_unexpected_exception() -> None:
 
 
 def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence() -> None:
-    """Bridge-backed trusted-device verification should follow Apple's step 2/4/6 flow."""
+    """Bridge-backed trusted-device verification should follow.
+
+    Apple's step 2/4/6 flow.
+    """
 
     topic = "com.apple.idmsauthwidget"
     initial_push = {
@@ -785,10 +788,11 @@ def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence() -
     assert state.websocket is None
 
 
-def test_trusted_device_bridge_validate_code_accepts_step4_encrypted_code_final_push() -> (
-    None
-):
-    """Apple can finish the bridge flow with nextStep=4 when encryptedCode is present."""
+def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push() -> None:
+    """Apple can finish the bridge flow with nextStep=4 when.
+
+    EncryptedCode is present.
+    """
 
     topic = "com.apple.idmsauthwidget"
     initial_push = {
@@ -886,7 +890,10 @@ def test_trusted_device_bridge_validate_code_accepts_step4_encrypted_code_final_
 
 
 def test_trusted_device_bridge_validate_code_returns_false_on_412() -> None:
-    """A bridge code-validate 412 should be treated as an invalid code, not a transport failure."""
+    """A bridge code-validate 412 should be treated as an invalid.
+
+    Code, not a transport failure.
+    """
 
     topic = "com.apple.idmsauthwidget"
     websocket = _FakeWebSocket([
@@ -1065,7 +1072,10 @@ def test_trusted_device_bridge_validate_code_rejects_error_push() -> None:
 
 
 def test_trusted_device_bridge_validate_code_rejects_malformed_final_push() -> None:
-    """Final bridge pushes must include encryptedCode once the prover flow is complete."""
+    """Final bridge pushes must include encryptedCode once the.
+
+    Prover flow is complete.
+    """
 
     topic = "com.apple.idmsauthwidget"
     websocket = _FakeWebSocket([

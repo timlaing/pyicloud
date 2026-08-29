@@ -99,7 +99,8 @@ class RemindersRecordMapper:
             download_url = getattr(asset, "downloadURL", None)
             if not download_url:
                 raise RemindersApiError(
-                    f"List {rec.recordName} ReminderIDsAsset is missing data and downloadURL",
+                    f"List {rec.recordName} ReminderIDsAsset is missing "
+                    f"data and downloadURL",
                     payload={"recordName": rec.recordName},
                 )
             asset_bytes = self._get_raw().download_asset_bytes(download_url)

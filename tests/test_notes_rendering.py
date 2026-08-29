@@ -95,7 +95,8 @@ class TestNoteRendering(unittest.TestCase):
             def get_field(self, key):
                 """Return None, stub needed for attachment checks."""
                 # Needed for some checks like Attachments
-                # For references, we might need more complex reconstruction if the code checks types
+                # For references, we might need more complex reconstruction if the
+                # code checks types
                 # But let's start simple.
                 return None
 
@@ -123,7 +124,8 @@ class TestNoteRendering(unittest.TestCase):
         note = getattr(getattr(msg, "document", None), "note", None)
 
         # Mock datasource hydration
-        # We manually populate the datasource with the attachment records from the fixture
+        # We manually populate the datasource with the attachment records from
+        # the fixture
         ds = CloudKitNoteDataSource()
         att_data_list = self.fixture["attachments"]
         for att_data in att_data_list:

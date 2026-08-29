@@ -96,7 +96,10 @@ class NotesService(BaseService):
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
     ):
         super().__init__(service_root=service_root, session=session, params=params)
-        endpoint = f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}/{self._SCOPE}"
+        endpoint = (
+            f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}/"
+            f"{self._SCOPE}"
+        )
         # Sensible defaults; lower-case booleans are applied in the raw client
         base_params = {
             "remapEnums": True,
@@ -192,7 +195,8 @@ class NotesService(BaseService):
         if limit <= 0:
             return
         emitted = 0
-        # Pull a larger window than requested to increase the chance of finding matches fast.
+        # Pull a larger window than requested to increase the chance of finding
+        # matches fast.
         window = max(200, limit * 5)
         LOGGER.debug(
             "Fetching recents in folder: folder_id=%s limit=%d", folder_id, limit

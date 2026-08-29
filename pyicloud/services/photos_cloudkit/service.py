@@ -321,7 +321,8 @@ class BasePhotoLibrary(ABC):
         self._indexing_state: str | None = None
         self._current_sync_token: str | None = None
         self.url = (
-            f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
+            f"{self.service.service_endpoint}/records/query?"
+            f"{urlencode(self.service.params)}"
             if hasattr(self.service, "service_endpoint")
             else ""
         )
@@ -372,7 +373,8 @@ class BasePhotoLibrary(ABC):
                 self._indexing_state = "FINISHED"
         if self._indexing_state != "FINISHED":
             raise PyiCloudServiceNotActivatedException(
-                "iCloud Photo Library not finished indexing. Please try again in a few minutes."
+                "iCloud Photo Library not finished indexing. "
+                "Please try again in a few minutes."
             )
 
     @property
@@ -1226,7 +1228,10 @@ class BasePhotoAlbum(Iterable, ABC):
 
     def _get_url(self) -> str:
         if hasattr(self.service, "service_endpoint"):
-            return f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
+            return (
+                f"{self.service.service_endpoint}/records/query?"
+                f"{urlencode(self.service.params)}"
+            )
         raise AttributeError("service_endpoint")
 
     def _list_query_gen(
@@ -1293,7 +1298,8 @@ class PhotoAlbum(BasePhotoAlbum):
         self._obj_type = obj_type
         self._extra_filters = self._coerce_query_filters(query_filter, query_filters)
         self._url = url or (
-            f"{self.service.service_endpoint}/records/query?{urlencode(self.service.params)}"
+            f"{self.service.service_endpoint}/records/query?"
+            f"{urlencode(self.service.params)}"
             if hasattr(self.service, "service_endpoint")
             else ""
         )

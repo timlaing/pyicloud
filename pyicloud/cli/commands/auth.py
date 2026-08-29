@@ -92,7 +92,8 @@ def _auth_payload(state: CLIState, api, status: dict[str, object]) -> dict[str, 
 
 
 def _auth_status_authenticated(state: CLIState) -> bool:
-    """Check if the current state has an authenticated session, and print details if not."""
+    """Check if the current state has an authenticated session, and print
+    details if not."""
     if not state.has_explicit_username:
         active_probes = state.active_session_probes()
         if not active_probes:
@@ -347,7 +348,8 @@ def auth_logout(
         state.console.print("Logged out and cleared local session.")
     elif keyring_removed:
         state.console.print(
-            "Cleared local session, removed stored password; remote logout was not confirmed."
+            "Cleared local session, removed stored password; remote logout "
+            "was not confirmed."
         )
     else:
         state.console.print("Cleared local session; remote logout was not confirmed.")

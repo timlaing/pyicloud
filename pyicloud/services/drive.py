@@ -291,7 +291,8 @@ class DriveService(BaseService):
 
     def move_items_to_trash(self, node_id: str, etag: str):
         """Moves an iCloud Drive node to the trash bin"""
-        # when moving a node to the trash on icloud.com, the clientID is set to the node_id:
+        # when moving a node to the trash on icloud.com, the clientID is set
+        # to the node_id:
         temp_client_id: str = node_id
         request: Response = self.session.post(
             self.service_root + "/moveItemsToTrash",
@@ -542,7 +543,8 @@ class DriveNode:
                 self.data["drivewsid"], self.data["etag"]
             )
         raise ValueError(
-            f"'{self.name}' does not appear to be in the Trash. Please 'delete()' it first before "
+            f"'{self.name}' does not appear to be in the Trash. Please "
+            f"'delete()' it first before "
             f"trying to 'delete_forever()'."
         )
 

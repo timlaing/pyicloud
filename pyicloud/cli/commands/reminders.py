@@ -160,7 +160,8 @@ def _list_reminder_rows(
     include_completed: bool,
     limit: int,
 ) -> list[Reminder]:
-    """Return reminder rows using compound snapshots to preserve completion filtering."""
+    """Return reminder rows using compound snapshots to preserve
+    completion filtering."""
 
     reminders = _reminders_service(api)
     results_limit = max(limit, 200)

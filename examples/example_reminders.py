@@ -13,7 +13,8 @@ Validated API surface:
 - add_location_trigger(...)
 - create_hashtag(...) / delete_hashtag(...)
 - create_url_attachment(...) / update_attachment(...) / delete_attachment(...)
-- create_recurrence_rule(...) / update_recurrence_rule(...) / delete_recurrence_rule(...)
+- create_recurrence_rule(...) / update_recurrence_rule(...) /
+  delete_recurrence_rule(...)
 - alarms_for(reminder)
 - tags_for(reminder)
 - attachments_for(reminder)
@@ -1213,7 +1214,8 @@ def main() -> int:
 
         tracker.expect(
             len(compound_all.reminders) >= len(compound_open.reminders),
-            "include_completed=True returns at least as many reminders as include_completed=False",
+            "include_completed=True returns at least as many reminders as "
+            "include_completed=False",
             f"false={len(compound_open.reminders)}, true={len(compound_all.reminders)}",
         )
 
@@ -1331,13 +1333,15 @@ def main() -> int:
 
         banner("Coverage Notes")
         print(
-            "Validated snapshot/read/write capabilities in current service implementation:"
+            "Validated snapshot/read/write capabilities in "
+            "current service implementation:"
         )
         print("  - CRUD for reminders (create/get/update/delete)")
         print("  - Alarm triggers (Location ARRIVING/LEAVING)")
         print("  - Hashtag create/delete")
         print(
-            "    update_hashtag() is not live-validated because Hashtag.Name is read-only"
+            "    update_hashtag() is not live-validated because "
+            "Hashtag.Name is read-only"
         )
         print("  - URL attachment create/update/delete")
         print("  - Recurrence rule create/update/delete")

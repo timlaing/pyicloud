@@ -93,7 +93,8 @@ def encode_json_bytes(value: Any) -> str:
 def decode_integrations(blob: Mapping[str, Any] | None) -> tuple[str, ...]:
     """Extract the list of widget type strings from a decoded ``integrations`` blob.
 
-    Observed shape: ``{"version": "1", "data": [{"type": "com.apple.widget.weather"}, ...]}``.
+    Observed shape: ``{"version": "1", "data":
+    [{"type": "com.apple.widget.weather"}, ...]}``.
     Returns an empty tuple when the blob is missing or malformed.
     """
     if not isinstance(blob, Mapping):

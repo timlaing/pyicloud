@@ -130,7 +130,8 @@ class FindMyiPhoneServiceManager(BaseService):
                     "No progress on LOADING family members after retry %d, stopping",
                     retries,
                 )
-                break  # no change since last retry — give up on permanently stuck members
+                break  # no change since last retry — give up on permanently
+                # stuck members
             prev_loading_keys = loading_keys
             time.sleep(0.1)
             self._refresh_client(locate=locate)

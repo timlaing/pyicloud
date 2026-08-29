@@ -341,7 +341,10 @@ class AccountStorageUsage:
         return self.quota_data["paidQuota"]
 
     def __str__(self) -> str:
-        return f"{self.used_storage_in_percent}% used of {self.total_storage_in_bytes} bytes"
+        return (
+            f"{self.used_storage_in_percent}% used of "
+            f"{self.total_storage_in_bytes} bytes"
+        )
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: {self}>"

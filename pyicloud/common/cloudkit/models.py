@@ -95,8 +95,9 @@ MillisDateTimeOrNone = Annotated[
 ]
 
 
-# Some top-level properties (e.g., CKRecord.expirationTime) arrive as seconds-since-epoch
-# in this API. Be tolerant and also accept millisecond values if Apple changes shape.
+# Some top-level properties (e.g., CKRecord.expirationTime) arrive as
+# seconds-since-epoch in this API. Be tolerant and also accept millisecond
+# values if Apple changes shape.
 def _from_secs_or_millis(v):
     if isinstance(v, (int, float)):
         iv = int(v)
@@ -1018,8 +1019,10 @@ class CKZoneChangesZoneReq(CKModel):
     One zone request entry for /changes/zone.
 
     Observed keys:
-      - zoneID: includes zoneName (e.g., "Notes" or "Reminders"), sometimes zoneType and ownerRecordName (for shared)
-      - desiredKeys: list of field names to project (duplicates allowed, order preserved)
+      - zoneID: includes zoneName (e.g., "Notes" or "Reminders"), sometimes
+        zoneType and ownerRecordName (for shared)
+      - desiredKeys: list of field names to project (duplicates allowed, order
+        preserved)
       - desiredRecordTypes: list of record types to include
       - syncToken: optional paging token (base64-like string)
       - reverse: optional bool

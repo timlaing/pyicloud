@@ -124,7 +124,10 @@ class TableBuilder:
                 v_idx = self._uuid_index_from_entry(v_ent)
                 if v_idx is None:
                     continue
-                pos = axis.indices.get(k_idx, axis.indices.get(v_idx, 0))  # type: ignore[arg-type]
+                pos = axis.indices.get(
+                    k_idx,  # type: ignore[arg-type]
+                    axis.indices.get(v_idx, 0),
+                )
                 axis.total = max(axis.total, pos + 1)
                 axis.indices[v_idx] = pos
         except Exception:
@@ -170,9 +173,8 @@ class TableBuilder:
             for row in col_dict_ent.dictionary.element:
                 try:
                     row_key_ent = self.entries[row.key.object_index]
-                    row_pos = self.rows.indices.get(
-                        self._uuid_index_from_entry(row_key_ent)  # type: ignore[arg-type]
-                    )
+                    row_uuid = self._uuid_index_from_entry(row_key_ent)
+                    row_pos = self.rows.indices.get(row_uuid)  # type: ignore[arg-type]
                     if row_pos is None:
                         continue
                     cell_ent = self.entries[row.value.object_index]

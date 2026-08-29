@@ -607,7 +607,8 @@ def test_run_photo_sync_rejects_remote_delete_with_until_found() -> None:
 
 
 def test_run_photo_sync_live_photos_respect_video_flags() -> None:
-    """Live photo sync should fetch both resources unless video downloads are skipped."""
+    """Live photo sync should fetch both resources unless video
+    downloads are skipped."""
 
     live_asset = DummyAsset(
         "asset-live",

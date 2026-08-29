@@ -189,7 +189,8 @@ def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
 
     if options.size not in PRIMARY_SYNC_VERSIONS:
         raise PhotosServiceException(
-            f"Unsupported photo size '{options.size}'. Choose from: original, medium, thumb."
+            f"Unsupported photo size '{options.size}'. Choose from: "
+            "original, medium, thumb."
         )
     if options.live_photo_size not in LIVE_PHOTO_SYNC_VERSIONS:
         raise PhotosServiceException(

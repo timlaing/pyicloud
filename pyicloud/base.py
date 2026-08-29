@@ -81,14 +81,18 @@ _HEADERS: dict[str, str] = {
 _AUTH_HEADERS_JSON: dict[str, str] = {
     "Accept": f"{CONTENT_TYPE_JSON}, text/javascript",
     "Content-Type": CONTENT_TYPE_JSON,
-    "X-Apple-OAuth-Client-Id": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
+    "X-Apple-OAuth-Client-Id": (
+        "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d"
+    ),
     "X-Apple-OAuth-Client-Type": "firstPartyAuth",
     "X-Apple-OAuth-Redirect-URI": "https://www.icloud.com",
     "X-Apple-OAuth-Require-Grant-Code": "true",
     "X-Apple-OAuth-Response-Mode": "web_message",
     "X-Apple-OAuth-Response-Type": "code",
     "X-Apple-OAuth-State": "",
-    "X-Apple-Widget-Key": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
+    "X-Apple-Widget-Key": (
+        "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d"
+    ),
     "X-Apple-FD-Client-Info": json.dumps(
         {
             "U": _HEADERS["User-Agent"],
@@ -1011,7 +1015,8 @@ class PyiCloudService:
                 return True
             except PyiCloudTrustedDevicePromptException:
                 LOGGER.debug(
-                    "Trusted-device bridge bootstrap failed; falling back to SMS when available.",
+                    "Trusted-device bridge bootstrap failed; falling back to "
+                    "SMS when available.",
                     exc_info=True,
                 )
                 if self._can_request_sms_2fa_code():

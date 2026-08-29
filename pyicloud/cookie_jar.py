@@ -12,7 +12,8 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
     """Mix the Requests CookieJar with the LWPCookieJar to allow persistence"""
 
     def __init__(self, filename: str | None = None) -> None:
-        """Initialise both bases; do not pass filename positionally to RequestsCookieJar."""
+        """Initialise both bases; do not pass filename positionally to
+        RequestsCookieJar."""
         RequestsCookieJar.__init__(self)
         LWPCookieJar.__init__(self, filename=filename)
 

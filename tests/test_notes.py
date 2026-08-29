@@ -618,7 +618,8 @@ class NotesServiceTest(unittest.TestCase):
                 return_value=MagicMock(bytes=b"broken"),
             ),
             patch(
-                "pyicloud.services.notes.rendering.exporter.pb.NoteStoreProto.ParseFromString",
+                "pyicloud.services.notes.rendering.exporter.pb."
+                "NoteStoreProto.ParseFromString",
                 side_effect=ValueError("bad proto"),
             ),
         ):

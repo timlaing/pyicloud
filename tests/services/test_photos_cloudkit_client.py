@@ -167,7 +167,8 @@ def test_upload_file_raises_cloudkit_error_for_invalid_json() -> None:
 
 
 def test_batch_count_posts_expected_internal_query_payload() -> None:
-    """Photos count queries should hit the internal batch endpoint with the expected payload."""
+    """Photos count queries should hit the internal batch endpoint
+    with the expected payload."""
 
     session = MagicMock()
     session.post.return_value = MagicMock(
@@ -387,7 +388,8 @@ def test_database_changes_parses_fixture_payload() -> None:
 
 
 def test_iter_changes_parses_fixture_payload() -> None:
-    """Zone changes should yield typed record and tombstone entries from fixture JSON."""
+    """Zone changes should yield typed record and tombstone entries from
+    fixture JSON."""
 
     client = PhotosCloudKitClient(
         base_url="https://example.com/database/1/container/production/private",

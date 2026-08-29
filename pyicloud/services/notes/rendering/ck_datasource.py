@@ -261,7 +261,8 @@ class CloudKitNoteDataSource(NoteDataSource):
             fields.get_value("SummaryEncrypted"),
             fields.get_value("LocalizedTitleEncrypted"),
             fields.get_value("AltTextEncrypted"),
-            # Inline tokens sometimes carry a canonical identifier separate from AltText.
+            # Inline tokens sometimes carry a canonical identifier separate
+            # from AltText.
             fields.get_value("TokenContentIdentifierEncrypted"),
             # Also try unencrypted fields, just in case
             fields.get_value("Title"),

@@ -78,7 +78,8 @@ def dump_runs_text(note: pb.Note) -> str:
         wd = _enum_name(pb.WritingDirection, row.get("writing_direction"))
         indent = row.get("indent_amount")
         rows.append(
-            f"[{row['index']:03d}] off={row['utf16_start']:<5} len={row['utf16_len']:<4} "
+            f"[{row['index']:03d}] off={row['utf16_start']:<5} "
+            f"len={row['utf16_len']:<4} "
             f"style={st_name:<26} indent={indent!s:<2} align={align:<16} wd={wd:<8} "
             f"text=“{pretty}”"
         )
@@ -104,7 +105,8 @@ def annotate_note_runs_html(note: pb.Note) -> str:
         raw = str(row.get("text", ""))
         tip = (
             f"run {idx} | off={row['utf16_start']} len={row['utf16_len']} | "
-            f"{_enum_name(pb.StyleType, row.get('style_type'))} ind={row.get('indent_amount')} | "
+            f"{_enum_name(pb.StyleType, row.get('style_type'))} "
+            f"ind={row.get('indent_amount')} | "
             f"{_enum_name(pb.Alignment, row.get('alignment'))} | "
             f"{_enum_name(pb.WritingDirection, row.get('writing_direction'))}"
         )
@@ -117,13 +119,15 @@ def annotate_note_runs_html(note: pb.Note) -> str:
             .replace("\x00", "<span class=null>␀</span>")
         )
         spans.append(
-            f'<span class="run" title="{html.escape(tip)}" style="background:{bg}">{safe}</span>'
+            f'<span class="run" title="{html.escape(tip)}" '
+            f'style="background:{bg}">{safe}</span>'
         )
 
     content = "".join(spans)
     return (
         '<!doctype html><meta charset="utf-8">'
-        "<style>body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.5}"
+        "<style>body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,"
+        "Arial,sans-serif;line-height:1.5}"
         ".run{padding:0 .15em;margin:.05em;border-radius:.2em}"
         ".lb{color:#888} .obj{color:#960} .null{color:#c00}"
         "pre{white-space:pre-wrap;border:1px solid #eee;padding:.5em}</style>"
