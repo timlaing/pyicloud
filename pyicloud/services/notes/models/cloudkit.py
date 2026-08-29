@@ -8,7 +8,7 @@ the older Notes-specific model path.
 from __future__ import annotations
 
 import pyicloud.common.cloudkit.models as _cloudkit_models
-from pyicloud.common.cloudkit.models import *  # noqa: F403
+from pyicloud.common.cloudkit.models import *  # noqa: F403  # pylint: disable=wildcard-import,unused-wildcard-import
 
 from .constants import NotesDesiredKey as CKDesiredKey  # pylint: disable=unused-import
 from .constants import NotesRecordType as CKRecordType  # pylint: disable=unused-import
