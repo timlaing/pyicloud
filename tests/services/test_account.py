@@ -83,7 +83,7 @@ def test_family_missing_key(mock_session: MagicMock) -> None:
         china_mainland=False,
         params={},
     )
-    assert service.family == []
+    assert not service.family
 
 
 def test_storage(pyicloud_service_working: PyiCloudService) -> None:

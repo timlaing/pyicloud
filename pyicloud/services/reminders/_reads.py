@@ -107,8 +107,7 @@ class RemindersReadAPI:
             for reminder in batch.reminders:
                 reminder_map[reminder.id] = reminder
 
-        for reminder in reminder_map.values():
-            yield reminder
+        yield from reminder_map.values()
 
     def sync_cursor(self) -> str:
         """Return the latest usable sync token for the Reminders zone."""

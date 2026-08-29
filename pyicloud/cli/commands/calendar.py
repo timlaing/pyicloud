@@ -50,7 +50,7 @@ def calendar_calendars(
     api = state.get_api()
     payload = [
         normalize_calendar(calendar)
-        for calendar in service_call("Calendar", lambda: api.calendar.get_calendars())
+        for calendar in service_call("Calendar", api.calendar.get_calendars)
     ]
     if state.json_output:
         state.write_json(payload)

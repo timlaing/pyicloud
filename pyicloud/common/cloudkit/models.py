@@ -262,7 +262,6 @@ class _CKFieldBase(CKModel):
 
     # Every field wrapper has a 'type' discriminator and a 'value'
     # Subclasses declare type: Literal[...] for the discriminator.
-    pass
 
 
 class CKTimestampField(_CKFieldBase):
@@ -690,8 +689,6 @@ class CKWriteParent(CKModel):
 class CKWriteFields(CKFields):
     """Field mapping specialized for CloudKit record modify requests."""
 
-    pass
-
 
 class CKWriteRecord(CKModel):
     """
@@ -785,8 +782,6 @@ class CKComparator(str, Enum):
 # FieldValue typed wrappers (request side) — discriminated by 'type'
 class _CKFilterValueBase(CKModel):
     """Base class for filter value wrappers with type discriminator."""
-
-    pass  # Subclasses declare type: Literal[...] for the discriminator.
 
 
 class CKFVString(_CKFilterValueBase):

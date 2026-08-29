@@ -547,7 +547,7 @@ class FakeNotes:
 
     @staticmethod
     def _matches_id(note_id: str, query: str) -> bool:
-        return note_id == query or note_id.split("/", 1)[-1] == query
+        return query in (note_id, note_id.split("/", 1)[-1])
 
     def recents(self, *, limit: int = 50):
         """Return the recent note rows up to the given limit."""
@@ -723,7 +723,7 @@ class FakeReminders:
 
     @staticmethod
     def _matches_id(record_id: str, query: str) -> bool:
-        return record_id == query or record_id.split("/", 1)[-1] == query
+        return query in (record_id, record_id.split("/", 1)[-1])
 
     def _find_reminder(self, reminder_id: str) -> Reminder:
         for candidate_id, reminder in self.reminder_rows.items():

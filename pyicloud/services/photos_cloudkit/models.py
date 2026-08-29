@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
@@ -12,13 +12,17 @@ from pyicloud.common.cloudkit import CKQueryFilterBy, CKRecord, CKZoneIDReq
 from pyicloud.common.cloudkit.base import CKModel
 from pyicloud.exceptions import PyiCloudException
 
+if TYPE_CHECKING:
+    from .constants import DirectionEnum, ListTypeEnum, ObjectTypeEnum
+    from .service import BasePhotoAlbum, PhotoAsset
+
 
 class PhotosServiceException(PyiCloudException):
     """Photo service exception."""
 
     def __init__(
         self,
-        *args,
+        *args: tuple[Any, ...],
         photo: PhotoAsset | None = None,
         album: BasePhotoAlbum | None = None,
     ) -> None:
@@ -155,9 +159,3 @@ class PhotosUploadResponse(CKModel):
     records: list[CKRecord] = Field(default_factory=list)
     errors: list[PhotosUploadError] = Field(default_factory=list)
     isDuplicate: bool | None = None
-
-
-# Import-only type hints to avoid circular imports at runtime.
-if False:  # pragma: no cover
-    from .constants import DirectionEnum, ListTypeEnum, ObjectTypeEnum
-    from .service import BasePhotoAlbum, PhotoAsset

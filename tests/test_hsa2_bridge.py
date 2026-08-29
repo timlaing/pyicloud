@@ -129,7 +129,7 @@ def _read_varint(data: bytes, offset: int) -> tuple[int, int]:
         byte = data[offset]
         offset += 1
         value |= (byte & 0x7F) << shift
-        if not (byte & 0x80):
+        if not byte & 0x80:
             return value, offset
         shift += 7
 

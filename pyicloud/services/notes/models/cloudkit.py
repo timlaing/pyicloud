@@ -10,8 +10,8 @@ from __future__ import annotations
 import pyicloud.common.cloudkit.models as _cloudkit_models
 from pyicloud.common.cloudkit.models import *  # noqa: F403
 
-from .constants import NotesDesiredKey as CKDesiredKey
-from .constants import NotesRecordType as CKRecordType
+from .constants import NotesDesiredKey as CKDesiredKey  # pylint: disable=unused-import
+from .constants import NotesRecordType as CKRecordType  # pylint: disable=unused-import
 
 __all__ = [name for name in dir(_cloudkit_models) if not name.startswith("_")] + [
     "CKDesiredKey",

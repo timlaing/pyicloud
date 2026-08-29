@@ -257,7 +257,7 @@ class AlbumContainer(Iterable):
     def find(self, name: str) -> BasePhotoAlbum | None:
         """Find an album by its name or fullname."""
         for album in self._albums.values():
-            if name == album.fullname or name == album.name:
+            if name in (album.fullname, album.name):
                 return album
         return None
 
@@ -1116,8 +1116,7 @@ class BasePhotoAlbum(Iterable, ABC):
                 window.append(photo)
             if not window:
                 break
-            for photo in reversed(window):
-                yield photo
+            yield from reversed(window)
             if len(window) < page_size:
                 break
             offset += len(window)

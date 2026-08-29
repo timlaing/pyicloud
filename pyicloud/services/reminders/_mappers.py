@@ -150,7 +150,7 @@ class RemindersRecordMapper:
             count=count,
             badge_emblem=fields.get_value("BadgeEmblem"),
             sorting_style=fields.get_value("SortingStyle"),
-            is_group=bool(fields.get_value("IsGroup") or 0),
+            is_group=bool(fields.get_value("IsGroup")),
             reminder_ids=reminder_ids,
             record_change_tag=rec.recordChangeTag,
         )
@@ -206,12 +206,12 @@ class RemindersRecordMapper:
             desc=desc,
             due_date=fields.get_value("DueDate"),
             start_date=fields.get_value("StartDate"),
-            completed=bool(fields.get_value("Completed") or 0),
+            completed=bool(fields.get_value("Completed")),
             completed_date=fields.get_value("CompletionDate"),
             priority=int(fields.get_value("Priority") or 0),
-            flagged=bool(fields.get_value("Flagged") or 0),
-            all_day=bool(fields.get_value("AllDay") or 0),
-            deleted=bool(fields.get_value("Deleted") or 0),
+            flagged=bool(fields.get_value("Flagged")),
+            all_day=bool(fields.get_value("AllDay")),
+            deleted=bool(fields.get_value("Deleted")),
             time_zone=fields.get_value("TimeZone"),
             alarm_ids=[
                 _as_raw_id(x, "Alarm") for x in (fields.get_value("AlarmIDs") or [])

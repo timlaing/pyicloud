@@ -844,7 +844,7 @@ def reminders_sync_cursor(
     state = get_state(ctx)
     api = state.get_api()
     reminders = _reminders_service(api)
-    cursor = _reminders_call(api, lambda: reminders.sync_cursor())
+    cursor = _reminders_call(api, reminders.sync_cursor)
     _sync_cursor_payload(state, cursor)
 
 
@@ -1074,7 +1074,7 @@ def reminders_hashtag_update(
         reminder_id,
         hashtag_id,
         label="hashtag",
-        fetch_rows=lambda reminder: reminders.tags_for(reminder),
+        fetch_rows=reminders.tags_for,
     )
     _reminders_call(api, lambda: reminders.update_hashtag(hashtag, name))
     hashtag.name = name
@@ -1117,7 +1117,7 @@ def reminders_hashtag_delete(
         reminder_id,
         hashtag_id,
         label="hashtag",
-        fetch_rows=lambda row: reminders.tags_for(row),
+        fetch_rows=reminders.tags_for,
     )
     _reminders_call(api, lambda: reminders.delete_hashtag(reminder, hashtag))
     payload = {"reminder_id": reminder.id, "hashtag_id": hashtag.id, "deleted": True}
@@ -1279,7 +1279,7 @@ def reminders_attachment_update(
         reminder_id,
         attachment_id,
         label="attachment",
-        fetch_rows=lambda reminder: reminders.attachments_for(reminder),
+        fetch_rows=reminders.attachments_for,
     )
     _reminders_call(
         api,
@@ -1344,7 +1344,7 @@ def reminders_attachment_delete(
         reminder_id,
         attachment_id,
         label="attachment",
-        fetch_rows=lambda row: reminders.attachments_for(row),
+        fetch_rows=reminders.attachments_for,
     )
     _reminders_call(api, lambda: reminders.delete_attachment(reminder, attachment))
     payload = {
@@ -1534,7 +1534,7 @@ def reminders_recurrence_update(
         reminder_id,
         rule_id,
         label="recurrence rule",
-        fetch_rows=lambda reminder: reminders.recurrence_rules_for(reminder),
+        fetch_rows=reminders.recurrence_rules_for,
     )
     _reminders_call(
         api,
@@ -1595,7 +1595,7 @@ def reminders_recurrence_delete(
         reminder_id,
         rule_id,
         label="recurrence rule",
-        fetch_rows=lambda row: reminders.recurrence_rules_for(row),
+        fetch_rows=reminders.recurrence_rules_for,
     )
     _reminders_call(
         api,

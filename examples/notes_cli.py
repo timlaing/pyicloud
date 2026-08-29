@@ -425,9 +425,7 @@ def main() -> None:
                 console.print(f"[red]Failed to dump runs:[/red] {exc}")
 
     try:
-        import time as _time
-
-        logger.info("[+%.3fs] completed", _time.perf_counter() - t0)
+        logger.info("[+%.3fs] completed", time.perf_counter() - t0)
     except Exception:
         logger.info("completed")
 

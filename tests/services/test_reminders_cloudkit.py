@@ -118,14 +118,6 @@ def _ck_record(record_type: str, record_name: str, fields: dict, **extra) -> CKR
 
 def _make_crdt_blob(text: str) -> str:
     """Build a valid reminders CRDT blob: protobuf -> zlib -> base64 string."""
-    import base64
-    import zlib
-
-    from pyicloud.services.reminders.protobuf import (
-        reminders_pb2,
-        versioned_document_pb2,
-    )
-
     s = reminders_pb2.String()
     s.string = text
 
@@ -144,11 +136,6 @@ def _make_crdt_blob(text: str) -> str:
 
 def _make_crdt_version_bytes(text: str) -> bytes:
     """Build the raw, uncompressed versioned_document.Version payload."""
-    from pyicloud.services.reminders.protobuf import (
-        reminders_pb2,
-        versioned_document_pb2,
-    )
-
     s = reminders_pb2.String()
     s.string = text
 
@@ -481,8 +468,6 @@ class TestDecodeCrdtDocument:
 
     def test_decode_bytes_input(self, service):
         """Accept raw bytes as well as base64 string."""
-        import base64
-
         raw = base64.b64decode(TITLE_DOC_SAMPLES["Message Benno"])
         result = service._decode_crdt_document(raw)
         assert result == "Message Benno"
@@ -2486,7 +2471,7 @@ class TestReminderReadPaths:
         svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
 
         out = list(svc.lists())
-        assert out == []
+        assert not out
         assert svc._raw.changes.call_count == 1
 
     def test_lists_raises_on_error_item(self):

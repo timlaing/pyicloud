@@ -13,6 +13,7 @@ import json
 import logging
 import os
 from typing import NoReturn
+import uuid
 
 from pydantic import ValidationError
 
@@ -222,9 +223,6 @@ class CloudKitNotesClient:
 
     def download_asset_to(self, url: str, directory: str) -> str:
         """Download a CloudKit asset URL to a file in the given directory."""
-        import os
-        import uuid
-
         LOGGER.info(
             "Downloading asset from %s to directory %s",
             redact_cloudkit_url(url),
@@ -276,7 +274,6 @@ class CloudKitNotesClient:
                 "Failed to get sync token via query, falling back. Error: %s", e
             )
             # ignore and fall back
-            pass
 
         # Approach 2: one empty /changes/zone call to get initial token
         LOGGER.debug("Falling back to get sync token via changes call.")

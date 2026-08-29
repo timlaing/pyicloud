@@ -61,13 +61,9 @@ _HAS_SUBFOLDER_FIELD = "HasSubfolder"
 class NoteNotFound(NotesError):
     """Raised when a note cannot be found."""
 
-    pass
-
 
 class NoteLockedError(NotesError):
     """Raised when a note is password protected and cannot be accessed."""
-
-    pass
 
 
 # ----------------------------- NotesService ----------------------------------
@@ -338,7 +334,7 @@ class NotesService(BaseService):
                 if not isinstance(rec, CKRecord):
                     continue
                 rec_folder_id = self._extract_folder_id(rec)
-                deleted = bool(rec.fields.get_value("Deleted") or False)
+                deleted = bool(rec.fields.get_value("Deleted"))
                 if deleted or rec_folder_id != folder_id:
                     continue
                 yield self._summary_from_record(rec)
@@ -529,7 +525,7 @@ class NotesService(BaseService):
         ):
             for rec in zone.records:
                 if isinstance(rec, CKRecord):
-                    deleted_flag = bool(rec.fields.get_value("Deleted") or False)
+                    deleted_flag = bool(rec.fields.get_value("Deleted"))
                     evt_type = "deleted" if deleted_flag else "updated"
                     yield ChangeEvent(
                         type=evt_type,
@@ -682,7 +678,7 @@ class NotesService(BaseService):
         modified = rec.fields.get_value(
             "ModificationDate"
         )  # already tz-aware datetime or None
-        deleted = bool(rec.fields.get_value("Deleted") or False)
+        deleted = bool(rec.fields.get_value("Deleted"))
         folder_id = self._extract_folder_id(rec)
         folder_name = self._folder_name(folder_id)
         is_locked = (

@@ -25,11 +25,9 @@ class NoteDataSource(Protocol):
 
     def get_attachment_uti(self, identifier: str) -> str | None:
         """Return the UTI for an attachment identifier, if known."""
-        ...
 
     def get_mergeable_gz(self, identifier: str) -> bytes | None:
         """Return gzipped mergeable table bytes for an attachment, if any."""
-        ...
 
 
 @dataclass(frozen=True, slots=True)

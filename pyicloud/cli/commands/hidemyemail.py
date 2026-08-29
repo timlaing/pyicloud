@@ -116,7 +116,7 @@ def hidemyemail_generate(
     api = state.get_api()
     alias = service_call(
         HIDE_MY_EMAIL,
-        lambda: api.hidemyemail.generate(),
+        api.hidemyemail.generate,
         account_name=api.account_name,
     )
     alias = _require_generated_alias(alias)

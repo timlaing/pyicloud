@@ -412,7 +412,7 @@ def photos_libraries(
         normalize_photo_library(key, library)
         for key, library in service_call(
             "Photos",
-            lambda: photos.libraries.items(),
+            photos.libraries.items,
             account_name=api.account_name,
         )
     ]
@@ -649,7 +649,7 @@ def photos_sync_cursor(
         raise CLIAbort(f"Photo library '{library}' does not support sync cursors.")
     cursor = service_call(
         "Photos",
-        lambda: library_obj.sync_cursor(),
+        library_obj.sync_cursor,
         account_name=api.account_name,
     )
     payload = normalize_sync_cursor(cursor, library=library)

@@ -539,7 +539,7 @@ def notes_sync_cursor(
     state = get_state(ctx)
     api = state.get_api()
     notes = _notes_service(api)
-    cursor = _notes_call(api, lambda: notes.sync_cursor())
+    cursor = _notes_call(api, notes.sync_cursor)
     if state.json_output:
         state.write_json(normalize_sync_cursor(cursor))
         return

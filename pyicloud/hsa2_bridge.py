@@ -422,7 +422,7 @@ class _BootArgsHTMLParser(HTMLParser):
         """Start collecting data when the boot_args script tag is found."""
         if tag != "script" or self._found:
             return
-        attr_map = {key: value for key, value in attrs}
+        attr_map = dict(attrs)
         classes = (attr_map.get("class") or "").split()
         if "boot_args" in classes:
             self._collecting = True
@@ -518,7 +518,7 @@ def _read_varint(data: bytes, offset: int) -> tuple[int, int]:
         byte = data[offset]
         offset += 1
         value |= (byte & 0x7F) << shift
-        if not (byte & 0x80):
+        if not byte & 0x80:
             return value, offset
         shift += 7
         # Guard against malformed wire data rather than silently accepting an
