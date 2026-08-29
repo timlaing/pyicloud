@@ -147,6 +147,9 @@ pretty = true
 jobs = 2
 persistent = false
 extension-pkg-whitelist = "ciso8601"
+ignore-patterns = [
+    "^.*_pb2\\.py$"
+]
 
 [tool.pylint.typecheck]
 # Members of generated protobuf modules are created dynamically at import
