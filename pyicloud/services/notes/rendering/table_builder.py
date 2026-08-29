@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import gzip
 
-from tinyhtml import h, raw  # type: ignore[import-not-found]
+from tinyhtml import h, raw
 
 from ..protobuf import notes_pb2 as pb
 
@@ -202,7 +202,7 @@ class TableBuilder:
             tds: list[object] = []
             for c in range(self.cols.total):
                 cell_html = self.cells[r][c].html or ""
-                tds.append(h("td")(raw(cell_html)))  # type: ignore[arg-type]
+                tds.append(h("td")(raw(cell_html)))
             trs.append(h("tr")(*tds))  # type: ignore[arg-type]
         return h("table")(*trs).render()  # type: ignore[arg-type]
 

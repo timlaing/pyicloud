@@ -255,9 +255,9 @@ def _auth_logout_find_account(state: CLIState) -> PyiCloudService | None:
     if not active_probes:
         if state.json_output:
             state.write_json({"authenticated": False, "accounts": []})
-            return
+            return None
         state.console.print(state.not_logged_in_message())
-        return
+        return None
     if len(active_probes) > 1:
         raise CLIAbort(
             state.multiple_logged_in_accounts_message([

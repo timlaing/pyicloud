@@ -10,13 +10,23 @@ from contextlib import suppress
 from dataclasses import dataclass
 from enum import IntEnum
 import html
-from typing import cast
+from typing import TypedDict, cast
 from urllib.parse import urlsplit
 
 from ..protobuf import notes_pb2 as pb
 from .attachments import AttachmentContext, render_attachment
 from .options import ExportConfig
 from .renderer_iface import AttachmentRef, NoteDataSource
+
+
+class _ListFrame(TypedDict):
+    """Stack frame describing an open HTML list element."""
+
+    indent: int
+    tag: str
+    li_open: bool
+    li_index: int | None
+    li_has_content: bool
 
 
 class StyleType(IntEnum):
@@ -380,9 +390,7 @@ def render_note_fragment(
         return [f"background-color:var(--hl{idx}-bg)"]
 
     i = 0
-    # {"indent": int, "tag": str, "li_open": bool,
-    #  "li_index": Optional[int], "li_has_content": bool}
-    list_stack: list[dict] = []
+    list_stack: list[_ListFrame] = []
 
     def _close_top_list() -> None:
         if not list_stack:

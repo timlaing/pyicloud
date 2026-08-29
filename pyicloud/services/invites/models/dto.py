@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum, IntEnum
+from typing import Any
 
 from pydantic import Field
 
@@ -145,8 +146,8 @@ class Event(FrozenServiceModel):
     max_additional_guests_per_rsvp: int = 0
     time: EventTime | None = None
     place: EventPlace | None = None
-    background: dict = Field(default_factory=dict)
-    style: dict = Field(default_factory=dict)
+    background: dict[str, Any] = Field(default_factory=dict)
+    style: dict[str, Any] = Field(default_factory=dict)
     integrations: tuple[str, ...] = ()
     created_timestamp: datetime | None = None
     modified_timestamp: datetime | None = None

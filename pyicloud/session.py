@@ -110,7 +110,7 @@ class PyiCloudSession(requests.Session):
                 cast(PyiCloudCookieJar, self.cookies).clear()
 
         self._logger.debug("Using session file %s", self.session_path)
-        self._data: dict[str, Any] = {}
+        self._data = {}
         try:
             with open(self.session_path, encoding="utf-8") as session_f:
                 self._data = load(session_f)

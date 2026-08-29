@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import typer
 
 from pyicloud.cli.context import CLIAbort, get_state, service_call
@@ -33,7 +35,7 @@ def _require_generated_alias(alias: str | None) -> str:
     raise CLIAbort(f"{HIDE_MY_EMAIL} generate returned an empty alias.")
 
 
-def _require_mutation_result(payload: dict, operation: str) -> str:
+def _require_mutation_result(payload: dict[str, Any], operation: str) -> str:
     """Return the alias id from a successful mutator response."""
 
     anonymous_id = payload.get("anonymousId")

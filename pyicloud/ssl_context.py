@@ -26,7 +26,7 @@ def configurable_ssl_verification(
     """
 
     # Store the original merge_environment_settings
-    old_merge_environment_settings: Callable = (
+    old_merge_environment_settings: Callable[..., dict[str, Any]] = (
         requests.Session.merge_environment_settings
     )
 

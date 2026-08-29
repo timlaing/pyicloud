@@ -24,7 +24,10 @@ _MAX_REFRESH_RETRIES: int = 5
 
 
 def _monitor_thread(
-    interval: float, func: Callable, stop_event: threading.Event, locate: bool = False
+    interval: float,
+    func: Callable[[bool], None],
+    stop_event: threading.Event,
+    locate: bool = False,
 ) -> None:
     """Thread function to monitor the FindMyiPhoneServiceManager."""
     next_event: datetime = datetime.now() + timedelta(seconds=interval)

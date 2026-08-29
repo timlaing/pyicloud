@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from random import randint
 import time
-from typing import Any, Literal, TypeVar, Union, cast, overload
+from typing import Any, Literal, TypeVar, Union, overload
 from uuid import uuid4
 
 from requests import Response
@@ -119,7 +119,7 @@ class AppleDateFormat:
             minutes_from_midnight=minutes_calc,
         )
 
-    def to_list(self) -> list[int]:
+    def to_list(self) -> list[int | str]:
         """Convert to Apple's expected list format."""
         return [
             self.date_string,
@@ -186,12 +186,12 @@ class AppleCalendarEvent:
     pGuid: str
     guid: str
 
-    startDate: list[int]
-    endDate: list[int]
-    localStartDate: list[int]
-    localEndDate: list[int]
-    createdDate: list[int]
-    lastModifiedDate: list[int]
+    startDate: list[int | str]
+    endDate: list[int | str]
+    localStartDate: list[int | str]
+    localEndDate: list[int | str]
+    createdDate: list[int | str]
+    lastModifiedDate: list[int | str]
 
     extendedDetailsAreIncluded: bool
     recurrenceException: bool
@@ -387,7 +387,7 @@ class EventObject:
 
         return data
 
-    def dt_to_list(self, dt: datetime, start: bool = True) -> list:
+    def dt_to_list(self, dt: datetime, start: bool = True) -> list[int | str]:
         """
         Converts python datetime object into a list format used
         by Apple's calendar.
@@ -395,7 +395,7 @@ class EventObject:
         apple_date = AppleDateFormat.from_datetime(dt, is_start=start)
         return apple_date.to_list()
 
-    def add_invitees(self, _invitees: list | None = None) -> None:
+    def add_invitees(self, _invitees: list[str] | None = None) -> None:
         """
         Adds a list of emails to invitees in the correct format
         """
@@ -722,7 +722,7 @@ class CalendarService(BaseService):
             to_dt = from_dt + timedelta(days=6)
 
         response: dict[str, Any] = self.refresh_client(from_dt, to_dt)
-        events: list = response.get("Event", [])
+        events: list[Any] = response.get("Event", [])
 
         if as_objs and events:
             for idx, event in enumerate(events):
@@ -747,13 +747,10 @@ class CalendarService(BaseService):
         url: str = f"{self._calendar_event_detail_url}/{pguid}/{guid}"
         req: Response = self.session.get(url, params=params)
         response = req.json()
-        event = response["Event"][0]
+        event: EventObject = response["Event"][0]
 
         if as_obj and event:
-            event: EventObject = cast(
-                EventObject,
-                self.obj_from_dict(EventObject(pguid=pguid), event),
-            )
+            event = self.obj_from_dict(EventObject(pguid=pguid), event)
 
         return event
 

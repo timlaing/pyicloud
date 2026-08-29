@@ -12,7 +12,7 @@ from collections.abc import Iterable, Iterator
 import json
 import logging
 import os
-from typing import NoReturn
+from typing import Any, NoReturn
 import uuid
 
 from pydantic import ValidationError
@@ -298,7 +298,7 @@ class CloudKitNotesClient:
     # ----- Debug -----
 
     @staticmethod
-    def _dump_http_debug(op: str, url: str, payload: dict, resp) -> None:
+    def _dump_http_debug(op: str, url: str, payload: dict[str, Any], resp) -> None:
         if not os.getenv("PYICLOUD_NOTES_DEBUG"):
             return
         ts = __import__("time").strftime("%Y%m%d-%H%M%S")
@@ -337,7 +337,7 @@ class CloudKitNotesClient:
             pass
 
     @staticmethod
-    def _log_validation(op: str, data: dict, err: ValidationError) -> None:
+    def _log_validation(op: str, data: dict[str, Any], err: ValidationError) -> None:
         if not os.getenv("PYICLOUD_NOTES_DEBUG"):
             return
         ts = __import__("time").strftime("%Y%m%d-%H%M%S")

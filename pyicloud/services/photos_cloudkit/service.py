@@ -228,7 +228,7 @@ def _is_shared_library_zone_name(zone_name: str | None) -> bool:
     return bool(zone_name and zone_name.startswith(SHARED_LIBRARY_ZONE_PREFIX))
 
 
-class AlbumContainer(Iterable):
+class AlbumContainer(Iterable["BasePhotoAlbum"]):
     """Container for photo albums."""
 
     def __init__(self, albums: list[BasePhotoAlbum] | None = None) -> None:
@@ -579,7 +579,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
-            records = list(response.get("records", []))
+            raw_records = list(response.get("records", []))
             while "continuationMarker" in response:
                 payload = _query_request_payload(
                     query=query,
@@ -592,15 +592,15 @@ class PhotoLibrary(BasePhotoLibrary):
                     headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
                 )
                 response = request.json()
-                records.extend(response.get("records", []))
-            nested_records: list[dict[str, Any]] = []
-            for record in list(records):
+                raw_records.extend(response.get("records", []))
+            raw_nested_records = []
+            for record in list(raw_records):
                 album_type = record.get("fields", {}).get("albumType", {}).get("value")
                 if album_type == AlbumTypeEnum.FOLDER.value:
-                    nested_records.extend(
+                    raw_nested_records.extend(
                         self._fetch_album_records(record.get("recordName"))
                     )
-            return records + nested_records
+            return raw_records + raw_nested_records
 
         records: list[CKRecord] = []
         continuation: str | None = None
@@ -910,7 +910,7 @@ class PhotoLibrary(BasePhotoLibrary):
         )
 
 
-class BasePhotoAlbum(Iterable, ABC):
+class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     """Abstract photo album."""
 
     def __init__(

@@ -1,5 +1,6 @@
 """Cookie jar with persistence support."""
 
+from collections.abc import Iterator
 from contextlib import suppress
 from http.cookiejar import Cookie, LWPCookieJar
 
@@ -17,10 +18,14 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
         RequestsCookieJar.__init__(self)
         LWPCookieJar.__init__(self, filename=filename)
 
+    def __iter__(self) -> Iterator[Cookie]:
+        """Yield the cookies; delegates to the base CookieJar chain."""
+        return super().__iter__()
+
     def _resolve_filename(self, filename: str | None) -> str | None:
         resolved: str | None = filename or getattr(self, "filename", None)
         if not resolved:
-            return  # No-op if no filename is bound
+            return None  # No-op if no filename is bound
         return resolved
 
     def copy(self) -> "PyiCloudCookieJar":

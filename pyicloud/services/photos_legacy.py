@@ -124,7 +124,7 @@ PRIMARY_ZONE: dict[str, str] = {
 }
 
 
-class AlbumContainer(Iterable):
+class AlbumContainer(Iterable["BasePhotoAlbum"]):
     """
     Container for photo albums.
     This provides a way to access all the albums in the library.
@@ -177,7 +177,7 @@ class AlbumContainer(Iterable):
     def append(self, album: "BasePhotoAlbum") -> None:
         """Appends an album to the container."""
         self._albums[album.id] = album
-        self._index: list[str] = list(self._albums.keys())
+        self._index = list(self._albums.keys())
 
     def index(self, idx: int) -> "BasePhotoAlbum":
         """Returns the album at the given index."""
@@ -434,7 +434,7 @@ class PhotoLibrary(BasePhotoLibrary):
         while "continuationMarker" in response:
             query["continuationMarker"] = response["continuationMarker"]
 
-            request: Response = self.service.session.post(
+            request = self.service.session.post(
                 url=self.url,
                 json=query,
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
@@ -651,7 +651,7 @@ class PhotoStreamLibrary(BasePhotoLibrary):
         request: Response = self.service.session.post(
             url, json={}, headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
         )
-        response: dict[str, list] = request.json()
+        response: dict[str, list[dict[str, Any]]] = request.json()
         for album in response["albums"]:
             shared_stream = SharedPhotoStreamAlbum(
                 library=self,
@@ -698,7 +698,7 @@ class PhotosService(BaseService):
         self._libraries: dict[str, BasePhotoLibrary] | None = None
 
         self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
-        self._photo_assets: dict = {}
+        self._photo_assets: dict[str, Any] = {}
 
         self._root_library: PhotoLibrary | None = None
 
@@ -773,7 +773,7 @@ class PhotosService(BaseService):
         return self._get_root_library().create_album(name, album_type)
 
 
-class BasePhotoAlbum(Iterable, ABC):
+class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     """An abstract photo album."""
 
     def __init__(

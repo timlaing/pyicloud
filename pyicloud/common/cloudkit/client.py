@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 import logging
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
@@ -42,7 +42,7 @@ _ResponseModelT = TypeVar(
     CKDatabaseChangesResponse,
 )
 CloudKitBoolParamStyle = Literal["python", "lower"]
-CloudKitDebugHook = Callable[[str, str, dict, object], None]
+CloudKitDebugHook = Callable[[str, str, dict[str, Any], object], None]
 
 _RATE_LIMITED = "HTTP 429: rate limited"
 
@@ -129,7 +129,9 @@ class _CloudKitHTTP:
             return redact_cloudkit_url(url)
         return url
 
-    def _run_debug_hook(self, op: str, url: str, payload: dict, response) -> None:
+    def _run_debug_hook(
+        self, op: str, url: str, payload: dict[str, Any], response
+    ) -> None:
         if self._debug_hook is None:
             return
         try:
@@ -137,7 +139,13 @@ class _CloudKitHTTP:
         except Exception:
             LOGGER.debug("CloudKit debug hook failed for %s", op, exc_info=True)
 
-    def post(self, path: str, payload: dict, *, headers: dict | None = None) -> dict:
+    def post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Send a CloudKit POST request and return the parsed JSON response."""
         url = self.build_url(path)
         op = path.strip("/")
@@ -286,7 +294,7 @@ class CloudKitContainerClient:
     def _validate_response(
         self,
         model_cls: type[_ResponseModelT],
-        data: dict,
+        data: dict[str, Any],
     ) -> _ResponseModelT:
         return model_cls.model_validate(
             data,
@@ -299,8 +307,12 @@ class CloudKitContainerClient:
         return self._http.timeout
 
     def raw_post(
-        self, path: str, payload: dict, *, headers: dict | None = None
-    ) -> dict:
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """POST a raw request body to an arbitrary CloudKit endpoint path."""
         return self._http.post(path, payload, headers=headers)
 

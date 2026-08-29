@@ -59,7 +59,6 @@ class Note(NoteSummary):
     attachments: list[Attachment] | None
 
     @computed_field
-    @property
     def has_attachments(self) -> bool | None:
         """Return ``True``/``False`` when attachments were loaded, otherwise
         ``None``."""

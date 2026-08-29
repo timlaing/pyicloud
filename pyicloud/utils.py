@@ -21,6 +21,7 @@ def get_password(username: str, interactive: bool = _INTERACTIVE_DEFAULT) -> str
 
     if interactive:
         return getpass.getpass(f"Enter iCloud password for {username}: ")
+    return None
 
 
 def password_exists_in_keyring(username: str) -> bool:

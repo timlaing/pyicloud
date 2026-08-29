@@ -102,7 +102,7 @@ class DriveService(BaseService):
 
     def _get_upload_contentws_url(
         self,
-        file_object: IO,
+        file_object: IO[bytes],
         zone: str = CLOUD_DOCS_ZONE,
     ) -> tuple[str, str]:
         """Get the contentWS endpoint URL to add a new file."""
@@ -139,7 +139,7 @@ class DriveService(BaseService):
         folder_id: str,
         file_info: dict[str, Any],
         document_id: str,
-        file_object: IO,
+        file_object: IO[bytes],
         zone: str = CLOUD_DOCS_ZONE,
         **kwargs,
     ):
@@ -183,7 +183,7 @@ class DriveService(BaseService):
     def send_file(
         self,
         folder_id: str,
-        file_object: IO,
+        file_object: IO[bytes],
         zone: str = CLOUD_DOCS_ZONE,
         **kwargs,
     ) -> None:

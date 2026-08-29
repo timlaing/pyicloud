@@ -113,7 +113,7 @@ class AccountService(BaseService):
         return f"<{type(self).__name__}: {self}>"
 
 
-class AccountDevice(dict):
+class AccountDevice(dict[str, Any]):
     """Account device."""
 
     def __getattr__(self, key: str):

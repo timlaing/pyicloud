@@ -377,7 +377,7 @@ class PyiCloudService:
 
         self._update_state()
 
-    def _handle_accept_terms(self, login_data: dict) -> None:
+    def _handle_accept_terms(self, login_data: dict[str, Any]) -> None:
         """Handle accepting updated terms of service."""
         if self.data.get("termsUpdateNeeded"):
             if not self._accept_terms:
@@ -577,7 +577,7 @@ class PyiCloudService:
                 "protocols": [protocol.value for protocol in SrpProtocolType],
             }
 
-            response: Response = self.session.post(
+            response = self.session.post(
                 f"{self._auth_endpoint}/signin/init",
                 json=data,
                 headers=self._get_auth_headers(),
@@ -797,7 +797,7 @@ class PyiCloudService:
 
         return not self.requires_2sa
 
-    def _get_mfa_auth_options(self) -> dict:
+    def _get_mfa_auth_options(self) -> dict[str, Any]:
         """Retrieve auth request options for assertion."""
         # Apple exposes the HSA2 bridge bootstrap in the HTML auth shell.
         # Requesting JSON here tends to collapse the response to the SMS-oriented shape.
@@ -952,7 +952,7 @@ class PyiCloudService:
         """Security key names which can be used for the WebAuthn assertion."""
         return self._auth_data.get("keyNames")
 
-    def _submit_webauthn_assertion_response(self, data: dict) -> None:
+    def _submit_webauthn_assertion_response(self, data: dict[str, Any]) -> None:
         """Submit the WebAuthn assertion response for authentication."""
         headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
@@ -1124,11 +1124,11 @@ class PyiCloudService:
         if not _check_pcs_resp.get("isDeviceConsentedForPCS", True):
             LOGGER.debug("Requesting PCS consent")
 
-            resp = self.session.post(
+            consent_resp = self.session.post(
                 f"{self._setup_endpoint}/enableDeviceConsentForPCS", params=self.params
             ).json()
 
-            if not resp.get("isDeviceConsentNotificationSent"):
+            if not consent_resp.get("isDeviceConsentNotificationSent"):
                 raise PyiCloudAPIResponseException("Unable to request PCS access!")
 
         LOGGER.debug("Waiting for PCS consent")

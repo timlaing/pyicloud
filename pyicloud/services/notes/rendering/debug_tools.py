@@ -12,14 +12,14 @@ import html
 from ..protobuf import notes_pb2 as pb
 
 # We intentionally import the private helper; it's stable within this repo.
-from .renderer import StyleSig, _merge_runs, _slice_for_run  # type: ignore
+from .renderer import StyleSig, _merge_runs, _slice_for_run
 
 
 def _enum_name(enum_cls, value: int | None) -> str:
     if value is None:
         return "(none)"
     try:
-        return enum_cls.Name(int(value))  # type: ignore[attr-defined]
+        return enum_cls.Name(int(value))
     except Exception:
         return str(value)
 
@@ -100,7 +100,7 @@ def annotate_note_runs_html(note: pb.Note) -> str:
     ]
     spans: list[str] = []
     for row in map_attribute_runs(note):
-        idx = int(row["index"])  # type: ignore[arg-type]
+        idx = int(row["index"])
         bg = palette[idx % len(palette)]
         raw = str(row.get("text", ""))
         tip = (
