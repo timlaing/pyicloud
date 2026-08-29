@@ -8,10 +8,11 @@ pyicloud.services.notes_models.cloudkit and hides HTTP details.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 import json
 import logging
 import os
-from typing import Dict, Iterable, Iterator, List, NoReturn, Optional
+from typing import NoReturn
 
 from pydantic import ValidationError
 
@@ -55,7 +56,7 @@ class NotesAuthError(NotesError):
 class NotesRateLimited(NotesError):
     """429 Too Many Requests."""
 
-    def __init__(self, message: str, retry_after: Optional[float] = None):
+    def __init__(self, message: str, retry_after: float | None = None):
         super().__init__(message)
         self.retry_after = retry_after
 
@@ -63,7 +64,7 @@ class NotesRateLimited(NotesError):
 class NotesApiError(NotesError):
     """Catch-all API error."""
 
-    def __init__(self, message: str, payload: Optional[object] = None):
+    def __init__(self, message: str, payload: object | None = None):
         super().__init__(message)
         self.payload = payload
 
@@ -85,7 +86,7 @@ class CloudKitNotesClient:
         self,
         base_url: str,
         session,
-        base_params: Dict[str, object],
+        base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
@@ -129,9 +130,9 @@ class CloudKitNotesClient:
         *,
         query: CKQueryObject,
         zone_id: CKZoneIDReq,
-        desired_keys: Optional[List[str]] = None,
-        results_limit: Optional[int] = None,
-        continuation: Optional[str] = None,
+        desired_keys: list[str] | None = None,
+        results_limit: int | None = None,
+        continuation: str | None = None,
     ) -> CKQueryResponse:
         LOGGER.info("Executing query for recordType: %s", query.recordType)
         try:
@@ -155,7 +156,7 @@ class CloudKitNotesClient:
         self,
         record_names: Iterable[str],
         *,
-        desired_keys: Optional[List[str]] = None,
+        desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
         record_names_list = list(record_names)
         LOGGER.info("Executing lookup for %d records.", len(record_names_list))
@@ -294,7 +295,7 @@ class CloudKitNotesClient:
     # ----- Debug -----
 
     @staticmethod
-    def _dump_http_debug(op: str, url: str, payload: Dict, resp) -> None:
+    def _dump_http_debug(op: str, url: str, payload: dict, resp) -> None:
         if not os.getenv("PYICLOUD_NOTES_DEBUG"):
             return
         ts = __import__("time").strftime("%Y%m%d-%H%M%S")
@@ -333,7 +334,7 @@ class CloudKitNotesClient:
             pass
 
     @staticmethod
-    def _log_validation(op: str, data: Dict, err: ValidationError) -> None:
+    def _log_validation(op: str, data: dict, err: ValidationError) -> None:
         if not os.getenv("PYICLOUD_NOTES_DEBUG"):
             return
         ts = __import__("time").strftime("%Y%m%d-%H%M%S")

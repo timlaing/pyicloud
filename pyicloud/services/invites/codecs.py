@@ -13,20 +13,25 @@ from __future__ import annotations
 
 import base64
 import binascii
+from collections.abc import Mapping
 import json
 import logging
-from typing import Any, Mapping, Optional, Union
+from typing import Any, Union
 
 LOGGER = logging.getLogger(__name__)
 
 # Field names that carry base64-encoded JSON. Keep in sync with the
 # Invites design doc (see docs/research/invites_service_design.md).
-JSON_BYTES_FIELDS: frozenset[str] = frozenset(
-    {"time", "place", "background", "style", "integrations"}
-)
+JSON_BYTES_FIELDS: frozenset[str] = frozenset({
+    "time",
+    "place",
+    "background",
+    "style",
+    "integrations",
+})
 
 
-def decode_json_bytes(value: Optional[Union[str, bytes, bytearray]]) -> Optional[Any]:
+def decode_json_bytes(value: Union[str, bytes, bytearray] | None) -> Any | None:
     """Decode a base64-encoded JSON blob to its Python value.
 
     Accepts either a base64 ``str`` (the wire form) or ``bytes``/``bytearray``.
@@ -64,7 +69,7 @@ def decode_json_bytes(value: Optional[Union[str, bytes, bytearray]]) -> Optional
     return None
 
 
-def _parse_json_bytes(raw: bytes, *, log_failures: bool = True) -> Optional[Any]:
+def _parse_json_bytes(raw: bytes, *, log_failures: bool = True) -> Any | None:
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -85,7 +90,7 @@ def encode_json_bytes(value: Any) -> str:
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
-def decode_integrations(blob: Optional[Mapping[str, Any]]) -> tuple[str, ...]:
+def decode_integrations(blob: Mapping[str, Any] | None) -> tuple[str, ...]:
     """Extract the list of widget type strings from a decoded ``integrations`` blob.
 
     Observed shape: ``{"version": "1", "data": [{"type": "com.apple.widget.weather"}, ...]}``.

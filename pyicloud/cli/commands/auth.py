@@ -259,9 +259,9 @@ def _auth_logout_find_account(state: CLIState) -> PyiCloudService | None:
         return
     if len(active_probes) > 1:
         raise CLIAbort(
-            state.multiple_logged_in_accounts_message(
-                [api.account_name for api, _status in active_probes]
-            )
+            state.multiple_logged_in_accounts_message([
+                api.account_name for api, _status in active_probes
+            ])
         )
     api, _status = active_probes[0]
     return api

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import base64
+from collections.abc import Generator, Iterable, Iterator
+from datetime import datetime, timezone
 import logging
 import os
-from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import Any, Generator, Iterable, Iterator, Optional, cast
+from typing import Any, cast
 from unittest.mock import Mock
 from urllib.parse import urlencode
 
@@ -227,7 +228,7 @@ def _is_shared_library_zone_name(zone_name: str | None) -> bool:
 class AlbumContainer(Iterable):
     """Container for photo albums."""
 
-    def __init__(self, albums: list["BasePhotoAlbum"] | None = None) -> None:
+    def __init__(self, albums: list[BasePhotoAlbum] | None = None) -> None:
         self._albums: dict[str, BasePhotoAlbum] = {}
         if albums:
             for album in albums:
@@ -237,7 +238,7 @@ class AlbumContainer(Iterable):
     def __len__(self) -> int:
         return len(self._albums)
 
-    def __getitem__(self, key: str | int) -> "BasePhotoAlbum":
+    def __getitem__(self, key: str | int) -> BasePhotoAlbum:
         if isinstance(key, int):
             return self._albums[self._index[key]]
         if key in self._albums:
@@ -247,13 +248,13 @@ class AlbumContainer(Iterable):
             return album
         raise KeyError(f"Photo album does not exist: {key}")
 
-    def __iter__(self) -> Iterator["BasePhotoAlbum"]:
+    def __iter__(self) -> Iterator[BasePhotoAlbum]:
         return iter(self._albums.values())
 
     def __contains__(self, name: str) -> bool:
         return self.find(name) is not None
 
-    def find(self, name: str) -> Optional["BasePhotoAlbum"]:
+    def find(self, name: str) -> BasePhotoAlbum | None:
         for album in self._albums.values():
             if name == album.fullname or name == album.name:
                 return album
@@ -262,11 +263,11 @@ class AlbumContainer(Iterable):
     def get(
         self,
         key: str,
-        default: "BasePhotoAlbum | None" = None,
-    ) -> "BasePhotoAlbum | None":
+        default: BasePhotoAlbum | None = None,
+    ) -> BasePhotoAlbum | None:
         return self._albums.get(key, default)
 
-    def append(self, album: "BasePhotoAlbum") -> None:
+    def append(self, album: BasePhotoAlbum) -> None:
         self._albums[album.id] = album
         self._index = list(self._albums.keys())
 
@@ -274,7 +275,7 @@ class AlbumContainer(Iterable):
         self._albums.pop(album_id, None)
         self._index = list(self._albums.keys())
 
-    def index(self, idx: int) -> "BasePhotoAlbum":
+    def index(self, idx: int) -> BasePhotoAlbum:
         if idx < 0 or idx >= len(self._index):
             raise IndexError("Photo album index out of range")
         return self._albums[self._index[idx]]
@@ -285,9 +286,9 @@ class BasePhotoLibrary(ABC):
 
     def __init__(
         self,
-        service: "PhotosService",
+        service: PhotosService,
         *,
-        asset_type: type["PhotoAsset"] | None = None,
+        asset_type: type[PhotoAsset] | None = None,
         zone_id: dict[str, str] | None = None,
         client: PhotosCloudKitClient | None = None,
         upload_url: str | None = None,
@@ -354,7 +355,8 @@ class BasePhotoLibrary(ABC):
                 self._indexing_state = "FINISHED"
             else:
                 self._indexing_state = (
-                    response.get("records", [{}])[0]
+                    response
+                    .get("records", [{}])[0]
                     .get("fields", {})
                     .get("state", {})
                     .get("value")
@@ -386,7 +388,7 @@ class BasePhotoLibrary(ABC):
         self._albums = self._merge_pending_albums(self._get_albums())
         return self._albums
 
-    def _cache_created_album(self, album: "PhotoAlbum") -> None:
+    def _cache_created_album(self, album: PhotoAlbum) -> None:
         self._pending_albums[album.id] = album
         if self._albums is not None:
             self._albums.append(album)
@@ -644,7 +646,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 client=self._client,
                 zone_id=self.zone_id,
                 query_filters=typed_query_filters,
-                parent_id=cast(Optional[str], record_field_value(record, "parentId")),
+                parent_id=cast(str | None, record_field_value(record, "parentId")),
                 record_change_tag=record_change_tag(record),
                 record_modification_date=record_field_value(
                     record, "recordModificationDate"
@@ -661,7 +663,7 @@ class PhotoLibrary(BasePhotoLibrary):
             client=self._client,
             zone_id=self.zone_id,
             query_filters=typed_query_filters,
-            parent_id=cast(Optional[str], record_field_value(record, "parentId")),
+            parent_id=cast(str | None, record_field_value(record, "parentId")),
             record_change_tag=record_change_tag(record),
             record_modification_date=record_field_value(
                 record, "recordModificationDate"
@@ -707,7 +709,7 @@ class PhotoLibrary(BasePhotoLibrary):
         self,
         name: str,
         album_type: AlbumTypeEnum = AlbumTypeEnum.ALBUM,
-    ) -> Optional["PhotoAlbum"]:
+    ) -> PhotoAlbum | None:
         encoded = base64.b64encode(name.encode("utf-8")).decode("utf-8")
         position = _new_album_position()
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
@@ -779,7 +781,7 @@ class PhotoLibrary(BasePhotoLibrary):
                     return album
         return None
 
-    def upload_file(self, path: str) -> Optional["PhotoAsset"]:
+    def upload_file(self, path: str) -> PhotoAsset | None:
         """Upload a file into the library and return the created asset."""
 
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
@@ -862,14 +864,14 @@ class PhotoLibrary(BasePhotoLibrary):
             records_by_type["CPLMaster"],
             records_by_type["CPLAsset"],
         )
-        setattr(photo, "_library", self)
+        photo._library = self
         return photo
 
     @property
-    def all(self) -> "PhotoAlbum":
+    def all(self) -> PhotoAlbum:
         return cast(PhotoAlbum, self.albums[SmartAlbumEnum.ALL_PHOTOS.value])
 
-    def recently_added(self) -> "PhotoAlbum":
+    def recently_added(self) -> PhotoAlbum:
         return PhotoAlbum(
             library=self,
             name="Recently Added",
@@ -901,7 +903,7 @@ class BasePhotoAlbum(Iterable, ABC):
         self._page_size = page_size
         self._direction = direction
         self._list_type = list_type
-        self._len: Optional[int] = None
+        self._len: int | None = None
 
     @property
     @abstractmethod
@@ -926,7 +928,7 @@ class BasePhotoAlbum(Iterable, ABC):
         return self._page_size if self._page_size < 100 else 100
 
     @property
-    def service(self) -> "PhotosService":
+    def service(self) -> PhotosService:
         return getattr(self._library, "service", self._library)
 
     @property
@@ -949,7 +951,7 @@ class BasePhotoAlbum(Iterable, ABC):
         index: int,
         direction: DirectionEnum,
         page_size: int,
-    ) -> Generator["PhotoAsset", None, None]:
+    ) -> Generator[PhotoAsset, None, None]:
         query = list_query(
             list_type=self._list_type,
             direction=direction,
@@ -984,7 +986,7 @@ class BasePhotoAlbum(Iterable, ABC):
         )
         yield from self._process_photo_list_response(response.records)
 
-    def _get_photo(self, photo_id: str) -> "PhotoAsset":
+    def _get_photo(self, photo_id: str) -> PhotoAsset:
         query = photo_lookup_query(list_type=self._list_type, photo_id=photo_id)
         filters = self._query_filters(offset=0, direction=DirectionEnum.ASCENDING)
         if filters:
@@ -1032,7 +1034,7 @@ class BasePhotoAlbum(Iterable, ABC):
     def _process_photo_list_response(
         self,
         records: list[CKRecord | CKTombstoneRecord | Any] | dict[str, Any],
-    ) -> Generator["PhotoAsset", None, None]:
+    ) -> Generator[PhotoAsset, None, None]:
         if isinstance(records, dict):
             raw_response = records
             if hasattr(self._library, "parse_asset_response"):
@@ -1055,7 +1057,7 @@ class BasePhotoAlbum(Iterable, ABC):
                 if asset is None:
                     continue
                 photo = self._library.asset_type(self.service, master, asset)
-                setattr(photo, "_library", self._library)
+                photo._library = self._library
                 yield photo
             return
         typed_records = [record for record in records if isinstance(record, CKRecord)]
@@ -1065,10 +1067,10 @@ class BasePhotoAlbum(Iterable, ABC):
             if asset_record is None:
                 continue
             photo = self._library.asset_type(self.service, master_record, asset_record)
-            setattr(photo, "_library", self._library)
+            photo._library = self._library
             yield photo
 
-    def _iter_added_desc_photos(self) -> Generator["PhotoAsset", None, None]:
+    def _iter_added_desc_photos(self) -> Generator[PhotoAsset, None, None]:
         """
         Iterate the recently-added index newest-first.
 
@@ -1099,7 +1101,7 @@ class BasePhotoAlbum(Iterable, ABC):
             offset += len(window)
 
     @property
-    def photos(self) -> Generator["PhotoAsset", None, None]:
+    def photos(self) -> Generator[PhotoAsset, None, None]:
         self._len = None
         if (
             self._list_type == ListTypeEnum.ADDED
@@ -1124,7 +1126,7 @@ class BasePhotoAlbum(Iterable, ABC):
             else:
                 offset += num_results
 
-    def photo(self, index: int) -> "PhotoAsset":
+    def photo(self, index: int) -> PhotoAsset:
         return next(self._get_photos_at(index, self._direction, 1))
 
     def rename(self, value: str) -> None:
@@ -1133,7 +1135,7 @@ class BasePhotoAlbum(Iterable, ABC):
     def delete(self) -> bool:
         raise NotImplementedError("Album delete is not implemented")
 
-    def __iter__(self) -> Generator["PhotoAsset", None, None]:
+    def __iter__(self) -> Generator[PhotoAsset, None, None]:
         return self.photos
 
     def __len__(self) -> int:
@@ -1150,13 +1152,13 @@ class BasePhotoAlbum(Iterable, ABC):
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: '{self}'>"
 
-    def get(self, key: str) -> "PhotoAsset | None":
+    def get(self, key: str) -> PhotoAsset | None:
         try:
             return self._get_photo(key)
         except KeyError:
             return None
 
-    def __getitem__(self, key: int | str) -> "PhotoAsset":
+    def __getitem__(self, key: int | str) -> PhotoAsset:
         if isinstance(key, int):
             if key < 0:
                 key = len(self) + key
@@ -1360,11 +1362,13 @@ class PhotoAlbum(BasePhotoAlbum):
                 self._record_change_tag,
             )
             self._record_modification_date = (
-                latest.get("fields", {})
+                latest
+                .get("fields", {})
                 .get("recordModificationDate", {})
                 .get(
                     "value",
-                    latest.get("fields", {})
+                    latest
+                    .get("fields", {})
                     .get("userModificationDate", {})
                     .get("value", self._record_modification_date),
                 )
@@ -1413,7 +1417,7 @@ class PhotoAlbum(BasePhotoAlbum):
         self._library._remove_cached_album(self._record_id)
         return True
 
-    def add_photo(self, photo: "PhotoAsset") -> bool:
+    def add_photo(self, photo: PhotoAsset) -> bool:
         item_id = self._relation_item_id(photo)
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             op = CKModifyOperation(
@@ -1461,7 +1465,7 @@ class PhotoAlbum(BasePhotoAlbum):
             )
         return True
 
-    def upload(self, path: str) -> Optional["PhotoAsset"]:
+    def upload(self, path: str) -> PhotoAsset | None:
         upload_file = getattr(self._library, "upload_file", None)
         if not callable(upload_file):
             return None
@@ -1560,7 +1564,7 @@ class PhotoAlbum(BasePhotoAlbum):
         return self._url
 
     @staticmethod
-    def _relation_item_id(photo: "PhotoAsset") -> str:
+    def _relation_item_id(photo: PhotoAsset) -> str:
         asset_id = getattr(photo, "asset_id", None)
         if isinstance(asset_id, str) and asset_id:
             return asset_id
@@ -1579,7 +1583,7 @@ class PhotoAlbum(BasePhotoAlbum):
 class PhotoAlbumFolder(PhotoAlbum):
     """A folder album."""
 
-    def upload(self, path: str) -> Optional["PhotoAsset"]:
+    def upload(self, path: str) -> PhotoAsset | None:
         return None
 
 
@@ -1616,7 +1620,7 @@ class SmartPhotoAlbum(PhotoAlbum):
     def _get_container_id(self) -> str:
         return f"{self._obj_type.value}"
 
-    def upload(self, path: str) -> Optional["PhotoAsset"]:
+    def upload(self, path: str) -> PhotoAsset | None:
         if self.id == SmartAlbumEnum.ALL_PHOTOS.value:
             return super().upload(path)
         return None
@@ -1690,7 +1694,7 @@ class PhotoAsset:
 
     def __init__(
         self,
-        service: "PhotosService",
+        service: PhotosService,
         master_record: CKRecord,
         asset_record: CKRecord,
     ) -> None:
@@ -1720,7 +1724,7 @@ class PhotoAsset:
     def size(self) -> int | None:
         token = record_field_value(self._master_record, "resOriginalRes")
         if isinstance(token, dict):
-            return cast(Optional[int], token.get("size"))
+            return cast(int | None, token.get("size"))
         return getattr(token, "size", None)
 
     @property
@@ -1749,11 +1753,11 @@ class PhotoAsset:
     def dimensions(self) -> tuple[int | None, int | None]:
         return (
             cast(
-                Optional[int],
+                int | None,
                 record_field_value(self._master_record, "resOriginalWidth"),
             ),
             cast(
-                Optional[int],
+                int | None,
                 record_field_value(self._master_record, "resOriginalHeight"),
             ),
         )
@@ -1770,22 +1774,20 @@ class PhotoAsset:
             return "image"
         if self.filename.lower().endswith((".heic", ".png", ".jpg", ".jpeg")):
             return "image"
-        if self.filename.lower().endswith(
-            (
-                ".arw",
-                ".cr2",
-                ".cr3",
-                ".crw",
-                ".dng",
-                ".nef",
-                ".nrf",
-                ".nrw",
-                ".orf",
-                ".pef",
-                ".raf",
-                ".rw2",
-            )
-        ):
+        if self.filename.lower().endswith((
+            ".arw",
+            ".cr2",
+            ".cr3",
+            ".crw",
+            ".dng",
+            ".nef",
+            ".nrf",
+            ".nrw",
+            ".orf",
+            ".pef",
+            ".raf",
+            ".rw2",
+        )):
             return "image"
         return "movie"
 
@@ -1853,13 +1855,12 @@ class PhotoAsset:
                     self._asset_record = record
                     return True
                 continue
-            if isinstance(record, dict):
-                if (
-                    record.get("recordType") == "CPLAsset"
-                    and record.get("recordName") == asset_name
-                ):
-                    self._asset_record = record
-                    return True
+            if isinstance(record, dict) and (
+                record.get("recordType") == "CPLAsset"
+                and record.get("recordName") == asset_name
+            ):
+                self._asset_record = record
+                return True
         if fallback_field is None:
             return False
         if isinstance(self._asset_record, CKRecord):
@@ -2208,7 +2209,7 @@ class PhotosService(BaseService):
         self,
         name: str,
         album_type: AlbumTypeEnum = AlbumTypeEnum.ALBUM,
-    ) -> Optional[PhotoAlbum]:
+    ) -> PhotoAlbum | None:
         return self._root_library.create_album(name, album_type)
 
     def upload(
@@ -2216,7 +2217,7 @@ class PhotosService(BaseService):
         path: str,
         *,
         album: str | BasePhotoAlbum | None = None,
-    ) -> Optional[PhotoAsset]:
+    ) -> PhotoAsset | None:
         """
         Upload a file into the root library or a specific album.
 
@@ -2269,7 +2270,7 @@ class PhotosService(BaseService):
             iterations=iterations,
         )
 
-    def _upload_into_album(self, album: PhotoAlbum, path: str) -> Optional[PhotoAsset]:
+    def _upload_into_album(self, album: PhotoAlbum, path: str) -> PhotoAsset | None:
         photo = self._root_library.upload_file(path)
         if photo is None:
             return None

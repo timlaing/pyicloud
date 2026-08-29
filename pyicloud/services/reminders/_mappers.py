@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json as _json
 import logging
-from typing import Any, Callable, Optional
+from typing import Any
 
 from pyicloud.common.cloudkit import CKRecord
 
@@ -239,7 +240,7 @@ class RemindersRecordMapper:
             record_change_tag=rec.recordChangeTag,
         )
 
-    def record_to_alarm_trigger(self, rec: CKRecord) -> Optional[LocationTrigger]:
+    def record_to_alarm_trigger(self, rec: CKRecord) -> LocationTrigger | None:
         fields = rec.fields
         trigger_type = fields.get_value("Type") or ""
         alarm_id = _ref_name(fields, "Alarm")
@@ -276,7 +277,7 @@ class RemindersRecordMapper:
         )
         return None
 
-    def record_to_attachment(self, rec: CKRecord) -> Optional[Attachment]:
+    def record_to_attachment(self, rec: CKRecord) -> Attachment | None:
         fields = rec.fields
         att_type = fields.get_value("Type") or ""
         reminder_id = _ref_name(fields, "Reminder")

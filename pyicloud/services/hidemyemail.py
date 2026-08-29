@@ -1,6 +1,7 @@
 """Hide my email service."""
 
-from typing import Any, Generator, Optional
+from collections.abc import Generator
+from typing import Any
 
 from requests import Response
 
@@ -42,7 +43,7 @@ class HideMyEmailService(BaseService):
         self._list_endpoint: str = f"{self._v2_endpoint}/list"
         self._get_endpoint: str = f"{self._v2_endpoint}/get"
 
-    def generate(self) -> Optional[str]:
+    def generate(self) -> str | None:
         """
         Generate a new email alias.
 
@@ -51,7 +52,7 @@ class HideMyEmailService(BaseService):
         """
         req: Response = self.session.post(self._generate_endpoint, params=self.params)
         response: dict[str, dict[str, str]] = req.json()
-        result: Optional[dict[str, str]] = response.get("result")
+        result: dict[str, str] | None = response.get("result")
         if result:
             return result.get("hme")
         return None
@@ -86,7 +87,7 @@ class HideMyEmailService(BaseService):
         """
         req: Response = self.session.get(self._list_endpoint, params=self.params)
         response: dict[str, dict[str, str]] = req.json()
-        result: Optional[dict[str, str]] = response.get("result")
+        result: dict[str, str] | None = response.get("result")
         if result:
             return len(result.get("hmeEmails", []))
         return 0
@@ -97,7 +98,7 @@ class HideMyEmailService(BaseService):
         """
         req: Response = self.session.get(self._list_endpoint, params=self.params)
         response: dict[str, dict[str, str]] = req.json()
-        result: Optional[dict[str, str]] = response.get("result")
+        result: dict[str, str] | None = response.get("result")
         if result:
             yield from result.get("hmeEmails", [])
 
@@ -120,7 +121,7 @@ class HideMyEmailService(BaseService):
         return response.get("result", {})
 
     def update_metadata(
-        self, anonymous_id: str, label: str, note: Optional[str] = None
+        self, anonymous_id: str, label: str, note: str | None = None
     ) -> dict[str, Any]:
         """
         Update metadata for an alias email.

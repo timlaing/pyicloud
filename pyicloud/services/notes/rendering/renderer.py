@@ -6,10 +6,11 @@ Converts a parsed pb.Note into minimal, readable HTML. No I/O.
 
 from __future__ import annotations
 
-import html
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import List, Optional, Tuple, cast
+import html
+from typing import cast
 from urllib.parse import urlsplit
 
 from ..protobuf import notes_pb2 as pb
@@ -31,7 +32,7 @@ class StyleType(IntEnum):
     CHECKBOX = 103
 
 
-def _is_list_style(st: Optional[int]) -> bool:
+def _is_list_style(st: int | None) -> bool:
     return st in (
         StyleType.DOTTED_LIST,
         StyleType.DASHED_LIST,
@@ -40,7 +41,7 @@ def _is_list_style(st: Optional[int]) -> bool:
     )
 
 
-def _safe_anchor_href(url: Optional[str]) -> Optional[str]:
+def _safe_anchor_href(url: str | None) -> str | None:
     if not url:
         return None
 
@@ -107,29 +108,29 @@ def _css_font_stack(name: str) -> str:
 @dataclass(frozen=True)
 class StyleSig:
     # Inline styling
-    font_weight: Optional[int]
-    underlined: Optional[int]
-    strikethrough: Optional[int]
-    superscript: Optional[int]
-    link: Optional[str]
-    color_hex: Optional[str]
-    emphasis_style: Optional[int]  # FIX: added
-    font_size_pt: Optional[float]
-    font_name: Optional[str]
+    font_weight: int | None
+    underlined: int | None
+    strikethrough: int | None
+    superscript: int | None
+    link: str | None
+    color_hex: str | None
+    emphasis_style: int | None  # FIX: added
+    font_size_pt: float | None
+    font_name: str | None
 
     # Block/paragraph styling
-    style_type: Optional[int]
-    alignment: Optional[int]
-    indent_amount: Optional[int]
-    block_quote: Optional[int]
-    writing_direction: Optional[int]
-    checklist_done: Optional[int]
-    start_number: Optional[int]
-    highlight: Optional[int]
-    paragraph_uuid: Optional[bytes]
+    style_type: int | None
+    alignment: int | None
+    indent_amount: int | None
+    block_quote: int | None
+    writing_direction: int | None
+    checklist_done: int | None
+    start_number: int | None
+    highlight: int | None
+    paragraph_uuid: bytes | None
 
     @staticmethod
-    def from_run(run: pb.AttributeRun) -> "StyleSig":
+    def from_run(run: pb.AttributeRun) -> StyleSig:
         ps = run.paragraph_style if run.HasField("paragraph_style") else None
         st = align = indent = bq = wd = None
         start_num = None  # default when no paragraph_style/start provided
@@ -236,7 +237,7 @@ class StyleSig:
             paragraph_uuid=para_uuid,
         )
 
-    def same_paragraph_as(self, other: "StyleSig") -> bool:
+    def same_paragraph_as(self, other: StyleSig) -> bool:
         # If both runs carry a paragraph UUID and it differs, this is a new paragraph
         if (
             self.paragraph_uuid
@@ -264,7 +265,7 @@ class StyleSig:
             and self.start_number == other.start_number
         )
 
-    def same_inline_as(self, other: "StyleSig") -> bool:
+    def same_inline_as(self, other: StyleSig) -> bool:
         return (
             self.font_weight == other.font_weight
             and self.underlined == other.underlined
@@ -278,7 +279,7 @@ class StyleSig:
             and self.highlight == other.highlight
         )
 
-    def same_effective_style(self, other: "StyleSig") -> bool:
+    def same_effective_style(self, other: StyleSig) -> bool:
         return self.same_paragraph_as(other) and self.same_inline_as(other)
 
 
@@ -286,11 +287,11 @@ class StyleSig:
 class MergedRun:
     length: int
     sig: StyleSig
-    attachment: Optional[AttachmentRef]
+    attachment: AttachmentRef | None
 
 
-def _merge_runs(runs) -> List[MergedRun]:
-    out: List[MergedRun] = []
+def _merge_runs(runs) -> list[MergedRun]:
+    out: list[MergedRun] = []
     for r in runs:
         sig = StyleSig.from_run(r)
         attachment = None
@@ -311,7 +312,7 @@ def _merge_runs(runs) -> List[MergedRun]:
     return out
 
 
-def _slice_for_run(s: str, start: int, length_units: int) -> Tuple[str, int]:
+def _slice_for_run(s: str, start: int, length_units: int) -> tuple[str, int]:
     end_guess = start + length_units
     while True:
         chunk = s[start:end_guess]
@@ -324,19 +325,19 @@ def _slice_for_run(s: str, start: int, length_units: int) -> Tuple[str, int]:
 
 def render_note_fragment(
     note: pb.Note,
-    datasource: Optional[NoteDataSource],
-    config: Optional[ExportConfig] = None,
+    datasource: NoteDataSource | None,
+    config: ExportConfig | None = None,
 ) -> str:
     text = note.note_text or ""
     merged = _merge_runs(note.attribute_run)
 
-    fragments: List[str] = []
+    fragments: list[str] = []
     para_tag_open = ""
     para_tag_close = ""
     deferred_breaks = 0
     # strip_leading_break_next = False
 
-    def _emphasis_css(emph_val: Optional[int]) -> List[str]:
+    def _emphasis_css(emph_val: int | None) -> list[str]:
         # Use the highlight value from the signature, which may come from emphasis_style or highlight_color
         if emph_val is None:
             return []
@@ -348,7 +349,7 @@ def render_note_fragment(
         return [f"background-color:var(--hl{idx}-bg)"]
 
     i = 0
-    list_stack: List[
+    list_stack: list[
         dict
     ] = []  # {"indent": int, "tag": str, "li_open": bool, "li_index": Optional[int], "li_has_content": bool}
 
@@ -368,8 +369,8 @@ def render_note_fragment(
         indent: int,
         desired_tag: str,
         *,
-        start: Optional[int] = None,
-        cls: Optional[str] = None,
+        start: int | None = None,
+        cls: str | None = None,
     ) -> None:
         while list_stack and (
             list_stack[-1]["indent"] > indent
@@ -388,22 +389,20 @@ def render_note_fragment(
             level = (list_stack[-1]["indent"] + 1) if list_stack else 0
             # Use the same list type at all nesting levels for consistency
             tag = desired_tag
-            attrs: List[str] = []
+            attrs: list[str] = []
             if cls and tag == "ul":
                 attrs.append(f'class="{html.escape(cls)}"')
             if start and tag == "ol" and level == indent and int(start) > 1:
                 attrs.append(f'start="{int(start)}"')
             attr_text = (" " + " ".join(attrs)) if attrs else ""
             fragments.append(f"<{tag}{attr_text}>")
-            list_stack.append(
-                {
-                    "indent": level,
-                    "tag": tag,
-                    "li_open": False,
-                    "li_index": None,
-                    "li_has_content": False,
-                }
-            )
+            list_stack.append({
+                "indent": level,
+                "tag": tag,
+                "li_open": False,
+                "li_index": None,
+                "li_has_content": False,
+            })
 
     def paragraph_open(sig: StyleSig) -> None:
         nonlocal para_tag_open, para_tag_close
@@ -447,7 +446,7 @@ def render_note_fragment(
             tag = "p"
         if sig.block_quote == 1 and tag == "p":
             tag = "blockquote"
-        styles: List[str] = []
+        styles: list[str] = []
         if sig.alignment == 1:
             styles.append("text-align:center")
         elif sig.alignment == 2:
@@ -504,7 +503,7 @@ def render_note_fragment(
     def _preserve_leading_ws(text: str) -> str:
         # Convert leading spaces/tabs on each line into &nbsp; so indentation is visible
         # while keeping normal whitespace collapsing for the rest of the line.
-        out: List[str] = []
+        out: list[str] = []
         i = 0
         n = len(text)
         while i < n:
@@ -517,7 +516,7 @@ def render_note_fragment(
             esc = html.escape(line)
             # measure leading spaces/tabs in original (not escaped)
             k = 0
-            prefix: List[str] = []
+            prefix: list[str] = []
             for ch in line:
                 if ch == " ":
                     prefix.append("&nbsp;")
@@ -538,7 +537,7 @@ def render_note_fragment(
         return "".join(out)
 
     def wrap_inline(sig: StyleSig, html_text: str) -> str:
-        styles: List[str] = []
+        styles: list[str] = []
         if sig.font_weight in (1, 3):
             styles.append("font-weight:bold")
         if sig.font_weight in (2, 3):
@@ -554,13 +553,11 @@ def render_note_fragment(
             except Exception:
                 pass
         if sig.font_size_pt:
-            try:
+            with suppress(Exception):
                 styles.append(f"font-size:{float(sig.font_size_pt):.0f}pt")
-            except Exception:
-                pass
         if sig.font_name:
             styles.append(f"font-family:{_css_font_stack(str(sig.font_name))}")
-        deco: List[str] = []
+        deco: list[str] = []
         if sig.underlined == 1:
             deco.append("underline")
         if sig.strikethrough == 1:
@@ -593,7 +590,7 @@ def render_note_fragment(
         return styled
 
     total = len(merged)
-    prev_sig: Optional[StyleSig] = None
+    prev_sig: StyleSig | None = None
     for idx, mr in enumerate(merged):
         next_mr = merged[idx + 1] if idx + 1 < total else None
         is_para_boundary = next_mr is None or not mr.sig.same_paragraph_as(next_mr.sig)
@@ -639,13 +636,11 @@ def render_note_fragment(
                 get_t = getattr(datasource, "get_thumbnail_url", None)
                 get_m = getattr(datasource, "get_mergeable_gz", None)
                 title = (
-                    cast(Optional[str], get_title(ident))
-                    if callable(get_title)
-                    else None
+                    cast(str | None, get_title(ident)) if callable(get_title) else None
                 )
-                primary = cast(Optional[str], get_p(ident)) if callable(get_p) else None
-                thumb = cast(Optional[str], get_t(ident)) if callable(get_t) else None
-                gz = cast(Optional[bytes], get_m(ident)) if callable(get_m) else None
+                primary = cast(str | None, get_p(ident)) if callable(get_p) else None
+                thumb = cast(str | None, get_t(ident)) if callable(get_t) else None
+                gz = cast(bytes | None, get_m(ident)) if callable(get_m) else None
 
             # Derive link behavior from config
             link_target = (
@@ -911,10 +906,10 @@ def render_note_page(title: str, html_fragment: str, extra_css: str = "") -> str
 class NoteRenderer:
     """Class-based interface for note rendering."""
 
-    def __init__(self, config: Optional[ExportConfig] = None):
+    def __init__(self, config: ExportConfig | None = None):
         self.config = config or ExportConfig()
 
-    def render(self, note: pb.Note, datasource: Optional[NoteDataSource] = None) -> str:
+    def render(self, note: pb.Note, datasource: NoteDataSource | None = None) -> str:
         """Render the note body to an HTML fragment string."""
         return render_note_fragment(note, datasource, config=self.config)
 

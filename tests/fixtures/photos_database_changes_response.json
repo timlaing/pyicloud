@@ -1,4 +1,6 @@
 {
+  "moreComing": false,
+  "syncToken": "SYNC_TOKEN_102",
   "zones": [
     {
       "zoneID": {
@@ -16,7 +18,5 @@
       },
       "deleted": false
     }
-  ],
-  "moreComing": false,
-  "syncToken": "SYNC_TOKEN_102"
+  ]
 }

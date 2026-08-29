@@ -3,18 +3,19 @@
 import base64
 import getpass
 import sys
-from typing import Optional
 
 import keyring
 
 KEYRING_SYSTEM = "pyicloud://icloud-password"
 
+_INTERACTIVE_DEFAULT: bool = sys.stdout.isatty()
 
-def get_password(username: str, interactive=sys.stdout.isatty()) -> Optional[str]:
+
+def get_password(username: str, interactive: bool = _INTERACTIVE_DEFAULT) -> str | None:
     """Get the password from a username.
     Returns the password if found in keyring or if interactive is True.
     Returns None if no password is found and interactive is False."""
-    result: Optional[str] = get_password_from_keyring(username)
+    result: str | None = get_password_from_keyring(username)
     if result:
         return result
 
@@ -27,7 +28,7 @@ def password_exists_in_keyring(username: str) -> bool:
     return get_password_from_keyring(username) is not None
 
 
-def get_password_from_keyring(username: str) -> Optional[str]:
+def get_password_from_keyring(username: str) -> str | None:
     """Get the password from a username."""
     return keyring.get_password(KEYRING_SYSTEM, username)
 

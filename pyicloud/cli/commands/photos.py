@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import time
+from collections.abc import Iterator
 from itertools import islice
 from pathlib import Path
-from typing import Any, Iterator, Optional
+import time
+from typing import Any
 
 import typer
 
@@ -105,7 +106,7 @@ def _resolve_album(
     api: Any,
     photos: Any,
     *,
-    album: Optional[str],
+    album: str | None,
     library: str,
     shared_stream: bool,
 ) -> Any:
@@ -153,20 +154,20 @@ def _resolve_album(
 def _build_photo_sync_options(
     *,
     directory: Path,
-    state_dir: Optional[Path],
+    state_dir: Path | None,
     library: str,
-    album: Optional[list[str]],
+    album: list[str] | None,
     size: str,
     live_photo_size: str,
     folder_structure: str,
-    recent: Optional[int],
-    until_found: Optional[int],
+    recent: int | None,
+    until_found: int | None,
     skip_videos: bool,
     skip_live_photos: bool,
     align_raw: str,
     xmp_sidecar: bool,
     set_exif_datetime: bool,
-    keep_icloud_recent_days: Optional[int],
+    keep_icloud_recent_days: int | None,
     only_print_filenames: bool,
     dry_run: bool,
     auto_delete: bool,
@@ -437,7 +438,7 @@ def photos_libraries(
 @app.command("list")
 def photos_list(
     ctx: typer.Context,
-    album: Optional[str] = typer.Option(
+    album: str | None = typer.Option(
         None, "--album", help="Album name. Defaults to all photos."
     ),
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
@@ -509,7 +510,7 @@ def photos_list(
 def photos_get(
     ctx: typer.Context,
     photo_id: str = typer.Argument(..., help="Photo asset id."),
-    album: Optional[str] = typer.Option(
+    album: str | None = typer.Option(
         None,
         "--album",
         help="Album name to search before falling back to all photos.",
@@ -565,7 +566,7 @@ def photos_get(
 def photos_changes(
     ctx: typer.Context,
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
-    since: Optional[str] = typer.Option(
+    since: str | None = typer.Option(
         None, "--since", help="Sync cursor to fetch changes after."
     ),
     limit: int = typer.Option(100, "--limit", min=1, help="Maximum changes to show."),
@@ -660,7 +661,7 @@ def photos_sync_cursor(
 def photos_download(
     ctx: typer.Context,
     photo_id: str = typer.Argument(..., help="Photo asset id."),
-    album: Optional[str] = typer.Option(
+    album: str | None = typer.Option(
         None,
         "--album",
         help="Album name to search before falling back to all photos.",
@@ -720,9 +721,11 @@ def photos_download(
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(data)
     if state.json_output:
-        state.write_json(
-            {"photo_id": photo_id, "path": str(output), "version": version}
-        )
+        state.write_json({
+            "photo_id": photo_id,
+            "path": str(output),
+            "version": version,
+        })
         return
     state.console.print(str(output))
 
@@ -738,13 +741,13 @@ def photos_sync(
         resolve_path=True,
         help="Destination directory for synced photos.",
     ),
-    album: Optional[list[str]] = typer.Option(
+    album: list[str] | None = typer.Option(
         None,
         "--album",
         help="Album name to sync. Repeat to sync multiple albums.",
     ),
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
-    state_dir: Optional[Path] = typer.Option(
+    state_dir: Path | None = typer.Option(
         None,
         "--state-dir",
         file_okay=False,
@@ -767,13 +770,13 @@ def photos_sync(
         "--folder-structure",
         help="Datetime folder layout, for example '{:%Y/%m}', or 'none' for a flat directory.",
     ),
-    recent: Optional[int] = typer.Option(
+    recent: int | None = typer.Option(
         None,
         "--recent",
         min=1,
         help="Only sync photos added within the last N days.",
     ),
-    until_found: Optional[int] = typer.Option(
+    until_found: int | None = typer.Option(
         None,
         "--until-found",
         min=1,
@@ -804,7 +807,7 @@ def photos_sync(
         "--set-exif-datetime",
         help="Set JPEG EXIF created timestamps when the file does not already have them.",
     ),
-    keep_icloud_recent_days: Optional[int] = typer.Option(
+    keep_icloud_recent_days: int | None = typer.Option(
         None,
         "--keep-icloud-recent-days",
         min=0,
@@ -894,13 +897,13 @@ def photos_watch(
         resolve_path=True,
         help="Destination directory for synced photos.",
     ),
-    album: Optional[list[str]] = typer.Option(
+    album: list[str] | None = typer.Option(
         None,
         "--album",
         help="Album name to sync. Repeat to sync multiple albums.",
     ),
     library: str = typer.Option("root", "--library", help=_PHOTO_LIBRARY_KEY_HELP),
-    state_dir: Optional[Path] = typer.Option(
+    state_dir: Path | None = typer.Option(
         None,
         "--state-dir",
         file_okay=False,
@@ -923,13 +926,13 @@ def photos_watch(
         "--folder-structure",
         help="Datetime folder layout, for example '{:%Y/%m}', or 'none' for a flat directory.",
     ),
-    recent: Optional[int] = typer.Option(
+    recent: int | None = typer.Option(
         None,
         "--recent",
         min=1,
         help="Only sync photos added within the last N days.",
     ),
-    until_found: Optional[int] = typer.Option(
+    until_found: int | None = typer.Option(
         None,
         "--until-found",
         min=1,
@@ -960,7 +963,7 @@ def photos_watch(
         "--set-exif-datetime",
         help="Set JPEG EXIF created timestamps when the file does not already have them.",
     ),
-    keep_icloud_recent_days: Optional[int] = typer.Option(
+    keep_icloud_recent_days: int | None = typer.Option(
         None,
         "--keep-icloud-recent-days",
         min=0,
@@ -987,7 +990,7 @@ def photos_watch(
         min=1,
         help="Poll interval in seconds between sync runs.",
     ),
-    iterations: Optional[int] = typer.Option(
+    iterations: int | None = typer.Option(
         None,
         "--iterations",
         min=1,

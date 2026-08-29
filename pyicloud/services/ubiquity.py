@@ -1,7 +1,7 @@
 """File service."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from requests import Response
 
@@ -18,10 +18,10 @@ class UbiquityService(BaseService):
     ) -> None:
         super().__init__(service_root, session, params)
 
-        self._root: Optional["UbiquityNode"] = None
+        self._root: UbiquityNode | None = None
 
         try:
-            self.root
+            self._root = self.root
         except PyiCloudAPIResponseException as error:
             if error.code == 503:
                 raise PyiCloudServiceUnavailable(error.reason) from error
@@ -67,10 +67,10 @@ class UbiquityNode:
         self.data: dict[str, str] = data
         self.connection: UbiquityService = conn
 
-        self._children: Optional[list[UbiquityNode]] = None
+        self._children: list[UbiquityNode] | None = None
 
     @property
-    def item_id(self) -> Optional[str]:
+    def item_id(self) -> str | None:
         """Gets the node id."""
         return self.data.get("item_id")
 
@@ -85,7 +85,7 @@ class UbiquityNode:
         return self.data.get("type", "<unknown>")
 
     @property
-    def size(self) -> Optional[int]:
+    def size(self) -> int | None:
         """Gets the node size."""
         try:
             return int(self.data.get("size", "-1"))

@@ -1,7 +1,6 @@
 from collections.abc import Iterable as _Iterable
 from collections.abc import Mapping as _Mapping
 from typing import ClassVar as _ClassVar
-from typing import Optional as _Optional
 from typing import Union as _Union
 
 from google.protobuf import descriptor as _descriptor
@@ -89,10 +88,10 @@ class Color(_message.Message):
     alpha: float
     def __init__(
         self,
-        red: _Optional[float] = ...,
-        green: _Optional[float] = ...,
-        blue: _Optional[float] = ...,
-        alpha: _Optional[float] = ...,
+        red: float | None = ...,
+        green: float | None = ...,
+        blue: float | None = ...,
+        alpha: float | None = ...,
     ) -> None: ...
 
 class AttachmentInfo(_message.Message):
@@ -103,8 +102,8 @@ class AttachmentInfo(_message.Message):
     type_uti: str
     def __init__(
         self,
-        attachment_identifier: _Optional[str] = ...,
-        type_uti: _Optional[str] = ...,
+        attachment_identifier: str | None = ...,
+        type_uti: str | None = ...,
     ) -> None: ...
 
 class Font(_message.Message):
@@ -117,9 +116,9 @@ class Font(_message.Message):
     font_hints: int
     def __init__(
         self,
-        font_name: _Optional[str] = ...,
-        point_size: _Optional[float] = ...,
-        font_hints: _Optional[int] = ...,
+        font_name: str | None = ...,
+        point_size: float | None = ...,
+        font_hints: int | None = ...,
     ) -> None: ...
 
 class ParagraphStyle(_message.Message):
@@ -151,14 +150,14 @@ class ParagraphStyle(_message.Message):
     paragraph_uuid: bytes
     def __init__(
         self,
-        style_type: _Optional[_Union[StyleType, str]] = ...,
-        alignment: _Optional[_Union[Alignment, str]] = ...,
-        writing_direction_paragraph: _Optional[_Union[WritingDirection, str]] = ...,
-        indent_amount: _Optional[int] = ...,
-        checklist: _Optional[_Union[Checklist, _Mapping]] = ...,
-        starting_list_item_number: _Optional[int] = ...,
-        block_quote: _Optional[int] = ...,
-        paragraph_uuid: _Optional[bytes] = ...,
+        style_type: _Union[StyleType, str] | None = ...,
+        alignment: _Union[Alignment, str] | None = ...,
+        writing_direction_paragraph: _Union[WritingDirection, str] | None = ...,
+        indent_amount: int | None = ...,
+        checklist: _Union[Checklist, _Mapping] | None = ...,
+        starting_list_item_number: int | None = ...,
+        block_quote: int | None = ...,
+        paragraph_uuid: bytes | None = ...,
     ) -> None: ...
 
 class Checklist(_message.Message):
@@ -167,9 +166,7 @@ class Checklist(_message.Message):
     DONE_FIELD_NUMBER: _ClassVar[int]
     uuid: bytes
     done: int
-    def __init__(
-        self, uuid: _Optional[bytes] = ..., done: _Optional[int] = ...
-    ) -> None: ...
+    def __init__(self, uuid: bytes | None = ..., done: int | None = ...) -> None: ...
 
 class DictionaryElement(_message.Message):
     __slots__ = ("key", "value")
@@ -179,8 +176,8 @@ class DictionaryElement(_message.Message):
     value: ObjectID
     def __init__(
         self,
-        key: _Optional[_Union[ObjectID, _Mapping]] = ...,
-        value: _Optional[_Union[ObjectID, _Mapping]] = ...,
+        key: _Union[ObjectID, _Mapping] | None = ...,
+        value: _Union[ObjectID, _Mapping] | None = ...,
     ) -> None: ...
 
 class Dictionary(_message.Message):
@@ -188,7 +185,7 @@ class Dictionary(_message.Message):
     ELEMENT_FIELD_NUMBER: _ClassVar[int]
     element: _containers.RepeatedCompositeFieldContainer[DictionaryElement]
     def __init__(
-        self, element: _Optional[_Iterable[_Union[DictionaryElement, _Mapping]]] = ...
+        self, element: _Iterable[_Union[DictionaryElement, _Mapping]] | None = ...
     ) -> None: ...
 
 class ObjectID(_message.Message):
@@ -201,18 +198,16 @@ class ObjectID(_message.Message):
     object_index: int
     def __init__(
         self,
-        unsigned_integer_value: _Optional[int] = ...,
-        string_value: _Optional[str] = ...,
-        object_index: _Optional[int] = ...,
+        unsigned_integer_value: int | None = ...,
+        string_value: str | None = ...,
+        object_index: int | None = ...,
     ) -> None: ...
 
 class RegisterLatest(_message.Message):
     __slots__ = ("contents",)
     CONTENTS_FIELD_NUMBER: _ClassVar[int]
     contents: ObjectID
-    def __init__(
-        self, contents: _Optional[_Union[ObjectID, _Mapping]] = ...
-    ) -> None: ...
+    def __init__(self, contents: _Union[ObjectID, _Mapping] | None = ...) -> None: ...
 
 class MapItem(_message.Message):
     __slots__ = ("key", "value")
@@ -222,8 +217,8 @@ class MapItem(_message.Message):
     value: ObjectID
     def __init__(
         self,
-        key: _Optional[int] = ...,
-        value: _Optional[_Union[ObjectID, _Mapping]] = ...,
+        key: int | None = ...,
+        value: _Union[ObjectID, _Mapping] | None = ...,
     ) -> None: ...
 
 class AttributeRun(_message.Message):
@@ -273,29 +268,27 @@ class AttributeRun(_message.Message):
     highlight_color: Highlight
     def __init__(
         self,
-        length: _Optional[int] = ...,
-        paragraph_style: _Optional[_Union[ParagraphStyle, _Mapping]] = ...,
-        font: _Optional[_Union[Font, _Mapping]] = ...,
-        font_weight: _Optional[_Union[FontWeight, str]] = ...,
-        underlined: _Optional[int] = ...,
-        strikethrough: _Optional[int] = ...,
-        superscript: _Optional[int] = ...,
-        link: _Optional[str] = ...,
-        color: _Optional[_Union[Color, _Mapping]] = ...,
-        writing_direction_selection: _Optional[_Union[WritingDirection, str]] = ...,
-        attachment_info: _Optional[_Union[AttachmentInfo, _Mapping]] = ...,
-        timestamp: _Optional[int] = ...,
-        emphasis_style: _Optional[int] = ...,
-        highlight_color: _Optional[_Union[Highlight, str]] = ...,
+        length: int | None = ...,
+        paragraph_style: _Union[ParagraphStyle, _Mapping] | None = ...,
+        font: _Union[Font, _Mapping] | None = ...,
+        font_weight: _Union[FontWeight, str] | None = ...,
+        underlined: int | None = ...,
+        strikethrough: int | None = ...,
+        superscript: int | None = ...,
+        link: str | None = ...,
+        color: _Union[Color, _Mapping] | None = ...,
+        writing_direction_selection: _Union[WritingDirection, str] | None = ...,
+        attachment_info: _Union[AttachmentInfo, _Mapping] | None = ...,
+        timestamp: int | None = ...,
+        emphasis_style: int | None = ...,
+        highlight_color: _Union[Highlight, str] | None = ...,
     ) -> None: ...
 
 class NoteStoreProto(_message.Message):
     __slots__ = ("document",)
     DOCUMENT_FIELD_NUMBER: _ClassVar[int]
     document: Document
-    def __init__(
-        self, document: _Optional[_Union[Document, _Mapping]] = ...
-    ) -> None: ...
+    def __init__(self, document: _Union[Document, _Mapping] | None = ...) -> None: ...
 
 class Document(_message.Message):
     __slots__ = ("version", "note")
@@ -305,8 +298,8 @@ class Document(_message.Message):
     note: Note
     def __init__(
         self,
-        version: _Optional[int] = ...,
-        note: _Optional[_Union[Note, _Mapping]] = ...,
+        version: int | None = ...,
+        note: _Union[Note, _Mapping] | None = ...,
     ) -> None: ...
 
 class Note(_message.Message):
@@ -317,8 +310,8 @@ class Note(_message.Message):
     attribute_run: _containers.RepeatedCompositeFieldContainer[AttributeRun]
     def __init__(
         self,
-        note_text: _Optional[str] = ...,
-        attribute_run: _Optional[_Iterable[_Union[AttributeRun, _Mapping]]] = ...,
+        note_text: str | None = ...,
+        attribute_run: _Iterable[_Union[AttributeRun, _Mapping]] | None = ...,
     ) -> None: ...
 
 class MergableDataProto(_message.Message):
@@ -327,7 +320,7 @@ class MergableDataProto(_message.Message):
     mergable_data_object: MergableDataObject
     def __init__(
         self,
-        mergable_data_object: _Optional[_Union[MergableDataObject, _Mapping]] = ...,
+        mergable_data_object: _Union[MergableDataObject, _Mapping] | None = ...,
     ) -> None: ...
 
 class MergableDataObject(_message.Message):
@@ -338,10 +331,9 @@ class MergableDataObject(_message.Message):
     mergeable_data_object_data: MergeableDataObjectData
     def __init__(
         self,
-        version: _Optional[int] = ...,
-        mergeable_data_object_data: _Optional[
-            _Union[MergeableDataObjectData, _Mapping]
-        ] = ...,
+        version: int | None = ...,
+        mergeable_data_object_data: _Union[MergeableDataObjectData, _Mapping]
+        | None = ...,
     ) -> None: ...
 
 class MergeableDataObjectData(_message.Message):
@@ -363,12 +355,11 @@ class MergeableDataObjectData(_message.Message):
     mergeable_data_object_uuid_item: _containers.RepeatedScalarFieldContainer[bytes]
     def __init__(
         self,
-        mergeable_data_object_entry: _Optional[
-            _Iterable[_Union[MergeableDataObjectRow, _Mapping]]
-        ] = ...,
-        mergeable_data_object_key_item: _Optional[_Iterable[str]] = ...,
-        mergeable_data_object_type_item: _Optional[_Iterable[str]] = ...,
-        mergeable_data_object_uuid_item: _Optional[_Iterable[bytes]] = ...,
+        mergeable_data_object_entry: _Iterable[_Union[MergeableDataObjectRow, _Mapping]]
+        | None = ...,
+        mergeable_data_object_key_item: _Iterable[str] | None = ...,
+        mergeable_data_object_type_item: _Iterable[str] | None = ...,
+        mergeable_data_object_uuid_item: _Iterable[bytes] | None = ...,
     ) -> None: ...
 
 class MergeableDataObjectRow(_message.Message):
@@ -397,15 +388,14 @@ class MergeableDataObjectRow(_message.Message):
     ordered_set: OrderedSet
     def __init__(
         self,
-        register_latest: _Optional[_Union[RegisterLatest, _Mapping]] = ...,
-        list: _Optional[_Union[List, _Mapping]] = ...,
-        dictionary: _Optional[_Union[Dictionary, _Mapping]] = ...,
-        unknown_message: _Optional[
-            _Union[UnknownMergeableDataObjectEntryMessage, _Mapping]
-        ] = ...,
-        note: _Optional[_Union[Note, _Mapping]] = ...,
-        custom_map: _Optional[_Union[MergeableDataObjectMap, _Mapping]] = ...,
-        ordered_set: _Optional[_Union[OrderedSet, _Mapping]] = ...,
+        register_latest: _Union[RegisterLatest, _Mapping] | None = ...,
+        list: _Union[List, _Mapping] | None = ...,
+        dictionary: _Union[Dictionary, _Mapping] | None = ...,
+        unknown_message: _Union[UnknownMergeableDataObjectEntryMessage, _Mapping]
+        | None = ...,
+        note: _Union[Note, _Mapping] | None = ...,
+        custom_map: _Union[MergeableDataObjectMap, _Mapping] | None = ...,
+        ordered_set: _Union[OrderedSet, _Mapping] | None = ...,
     ) -> None: ...
 
 class UnknownMergeableDataObjectEntryMessage(_message.Message):
@@ -414,9 +404,8 @@ class UnknownMergeableDataObjectEntryMessage(_message.Message):
     unknown_entry: UnknownMergeableDataObjectEntryMessageEntry
     def __init__(
         self,
-        unknown_entry: _Optional[
-            _Union[UnknownMergeableDataObjectEntryMessageEntry, _Mapping]
-        ] = ...,
+        unknown_entry: _Union[UnknownMergeableDataObjectEntryMessageEntry, _Mapping]
+        | None = ...,
     ) -> None: ...
 
 class UnknownMergeableDataObjectEntryMessageEntry(_message.Message):
@@ -426,7 +415,7 @@ class UnknownMergeableDataObjectEntryMessageEntry(_message.Message):
     unknown_int1: int
     unknown_int2: int
     def __init__(
-        self, unknown_int1: _Optional[int] = ..., unknown_int2: _Optional[int] = ...
+        self, unknown_int1: int | None = ..., unknown_int2: int | None = ...
     ) -> None: ...
 
 class MergeableDataObjectMap(_message.Message):
@@ -437,8 +426,8 @@ class MergeableDataObjectMap(_message.Message):
     map_entry: _containers.RepeatedCompositeFieldContainer[MapItem]
     def __init__(
         self,
-        type: _Optional[int] = ...,
-        map_entry: _Optional[_Iterable[_Union[MapItem, _Mapping]]] = ...,
+        type: int | None = ...,
+        map_entry: _Iterable[_Union[MapItem, _Mapping]] | None = ...,
     ) -> None: ...
 
 class OrderedSet(_message.Message):
@@ -449,8 +438,8 @@ class OrderedSet(_message.Message):
     elements: Dictionary
     def __init__(
         self,
-        ordering: _Optional[_Union[OrderedSetOrdering, _Mapping]] = ...,
-        elements: _Optional[_Union[Dictionary, _Mapping]] = ...,
+        ordering: _Union[OrderedSetOrdering, _Mapping] | None = ...,
+        elements: _Union[Dictionary, _Mapping] | None = ...,
     ) -> None: ...
 
 class OrderedSetOrdering(_message.Message):
@@ -461,8 +450,8 @@ class OrderedSetOrdering(_message.Message):
     contents: Dictionary
     def __init__(
         self,
-        array: _Optional[_Union[OrderedSetOrderingArray, _Mapping]] = ...,
-        contents: _Optional[_Union[Dictionary, _Mapping]] = ...,
+        array: _Union[OrderedSetOrderingArray, _Mapping] | None = ...,
+        contents: _Union[Dictionary, _Mapping] | None = ...,
     ) -> None: ...
 
 class OrderedSetOrderingArray(_message.Message):
@@ -475,10 +464,9 @@ class OrderedSetOrderingArray(_message.Message):
     ]
     def __init__(
         self,
-        contents: _Optional[_Union[Note, _Mapping]] = ...,
-        attachment: _Optional[
-            _Iterable[_Union[OrderedSetOrderingArrayAttachment, _Mapping]]
-        ] = ...,
+        contents: _Union[Note, _Mapping] | None = ...,
+        attachment: _Iterable[_Union[OrderedSetOrderingArrayAttachment, _Mapping]]
+        | None = ...,
     ) -> None: ...
 
 class OrderedSetOrderingArrayAttachment(_message.Message):
@@ -487,16 +475,14 @@ class OrderedSetOrderingArrayAttachment(_message.Message):
     UUID_FIELD_NUMBER: _ClassVar[int]
     index: int
     uuid: bytes
-    def __init__(
-        self, index: _Optional[int] = ..., uuid: _Optional[bytes] = ...
-    ) -> None: ...
+    def __init__(self, index: int | None = ..., uuid: bytes | None = ...) -> None: ...
 
 class List(_message.Message):
     __slots__ = ("list_entry",)
     LIST_ENTRY_FIELD_NUMBER: _ClassVar[int]
     list_entry: _containers.RepeatedCompositeFieldContainer[ListItem]
     def __init__(
-        self, list_entry: _Optional[_Iterable[_Union[ListItem, _Mapping]]] = ...
+        self, list_entry: _Iterable[_Union[ListItem, _Mapping]] | None = ...
     ) -> None: ...
 
 class ListItem(_message.Message):
@@ -509,9 +495,9 @@ class ListItem(_message.Message):
     additional_details: ListEntryDetails
     def __init__(
         self,
-        id: _Optional[_Union[ObjectID, _Mapping]] = ...,
-        details: _Optional[_Union[ListEntryDetails, _Mapping]] = ...,
-        additional_details: _Optional[_Union[ListEntryDetails, _Mapping]] = ...,
+        id: _Union[ObjectID, _Mapping] | None = ...,
+        details: _Union[ListEntryDetails, _Mapping] | None = ...,
+        additional_details: _Union[ListEntryDetails, _Mapping] | None = ...,
     ) -> None: ...
 
 class ListEntryDetails(_message.Message):
@@ -522,8 +508,8 @@ class ListEntryDetails(_message.Message):
     id: ObjectID
     def __init__(
         self,
-        list_entry_details_key: _Optional[_Union[ListEntryDetailsKey, _Mapping]] = ...,
-        id: _Optional[_Union[ObjectID, _Mapping]] = ...,
+        list_entry_details_key: _Union[ListEntryDetailsKey, _Mapping] | None = ...,
+        id: _Union[ObjectID, _Mapping] | None = ...,
     ) -> None: ...
 
 class ListEntryDetailsKey(_message.Message):
@@ -534,6 +520,6 @@ class ListEntryDetailsKey(_message.Message):
     list_entry_details_key: int
     def __init__(
         self,
-        list_entry_details_type_index: _Optional[int] = ...,
-        list_entry_details_key: _Optional[int] = ...,
+        list_entry_details_type_index: int | None = ...,
+        list_entry_details_key: int | None = ...,
     ) -> None: ...

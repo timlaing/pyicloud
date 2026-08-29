@@ -2,9 +2,9 @@
 
 # pylint: disable=protected-access
 
-import json
 from io import BytesIO
-from typing import Any, Optional
+import json
+from typing import Any
 from unittest.mock import MagicMock
 
 from requests import Response
@@ -69,22 +69,22 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if not data:
             data = json.loads(kwargs.get("data", "{}")) if kwargs.get("data") else {}
 
-        if self.service._setup_endpoint in url:
-            if resp := self._handle_setup_endpoint(url, method, data, headers):
-                return resp
+        if self.service._setup_endpoint in url and (
+            resp := self._handle_setup_endpoint(url, method, data, headers)
+        ):
+            return resp
 
-        if self.service._auth_endpoint in url:
-            if resp := self._handle_auth_endpoint(url, method, data):
-                return resp
+        if self.service._auth_endpoint in url and (
+            resp := self._handle_auth_endpoint(url, method, data)
+        ):
+            return resp
 
         if resp := self._handle_other_endpoints(url, method, data, params):
             return resp
 
         raise ValueError("No valid response")
 
-    def _handle_other_endpoints(
-        self, url, method, data, params
-    ) -> Optional[ResponseMock]:
+    def _handle_other_endpoints(self, url, method, data, params) -> ResponseMock | None:
         """Handle other endpoints."""
         if "device/getDevices" in url and method == "GET":
             return ResponseMock(ACCOUNT_DEVICES_WORKING)
@@ -93,7 +93,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if "setup/ws/1/storageUsageInfo" in url and method == "POST":
             return ResponseMock(ACCOUNT_STORAGE_WORKING)
 
-        resp: Optional[ResponseMock] = None
+        resp: ResponseMock | None = None
 
         resp = self._handle_drive_endpoints_post(url, method, data)
         if resp:
@@ -106,31 +106,44 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if "fmi" in url and method == "POST":
             return ResponseMock(FMI_FAMILY_WORKING)
 
-    def _handle_drive_endpoints_post(self, url, method, data) -> Optional[ResponseMock]:
+    def _handle_drive_endpoints_post(self, url, method, data) -> ResponseMock | None:
         """Handle drive endpoints post requests."""
-        if "retrieveItemDetailsInFolders" in url and method == "POST":
-            if resp := self._handle_drive_retrieve(data):
-                return resp
+        if (
+            "retrieveItemDetailsInFolders" in url
+            and method == "POST"
+            and (resp := self._handle_drive_retrieve(data))
+        ):
+            return resp
 
-        if "putBackItemsFromTrash" in url and method == "POST":
-            if resp := self._handle_drive_trash_recover(data):
-                return resp
+        if (
+            "putBackItemsFromTrash" in url
+            and method == "POST"
+            and (resp := self._handle_drive_trash_recover(data))
+        ):
+            return resp
 
-        if "deleteItems" in url and method == "POST":
-            if resp := self._handle_drive_trash_delete(data):
-                return resp
+        if (
+            "deleteItems" in url
+            and method == "POST"
+            and (resp := self._handle_drive_trash_delete(data))
+        ):
+            return resp
 
-    def _handle_drive_endpoints_get(
-        self, url, method, params
-    ) -> Optional[ResponseMock]:
+    def _handle_drive_endpoints_get(self, url, method, params) -> ResponseMock | None:
         """Handle drive endpoints get requests."""
-        if "com.apple.CloudDocs/download/by_id" in url and method == "GET" and params:
-            if resp := self._handle_drive_download(params):
-                return resp
+        if (
+            "com.apple.CloudDocs/download/by_id" in url
+            and method == "GET"
+            and (params and (resp := self._handle_drive_download(params)))
+        ):
+            return resp
 
-        if "icloud-content.com" in url and method == "GET":
-            if resp := self._handle_icloud_content(url):
-                return resp
+        if (
+            "icloud-content.com" in url
+            and method == "GET"
+            and (resp := self._handle_icloud_content(url))
+        ):
+            return resp
 
         if "/appleauth/auth/authorize/signin" in url and method == "GET":
             return ResponseMock(
@@ -143,9 +156,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
                 },
             )
 
-    def _handle_setup_endpoint(
-        self, url, method, data, headers
-    ) -> Optional[ResponseMock]:
+    def _handle_setup_endpoint(self, url, method, data, headers) -> ResponseMock | None:
         """Handle setup endpoint requests."""
         if "accountLogin" in url and method == "POST":
             return self._handle_account_login(data)
@@ -162,7 +173,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if "validate" in url and method == "POST" and headers:
             return self._handle_validate(headers)
 
-    def _handle_auth_endpoint(self, url, method, data) -> Optional[ResponseMock]:
+    def _handle_auth_endpoint(self, url, method, data) -> ResponseMock | None:
         """Handle auth endpoint requests."""
         if "signin" in url and method == "POST":
             return self._handle_signin(data)
@@ -189,12 +200,10 @@ class PyiCloudSessionMock(base.PyiCloudSession):
 
     def _handle_validate_verification_code(self, data: dict[str, Any]) -> ResponseMock:
         """Handle validate verification code."""
-        TRUSTED_DEVICE_1.update(
-            {
-                "verificationCode": "0",
-                "trustBrowser": True,
-            }
-        )
+        TRUSTED_DEVICE_1.update({
+            "verificationCode": "0",
+            "trustBrowser": True,
+        })
         if data == TRUSTED_DEVICE_1:
             self._service._apple_id = AUTHENTICATED_USER
             return ResponseMock(VERIFICATION_CODE_OK)
@@ -225,7 +234,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         self._service.session._data["session_token"] = VALID_TOKEN
         return ResponseMock("", status_code=204)
 
-    def _handle_drive_retrieve(self, data: dict[Any, Any]) -> Optional[ResponseMock]:
+    def _handle_drive_retrieve(self, data: dict[Any, Any]) -> ResponseMock | None:
         """Handle drive retrieve item details."""
         drivewsid = data[0].get("drivewsid")
         if drivewsid == "FOLDER::com.apple.CloudDocs::root":
@@ -245,9 +254,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         ):
             return ResponseMock(DRIVE_SUBFOLDER_WORKING)
 
-    def _handle_drive_trash_recover(
-        self, data: dict[str, Any]
-    ) -> Optional[ResponseMock]:
+    def _handle_drive_trash_recover(self, data: dict[str, Any]) -> ResponseMock | None:
         """Handle drive trash recover."""
         items_data = data.get("items")
         if (
@@ -257,9 +264,7 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         ):
             return ResponseMock(DRIVE_TRASH_RECOVER_WORKING)
 
-    def _handle_drive_trash_delete(
-        self, data: dict[str, Any]
-    ) -> Optional[ResponseMock]:
+    def _handle_drive_trash_delete(self, data: dict[str, Any]) -> ResponseMock | None:
         """Handle drive trash delete forever."""
         items_data = data.get("items")
         if (
@@ -269,12 +274,12 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         ):
             return ResponseMock(DRIVE_TRASH_DELETE_FOREVER_WORKING)
 
-    def _handle_drive_download(self, params: dict[str, Any]) -> Optional[ResponseMock]:
+    def _handle_drive_download(self, params: dict[str, Any]) -> ResponseMock | None:
         """Handle drive download."""
         if params.get("document_id") == "516C896C-6AA5-4A30-B30E-5502C2333DAE":
             return ResponseMock(DRIVE_FILE_DOWNLOAD_WORKING)
 
-    def _handle_icloud_content(self, url: str) -> Optional[ResponseMock]:
+    def _handle_icloud_content(self, url: str) -> ResponseMock | None:
         """Handle iCloud content."""
         if "Scanned+document+1.pdf" in url:
             return ResponseMock({}, raw=BytesIO(b"PDF_CONTENT"))

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime
-from typing import TYPE_CHECKING, Iterator, List, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import computed_field
 
@@ -17,11 +18,11 @@ class NoteSummary(FrozenServiceModel):
     """Lightweight metadata returned by list/search APIs."""
 
     id: str
-    title: Optional[str]
-    snippet: Optional[str]
-    modified_at: Optional[datetime]
-    folder_id: Optional[str]
-    folder_name: Optional[str]
+    title: str | None
+    snippet: str | None
+    modified_at: datetime | None
+    folder_id: str | None
+    folder_name: str | None
     is_deleted: bool
     is_locked: bool
 
@@ -30,20 +31,20 @@ class Attachment(FrozenServiceModel):
     """Metadata for a note attachment."""
 
     id: str
-    filename: Optional[str]
-    uti: Optional[str]
-    size: Optional[int]
-    download_url: Optional[str]
-    preview_url: Optional[str]
-    thumbnail_url: Optional[str]
+    filename: str | None
+    uti: str | None
+    size: int | None
+    download_url: str | None
+    preview_url: str | None
+    thumbnail_url: str | None
 
-    def save_to(self, directory: str, *, service: "NotesService") -> str:
+    def save_to(self, directory: str, *, service: NotesService) -> str:
         """Download the attachment to ``directory`` using the provided service."""
 
         return service._download_attachment_to(self, directory)
 
     def stream(
-        self, *, service: "NotesService", chunk_size: int = 65_536
+        self, *, service: NotesService, chunk_size: int = 65_536
     ) -> Iterator[bytes]:
         """Yield the attachment bytes in chunks using the provided service."""
 
@@ -53,13 +54,13 @@ class Attachment(FrozenServiceModel):
 class Note(NoteSummary):
     """Full note payload returned by ``NotesService.get``."""
 
-    text: Optional[str]
-    html: Optional[str] = None
-    attachments: Optional[List[Attachment]]
+    text: str | None
+    html: str | None = None
+    attachments: list[Attachment] | None
 
     @computed_field
     @property
-    def has_attachments(self) -> Optional[bool]:
+    def has_attachments(self) -> bool | None:
         """Return ``True``/``False`` when attachments were loaded, otherwise ``None``."""
         if self.attachments is None:
             return None
@@ -68,9 +69,9 @@ class Note(NoteSummary):
 
 class NoteFolder(FrozenServiceModel):
     id: str
-    name: Optional[str]
-    has_subfolders: Optional[bool]
-    count: Optional[int]  # not always available
+    name: str | None
+    has_subfolders: bool | None
+    count: int | None  # not always available
 
 
 class ChangeEvent(FrozenServiceModel):

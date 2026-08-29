@@ -9,10 +9,10 @@ into HTML using the existing renderer.
 
 from __future__ import annotations
 
-import gzip
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, List, Optional
+import gzip
 
 from tinyhtml import h, raw  # type: ignore[import-not-found]
 
@@ -73,22 +73,22 @@ class AxisState:
 class TableBuilder:
     """Reconstructs and renders tables from MergeableData protobuf payloads."""
 
-    key_items: List[str]
-    type_items: List[str]
-    uuid_items: List[bytes]
-    entries: List[pb.MergeableDataObjectRow]
+    key_items: list[str]
+    type_items: list[str]
+    uuid_items: list[bytes]
+    entries: list[pb.MergeableDataObjectRow]
     render_note_cb: Callable[[pb.Note], str]
 
     uuid_index: dict[bytes, int] = field(init=False)
     rows: AxisState = field(default_factory=AxisState)
     cols: AxisState = field(default_factory=AxisState)
-    cells: List[List[Cell]] = field(default_factory=list)
+    cells: list[list[Cell]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Initialize UUID index for efficient lookups."""
         self.uuid_index = {u: i for i, u in enumerate(self.uuid_items)}
 
-    def _uuid_index_from_entry(self, entry: pb.MergeableDataObjectRow) -> Optional[int]:
+    def _uuid_index_from_entry(self, entry: pb.MergeableDataObjectRow) -> int | None:
         """Extract UUID index from a mergeable data entry."""
         try:
             # custom_map.map_entry[0].value.unsigned_integer_value -> UUID VALUE
@@ -191,13 +191,13 @@ class TableBuilder:
                 except Exception:
                     continue
 
-    def render_html_table(self) -> Optional[str]:
+    def render_html_table(self) -> str | None:
         """Generate HTML table from parsed cells and structure."""
         if not self.cells or self.rows.total == 0 or self.cols.total == 0:
             return None
-        trs: List[object] = []
+        trs: list[object] = []
         for r in range(self.rows.total):
-            tds: List[object] = []
+            tds: list[object] = []
             for c in range(self.cols.total):
                 cell_html = self.cells[r][c].html or ""
                 tds.append(h("td")(raw(cell_html)))  # type: ignore[arg-type]
@@ -214,7 +214,7 @@ ALLOWED_TABLE_TYPES = {
 
 def render_table_from_mergeable(
     gz_bytes: bytes, render_note_cb: Callable[[pb.Note], str]
-) -> Optional[str]:
+) -> str | None:
     """Parse gzipped MergeableData and render as HTML table, or None if invalid."""
     if not gz_bytes:
         return None
@@ -270,7 +270,7 @@ def render_table_from_mergeable(
             entries=entries,
             render_note_cb=render_note_cb,
         )
-        pending_cell_columns: Optional[pb.MergeableDataObjectRow] = None
+        pending_cell_columns: pb.MergeableDataObjectRow | None = None
         for me in e.custom_map.map_entry:
             kname = key_items[me.key] if 0 <= me.key < len(key_items) else None
             try:

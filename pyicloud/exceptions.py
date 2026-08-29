@@ -1,6 +1,6 @@
 """Library exceptions."""
 
-from typing import Optional, Union
+from typing import Union
 
 from requests import Response
 
@@ -28,13 +28,13 @@ class PyiCloudAPIResponseException(PyiCloudException):
     def __init__(
         self,
         reason: str,
-        code: Optional[Union[int, str]] = None,
-        response: Optional[Response] = None,
+        code: Union[int, str] | None = None,
+        response: Response | None = None,
     ) -> None:
         """Capture a normalized API error and the optional HTTP context."""
         self.reason: str = reason
-        self.code: Optional[Union[int, str]] = code
-        self.response: Optional[Response] = response
+        self.code: Union[int, str] | None = code
+        self.response: Response | None = response
         message: str = reason or ""
         if code:
             message += f" ({code})"
@@ -57,10 +57,10 @@ class PyiCloudFailedLoginException(PyiCloudException):
         self,
         msg: str,
         *args,
-        response: Optional[Response] = None,
+        response: Response | None = None,
     ) -> None:
         """Initialize a login failure with optional HTTP response details."""
-        self.response: Optional[Response] = response
+        self.response: Response | None = response
         message: str = msg or "Failed login to iCloud"
         if response is not None and response.text:
             message = f"{message} ({response.status_code}): {response.text}"

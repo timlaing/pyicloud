@@ -3,13 +3,14 @@
 import importlib.util
 import os
 import sys
-import unittest
 from types import SimpleNamespace
+import unittest
 from unittest.mock import MagicMock, patch
 
 SCRIPT_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
+    "examples",
     "example_reminders_delta.py",
 )
 

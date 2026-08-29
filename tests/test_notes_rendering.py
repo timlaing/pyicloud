@@ -3,8 +3,8 @@
 import json
 import os
 import tempfile
-import unittest
 from types import SimpleNamespace
+import unittest
 from unittest.mock import MagicMock, Mock, patch
 
 from pyicloud.services.notes.rendering.attachments import (
@@ -31,7 +31,7 @@ FIXTURE_PATH = os.path.join(
     "notes",
     "note_rendering_fixture.json",
 )
-with open(FIXTURE_PATH, "r", encoding="utf-8") as fixture_file:
+with open(FIXTURE_PATH, encoding="utf-8") as fixture_file:
     NOTE_FIXTURE = json.load(fixture_file)
 
 
@@ -501,7 +501,7 @@ class TestNoteExporter(unittest.TestCase):
         mock_av.assert_called_once_with(client, datasource, ["att-1"], **expected)
         mock_vcard.assert_called_once_with(client, datasource, ["att-1"], **expected)
 
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             html = handle.read()
 
         self.assertIn("<!doctype html>", html)
@@ -540,7 +540,7 @@ class TestNoteExporter(unittest.TestCase):
         ):
             path = exporter.export(note_record, output_dir=tmpdir, filename="note.html")
 
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             html = handle.read()
 
         mock_pdf.assert_not_called()

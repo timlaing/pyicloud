@@ -1,6 +1,6 @@
 """Contacts service."""
 
-from typing import Any, Optional
+from typing import Any
 
 from requests import Response
 
@@ -23,7 +23,7 @@ class ContactsService(BaseService):
         self._contacts_changeset_url: str = f"{self._contacts_endpoint}/changeset"
         self._contacts_me_card_url: str = f"{self._contacts_endpoint}/mecard"
 
-        self._contacts: Optional[list[dict[str, Any]]] = None
+        self._contacts: list[dict[str, Any]] | None = None
 
     def refresh_client(self) -> None:
         """
@@ -31,28 +31,24 @@ class ContactsService(BaseService):
         contacts data is up-to-date.
         """
         params_contacts: dict[str, Any] = dict(self.params)
-        params_contacts.update(
-            {
-                "locale": "en_US",
-                "order": "last,first",
-                "includePhoneNumbers": True,
-                "includePhotos": True,
-            }
-        )
+        params_contacts.update({
+            "locale": "en_US",
+            "order": "last,first",
+            "includePhoneNumbers": True,
+            "includePhotos": True,
+        })
         req: Response = self.session.get(
             self._contacts_refresh_url, params=params_contacts
         )
         response: dict[str, Any] = req.json()
 
         params_next: dict[str, Any] = dict(params_contacts)
-        params_next.update(
-            {
-                "prefToken": response["prefToken"],
-                "syncToken": response["syncToken"],
-                "limit": "0",
-                "offset": "0",
-            }
-        )
+        params_next.update({
+            "prefToken": response["prefToken"],
+            "syncToken": response["syncToken"],
+            "limit": "0",
+            "offset": "0",
+        })
         req = self.session.get(self._contacts_next_url, params=params_next)
         response = req.json()
         self._contacts = response.get("contacts")

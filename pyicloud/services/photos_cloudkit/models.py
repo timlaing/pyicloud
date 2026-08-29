@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import Field
 
@@ -19,8 +19,8 @@ class PhotosServiceException(PyiCloudException):
     def __init__(
         self,
         *args,
-        photo: "PhotoAsset | None" = None,
-        album: "BasePhotoAlbum | None" = None,
+        photo: PhotoAsset | None = None,
+        album: BasePhotoAlbum | None = None,
     ) -> None:
         super().__init__(*args)
         self.photo = photo
@@ -33,12 +33,12 @@ class PhotoResource:
 
     key: str
     filename: str
-    url: Optional[str]
-    size: Optional[int]
-    type: Optional[str]
-    checksum: Optional[str] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
+    url: str | None
+    size: int | None
+    type: str | None
+    checksum: str | None = None
+    width: int | None = None
+    height: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Return a compatibility dict for legacy callers/tests."""
@@ -60,18 +60,18 @@ class PhotoChangeEvent:
 
     kind: str
     record_name: str
-    record_type: Optional[str]
+    record_type: str | None
     deleted: bool
-    modified: Optional[datetime]
+    modified: datetime | None
 
 
 @dataclass(slots=True, frozen=True)
 class SmartAlbumSpec:
     """Static configuration for one Photos smart album."""
 
-    obj_type: "ObjectTypeEnum"
-    list_type: "ListTypeEnum"
-    direction: "DirectionEnum"
+    obj_type: ObjectTypeEnum
+    list_type: ListTypeEnum
+    direction: DirectionEnum
     query_filters: tuple[CKQueryFilterBy, ...] = ()
 
 

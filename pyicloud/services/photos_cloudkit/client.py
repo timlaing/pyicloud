@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict
 from urllib.parse import urlencode
 
 from pydantic import ValidationError
@@ -42,7 +41,7 @@ class PhotosCloudKitClient:
         *,
         base_url: str,
         session,
-        base_params: Dict[str, object],
+        base_params: dict[str, object],
         upload_url: str | None = None,
     ) -> None:
         self._session = session
@@ -154,7 +153,7 @@ class PhotosCloudKitClient:
             ) from exc
 
     @staticmethod
-    def _response_json(response, *, context: str) -> Dict:
+    def _response_json(response, *, context: str) -> dict:
         code = getattr(response, "status_code", 0)
         if not isinstance(code, int):
             code = 200

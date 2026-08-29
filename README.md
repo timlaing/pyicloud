@@ -1559,3 +1559,14 @@ Important CLI flags:
 ## Examples
 
 If you want to see some code samples, see the [examples](examples.py).
+
+## Contributing
+
+Contributions are welcome! Please read the
+**[Contributing guide](CONTRIBUTING.md)**, the
+**[Code of Conduct](CODE_OF_CONDUCT.md)**, and the
+**[Terms of Use](TERMS_OF_USE.md)** before getting started.
+
+To report a security vulnerability, use
+**[private vulnerability reporting](https://github.com/timlaing/pyicloud/security/advisories)**
+rather than opening a public issue (see **[SECURITY.md](SECURITY.md)**).

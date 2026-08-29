@@ -19,9 +19,10 @@ via link) arrive in later phases per the design doc.
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+import logging
+from typing import Any
 
 from pyicloud.common.cloudkit import (
     CKModifyOperation,
@@ -92,7 +93,7 @@ class InvitesService(BaseService):
         self,
         service_root: str,
         session: Any,
-        params: Dict[str, str],
+        params: dict[str, str],
         *,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
     ) -> None:
@@ -119,14 +120,14 @@ class InvitesService(BaseService):
     # Public reads
     # ------------------------------------------------------------------
 
-    def events(self) -> List[Event]:
+    def events(self) -> list[Event]:
         """Return all events visible to the current user (private + shared).
 
         Each event is populated only from its ``EventDetails`` record; the
         share and RSVPs are ``None`` / empty here. Call :meth:`event` for a
         fully-hydrated view.
         """
-        out: List[Event] = []
+        out: list[Event] = []
         seen: set[tuple[EventScope, str]] = set()
         for scope in (EventScope.PRIVATE, EventScope.SHARED):
             for record in self._iter_event_details(scope):
@@ -150,7 +151,7 @@ class InvitesService(BaseService):
                 return event
         raise EventNotFound(f"Event not found: {event_id!r}")
 
-    def rsvps(self, event: Event) -> List[Rsvp]:
+    def rsvps(self, event: Event) -> list[Rsvp]:
         """Return the list of RSVPs in an event's zone."""
         zone_id = self._zone_id_req(event.event_id, event.scope)
         resp = self._raw.query(
@@ -200,8 +201,8 @@ class InvitesService(BaseService):
         event: Event,
         status: RsvpStatus,
         *,
-        name: Optional[str] = None,
-        message: Optional[str] = None,
+        name: str | None = None,
+        message: str | None = None,
         plus_one_adults: int = 0,
         plus_one_kids: int = 0,
     ) -> Rsvp:
@@ -233,7 +234,7 @@ class InvitesService(BaseService):
             plus_one_adults = 0
             plus_one_kids = 0
 
-        fields: Dict[str, Any] = {
+        fields: dict[str, Any] = {
             RsvpField.STATUS.value: {
                 "type": "INT64",
                 "value": status.value,
@@ -310,7 +311,7 @@ class InvitesService(BaseService):
         return participant_id
 
     @staticmethod
-    def _find_existing_rsvp(event: Event, record_name: str) -> Optional[Rsvp]:
+    def _find_existing_rsvp(event: Event, record_name: str) -> Rsvp | None:
         """Find the user's RSVP in ``event.rsvps`` matching ``record_name``."""
         for rsvp in event.rsvps:
             if rsvp.record_name == record_name:
@@ -342,7 +343,7 @@ class InvitesService(BaseService):
         return "private" if scope == EventScope.PRIVATE else "shared"
 
     @staticmethod
-    def _scope_from_db_scope(db_scope: Optional[str]) -> EventScope:
+    def _scope_from_db_scope(db_scope: str | None) -> EventScope:
         if isinstance(db_scope, str) and db_scope.upper() == "SHARED":
             return EventScope.SHARED
         return EventScope.PRIVATE
@@ -364,7 +365,7 @@ class InvitesService(BaseService):
         )
 
     @staticmethod
-    def _records_of(resp: CKQueryResponse) -> List[CKRecord]:
+    def _records_of(resp: CKQueryResponse) -> list[CKRecord]:
         return [r for r in resp.records if isinstance(r, CKRecord)]
 
     def _iter_event_details(self, scope: EventScope) -> Iterable[CKRecord]:
@@ -383,7 +384,7 @@ class InvitesService(BaseService):
             return []
         return self._records_of(resp)
 
-    def _fetch_event_full(self, event_id: str, scope: EventScope) -> Optional[Event]:
+    def _fetch_event_full(self, event_id: str, scope: EventScope) -> Event | None:
         zone_id = self._zone_id_req(event_id, scope)
         scope_str = self._scope_str(scope)
         try:
@@ -404,8 +405,8 @@ class InvitesService(BaseService):
             )
             return None
 
-        event_record: Optional[CKRecord] = None
-        share_record: Optional[CKRecord] = None
+        event_record: CKRecord | None = None
+        share_record: CKRecord | None = None
         for record in self._records_of(resp):
             if record.recordType == InvitesRecordType.EventDetails.value:
                 event_record = record
@@ -468,7 +469,7 @@ class InvitesService(BaseService):
         record: CKRecord,
         *,
         scope: EventScope,
-        share: Optional[EventShare] = None,
+        share: EventShare | None = None,
         rsvps: tuple[Rsvp, ...] = (),
     ) -> Event:
         event_id = self._event_id_from_record_name(record.recordName)
@@ -537,7 +538,7 @@ class InvitesService(BaseService):
         participants = tuple(
             self._participant_from_ck(p) for p in (record.participants or [])
         )
-        current_user_participant_id: Optional[str] = None
+        current_user_participant_id: str | None = None
         current = getattr(record, "currentUserParticipant", None)
         if current is not None:
             current_user_participant_id = getattr(current, "participantId", None)
@@ -646,7 +647,7 @@ class InvitesService(BaseService):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _first_resolve_result(data: Mapping[str, Any]) -> Dict[str, Any]:
+    def _first_resolve_result(data: Mapping[str, Any]) -> dict[str, Any]:
         results = data.get("results")
         if not isinstance(results, list) or not results:
             raise InvitesApiError(
@@ -742,9 +743,7 @@ class InvitesService(BaseService):
             return getattr(wrapper, "value", None)
         return None
 
-    def _field_str(
-        self, fields: Any, key: str, *, default: Optional[str]
-    ) -> Optional[str]:
+    def _field_str(self, fields: Any, key: str, *, default: str | None) -> str | None:
         value = self._field_value(fields, key)
         if isinstance(value, str):
             return value
@@ -755,7 +754,7 @@ class InvitesService(BaseService):
                 return default
         return default
 
-    def _field_int(self, fields: Any, key: str) -> Optional[int]:
+    def _field_int(self, fields: Any, key: str) -> int | None:
         value = self._field_value(fields, key)
         if isinstance(value, bool):
             return int(value)
@@ -775,7 +774,7 @@ class InvitesService(BaseService):
         value = self._field_value(fields, key)
         return decode_json_bytes(value)
 
-    def _decode_time(self, fields: Any) -> Optional[EventTime]:
+    def _decode_time(self, fields: Any) -> EventTime | None:
         blob = self._decode_json(fields, EventDetailsField.TIME.value)
         if not isinstance(blob, Mapping):
             return None
@@ -786,7 +785,7 @@ class InvitesService(BaseService):
             start = datetime.fromtimestamp(start_ms / 1000.0, tz=timezone.utc)
         except (OSError, ValueError, OverflowError):
             return None
-        end: Optional[datetime] = None
+        end: datetime | None = None
         end_ms = blob.get("endSince1970")
         if isinstance(end_ms, (int, float)):
             try:
@@ -800,7 +799,7 @@ class InvitesService(BaseService):
             is_open_ended=bool(blob.get("isOpenEnded", False)),
         )
 
-    def _decode_place(self, fields: Any) -> Optional[EventPlace]:
+    def _decode_place(self, fields: Any) -> EventPlace | None:
         blob = self._decode_json(fields, EventDetailsField.PLACE.value)
         if not isinstance(blob, Mapping):
             return None
@@ -829,7 +828,7 @@ class InvitesService(BaseService):
         )
 
     @staticmethod
-    def _asset_download_url(fields: Any, key: str) -> Optional[str]:
+    def _asset_download_url(fields: Any, key: str) -> str | None:
         value = InvitesService._field_value(fields, key)
         if value is None:
             return None

@@ -4,8 +4,8 @@ import argparse
 import importlib.util
 import os
 import sys
-import unittest
 from types import SimpleNamespace
+import unittest
 from unittest.mock import MagicMock, patch
 
 CLI_PATH = os.path.join(os.path.dirname(__file__), "..", "examples", "notes_cli.py")
@@ -33,13 +33,15 @@ class TestNotesCli(unittest.TestCase):
     def test_parse_args_rejects_removed_download_assets_flag(self):
         module = _load_notes_cli()
 
-        with patch.object(
-            sys,
-            "argv",
-            ["notes_cli.py", "--username", "user@example.com", "--download-assets"],
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["notes_cli.py", "--username", "user@example.com", "--download-assets"],
+            ),
+            self.assertRaises(SystemExit),
         ):
-            with self.assertRaises(SystemExit):
-                module.parse_args()
+            module.parse_args()
 
     def test_main_requests_titleencrypted_and_maps_export_config(self):
         module = _load_notes_cli()
@@ -114,13 +116,15 @@ class TestNotesCli(unittest.TestCase):
     def test_parse_args_rejects_removed_password_flag(self):
         module = _load_notes_cli()
 
-        with patch.object(
-            sys,
-            "argv",
-            ["notes_cli.py", "--username", "user@example.com", "--password", "pw"],
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["notes_cli.py", "--username", "user@example.com", "--password", "pw"],
+            ),
+            self.assertRaises(SystemExit),
         ):
-            with self.assertRaises(SystemExit):
-                module.parse_args()
+            module.parse_args()
 
     def test_main_suppresses_note_dumps_without_debug_flags(self):
         module = _load_notes_cli()

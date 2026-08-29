@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
+import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table

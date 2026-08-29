@@ -1,0 +1,16 @@
+{
+  "recommendations": [
+    "charliermarsh.ruff",
+    "ms-python.mypy-type-checker",
+    "ms-python.pylint",
+    "ms-python.python",
+    "donjayamanne.python-extension-pack",
+    "donjayamanne.git-extension-pack",
+    "github.vscode-github-actions",
+    "redhat.vscode-yaml",
+    "foxundermoon.shell-format",
+    "ryanluker.vscode-coverage-gutters",
+    "streetsidesoftware.code-spell-checker",
+    "sst-dev.opencode"
+  ]
+}

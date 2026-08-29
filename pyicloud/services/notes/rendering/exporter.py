@@ -9,10 +9,11 @@ and higher-level APIs.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from contextlib import suppress
 import logging
 import os
 import re
-from typing import Dict, Iterable, List, Optional, Tuple
 
 from rich.console import Console
 
@@ -29,7 +30,7 @@ console = Console()
 LOGGER = logging.getLogger(__name__)
 
 
-def decode_and_parse_note(record: CKRecord) -> Optional[pb.Note]:
+def decode_and_parse_note(record: CKRecord) -> pb.Note | None:
     """Decode a Note CKRecord's TextDataEncrypted and return a parsed pb.Note.
 
     Returns None if body is missing or cannot be parsed.
@@ -50,9 +51,9 @@ def decode_and_parse_note(record: CKRecord) -> Optional[pb.Note]:
         return None
 
 
-def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> List[str]:
+def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> list[str]:
     # Collect from Attachments field
-    ids: List[str] = []
+    ids: list[str] = []
     fld = record.fields.get_field("Attachments")
     if fld and hasattr(fld, "value"):
         for ref in getattr(fld, "value", []) or []:
@@ -60,7 +61,7 @@ def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> Lis
             if rn:
                 ids.append(rn)
     # Merge inline run identifiers
-    ids_from_runs: List[str] = []
+    ids_from_runs: list[str] = []
     for rattr in getattr(note, "attribute_run", []) or []:
         if rattr.HasField("attachment_info") and rattr.attachment_info.HasField(
             "attachment_identifier"
@@ -69,7 +70,7 @@ def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> Lis
             if aid:
                 ids_from_runs.append(aid)
     seen: set[str] = set()
-    merged: List[str] = []
+    merged: list[str] = []
     for a in ids + ids_from_runs:
         if a not in seen:
             seen.add(a)
@@ -81,8 +82,8 @@ def build_datasource(
     ck_client,
     note_record: CKRecord,
     note: pb.Note,
-    config: Optional[ExportConfig] = None,
-) -> Tuple[CloudKitNoteDataSource, List[str]]:
+    config: ExportConfig | None = None,
+) -> tuple[CloudKitNoteDataSource, list[str]]:
     """Build a CloudKit-backed Note datasource for a single note.
 
     Returns (datasource, attachment_ids) where attachment_ids is the merged list
@@ -92,7 +93,7 @@ def build_datasource(
     att_ids = _attachment_ids_from_record_and_runs(note_record, note)
     if att_ids:
         resp = ck_client.lookup(att_ids)  # desired_keys=None → all fields
-        media_map: Dict[str, str] = {}  # media_record_name -> parent attachment id
+        media_map: dict[str, str] = {}  # media_record_name -> parent attachment id
         debug = bool(getattr(config, "debug", False))
         for rec_idx, rec in enumerate(resp.records):
             if debug:
@@ -123,7 +124,7 @@ def build_datasource(
                 for mrec in mresp.records:
                     if not isinstance(mrec, CKRecord):
                         continue
-                    url: Optional[str] = None
+                    url: str | None = None
                     # Best-effort: find any field whose value looks like an asset token with downloadURL
                     try:
                         for k in list(getattr(mrec, "fields", ()).keys()):
@@ -169,10 +170,8 @@ def build_datasource(
 
                             # Only fetch current if we might need to check for upgrade
                             cur_primary = None
-                            try:
+                            with suppress(Exception):
                                 cur_primary = ds.get_primary_asset_url(parent)
-                            except Exception:
-                                pass
 
                             if (not cur_primary) or is_media_upgrade:
                                 try:
@@ -197,8 +196,8 @@ def download_pdf_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: Optional[ExportConfig] = None,
-) -> Dict[str, str]:
+    config: ExportConfig | None = None,
+) -> dict[str, str]:
     """Download PDFs for attachments and rewrite datasource URLs to local paths.
 
     Returns a mapping of attachment id → relative path used in HTML.
@@ -206,9 +205,9 @@ def download_pdf_assets(
     magic header is present.
     """
     os.makedirs(assets_dir, exist_ok=True)
-    updated: Dict[str, str] = {}
+    updated: dict[str, str] = {}
 
-    def _is_pdf_uti(s: Optional[str]) -> bool:
+    def _is_pdf_uti(s: str | None) -> bool:
         return bool(
             s
             and s.lower() in ("com.adobe.pdf", "public.pdf", "com.apple.paper.doc.pdf")
@@ -256,19 +255,19 @@ def download_image_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: Optional[ExportConfig] = None,
-) -> Dict[str, str]:
+    config: ExportConfig | None = None,
+) -> dict[str, str]:
     """Download image attachments and rewrite datasource URLs to local paths.
 
     Returns a mapping of attachment id → relative path used in HTML.
     Applies to common image UTIs (jpeg/png/heic/webp/gif/bmp/tiff...).
     """
     os.makedirs(assets_dir, exist_ok=True)
-    updated: Dict[str, str] = {}
+    updated: dict[str, str] = {}
 
     conf = config or ExportConfig()
 
-    def _infer_image_ext(head: bytes) -> Optional[str]:
+    def _infer_image_ext(head: bytes) -> str | None:
         try:
             if head.startswith(b"\xff\xd8\xff"):
                 return ".jpg"
@@ -340,16 +339,16 @@ def download_av_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: Optional[ExportConfig] = None,
-) -> Dict[str, str]:
+    config: ExportConfig | None = None,
+) -> dict[str, str]:
     """Download audio/video attachments and rewrite datasource URLs to local paths.
 
     Returns a mapping of attachment id → relative path used in HTML.
     """
     os.makedirs(assets_dir, exist_ok=True)
-    updated: Dict[str, str] = {}
+    updated: dict[str, str] = {}
 
-    def _infer_av_ext(head: bytes) -> Optional[str]:
+    def _infer_av_ext(head: bytes) -> str | None:
         try:
             # M4A / MP4 / MOV (ISO Base Media)
             if len(head) >= 12 and head[4:8] == b"ftyp":
@@ -442,14 +441,14 @@ def download_vcard_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: Optional[ExportConfig] = None,
-) -> Dict[str, str]:
+    config: ExportConfig | None = None,
+) -> dict[str, str]:
     """Download VCard (contact) attachments and rewrite datasource URLs to local paths.
 
     Returns a mapping of attachment id → relative path used in HTML.
     """
     os.makedirs(assets_dir, exist_ok=True)
-    updated: Dict[str, str] = {}
+    updated: dict[str, str] = {}
     note_subdir = os.path.abspath(assets_dir)
 
     for aid in att_ids:
@@ -485,13 +484,13 @@ def download_vcard_assets(
 
 def render_fragment(
     note: pb.Note,
-    ds: Optional[CloudKitNoteDataSource],
-    config: Optional[ExportConfig] = None,
+    ds: CloudKitNoteDataSource | None,
+    config: ExportConfig | None = None,
 ) -> str:
     return render_note_fragment(note, ds, config=config)
 
 
-def _safe_name(s: Optional[str]) -> str:
+def _safe_name(s: str | None) -> str:
     if not s:
         return "untitled"
     s = re.sub(r"\s+", " ", s).strip()
@@ -505,7 +504,7 @@ def write_html(
     out_dir: str,
     *,
     full_page: bool = False,
-    filename: Optional[str] = None,
+    filename: str | None = None,
 ) -> str:
     os.makedirs(out_dir, exist_ok=True)
     page = render_note_page(title, html_fragment) if full_page else html_fragment
@@ -522,7 +521,7 @@ def write_html(
 class NoteExporter:
     """Orchestrator for exporting notes to HTML with assets."""
 
-    def __init__(self, ck_client, config: Optional[ExportConfig] = None):
+    def __init__(self, ck_client, config: ExportConfig | None = None):
         self.client = ck_client
         self.config = config or ExportConfig()
         self.renderer = NoteRenderer(self.config)
@@ -531,8 +530,8 @@ class NoteExporter:
         self,
         note_record: CKRecord,
         output_dir: str,
-        filename: Optional[str] = None,
-    ) -> Optional[str]:
+        filename: str | None = None,
+    ) -> str | None:
         """
         Export a single note record to HTML in the output directory.
         Returns the path to the written HTML file, or None if export failed (e.g. no body).

@@ -7,9 +7,9 @@ import binascii
 import json as _json
 import logging
 import time
+from urllib.parse import urlparse
 import uuid
 import zlib
-from urllib.parse import urlparse
 
 from .protobuf import reminders_pb2, versioned_document_pb2
 

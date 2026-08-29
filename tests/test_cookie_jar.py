@@ -124,6 +124,6 @@ def test_cookies_property_independence() -> None:
 
         # But with same content
         assert len(jar) == len(jar2)
-        for cookie1, cookie2 in zip(list(jar), list(jar2)):
+        for cookie1, cookie2 in zip(list(jar), list(jar2), strict=True):
             assert str(cookie1) == str(cookie2)
             assert cookie1 is not cookie2

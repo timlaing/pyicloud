@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 
 from pyicloud.common.cloudkit import CKErrorItem, CKModifyResponse, CKRecord
 
@@ -47,9 +48,9 @@ def _assert_read_success(records: Iterable[Any], operation_name: str) -> None:
 def _response_record_change_tag(
     response: CKModifyResponse,
     record_name: str,
-) -> Optional[str]:
+) -> str | None:
     """Return the latest recordChangeTag for a record from a modify response."""
-    change_tag: Optional[str] = None
+    change_tag: str | None = None
     for item in response.records:
         if not isinstance(item, CKRecord):
             continue
@@ -68,4 +69,4 @@ def _refresh_record_change_tag(
     """Hydrate an in-memory model object's record_change_tag from modify ack."""
     change_tag = _response_record_change_tag(response, record_name)
     if change_tag:
-        setattr(model_obj, "record_change_tag", change_tag)
+        model_obj.record_change_tag = change_tag

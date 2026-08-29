@@ -1,12 +1,14 @@
 """Photo service."""
 
-import base64
-import logging
-import os
 from abc import ABC, abstractmethod
+import base64
+from collections.abc import Generator, Iterable, Iterator
+from contextlib import suppress
 from datetime import datetime, timezone
 from enum import Enum, IntEnum, unique
-from typing import Any, Generator, Iterable, Iterator, Optional, cast
+import logging
+import os
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 from requests import Response
@@ -33,8 +35,8 @@ class PhotosServiceException(PyiCloudException):
         album: "BasePhotoAlbum|None" = None,
     ) -> None:
         super().__init__(*args)
-        self.photo: "PhotoAsset|None" = photo
-        self.album: "BasePhotoAlbum|None" = album
+        self.photo: PhotoAsset | None = photo
+        self.album: BasePhotoAlbum | None = album
 
 
 def _valid_modify_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -130,7 +132,7 @@ class AlbumContainer(Iterable):
 
     def __init__(self, albums: list["BasePhotoAlbum"] | None = None) -> None:
         if albums is not None:
-            self._albums: dict[str, "BasePhotoAlbum"] = {
+            self._albums: dict[str, BasePhotoAlbum] = {
                 album.id: album for album in albums
             }
         else:
@@ -194,12 +196,12 @@ class BasePhotoLibrary(ABC):
         self,
         service: "PhotosService",
         asset_type: type["PhotoAsset"],
-        upload_url: Optional[str] = None,
+        upload_url: str | None = None,
     ) -> None:
         self.service: PhotosService = service
         self.asset_type: type[PhotoAsset] = asset_type
-        self._albums: Optional[AlbumContainer] = None
-        self._upload_url: Optional[str] = upload_url
+        self._albums: AlbumContainer | None = None
+        self._upload_url: str | None = upload_url
 
     @abstractmethod
     def _get_albums(self) -> AlbumContainer:
@@ -363,7 +365,7 @@ class PhotoLibrary(BasePhotoLibrary):
         self,
         service: "PhotosService",
         zone_id: dict[str, str],
-        upload_url: Optional[str] = None,
+        upload_url: str | None = None,
     ) -> None:
         super().__init__(service, asset_type=PhotoAsset, upload_url=upload_url)
         self.zone_id: dict[str, str] = zone_id
@@ -400,7 +402,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 "Please try again in a few minutes."
             )
 
-    def _fetch_records(self, parent_id: Optional[str] = None) -> list[dict[str, Any]]:
+    def _fetch_records(self, parent_id: str | None = None) -> list[dict[str, Any]]:
         """Fetches records."""
         query: dict[str, Any] = {
             "query": {
@@ -476,7 +478,7 @@ class PhotoLibrary(BasePhotoLibrary):
             }
         ]
 
-        parent_id: Optional[str] = record["fields"].get("parentId", {}).get("value")
+        parent_id: str | None = record["fields"].get("parentId", {}).get("value")
 
         album_type: type[PhotoAlbum] = PhotoAlbum
 
@@ -511,18 +513,16 @@ class PhotoLibrary(BasePhotoLibrary):
 
     def _get_albums(self) -> AlbumContainer:
         """Returns photo albums."""
-        albums = AlbumContainer(
-            [
-                SmartPhotoAlbum(
-                    library=self,
-                    name=name,
-                    zone_id=self.zone_id,
-                    url=self.url,
-                    **props,
-                )
-                for (name, props) in self.SMART_ALBUMS.items()
-            ]
-        )
+        albums = AlbumContainer([
+            SmartPhotoAlbum(
+                library=self,
+                name=name,
+                zone_id=self.zone_id,
+                url=self.url,
+                **props,
+            )
+            for (name, props) in self.SMART_ALBUMS.items()
+        ])
 
         for record in self._fetch_records():
             album: PhotoAlbum | None = self._convert_record_to_album(record)
@@ -695,12 +695,12 @@ class PhotosService(BaseService):
         )
         self._upload_url: str = upload_url
 
-        self._libraries: Optional[dict[str, BasePhotoLibrary]] = None
+        self._libraries: dict[str, BasePhotoLibrary] | None = None
 
         self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
         self._photo_assets: dict = {}
 
-        self._root_library: Optional[PhotoLibrary] = None
+        self._root_library: PhotoLibrary | None = None
 
         self._shared_library: PhotoStreamLibrary = PhotoStreamLibrary(
             self,
@@ -789,7 +789,7 @@ class BasePhotoAlbum(Iterable, ABC):
         self._page_size: int = page_size
         self._direction: DirectionEnum = direction
         self._list_type: ListTypeEnum = list_type
-        self._len: Optional[int] = None
+        self._len: int | None = None
 
     @property
     @abstractmethod
@@ -1000,12 +1000,12 @@ class PhotoAlbum(BasePhotoAlbum):
         list_type: ListTypeEnum,
         direction: DirectionEnum,
         url: str,
-        query_filter: Optional[list[dict[str, Any]]] = None,
-        zone_id: Optional[dict[str, str]] = None,
+        query_filter: list[dict[str, Any]] | None = None,
+        zone_id: dict[str, str] | None = None,
         page_size: int = 100,
-        parent_id: Optional[str] = None,
-        record_change_tag: Optional[str] = None,
-        record_modification_date: Optional[str] = None,
+        parent_id: str | None = None,
+        record_change_tag: str | None = None,
+        record_modification_date: str | None = None,
     ) -> None:
         super().__init__(
             library=library,
@@ -1017,11 +1017,11 @@ class PhotoAlbum(BasePhotoAlbum):
 
         self._record_id: str = record_id
         self._obj_type: ObjectTypeEnum = obj_type
-        self._query_filter: Optional[list[dict[str, Any]]] = query_filter
+        self._query_filter: list[dict[str, Any]] | None = query_filter
         self._url: str = url
-        self._parent_id: Optional[str] = parent_id
-        self._record_change_tag: Optional[str] = record_change_tag
-        self._record_modification_date: Optional[str] = record_modification_date
+        self._parent_id: str | None = parent_id
+        self._record_change_tag: str | None = record_change_tag
+        self._record_modification_date: str | None = record_modification_date
 
         if zone_id:
             self._zone_id: dict[str, str] = zone_id
@@ -1142,7 +1142,8 @@ class PhotoAlbum(BasePhotoAlbum):
                     "recordChangeTag", self._record_change_tag
                 )
                 self._record_modification_date = (
-                    latest.get("fields", {})
+                    latest
+                    .get("fields", {})
                     .get("recordModificationDate", {})
                     .get("value", self._record_modification_date)
                 )
@@ -1200,7 +1201,8 @@ class PhotoAlbum(BasePhotoAlbum):
                         "recordChangeTag", self._record_change_tag
                     )
                     self._record_modification_date = (
-                        record.get("fields", {})
+                        record
+                        .get("fields", {})
                         .get("recordModificationDate", {})
                         .get("value", self._record_modification_date)
                     )
@@ -1461,10 +1463,10 @@ class SmartPhotoAlbum(PhotoAlbum):
         list_type: ListTypeEnum,
         direction: DirectionEnum,
         url: str,
-        query_filter: Optional[list[dict[str, Any]]] = None,
-        zone_id: Optional[dict[str, str]] = None,
+        query_filter: list[dict[str, Any]] | None = None,
+        zone_id: dict[str, str] | None = None,
         page_size: int = 100,
-        parent_id: Optional[str] = None,
+        parent_id: str | None = None,
     ) -> None:
         super().__init__(
             library=library,
@@ -1517,7 +1519,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         allow_contributions: bool = False,
         is_public: bool = False,
         is_web_upload_supported: bool = False,
-        public_url: Optional[str] = None,
+        public_url: str | None = None,
         page_size: int = 100,
     ) -> None:
         super().__init__(
@@ -1543,7 +1545,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         self._allow_contributions: bool = allow_contributions
         self._is_public: bool = is_public
         self._is_web_upload_supported: bool = is_web_upload_supported
-        self._public_url: Optional[str] = public_url
+        self._public_url: str | None = public_url
 
     @property
     def id(self) -> str:
@@ -1575,7 +1577,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         return self._is_web_upload_supported
 
     @property
-    def public_url(self) -> Optional[str]:
+    def public_url(self) -> str | None:
         """Gets the public URL."""
         return self._public_url
 
@@ -1658,7 +1660,7 @@ class PhotoAsset:
         self._master_record: dict[str, Any] = master_record
         self._asset_record: dict[str, Any] = asset_record
 
-        self._versions: Optional[dict[str, dict[str, Any]]] = None
+        self._versions: dict[str, dict[str, Any]] | None = None
 
     ITEM_TYPES: dict[str, str] = {
         "public.heic": "image",
@@ -1757,13 +1759,10 @@ class PhotoAsset:
         try:
             item_type = self._master_record["fields"]["itemType"]["value"]
         except KeyError:
-            try:
+            with suppress(KeyError):
                 item_type = self._master_record["fields"]["resOriginalFileType"][
                     "value"
                 ]
-            except KeyError:
-                # Both fields missing; fall back to filename extension or default to "movie".
-                pass
         if item_type in self.ITEM_TYPES:
             return self.ITEM_TYPES[item_type]
         if self.filename.lower().endswith((".heic", ".png", ".jpg", ".jpeg")):
@@ -1794,7 +1793,7 @@ class PhotoAsset:
 
         return self._versions
 
-    def download_url(self, version="original") -> Optional[str]:
+    def download_url(self, version="original") -> str | None:
         """Returns the photo download URL."""
         if version not in self.versions:
             return None
@@ -1804,19 +1803,19 @@ class PhotoAsset:
     def _get_photo_version(self, prefix: str) -> dict[str, Any]:
         version: dict[str, Any] = {}
         fields: dict[str, dict[str, Any]] = self._master_record["fields"]
-        width_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Width")
+        width_entry: dict[str, Any] | None = fields.get(f"{prefix}Width")
         if width_entry:
             version["width"] = width_entry["value"]
         else:
             version["width"] = None
 
-        height_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Height")
+        height_entry: dict[str, Any] | None = fields.get(f"{prefix}Height")
         if height_entry:
             version["height"] = height_entry["value"]
         else:
             version["height"] = None
 
-        size_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}Res")
+        size_entry: dict[str, Any] | None = fields.get(f"{prefix}Res")
         if size_entry:
             version["size"] = size_entry["value"]["size"]
             version["url"] = size_entry["value"]["downloadURL"]
@@ -1824,7 +1823,7 @@ class PhotoAsset:
             version["size"] = None
             version["url"] = None
 
-        type_entry: Optional[dict[str, Any]] = fields.get(f"{prefix}FileType")
+        type_entry: dict[str, Any] | None = fields.get(f"{prefix}FileType")
         if type_entry:
             version["type"] = type_entry["value"]
         else:
@@ -1834,7 +1833,7 @@ class PhotoAsset:
         version["filename"] = self.filename
         # For live photos, the video version has a different filename.
         if self.is_live_photo:
-            version_type: Optional[str] = version.get("type")
+            version_type: str | None = version.get("type")
             # Check if the current version is the video component of the live photo.
             if version_type and self.ITEM_TYPES.get(version_type, None) == "movie":
                 # Create the video filename from the image filename.
@@ -1846,7 +1845,7 @@ class PhotoAsset:
 
         return version
 
-    def download(self, version="original", **kwargs) -> Optional[bytes]:
+    def download(self, version="original", **kwargs) -> bytes | None:
         """Returns the photo file."""
         if version not in self.versions:
             return None
@@ -1917,7 +1916,8 @@ class PhotoStreamAsset(PhotoAsset):
     def like_count(self) -> int:
         """Gets the photo like count."""
         return (
-            self._asset_record.get("pluginFields", {})
+            self._asset_record
+            .get("pluginFields", {})
             .get("likeCount", {})
             .get("value", 0)
         )
@@ -1926,7 +1926,8 @@ class PhotoStreamAsset(PhotoAsset):
     def liked(self) -> bool:
         """Gets if the photo is liked."""
         return bool(
-            self._asset_record.get("pluginFields", {})
+            self._asset_record
+            .get("pluginFields", {})
             .get("likedByCaller", {})
             .get("value", False)
         )

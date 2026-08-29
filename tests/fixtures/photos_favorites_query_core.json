@@ -1,9 +1,9 @@
 {
-  "recordType": "CPLAssetAndMasterInSmartAlbumByAssetDate",
-  "resultsLimit": 2,
   "filters": {
     "direction": "ASCENDING",
     "startRank": 0,
     "smartAlbum": "FAVORITE"
-  }
+  },
+  "recordType": "CPLAssetAndMasterInSmartAlbumByAssetDate",
+  "resultsLimit": 2
 }

@@ -14,14 +14,15 @@ event log for individual records.
 from __future__ import annotations
 
 import argparse
-import os
-import sys
-import traceback
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from getpass import getpass
+import os
+import sys
 from time import monotonic, sleep
-from typing import Any, Iterable, Optional, Sequence
+import traceback
+from typing import Any
 
 from pyicloud import PyiCloudService
 from pyicloud.services.reminders.models.domain import Reminder, RemindersList
@@ -45,7 +46,7 @@ class ValidationTracker:
 
 @dataclass
 class RunState:
-    created: Optional[Reminder] = None
+    created: Reminder | None = None
     deleted: bool = False
 
 
@@ -103,7 +104,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_credentials(args: argparse.Namespace) -> tuple[str, Optional[str]]:
+def resolve_credentials(args: argparse.Namespace) -> tuple[str, str | None]:
     username = args.username or input("Apple ID: ").strip()
     if not username:
         raise ValueError("Apple ID username is required.")
@@ -245,7 +246,7 @@ def main() -> int:
     args = parse_args()
     tracker = ValidationTracker()
     state = RunState()
-    api: Optional[PyiCloudService] = None
+    api: PyiCloudService | None = None
 
     try:
         api = authenticate(args)

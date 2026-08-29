@@ -1,10 +1,10 @@
 """Tests for the SSL context configuration in pyicloud.ssl_context."""
 
-import warnings
 from typing import Any
+import warnings
 
-import requests
 from pytest import MonkeyPatch
+import requests
 from urllib3.exceptions import InsecureRequestWarning
 
 from pyicloud.ssl_context import configurable_ssl_verification
@@ -72,15 +72,17 @@ def test_insecure_request_warning(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(
         requests.Session, "merge_environment_settings", lambda *a, **kw: {}
     )
-    with configurable_ssl_verification(verify_ssl=False):
-        with warnings.catch_warnings(record=True) as w:
-            warnings.warn("test", InsecureRequestWarning)
-            # InsecureRequestWarning should be suppressed
-            insecure_warnings: list[warnings.WarningMessage] = [
-                warning
-                for warning in w
-                if issubclass(warning.category, InsecureRequestWarning)
-            ]
-            assert len(insecure_warnings) == 0, (
-                "InsecureRequestWarning should be suppressed"
-            )
+    with (
+        configurable_ssl_verification(verify_ssl=False),
+        warnings.catch_warnings(record=True) as w,
+    ):
+        warnings.warn("test", InsecureRequestWarning, stacklevel=2)
+        # InsecureRequestWarning should be suppressed
+        insecure_warnings: list[warnings.WarningMessage] = [
+            warning
+            for warning in w
+            if issubclass(warning.category, InsecureRequestWarning)
+        ]
+        assert len(insecure_warnings) == 0, (
+            "InsecureRequestWarning should be suppressed"
+        )

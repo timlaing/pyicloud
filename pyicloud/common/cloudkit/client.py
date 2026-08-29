@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import suppress
 import logging
-from typing import Callable, Dict, Iterable, Iterator, List, Literal, Optional, TypeVar
+from typing import Literal, TypeVar
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
@@ -40,7 +42,7 @@ _ResponseModelT = TypeVar(
     CKDatabaseChangesResponse,
 )
 CloudKitBoolParamStyle = Literal["python", "lower"]
-CloudKitDebugHook = Callable[[str, str, Dict, object], None]
+CloudKitDebugHook = Callable[[str, str, dict, object], None]
 
 _RATE_LIMITED = "HTTP 429: rate limited"
 
@@ -80,7 +82,7 @@ class _CloudKitHTTP:
         self,
         base_url: str,
         session,
-        base_params: Dict[str, object],
+        base_params: dict[str, object],
         *,
         timeout: tuple[float, float] | None = None,
         bool_param_style: CloudKitBoolParamStyle = "python",
@@ -100,11 +102,11 @@ class _CloudKitHTTP:
 
     @staticmethod
     def _normalize_params(
-        params: Dict[str, object],
+        params: dict[str, object],
         *,
         bool_param_style: CloudKitBoolParamStyle = "python",
-    ) -> Dict[str, str]:
-        out: Dict[str, str] = {}
+    ) -> dict[str, str]:
+        out: dict[str, str] = {}
         for key, value in params.items():
             if isinstance(value, bool) and bool_param_style == "lower":
                 out[key] = "true" if value else "false"
@@ -121,7 +123,7 @@ class _CloudKitHTTP:
             return redact_cloudkit_url(url)
         return url
 
-    def _run_debug_hook(self, op: str, url: str, payload: Dict, response) -> None:
+    def _run_debug_hook(self, op: str, url: str, payload: dict, response) -> None:
         if self._debug_hook is None:
             return
         try:
@@ -129,7 +131,7 @@ class _CloudKitHTTP:
         except Exception:
             LOGGER.debug("CloudKit debug hook failed for %s", op, exc_info=True)
 
-    def post(self, path: str, payload: Dict, *, headers: Dict | None = None) -> Dict:
+    def post(self, path: str, payload: dict, *, headers: dict | None = None) -> dict:
         url = self.build_url(path)
         op = path.strip("/")
         display_url = self._display_url(url) if self._redact_urls else path
@@ -240,10 +242,8 @@ class _CloudKitHTTP:
         finally:
             close = getattr(resp, "close", None)
             if callable(close):
-                try:
+                with suppress(Exception):
                     close()
-                except Exception:
-                    pass
 
 
 class CloudKitContainerClient:
@@ -253,7 +253,7 @@ class CloudKitContainerClient:
         self,
         base_url: str,
         session,
-        base_params: Dict[str, object],
+        base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
         timeout: tuple[float, float] | None = None,
@@ -277,7 +277,7 @@ class CloudKitContainerClient:
     def _validate_response(
         self,
         model_cls: type[_ResponseModelT],
-        data: Dict,
+        data: dict,
     ) -> _ResponseModelT:
         return model_cls.model_validate(
             data,
@@ -288,10 +288,10 @@ class CloudKitContainerClient:
         self,
         *,
         query: CKQueryObject,
-        zone_id: Optional[CKZoneIDReq] = None,
-        desired_keys: Optional[List[str]] = None,
-        results_limit: Optional[int] = None,
-        continuation: Optional[str] = None,
+        zone_id: CKZoneIDReq | None = None,
+        desired_keys: list[str] | None = None,
+        results_limit: int | None = None,
+        continuation: str | None = None,
         zone_wide: bool = False,
     ) -> CKQueryResponse:
         if zone_wide and zone_id is not None:
@@ -320,7 +320,7 @@ class CloudKitContainerClient:
         record_names: Iterable[str],
         *,
         zone_id: CKZoneIDReq,
-        desired_keys: Optional[List[str]] = None,
+        desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
         payload = CKLookupRequest(
             records=[CKLookupDescriptor(recordName=str(name)) for name in record_names],
@@ -340,7 +340,7 @@ class CloudKitContainerClient:
         self,
         *,
         zone_req: CKZoneChangesZoneReq,
-        results_limit: Optional[int] = None,
+        results_limit: int | None = None,
     ) -> Iterator[CKZoneChangesZone]:
         req = CKZoneChangesRequest(
             zones=[zone_req],
@@ -368,7 +368,7 @@ class CloudKitContainerClient:
         self,
         *,
         zone_req: CKZoneChangesZoneReq,
-        results_limit: Optional[int] = None,
+        results_limit: int | None = None,
     ) -> CKZoneChangesResponse:
         payload = CKZoneChangesRequest(
             zones=[zone_req],
@@ -386,9 +386,9 @@ class CloudKitContainerClient:
     def modify(
         self,
         *,
-        operations: List[CKModifyOperation],
+        operations: list[CKModifyOperation],
         zone_id: CKZoneIDReq,
-        atomic: Optional[bool] = None,
+        atomic: bool | None = None,
     ) -> CKModifyResponse:
         payload = CKModifyRequest(
             operations=operations,
@@ -417,7 +417,7 @@ class CloudKitContainerClient:
     def database_changes(
         self,
         *,
-        sync_token: Optional[str] = None,
+        sync_token: str | None = None,
     ) -> CKDatabaseChangesResponse:
         payload = {}
         if sync_token:

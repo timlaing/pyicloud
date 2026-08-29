@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext, suppress
+from datetime import datetime, timezone
 import importlib
 import json
-import tempfile
-from contextlib import nullcontext
-from datetime import datetime, timezone
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 
@@ -73,10 +73,10 @@ class FakeDevice:
             "batteryStatus": self.batteryStatus,
             "location": self.location,
         }
-        self.sound_subject: Optional[str] = None
+        self.sound_subject: str | None = None
         self.messages: list[dict[str, Any]] = []
-        self.lost_mode: Optional[dict[str, str]] = None
-        self.erase_message: Optional[str] = None
+        self.lost_mode: dict[str, str] | None = None
+        self.erase_message: str | None = None
 
     def play_sound(self, subject: str = "Find My iPhone Alert") -> None:
         self.sound_subject = subject
@@ -106,9 +106,9 @@ class FakeDriveNode:
         name: str,
         *,
         node_type: str = "folder",
-        size: Optional[int] = None,
-        modified: Optional[datetime] = None,
-        children: Optional[list["FakeDriveNode"]] = None,
+        size: int | None = None,
+        modified: datetime | None = None,
+        children: list[FakeDriveNode] | None = None,
     ) -> None:
         self.name = name
         self.type = node_type
@@ -117,10 +117,10 @@ class FakeDriveNode:
         self._children = children or []
         self.data = {"name": name, "type": node_type, "size": size}
 
-    def get_children(self) -> list["FakeDriveNode"]:
+    def get_children(self) -> list[FakeDriveNode]:
         return list(self._children)
 
-    def __getitem__(self, key: str) -> "FakeDriveNode":
+    def __getitem__(self, key: str) -> FakeDriveNode:
         for child in self._children:
             if child.name == key:
                 return child
@@ -133,7 +133,7 @@ class FakeDriveNode:
 class FakeAlbumContainer(list):
     """Photo album container fixture."""
 
-    def find(self, name: Optional[str]):
+    def find(self, name: str | None):
         if name is None:
             return None
         for album in self:
@@ -220,9 +220,9 @@ class FakePhotoLibrary:
         scope: str,
         zone_name: str | None,
         sync_cursor: str,
-        all_album: Optional[FakePhotoAlbum] = None,
-        albums: Optional[FakeAlbumContainer] = None,
-        changes: Optional[list[Any]] = None,
+        all_album: FakePhotoAlbum | None = None,
+        albums: FakeAlbumContainer | None = None,
+        changes: list[Any] | None = None,
     ) -> None:
         self.key = key
         self.scope = scope
@@ -240,7 +240,7 @@ class FakePhotoLibrary:
     def recently_added(self):
         return self.all
 
-    def iter_changes(self, *, since: Optional[str] = None):
+    def iter_changes(self, *, since: str | None = None):
         _ = since
         return iter(self._changes)
 
@@ -266,9 +266,10 @@ class FakePhotosService:
         )
         self.albums = FakeAlbumContainer([photo_album])
         self.all = photo_album
-        self.shared_streams = FakeAlbumContainer(
-            [shared_stream_album, shared_stream_album2]
-        )
+        self.shared_streams = FakeAlbumContainer([
+            shared_stream_album,
+            shared_stream_album2,
+        ])
         root_changes = [
             SimpleNamespace(
                 kind="updated",
@@ -309,15 +310,16 @@ class FakePhotosService:
                 zone_name="SharedSync-TESTZONE",
                 sync_cursor="photo-sync-shared-library",
                 all_album=shared_library_album,
-                albums=FakeAlbumContainer(
-                    [shared_library_album, shared_favorites_album]
-                ),
+                albums=FakeAlbumContainer([
+                    shared_library_album,
+                    shared_favorites_album,
+                ]),
                 changes=shared_changes,
             ),
         }
         self._changes = root_changes
 
-    def iter_changes(self, *, since: Optional[str] = None):
+    def iter_changes(self, *, since: str | None = None):
         _ = since
         return iter(self._changes)
 
@@ -329,9 +331,7 @@ class FakePhotosService:
 
         return run_photo_sync(self, options)
 
-    def watch(
-        self, options, *, interval_seconds: int, iterations: Optional[int] = None
-    ):
+    def watch(self, options, *, interval_seconds: int, iterations: int | None = None):
         from pyicloud.services.photos import watch_photo_sync
 
         return watch_photo_sync(
@@ -367,7 +367,7 @@ class FakeHideMyEmail:
         return {"anonymousId": "alias-2", "hme": email, "label": label, "note": note}
 
     def update_metadata(
-        self, anonymous_id: str, label: str, note: Optional[str]
+        self, anonymous_id: str, label: str, note: str | None
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"anonymousId": anonymous_id, "label": label}
         if note is not None:
@@ -528,7 +528,7 @@ class FakeNotes:
         rows = [row for row in self.all_rows if row.folder_id == folder_id]
         return list(rows[:limit] if limit is not None else rows)
 
-    def iter_all(self, *, since: Optional[str] = None):
+    def iter_all(self, *, since: str | None = None):
         self.iter_all_requests.append(since)
         return iter(self.all_rows)
 
@@ -549,12 +549,14 @@ class FakeNotes:
     def export_note(self, note_id: str, output_dir: str, **kwargs: Any) -> str:
         note = self.get(note_id, with_attachments=False)
         path = Path(output_dir) / f"{note.id.split('/', 1)[-1].lower()}.html"
-        self.export_calls.append(
-            {"note_id": note.id, "output_dir": output_dir, **kwargs}
-        )
+        self.export_calls.append({
+            "note_id": note.id,
+            "output_dir": output_dir,
+            **kwargs,
+        })
         return str(path)
 
-    def iter_changes(self, *, since: Optional[str] = None):
+    def iter_changes(self, *, since: str | None = None):
         self.change_requests.append(since)
         return iter(self.change_rows)
 
@@ -696,7 +698,7 @@ class FakeReminders:
             )
         return list(self.list_rows.values())
 
-    def reminders(self, list_id: Optional[str] = None):
+    def reminders(self, list_id: str | None = None):
         rows = [
             reminder
             for reminder in self.reminder_rows.values()
@@ -711,13 +713,11 @@ class FakeReminders:
         results_limit: int = 200,
     ) -> ListRemindersResult:
         normalized = list_id if list_id.startswith("List/") else f"List/{list_id}"
-        self.snapshot_requests.append(
-            {
-                "list_id": normalized,
-                "include_completed": include_completed,
-                "results_limit": results_limit,
-            }
-        )
+        self.snapshot_requests.append({
+            "list_id": normalized,
+            "include_completed": include_completed,
+            "results_limit": results_limit,
+        })
         reminders = [
             reminder
             for reminder in self.reminder_rows.values()
@@ -768,12 +768,12 @@ class FakeReminders:
         title: str,
         desc: str = "",
         completed: bool = False,
-        due_date: Optional[datetime] = None,
+        due_date: datetime | None = None,
         priority: int = 0,
         flagged: bool = False,
         all_day: bool = False,
-        time_zone: Optional[str] = None,
-        parent_reminder_id: Optional[str] = None,
+        time_zone: str | None = None,
+        parent_reminder_id: str | None = None,
     ) -> Reminder:
         next_id = f"Reminder/CREATED-{len(self.reminder_rows) + 1}"
         reminder = Reminder(
@@ -871,12 +871,12 @@ class FakeReminders:
         self,
         attachment: URLAttachment,
         *,
-        url: Optional[str] = None,
-        uti: Optional[str] = None,
-        filename: Optional[str] = None,
-        file_size: Optional[int] = None,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
+        url: str | None = None,
+        uti: str | None = None,
+        filename: str | None = None,
+        file_size: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
     ) -> None:
         if url is not None:
             attachment.url = url
@@ -914,10 +914,10 @@ class FakeReminders:
         self,
         recurrence_rule: RecurrenceRule,
         *,
-        frequency: Optional[RecurrenceFrequency] = None,
-        interval: Optional[int] = None,
-        occurrence_count: Optional[int] = None,
-        first_day_of_week: Optional[int] = None,
+        frequency: RecurrenceFrequency | None = None,
+        interval: int | None = None,
+        occurrence_count: int | None = None,
+        first_day_of_week: int | None = None,
     ) -> None:
         if frequency is not None:
             recurrence_rule.frequency = frequency
@@ -971,22 +971,20 @@ class FakeReminders:
             if row_id in self.recurrence_rows
         ]
 
-    def iter_changes(self, *, since: Optional[str] = None):
+    def iter_changes(self, *, since: str | None = None):
         self.change_requests.append(since)
-        return iter(
-            [
-                ReminderChangeEvent(
-                    type="updated",
-                    reminder_id="Reminder/A",
-                    reminder=self.reminder_rows["Reminder/A"],
-                ),
-                ReminderChangeEvent(
-                    type="deleted",
-                    reminder_id="Reminder/Z",
-                    reminder=None,
-                ),
-            ]
-        )
+        return iter([
+            ReminderChangeEvent(
+                type="updated",
+                reminder_id="Reminder/A",
+                reminder=self.reminder_rows["Reminder/A"],
+            ),
+            ReminderChangeEvent(
+                type="deleted",
+                reminder_id="Reminder/Z",
+                reminder=None,
+            ),
+        ])
 
     def sync_cursor(self) -> str:
         return self.cursor
@@ -999,7 +997,7 @@ class FakeAPI:
         self,
         *,
         username: str = "user@example.com",
-        session_dir: Optional[Path] = None,
+        session_dir: Path | None = None,
         china_mainland: bool = False,
     ) -> None:
         self.requires_2fa = False
@@ -1135,10 +1133,8 @@ class FakeAPI:
     ) -> dict[str, Any]:
         if clear_local_session:
             for path in (self.session.session_path, self.session.cookiejar_path):
-                try:
+                with suppress(FileNotFoundError):
                     Path(path).unlink()
-                except FileNotFoundError:
-                    pass
             self.get_auth_status.return_value = {
                 "authenticated": False,
                 "trusted_session": False,
@@ -1176,7 +1172,7 @@ def _remember_local_account(
     has_session_file: bool = False,
     has_cookiejar_file: bool = False,
     china_mainland: bool | None = None,
-    keyring_passwords: Optional[set[str]] = None,
+    keyring_passwords: set[str] | None = None,
 ) -> FakeAPI:
     fake_api = FakeAPI(
         username=username,
@@ -1203,19 +1199,19 @@ def _remember_local_account(
 def _invoke(
     fake_api: FakeAPI,
     *args: str,
-    username: Optional[str] = "user@example.com",
-    password: Optional[str] = None,
-    interactive: Optional[bool] = None,
-    session_dir: Optional[Path] = None,
-    china_mainland: Optional[bool] = None,
-    accept_terms: Optional[bool] = None,
-    with_family: Optional[bool] = None,
-    output_format: Optional[str] = None,
-    log_level: Optional[str] = None,
-    http_proxy: Optional[str] = None,
-    https_proxy: Optional[str] = None,
+    username: str | None = "user@example.com",
+    password: str | None = None,
+    interactive: bool | None = None,
+    session_dir: Path | None = None,
+    china_mainland: bool | None = None,
+    accept_terms: bool | None = None,
+    with_family: bool | None = None,
+    output_format: str | None = None,
+    log_level: str | None = None,
+    http_proxy: str | None = None,
+    https_proxy: str | None = None,
     no_verify_ssl: bool = False,
-    keyring_passwords: Optional[set[str]] = None,
+    keyring_passwords: set[str] | None = None,
 ):
     runner = _runner()
     session_dir = session_dir or _unique_session_dir("invoke")
@@ -1279,7 +1275,7 @@ def _invoke_with_cli_args(
     fake_api: FakeAPI,
     cli_args: list[str],
     *,
-    keyring_passwords: Optional[set[str]] = None,
+    keyring_passwords: set[str] | None = None,
 ):
     runner = _runner()
     with (
@@ -1745,24 +1741,24 @@ def test_auth_keyring_delete() -> None:
         patch.object(
             context_module.utils, "delete_password_in_keyring"
         ) as delete_password,
-    ):
-        with patch.object(
+        patch.object(
             context_module.utils,
             "password_exists_in_keyring",
             side_effect=lambda candidate: not delete_password.called,
-        ):
-            result = _runner().invoke(
-                app,
-                [
-                    "auth",
-                    "keyring",
-                    "delete",
-                    "--username",
-                    "user@example.com",
-                    "--session-dir",
-                    str(session_dir),
-                ],
-            )
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "keyring",
+                "delete",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
     assert result.exit_code == 0
     delete_password.assert_called_once_with("user@example.com")
     assert "Deleted stored password from keyring." in result.stdout
@@ -2392,7 +2388,7 @@ def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() ->
 def test_auth_logout_variants_and_remote_failure() -> None:
     """Auth logout should map semantic flags to Apple's payload and keep keyring intact."""
 
-    def invoke_logout(*args: str, failing_api: Optional[FakeAPI] = None):
+    def invoke_logout(*args: str, failing_api: FakeAPI | None = None):
         session_dir = _unique_session_dir("auth-logout")
         _remember_local_account(
             session_dir,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from pyicloud.common.cloudkit import (
     CKFVInt64,
@@ -50,7 +50,7 @@ def list_query(
     list_type: ListTypeEnum,
     direction: DirectionEnum,
     offset: int,
-    extra_filters: Optional[Iterable[CKQueryFilterBy]] = None,
+    extra_filters: Iterable[CKQueryFilterBy] | None = None,
 ) -> CKQueryObject:
     """Return an asset listing query."""
 

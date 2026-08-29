@@ -30,14 +30,15 @@ Notes:
 from __future__ import annotations
 
 import argparse
-import os
-import sys
-import traceback
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from getpass import getpass
+import os
+import sys
 from time import monotonic, sleep
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence
+import traceback
+from typing import Any
 
 from pyicloud import PyiCloudService
 from pyicloud.services.reminders.models.domain import (
@@ -71,7 +72,7 @@ class ValidationTracker:
 
 @dataclass
 class RunState:
-    created: Dict[str, Reminder] = field(default_factory=dict)
+    created: dict[str, Reminder] = field(default_factory=dict)
     deleted_ids: set[str] = field(default_factory=set)
 
 
@@ -141,7 +142,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_credentials(args: argparse.Namespace) -> tuple[str, Optional[str]]:
+def resolve_credentials(args: argparse.Namespace) -> tuple[str, str | None]:
     username = args.username or input("Apple ID: ").strip()
     if not username:
         raise ValueError("Apple ID username is required.")
@@ -256,7 +257,7 @@ def pick_target_list(lists: Iterable[RemindersList], list_name: str) -> Reminder
 
 
 def approximately_same_time(
-    left: Optional[datetime], right: Optional[datetime], tolerance_seconds: int = 1
+    left: datetime | None, right: datetime | None, tolerance_seconds: int = 1
 ) -> bool:
     if left is None or right is None:
         return left is right
@@ -309,7 +310,7 @@ def main() -> int:
     args = parse_args()
     tracker = ValidationTracker()
     state = RunState()
-    api: Optional[PyiCloudService] = None
+    api: PyiCloudService | None = None
 
     try:
         api = authenticate(args)
@@ -344,12 +345,12 @@ def main() -> int:
             *,
             desc: str,
             completed: bool = False,
-            due_date: Optional[datetime] = None,
+            due_date: datetime | None = None,
             priority: int = PRIORITY_NONE,
             flagged: bool = False,
             all_day: bool = False,
-            time_zone_name: Optional[str] = None,
-            parent_reminder_id: Optional[str] = None,
+            time_zone_name: str | None = None,
+            parent_reminder_id: str | None = None,
         ) -> Reminder:
             title = f"{args.prefix} | {suffix}"
             reminder = reminders_api.create(
@@ -374,17 +375,17 @@ def main() -> int:
             case_name: str,
             reminder_id: str,
             *,
-            expected_title: Optional[str] = None,
-            expected_desc: Optional[str] = None,
-            expected_completed: Optional[bool] = None,
-            expected_due_date: Optional[datetime] = None,
-            expected_priority: Optional[int] = None,
-            expected_flagged: Optional[bool] = None,
-            expected_all_day: Optional[bool] = None,
-            expected_time_zone: Optional[str] = None,
-            expected_parent_reminder_id: Optional[str] = None,
+            expected_title: str | None = None,
+            expected_desc: str | None = None,
+            expected_completed: bool | None = None,
+            expected_due_date: datetime | None = None,
+            expected_priority: int | None = None,
+            expected_flagged: bool | None = None,
+            expected_all_day: bool | None = None,
+            expected_time_zone: str | None = None,
+            expected_parent_reminder_id: str | None = None,
         ) -> Reminder:
-            matched: dict[str, Optional[Reminder]] = {"reminder": None}
+            matched: dict[str, Reminder | None] = {"reminder": None}
 
             def _matches_expectations(fresh: Reminder) -> bool:
                 if expected_title is not None and fresh.title != expected_title:
@@ -415,12 +416,10 @@ def main() -> int:
                     and fresh.time_zone != expected_time_zone
                 ):
                     return False
-                if (
+                return not (
                     expected_parent_reminder_id is not None
                     and fresh.parent_reminder_id != expected_parent_reminder_id
-                ):
-                    return False
-                return True
+                )
 
             def _poll_round_trip() -> bool:
                 try:
@@ -517,8 +516,8 @@ def main() -> int:
             predicate: Callable[[Reminder], bool],
             *,
             allow_missing: bool = False,
-        ) -> tuple[Optional[Reminder], bool]:
-            matched: dict[str, Optional[Reminder] | bool] = {
+        ) -> tuple[Reminder | None, bool]:
+            matched: dict[str, Reminder | None | bool] = {
                 "reminder": None,
                 "missing": False,
             }
@@ -1139,9 +1138,9 @@ def main() -> int:
 
         visible_in_list = wait_until(
             "created reminders to appear in reminders(list_id=...) output",
-            lambda: expected_created_ids.issubset(
-                {r.id for r in reminders_api.reminders(list_id=target_list.id)}
-            ),
+            lambda: expected_created_ids.issubset({
+                r.id for r in reminders_api.reminders(list_id=target_list.id)
+            }),
             timeout_seconds=args.consistency_timeout,
             poll_interval=args.poll_interval,
         )
@@ -1152,9 +1151,9 @@ def main() -> int:
 
         visible_globally = wait_until(
             "created reminders to appear in reminders() output",
-            lambda: expected_created_ids.issubset(
-                {r.id for r in reminders_api.reminders()}
-            ),
+            lambda: expected_created_ids.issubset({
+                r.id for r in reminders_api.reminders()
+            }),
             timeout_seconds=args.consistency_timeout,
             poll_interval=args.poll_interval,
         )

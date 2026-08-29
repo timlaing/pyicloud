@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterable
+from datetime import datetime, timezone
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any
 
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.common.cloudkit.models import CKAssetToken

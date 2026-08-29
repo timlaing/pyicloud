@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import base64
+from binascii import Error as BinasciiError
+from collections.abc import Callable, Mapping
+from contextlib import suppress
+from dataclasses import dataclass, field
 import hashlib
+from html.parser import HTMLParser
 import json
 import logging
 import os
@@ -11,12 +16,9 @@ import socket
 import ssl
 import struct
 import time
-import uuid
-from binascii import Error as BinasciiError
-from dataclasses import dataclass, field
-from html.parser import HTMLParser
-from typing import Any, Callable, Mapping, Optional, Protocol
+from typing import Any, Protocol
 from urllib.parse import urlparse
+import uuid
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -75,10 +77,10 @@ class Hsa2BootContext:
     auth_factors: tuple[str, ...] = ()
     bridge_initiate_data: dict[str, Any] = field(default_factory=dict)
     phone_number_verification: dict[str, Any] = field(default_factory=dict)
-    source_app_id: Optional[str] = None
+    source_app_id: str | None = None
 
     @classmethod
-    def from_auth_options(cls, auth_options: Mapping[str, Any]) -> "Hsa2BootContext":
+    def from_auth_options(cls, auth_options: Mapping[str, Any]) -> Hsa2BootContext:
         """Build a normalized boot context from Apple's auth-options payload."""
         bridge_initiate_data = auth_options.get("bridgeInitiateData")
         if not isinstance(bridge_initiate_data, dict):
@@ -143,22 +145,22 @@ class _BridgePushPayloadModel(BaseModel):
     )
 
     # Apple's newer protocol sends flowid instead of echoing back sessionUUID
-    session_uuid: Optional[StrictStr] = Field(default=None, alias="sessionUUID")
-    flow_id: Optional[StrictStr] = Field(default=None, alias="flowid")
-    next_step: Optional[StrictStr | StrictInt] = Field(default=None, alias="nextStep")
-    rui_url_key: Optional[str] = Field(default=None, alias="ruiURLKey")
-    txnid: Optional[StrictStr] = None
-    salt: Optional[StrictStr] = None
-    mid: Optional[StrictStr] = None
-    idmsdata: Optional[StrictStr] = None
+    session_uuid: StrictStr | None = Field(default=None, alias="sessionUUID")
+    flow_id: StrictStr | None = Field(default=None, alias="flowid")
+    next_step: StrictStr | StrictInt | None = Field(default=None, alias="nextStep")
+    rui_url_key: str | None = Field(default=None, alias="ruiURLKey")
+    txnid: StrictStr | None = None
+    salt: StrictStr | None = None
+    mid: StrictStr | None = None
+    idmsdata: StrictStr | None = None
     akdata: Any = None
-    data: Optional[StrictStr] = None
-    encrypted_code: Optional[StrictStr] = Field(default=None, alias="encryptedCode")
-    error_code: Optional[StrictInt] = Field(default=None, alias="ec")
+    data: StrictStr | None = None
+    encrypted_code: StrictStr | None = Field(default=None, alias="encryptedCode")
+    error_code: StrictInt | None = Field(default=None, alias="ec")
 
     @field_validator("session_uuid", "flow_id")
     @classmethod
-    def _validate_session_uuid(cls, value: Optional[str]) -> Optional[str]:
+    def _validate_session_uuid(cls, value: str | None) -> str | None:
         """Reject blank bridge session identifiers."""
         if value is not None and not value.strip():
             raise ValueError("sessionUUID/flowid must not be blank")
@@ -173,9 +175,7 @@ class _BridgePushPayloadModel(BaseModel):
         "encrypted_code",
     )
     @classmethod
-    def _validate_optional_non_empty_strings(
-        cls, value: Optional[str]
-    ) -> Optional[str]:
+    def _validate_optional_non_empty_strings(cls, value: str | None) -> str | None:
         """Reject present-but-blank optional bridge string fields."""
         if value is not None and not value.strip():
             raise ValueError("Bridge payload strings must not be blank")
@@ -183,7 +183,7 @@ class _BridgePushPayloadModel(BaseModel):
 
     @field_validator("next_step")
     @classmethod
-    def _validate_next_step(cls, value: Optional[str | int]) -> Optional[str | int]:
+    def _validate_next_step(cls, value: str | int | None) -> str | int | None:
         """Reject blank next-step markers while allowing ints or strings."""
         if isinstance(value, str) and not value.strip():
             raise ValueError("nextStep must not be blank")
@@ -196,19 +196,19 @@ class BridgePushPayload:
 
     payload: dict[str, Any]
     session_uuid: str
-    next_step: Optional[str] = None
-    rui_url_key: Optional[str] = None
-    txnid: Optional[str] = None
-    salt: Optional[str] = None
-    mid: Optional[str] = None
-    idmsdata: Optional[str] = None
+    next_step: str | None = None
+    rui_url_key: str | None = None
+    txnid: str | None = None
+    salt: str | None = None
+    mid: str | None = None
+    idmsdata: str | None = None
     akdata: Any = None
-    data: Optional[str] = None
-    encrypted_code: Optional[str] = None
-    error_code: Optional[int] = None
+    data: str | None = None
+    encrypted_code: str | None = None
+    error_code: int | None = None
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "BridgePushPayload":
+    def from_payload(cls, payload: dict[str, Any]) -> BridgePushPayload:
         """Validate and normalize one decoded bridge push payload."""
         try:
             validated = _BridgePushPayloadModel.model_validate(payload)
@@ -249,21 +249,21 @@ class TrustedDeviceBridgeState:
     connection_path: str
     push_token: str
     session_uuid: str
-    websocket: Optional[_WebSocketLike]
+    websocket: _WebSocketLike | None
     topic: str
     topics_by_hash: dict[str, str]
-    source_app_id: Optional[str] = None
-    next_step: Optional[str] = None
-    rui_url_key: Optional[str] = None
+    source_app_id: str | None = None
+    next_step: str | None = None
+    rui_url_key: str | None = None
     push_payload: dict[str, Any] = field(default_factory=dict)
-    txnid: Optional[str] = None
-    salt: Optional[str] = None
-    mid: Optional[str] = None
-    idmsdata: Optional[str] = None
+    txnid: str | None = None
+    salt: str | None = None
+    mid: str | None = None
+    idmsdata: str | None = None
     akdata: Any = None
-    data: Optional[str] = None
-    encrypted_code: Optional[str] = None
-    error_code: Optional[int] = None
+    data: str | None = None
+    encrypted_code: str | None = None
+    error_code: int | None = None
 
     def apply_push_payload(self, push_payload: BridgePushPayload) -> None:
         """Persist the latest bridge push metadata in the live bridge session."""
@@ -296,7 +296,7 @@ class BridgeStepRequest:
     data: str
     push_token: str
     next_step: int
-    idmsdata: Optional[str] = None
+    idmsdata: str | None = None
     akdata: Any = None
 
     def as_json(self) -> dict[str, Any]:
@@ -339,7 +339,7 @@ class _ConnectionResponse:
 
     push_token_b64: str = ""
     status: int = 0
-    server_timestamp_seconds: Optional[int] = None
+    server_timestamp_seconds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -374,10 +374,10 @@ class _AcknowledgementMessage:
 class _ServerMessage:
     """One websocket frame decoded into its known top-level message variants."""
 
-    connection_response: Optional[_ConnectionResponse] = None
-    push_message: Optional[_PushMessage] = None
-    channel_subscription_response: Optional[_ChannelSubscriptionResponse] = None
-    push_acknowledgment: Optional[_AcknowledgementMessage] = None
+    connection_response: _ConnectionResponse | None = None
+    push_message: _PushMessage | None = None
+    channel_subscription_response: _ChannelSubscriptionResponse | None = None
+    push_acknowledgment: _AcknowledgementMessage | None = None
     field_numbers: tuple[int, ...] = ()
 
 
@@ -418,7 +418,7 @@ class _BootArgsHTMLParser(HTMLParser):
         """Return the collected boot_args JSON text."""
         return "".join(self._chunks).strip()
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Start collecting data when the boot_args script tag is found."""
         if tag != "script" or self._found:
             return
@@ -683,16 +683,14 @@ def _encode_connection_message(
     public_key: bytes, nonce: bytes, signature: bytes
 ) -> bytes:
     """Encode the initial bridge websocket bootstrap message."""
-    connection_message = b"".join(
-        [
-            _encode_bytes_field(1, public_key),
-            _encode_bytes_field(2, nonce),
-            _encode_bytes_field(3, _encode_bridge_signature(signature)),
-            _encode_bytes_field(
-                5, _encode_uint32_field(1, NEW_CONNECTION_EXPIRATION_SECONDS)
-            ),
-        ]
-    )
+    connection_message = b"".join([
+        _encode_bytes_field(1, public_key),
+        _encode_bytes_field(2, nonce),
+        _encode_bytes_field(3, _encode_bridge_signature(signature)),
+        _encode_bytes_field(
+            5, _encode_uint32_field(1, NEW_CONNECTION_EXPIRATION_SECONDS)
+        ),
+    ])
     return _encode_bytes_field(1, connection_message)
 
 
@@ -714,12 +712,10 @@ def _encode_web_filter_message(allowed_topics: list[str]) -> bytes:
 
 def _encode_ack_message(topic: bytes, message_id: int) -> bytes:
     """Encode the acknowledgment frame for one delivered push message."""
-    ack_payload = b"".join(
-        [
-            _encode_bytes_field(1, topic),
-            _encode_uint32_field(2, message_id),
-        ]
-    )
+    ack_payload = b"".join([
+        _encode_bytes_field(1, topic),
+        _encode_uint32_field(2, message_id),
+    ])
     return _encode_bytes_field(2, ack_payload)
 
 
@@ -791,7 +787,7 @@ def _build_nonce(timestamp_ms: int) -> bytes:
 
 
 def _summarize_identifier(
-    value: Optional[str], *, prefix: int = 8, empty: str = "<none>"
+    value: str | None, *, prefix: int = 8, empty: str = "<none>"
 ) -> str:
     """Shorten sensitive identifiers before logging them at debug level."""
     if not value:
@@ -973,7 +969,7 @@ class _RawWebSocketClient:
     def read_message(self) -> bytes:
         """Read one complete websocket message, handling control frames inline."""
         fragments: list[bytes] = []
-        opcode: Optional[int] = None
+        opcode: int | None = None
 
         while True:
             first_byte, second_byte = self._read_exact(2)
@@ -1023,10 +1019,8 @@ class _RawWebSocketClient:
         except OSError:
             pass
         finally:
-            try:
+            with suppress(OSError):
                 self._socket.close()
-            except OSError:
-                pass
 
 
 class TrustedDeviceBridgeBootstrapper:
@@ -1036,10 +1030,9 @@ class TrustedDeviceBridgeBootstrapper:
         self,
         *,
         timeout: float = WEBSOCKET_TIMEOUT_SECONDS,
-        websocket_factory: Optional[
-            Callable[[str, float, str, str], _WebSocketLike]
-        ] = None,
-        prover_factory: Optional[Callable[[], TrustedDeviceBridgeProver]] = None,
+        websocket_factory: Callable[[str, float, str, str], _WebSocketLike]
+        | None = None,
+        prover_factory: Callable[[], TrustedDeviceBridgeProver] | None = None,
     ) -> None:
         """Configure websocket and prover factories for bridge operations."""
         self.timeout = timeout
@@ -1071,8 +1064,8 @@ class TrustedDeviceBridgeBootstrapper:
             source_app_id,
         )
 
-        timestamp_ms: Optional[int] = None
-        last_error: Optional[Exception] = None
+        timestamp_ms: int | None = None
+        last_error: Exception | None = None
         for _ in range(2):
             nonce = _build_nonce(timestamp_ms or int(time.time() * 1000))
             signature = private_key.sign(nonce, ec.ECDSA(hashes.SHA256()))
@@ -1160,7 +1153,7 @@ class TrustedDeviceBridgeBootstrapper:
                     "Trusted-device bridge received INVALID_NONCE; retrying with server timestamp %s",
                     timestamp_ms,
                 )
-            except (OSError, socket.timeout, ssl.SSLError) as exc:
+            except (TimeoutError, OSError, ssl.SSLError) as exc:
                 last_error = exc
                 LOGGER.debug(
                     "Trusted-device websocket transport error during bootstrap.",
@@ -1195,7 +1188,7 @@ class TrustedDeviceBridgeBootstrapper:
         """Generate the browser-style bridge session UUID string."""
         return f"{uuid.uuid4()}-{int(time.time())}"
 
-    def close(self, bridge_state: Optional[TrustedDeviceBridgeState]) -> None:
+    def close(self, bridge_state: TrustedDeviceBridgeState | None) -> None:
         """Close and detach the websocket associated with an active bridge session."""
 
         if bridge_state is None:
@@ -1382,7 +1375,7 @@ class TrustedDeviceBridgeBootstrapper:
             raise PyiCloudTrustedDeviceVerificationException(
                 "Trusted-device bridge verification failed while waiting for the next bridge push."
             ) from exc
-        except (OSError, socket.timeout, ssl.SSLError) as exc:
+        except (TimeoutError, OSError, ssl.SSLError) as exc:
             raise PyiCloudTrustedDeviceVerificationException(
                 "Trusted-device bridge verification failed due to a websocket transport error."
             ) from exc
@@ -1585,7 +1578,7 @@ class TrustedDeviceBridgeBootstrapper:
         bridge_state: TrustedDeviceBridgeState,
         next_step: int,
         data: str,
-        idmsdata: Optional[str],
+        idmsdata: str | None,
         akdata: Any,
     ) -> dict[str, Any]:
         """Build the JSON payload for one bridge step POST."""
@@ -1607,7 +1600,7 @@ class TrustedDeviceBridgeBootstrapper:
         bridge_state: TrustedDeviceBridgeState,
         next_step: int,
         data: str,
-        idmsdata: Optional[str],
+        idmsdata: str | None,
         akdata: Any,
     ) -> Any:
         """POST one bridge step and enforce the small set of valid statuses."""

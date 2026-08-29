@@ -3,36 +3,34 @@
 from __future__ import annotations
 
 import base64
-import json
-import logging
-import plistlib
-import struct
-import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import json
+import logging
 from pathlib import Path
+import plistlib
+import struct
 from typing import Any
 from xml.etree import ElementTree
+import zlib
 
 from .mappers import decode_encrypted_text, record_field_value
 
 LOGGER = logging.getLogger(__name__)
-RAW_EXTENSIONS = frozenset(
-    {
-        ".arw",
-        ".cr2",
-        ".cr3",
-        ".crw",
-        ".dng",
-        ".nef",
-        ".nrf",
-        ".nrw",
-        ".orf",
-        ".pef",
-        ".raf",
-        ".rw2",
-    }
-)
+RAW_EXTENSIONS = frozenset({
+    ".arw",
+    ".cr2",
+    ".cr3",
+    ".crw",
+    ".dng",
+    ".nef",
+    ".nrf",
+    ".nrw",
+    ".orf",
+    ".pef",
+    ".raf",
+    ".rw2",
+})
 PYICLOUD_XMP_TOOLKIT = "pyicloud photos-cloudkit"
 
 
@@ -80,9 +78,14 @@ def apply_align_raw_policy(resources: dict[str, Any], policy: str) -> dict[str, 
 
     original_is_raw = resource_is_raw(original)
     alternative_is_raw = resource_is_raw(alternative)
-    if policy == "original" and alternative_is_raw and not original_is_raw:
-        aligned["original"], aligned["alternative"] = alternative, original
-    elif policy == "alternative" and original_is_raw and not alternative_is_raw:
+    if (
+        policy == "original"
+        and alternative_is_raw
+        and not original_is_raw
+        or policy == "alternative"
+        and original_is_raw
+        and not alternative_is_raw
+    ):
         aligned["original"], aligned["alternative"] = alternative, original
     return aligned
 

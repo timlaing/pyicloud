@@ -8,7 +8,6 @@ perform any network I/O and can be safely used in tests.
 from __future__ import annotations
 
 import html
-from typing import Dict, List, Optional
 
 from ..protobuf import notes_pb2 as pb
 
@@ -16,7 +15,7 @@ from ..protobuf import notes_pb2 as pb
 from .renderer import StyleSig, _merge_runs, _slice_for_run  # type: ignore
 
 
-def _enum_name(enum_cls, value: Optional[int]) -> str:
+def _enum_name(enum_cls, value: int | None) -> str:
     if value is None:
         return "(none)"
     try:
@@ -25,7 +24,7 @@ def _enum_name(enum_cls, value: Optional[int]) -> str:
         return str(value)
 
 
-def map_attribute_runs(note: pb.Note) -> List[Dict[str, object]]:
+def map_attribute_runs(note: pb.Note) -> list[dict[str, object]]:
     """Return a list of dictionaries mapping each AttributeRun to its text.
 
     Each dict contains:
@@ -38,29 +37,25 @@ def map_attribute_runs(note: pb.Note) -> List[Dict[str, object]]:
     """
     text = note.note_text or ""
     pos = 0
-    out: List[Dict[str, object]] = []
+    out: list[dict[str, object]] = []
     for idx, r in enumerate(note.attribute_run):
         seg, pos2 = _slice_for_run(text, pos, r.length)
         ps = r.paragraph_style if r.HasField("paragraph_style") else None
-        out.append(
-            {
-                "index": idx,
-                "utf16_start": pos,
-                "utf16_len": int(getattr(r, "length", 0) or 0),
-                "text": seg,
-                "style_type": getattr(ps, "style_type", None)
-                if ps is not None
-                else None,
-                "alignment": getattr(ps, "alignment", None) if ps is not None else None,
-                "writing_direction": getattr(ps, "writing_direction_paragraph", None)
-                if ps is not None
-                else None,
-                "indent_amount": getattr(ps, "indent_amount", None)
-                if ps is not None
-                else None,
-                "has_attachment": bool(r.HasField("attachment_info")),
-            }
-        )
+        out.append({
+            "index": idx,
+            "utf16_start": pos,
+            "utf16_len": int(getattr(r, "length", 0) or 0),
+            "text": seg,
+            "style_type": getattr(ps, "style_type", None) if ps is not None else None,
+            "alignment": getattr(ps, "alignment", None) if ps is not None else None,
+            "writing_direction": getattr(ps, "writing_direction_paragraph", None)
+            if ps is not None
+            else None,
+            "indent_amount": getattr(ps, "indent_amount", None)
+            if ps is not None
+            else None,
+            "has_attachment": bool(r.HasField("attachment_info")),
+        })
         pos = pos2
     return out
 
@@ -72,7 +67,8 @@ def dump_runs_text(note: pb.Note) -> str:
         raw = str(row["text"]) if row.get("text") is not None else ""
         # Make control characters explicit to see line boundaries clearly
         pretty = (
-            raw.replace("\n", "⏎\n")
+            raw
+            .replace("\n", "⏎\n")
             .replace("\u2028", "⤶\n")
             .replace("\x00", "␀")
             .replace("\ufffc", "{OBJ}")
@@ -101,7 +97,7 @@ def annotate_note_runs_html(note: pb.Note) -> str:
         "#D4EDDA",  # green
         "#E2E3E5",  # gray
     ]
-    spans: List[str] = []
+    spans: list[str] = []
     for row in map_attribute_runs(note):
         idx = int(row["index"])  # type: ignore[arg-type]
         bg = palette[idx % len(palette)]
@@ -113,7 +109,8 @@ def annotate_note_runs_html(note: pb.Note) -> str:
             f"{_enum_name(pb.WritingDirection, row.get('writing_direction'))}"
         )
         safe = (
-            html.escape(raw)
+            html
+            .escape(raw)
             .replace("\u2028", "<span class=lb>⤶</span>")
             .replace("\n", "<span class=lb>⏎</span>")
             .replace("\ufffc", "<span class=obj>{OBJ}</span>")
@@ -134,29 +131,27 @@ def annotate_note_runs_html(note: pb.Note) -> str:
     )
 
 
-def map_merged_runs(note: pb.Note) -> List[Dict[str, object]]:
+def map_merged_runs(note: pb.Note) -> list[dict[str, object]]:
     """Same as map_attribute_runs, but after the renderer's run merge step.
 
     Useful to understand how the renderer will chunk paragraphs.
     """
     text = note.note_text or ""
     merged = _merge_runs(note.attribute_run)
-    out: List[Dict[str, object]] = []
+    out: list[dict[str, object]] = []
     pos = 0
     for idx, mr in enumerate(merged):
         seg, pos = _slice_for_run(text, pos, mr.length)
         sig: StyleSig = mr.sig
-        out.append(
-            {
-                "index": idx,
-                "utf16_start": pos - mr.length,
-                "utf16_len": mr.length,
-                "text": seg,
-                "style_type": getattr(sig, "style_type", None),
-                "alignment": getattr(sig, "alignment", None),
-                "writing_direction": getattr(sig, "writing_direction", None),
-                "indent_amount": getattr(sig, "indent_amount", None),
-                "has_attachment": getattr(mr, "attachment", None) is not None,
-            }
-        )
+        out.append({
+            "index": idx,
+            "utf16_start": pos - mr.length,
+            "utf16_len": mr.length,
+            "text": seg,
+            "style_type": getattr(sig, "style_type", None),
+            "alignment": getattr(sig, "alignment", None),
+            "writing_direction": getattr(sig, "writing_direction", None),
+            "indent_amount": getattr(sig, "indent_amount", None),
+            "has_attachment": getattr(mr, "attachment", None) is not None,
+        })
     return out

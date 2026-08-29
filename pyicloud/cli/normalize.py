@@ -161,10 +161,7 @@ def normalize_photo_library(key: str, library: Any) -> dict[str, Any]:
     """Normalize a photo library."""
 
     zone_id = getattr(library, "zone_id", None)
-    if isinstance(zone_id, dict):
-        zone_name = zone_id.get("zoneName")
-    else:
-        zone_name = None
+    zone_name = zone_id.get("zoneName") if isinstance(zone_id, dict) else None
     return {
         "key": key,
         "scope": getattr(library, "scope", None),
@@ -192,15 +189,13 @@ def normalize_photo_details(item: Any) -> dict[str, Any]:
     """Normalize a detailed photo asset payload."""
 
     payload = normalize_photo(item)
-    payload.update(
-        {
-            "asset_date": getattr(item, "asset_date", None),
-            "added_date": getattr(item, "added_date", None),
-            "dimensions": getattr(item, "dimensions", None),
-            "is_live_photo": getattr(item, "is_live_photo", None),
-            "versions": getattr(item, "versions", None),
-        }
-    )
+    payload.update({
+        "asset_date": getattr(item, "asset_date", None),
+        "added_date": getattr(item, "added_date", None),
+        "dimensions": getattr(item, "dimensions", None),
+        "is_live_photo": getattr(item, "is_live_photo", None),
+        "versions": getattr(item, "versions", None),
+    })
     return payload
 
 
@@ -313,9 +308,7 @@ def search_notes_by_title(
             return False
         if exact and note_title == exact:
             return True
-        if contains and contains in note_title.lower():
-            return True
-        return False
+        return bool(contains and contains in note_title.lower())
 
     def dedupe_key(item: Any) -> Any:
         return getattr(item, "id", None) or id(item)

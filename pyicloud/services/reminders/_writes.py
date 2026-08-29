@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from datetime import datetime, timezone
 import logging
 import time
+from typing import Any
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
 
 from pyicloud.common.cloudkit import (
     CKModifyOperation,
@@ -92,11 +93,11 @@ class RemindersWriteAPI:
     def _validated_image_attachment(
         attachment: ImageAttachment,
         *,
-        uti: Optional[str] = None,
-        filename: Optional[str] = None,
-        file_size: Optional[int] = None,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
+        uti: str | None = None,
+        filename: str | None = None,
+        file_size: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
     ) -> ImageAttachment:
         """Validate image metadata updates before sending a remote write."""
         return ImageAttachment(
@@ -121,7 +122,7 @@ class RemindersWriteAPI:
         interval: int,
         occurrence_count: int,
         first_day_of_week: int,
-        record_change_tag: Optional[str] = None,
+        record_change_tag: str | None = None,
     ) -> RecurrenceRule:
         """Validate recurrence values before mutating remote state."""
         return RecurrenceRule(
@@ -138,9 +139,9 @@ class RemindersWriteAPI:
     def _completion_datetime(
         *,
         completed: bool,
-        completed_date: Optional[datetime],
+        completed_date: datetime | None,
         now_ms: int,
-    ) -> Optional[datetime]:
+    ) -> datetime | None:
         """Resolve the completion timestamp to persist for a reminder write."""
         if not completed:
             return None
@@ -155,9 +156,9 @@ class RemindersWriteAPI:
         *,
         record_name: str,
         record_type: str,
-        fields: Dict[str, Any],
-        record_change_tag: Optional[str] = None,
-        parent_record_name: Optional[str] = None,
+        fields: dict[str, Any],
+        record_change_tag: str | None = None,
+        parent_record_name: str | None = None,
     ) -> CKWriteRecord:
         """Build a typed CloudKit modify-record payload."""
         parent = None
@@ -182,9 +183,10 @@ class RemindersWriteAPI:
     ) -> CKModifyOperation:
         """Build a Reminder update operation for an ID-list field."""
         now_ms = int(time.time() * 1000)
-        token_map = _generate_resolution_token_map(
-            [token_field_name, "lastModifiedDate"]
-        )
+        token_map = _generate_resolution_token_map([
+            token_field_name,
+            "lastModifiedDate",
+        ])
         reminder_record_name = self._reminder_record_name(reminder.id)
         return CKModifyOperation(
             operationType="update",
@@ -206,8 +208,8 @@ class RemindersWriteAPI:
         operation_name: str,
         record_name: str,
         record_type: str,
-        record_change_tag: Optional[str],
-        fields: Dict[str, Any],
+        record_change_tag: str | None,
+        fields: dict[str, Any],
         model_obj: Any,
     ) -> CKModifyResponse:
         """Run a one-record update and refresh the local object's change tag."""
@@ -251,7 +253,7 @@ class RemindersWriteAPI:
         record_type: str,
         field_name: str,
         token_field_name: str,
-        child_fields: Dict[str, Any],
+        child_fields: dict[str, Any],
         operation_name: str,
     ) -> tuple[str, CKModifyResponse]:
         """Create a linked child record and update the reminder ID list."""
@@ -303,7 +305,7 @@ class RemindersWriteAPI:
         operation_name: str,
     ) -> None:
         """Soft-delete a linked child record and update the reminder ID list."""
-        child_record_name = _as_record_name(getattr(child, "id"), prefix)
+        child_record_name = _as_record_name(child.id, prefix)
         child_uuid = _as_raw_id(child_record_name, prefix)
         reminder_record_name = self._reminder_record_name(reminder.id)
         child_reminder_id = getattr(child, "reminder_id", None)
@@ -328,7 +330,7 @@ class RemindersWriteAPI:
             raw_ids=linked_ids,
         )
 
-        child_fields: Dict[str, Any] = {
+        child_fields: dict[str, Any] = {
             "Deleted": {"type": "INT64", "value": 1},
         }
         if child_reminder_id:
@@ -367,12 +369,12 @@ class RemindersWriteAPI:
         title: str,
         desc: str = "",
         completed: bool = False,
-        due_date: Optional[datetime] = None,
+        due_date: datetime | None = None,
         priority: int = 0,
         flagged: bool = False,
         all_day: bool = False,
-        time_zone: Optional[str] = None,
-        parent_reminder_id: Optional[str] = None,
+        time_zone: str | None = None,
+        parent_reminder_id: str | None = None,
     ) -> Reminder:
         """Create a new Reminder inside a List, optionally as a child reminder."""
         reminder_uuid = str(uuid.uuid4()).upper()
@@ -848,12 +850,12 @@ class RemindersWriteAPI:
         self,
         attachment: Attachment,
         *,
-        url: Optional[str] = None,
-        uti: Optional[str] = None,
-        filename: Optional[str] = None,
-        file_size: Optional[int] = None,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
+        url: str | None = None,
+        uti: str | None = None,
+        filename: str | None = None,
+        file_size: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
     ) -> None:
         """Update an attachment record (URL fields or image metadata fields)."""
         fields: dict[str, Any] = {}
@@ -1005,10 +1007,10 @@ class RemindersWriteAPI:
         self,
         recurrence_rule: RecurrenceRule,
         *,
-        frequency: Optional[RecurrenceFrequency] = None,
-        interval: Optional[int] = None,
-        occurrence_count: Optional[int] = None,
-        first_day_of_week: Optional[int] = None,
+        frequency: RecurrenceFrequency | None = None,
+        interval: int | None = None,
+        occurrence_count: int | None = None,
+        first_day_of_week: int | None = None,
     ) -> None:
         """Update an existing recurrence rule."""
         fields: dict[str, Any] = {}

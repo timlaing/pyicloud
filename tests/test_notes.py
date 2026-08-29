@@ -1,13 +1,13 @@
 """Tests for the Notes service."""
 
+from datetime import datetime
 import importlib
 import json
 import os
-import tempfile
-import unittest
-from datetime import datetime
 from pathlib import Path
+import tempfile
 from typing import Annotated
+import unittest
 from unittest.mock import MagicMock, mock_open, patch
 
 from pydantic import BaseModel, BeforeValidator, ValidationError
@@ -33,11 +33,9 @@ from pyicloud.services.notes.client import (
     CloudKitNotesClient,
     NotesApiError,
     NotesAuthError,
-)
-from pyicloud.services.notes.client import NotesError as ClientNotesError
-from pyicloud.services.notes.client import (
     NotesRateLimited,
 )
+from pyicloud.services.notes.client import NotesError as ClientNotesError
 from pyicloud.services.notes.rendering.exporter import decode_and_parse_note, write_html
 from pyicloud.services.notes.service import NoteNotFound
 
@@ -404,9 +402,11 @@ class NotesServiceTest(unittest.TestCase):
         self.assertTrue(hasattr(module, "NoteExporter"))
 
     def test_notes_service_render_note_uses_lazy_importer(self):
-        record = CKRecord.model_validate(
-            {"recordName": "Note/1", "recordType": "Note", "fields": {}}
-        )
+        record = CKRecord.model_validate({
+            "recordName": "Note/1",
+            "recordType": "Note",
+            "fields": {},
+        })
         self.service.raw.lookup = MagicMock(return_value=MagicMock(records=[record]))
 
         with (
@@ -429,9 +429,11 @@ class NotesServiceTest(unittest.TestCase):
         mock_render.assert_called_once()
 
     def test_notes_service_export_note_uses_lazy_importer(self):
-        record = CKRecord.model_validate(
-            {"recordName": "Note/1", "recordType": "Note", "fields": {}}
-        )
+        record = CKRecord.model_validate({
+            "recordName": "Note/1",
+            "recordType": "Note",
+            "fields": {},
+        })
         self.service.raw.lookup = MagicMock(return_value=MagicMock(records=[record]))
         output_dir = os.path.join(
             tempfile.gettempdir(),
@@ -533,19 +535,17 @@ class NotesServiceTest(unittest.TestCase):
     def test_notes_service_folders_treats_subfolder_flag_as_optional(self):
         """Folder listing should still work when Apple omits the subfolder flag."""
 
-        folder_record = CKRecord.model_validate(
-            {
-                "recordName": "Folder/2",
-                "recordType": "SearchIndexes",
-                "fields": {
-                    "TitleEncrypted": {
-                        "type": "STRING",
-                        "value": "Personal",
-                        "isEncrypted": True,
-                    },
+        folder_record = CKRecord.model_validate({
+            "recordName": "Folder/2",
+            "recordType": "SearchIndexes",
+            "fields": {
+                "TitleEncrypted": {
+                    "type": "STRING",
+                    "value": "Personal",
+                    "isEncrypted": True,
                 },
-            }
-        )
+            },
+        })
         self.service.raw.query = MagicMock(
             return_value=MagicMock(records=[folder_record], continuationMarker=None)
         )
@@ -571,18 +571,16 @@ class NotesServiceTest(unittest.TestCase):
             )
 
     def test_decode_and_parse_note_returns_none_on_parse_failure(self):
-        record = CKRecord.model_validate(
-            {
-                "recordName": "Note/1",
-                "recordType": "Note",
-                "fields": {
-                    "TextDataEncrypted": {
-                        "type": "ENCRYPTED_BYTES",
-                        "value": "aGVsbG8=",
-                    }
-                },
-            }
-        )
+        record = CKRecord.model_validate({
+            "recordName": "Note/1",
+            "recordType": "Note",
+            "fields": {
+                "TextDataEncrypted": {
+                    "type": "ENCRYPTED_BYTES",
+                    "value": "aGVsbG8=",
+                }
+            },
+        })
 
         with (
             patch(
@@ -615,28 +613,24 @@ class NotesServiceTest(unittest.TestCase):
             expires: Annotated[datetime, BeforeValidator(_from_secs_or_millis)]
 
         with self.assertRaises(ValidationError):
-            Demo.model_validate(
-                {
-                    "created": object(),
-                    "expires": object(),
-                }
-            )
+            Demo.model_validate({
+                "created": object(),
+                "expires": object(),
+            })
 
     def test_shared_cloudkit_share_allows_encrypted_string_fields(self):
         """Shared cloudkit.share records may expose STRING + isEncrypted fields."""
-        record = CKRecord.model_validate(
-            {
-                "recordName": "Share-123",
-                "recordType": "cloudkit.share",
-                "fields": {
-                    "SnippetEncrypted": {
-                        "value": "Shared snippet",
-                        "type": "STRING",
-                        "isEncrypted": True,
-                    }
-                },
-            }
-        )
+        record = CKRecord.model_validate({
+            "recordName": "Share-123",
+            "recordType": "cloudkit.share",
+            "fields": {
+                "SnippetEncrypted": {
+                    "value": "Shared snippet",
+                    "type": "STRING",
+                    "isEncrypted": True,
+                }
+            },
+        })
 
         self.assertEqual(record.fields.get_value("SnippetEncrypted"), "Shared snippet")
         self.assertEqual(
@@ -646,86 +640,84 @@ class NotesServiceTest(unittest.TestCase):
 
     def test_shared_cloudkit_share_participant_surfaces_are_typed(self):
         """Shared-record participant and PCS surfaces parse into structured models."""
-        record = CKRecord.model_validate(
-            {
-                "recordName": "Share-123",
-                "recordType": "cloudkit.share",
-                "publicPermission": "NONE",
-                "participants": [
-                    {
-                        "participantId": "owner-1",
-                        "userIdentity": {
-                            "userRecordName": "_owner",
-                            "nameComponents": {
-                                "givenName": "Jacob",
-                                "familyName": "Arnould",
-                            },
-                            "lookupInfo": {
-                                "emailAddress": "jacob@example.com",
-                            },
-                        },
-                        "type": "OWNER",
-                        "acceptanceStatus": "ACCEPTED",
-                        "permission": "READ_WRITE",
-                        "customRole": "",
-                        "isApprovedRequester": False,
-                        "orgUser": False,
-                        "publicKeyVersion": 1,
-                        "outOfNetworkPrivateKey": "",
-                        "outOfNetworkKeyType": 0,
-                        "protectionInfo": {
-                            "bytes": "aGVsbG8=",
-                            "pcsChangeTag": "owner-tag",
-                        },
-                    }
-                ],
-                "requesters": [],
-                "blocked": [],
-                "owner": {
+        record = CKRecord.model_validate({
+            "recordName": "Share-123",
+            "recordType": "cloudkit.share",
+            "publicPermission": "NONE",
+            "participants": [
+                {
                     "participantId": "owner-1",
                     "userIdentity": {
                         "userRecordName": "_owner",
+                        "nameComponents": {
+                            "givenName": "Jacob",
+                            "familyName": "Arnould",
+                        },
+                        "lookupInfo": {
+                            "emailAddress": "jacob@example.com",
+                        },
                     },
                     "type": "OWNER",
+                    "acceptanceStatus": "ACCEPTED",
                     "permission": "READ_WRITE",
+                    "customRole": "",
+                    "isApprovedRequester": False,
+                    "orgUser": False,
+                    "publicKeyVersion": 1,
+                    "outOfNetworkPrivateKey": "",
+                    "outOfNetworkKeyType": 0,
                     "protectionInfo": {
                         "bytes": "aGVsbG8=",
                         "pcsChangeTag": "owner-tag",
                     },
+                }
+            ],
+            "requesters": [],
+            "blocked": [],
+            "owner": {
+                "participantId": "owner-1",
+                "userIdentity": {
+                    "userRecordName": "_owner",
                 },
-                "currentUserParticipant": {
-                    "participantId": "user-1",
-                    "userIdentity": {
-                        "userRecordName": "_user",
-                        "lookupInfo": {
-                            "phoneNumber": "352621583784",
-                        },
+                "type": "OWNER",
+                "permission": "READ_WRITE",
+                "protectionInfo": {
+                    "bytes": "aGVsbG8=",
+                    "pcsChangeTag": "owner-tag",
+                },
+            },
+            "currentUserParticipant": {
+                "participantId": "user-1",
+                "userIdentity": {
+                    "userRecordName": "_user",
+                    "lookupInfo": {
+                        "phoneNumber": "352621583784",
                     },
-                    "type": "ADMINISTRATOR",
-                    "acceptanceStatus": "ACCEPTED",
-                    "permission": "READ_WRITE",
-                    "protectionInfo": {
-                        "bytes": "d29ybGQ=",
-                        "pcsChangeTag": "user-tag",
-                    },
                 },
-                "invitedPCS": {
-                    "bytes": "aW52aXRlZA==",
-                    "pcsChangeTag": "invited-tag",
+                "type": "ADMINISTRATOR",
+                "acceptanceStatus": "ACCEPTED",
+                "permission": "READ_WRITE",
+                "protectionInfo": {
+                    "bytes": "d29ybGQ=",
+                    "pcsChangeTag": "user-tag",
                 },
-                "selfAddedPCS": {
-                    "bytes": "c2VsZg==",
-                    "pcsChangeTag": "self-tag",
-                },
-                "fields": {
-                    "SnippetEncrypted": {
-                        "value": "Shared snippet",
-                        "type": "STRING",
-                        "isEncrypted": True,
-                    }
-                },
-            }
-        )
+            },
+            "invitedPCS": {
+                "bytes": "aW52aXRlZA==",
+                "pcsChangeTag": "invited-tag",
+            },
+            "selfAddedPCS": {
+                "bytes": "c2VsZg==",
+                "pcsChangeTag": "self-tag",
+            },
+            "fields": {
+                "SnippetEncrypted": {
+                    "value": "Shared snippet",
+                    "type": "STRING",
+                    "isEncrypted": True,
+                }
+            },
+        })
 
         self.assertIsInstance(record.participants, list)
         self.assertIsInstance(record.participants[0], CKParticipant)
@@ -750,18 +742,16 @@ class NotesServiceTest(unittest.TestCase):
     def test_encrypted_string_fields_without_flag_are_rejected(self):
         """STRING wrappers on *Encrypted fields must carry isEncrypted=true."""
         with self.assertRaises(ValidationError):
-            CKRecord.model_validate(
-                {
-                    "recordName": "Share-123",
-                    "recordType": "cloudkit.share",
-                    "fields": {
-                        "SnippetEncrypted": {
-                            "value": "Shared snippet",
-                            "type": "STRING",
-                        }
-                    },
-                }
-            )
+            CKRecord.model_validate({
+                "recordName": "Share-123",
+                "recordType": "cloudkit.share",
+                "fields": {
+                    "SnippetEncrypted": {
+                        "value": "Shared snippet",
+                        "type": "STRING",
+                    }
+                },
+            })
 
     def test_decode_encrypted_bytes_and_strings(self):
         """Notes encrypted decoder handles both bytes and string field values."""

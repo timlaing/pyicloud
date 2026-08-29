@@ -4,15 +4,15 @@ Test the PyiCloudService and PyiCloudSession classes."""
 # pylint: disable=protected-access
 
 import json
+from pathlib import Path
 import secrets
 import tempfile
-from pathlib import Path
-from typing import Any, List
+from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
 
+from fido2.hid import CtapHidDevice
 import pytest
 import requests
-from fido2.hid import CtapHidDevice
 from requests import HTTPError, Response
 
 from pyicloud import PyiCloudService
@@ -301,8 +301,9 @@ def test_validate_2fa_code_uses_bridge_verifier_for_step2_state(
     pyicloud_service._trusted_device_bridge = MagicMock()
     pyicloud_service._trusted_device_bridge.validate_code.return_value = True
     pyicloud_service.trust_session = MagicMock(
-        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
-        or True
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
     )
     pyicloud_service._session = MagicMock()
     pyicloud_service.session.data = {
@@ -329,8 +330,9 @@ def test_validate_2fa_code_keeps_legacy_endpoint_for_bridge_w_subtype(
     pyicloud_service._trusted_device_bridge_state = bridge_state
     pyicloud_service._trusted_device_bridge = MagicMock()
     pyicloud_service.trust_session = MagicMock(
-        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
-        or True
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
     )
     pyicloud_service._session = MagicMock()
     pyicloud_service.session.data = {
@@ -641,8 +643,9 @@ def test_validate_2fa_code_uses_nested_sms_phone_number(
         }
     }
     pyicloud_service.trust_session = MagicMock(
-        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
-        or True
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
     )
 
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
@@ -687,8 +690,9 @@ def test_validate_2fa_code_defaults_sms_mode_when_push_mode_missing(
     }
     pyicloud_service._two_factor_delivery_method = "sms"
     pyicloud_service.trust_session = MagicMock(
-        side_effect=lambda: pyicloud_service.data.update({"hsaTrustedBrowser": True})
-        or True
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
     )
 
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
@@ -765,17 +769,15 @@ def test_confirm_security_key_success(
     mock_fido2_client.get_assertion.assert_called_once()
 
     # Check if data was submitted correctly
-    pyicloud_service._submit_webauthn_assertion_response.assert_called_once_with(
-        {
-            "challenge": challenge,
-            "rpId": rp_id,
-            "clientData": b64_encode(mock_response.response.client_data),
-            "signatureData": b64_encode(mock_response.response.signature),
-            "authenticatorData": b64_encode(mock_response.response.authenticator_data),
-            "userHandle": b64_encode(mock_response.response.user_handle),
-            "credentialID": b64_encode(mock_response.raw_id),
-        }
-    )
+    pyicloud_service._submit_webauthn_assertion_response.assert_called_once_with({
+        "challenge": challenge,
+        "rpId": rp_id,
+        "clientData": b64_encode(mock_response.response.client_data),
+        "signatureData": b64_encode(mock_response.response.signature),
+        "authenticatorData": b64_encode(mock_response.response.authenticator_data),
+        "userHandle": b64_encode(mock_response.response.user_handle),
+        "credentialID": b64_encode(mock_response.raw_id),
+    })
 
     pyicloud_service.trust_session.assert_called_once()
 
@@ -1273,7 +1275,7 @@ def test_request_pcs_for_service_consent_needed_and_notification_sent(
     """Test _request_pcs_for_service when device consent is needed and notification is sent."""
     # First call: ICDRS disabled, device not consented
     # Second call: device consented (simulate after waiting)
-    consent_states: List[dict[str, bool]] = [
+    consent_states: list[dict[str, bool]] = [
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": True},
     ]
@@ -1317,7 +1319,7 @@ def test_request_pcs_for_service_pcs_consent_waits(
 ) -> None:
     """Test _request_pcs_for_service waits for PCS consent and then proceeds."""
     # Simulate PCS consent not granted for first 2 tries, then granted
-    consent_states: List[dict[str, bool]] = [
+    consent_states: list[dict[str, bool]] = [
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": False},
         {"isICDRSDisabled": True, "isDeviceConsentedForPCS": True},
@@ -1363,7 +1365,7 @@ def test_request_pcs_for_service_retries_on_cookie_messages(
     )
     pyicloud_service._session = MagicMock()
     pyicloud_service.params = {}
-    responses: List[dict[str, str]] = [
+    responses: list[dict[str, str]] = [
         {"status": "error", "message": "Requested the device to upload cookies."},
         {"status": "error", "message": "Cookies not available yet on server."},
         {"status": "success", "message": "ok"},
@@ -1548,11 +1550,13 @@ def test_validate_token_missing_cookie_raises(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Test _validate_token raises when X-APPLE-WEBAUTH-TOKEN cookie is missing."""
-    with patch.object(pyicloud_service.session.cookies, "get", return_value=None):
-        with pytest.raises(
+    with (
+        patch.object(pyicloud_service.session.cookies, "get", return_value=None),
+        pytest.raises(
             PyiCloudAPIResponseException, match="Missing X-APPLE-WEBAUTH-TOKEN cookie"
-        ):
-            pyicloud_service._validate_token()
+        ),
+    ):
+        pyicloud_service._validate_token()
 
 
 def test_validate_token_post_raises_exception(
@@ -1566,9 +1570,9 @@ def test_validate_token_post_raises_exception(
             "post",
             side_effect=PyiCloudAPIResponseException("Invalid token"),
         ),
+        pytest.raises(PyiCloudAPIResponseException, match="Invalid token"),
     ):
-        with pytest.raises(PyiCloudAPIResponseException, match="Invalid token"):
-            pyicloud_service._validate_token()
+        pyicloud_service._validate_token()
 
 
 def test_str_and_repr(pyicloud_service: PyiCloudService) -> None:
@@ -1632,9 +1636,9 @@ def test_get_auth_headers_overrides(pyicloud_service: PyiCloudService) -> None:
     """Test _get_auth_headers applies overrides."""
     pyicloud_service.session.data["scnt"] = "test_scnt"
     pyicloud_service.session.data["session_id"] = "test_session_id"
-    headers: dict[str, Any] = pyicloud_service._get_auth_headers(
-        {"Extra-Header": "Value"}
-    )
+    headers: dict[str, Any] = pyicloud_service._get_auth_headers({
+        "Extra-Header": "Value"
+    })
     assert headers["scnt"] == "test_scnt"
     assert headers["X-Apple-ID-Session-Id"] == "test_session_id"
     assert headers["Extra-Header"] == "Value"
@@ -1716,7 +1720,7 @@ def test_fido2_devices_lists_devices(pyicloud_service: PyiCloudService) -> None:
     with patch(
         "pyicloud.base.CtapHidDevice.list_devices", return_value=[MagicMock()]
     ) as mock_list:
-        devices: List[CtapHidDevice] = pyicloud_service.fido2_devices
+        devices: list[CtapHidDevice] = pyicloud_service.fido2_devices
         assert isinstance(devices, list)
         mock_list.assert_called_once()
 
@@ -1729,9 +1733,11 @@ def test_confirm_security_key_no_devices_raises(
         "fsaChallenge": {"challenge": "c", "keyHandles": [], "rpId": "rp"}
     }
 
-    with patch("pyicloud.base.CtapHidDevice.list_devices", return_value=[]):
-        with pytest.raises(RuntimeError, match="No FIDO2 devices found"):
-            pyicloud_service.confirm_security_key()
+    with (
+        patch("pyicloud.base.CtapHidDevice.list_devices", return_value=[]),
+        pytest.raises(RuntimeError, match="No FIDO2 devices found"),
+    ):
+        pyicloud_service.confirm_security_key()
 
 
 def test_get_webservice_url_raises_if_missing(

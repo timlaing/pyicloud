@@ -1,17 +1,17 @@
 """Library base file."""
 
 import base64
+from collections.abc import Mapping
+from dataclasses import dataclass
 import getpass
 import json
 import logging
-import time
-from dataclasses import dataclass
 from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
-from typing import Any, Dict, List, Mapping, Optional, cast
+import time
+from typing import Any, Optional, cast
 from uuid import uuid1
 
-import srp
 from fido2.client import DefaultClientDataCollector, Fido2Client
 from fido2.hid import CtapHidDevice
 from fido2.webauthn import (
@@ -23,6 +23,7 @@ from fido2.webauthn import (
 )
 from requests import HTTPError
 from requests.models import Response
+import srp
 
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
 from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT
@@ -106,7 +107,7 @@ _PARAMS: dict[str, str] = {
 }
 
 
-def resolve_cookie_directory(cookie_directory: Optional[str] = None) -> str:
+def resolve_cookie_directory(cookie_directory: str | None = None) -> str:
     """Resolve the directory used for persisted session and cookie data."""
 
     if cookie_directory:
@@ -121,12 +122,12 @@ class TrustedPhoneNumber:
     """Typed view of Apple's trusted-phone metadata."""
 
     device_id: int | str
-    non_fteu: Optional[bool] = None
-    push_mode: Optional[str] = None
+    non_fteu: bool | None = None
+    push_mode: str | None = None
 
     @classmethod
     def from_mapping(
-        cls, value: Optional[Mapping[str, Any]]
+        cls, value: Mapping[str, Any] | None
     ) -> Optional["TrustedPhoneNumber"]:
         """Return a typed phone record when Apple's payload includes one."""
 
@@ -163,13 +164,11 @@ class TrustedPhoneNumber:
 class PhoneNumberVerification:
     """Typed view of Apple's phone verification wrapper payload."""
 
-    trusted_phone_number: Optional[TrustedPhoneNumber] = None
+    trusted_phone_number: TrustedPhoneNumber | None = None
     trusted_phone_numbers: tuple[TrustedPhoneNumber, ...] = ()
 
     @classmethod
-    def from_mapping(
-        cls, value: Optional[Mapping[str, Any]]
-    ) -> "PhoneNumberVerification":
+    def from_mapping(cls, value: Mapping[str, Any] | None) -> "PhoneNumberVerification":
         """Return the parsed phone verification payload when Apple exposes one."""
 
         if not isinstance(value, Mapping):
@@ -192,7 +191,7 @@ class PhoneNumberVerification:
             trusted_phone_numbers=tuple(trusted_phone_numbers),
         )
 
-    def best_trusted_phone_number(self) -> Optional[TrustedPhoneNumber]:
+    def best_trusted_phone_number(self) -> TrustedPhoneNumber | None:
         """Return the first usable trusted phone number from Apple's payload."""
 
         if self.trusted_phone_number is not None:
@@ -223,7 +222,7 @@ class PyiCloudService:
         self._home_endpoint: str = f"https://www.icloud.com{icloud_china}"
         self._setup_endpoint: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
 
-    def _setup_cookie_directory(self, cookie_directory: Optional[str] = None) -> str:
+    def _setup_cookie_directory(self, cookie_directory: str | None = None) -> str:
         """Set up the cookie directory for the service."""
         _cookie_directory = resolve_cookie_directory(cookie_directory)
         if not cookie_directory:
@@ -241,27 +240,27 @@ class PyiCloudService:
     def __init__(
         self,
         apple_id: str,
-        password: Optional[str] = None,
-        cookie_directory: Optional[str] = None,
+        password: str | None = None,
+        cookie_directory: str | None = None,
         verify: bool = True,
-        client_id: Optional[str] = None,
+        client_id: str | None = None,
         with_family: bool = True,
-        china_mainland: Optional[bool] = None,
+        china_mainland: bool | None = None,
         accept_terms: bool = False,
         refresh_interval: float | None = None,
         *,
         authenticate: bool = True,
-        cloudkit_validation_extra: Optional[CloudKitExtraMode] = None,
+        cloudkit_validation_extra: CloudKitExtraMode | None = None,
     ) -> None:
         """Initialize a service session for one Apple ID account."""
         self._is_china_mainland: bool = (
-            environ.get("icloud_china", "0") == "1"
+            environ.get("ICLOUD_CHINA", "0") == "1"
             if china_mainland is None
             else china_mainland
         )
         self._setup_endpoints()
 
-        self._password_raw: Optional[str] = password
+        self._password_raw: str | None = password
 
         self._apple_id: str = apple_id
         self._accept_terms: bool = accept_terms
@@ -272,11 +271,11 @@ class PyiCloudService:
 
         self.data: dict[str, Any] = {}
         self._auth_data: dict[str, Any] = {}
-        self._hsa2_boot_context: Optional[Hsa2BootContext] = None
-        self._trusted_device_bridge_state: Optional[TrustedDeviceBridgeState] = None
+        self._hsa2_boot_context: Hsa2BootContext | None = None
+        self._trusted_device_bridge_state: TrustedDeviceBridgeState | None = None
         self._trusted_device_bridge = TrustedDeviceBridgeBootstrapper()
         self._two_factor_delivery_method: str = "unknown"
-        self._two_factor_delivery_notice: Optional[str] = None
+        self._two_factor_delivery_notice: str | None = None
 
         self.params: dict[str, Any] = {}
         self._client_id: str = client_id or str(uuid1()).lower()
@@ -285,12 +284,10 @@ class PyiCloudService:
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
         _headers: dict[str, str] = _HEADERS.copy()
-        _headers.update(
-            {
-                "Origin": self._home_endpoint,
-                "Referer": f"{self._home_endpoint}/",
-            }
-        )
+        _headers.update({
+            "Origin": self._home_endpoint,
+            "Referer": f"{self._home_endpoint}/",
+        })
 
         self._session: PyiCloudSession = PyiCloudSession(
             self,
@@ -303,26 +300,24 @@ class PyiCloudService:
         self._client_id = self.session.data.get("client_id", self._client_id)
 
         _params: dict[str, str] = _PARAMS.copy()
-        _params.update(
-            {
-                "clientId": self._client_id,
-            }
-        )
+        _params.update({
+            "clientId": self._client_id,
+        })
         self.params = _params
 
-        self._webservices: Optional[dict[str, dict[str, Any]]] = None
+        self._webservices: dict[str, dict[str, Any]] | None = None
 
-        self._account: Optional[AccountService] = None
-        self._calendar: Optional[CalendarService] = None
-        self._contacts: Optional[ContactsService] = None
-        self._devices: Optional[FindMyiPhoneServiceManager] = None
-        self._drive: Optional[DriveService] = None
-        self._files: Optional[UbiquityService] = None
-        self._hidemyemail: Optional[HideMyEmailService] = None
-        self._photos: Optional[PhotosService] = None
-        self._reminders: Optional[RemindersService] = None
-        self._notes: Optional[NotesService] = None
-        self._invites: Optional[InvitesService] = None
+        self._account: AccountService | None = None
+        self._calendar: CalendarService | None = None
+        self._contacts: ContactsService | None = None
+        self._devices: FindMyiPhoneServiceManager | None = None
+        self._drive: DriveService | None = None
+        self._files: UbiquityService | None = None
+        self._hidemyemail: HideMyEmailService | None = None
+        self._photos: PhotosService | None = None
+        self._reminders: RemindersService | None = None
+        self._notes: NotesService | None = None
+        self._invites: InvitesService | None = None
 
         self._requires_mfa: bool = False
 
@@ -336,7 +331,7 @@ class PyiCloudService:
         return self._is_china_mainland
 
     def authenticate(
-        self, force_refresh: bool = False, service: Optional[str] = None
+        self, force_refresh: bool = False, service: str | None = None
     ) -> None:
         """
         Handles authentication, and persists cookies so that
@@ -479,14 +474,12 @@ class PyiCloudService:
             self._clear_authenticated_state()
             return status
 
-        status.update(
-            {
-                "authenticated": True,
-                "trusted_session": self.is_trusted_session,
-                "requires_2fa": self.requires_2fa,
-                "requires_2sa": self.requires_2sa,
-            }
-        )
+        status.update({
+            "authenticated": True,
+            "trusted_session": self.is_trusted_session,
+            "requires_2fa": self.requires_2fa,
+            "requires_2sa": self.requires_2sa,
+        })
         return status
 
     def logout(
@@ -668,7 +661,7 @@ class PyiCloudService:
             msg = "Invalid authentication token."
             raise PyiCloudFailedLoginException(msg, error) from error
 
-    def _authenticate_with_credentials_service(self, service: Optional[str]) -> None:
+    def _authenticate_with_credentials_service(self, service: str | None) -> None:
         """Authenticate to a specific service using credentials."""
         login_data: dict[str, Any] = {
             "appName": service,
@@ -704,18 +697,16 @@ class PyiCloudService:
             raise
 
     def _get_auth_headers(
-        self, overrides: Optional[dict[str, Any]] = None
+        self, overrides: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Build Apple auth headers for IDMS, bridge, and verification requests."""
         headers: dict[str, Any] = _AUTH_HEADERS_JSON.copy()
-        headers.update(
-            {
-                "Referer": self._idmsa_endpoint,
-                "X-Apple-OAuth-Redirect-URI": self._home_endpoint,
-                "X-Apple-OAuth-State": self._client_id,
-                "X-Apple-Frame-Id": self._client_id,
-            }
-        )
+        headers.update({
+            "Referer": self._idmsa_endpoint,
+            "X-Apple-OAuth-Redirect-URI": self._home_endpoint,
+            "X-Apple-OAuth-State": self._client_id,
+            "X-Apple-Frame-Id": self._client_id,
+        })
 
         if self.session.data.get("scnt"):
             headers["scnt"] = self.session.data["scnt"]
@@ -802,7 +793,7 @@ class PyiCloudService:
 
         return not self.requires_2sa
 
-    def _get_mfa_auth_options(self) -> Dict:
+    def _get_mfa_auth_options(self) -> dict:
         """Retrieve auth request options for assertion."""
         # Apple exposes the HSA2 bridge bootstrap in the HTML auth shell.
         # Requesting JSON here tends to collapse the response to the SMS-oriented shape.
@@ -865,7 +856,7 @@ class PyiCloudService:
                 LOGGER.debug("Could not request 2FA SMS code")
 
     def _set_two_factor_delivery_state(
-        self, method: str, notice: Optional[str] = None
+        self, method: str, notice: str | None = None
     ) -> None:
         """Track the active MFA delivery route for the current auth challenge."""
 
@@ -906,7 +897,7 @@ class PyiCloudService:
             and self._trusted_phone_number() is not None
         )
 
-    def _request_sms_2fa_code(self, notice: Optional[str] = None) -> bool:
+    def _request_sms_2fa_code(self, notice: str | None = None) -> bool:
         """Trigger SMS delivery for the current HSA2 challenge."""
 
         trusted_phone_number = self._trusted_phone_number()
@@ -947,17 +938,17 @@ class PyiCloudService:
         return "unknown"
 
     @property
-    def two_factor_delivery_notice(self) -> Optional[str]:
+    def two_factor_delivery_notice(self) -> str | None:
         """Return an optional user-facing note about the active 2FA delivery path."""
 
         return self._two_factor_delivery_notice
 
     @property
-    def security_key_names(self) -> Optional[List[str]]:
+    def security_key_names(self) -> list[str] | None:
         """Security key names which can be used for the WebAuthn assertion."""
         return self._auth_data.get("keyNames")
 
-    def _submit_webauthn_assertion_response(self, data: Dict) -> None:
+    def _submit_webauthn_assertion_response(self, data: dict) -> None:
         """Submit the WebAuthn assertion response for authentication."""
         headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
@@ -971,7 +962,7 @@ class PyiCloudService:
         phone_verification = self._auth_data.get("phoneNumberVerification")
         return PhoneNumberVerification.from_mapping(phone_verification)
 
-    def _trusted_phone_number(self) -> Optional[TrustedPhoneNumber]:
+    def _trusted_phone_number(self) -> TrustedPhoneNumber | None:
         """Return the best available trusted phone number description."""
 
         trusted_phone_number = TrustedPhoneNumber.from_mapping(
@@ -982,7 +973,7 @@ class PyiCloudService:
 
         return self._phone_number_verification().best_trusted_phone_number()
 
-    def _two_factor_mode(self) -> Optional[str]:
+    def _two_factor_mode(self) -> str | None:
         """Return the current 2FA delivery mode reported by Apple."""
 
         mode = self._auth_data.get("mode")
@@ -1035,11 +1026,11 @@ class PyiCloudService:
         return False
 
     @property
-    def fido2_devices(self) -> List[CtapHidDevice]:
+    def fido2_devices(self) -> list[CtapHidDevice]:
         """List the available FIDO2 devices."""
         return list(CtapHidDevice.list_devices())
 
-    def confirm_security_key(self, device: Optional[CtapHidDevice] = None) -> None:
+    def confirm_security_key(self, device: CtapHidDevice | None = None) -> None:
         """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
         fsa: dict[str, Any] = self._auth_data.get("fsaChallenge", {})
         try:
@@ -1052,7 +1043,7 @@ class PyiCloudService:
             ) from error
 
         if not device:
-            devices: List[CtapHidDevice] = list(CtapHidDevice.list_devices())
+            devices: list[CtapHidDevice] = list(CtapHidDevice.list_devices())
 
             if not devices:
                 raise RuntimeError("No FIDO2 devices found")
@@ -1063,7 +1054,7 @@ class PyiCloudService:
             device,
             client_data_collector=DefaultClientDataCollector("https://apple.com"),
         )
-        credentials: List[PublicKeyCredentialDescriptor] = [
+        credentials: list[PublicKeyCredentialDescriptor] = [
             PublicKeyCredentialDescriptor(
                 id=b64url_decode(cred_id), type=PublicKeyCredentialType("public-key")
             )
@@ -1079,19 +1070,17 @@ class PyiCloudService:
             assertion_options
         ).get_response(0)
 
-        self._submit_webauthn_assertion_response(
-            {
-                "challenge": challenge,
-                "clientData": b64_encode(result.response.client_data),
-                "signatureData": b64_encode(result.response.signature),
-                "authenticatorData": b64_encode(result.response.authenticator_data),
-                "userHandle": b64_encode(result.response.user_handle)
-                if result.response.user_handle
-                else None,
-                "credentialID": b64_encode(result.raw_id),
-                "rpId": rp_id,
-            }
-        )
+        self._submit_webauthn_assertion_response({
+            "challenge": challenge,
+            "clientData": b64_encode(result.response.client_data),
+            "signatureData": b64_encode(result.response.signature),
+            "authenticatorData": b64_encode(result.response.authenticator_data),
+            "userHandle": b64_encode(result.response.user_handle)
+            if result.response.user_handle
+            else None,
+            "credentialID": b64_encode(result.raw_id),
+            "rpId": rp_id,
+        })
 
         self.trust_session()
 
@@ -1225,9 +1214,9 @@ class PyiCloudService:
             "securityCode": {"code": code},
             "mode": trusted_phone_number.push_mode or "sms",
         }
-        headers: dict[str, Any] = self._get_auth_headers(
-            {"Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"}
-        )
+        headers: dict[str, Any] = self._get_auth_headers({
+            "Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"
+        })
 
         self.session.post(
             f"{self._auth_endpoint}/verify/phone/securitycode",
@@ -1334,7 +1323,7 @@ class PyiCloudService:
                     params=self.params,
                 )
             except PyiCloudAPIResponseException as error:
-                if "Account migrated" == error.reason:
+                if error.reason == "Account migrated":
                     raise PyiCloudServiceUnavailable(
                         "Files service not available use `api.drive` instead"
                     ) from error

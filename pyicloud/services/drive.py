@@ -1,14 +1,14 @@
 """Drive service."""
 
+from datetime import datetime, timedelta
 import io
 import logging
 import mimetypes
 import os
-import time
-import uuid
-from datetime import datetime, timedelta
 from re import Match, search
-from typing import IO, Any, Optional
+import time
+from typing import IO, Any
+import uuid
 
 from requests import Response
 
@@ -39,22 +39,22 @@ class DriveService(BaseService):
     ) -> None:
         super().__init__(service_root, session, params)
         self._document_root: str = document_root
-        self._root: Optional[DriveNode] = None
-        self._trash: Optional[DriveNode] = None
+        self._root: DriveNode | None = None
+        self._trash: DriveNode | None = None
 
     def _get_token_from_cookie(self) -> dict[str, Any]:
         # Copy cookies to avoid "dictionary changed size during iteration"
         # when concurrent HTTP responses modify the cookie jar
         for cookie in self.session.cookies.copy():
             if cookie.name == COOKIE_APPLE_WEBAUTH_VALIDATE and cookie.value:
-                match: Optional[Match[str]] = search(r"\bt=([^:]+)", cookie.value)
+                match: Match[str] | None = search(r"\bt=([^:]+)", cookie.value)
                 if match is None:
                     raise TokenException(f"Can't extract token from {cookie.value}")
                 return {"token": match.group(1)}
         raise TokenException("Token cookie not found")
 
     def get_node_data(
-        self, drivewsid: str, share_id: Optional[dict[str, Any]] = None
+        self, drivewsid: str, share_id: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Returns the node data."""
         payload = [
@@ -107,7 +107,7 @@ class DriveService(BaseService):
     ) -> tuple[str, str]:
         """Get the contentWS endpoint URL to add a new file."""
 
-        content_type: Optional[str] = mimetypes.guess_type(file_object.name)[0]
+        content_type: str | None = mimetypes.guess_type(file_object.name)[0]
         if content_type is None:
             content_type = ""
 
@@ -268,7 +268,7 @@ class DriveService(BaseService):
         node_ids = [node.data["drivewsid"] for node in nodes]
         etags = [node.data["etag"] for node in nodes]
 
-        items = zip(node_ids, etags, node_ids)  # clientId == node_id
+        items = zip(node_ids, etags, node_ids, strict=True)  # clientId == node_id
 
         # when moving a node on icloud.com, the clientID is set to the node_id:
         request: Response = self.session.post(
@@ -396,13 +396,13 @@ class DriveNode:
     def __init__(self, conn: DriveService, data: dict[str, Any]) -> None:
         self.data: dict[str, Any] = data
         self.connection: DriveService = conn
-        self._children: Optional[list[DriveNode]] = None
+        self._children: list[DriveNode] | None = None
 
     @property
     def name(self) -> str:
         """Gets the node name."""
         # check if name is undefined, return drivewsid instead if so.
-        node_name: Optional[str] = self.data.get("name")
+        node_name: str | None = self.data.get("name")
         if not node_name:
             # use drivewsid as name if no name present.
             node_name = self.data.get("drivewsid")
@@ -420,7 +420,7 @@ class DriveNode:
     @property
     def type(self) -> str:
         """Gets the node type."""
-        node_type: Optional[str] = self.data.get("type")
+        node_type: str | None = self.data.get("type")
         # handle trash which has no node type
         if not node_type and self.data.get("drivewsid") == NODE_TRASH:
             node_type = self.TYPE_TRASH
@@ -460,25 +460,25 @@ class DriveNode:
             raise ValueError("No children to remove")
 
     @property
-    def size(self) -> Optional[int]:
+    def size(self) -> int | None:
         """Gets the node size."""
-        size: Optional[str] = self.data.get("size")  # Folder does not have size
+        size: str | None = self.data.get("size")  # Folder does not have size
         if not size:
             return None
         return int(size)
 
     @property
-    def date_changed(self) -> Optional[datetime]:
+    def date_changed(self) -> datetime | None:
         """Gets the node changed date (in UTC)."""
         return _date_to_utc(self.data.get("dateChanged"))  # Folder does not have date
 
     @property
-    def date_modified(self) -> Optional[datetime]:
+    def date_modified(self) -> datetime | None:
         """Gets the node modified date (in UTC)."""
         return _date_to_utc(self.data.get("dateModified"))  # Folder does not have date
 
     @property
-    def date_last_open(self) -> Optional[datetime]:
+    def date_last_open(self) -> datetime | None:
         """Gets the node last open date (in UTC)."""
         return _date_to_utc(self.data.get("lastOpenTime"))  # Folder does not have date
 
@@ -565,11 +565,11 @@ class DriveNode:
         return f"<{type(self).__name__}: {str(self)}>"
 
 
-def _date_to_utc(date) -> Optional[datetime]:
+def _date_to_utc(date) -> datetime | None:
     if not date:
         return None
     # jump through hoops to return time in UTC rather than California time
-    match: Optional[Match[str]] = search(r"^(.+?)([\+\-]\d+):(\d\d)$", date)
+    match: Match[str] | None = search(r"^(.+?)([\+\-]\d+):(\d\d)$", date)
     if not match:
         # Already in UTC
         return datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ")

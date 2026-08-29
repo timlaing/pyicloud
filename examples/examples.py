@@ -2,13 +2,13 @@
 """End to End System test"""
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import http.client
 import json
 import logging
-import sys
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, List, Optional
+import sys
+from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -40,8 +40,8 @@ OTHER_LOG_LEVEL: int = logging.ERROR
 
 # HTTPConnection parameters
 HTTPCONNECTION_DEBUG_INFO: bool = False
-HTTP_PROXY: Optional[str] = None
-HTTPS_PROXY: Optional[str] = None
+HTTP_PROXY: str | None = None
+HTTPS_PROXY: str | None = None
 
 # Set where you'd like the COOKIES to be stored. Can also use command-line argument --cookie-dir
 COOKIE_DIR: str = ""  # location to store session information
@@ -162,7 +162,7 @@ def httpclient_logging_patch(level=HTTP_LOG_LEVEL) -> None:
 
 def handle_2fa(api: PyiCloudService) -> None:
     """Handle two-factor authentication"""
-    security_key_names: Optional[List[str]] = api.security_key_names
+    security_key_names: list[str] | None = api.security_key_names
 
     if security_key_names:
         print(
@@ -170,7 +170,7 @@ def handle_2fa(api: PyiCloudService) -> None:
             f"Please plug in one of the following keys: {', '.join(security_key_names)}"
         )
 
-        fido2_devices: List[CtapHidDevice] = api.fido2_devices
+        fido2_devices: list[CtapHidDevice] = api.fido2_devices
 
         if not fido2_devices:
             print("No FIDO2 devices detected. Connect a security key and try again.")
@@ -219,15 +219,15 @@ def handle_2sa(api: PyiCloudService) -> None:
     """Handle two-step authentication"""
     print("Two-step authentication required. Your trusted devices are:")
 
-    trusted_devices: List[dict[str, Any]] = api.trusted_devices
+    trusted_devices: list[dict[str, Any]] = api.trusted_devices
     if not trusted_devices:
         print("No trusted devices are available for 2-step verification.")
         sys.exit(1)
     for i, device in enumerate(trusted_devices):
-        print(
-            "  %s: %s"
-            % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
-        )
+        name = device.get("deviceName")
+        if name is None:
+            name = f"SMS to {device.get('phoneNumber')}"
+        print(f"  {i}: {name}")
 
     device_index: int = click.prompt(
         "Which device would you like to use?",
@@ -314,7 +314,7 @@ def display_calendars(api: PyiCloudService) -> None:
 def display_contacts(api: PyiCloudService) -> None:
     """Display contacts info"""
 
-    contacts: List[dict[str, Any]] | None = api.contacts.all
+    contacts: list[dict[str, Any]] | None = api.contacts.all
     if contacts:
         print(f"List of contacts ({len(contacts)}):")
         for idx, contact in enumerate(contacts):

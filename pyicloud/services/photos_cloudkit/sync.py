@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import logging
 import os
+from pathlib import Path, PurePosixPath
 import re
 import tempfile
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any
 
 from .constants import (
     legacy_shared_stream_unsupported_message,
@@ -577,7 +578,7 @@ def _iter_sync_assets(
                 raise PhotosServiceException(
                     f"No album named '{album_name}' was found."
                 )
-            for asset in getattr(album, "photos"):
+            for asset in album.photos:
                 if asset.id in seen:
                     continue
                 seen.add(asset.id)
@@ -594,7 +595,7 @@ def _iter_sync_assets(
         raise PhotosServiceException(
             f"Photo library '{options.library}' does not expose a default asset feed."
         )
-    for asset in getattr(source, "photos"):
+    for asset in source.photos:
         if asset.id in seen:
             continue
         seen.add(asset.id)
@@ -756,9 +757,7 @@ def _is_current_file(
     if resource.size is not None and path.stat().st_size != resource.size:
         return False
     checksum = getattr(resource, "checksum", None)
-    if checksum and manifest.checksum and checksum != manifest.checksum:
-        return False
-    return True
+    return not (checksum and manifest.checksum and checksum != manifest.checksum)
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:

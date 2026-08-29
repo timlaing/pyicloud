@@ -1,11 +1,12 @@
 """Find my iPhone service."""
 
+from collections.abc import Callable, Iterator
+from datetime import datetime, timedelta
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
 from types import MappingProxyType
-from typing import Any, Callable, Iterator, Optional
+from typing import Any
 
 from requests import Response
 
@@ -72,7 +73,7 @@ class FindMyiPhoneServiceManager(BaseService):
         self._devices_names: list[str] = []
         self._server_ctx: dict[str, Any] | None = None
         self._user_info: dict[str, Any] | None = None
-        self._monitor: Optional[threading.Thread] = None
+        self._monitor: threading.Thread | None = None
         self.stop_event: threading.Event = threading.Event()
 
         self._refresh_client_with_reauth(locate=True)
@@ -176,12 +177,10 @@ class FindMyiPhoneServiceManager(BaseService):
             req_json["serverContext"] = self._server_ctx
             if locate:
                 req_json["isUpdatingAllLocations"] = True
-                req_json["clientContext"].update(
-                    {
-                        "shouldLocate": True,
-                        "selectedDevice": "all",
-                    }
-                )
+                req_json["clientContext"].update({
+                    "shouldLocate": True,
+                    "selectedDevice": "all",
+                })
 
         req: Response = self.session.post(
             url=self._fmip_refresh_url if self._server_ctx else self._fmip_init_url,
@@ -264,7 +263,7 @@ class FindMyiPhoneServiceManager(BaseService):
         return MappingProxyType(self._devices)
 
     @property
-    def user_info(self) -> Optional[MappingProxyType[str, Any]]:
+    def user_info(self) -> MappingProxyType[str, Any] | None:
         """Returns the user info."""
         return MappingProxyType(self._user_info) if self._user_info else None
 
@@ -304,13 +303,13 @@ class AppleDevice:
         self._content = data
 
     @property
-    def location(self) -> Optional[dict[str, Any]]:
+    def location(self) -> dict[str, Any] | None:
         """Updates the device location."""
         if self.location_available is False:
             return None
         return self._content["location"]
 
-    def status(self, additional: Optional[list[str]] = None) -> dict[str, Any]:
+    def status(self, additional: list[str] | None = None) -> dict[str, Any]:
         """Returns status information for device.
 
         This returns only a subset of possible properties.

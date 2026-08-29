@@ -1,11 +1,11 @@
 """Pyicloud Session handling"""
 
+from json import JSONDecodeError, dump, load
 import logging
 import os
-from json import JSONDecodeError, dump, load
 from os import path
 from re import match
-from typing import TYPE_CHECKING, Any, NoReturn, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Union, cast
 
 import requests
 from requests.models import Response
@@ -33,28 +33,26 @@ if TYPE_CHECKING:
     from pyicloud.base import PyiCloudService
 
 
-NON_PERSISTED_SESSION_KEYS = frozenset(
-    {
-        "akdata",
-        "connection_path",
-        "data",
-        "encryptedCode",
-        "encrypted_code",
-        "idmsdata",
-        "mid",
-        "nextStep",
-        "next_step",
-        "ptkn",
-        "push_token",
-        "salt",
-        "sessionUUID",
-        "session_uuid",
-        "source_app_id",
-        "topic",
-        "topics_by_hash",
-        "txnid",
-    }
-)
+NON_PERSISTED_SESSION_KEYS = frozenset({
+    "akdata",
+    "connection_path",
+    "data",
+    "encryptedCode",
+    "encrypted_code",
+    "idmsdata",
+    "mid",
+    "nextStep",
+    "next_step",
+    "ptkn",
+    "push_token",
+    "salt",
+    "sessionUUID",
+    "session_uuid",
+    "source_app_id",
+    "topic",
+    "topics_by_hash",
+    "txnid",
+})
 
 
 class PyiCloudSession(requests.Session):
@@ -66,7 +64,7 @@ class PyiCloudSession(requests.Session):
         client_id: str,
         cookie_directory: str,
         verify: bool = False,
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         """Initialize the persisted requests session used by the service."""
         super().__init__()
@@ -381,7 +379,7 @@ class PyiCloudSession(requests.Session):
         try:
             data: Union[list[dict[str, Any]], dict[str, Any]] = response.json()
             if isinstance(data, dict):
-                reason: Optional[str] = data.get("errorMessage")
+                reason: str | None = data.get("errorMessage")
                 reason = reason or data.get("reason")
                 reason = reason or data.get("errorReason")
                 reason = reason or data.get("error")
@@ -389,7 +387,7 @@ class PyiCloudSession(requests.Session):
                     reason = "Unknown reason"
 
                 if reason:
-                    code: Optional[Union[int, str]] = data.get("errorCode")
+                    code: Union[int, str] | None = data.get("errorCode")
                     code = code or data.get("serverErrorCode")
                     self._raise_error(response, code, reason)
 
@@ -400,7 +398,7 @@ class PyiCloudSession(requests.Session):
             )
 
     def _raise_error(
-        self, response: Response, code: Optional[Union[int, str]], reason: str
+        self, response: Response, code: Union[int, str] | None, reason: str
     ) -> NoReturn:
         """Raise the session's public exception for a parsed iCloud error payload."""
         if (

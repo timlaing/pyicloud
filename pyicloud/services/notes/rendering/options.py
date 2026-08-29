@@ -9,7 +9,7 @@ module defaults and/or environment fallbacks".
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Tuple
+from typing import Literal
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,8 +19,8 @@ class ExportConfig:
 
     # Export policy
     export_mode: Literal["archival", "lightweight"] = "archival"
-    assets_dir: Optional[str] = None
-    full_page: Optional[bool] = None
+    assets_dir: str | None = None
+    full_page: bool | None = None
 
     # Image fidelity: when a Media record is present for image attachments,
     # prefer it over preview images. Keep this True for best quality.
@@ -28,8 +28,8 @@ class ExportConfig:
 
     # Predicate for recognizing image UTIs beyond just the "public.image" prefix.
     # If empty, a reasonable built-in set is used.
-    image_uti_prefixes: Tuple[str, ...] = ("public.image",)
-    image_uti_exacts: Tuple[str, ...] = (
+    image_uti_prefixes: tuple[str, ...] = ("public.image",)
+    image_uti_exacts: tuple[str, ...] = (
         "public.jpeg",
         "public.jpg",
         "public.png",
@@ -54,7 +54,7 @@ class ExportConfig:
     link_rel: str = "noopener noreferrer"
     referrer_policy: str = "no-referrer"
 
-    def is_image_uti(self, uti: Optional[str]) -> bool:
+    def is_image_uti(self, uti: str | None) -> bool:
         if not uti:
             return False
         u = uti.casefold()

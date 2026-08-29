@@ -773,9 +773,9 @@ def test_refresh_client_with_reauth_no_devices_raises(
     with (
         patch.object(manager, "_refresh_client"),
         patch.object(manager, "_devices", {}),
+        pytest.raises(PyiCloudNoDevicesException),
     ):
-        with pytest.raises(PyiCloudNoDevicesException):
-            manager._refresh_client_with_reauth(locate=True)
+        manager._refresh_client_with_reauth(locate=True)
 
 
 def test_monitor_thread_calls_func_at_interval() -> None:

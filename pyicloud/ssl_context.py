@@ -1,9 +1,10 @@
 """Context manager to configure SSL verification for requests"""
 
+from collections.abc import Callable, Generator
 import contextlib
 import logging
+from typing import Any
 import warnings
-from typing import Any, Callable, Generator
 
 import requests
 from urllib3.exceptions import InsecureRequestWarning

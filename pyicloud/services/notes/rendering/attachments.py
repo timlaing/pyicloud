@@ -18,9 +18,10 @@ cyclic import).
 
 from __future__ import annotations
 
-import html
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+import html
+from typing import Any
 from urllib.parse import urlsplit
 
 from tinyhtml import h
@@ -34,17 +35,17 @@ class AttachmentContext:
 
     id: str
     uti: str
-    title: Optional[str]
-    primary_url: Optional[str]
-    thumb_url: Optional[str]
-    mergeable_gz: Optional[bytes]
+    title: str | None
+    primary_url: str | None
+    thumb_url: str | None
+    mergeable_gz: bytes | None
     # Optional: preceding text in the same paragraph/line before the attachment
-    prior_text: Optional[str] = None
+    prior_text: str | None = None
     # Optional: behavior flags supplied by caller
-    link_target: Optional[str] = None
-    link_rel: Optional[str] = None
-    link_referrerpolicy: Optional[str] = None
-    pdf_object_height: Optional[int] = None
+    link_target: str | None = None
+    link_rel: str | None = None
+    link_referrerpolicy: str | None = None
+    pdf_object_height: int | None = None
 
     def base_attrs(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         """Build base HTML attributes for attachment elements."""
@@ -59,10 +60,10 @@ class AttachmentContext:
 
 
 def _safe_url(
-    url: Optional[str],
+    url: str | None,
     *,
     allowed_schemes: set[str],
-) -> Optional[str]:
+) -> str | None:
     if not url:
         return None
 
@@ -93,7 +94,7 @@ def _link_attrs(
     ctx: AttachmentContext,
     *,
     class_name: str,
-    href: Optional[str] = None,
+    href: str | None = None,
 ) -> dict[str, str]:
     attrs = {"class": class_name}
     if href:
@@ -182,14 +183,12 @@ class _ImageRenderer(_Renderer):
         alt = ctx.title or ctx.uti or "image"
         if url:
             # Add responsive sizing so large images don't overflow the viewport
-            attrs = ctx.base_attrs(
-                {
-                    "src": url,
-                    "alt": alt,
-                    "class": "attachment image",
-                    "style": "max-width:100%;height:auto",
-                }
-            )
+            attrs = ctx.base_attrs({
+                "src": url,
+                "alt": alt,
+                "class": "attachment image",
+                "style": "max-width:100%;height:auto",
+            })
             attr_html = " ".join(f'{k}="{html.escape(v)}"' for k, v in attrs.items())
             return f"<img {attr_html}>"
         return h("a", **ctx.base_attrs({"class": "attachment link"}))(alt).render()
@@ -214,14 +213,12 @@ class _VideoRenderer(_Renderer):
     def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
         url = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         if url:
-            attrs = ctx.base_attrs(
-                {
-                    "src": url,
-                    "class": "attachment video",
-                    "controls": "controls",
-                    "style": "max-width:100%;height:auto",
-                }
-            )
+            attrs = ctx.base_attrs({
+                "src": url,
+                "class": "attachment video",
+                "controls": "controls",
+                "style": "max-width:100%;height:auto",
+            })
             attr_html = " ".join(f'{k}="{html.escape(v)}"' for k, v in attrs.items())
             return f"<video {attr_html}></video>"
         title = ctx.title or ctx.uti or "video"
@@ -244,15 +241,13 @@ class _PdfRenderer(_Renderer):
                     and ctx.pdf_object_height > 0
                     else 600
                 )
-                obj_attrs = ctx.base_attrs(
-                    {
-                        "data": url,
-                        "type": "application/pdf",
-                        "class": "attachment pdf",
-                        # allow config to control height
-                        "style": f"width:100%;height:{height_px}px",
-                    }
-                )
+                obj_attrs = ctx.base_attrs({
+                    "data": url,
+                    "type": "application/pdf",
+                    "class": "attachment pdf",
+                    # allow config to control height
+                    "style": f"width:100%;height:{height_px}px",
+                })
                 fallback = h(
                     "a",
                     **ctx.base_attrs(

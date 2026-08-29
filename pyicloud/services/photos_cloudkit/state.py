@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import sqlite3
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+import sqlite3
 from types import TracebackType
-from typing import Iterator, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @dataclass(slots=True)
@@ -25,7 +26,7 @@ class SyncedPhotoResource:
 class PhotoSyncState(Protocol):
     """Backend interface for persisted or ephemeral photo sync state."""
 
-    def __enter__(self) -> "PhotoSyncState":
+    def __enter__(self) -> PhotoSyncState:
         """Open the backend and return the active state object."""
 
     def __exit__(
@@ -67,7 +68,7 @@ class SQLitePhotoSyncState:
         self.db_path = db_path
         self._conn: sqlite3.Connection | None = None
 
-    def __enter__(self) -> "SQLitePhotoSyncState":
+    def __enter__(self) -> SQLitePhotoSyncState:
         self.open()
         return self
 
@@ -244,7 +245,7 @@ class MemoryPhotoSyncState:
         self._cursor: str | None = None
         self._resources: dict[tuple[str, str], SyncedPhotoResource] = {}
 
-    def __enter__(self) -> "MemoryPhotoSyncState":
+    def __enter__(self) -> MemoryPhotoSyncState:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

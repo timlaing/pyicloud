@@ -4,10 +4,13 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      - id: forbid-submodules
       - id: trailing-whitespace
       - id: detect-private-key
       - id: check-docstring-first
       - id: end-of-file-fixer
+      - id: check-shebang-scripts-are-executable
+      - id: check-added-large-files
       - id: check-yaml
         args:
           - --unsafe
@@ -24,17 +27,25 @@ repos:
         args:
           - --fix
       - id: ruff-format
-  - repo: https://github.com/pycqa/isort
-    rev: 7.0.0
+  - repo: https://github.com/streetsidesoftware/cspell-cli
+    rev: v10.0.1
     hooks:
-      - id: isort
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
-    hooks:
-      - id: codespell
+      - id: cspell
         args:
-          - --ignore-words-list=astroid,addin,commitish
-          - --quiet-level=2
+          - --config=.vscode/cspell.json
+          - --no-must-find-files
+          - --no-progress
+          - --no-summary
+      - id: cspell # Spell check the commit message
+        name: check commit message spelling
+        args:
+          - --no-must-find-files
+          - --no-progress
+          - --no-summary
+          - --files
+          - .git/COMMIT_EDITMSG
+        stages: [commit-msg]
+        always_run: true # This might not be necessary.
   - repo: https://github.com/adrienverge/yamllint.git
     rev: v1.38.0
     hooks:
@@ -53,10 +64,101 @@ repos:
           - --force
           - --keep-updates
         files: ^(pyicloud|tests|scripts)/.+\.py$
-  - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.8.1
+  - repo: local
     hooks:
       - id: prettier
+        name: prettier
+        entry: npx prettier --write --ignore-unknown
+        language: node
+        types_or:
+          - json
+          - yaml
+          - markdown
         additional_dependencies:
-          - prettier@3.6.2
-          - prettier-plugin-sort-json@4.2.0
+          - prettier-plugin-sort-json
+          - "@prettier/plugin-xml"
+        pass_filenames: true
+      - id: mypy
+        name: MyPy Type checker
+        alias: mypy
+        entry: mypy
+        args:
+          - .
+        types: [python]
+        pass_filenames: false
+        language: python
+        additional_dependencies:
+          # BEGIN GENERATED REQUIREMENTS
+          - certifi>=2026.4.22
+          - cryptography>=44.0.0
+          - fido2>=2.2.0
+          - keyring>=25.7.0
+          - keyrings.alt>=5.0.2
+          - protobuf>=6.32.0,<8
+          - pydantic>=2.13.4,<3
+          - requests>=2.31.0
+          - srp>=1.0.22
+          - tinyhtml>=1.3.0
+          - tzlocal==5.3.1
+          - bbpb
+          - mypy
+          - prek
+          - pylint
+          - pylint-strict-informational
+          - pytest
+          - pytest-asyncio
+          - pytest-cov
+          - pytest-socket
+          - pytest-timeout
+          - ruff
+          - types-requests
+          - click>=8.4.1
+          - rich>=15.0.0
+          - typer>=0.16.1
+          # END GENERATED REQUIREMENTS
+      - id: pylint
+        name: Pylint
+        entry: pylint
+        pass_filenames: true
+        args:
+          - "-rn" # Only display messages
+          - "-sn" # Don't display the score
+        types: [python]
+        language: python
+        additional_dependencies:
+          # BEGIN GENERATED REQUIREMENTS
+          - certifi>=2026.4.22
+          - cryptography>=44.0.0
+          - fido2>=2.2.0
+          - keyring>=25.7.0
+          - keyrings.alt>=5.0.2
+          - protobuf>=6.32.0,<8
+          - pydantic>=2.13.4,<3
+          - requests>=2.31.0
+          - srp>=1.0.22
+          - tinyhtml>=1.3.0
+          - tzlocal==5.3.1
+          - bbpb
+          - mypy
+          - prek
+          - pylint
+          - pylint-strict-informational
+          - pytest
+          - pytest-asyncio
+          - pytest-cov
+          - pytest-socket
+          - pytest-timeout
+          - ruff
+          - types-requests
+          - click>=8.4.1
+          - rich>=15.0.0
+          - typer>=0.16.1
+          # END GENERATED REQUIREMENTS
+      - id: check-prek-deps
+        name: Check prek dependency sync
+        language: system
+        entry: python3 scripts/sync_prek_deps.py --check
+        args:
+          - requirements_all.txt
+        files: ^(requirements.*\.txt|\.pre-commit-config\.yaml)$
+        pass_filenames: false

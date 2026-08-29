@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
-from typing import Callable, TypeVar
+from typing import TypeVar
 
-import typer
 from pydantic import ValidationError
+import typer
 
 from pyicloud.cli.context import CLIAbort, get_state, parse_datetime, service_call
 from pyicloud.cli.normalize import normalize_sync_cursor
@@ -122,9 +123,7 @@ def _id_matches(record_id: str, query: str) -> bool:
         return False
     if record_id == normalized:
         return True
-    if "/" in record_id and record_id.split("/", 1)[1] == normalized:
-        return True
-    return False
+    return "/" in record_id and record_id.split("/", 1)[1] == normalized
 
 
 def _reminders_service(api):

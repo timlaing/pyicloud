@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 import hashlib
 import hmac
 import secrets
-from dataclasses import dataclass
-from typing import Optional
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -42,8 +41,8 @@ _AES_GCM_LAYOUTS = {0: (12, 16)}
 class _Point:
     """Affine P-256 point used by the bridge SPAKE2 math helpers."""
 
-    x: Optional[int]
-    y: Optional[int]
+    x: int | None
+    y: int | None
 
     @property
     def is_infinity(self) -> bool:
@@ -55,7 +54,7 @@ _INFINITY = _Point(None, None)
 _GENERATOR = _Point(_P256_GX, _P256_GY)
 
 
-def _int_to_bytes(value: int, length: Optional[int] = None) -> bytes:
+def _int_to_bytes(value: int, length: int | None = None) -> bytes:
     """Encode an integer using big-endian bytes."""
     if length is None:
         length = max(1, (value.bit_length() + 7) // 8)
@@ -307,8 +306,8 @@ class _ClientHandshake:
         self._x = x_scalar
         self._w0 = w0
         self._w1 = w1
-        self._message1_point: Optional[_Point] = None
-        self.share_p: Optional[str] = None
+        self._message1_point: _Point | None = None
+        self.share_p: str | None = None
 
     def get_message(self) -> str:
         """Return the prover's first SPAKE2 message."""
@@ -368,8 +367,8 @@ class _ServerHandshake:
         self._y = y_scalar
         self._w0 = w0
         self._verifier_point = verifier_point
-        self._message1_point: Optional[_Point] = None
-        self.share_v: Optional[str] = None
+        self._message1_point: _Point | None = None
+        self.share_v: str | None = None
 
     def get_message(self) -> str:
         """Return the verifier's first SPAKE2 message."""
@@ -442,12 +441,12 @@ class TrustedDeviceBridgeProver:
 
     def __init__(self) -> None:
         """Initialize empty prover state for one bridge verification attempt."""
-        self._client: Optional[_ClientHandshake] = None
-        self._shared_secret: Optional[_ClientSharedSecret] = None
-        self._raw_key: Optional[str] = None
+        self._client: _ClientHandshake | None = None
+        self._shared_secret: _ClientSharedSecret | None = None
+        self._raw_key: str | None = None
         self._verified = False
-        self._verifier_key: Optional[str] = None
-        self._prover_key: Optional[str] = None
+        self._verifier_key: str | None = None
+        self._prover_key: str | None = None
 
     def init_with_salt(self, salt_b64: str, code: str) -> None:
         """Initialize the prover with Apple's salt and the user-entered code."""
@@ -535,10 +534,10 @@ class _TrustedDeviceBridgeServerProver:
             w0=w0,
             verifier_point=verifier_point,
         )
-        self._shared_secret: Optional[_ServerSharedSecret] = None
-        self._raw_key: Optional[str] = None
-        self._verifier_key: Optional[str] = None
-        self._prover_key: Optional[str] = None
+        self._shared_secret: _ServerSharedSecret | None = None
+        self._raw_key: str | None = None
+        self._verifier_key: str | None = None
+        self._prover_key: str | None = None
 
     def get_message1(self) -> str:
         """Return the verifier's first bridge message."""

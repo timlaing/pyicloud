@@ -11,9 +11,9 @@ Population is performed by feeding CloudKit records into `add_attachment_record`
 
 from __future__ import annotations
 
-import logging
+from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+import logging
 
 from pyicloud.common.cloudkit import CKRecord
 
@@ -25,28 +25,28 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class CloudKitNoteDataSource(NoteDataSource):
-    _uti: Dict[str, str] = field(default_factory=dict)
-    _mergeable_gz: Dict[str, bytes] = field(default_factory=dict)
-    _primary_asset_url: Dict[str, str] = field(default_factory=dict)
-    _thumbnail_url: Dict[str, str] = field(default_factory=dict)
-    _title: Dict[str, str] = field(default_factory=dict)
-    _config: Optional[ExportConfig] = None
+    _uti: dict[str, str] = field(default_factory=dict)
+    _mergeable_gz: dict[str, bytes] = field(default_factory=dict)
+    _primary_asset_url: dict[str, str] = field(default_factory=dict)
+    _thumbnail_url: dict[str, str] = field(default_factory=dict)
+    _title: dict[str, str] = field(default_factory=dict)
+    _config: ExportConfig | None = None
 
     # Minimal protocol
-    def get_attachment_uti(self, identifier: str) -> Optional[str]:
+    def get_attachment_uti(self, identifier: str) -> str | None:
         return self._uti.get(identifier)
 
-    def get_mergeable_gz(self, identifier: str) -> Optional[bytes]:
+    def get_mergeable_gz(self, identifier: str) -> bytes | None:
         return self._mergeable_gz.get(identifier)
 
     # Optional richer protocol
-    def get_primary_asset_url(self, identifier: str) -> Optional[str]:
+    def get_primary_asset_url(self, identifier: str) -> str | None:
         return self._primary_asset_url.get(identifier)
 
-    def get_thumbnail_url(self, identifier: str) -> Optional[str]:
+    def get_thumbnail_url(self, identifier: str) -> str | None:
         return self._thumbnail_url.get(identifier)
 
-    def get_title(self, identifier: str) -> Optional[str]:
+    def get_title(self, identifier: str) -> str | None:
         return self._title.get(identifier)
 
     # Overrides for callers that download assets locally and want to point the
@@ -60,7 +60,7 @@ class CloudKitNoteDataSource(NoteDataSource):
         fields = rec.fields
 
         # With strict model validation, *Encrypted fields are always bytes.
-        def _text_from_bytes(val: Optional[bytes | bytearray]) -> Optional[str]:
+        def _text_from_bytes(val: bytes | bytearray | None) -> str | None:
             if val is None:
                 return None
             try:
@@ -68,7 +68,7 @@ class CloudKitNoteDataSource(NoteDataSource):
             except Exception:
                 return None
 
-        def _asset_url(obj) -> Optional[str]:
+        def _asset_url(obj) -> str | None:
             """Best-effort extractor for CloudKit asset token downloadURL.
 
             Accepts a mapping (dict-like) or an object with attribute `downloadURL`.
@@ -86,7 +86,7 @@ class CloudKitNoteDataSource(NoteDataSource):
                 return None
 
         # Attachment logical identifier (if present); otherwise, use recordName
-        ident: Optional[str] = None
+        ident: str | None = None
         for key in ("AttachmentIdentifier", "attachmentIdentifier", "Identifier"):
             raw = getattr(fields.get_field(key) or (), "value", None)
             if isinstance(raw, str) and raw:
@@ -108,7 +108,7 @@ class CloudKitNoteDataSource(NoteDataSource):
 
         # UTI (plain or encrypted)
 
-        uti_val: Optional[str] = None
+        uti_val: str | None = None
         uti_plain = fields.get_value("UTI") or fields.get_value("AttachmentUTI")
         if isinstance(uti_plain, str) and uti_plain:
             uti_val = uti_plain
@@ -194,7 +194,7 @@ class CloudKitNoteDataSource(NoteDataSource):
                     except Exception:
                         pref = "light"
                     pref_code = 1 if pref in ("dark", "1", "true", "yes") else 0
-                    selected: Optional[str] = None
+                    selected: str | None = None
                     if isinstance(apps, (list, tuple)) and len(apps) == len(tokens):
                         for idx, app in enumerate(apps):
                             try:
@@ -303,7 +303,7 @@ class CloudKitNoteDataSource(NoteDataSource):
                 if k not in self._primary_asset_url:
                     self._primary_asset_url[k] = thumb_url
 
-        try:
+        with suppress(Exception):
             LOGGER.debug(
                 "ckds.add_attachment_record",
                 extra={
@@ -315,5 +315,3 @@ class CloudKitNoteDataSource(NoteDataSource):
                     "has_mergeable": any(k in self._mergeable_gz for k in keys),
                 },
             )
-        except Exception:
-            pass

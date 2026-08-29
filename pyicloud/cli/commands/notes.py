@@ -5,7 +5,6 @@ from __future__ import annotations
 from enum import Enum
 from itertools import islice
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -177,9 +176,9 @@ def notes_folders(
 @app.command("list")
 def notes_list(
     ctx: typer.Context,
-    folder_id: Optional[str] = typer.Option(None, "--folder-id", help=_FOLDER_ID_HELP),
+    folder_id: str | None = typer.Option(None, "--folder-id", help=_FOLDER_ID_HELP),
     all_notes: bool = typer.Option(False, "--all", help="Iterate all notes."),
-    since: Optional[str] = typer.Option(
+    since: str | None = typer.Option(
         None,
         "--since",
         help="Incremental sync cursor for --all.",

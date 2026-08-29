@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import json
-import unittest
 from datetime import datetime, timezone
+import json
 from pathlib import Path
+import unittest
 from unittest.mock import MagicMock
+
+from pydantic import ValidationError
 
 from pyicloud.common.cloudkit import (
     CKLookupResponse,
@@ -118,7 +120,7 @@ class DtoTest(unittest.TestCase):
             scope=EventScope.PRIVATE,
             time=EventTime(start=datetime(2026, 1, 1, tzinfo=timezone.utc)),
         )
-        with self.assertRaises(Exception):
+        with self.assertRaises(ValidationError):
             event.title = "mutated"  # type: ignore[misc]
 
     def test_invites_dtos_serialize(self):

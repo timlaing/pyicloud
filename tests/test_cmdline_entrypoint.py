@@ -67,6 +67,8 @@ def test_main_reraises_unrelated_missing_module() -> None:
     with patch.dict("sys.modules", {}, clear=False):
         for k in cli_keys:
             del sys.modules[k]
-        with patch("builtins.__import__", side_effect=_side_effect):
-            with pytest.raises(ModuleNotFoundError):
-                cmdline.main()
+        with (
+            patch("builtins.__import__", side_effect=_side_effect),
+            pytest.raises(ModuleNotFoundError),
+        ):
+            cmdline.main()

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import base64
-import struct
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import struct
+import tempfile
 from types import SimpleNamespace
-from typing import Optional
 from unittest.mock import patch
 
 import pytest
@@ -51,7 +50,7 @@ MINIMAL_JPEG = base64.b64decode(
 class DummyAlbumContainer(list):
     """Album container fixture for sync tests."""
 
-    def find(self, name: Optional[str]):
+    def find(self, name: str | None):
         if name is None:
             return None
         for album in self:
@@ -63,7 +62,7 @@ class DummyAlbumContainer(list):
 class DummyAlbum:
     """Album fixture for sync tests."""
 
-    def __init__(self, name: str, assets: list["DummyAsset"]) -> None:
+    def __init__(self, name: str, assets: list[DummyAsset]) -> None:
         self.name = name
         self.fullname = f"/{name}"
         self._assets = assets
@@ -112,11 +111,11 @@ class DummyAsset:
         item_type: str = "image",
         is_live_photo: bool = False,
         added_days_ago: int = 0,
-        asset_date: Optional[datetime] = None,
-        added_date: Optional[datetime] = None,
-        resources: Optional[dict[str, PhotoResource]] = None,
-        asset_record: Optional[dict] = None,
-        payloads: Optional[dict[str, bytes]] = None,
+        asset_date: datetime | None = None,
+        added_date: datetime | None = None,
+        resources: dict[str, PhotoResource] | None = None,
+        asset_record: dict | None = None,
+        payloads: dict[str, bytes] | None = None,
     ) -> None:
         self.id = asset_id
         self.filename = filename

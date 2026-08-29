@@ -6,8 +6,8 @@ from __future__ import annotations
 # pylint: disable=redefined-outer-name
 # pylint: disable=abstract-method
 import base64
-import json
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -614,9 +614,12 @@ def test_upload_file_with_errors(mock_photos_service: MagicMock) -> None:
         upload_url="https://upload.example.com",
     )
 
-    with patch("builtins.open", mock_open(read_data=b"file_content")) as mock_file:
-        with pytest.raises(PyiCloudAPIResponseException) as exc_info:
-            library.upload_file("test_photo.jpg")
+    mock_file = mock_open(read_data=b"file_content")
+    with (
+        patch("builtins.open", mock_file),
+        pytest.raises(PyiCloudAPIResponseException) as exc_info,
+    ):
+        library.upload_file("test_photo.jpg")
 
     assert "UPLOAD_ERROR" in str(exc_info.value)
     mock_photos_service.session.post.assert_called_with(
@@ -2564,9 +2567,7 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
                     "recordChangeTag": "tag123",
                     "fields": {
                         "albumNameEnc": {
-                            "value": base64.b64encode(
-                                "New Name".encode("utf-8")
-                            ).decode("utf-8"),
+                            "value": base64.b64encode(b"New Name").decode("utf-8"),
                         },
                     },
                 },
@@ -4526,9 +4527,7 @@ def test_create_album_success(mock_photos_service: MagicMock) -> None:
                     "recordType": "CPLAlbum",
                     "fields": {
                         "albumNameEnc": {
-                            "value": base64.b64encode(
-                                "My Album".encode("utf-8")
-                            ).decode("utf-8"),
+                            "value": base64.b64encode(b"My Album").decode("utf-8"),
                         },
                         "albumType": {"value": AlbumTypeEnum.ALBUM.value},
                         "isDeleted": {"value": 0},
@@ -4877,9 +4876,10 @@ def test_shared_photo_stream_album_get_photo_not_found(
     # Mock _get_photos_at to return photos in pages, last page is incomplete
     album._get_photos_at = MagicMock(
         side_effect=[
-            iter(
-                [mock_photo1, mock_photo2]
-            ),  # First page (2 photos, less than page_size)
+            iter([
+                mock_photo1,
+                mock_photo2,
+            ]),  # First page (2 photos, less than page_size)
         ]
     )
 

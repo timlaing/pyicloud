@@ -1,6 +1,6 @@
 """Account service."""
 
-from typing import Any, Optional
+from typing import Any
 
 from requests import Response
 
@@ -23,9 +23,9 @@ class AccountService(BaseService):
     ) -> None:
         super().__init__(service_root, session, params)
 
-        self._devices: list["AccountDevice"] = []
-        self._family: list["FamilyMember"] = []
-        self._storage: Optional[AccountStorage] = None
+        self._devices: list[AccountDevice] = []
+        self._family: list[FamilyMember] = []
+        self._storage: AccountStorage | None = None
 
         self._acc_endpoint: str = f"{self.service_root}/setup/web"
         self._acc_devices_url: str = f"{self._acc_endpoint}/device/getDevices"
@@ -142,22 +142,22 @@ class FamilyMember:
         self._acc_family_member_photo_url: str = acc_family_member_photo_url
 
     @property
-    def last_name(self) -> Optional[str]:
+    def last_name(self) -> str | None:
         """Gets the last name."""
         return self._attrs.get("lastName")
 
     @property
-    def dsid(self) -> Optional[str]:
+    def dsid(self) -> str | None:
         """Gets the dsid."""
         return self._attrs.get("dsid")
 
     @property
-    def original_invitation_email(self) -> Optional[str]:
+    def original_invitation_email(self) -> str | None:
         """Gets the original invitation."""
         return self._attrs.get("originalInvitationEmail")
 
     @property
-    def full_name(self) -> Optional[str]:
+    def full_name(self) -> str | None:
         """Gets the full name."""
         return self._attrs.get("fullName")
 
@@ -167,12 +167,12 @@ class FamilyMember:
         return self._attrs.get("ageClassification")
 
     @property
-    def apple_id_for_purchases(self) -> Optional[str]:
+    def apple_id_for_purchases(self) -> str | None:
         """Gets the apple id for purchases."""
         return self._attrs.get("appleIdForPurchases")
 
     @property
-    def apple_id(self) -> Optional[str]:
+    def apple_id(self) -> str | None:
         """Gets the apple id."""
         return self._attrs.get("appleId")
 
@@ -182,7 +182,7 @@ class FamilyMember:
         return self._attrs.get("familyId")
 
     @property
-    def first_name(self) -> Optional[str]:
+    def first_name(self) -> str | None:
         """Gets the first name."""
         return self._attrs.get("firstName")
 

@@ -15,7 +15,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any, List, Optional
+from typing import Any
 
 # Ensure pyicloud can be imported when running from examples/ directly.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -164,7 +164,7 @@ def ensure_auth(api: PyiCloudService) -> None:
             api.trust_session()
     elif api.requires_2sa:
         logger.info("Two-step authentication required.")
-        devices: List[dict[str, Any]] = api.trusted_devices
+        devices: list[dict[str, Any]] = api.trusted_devices
         if not devices:
             raise RuntimeError("No trusted devices available for 2SA")
         for i, _device in enumerate(devices):
@@ -251,28 +251,28 @@ def main() -> None:
         logger.error("Failed to create output directory '%s': %s", out_dir, exc)
         return
 
-    def _safe_name(s: Optional[str]) -> str:
+    def _safe_name(s: str | None) -> str:
         if not s:
             return "untitled"
         s = re.sub(r"\s+", " ", s).strip()
         s = re.sub(r"[^\w\- ]+", "-", s)
         return s[:60] or "untitled"
 
-    def _match_title(title: Optional[str]) -> bool:
+    def _match_title(title: str | None) -> bool:
         if not title:
             return False
         if args.title and title == args.title:
             return True
-        if args.title_contains and args.title_contains.lower() in title.lower():
-            return True
-        return False
+        return bool(
+            args.title_contains and args.title_contains.lower() in title.lower()
+        )
 
     candidates = []
     if args.title or args.title_contains:
         logger.info("[bold]\nSearching notes by title[/bold]")
         phase(
-            "selection: recents-first title search (exact='%s' contains='%s')"
-            % (args.title, args.title_contains)
+            "selection: recents-first title search "
+            f"(exact='{args.title}' contains='{args.title_contains}')"
         )
         try:
             window = max(500, max_items * 50)
@@ -390,7 +390,8 @@ def main() -> None:
                 for row in merged:
                     raw = str(row.get("text", ""))
                     pretty = (
-                        raw.replace("\n", "⏎\n")
+                        raw
+                        .replace("\n", "⏎\n")
                         .replace("\u2028", "⤶\n")
                         .replace("\x00", "␀")
                         .replace("\ufffc", "{OBJ}")

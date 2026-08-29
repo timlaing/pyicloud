@@ -6,15 +6,15 @@ realistic CKRecord JSON fixtures.
 # pylint: disable=protected-access
 
 import base64
+from datetime import datetime, timezone
 import json
 import logging
-import zlib
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import zlib
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -260,7 +260,9 @@ def test_protocol_crdt_declares_utf16_lengths(text: str, expected_length: int):
     assert [s.length for s in value.substring if s.length] == [expected_length]
     assert [a.length for a in value.attributeRun] == [expected_length]
     assert [
-        replica.clock for clock in value.timestamp.clock for replica in clock.replicaClock
+        replica.clock
+        for clock in value.timestamp.clock
+        for replica in clock.replicaClock
     ] == [expected_length, 1]
 
 
@@ -1277,25 +1279,23 @@ class TestModifySerialization:
     """Ensure request models preserve CloudKit wire shape."""
 
     def test_double_field_keeps_is_encrypted_in_modify_payload(self):
-        trigger_record = CKWriteRecord.model_validate(
-            {
-                "recordName": "AlarmTrigger/TRIG-DOUBLE",
-                "recordType": "AlarmTrigger",
-                "fields": {
-                    "Latitude": {
-                        "type": "DOUBLE",
-                        "value": 48.8584,
-                        "isEncrypted": True,
-                    },
-                    "Longitude": {
-                        "type": "DOUBLE",
-                        "value": 2.2945,
-                        "isEncrypted": True,
-                    },
-                    "Type": {"type": "STRING", "value": "Location"},
+        trigger_record = CKWriteRecord.model_validate({
+            "recordName": "AlarmTrigger/TRIG-DOUBLE",
+            "recordType": "AlarmTrigger",
+            "fields": {
+                "Latitude": {
+                    "type": "DOUBLE",
+                    "value": 48.8584,
+                    "isEncrypted": True,
                 },
-            }
-        )
+                "Longitude": {
+                    "type": "DOUBLE",
+                    "value": 2.2945,
+                    "isEncrypted": True,
+                },
+                "Type": {"type": "STRING", "value": "Location"},
+            },
+        })
         op = CKModifyOperation(operationType="create", record=trigger_record)
         payload = CKModifyRequest(
             operations=[op],
@@ -1401,14 +1401,12 @@ class TestMutationErrorHandling:
         def _ack(
             record_name: str, record_type: str, record_change_tag: str
         ) -> CKRecord:
-            return CKRecord.model_validate(
-                {
-                    "recordName": record_name,
-                    "recordType": record_type,
-                    "recordChangeTag": record_change_tag,
-                    "fields": {},
-                }
-            )
+            return CKRecord.model_validate({
+                "recordName": record_name,
+                "recordType": record_type,
+                "recordChangeTag": record_change_tag,
+                "fields": {},
+            })
 
         svc._raw.modify.return_value = CKModifyResponse(
             records=[
@@ -1506,14 +1504,12 @@ class TestAdditionalWriteApis:
 
     @staticmethod
     def _ack(record_name: str, record_type: str, record_change_tag: str) -> CKRecord:
-        return CKRecord.model_validate(
-            {
-                "recordName": record_name,
-                "recordType": record_type,
-                "recordChangeTag": record_change_tag,
-                "fields": {},
-            }
-        )
+        return CKRecord.model_validate({
+            "recordName": record_name,
+            "recordType": record_type,
+            "recordChangeTag": record_change_tag,
+            "fields": {},
+        })
 
     def test_create_and_delete_hashtag(self):
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
@@ -3044,50 +3040,48 @@ class TestCloudKitQueryResponseRobustness:
     def test_query_response_tolerates_out_of_range_due_date_timestamp(self):
         # Captured variant: DueDate TIMESTAMP can be out-of-range (e.g. year 12177).
         # Parsing should coerce that field to None, not fail the entire response page.
-        response = CKQueryResponse.model_validate(
-            {
-                "records": [
-                    {
-                        "recordName": "Reminder/GOOD-1",
-                        "recordType": "Reminder",
-                        "fields": {
-                            "List": {
-                                "type": "REFERENCE",
-                                "value": {
-                                    "recordName": "List/LIST-A",
-                                    "action": "VALIDATE",
-                                },
+        response = CKQueryResponse.model_validate({
+            "records": [
+                {
+                    "recordName": "Reminder/GOOD-1",
+                    "recordType": "Reminder",
+                    "fields": {
+                        "List": {
+                            "type": "REFERENCE",
+                            "value": {
+                                "recordName": "List/LIST-A",
+                                "action": "VALIDATE",
                             },
-                            "Completed": {"type": "INT64", "value": 0},
-                            "Priority": {"type": "INT64", "value": 0},
-                            "Flagged": {"type": "INT64", "value": 0},
-                            "AllDay": {"type": "INT64", "value": 0},
-                            "Deleted": {"type": "INT64", "value": 0},
-                            "DueDate": {"type": "TIMESTAMP", "value": 1735488000000},
                         },
+                        "Completed": {"type": "INT64", "value": 0},
+                        "Priority": {"type": "INT64", "value": 0},
+                        "Flagged": {"type": "INT64", "value": 0},
+                        "AllDay": {"type": "INT64", "value": 0},
+                        "Deleted": {"type": "INT64", "value": 0},
+                        "DueDate": {"type": "TIMESTAMP", "value": 1735488000000},
                     },
-                    {
-                        "recordName": "Reminder/BAD-DUE-DATE",
-                        "recordType": "Reminder",
-                        "fields": {
-                            "List": {
-                                "type": "REFERENCE",
-                                "value": {
-                                    "recordName": "List/LIST-A",
-                                    "action": "VALIDATE",
-                                },
+                },
+                {
+                    "recordName": "Reminder/BAD-DUE-DATE",
+                    "recordType": "Reminder",
+                    "fields": {
+                        "List": {
+                            "type": "REFERENCE",
+                            "value": {
+                                "recordName": "List/LIST-A",
+                                "action": "VALIDATE",
                             },
-                            "Completed": {"type": "INT64", "value": 0},
-                            "Priority": {"type": "INT64", "value": 0},
-                            "Flagged": {"type": "INT64", "value": 0},
-                            "AllDay": {"type": "INT64", "value": 0},
-                            "Deleted": {"type": "INT64", "value": 0},
-                            "DueDate": {"type": "TIMESTAMP", "value": 322123125600000},
                         },
+                        "Completed": {"type": "INT64", "value": 0},
+                        "Priority": {"type": "INT64", "value": 0},
+                        "Flagged": {"type": "INT64", "value": 0},
+                        "AllDay": {"type": "INT64", "value": 0},
+                        "Deleted": {"type": "INT64", "value": 0},
+                        "DueDate": {"type": "TIMESTAMP", "value": 322123125600000},
                     },
-                ],
-            }
-        )
+                },
+            ],
+        })
 
         assert len(response.records) == 2
         good = response.records[0]
@@ -3099,22 +3093,20 @@ class TestCloudKitQueryResponseRobustness:
 
     def test_query_response_parses_asset_backed_list_field(self):
         payload = base64.b64encode(b'["REM-1","REM-2"]').decode("ascii")
-        response = CKQueryResponse.model_validate(
-            {
-                "records": [
-                    {
-                        "recordName": "List/LIST-A",
-                        "recordType": "List",
-                        "fields": {
-                            "ReminderIDsAsset": {
-                                "type": "ASSET",
-                                "value": {"downloadedData": payload},
-                            }
-                        },
-                    }
-                ]
-            }
-        )
+        response = CKQueryResponse.model_validate({
+            "records": [
+                {
+                    "recordName": "List/LIST-A",
+                    "recordType": "List",
+                    "fields": {
+                        "ReminderIDsAsset": {
+                            "type": "ASSET",
+                            "value": {"downloadedData": payload},
+                        }
+                    },
+                }
+            ]
+        })
 
         rec = response.records[0]
         assert isinstance(rec, CKRecord)
