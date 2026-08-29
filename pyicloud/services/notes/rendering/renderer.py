@@ -334,6 +334,24 @@ def _slice_for_run(s: str, start: int, length_units: int) -> tuple[str, int]:
         end_guess = new_end
 
 
+def _should_close_paragraph(mr: MergedRun, next_mr: MergedRun | None) -> bool:
+    """Return whether to close the current paragraph before the next run.
+
+    The parent <li> is kept open when the next paragraph is a deeper-indented
+    list item, so the nested <ul>/<ol> is emitted inside the correct item
+    rather than inside an empty sibling <li>.
+    """
+    if next_mr is not None:
+        cur_st = mr.sig.style_type
+        nxt_st = next_mr.sig.style_type
+        if _is_list_style(cur_st) and _is_list_style(nxt_st):
+            cur_indent = int(mr.sig.indent_amount or 0)
+            nxt_indent = int(next_mr.sig.indent_amount or 0)
+            if nxt_indent > cur_indent:
+                return False
+    return True
+
+
 def render_note_fragment(
     note: pb.Note,
     datasource: NoteDataSource | None,
@@ -606,6 +624,125 @@ def render_note_fragment(
             styled = f"<sub>{styled}</sub>"
         return styled
 
+    def _replace_spacer_with_item(sig: StyleSig) -> None:
+        """Close an open bulletless spacer <li> and start a standard item."""
+        if not (list_stack and list_stack[-1]["li_open"]):
+            return
+        idx = list_stack[-1]["li_index"]
+        if idx is None or idx >= len(fragments):
+            return
+        # A spacer looks like <li style="list-style-type: none">
+        if 'style="list-style-type: none"' not in fragments[idx]:
+            return
+        # Close spacer
+        fragments.append("</li>")
+        list_stack[-1]["li_open"] = False
+        # Open new standard item
+        fragments.append("<li>")
+        list_stack[-1]["li_open"] = True
+        list_stack[-1]["li_index"] = len(fragments) - 1
+        list_stack[-1]["li_has_content"] = False
+        if sig.style_type == StyleType.CHECKBOX:
+            checked = " checked" if sig.checklist_done == 1 else ""
+            fragments.append(f'<input type="checkbox" disabled{checked}> ')
+
+    def _open_sibling_item(sig: StyleSig, next_seg: str | None) -> None:
+        """End the current list item and open a new sibling item."""
+        fragments.append("</li>")
+        list_stack[-1]["li_open"] = False
+        # open next
+        style_attr = ""
+        # If next segment is empty (and not the trailing nesting case), it's a
+        # blank line. Hide the marker. We know next_seg is the content of the
+        # next item.
+        is_next_empty = next_seg == ""
+        if is_next_empty:
+            style_attr = ' style="list-style-type: none"'
+        fragments.append(f"<li{style_attr}>")
+        # Track the index of the opening tag
+        list_stack[-1]["li_index"] = len(fragments) - 1
+        list_stack[-1]["li_open"] = True
+        if is_next_empty:
+            # Ensure it has height
+            fragments.append("&nbsp;")
+        list_stack[-1]["li_has_content"] = False
+        # For checklist style, inject a checkbox for each new item
+        # ONLY if it's not a spacer (empty).
+        if sig.style_type == StyleType.CHECKBOX and not is_next_empty:
+            checked = " checked" if sig.checklist_done == 1 else ""
+            fragments.append(f'<input type="checkbox" disabled{checked}> ')
+
+    def _render_list_segments(sig: StyleSig, s: str) -> None:
+        """Emit a list-styled text run, splitting segments into sibling items."""
+        segs = s.split("\n")
+        for k, seg in enumerate(segs):
+            if seg:
+                # If we are strictly inside a list item that is a
+                # "spacer" (bulletless), and we are about to add text,
+                # we must close the spacer and start a real list item so
+                # the text gets a bullet.
+                _replace_spacer_with_item(sig)
+                fragments.append(wrap_inline(sig, html.escape(seg)))
+                if seg.strip():
+                    list_stack[-1]["li_has_content"] = True
+            else:
+                # Empty segment implies a newline in the source (e.g. \n\n).
+                # Apple Notes renders this as a vertical space (blank line)
+                # but WITHOUT a bullet. The empty segment is consumed as a
+                # trailing newline (kept for nesting) or an actual blank line.
+                pass
+
+            if k < len(segs) - 1:
+                next_seg = segs[k + 1] if (k + 1) < len(segs) else None
+                # If this is the trailing newline (next seg empty and last),
+                # keep the current <li> open so a nested list can attach to it.
+                if next_seg == "" and (k + 1) == len(segs) - 1:
+                    continue
+                _open_sibling_item(sig, next_seg)
+
+    def _render_plain_segments(sig: StyleSig, s: str) -> None:
+        """Emit text segments keeping newlines as <br> (non-list runs)."""
+        segs = s.split("\n")
+        for k, seg in enumerate(segs):
+            if seg:
+                fragments.append(wrap_inline(sig, html.escape(seg)))
+                if seg.strip():
+                    list_stack[-1]["li_has_content"] = True
+            if k < len(segs) - 1:
+                fragments.append("<br>")
+
+    def _flush_newline_gap(sig: StyleSig, s: str) -> None:
+        """Accumulate blank-line runs as deferred <br> or emit them as text."""
+        nonlocal deferred_breaks
+        if s.replace("\n", "").replace("\u2028", "") == "":
+            deferred_breaks += s.count("\n") + s.count("\u2028")
+            return
+        if deferred_breaks > 0:
+            fragments.append("<br>" * deferred_breaks)
+            deferred_breaks = 0
+        if sig.style_type == StyleType.MONOSPACED:
+            safe = html.escape(s)
+        else:
+            # Preserve leading spaces/tabs per line for visible indentation
+            safe = _preserve_leading_ws(s)
+        fragments.append(wrap_inline(sig, safe))
+        if list_stack and list_stack[-1]["li_open"]:
+            list_stack[-1]["li_has_content"] = list_stack[-1].get("li_has_content") or (
+                s.strip() != ""
+            )
+
+    def _close_previous_paragraph(prev_sig: StyleSig, cur_sig: StyleSig) -> None:
+        """Close the previous paragraph unless moving into a deeper-indented
+        list item (the nested list must remain inside the current <li>)."""
+        if _is_list_style(getattr(prev_sig, "style_type", None)) and _is_list_style(
+            getattr(cur_sig, "style_type", None)
+        ):
+            prev_indent = int(getattr(prev_sig, "indent_amount", 0) or 0)
+            cur_indent = int(getattr(cur_sig, "indent_amount", 0) or 0)
+            if cur_indent > prev_indent:
+                return
+        paragraph_close()
+
     total = len(merged)
     prev_sig: StyleSig | None = None
     for idx, mr in enumerate(merged):
@@ -617,16 +754,7 @@ def render_note_fragment(
                 # Avoid closing the parent list item when transitioning to a
                 # deeper-indented list paragraph; the nested list should remain
                 # inside the current <li>.
-                close_prev = True
-                if _is_list_style(
-                    getattr(prev_sig, "style_type", None)
-                ) and _is_list_style(getattr(mr.sig, "style_type", None)):
-                    prev_indent = int(getattr(prev_sig, "indent_amount", 0) or 0)
-                    cur_indent = int(getattr(mr.sig, "indent_amount", 0) or 0)
-                    if cur_indent > prev_indent:
-                        close_prev = False
-                if close_prev:
-                    paragraph_close()
+                _close_previous_paragraph(prev_sig, mr.sig)
             paragraph_open(mr.sig)
 
         if mr.attachment is not None:
@@ -706,123 +834,10 @@ def render_note_fragment(
                 # Inside a list item
                 if _is_list_style(mr.sig.style_type):
                     # For any list style, a newline generally means a new sibling item
-                    segs = s.split("\n")
-                    for k, seg in enumerate(segs):
-                        if seg:
-                            # If we are strictly inside a list item that is a
-                            # "spacer" (bulletless), and we are about to add text,
-                            # we must close the spacer and start a real list item so
-                            # the text gets a bullet.
-                            if list_stack and list_stack[-1]["li_open"]:
-                                idx = list_stack[-1]["li_index"]
-                                if idx is not None and idx < len(fragments):
-                                    tag = fragments[idx]
-                                    if 'style="list-style-type: none"' in tag:
-                                        fragments.append("</li>")
-                                        list_stack[-1]["li_open"] = False
-
-                                        # Open new standard item
-                                        fragments.append("<li>")
-                                        list_stack[-1]["li_open"] = True
-                                        list_stack[-1]["li_index"] = len(fragments) - 1
-                                        list_stack[-1]["li_has_content"] = False
-
-                                        if mr.sig.style_type == StyleType.CHECKBOX:
-                                            checked = (
-                                                " checked"
-                                                if mr.sig.checklist_done == 1
-                                                else ""
-                                            )
-                                            fragments.append(
-                                                f'<input type="checkbox" '
-                                                f"disabled{checked}> "
-                                            )
-
-                            fragments.append(wrap_inline(mr.sig, html.escape(seg)))
-                            if seg.strip():
-                                list_stack[-1]["li_has_content"] = True
-                        else:
-                            # Empty segment implies a newline in the source (e.g. \n\n).
-                            # Apple Notes renders this as a vertical space (blank line)
-                            # but WITHOUT a bullet.
-                            # We check if this is a "trailing" newline used
-                            # for nesting (handled below) or an actual blank line.
-                            pass
-
-                        if k < len(segs) - 1:
-                            next_seg = segs[k + 1] if (k + 1) < len(segs) else None
-                            # If the newline is the trailing one (next seg empty
-                            # and last), keep the current <li> open so a nested
-                            # list can attach to it.
-                            if next_seg == "" and (k + 1) == len(segs) - 1:
-                                continue
-
-                            # Otherwise, end current item and start a new sibling item.
-                            # If the current item (seg) was empty, we want it to be
-                            # "bulletless". But we've already opened the <li> tag at
-                            # the top of the loop or previous iter. So we need to
-                            # retroactively apply style or just insure content forces
-                            # height? Actually, we can just close the current <li>.
-                            # If it was empty (seg==""), the browser renders an empty
-                            # bullet point <li></li>.
-
-                            # Correction: We want to hide the bullet for *this* item
-                            # if it's empty. But the <li> tag was emitted *before* we
-                            # processed this segment
-                            # (at the end of the previous iteration or start of block).
-                            # We can't easily change the opening tag now.
-
-                            # Alternative: Handle the *next* opening tag.
-
-                            fragments.append("</li>")
-                            list_stack[-1]["li_open"] = False
-
-                            # open next
-                            style_attr = ""
-                            # If next segment is empty (and not the trailing
-                            # nesting case), it's a blank line. Hide the marker.
-                            # We know next_seg is the content of the next item.
-                            is_next_empty = next_seg == ""
-                            # Caution: if next_seg is "" AND it's the last one,
-                            # we skipped above. So if we are here, next_seg might
-                            # be empty (spacer) or "Text".
-
-                            if is_next_empty:
-                                style_attr = ' style="list-style-type: none"'
-
-                            fragments.append(f"<li{style_attr}>")
-                            # Track the index of the opening tag
-                            list_stack[-1]["li_index"] = len(fragments) - 1
-                            list_stack[-1]["li_open"] = True
-
-                            if is_next_empty:
-                                # Ensure it has height
-                                fragments.append("&nbsp;")
-
-                            list_stack[-1]["li_has_content"] = False
-
-                            # For checklist style, inject a checkbox for each new item
-                            # ONLY if it's not a spacer (empty).
-                            if (
-                                mr.sig.style_type == StyleType.CHECKBOX
-                                and not is_next_empty
-                            ):
-                                checked = (
-                                    " checked" if mr.sig.checklist_done == 1 else ""
-                                )
-                                fragments.append(
-                                    f'<input type="checkbox" disabled{checked}> '
-                                )
+                    _render_list_segments(mr.sig, s)
                 else:
                     # Non-list paragraphs keep newlines as <br>
-                    segs = s.split("\n")
-                    for k, seg in enumerate(segs):
-                        if seg:
-                            fragments.append(wrap_inline(mr.sig, html.escape(seg)))
-                            if seg.strip():
-                                list_stack[-1]["li_has_content"] = True
-                        if k < len(segs) - 1:
-                            fragments.append("<br>")
+                    _render_plain_segments(mr.sig, s)
             else:
                 if is_para_boundary:
                     s = s.rstrip("\n\u2028")
@@ -831,62 +846,11 @@ def render_note_fragment(
                 # (empty bulletless item) created by a previous run's trailing
                 # newlines. If so, and we have text, we should close the spacer
                 # and start a new real item.
-                if list_stack and list_stack[-1]["li_open"]:
-                    # Check if current item is a spacer
-                    idx = list_stack[-1]["li_index"]
-                    if idx is not None and idx < len(fragments):
-                        # A spacer looks like <li style="list-style-type: none">
-                        tag = fragments[idx]
-                        if 'style="list-style-type: none"' in tag:
-                            # Close spacer
-                            fragments.append("</li>")
-                            list_stack[-1]["li_open"] = False
-                            # Open new standard item
-                            fragments.append("<li>")
-                            list_stack[-1]["li_open"] = True
-                            list_stack[-1]["li_index"] = len(fragments) - 1
-                            list_stack[-1]["li_has_content"] = False
-                            if mr.sig.style_type == StyleType.CHECKBOX:
-                                checked = (
-                                    " checked" if mr.sig.checklist_done == 1 else ""
-                                )
-                                fragments.append(
-                                    f'<input type="checkbox" disabled{checked}> '
-                                )
+                _replace_spacer_with_item(mr.sig)
+                _flush_newline_gap(mr.sig, s)
 
-                if s.replace("\n", "").replace("\u2028", "") == "":
-                    deferred_breaks += s.count("\n") + s.count("\u2028")
-                else:
-                    if deferred_breaks > 0:
-                        fragments.append("<br>" * deferred_breaks)
-                        deferred_breaks = 0
-                    if mr.sig.style_type == StyleType.MONOSPACED:
-                        safe = html.escape(s)
-                    else:
-                        # Preserve leading spaces/tabs per line for visible indentation
-                        safe = _preserve_leading_ws(s)
-                    fragments.append(wrap_inline(mr.sig, safe))
-                    if list_stack and list_stack[-1]["li_open"]:
-                        list_stack[-1]["li_has_content"] = list_stack[-1].get(
-                            "li_has_content"
-                        ) or (s.strip() != "")
-
-        if is_para_boundary:
-            # Do not close the current <li> when the next paragraph is a
-            # deeper-indented list item. Keeping the parent <li> open ensures
-            # the nested <ul>/<ol> is emitted inside the correct item rather
-            # than inside an empty sibling <li>.
-            should_close = True
-            if next_mr is not None:
-                cur_st = mr.sig.style_type
-                nxt_st = next_mr.sig.style_type
-                if _is_list_style(cur_st) and _is_list_style(nxt_st):
-                    cur_indent = int(mr.sig.indent_amount or 0)
-                    nxt_indent = int(next_mr.sig.indent_amount or 0)
-                    if nxt_indent > cur_indent:
-                        should_close = False
-            if should_close:
-                paragraph_close()
+        if is_para_boundary and _should_close_paragraph(mr, next_mr):
+            paragraph_close()
         prev_sig = mr.sig
 
     if prev_sig is not None and para_tag_close:

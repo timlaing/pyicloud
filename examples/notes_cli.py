@@ -284,8 +284,8 @@ def main() -> None:
             args.title_contains and args.title_contains.lower() in title.lower()
         )
 
-    candidates = []
-    if args.title or args.title_contains:
+    def _collect_title_matches() -> list:
+        collected: list = []
         logger.info("[bold]\nSearching notes by title[/bold]")
         phase(
             "selection: recents-first title search "
@@ -297,32 +297,37 @@ def main() -> None:
             for note in notes.recents(limit=window):
                 if _match_title(note.title or ""):
                     if note.id not in seen:
-                        candidates.append(note)
+                        collected.append(note)
                         seen.add(note.id)
-                    if len(candidates) >= max_items:
+                    if len(collected) >= max_items:
                         break
             phase(
-                f"selection: recents matched {len(candidates)} "
+                f"selection: recents matched {len(collected)} "
                 f"candidate(s) in window={window}"
             )
 
-            if len(candidates) < max_items:
+            if len(collected) < max_items:
                 phase("selection: fallback to full feed scan (iter_all)")
                 for note in notes.iter_all():
                     if _match_title(note.title or "") and note.id not in seen:
-                        candidates.append(note)
+                        collected.append(note)
                         seen.add(note.id)
-                        if len(candidates) >= max_items:
+                        if len(collected) >= max_items:
                             break
-                phase(f"selection: total matched {len(candidates)} candidate(s)")
+                phase(f"selection: total matched {len(collected)} candidate(s)")
 
             try:
                 epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-                candidates.sort(key=lambda x: x.modified_at or epoch, reverse=True)
+                collected.sort(key=lambda x: x.modified_at or epoch, reverse=True)
             except Exception:
                 pass
         except Exception as exc:
             logger.error("Title search failed, falling back to recents: %s", exc)
+        return collected
+
+    candidates = []
+    if args.title or args.title_contains:
+        candidates = _collect_title_matches()
 
     if not candidates:
         logger.info("[bold]\nMost Recent Notes (HTML)[/bold]")

@@ -78,6 +78,111 @@ def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> lis
     return merged
 
 
+def _hydrate_attachment_records(ds, resp, config) -> dict[str, str]:
+    """Add attachment records to the datasource and collect their Media refs.
+
+    Returns a mapping of media record name → parent attachment record name.
+    """
+    media_map: dict[str, str] = {}
+    debug = bool(getattr(config, "debug", False))
+    for rec_idx, rec in enumerate(resp.records):
+        if debug:
+            console.rule(f"rec_idx {rec_idx}")
+            console.print(rec)
+        if isinstance(rec, CKRecord):
+            ds.add_attachment_record(rec)
+            # Capture Media reference to follow for full-fidelity images
+            try:
+                fld = rec.fields.get_field("Media")
+                ref = getattr(fld, "value", None) if fld else None
+                rn = getattr(ref, "recordName", None)
+                if rn:
+                    media_map[rn] = rec.recordName
+            except Exception:
+                pass
+    return media_map
+
+
+def _follow_media_references(ck_client, ds, media_map: dict[str, str], config) -> None:
+    """Fetch Media records and promote their URLs onto parent attachments."""
+    if not media_map:
+        return
+    try:
+        mresp = ck_client.lookup(list(media_map.keys()))
+        if bool(getattr(config, "debug", False)):
+            try:
+                console.rule("media lookup response")
+                console.print(mresp)
+                LOGGER.info("attachment media resp:\n%s", mresp)
+            except Exception:
+                pass
+        for mrec in mresp.records:
+            if not isinstance(mrec, CKRecord):
+                continue
+            url = _media_field_url(mrec)
+            if url:
+                _wire_media_to_parent(ds, media_map, mrec, url, config)
+    except Exception:
+        pass
+
+
+def _media_field_url(mrec) -> str | None:
+    """Best-effort: find any field whose value looks like an asset token."""
+    url: str | None = None
+    try:
+        for k in list(getattr(mrec, "fields", ()).keys()):
+            fld = mrec.fields.get_field(k)
+            val = getattr(fld, "value", None)
+            u = getattr(val, "downloadURL", None)
+            if isinstance(u, str) and u:
+                url = u
+                break
+    except Exception:
+        url = None
+    return url
+
+
+def _wire_media_to_parent(
+    ds, media_map: dict[str, str], mrec, url: str, config
+) -> None:
+    """Promote a Media URL to the parent attachment's primary, when appropriate."""
+    parent = media_map.get(mrec.recordName)
+    if not parent:
+        return
+    # Only promote Media-derived URLs to primary for image-like attachments.
+    # For 'public.url' (web links) and others, keep the primary_url as the
+    # actual destination, and use previews/Media only as thumbnails.
+    try:
+        parent_uti = (ds.get_attachment_uti(parent) or "").lower()
+    except Exception:
+        parent_uti = ""
+    # Use config-aware predicate to recognize image UTIs (jpeg/png/heic/webp...)
+    conf = config or ExportConfig()
+    is_image = conf.is_image_uti(parent_uti)
+    # Simple heuristic for audio/video promotion
+    is_av = (
+        "audio" in parent_uti
+        or "video" in parent_uti
+        or "movie" in parent_uti
+        or "mpeg" in parent_uti
+    )
+    is_media_upgrade = getattr(conf, "prefer_media_for_images", True) and (
+        is_image or is_av
+    )
+    # Only fetch current if we might need to check for upgrade
+    cur_primary = None
+    with suppress(Exception):
+        cur_primary = ds.get_primary_asset_url(parent)
+    if (not cur_primary) or is_media_upgrade:
+        try:
+            cur_thumb = ds.get_thumbnail_url(parent)
+        except Exception:
+            cur_thumb = None
+        # If missing, OR (we want upgrade AND current is likely just a thumbnail)
+        if (not cur_primary) or (is_media_upgrade and cur_primary == cur_thumb):
+            ds.set_primary_asset_url(parent, url)
+
+
 def build_datasource(
     ck_client,
     note_record: CKRecord,
@@ -93,107 +198,8 @@ def build_datasource(
     att_ids = _attachment_ids_from_record_and_runs(note_record, note)
     if att_ids:
         resp = ck_client.lookup(att_ids)  # desired_keys=None → all fields
-        media_map: dict[str, str] = {}  # media_record_name -> parent attachment id
-        debug = bool(getattr(config, "debug", False))
-        for rec_idx, rec in enumerate(resp.records):
-            if debug:
-                console.rule(f"rec_idx {rec_idx}")
-                console.print(rec)
-            if isinstance(rec, CKRecord):
-                ds.add_attachment_record(rec)
-                # Capture Media reference to follow for full-fidelity images
-                try:
-                    fld = rec.fields.get_field("Media")
-                    ref = getattr(fld, "value", None) if fld else None
-                    rn = getattr(ref, "recordName", None)
-                    if rn:
-                        media_map[rn] = rec.recordName
-                except Exception:
-                    pass
-        # Follow Media references to fetch original asset URLs and wire
-        # them to the parent
-        if media_map:
-            try:
-                mresp = ck_client.lookup(list(media_map.keys()))
-                if bool(getattr(config, "debug", False)):
-                    try:
-                        console.rule("media lookup response")
-                        console.print(mresp)
-                        LOGGER.info("attachment media resp:\n%s", mresp)
-                    except Exception:
-                        pass
-                for mrec in mresp.records:
-                    if not isinstance(mrec, CKRecord):
-                        continue
-                    url: str | None = None
-                    # Best-effort: find any field whose value looks like
-                    # an asset token with downloadURL
-                    try:
-                        for k in list(getattr(mrec, "fields", ()).keys()):
-                            fld = mrec.fields.get_field(k)
-                            val = getattr(fld, "value", None)
-                            u = getattr(val, "downloadURL", None)
-                            if isinstance(u, str) and u:
-                                url = u
-                                break
-                    except Exception:
-                        url = None
-                    if url:
-                        parent = media_map.get(mrec.recordName)
-                        if parent:
-                            # Only promote Media-derived URLs to primary for
-                            # image-like attachments. For 'public.url' (web
-                            # links) and others, keep the primary_url as the
-                            # actual destination, and use previews/Media only
-                            # as thumbnails.
-                            try:
-                                parent_uti = (
-                                    ds.get_attachment_uti(parent) or ""
-                                ).lower()
-                            except Exception:
-                                parent_uti = ""
-                            # Use config-aware predicate to recognize image
-                            # UTIs (jpeg/png/heic/webp...)
-                            conf = config or ExportConfig()
-                            is_image = conf.is_image_uti(parent_uti)
-                            # Simple heuristic for audio/video promotion
-                            is_av = (
-                                "audio" in parent_uti
-                                or "video" in parent_uti
-                                or "movie" in parent_uti
-                                or "mpeg" in parent_uti
-                            )
-
-                            # Logic update:
-                            # 1. If we have no URL yet (e.g. VCard), ALWAYS
-                            #    take the Media URL.
-                            # 2. If we have a URL but it's an Image/AV, check
-                            #    if we should "upgrade" to the Media URL
-                            #    (e.g. valid preview -> full res).
-
-                            is_media_upgrade = getattr(
-                                conf, "prefer_media_for_images", True
-                            ) and (is_image or is_av)
-
-                            # Only fetch current if we might need to check for upgrade
-                            cur_primary = None
-                            with suppress(Exception):
-                                cur_primary = ds.get_primary_asset_url(parent)
-
-                            if (not cur_primary) or is_media_upgrade:
-                                try:
-                                    cur_thumb = ds.get_thumbnail_url(parent)
-                                except Exception:
-                                    cur_thumb = None
-
-                                # If missing, OR (we want upgrade AND current
-                                # is likely just a thumbnail)
-                                if (not cur_primary) or (
-                                    is_media_upgrade and cur_primary == cur_thumb
-                                ):
-                                    ds.set_primary_asset_url(parent, url)
-            except Exception:
-                pass
+        media_map = _hydrate_attachment_records(ds, resp, config)
+        _follow_media_references(ck_client, ds, media_map, config)
     return ds, att_ids
 
 

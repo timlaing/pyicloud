@@ -183,46 +183,7 @@ class CloudKitNoteDataSource(NoteDataSource):
 
         # Thumbnails/previews: expose as thumbnail_url; for image UTIs, we may also
         # use previews as primary when nothing else is available.
-        if not any(k in self._primary_asset_url for k in keys) and is_image_uti:
-            pi_fld = fields.get_field("PreviewImages")
-            try:
-                tokens = getattr(pi_fld, "value", None) if pi_fld else None
-                if isinstance(tokens, (list, tuple)) and tokens:
-                    # Try to align with PreviewAppearances (0=light, 1=dark)
-                    app_fld = fields.get_field("PreviewAppearances")
-                    apps = getattr(app_fld, "value", None) if app_fld else None
-                    # Prefer config preview appearance when supplied, else env
-                    pref = "light"
-                    try:
-                        if self._config and getattr(
-                            self._config, "preview_appearance", None
-                        ):
-                            pref = str(self._config.preview_appearance).strip().lower()
-                    except Exception:
-                        pref = "light"
-                    pref_code = 1 if pref in ("dark", "1", "true", "yes") else 0
-                    selected: str | None = None
-                    if isinstance(apps, (list, tuple)) and len(apps) == len(tokens):
-                        for idx, app in enumerate(apps):
-                            try:
-                                code = int(app)
-                            except Exception:
-                                code = None
-                            if code == pref_code:
-                                selected = _asset_url(tokens[idx])
-                                if selected:
-                                    break
-                    # Fallback: first valid token
-                    if not selected:
-                        for token in tokens:
-                            selected = _asset_url(token)
-                            if selected:
-                                break
-                    if selected:
-                        for k in keys:
-                            self._primary_asset_url[k] = selected
-            except Exception:
-                pass
+        self._prefer_preview_images(fields, keys, is_image_uti, _asset_url)
         if not any(k in self._primary_asset_url for k in keys) and is_image_uti:
             fb_fld = fields.get_field("FallbackImage")
             url = _asset_url(getattr(fb_fld, "value", None) if fb_fld else None)
@@ -323,3 +284,55 @@ class CloudKitNoteDataSource(NoteDataSource):
                     "has_mergeable": any(k in self._mergeable_gz for k in keys),
                 },
             )
+
+    def _prefer_preview_images(self, fields, keys, is_image_uti, asset_url) -> None:
+        """If no primary asset URL is available for an image UTI, fall back to
+        the first suitable PreviewImages URL (respecting appearance)."""
+        if any(k in self._primary_asset_url for k in keys) or not is_image_uti:
+            return
+        pi_fld = None
+        try:
+            pi_fld = fields.get_field("PreviewImages")
+        except Exception:
+            return
+        tokens = getattr(pi_fld, "value", None) if pi_fld else None
+        if not isinstance(tokens, (list, tuple)) or not tokens:
+            return
+        app_fld = None
+        try:
+            app_fld = fields.get_field("PreviewAppearances")
+        except Exception:
+            app_fld = None
+        apps = getattr(app_fld, "value", None) if app_fld else None
+        # Prefer config preview appearance when supplied, else env
+        pref = "light"
+        try:
+            if self._config and getattr(self._config, "preview_appearance", None):
+                pref = str(self._config.preview_appearance).strip().lower()
+        except Exception:
+            pref = "light"
+        pref_code = 1 if pref in ("dark", "1", "true", "yes") else 0
+        selected = self._match_preview_appearance(tokens, apps, pref_code, asset_url)
+        if not selected:
+            # Fallback: first valid token
+            for token in tokens:
+                selected = asset_url(token)
+                if selected:
+                    break
+        if selected:
+            for k in keys:
+                self._primary_asset_url[k] = selected
+
+    @staticmethod
+    def _match_preview_appearance(tokens, apps, pref_code, asset_url) -> str | None:
+        if isinstance(apps, (list, tuple)) and len(apps) == len(tokens):
+            for idx, app in enumerate(apps):
+                try:
+                    code = int(app)
+                except Exception:
+                    code = None
+                if code == pref_code:
+                    selected = asset_url(tokens[idx])
+                    if selected:
+                        return selected
+        return None
