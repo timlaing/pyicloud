@@ -418,7 +418,7 @@ def reminders_get(
 
 @app.command("create")
 def reminders_create(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     list_id: str = typer.Option(..., "--list-id", help="Target list id."),
     title: str = typer.Option(..., "--title", help="Reminder title."),
     desc: str = typer.Option("", "--desc", help="Reminder description."),
@@ -490,8 +490,8 @@ def reminders_create(
 
 
 @app.command("update")
-def reminders_update(
-    ctx: typer.Context,
+def reminders_update(  # noqa: S3776
+    ctx: typer.Context,  # noqa: S107
     reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     title: str | None = typer.Option(None, "--title", help="Reminder title."),
     desc: str | None = typer.Option(None, "--desc", help="Reminder description."),
@@ -918,7 +918,7 @@ def reminders_alarm_list(
 
 @alarm_app.command("add-location")
 def reminders_alarm_add_location(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     title: str = typer.Option(..., "--title", help="Location title."),
     address: str = typer.Option(..., "--address", help="Location address."),
@@ -1230,7 +1230,7 @@ def reminders_attachment_create_url(
 
 @attachment_app.command("update")
 def reminders_attachment_update(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     attachment_id: str = typer.Argument(..., help="Attachment id."),
     url: str | None = typer.Option(None, "--url", help="Updated attachment URL."),
@@ -1483,7 +1483,7 @@ def reminders_recurrence_create(
 
 @recurrence_app.command("update")
 def reminders_recurrence_update(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     rule_id: str = typer.Argument(..., help="Recurrence rule id."),
     frequency: RecurrenceFrequencyChoice | None = typer.Option(

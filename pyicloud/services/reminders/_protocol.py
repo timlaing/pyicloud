@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import gzip
 import json as _json
 import logging
@@ -80,7 +79,7 @@ def _decode_attachment_url(value: str) -> str:
             f"{value}{padding}",
             validate=True,
         ).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
+    except ValueError:
         return value
 
     if _looks_like_url(decoded):
@@ -105,7 +104,9 @@ def _decode_cloudkit_text_value(value: object) -> str:
     return str(value)
 
 
-def _decode_crdt_document(encrypted_value: str | bytes) -> str:
+def _decode_crdt_document(  # noqa: S3776
+    encrypted_value: str | bytes,
+) -> str:
     """Decode a CRDT document (TitleDocument or NotesDocument)."""
     data = encrypted_value
     if isinstance(data, str):
@@ -114,7 +115,7 @@ def _decode_crdt_document(encrypted_value: str | bytes) -> str:
             data += "=" * padding
         try:
             data = base64.b64decode(data)
-        except (binascii.Error, ValueError) as exc:
+        except ValueError as exc:
             raise CRDTDecodeError("Invalid base64-encoded CRDT document") from exc
 
     try:

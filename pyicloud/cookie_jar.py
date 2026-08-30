@@ -18,7 +18,7 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
         RequestsCookieJar.__init__(self)
         LWPCookieJar.__init__(self, filename=filename)
 
-    def __iter__(self) -> Iterator[Cookie]:  # type: ignore[override]
+    def __iter__(self) -> Iterator[Cookie]:  # type: ignore[override]  # pylint: disable=useless-parent-delegation
         """Yield the cookies; delegates to the base CookieJar chain.
 
         CookieJar.__iter__ yields Cookie objects while the RequestsCookieJar

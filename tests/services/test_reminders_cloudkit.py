@@ -378,10 +378,13 @@ def test_reminders_client_strict_mode_wraps_validation_error() -> None:
         validation_extra="forbid",
     )
 
+    reminder_ids = ["Reminder/1"]
+    zone = CKZoneIDReq(zoneName="Reminders")
+
     with pytest.raises(
         RemindersApiError, match="Lookup response validation failed"
     ) as excinfo:
-        client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
+        client.lookup(reminder_ids, zone)
 
     assert excinfo.value.payload == payload
     assert isinstance(excinfo.value.__cause__, ValidationError)
@@ -394,8 +397,11 @@ def test_reminders_client_preserves_429_as_api_error() -> None:
     session.post.return_value = MagicMock(status_code=429, json=lambda: payload)
     client = CloudKitRemindersClient("https://example.com", session, {})
 
+    reminder_ids = ["Reminder/1"]
+    zone = CKZoneIDReq(zoneName="Reminders")
+
     with pytest.raises(RemindersApiError, match="HTTP 429") as excinfo:
-        client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
+        client.lookup(reminder_ids, zone)
 
     assert excinfo.value.payload == payload
 

@@ -65,7 +65,7 @@ class CloudKitNoteDataSource(NoteDataSource):
             return
         self._primary_asset_url[identifier] = url
 
-    def add_attachment_record(self, rec: CKRecord) -> None:
+    def add_attachment_record(self, rec: CKRecord) -> None:  # noqa: S3776
         """Index a CloudKit attachment record into this datasource."""
         fields = rec.fields
 
@@ -288,7 +288,7 @@ class CloudKitNoteDataSource(NoteDataSource):
                 },
             )
 
-    def _prefer_preview_images(
+    def _prefer_preview_images(  # noqa: S3776
         self,
         fields: CKFields,
         keys: list[str],

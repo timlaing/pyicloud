@@ -12,7 +12,6 @@ raising) so a single malformed record can't poison a page of results.
 from __future__ import annotations
 
 import base64
-import binascii
 from collections.abc import Mapping
 import json
 import logging
@@ -48,7 +47,7 @@ def decode_json_bytes(value: str | bytes | bytearray | None) -> Any | None:
     if isinstance(value, str):
         try:
             raw = base64.b64decode(value, validate=True)
-        except (binascii.Error, ValueError):
+        except ValueError:
             LOGGER.debug("invites.codecs.b64_decode_fail len=%d", len(value))
             return None
         return _parse_json_bytes(raw)
@@ -61,7 +60,7 @@ def decode_json_bytes(value: str | bytes | bytearray | None) -> Any | None:
         # Bytes weren't direct JSON — maybe they're the base64 wire form.
         try:
             decoded = base64.b64decode(raw, validate=True)
-        except (binascii.Error, ValueError):
+        except ValueError:
             LOGGER.debug("invites.codecs.json_parse_fail bytes_len=%d", len(raw))
             return None
         return _parse_json_bytes(decoded)

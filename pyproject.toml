@@ -149,6 +149,17 @@ exclude = [
     "pyicloud/services/reminders/protobuf/",
 ]
 
+# Generated protobuf code is never hand-edited (see AGENTS.md). Excluded but
+# imported modules are still analysed for types; silence the error codes that
+# fire inside the generated stubs regardless of the environment (the pylint
+# sweep likewise ignores generated _pb2 modules).
+[[tool.mypy.overrides]]
+module = [
+    "pyicloud.services.notes.protobuf.*",
+    "pyicloud.services.reminders.protobuf.*",
+]
+disable_error_code = ["metaclass", "misc", "type-arg"]
+
 [tool.pylint.main]
 jobs = 2
 persistent = false

@@ -28,6 +28,8 @@ from tinyhtml import h
 
 from .table_builder import render_table_from_mergeable
 
+ATTACHMENT_LINK_CLASS = "attachment link"
+
 
 @dataclass(frozen=True)
 class AttachmentContext:
@@ -128,7 +130,9 @@ class _DefaultRenderer(_Renderer):
         href = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         return h(
             "a",
-            **ctx.base_attrs(_link_attrs(ctx, class_name="attachment link", href=href)),
+            **ctx.base_attrs(
+                _link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS, href=href)
+            ),
         )(label).render()
 
 
@@ -147,7 +151,9 @@ class _TableRenderer(_Renderer):
         href = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         return h(
             "a",
-            **ctx.base_attrs(_link_attrs(ctx, class_name="attachment link", href=href)),
+            **ctx.base_attrs(
+                _link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS, href=href)
+            ),
         )(label).render()
 
 
@@ -166,12 +172,12 @@ class _UrlRenderer(_Renderer):
             return h(
                 "a",
                 **ctx.base_attrs(
-                    _link_attrs(ctx, class_name="attachment link", href=href)
+                    _link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS, href=href)
                 ),
             )(title).render()
         return h(
             "a",
-            **ctx.base_attrs(_link_attrs(ctx, class_name="attachment link")),
+            **ctx.base_attrs(_link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS)),
         )(title).render()
 
 
@@ -199,7 +205,7 @@ class _ImageRenderer(_Renderer):
             })
             attr_html = " ".join(f'{k}="{html.escape(v)}"' for k, v in attrs.items())
             return f"<img {attr_html}>"
-        return h("a", **ctx.base_attrs({"class": "attachment link"}))(alt).render()
+        return h("a", **ctx.base_attrs({"class": ATTACHMENT_LINK_CLASS}))(alt).render()
 
 
 class _AudioRenderer(_Renderer):
@@ -214,7 +220,9 @@ class _AudioRenderer(_Renderer):
             attr_html = " ".join(f'{k}="{html.escape(v)}"' for k, v in attrs.items())
             return f"<audio controls {attr_html}></audio>"
         title = ctx.title or ctx.uti or "audio"
-        return h("a", **ctx.base_attrs({"class": "attachment link"}))(title).render()
+        return h("a", **ctx.base_attrs({"class": ATTACHMENT_LINK_CLASS}))(
+            title
+        ).render()
 
 
 class _VideoRenderer(_Renderer):
@@ -234,7 +242,9 @@ class _VideoRenderer(_Renderer):
             attr_html = " ".join(f'{k}="{html.escape(v)}"' for k, v in attrs.items())
             return f"<video {attr_html}></video>"
         title = ctx.title or ctx.uti or "video"
-        return h("a", **ctx.base_attrs({"class": "attachment link"}))(title).render()
+        return h("a", **ctx.base_attrs({"class": ATTACHMENT_LINK_CLASS}))(
+            title
+        ).render()
 
 
 class _PdfRenderer(_Renderer):
@@ -266,7 +276,7 @@ class _PdfRenderer(_Renderer):
                 fallback = h(
                     "a",
                     **ctx.base_attrs(
-                        _link_attrs(ctx, class_name="attachment link", href=url)
+                        _link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS, href=url)
                     ),
                 )(title)
                 return h("object", **obj_attrs)(fallback).render()

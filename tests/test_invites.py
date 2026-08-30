@@ -567,7 +567,9 @@ class RsvpWriteTest(unittest.TestCase):
         adults = record.fields.get("numAdditionalAdults")
         kids = record.fields.get("numAdditionalKids")
         guests = record.fields.get("numAdditionalGuests")
-        assert adults is not None and kids is not None and guests is not None
+        assert adults is not None
+        assert kids is not None
+        assert guests is not None
         self.assertEqual(adults.value, 0)
         self.assertEqual(kids.value, 0)
         self.assertEqual(guests.value, 0)
@@ -653,7 +655,8 @@ class RsvpWriteTest(unittest.TestCase):
         record = modify_mock.call_args.kwargs["operations"][0].record
         name_field = record.fields.get("name")
         message_field = record.fields.get("message")
-        assert name_field is not None and message_field is not None
+        assert name_field is not None
+        assert message_field is not None
         self.assertEqual(name_field.value, "Fixture Guest")
         self.assertEqual(message_field.value, "See you there")
 

@@ -128,7 +128,7 @@ class RemindersReadAPI:
 
         raise RemindersApiError("Unable to obtain sync token for Reminders zone")
 
-    def iter_changes(
+    def iter_changes(  # noqa: S3776
         self, *, since: str | None = None
     ) -> Iterable[ReminderChangeEvent]:
         """Iterate reminder changes since an optional sync token."""
@@ -392,7 +392,7 @@ class RemindersReadAPI:
             recurrence_rules=scoped_recurrence_rules,
         )
 
-    def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
+    def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:  # noqa: S3776
         """Fetch alarms + triggers for a reminder via lookup."""
         if not reminder.alarm_ids:
             return []

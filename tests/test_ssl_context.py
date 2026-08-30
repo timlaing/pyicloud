@@ -3,14 +3,14 @@
 from typing import Any
 import warnings
 
-from pytest import MonkeyPatch
+import pytest
 import requests
 from urllib3.exceptions import InsecureRequestWarning
 
 from pyicloud.ssl_context import configurable_ssl_verification
 
 
-def test_ssl_verification_true(monkeypatch: MonkeyPatch) -> None:
+def test_ssl_verification_true(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that SSL verification is enabled by default."""
     called: dict[str, Any] = {}
 
@@ -34,7 +34,7 @@ def test_ssl_verification_true(monkeypatch: MonkeyPatch) -> None:
     assert called["proxies"] == {}
 
 
-def test_ssl_verification_false(monkeypatch: MonkeyPatch) -> None:
+def test_ssl_verification_false(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that SSL verification is disabled when verify_ssl=False."""
     called: dict[str, Any] = {}
 
@@ -60,7 +60,7 @@ def test_ssl_verification_false(monkeypatch: MonkeyPatch) -> None:
     assert result["proxies"] == {}
 
 
-def test_proxy_settings(monkeypatch: MonkeyPatch) -> None:
+def test_proxy_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that proxy settings are applied correctly."""
     called: dict[str, Any] = {}
 
@@ -87,7 +87,7 @@ def test_proxy_settings(monkeypatch: MonkeyPatch) -> None:
     assert result["proxies"] == {"http": "http://proxy", "https": "https://proxy"}
 
 
-def test_insecure_request_warning(monkeypatch: MonkeyPatch) -> None:
+def test_insecure_request_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that InsecureRequestWarning is suppressed when verify_ssl=False."""
     warnings.simplefilter("always")
     monkeypatch.setattr(

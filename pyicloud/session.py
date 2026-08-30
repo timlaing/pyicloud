@@ -222,7 +222,7 @@ class PyiCloudSession(requests.Session):
         )
 
     def request_raw(
-        self,
+        self,  # noqa: S107
         method: str,
         url: str,
         params: Any = None,
@@ -319,7 +319,7 @@ class PyiCloudSession(requests.Session):
                     AppleAuthError.FIND_MY_REAUTH_REQUIRED,
                     AppleAuthError.LOGIN_TOKEN_EXPIRED,
                     AppleAuthError.GENERAL_AUTH_ERROR,
-                ],
+                ]
             ):
                 return self._handle_request_error(
                     status_code=status_code,

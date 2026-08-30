@@ -415,11 +415,13 @@ def test_trusted_device_bridge_prover_normalizes_malformed_bridge_payloads() -> 
     prover = TrustedDeviceBridgeProver()
     prover._verifier_key = "00" * 32
 
+    empty_payload = base64.b64encode(b"").decode("ascii")
     with pytest.raises(ValueError, match="Malformed bridge payload"):
-        prover.decrypt_message(base64.b64encode(b"").decode("ascii"))
+        prover.decrypt_message(empty_payload)
 
+    truncated_payload = base64.b64encode(b"\x01truncated").decode("ascii")
     with pytest.raises(ValueError, match="Malformed bridge payload"):
-        prover.decrypt_message(base64.b64encode(b"\x01truncated").decode("ascii"))
+        prover.decrypt_message(truncated_payload)
 
 
 def test_trusted_device_bridge_bootstrap_keeps_websocket_open_and_persists_step2(
@@ -541,7 +543,7 @@ def test_trusted_device_bridge_rejects_malformed_push_token(
         MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
 
-    with pytest.raises(
+    with pytest.raises(  # noqa: S5778
         PyiCloudTrustedDevicePromptException,
         match="Failed to bootstrap the trusted-device bridge prompt.",
     ) as exc_info:
@@ -594,7 +596,7 @@ def test_trusted_device_bridge_rejects_mismatched_session_uuid(
     session = MagicMock()
     session.request_raw.return_value = _response(200)
 
-    with pytest.raises(
+    with pytest.raises(  # noqa: S5778
         PyiCloudTrustedDevicePromptException,
         match="Failed to bootstrap the trusted-device bridge prompt.",
     ) as exc_info:
@@ -626,12 +628,17 @@ def test_trusted_device_bridge_start_propagates_unexpected_exception(
         MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
 
+    session = MagicMock()
+    auth_endpoint = "https://idmsa.apple.com/appleauth/auth"
+    headers = {"scnt": "test-scnt"}
+    boot_context = _boot_context()
+
     with pytest.raises(TypeError, match="boom"):
         bootstrapper.start(
-            session=MagicMock(),
-            auth_endpoint="https://idmsa.apple.com/appleauth/auth",
-            headers={"scnt": "test-scnt"},
-            boot_context=_boot_context(),
+            session=session,
+            auth_endpoint=auth_endpoint,
+            headers=headers,
+            boot_context=boot_context,
             user_agent="test-agent",
         )
 

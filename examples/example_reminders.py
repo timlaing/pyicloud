@@ -82,6 +82,9 @@ class RunState:
     deleted_ids: set[str] = field(default_factory=set)
 
 
+EXAMPLE_REMINDER_URL = "https://example.org/reminders"
+
+
 def banner(title: str) -> None:
     """Print a full-width section banner."""
     print(f"\n{'=' * 78}")
@@ -192,7 +195,7 @@ def _raw_token(value: str) -> str:
     return value.split("/", 1)[1]
 
 
-def authenticate(args: argparse.Namespace) -> PyiCloudService:
+def authenticate(args: argparse.Namespace) -> PyiCloudService:  # noqa: S3776
     """Authenticate with iCloud, handling 2FA and 2SA flows."""
     username, password = resolve_credentials(args)
     print("Authenticating with iCloud...")
@@ -320,7 +323,7 @@ def cleanup_generated(api: PyiCloudService, state: RunState) -> None:
             print(f"  [WARN] Failed deleting {case_name} ({reminder.id}): {exc}")
 
 
-def main() -> int:
+def main() -> int:  # noqa: S3776
     """Run the complete reminders service validation suite."""
     args = parse_args()
     tracker = ValidationTracker()
@@ -626,9 +629,9 @@ def main() -> int:
         due_aware = (datetime.now(tz=timezone.utc) + timedelta(days=1)).replace(
             hour=9, minute=0, second=0, microsecond=0
         )
-        due_naive = (datetime.utcnow() + timedelta(days=2)).replace(
-            hour=11, minute=15, second=0, microsecond=0
-        )
+        due_naive = (
+            datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=2)
+        ).replace(hour=11, minute=15, second=0, microsecond=0)
         due_naive_expected = due_naive.replace(tzinfo=timezone.utc)
         all_day_due = (datetime.now(tz=timezone.utc) + timedelta(days=3)).replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -1055,7 +1058,7 @@ def main() -> int:
         if fetched_attachment is not None:
             reminders_api.update_attachment(
                 fetched_attachment,
-                url="https://example.org/reminders",
+                url=EXAMPLE_REMINDER_URL,
             )
             linked_fresh, updated_attachments = wait_for_relationship_rows(
                 "updated URL attachment to round-trip",
@@ -1063,14 +1066,14 @@ def main() -> int:
                 reminders_api.attachments_for,
                 lambda rows: any(
                     att.id == fetched_attachment.id
-                    and getattr(att, "url", None) == "https://example.org/reminders"
+                    and getattr(att, "url", None) == EXAMPLE_REMINDER_URL
                     for att in rows
                 ),
             )
             tracker.expect(
                 any(
                     att.id == fetched_attachment.id
-                    and getattr(att, "url", None) == "https://example.org/reminders"
+                    and getattr(att, "url", None) == EXAMPLE_REMINDER_URL
                     for att in updated_attachments
                 ),
                 "update_attachment() updates URL attachment",

@@ -62,8 +62,8 @@ def test_event_object_add_invitees() -> None:
         event = EventObject(pguid="calendar123")
         event.add_invitees(["test@example.com", "user@example.com"])
         assert len(event.invitees) == 2
-        assert f"{event.guid}:test@example.com" == event.invitees[0]
-        assert f"{event.guid}:user@example.com" == event.invitees[1]
+        assert event.invitees[0] == f"{event.guid}:test@example.com"
+        assert event.invitees[1] == f"{event.guid}:user@example.com"
 
 
 def test_event_object_dynamic_timezone() -> None:
@@ -370,15 +370,16 @@ def test_event_object_validation() -> None:
         assert "pguid cannot be empty" in str(excinfo.value)
 
         # Test invalid date range (start after end)
+        start_date = datetime(2023, 6, 15, 15, 0)
+        end_date = datetime(2023, 6, 15, 14, 0)  # Earlier than start
         with pytest.raises(ValueError) as excinfo:
             EventObject(
                 pguid="test-calendar",
-                start_date=datetime(2023, 6, 15, 15, 0),
-                end_date=datetime(2023, 6, 15, 14, 0),  # Earlier than start
+                start_date=start_date,
+                end_date=end_date,
             )
-        assert "start_date" in str(excinfo.value) and "must be before end_date" in str(
-            excinfo.value
-        )
+        assert "start_date" in str(excinfo.value)
+        assert "must be before end_date" in str(excinfo.value)
 
         # Test valid event creation
         event = EventObject(

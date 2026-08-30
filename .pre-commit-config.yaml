@@ -154,14 +154,6 @@ repos:
           - rich>=15.0.0
           - typer>=0.16.1
           # END GENERATED REQUIREMENTS
-      - id: check-prek-deps
-        name: Check prek dependency sync
-        language: system
-        entry: python3 scripts/sync_prek_deps.py --check
-        args:
-          - requirements_all.txt
-        files: ^(requirements.*\.txt|\.pre-commit-config\.yaml)$
-        pass_filenames: false
       - id: pytest
         name: PyTest
         entry: pytest

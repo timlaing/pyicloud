@@ -46,7 +46,7 @@ def _decompress(blob: bytes) -> bytes:
 class BodyDecoder:
     """Decode TextDataEncrypted (base64, compressed) to NoteBody."""
 
-    def decode(
+    def decode(  # noqa: S3776
         self, text_data_encrypted_b64: str | bytes | bytearray | None
     ) -> NoteBody | None:
         """Decode a base64/compressed note body into a NoteBody."""

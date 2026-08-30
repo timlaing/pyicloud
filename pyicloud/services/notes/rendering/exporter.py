@@ -31,6 +31,11 @@ console = Console()
 LOGGER = logging.getLogger(__name__)
 
 
+def _is_http_url(url: str) -> bool:
+    """Return True for absolute ``http``/``https`` asset URLs."""
+    return url.startswith("http://") or url.startswith("https://")
+
+
 def decode_and_parse_note(record: CKRecord) -> pb.Note | None:
     """Decode a Note CKRecord's TextDataEncrypted and return a parsed pb.Note.
 
@@ -52,7 +57,9 @@ def decode_and_parse_note(record: CKRecord) -> pb.Note | None:
         return None
 
 
-def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> list[str]:
+def _attachment_ids_from_record_and_runs(  # noqa: S3776
+    record: CKRecord, note: pb.Note
+) -> list[str]:
     # Collect from Attachments field
     ids: list[str] = []
     fld = record.fields.get_field("Attachments")
@@ -140,7 +147,7 @@ def _media_field_url(mrec: CKRecord) -> str | None:
     """Best-effort: find any field whose value looks like an asset token."""
     url: str | None = None
     try:
-        for k in list(mrec.fields.keys()):
+        for k in mrec.fields:
             fld = mrec.fields.get_field(k)
             val = getattr(fld, "value", None)
             u = getattr(val, "downloadURL", None)
@@ -217,14 +224,14 @@ def build_datasource(
     return ds, att_ids
 
 
-def download_pdf_assets(
+def download_pdf_assets(  # noqa: S3776
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,  # pylint: disable=unused-argument
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download PDFs for attachments and rewrite datasource URLs to local paths.
 
@@ -247,7 +254,7 @@ def download_pdf_assets(
         if not _is_pdf_uti(uti):
             continue
         url = ds.get_primary_asset_url(aid)
-        if not (url and (url.startswith("http://") or url.startswith("https://"))):
+        if not (url and _is_http_url(url)):
             # Skip thumbnails for PDFs — they are images and will not embed as PDF
             continue
         try:
@@ -276,7 +283,7 @@ def download_pdf_assets(
     return updated
 
 
-def download_image_assets(
+def download_image_assets(  # noqa: S3776
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
@@ -333,7 +340,7 @@ def download_image_assets(
                 url = ds.get_thumbnail_url(aid)
             except Exception:
                 url = None
-        if not (url and (url.startswith("http://") or url.startswith("https://"))):
+        if not (url and _is_http_url(url)):
             # Already local or missing
             continue
         try:
@@ -361,14 +368,14 @@ def download_image_assets(
     return updated
 
 
-def download_av_assets(
+def download_av_assets(  # noqa: S3776
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,  # pylint: disable=unused-argument
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download audio/video attachments and rewrite datasource URLs to local paths.
 
@@ -428,7 +435,7 @@ def download_av_assets(
             continue
 
         url = ds.get_primary_asset_url(aid)
-        if not (url and (url.startswith("http://") or url.startswith("https://"))):
+        if not (url and _is_http_url(url)):
             continue
 
         try:
@@ -470,7 +477,7 @@ def download_vcard_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,  # pylint: disable=unused-argument
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download VCard (contact) attachments and rewrite datasource URLs to local paths.
 
@@ -486,7 +493,7 @@ def download_vcard_assets(
             continue
 
         url = ds.get_primary_asset_url(aid)
-        if not (url and (url.startswith("http://") or url.startswith("https://"))):
+        if not (url and _is_http_url(url)):
             continue
 
         try:

@@ -492,7 +492,9 @@ class NotesService(BaseService):
         renderer = NoteRenderer(config)
         return renderer.render(note, ds)
 
-    def iter_changes(self, *, since: str | None = None) -> Iterable[ChangeEvent]:
+    def iter_changes(  # noqa: S3776
+        self, *, since: str | None = None
+    ) -> Iterable[ChangeEvent]:
         """
         Yield ``ChangeEvent`` items from the Notes changes feed.
 
@@ -720,7 +722,7 @@ class NotesService(BaseService):
             LOGGER.warning("notes.body.decode_failed id=%s err=%s", rec.recordName, e)
             return None
 
-    def _resolve_attachments_for_record(
+    def _resolve_attachments_for_record(  # noqa: S3776
         self,
         rec: CKRecord,
         *,

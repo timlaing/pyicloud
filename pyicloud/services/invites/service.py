@@ -315,7 +315,7 @@ class InvitesService(BaseService):
     @staticmethod
     def _find_existing_rsvp(event: Event, record_name: str) -> Rsvp | None:
         """Find the user's RSVP in ``event.rsvps`` matching ``record_name``."""
-        for rsvp in event.rsvps:
+        for rsvp in event.rsvps:  # noqa: S3862
             if rsvp.record_name == record_name:
                 return rsvp
         return None
@@ -669,7 +669,9 @@ class InvitesService(BaseService):
             )
         return first
 
-    def _resolved_share_from_result(self, result: Mapping[str, Any]) -> ResolvedShare:
+    def _resolved_share_from_result(  # noqa: S3776
+        self, result: Mapping[str, Any]
+    ) -> ResolvedShare:
         short = result.get("shortGUID") or {}
         short_guid = short.get("value") if isinstance(short, dict) else None
         if not isinstance(short_guid, str):

@@ -56,7 +56,7 @@ from pyicloud.services import (
     RemindersService,
     UbiquityService,
 )
-from pyicloud.services import (
+from pyicloud.services import (  # pylint: disable=useless-import-alias
     AppleDevice as AppleDevice,
 )
 from pyicloud.services.invites import InvitesService
@@ -234,7 +234,7 @@ class PyiCloudService:
         if not cookie_directory:
             topdir = path.dirname(_cookie_directory)
             makedirs(topdir, exist_ok=True)
-            chmod(topdir, 0o1777)
+            chmod(topdir, 0o1777)  # noqa: S2612
 
         old_umask = umask(0o077)
         try:

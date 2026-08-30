@@ -215,7 +215,7 @@ class BasePhotoLibrary(ABC):
             self._albums = self._get_albums()
         return self._albums
 
-    def parse_asset_response(
+    def parse_asset_response(  # noqa: S3776
         self, response: dict[str, list[dict[str, Any]]]
     ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
         """Parses the asset response."""
@@ -1857,7 +1857,7 @@ class PhotoAsset:
         )
         return response.raw.read()
 
-    def delete(self) -> bool:
+    def delete(self) -> bool:  # noqa: S3776
         """Deletes the photo."""
         endpoint: str = self._service.service_endpoint
         params: str = urlencode(self._service.params)

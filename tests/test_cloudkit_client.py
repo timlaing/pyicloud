@@ -104,11 +104,11 @@ def test_cloudkit_client_invokes_debug_hook_on_http_error() -> None:
         debug_hook=lambda *args: events.append(args),
     )
 
+    query = CKQueryObject(recordType="SearchIndexes")
+    zone_id = CKZoneIDReq(zoneName="Notes")
+
     with pytest.raises(CloudKitApiError):
-        client.query(
-            query=CKQueryObject(recordType="SearchIndexes"),
-            zone_id=CKZoneIDReq(zoneName="Notes"),
-        )
+        client.query(query=query, zone_id=zone_id)
 
     assert len(events) == 1
     op, url, payload, response = events[0]
@@ -128,11 +128,11 @@ def test_cloudkit_client_raises_rate_limited_with_retry_after() -> None:
     )
     client = CloudKitContainerClient("https://example.com/database", session, {})
 
+    query = CKQueryObject(recordType="SearchIndexes")
+    zone_id = CKZoneIDReq(zoneName="Notes")
+
     with pytest.raises(CloudKitRateLimited) as exc_info:
-        client.query(
-            query=CKQueryObject(recordType="SearchIndexes"),
-            zone_id=CKZoneIDReq(zoneName="Notes"),
-        )
+        client.query(query=query, zone_id=zone_id)
 
     assert exc_info.value.retry_after == 2.5
 

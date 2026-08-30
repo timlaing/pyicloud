@@ -45,7 +45,7 @@ def normalize_path(path: Any) -> str:
         return str(path)
 
 
-@pytest.fixture(autouse=True, scope="function")
+@pytest.fixture(autouse=True)
 def mock_file_open_write_fixture() -> Any:
     """Mock the open function to prevent file system access."""
     # Dictionary to store written data
@@ -81,7 +81,7 @@ def mock_file_open_write_fixture() -> Any:
     return mock_file_open
 
 
-@pytest.fixture(autouse=True, scope="function")
+@pytest.fixture(autouse=True)
 def mock_mkdir() -> Iterator[Any]:
     """Mock the mkdir function to prevent file system access."""
     mkdir = os.mkdir
@@ -98,7 +98,7 @@ def mock_mkdir() -> Iterator[Any]:
         yield mkdir_mock
 
 
-@pytest.fixture(autouse=True, scope="function")
+@pytest.fixture(autouse=True)
 def mock_makedirs() -> Iterator[Any]:
     """Mock the makedirs function to prevent file system access."""
     mkdirs = os.makedirs
@@ -115,7 +115,7 @@ def mock_makedirs() -> Iterator[Any]:
         yield mkdir_mock
 
 
-@pytest.fixture(autouse=True, scope="function")
+@pytest.fixture(autouse=True)
 def mock_chmod() -> Iterator[Any]:
     """Mock the chmod function to prevent file system access."""
     chmod = os.chmod

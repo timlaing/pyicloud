@@ -328,7 +328,7 @@ class CLIState:
             raise CLIAbort("Invalid device selection.")
         return idx
 
-    def _handle_2fa(self, api: PyiCloudService) -> None:
+    def _handle_2fa(self, api: PyiCloudService) -> None:  # noqa: S3776
         """Complete Apple's HSA2 flow using a security key or code-based challenge."""
         fido2_devices = list(getattr(api, "fido2_devices", []) or [])
         if fido2_devices:

@@ -153,7 +153,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def ensure_auth(api: PyiCloudService) -> None:
+def ensure_auth(api: PyiCloudService) -> None:  # noqa: S3776
     """Ensure the iCloud session is authenticated, handling 2FA and 2SA."""
     if api.requires_2fa:
         fido2_devices = list(api.fido2_devices)
@@ -204,7 +204,7 @@ def ensure_auth(api: PyiCloudService) -> None:
             raise RuntimeError("Failed to verify code")
 
 
-def main() -> None:
+def main() -> None:  # noqa: S3776
     """Explore, render, and export iCloud Notes per CLI arguments."""
     logging.basicConfig(
         level=logging.INFO,
@@ -257,16 +257,16 @@ def main() -> None:
         phase("service: initializing NotesService")
         notes = api.notes
         phase("service: NotesService ready")
-    except PyiCloudServiceUnavailable as exc:
-        logger.error("Notes service not available: %s", exc)
+    except PyiCloudServiceUnavailable:
+        logger.exception("Notes service not available")
         return
 
     max_items = max(1, int(args.max_items))
     out_dir = args.output_dir
     try:
         os.makedirs(out_dir, exist_ok=True)
-    except Exception as exc:
-        logger.error("Failed to create output directory '%s': %s", out_dir, exc)
+    except Exception:
+        logger.exception("Failed to create output directory '%s'", out_dir)
         return
 
     def _safe_name(s: str | None) -> str:
@@ -322,8 +322,8 @@ def main() -> None:
                 collected.sort(key=lambda x: x.modified_at or epoch, reverse=True)
             except Exception:
                 pass
-        except Exception as exc:
-            logger.error("Title search failed, falling back to recents: %s", exc)
+        except Exception:
+            logger.exception("Title search failed, falling back to recents")
         return collected
 
     candidates: list[NoteSummary] = []

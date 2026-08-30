@@ -19,6 +19,10 @@ from .attachments import AttachmentContext, render_attachment
 from .options import ExportConfig
 from .renderer_iface import AttachmentRef, NoteDataSource
 
+LI_CLOSE = "</li>"
+CHECKED_ATTR = " checked"
+NBSP = "&nbsp;"
+
 
 class _ListFrame(TypedDict):
     """Stack frame describing an open HTML list element."""
@@ -145,7 +149,7 @@ class StyleSig:
     paragraph_uuid: bytes | None
 
     @staticmethod
-    def from_run(run: pb.AttributeRun) -> StyleSig:
+    def from_run(run: pb.AttributeRun) -> StyleSig:  # noqa: S3776
         """Extract a StyleSig from a protobuf AttributeRun."""
         ps = run.paragraph_style if run.HasField("paragraph_style") else None
         st = align = indent = bq = wd = None
@@ -363,7 +367,7 @@ def _should_close_paragraph(mr: MergedRun, next_mr: MergedRun | None) -> bool:
     return True
 
 
-def render_note_fragment(
+def render_note_fragment(  # noqa: S3776
     note: pb.Note,
     datasource: NoteDataSource | None,
     config: ExportConfig | None = None,
@@ -376,7 +380,6 @@ def render_note_fragment(
     para_tag_open = ""
     para_tag_close = ""
     deferred_breaks = 0
-    # strip_leading_break_next = False
 
     def _emphasis_css(emph_val: int | None) -> list[str]:
         # Use the highlight value from the signature, which may come from
@@ -398,7 +401,7 @@ def render_note_fragment(
             return
         top = list_stack.pop()
         if top.get("li_open"):
-            fragments.append("</li>")
+            fragments.append(LI_CLOSE)
         fragments.append(f"</{top['tag']}>")
 
     def _close_lists_to(target_indent: int) -> None:
@@ -459,7 +462,7 @@ def render_note_fragment(
             # If a list item is already open at this level and had content, that
             # item is complete; close it before starting a new one.
             if list_stack[-1]["li_open"] and list_stack[-1].get("li_has_content"):
-                fragments.append("</li>")
+                fragments.append(LI_CLOSE)
                 list_stack[-1]["li_open"] = False
             if not list_stack[-1]["li_open"]:
                 fragments.append("<li>")
@@ -467,10 +470,10 @@ def render_note_fragment(
                 list_stack[-1]["li_index"] = len(fragments) - 1
                 list_stack[-1]["li_has_content"] = False
             if sig.style_type == StyleType.CHECKBOX:
-                checked = " checked" if sig.checklist_done == 1 else ""
+                checked = CHECKED_ATTR if sig.checklist_done == 1 else ""
                 fragments.append(f'<input type="checkbox" disabled{checked}> ')
             para_tag_open = "<li>"
-            para_tag_close = "</li>"
+            para_tag_close = LI_CLOSE
             return
 
         _close_lists_to(-1)
@@ -507,7 +510,7 @@ def render_note_fragment(
         nonlocal para_tag_close, deferred_breaks
         deferred_breaks = 0
         if para_tag_close:
-            if para_tag_close == "</li>" and list_stack:
+            if para_tag_close == LI_CLOSE and list_stack:
                 if list_stack[-1]["li_open"]:
                     # If li had no content, drop the opening and skip the closing
                     if not list_stack[-1].get("li_has_content"):
@@ -536,7 +539,7 @@ def render_note_fragment(
                             fragments.pop()
                         fragments.append(para_tag_close)
                     list_stack[-1]["li_open"] = False
-            elif para_tag_close != "</li>":
+            elif para_tag_close != LI_CLOSE:
                 fragments.append(para_tag_close)
         para_tag_close = ""
 
@@ -559,10 +562,10 @@ def render_note_fragment(
             prefix: list[str] = []
             for ch in line:
                 if ch == " ":
-                    prefix.append("&nbsp;")
+                    prefix.append(NBSP)
                     k += 1
                 elif ch == "\t":
-                    prefix.append("&nbsp;" * 4)
+                    prefix.append(NBSP * 4)
                     k += 1
                 else:
                     break
@@ -644,7 +647,7 @@ def render_note_fragment(
         if 'style="list-style-type: none"' not in fragments[idx]:
             return
         # Close spacer
-        fragments.append("</li>")
+        fragments.append(LI_CLOSE)
         list_stack[-1]["li_open"] = False
         # Open new standard item
         fragments.append("<li>")
@@ -652,12 +655,12 @@ def render_note_fragment(
         list_stack[-1]["li_index"] = len(fragments) - 1
         list_stack[-1]["li_has_content"] = False
         if sig.style_type == StyleType.CHECKBOX:
-            checked = " checked" if sig.checklist_done == 1 else ""
+            checked = CHECKED_ATTR if sig.checklist_done == 1 else ""
             fragments.append(f'<input type="checkbox" disabled{checked}> ')
 
     def _open_sibling_item(sig: StyleSig, next_seg: str | None) -> None:
         """End the current list item and open a new sibling item."""
-        fragments.append("</li>")
+        fragments.append(LI_CLOSE)
         list_stack[-1]["li_open"] = False
         # open next
         style_attr = ""
@@ -673,12 +676,12 @@ def render_note_fragment(
         list_stack[-1]["li_open"] = True
         if is_next_empty:
             # Ensure it has height
-            fragments.append("&nbsp;")
+            fragments.append(NBSP)
         list_stack[-1]["li_has_content"] = False
         # For checklist style, inject a checkbox for each new item
         # ONLY if it's not a spacer (empty).
         if sig.style_type == StyleType.CHECKBOX and not is_next_empty:
-            checked = " checked" if sig.checklist_done == 1 else ""
+            checked = CHECKED_ATTR if sig.checklist_done == 1 else ""
             fragments.append(f'<input type="checkbox" disabled{checked}> ')
 
     def _render_list_segments(sig: StyleSig, s: str) -> None:

@@ -1251,7 +1251,7 @@ def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) 
 def test_request_error_handling_for_response_conditions() -> None:
     """Mock the get_webservice_url to return a valid fmip_url."""
     pyicloud_service = MagicMock(spec=PyiCloudService)
-    with (
+    with (  # noqa: S5778
         pytest.raises(PyiCloudAPIResponseException),
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
@@ -1280,30 +1280,33 @@ def test_request_error_handling_for_response_conditions() -> None:
 
 def test_raise_error_2sa_required(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with a 2SA required exception."""
-    with (
+    response = MagicMock()
+    with (  # noqa: S5778
         pytest.raises(PyiCloud2SARequiredException),
         patch("pyicloud.base.PyiCloudService.requires_2sa", return_value=True),
     ):
         pyicloud_session._raise_error(
             code=401,
             reason="Missing X-APPLE-WEBAUTH-TOKEN cookie",
-            response=MagicMock(),
+            response=response,
         )
 
 
 def test_raise_error_service_not_activated(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with a service not activated exception."""
+    response = MagicMock()
     with pytest.raises(PyiCloudServiceNotActivatedException):
         pyicloud_session._raise_error(
-            code="ZONE_NOT_FOUND", reason="ServiceNotActivated", response=MagicMock()
+            code="ZONE_NOT_FOUND", reason="ServiceNotActivated", response=response
         )
 
 
 def test_raise_error_access_denied(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with an access denied exception."""
+    response = MagicMock()
     with pytest.raises(PyiCloudAPIResponseException):
         pyicloud_session._raise_error(
-            code="ACCESS_DENIED", reason="ACCESS_DENIED", response=MagicMock()
+            code="ACCESS_DENIED", reason="ACCESS_DENIED", response=response
         )
 
 

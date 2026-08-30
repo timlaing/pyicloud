@@ -155,7 +155,7 @@ class RemindersRecordMapper:
             record_change_tag=rec.recordChangeTag,
         )
 
-    def record_to_reminder(self, rec: CKRecord) -> Reminder:
+    def record_to_reminder(self, rec: CKRecord) -> Reminder:  # noqa: S3776
         """Map a CloudKit reminder record to a ``Reminder`` domain model."""
         fields = rec.fields
         created = fields.get_value("CreationDate")

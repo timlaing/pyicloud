@@ -32,6 +32,10 @@ RAW_EXTENSIONS = frozenset({
     ".rw2",
 })
 PYICLOUD_XMP_TOOLKIT = "pyicloud photos-cloudkit"
+RDF_DESCRIPTION = "rdf:Description"
+RDF_ABOUT = "rdf:about"
+# Canonical IPTC XMP namespace URI (not a network endpoint).
+IPTC_EXT_NS = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"  # noqa: S5332
 
 
 @dataclass(slots=True)
@@ -285,7 +289,7 @@ def _can_overwrite_xmp_sidecar(path: Path) -> bool:
     return isinstance(toolkit, str) and toolkit.startswith(PYICLOUD_XMP_TOOLKIT)
 
 
-def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:
+def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:  # noqa: S3776
     xml_doc = ElementTree.Element(
         "x:xmpmeta",
         {"xmlns:x": "adobe:ns:meta/", "x:xmptk": metadata.toolkit},
@@ -297,44 +301,44 @@ def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:
     )
 
     description_dc = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:dc": "http://purl.org/dc/elements/1.1/",
         },
     )
     description_exif = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:exif": "http://ns.adobe.com/exif/1.0/",
         },
     )
     description_iptc = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
-            "xmlns:Iptc4xmpExt": "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+            RDF_ABOUT: "",
+            "xmlns:Iptc4xmpExt": IPTC_EXT_NS,
         },
     )
     description_photoshop = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:photoshop": "http://ns.adobe.com/photoshop/1.0/",
         },
     )
     description_tiff = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:tiff": "http://ns.adobe.com/tiff/1.0/",
         },
     )
     description_xmp = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:xmp": "http://ns.adobe.com/xap/1.0/",
         },
     )

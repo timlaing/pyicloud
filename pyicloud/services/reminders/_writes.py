@@ -610,7 +610,7 @@ class RemindersWriteAPI:
         )
 
         existing_alarm_ids = [
-            _as_raw_id(x, "Alarm") for x in list(reminder.alarm_ids or [])
+            _as_raw_id(x, "Alarm") for x in (reminder.alarm_ids or [])
         ]
         existing_alarm_ids.append(alarm_uuid)
         token_map = _generate_resolution_token_map(["alarmIDs", "lastModifiedDate"])
@@ -847,7 +847,7 @@ class RemindersWriteAPI:
             ),
         )
 
-    def update_attachment(
+    def update_attachment(  # noqa: S3776
         self,
         attachment: Attachment,
         *,

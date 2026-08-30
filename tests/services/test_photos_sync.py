@@ -595,18 +595,17 @@ def test_run_photo_sync_rejects_remote_delete_with_until_found() -> None:
         cursor="cursor-until-delete",
     )
 
+    options = PhotoSyncOptions(
+        directory=Path("/tmp/unused"),
+        keep_icloud_recent_days=0,
+        until_found=1,
+    )
+
     with pytest.raises(
         PhotosServiceException,
         match="--keep-icloud-recent-days cannot be combined with --until-found",
     ):
-        run_photo_sync(
-            service,
-            PhotoSyncOptions(
-                directory=Path("/tmp/unused"),
-                keep_icloud_recent_days=0,
-                until_found=1,
-            ),
-        )
+        run_photo_sync(service, options)
 
 
 def test_run_photo_sync_live_photos_respect_video_flags() -> None:
