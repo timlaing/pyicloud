@@ -1438,6 +1438,10 @@ class PyiCloudService:
     @property
     def notes(self) -> NotesService:
         """Gets the 'Notes' service."""
+        # The PCS appName for Notes is "notes3"; "notes" is rejected by the
+        # server with "Unknown app requested".
+        self._request_pcs_for_service("notes3")
+
         if not self._notes:
             try:
                 service_root: str = self.get_webservice_url("ckdatabasews")
