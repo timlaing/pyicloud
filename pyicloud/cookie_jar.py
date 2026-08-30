@@ -18,8 +18,13 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
         RequestsCookieJar.__init__(self)
         LWPCookieJar.__init__(self, filename=filename)
 
-    def __iter__(self) -> Iterator[Cookie]:
-        """Yield the cookies; delegates to the base CookieJar chain."""
+    def __iter__(self) -> Iterator[Cookie]:  # type: ignore[override]
+        """Yield the cookies; delegates to the base CookieJar chain.
+
+        CookieJar.__iter__ yields Cookie objects while the RequestsCookieJar
+        MutableMapping base declares Iterator[str]; same conflict as upstream
+        requests, which ignores it identically.
+        """
         return super().__iter__()
 
     def _resolve_filename(self, filename: str | None) -> str | None:

@@ -309,6 +309,7 @@ def auth_logout(
         log_level=log_level,
     )
     state = get_state(ctx)
+    api: PyiCloudService | None
     if state.has_explicit_username:
         api = state.get_probe_api()
         api.get_auth_status()

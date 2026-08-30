@@ -700,7 +700,9 @@ class PhotoLibrary(BasePhotoLibrary):
 
     def _get_albums(self) -> AlbumContainer:
         albums = AlbumContainer()
-        smart_albums = self.SMART_ALBUMS.items()
+        smart_albums: Iterable[tuple[SmartAlbumEnum, SmartAlbumSpec]] = (
+            self.SMART_ALBUMS.items()
+        )
         if self.scope == "shared-library":
             smart_albums = tuple(
                 (smart_album, self.SMART_ALBUMS[smart_album])
@@ -1953,7 +1955,7 @@ class PhotoAsset:
                 record.get("recordType") == "CPLAsset"
                 and record.get("recordName") == asset_name
             ):
-                self._asset_record = record
+                self._asset_record = CKRecord.model_validate(record)
                 return True
         if fallback_field is None:
             return False
@@ -2206,7 +2208,7 @@ class PhotosService(BaseService):
         )
         self._upload_url = upload_url
         self._shared_streams_url = shared_streams_url
-        self._libraries: dict[str, BasePhotoLibrary] | None = None
+        self._libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary] | None = None
         self._legacy_service = None
         shared_streams_album_url = (
             f"{shared_streams_url}/{self.params['dsid']}/sharedstreams/webgetalbumslist"
@@ -2230,10 +2232,10 @@ class PhotosService(BaseService):
         return self._private_client
 
     @property
-    def libraries(self) -> dict[str, BasePhotoLibrary]:
+    def libraries(self) -> dict[str, BasePhotoLibrary | PhotoStreamLibrary]:
         """Return the available photo libraries, discovering them on first access."""
         if self._libraries is None:
-            libraries: dict[str, BasePhotoLibrary] = {
+            libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary] = {
                 "root": self._root_library,
                 "shared": self._shared_library,
             }

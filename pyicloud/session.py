@@ -184,8 +184,8 @@ class PyiCloudSession(requests.Session):
 
     def request(
         self,
-        method: str,
-        url: str,
+        method: str | bytes,
+        url: str | bytes,
         params: Any = None,
         data: Any = None,
         headers: Any = None,
@@ -203,8 +203,8 @@ class PyiCloudSession(requests.Session):
     ) -> Response:
         """Dispatch a request through the normalized session request pipeline."""
         return self._request(
-            method,
-            url,
+            cast(str, method),
+            cast(str, url),
             params=params,
             data=data,
             headers=headers,

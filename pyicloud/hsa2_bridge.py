@@ -555,6 +555,7 @@ def _decode_fields(data: bytes) -> dict[int, list[Any]]:
         key, offset = _read_varint(data, offset)
         field_number = key >> 3
         wire_type = key & 0x07
+        value: int | bytes
 
         if wire_type == 0:
             value, offset = _read_varint(data, offset)

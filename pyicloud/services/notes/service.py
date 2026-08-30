@@ -832,8 +832,8 @@ class NotesService(BaseService):
                         alias,
                     )
 
-        for aid in ids or lookup_ids:
-            att = self._attachment_meta_cache.get(aid)
+        for cid in ids or lookup_ids:
+            att = self._attachment_meta_cache.get(cid)
             if att and att not in out:
                 out.append(att)
 
