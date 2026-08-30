@@ -1035,10 +1035,13 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         yield from self._process_photo_list_response(response.records)
 
     def _get_photo(self, photo_id: str) -> PhotoAsset:
-        query = photo_lookup_query(list_type=self._list_type, photo_id=photo_id)
-        filters = self._query_filters(offset=0, direction=DirectionEnum.ASCENDING)
-        if filters:
-            query.filterBy = list(query.filterBy or []) + filters
+        query = photo_lookup_query(
+            list_type=self._list_type,
+            photo_id=photo_id,
+            extra_filters=self._query_filters(
+                offset=0, direction=DirectionEnum.ASCENDING
+            ),
+        )
         if (
             (self._client is None or not _can_use_typed_cloudkit(self.service.session))
             and hasattr(self.service, "session")

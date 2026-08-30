@@ -68,14 +68,18 @@ def photo_lookup_query(
     list_type: ListTypeEnum,
     photo_id: str,
     direction: DirectionEnum = DirectionEnum.ASCENDING,
+    extra_filters: Iterable[CKQueryFilterBy] | None = None,
 ) -> CKQueryObject:
     """Return a single-photo lookup query within a list index."""
 
+    filters = [_string_filter("recordName", photo_id)]
+    if extra_filters:
+        filters.extend(list(extra_filters))
     return list_query(
         list_type=list_type,
         direction=direction,
         offset=0,
-        extra_filters=[_string_filter("recordName", photo_id)],
+        extra_filters=filters,
     )
 
 
