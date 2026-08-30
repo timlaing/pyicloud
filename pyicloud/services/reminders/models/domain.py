@@ -53,6 +53,7 @@ class RemindersList(MutableServiceModel):
     badge_emblem: str | None = None
     sorting_style: str | None = None
     is_group: bool = False
+    deleted: bool = False
     reminder_ids: list[str] = Field(default_factory=list)
     guid: str | None = None
     record_change_tag: str | None = None

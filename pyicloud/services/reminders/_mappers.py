@@ -151,6 +151,7 @@ class RemindersRecordMapper:
             badge_emblem=fields.get_value("BadgeEmblem"),
             sorting_style=fields.get_value("SortingStyle"),
             is_group=bool(fields.get_value("IsGroup")),
+            deleted=bool(fields.get_value("Deleted") or 0),
             reminder_ids=reminder_ids,
             record_change_tag=rec.recordChangeTag,
         )
