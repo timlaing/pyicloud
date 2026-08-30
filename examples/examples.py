@@ -231,10 +231,7 @@ def handle_2sa(api: PyiCloudService) -> None:
         print("No trusted devices are available for 2-step verification.")
         sys.exit(1)
     for i, device in enumerate(trusted_devices):
-        name = device.get("deviceName")
-        if name is None:
-            phone = device.get("phoneNumber") or ""
-            name = f"SMS to *{phone[-4:]}"
+        name = device.get("deviceName") or "SMS message"
         print(f"  {i}: {name}")
 
     device_index: int = click.prompt(

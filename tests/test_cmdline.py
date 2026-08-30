@@ -3910,6 +3910,7 @@ def test_reminders_core_commands() -> None:
     assert fake_api.reminders.reminder_rows[created_id].deleted is True
 
 
+@pytest.mark.timeout(10)
 def test_reminders_subgroup_commands() -> None:
     """Reminder subgroup commands should expose alarm, hashtag, attachment, and
     recurrence flows.

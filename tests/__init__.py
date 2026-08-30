@@ -149,8 +149,10 @@ class PyiCloudSessionMock(PyiCloudSession):
         ):
             return resp
 
+        host = urlsplit(url).hostname
         if (
-            urlsplit(url).netloc.endswith("icloud-content.com")
+            host is not None
+            and host.endswith(".icloud-content.com")
             and method == "GET"
             and (resp := self._handle_icloud_content(url))
         ):
