@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,13 +16,15 @@ from pyicloud.common.cloudkit.client import (
 )
 
 
-def _json_response(payload: dict, *, status_code: int = 200, **attrs):
+def _json_response(
+    payload: dict[str, Any], *, status_code: int = 200, **attrs: Any
+) -> Any:
     response = MagicMock(status_code=status_code, **attrs)
     response.json.return_value = payload
     return response
 
 
-def test_cloudkit_client_uses_python_bool_params_by_default():
+def test_cloudkit_client_uses_python_bool_params_by_default() -> None:
     """Query serializes boolean params as Python style by default."""
     session = MagicMock()
     session.post.return_value = _json_response({"records": []})
@@ -39,7 +42,7 @@ def test_cloudkit_client_uses_python_bool_params_by_default():
     assert "remapEnums=True" in session.post.call_args.args[0]
 
 
-def test_cloudkit_client_supports_lowercase_bool_params():
+def test_cloudkit_client_supports_lowercase_bool_params() -> None:
     """Query serializes boolean params as lowercase when requested."""
     session = MagicMock()
     session.post.return_value = _json_response({"records": []})
@@ -58,7 +61,7 @@ def test_cloudkit_client_supports_lowercase_bool_params():
     assert "remapEnums=true" in session.post.call_args.args[0]
 
 
-def test_cloudkit_client_uses_timeout_override():
+def test_cloudkit_client_uses_timeout_override() -> None:
     """Query passes the configured timeout override to the request."""
     session = MagicMock()
     session.post.return_value = _json_response({"records": []})
@@ -77,7 +80,7 @@ def test_cloudkit_client_uses_timeout_override():
     assert session.post.call_args.kwargs["timeout"] == (1.0, 2.0)
 
 
-def test_redact_cloudkit_url_removes_query_and_fragment():
+def test_redact_cloudkit_url_removes_query_and_fragment() -> None:
     """Redacting a URL strips its query string and fragment."""
     assert (
         redact_cloudkit_url("https://example.com/path?token=secret&x=1#frag")
@@ -85,7 +88,7 @@ def test_redact_cloudkit_url_removes_query_and_fragment():
     )
 
 
-def test_cloudkit_client_invokes_debug_hook_on_http_error():
+def test_cloudkit_client_invokes_debug_hook_on_http_error() -> None:
     """The debug hook is invoked with operation details on HTTP error."""
     events = []
     session = MagicMock()
@@ -115,7 +118,7 @@ def test_cloudkit_client_invokes_debug_hook_on_http_error():
     assert response is session.post.return_value
 
 
-def test_cloudkit_client_raises_rate_limited_with_retry_after():
+def test_cloudkit_client_raises_rate_limited_with_retry_after() -> None:
     """A 429 response raises rate limited carrying the retry-after delay."""
     session = MagicMock()
     session.post.return_value = _json_response(
@@ -134,7 +137,7 @@ def test_cloudkit_client_raises_rate_limited_with_retry_after():
     assert exc_info.value.retry_after == 2.5
 
 
-def test_cloudkit_client_download_asset_bytes():
+def test_cloudkit_client_download_asset_bytes() -> None:
     """Downloading an asset returns its raw bytes with default timeout."""
     session = MagicMock()
     session.get.return_value = MagicMock(status_code=200, content=b"asset-bytes")
@@ -144,7 +147,7 @@ def test_cloudkit_client_download_asset_bytes():
     assert session.get.call_args.kwargs["timeout"] == (10.0, 60.0)
 
 
-def test_cloudkit_client_download_asset_stream():
+def test_cloudkit_client_download_asset_stream() -> None:
     """Streaming an asset yields non-empty chunks and closes the response."""
     session = MagicMock()
     response = MagicMock(
@@ -162,7 +165,7 @@ def test_cloudkit_client_download_asset_stream():
     response.close.assert_called_once()
 
 
-def test_cloudkit_client_download_asset_stream_closes_on_error():
+def test_cloudkit_client_download_asset_stream_closes_on_error() -> None:
     """Streaming an asset closes the response when an error occurs."""
     session = MagicMock()
     response = MagicMock(status_code=500, text="boom")

@@ -17,7 +17,7 @@ import os
 import re
 import sys
 import time
-from typing import Any
+from typing import Any, Literal, cast
 
 # Ensure pyicloud can be imported when running from examples/ directly.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -29,6 +29,7 @@ from rich.logging import RichHandler
 from pyicloud import PyiCloudService
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.exceptions import PyiCloudServiceUnavailable
+from pyicloud.services.notes.models import NoteSummary
 from pyicloud.services.notes.rendering.debug_tools import (
     annotate_note_runs_html,
     dump_runs_text,
@@ -185,7 +186,7 @@ def ensure_auth(api: PyiCloudService) -> None:
         devices: list[dict[str, Any]] = api.trusted_devices
         if not devices:
             raise RuntimeError("No trusted devices available for 2SA")
-        for i, _device in enumerate(devices):
+        for i, _trusted in enumerate(devices):
             logger.info("  %d: Trusted device", i)
         sel = input("Select device index [0]: ").strip()
         try:
@@ -284,8 +285,8 @@ def main() -> None:
             args.title_contains and args.title_contains.lower() in title.lower()
         )
 
-    def _collect_title_matches() -> list:
-        collected: list = []
+    def _collect_title_matches() -> list[NoteSummary]:
+        collected: list[NoteSummary] = []
         logger.info("[bold]\nSearching notes by title[/bold]")
         phase(
             "selection: recents-first title search "
@@ -325,7 +326,7 @@ def main() -> None:
             logger.error("Title search failed, falling back to recents: %s", exc)
         return collected
 
-    candidates = []
+    candidates: list[NoteSummary] = []
     if args.title or args.title_contains:
         candidates = _collect_title_matches()
 
@@ -367,7 +368,10 @@ def main() -> None:
         phase(f"note[{idx}]: exporter init")
         config = ExportConfig(
             debug=bool(args.notes_debug),
-            export_mode=str(args.export_mode).strip().lower(),
+            export_mode=cast(
+                Literal["archival", "lightweight"],
+                str(args.export_mode).strip().lower(),
+            ),
             assets_dir=args.assets_dir or None,
             full_page=bool(args.full_page),
             preview_appearance=str(args.preview_appearance).strip().lower(),
@@ -394,6 +398,11 @@ def main() -> None:
 
         if args.dump_runs:
             try:
+                if proto_note is None:
+                    console.print(
+                        "[red]Note could not be decoded; skipping runs dump[/red]"
+                    )
+                    continue
                 console.rule("attribute runs (utf16 mapping)")
                 console.print(dump_runs_text(proto_note))
 

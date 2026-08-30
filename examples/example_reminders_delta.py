@@ -14,7 +14,7 @@ event log for individual records.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from getpass import getpass
@@ -180,7 +180,7 @@ def authenticate(args: argparse.Namespace) -> PyiCloudService:
             raise RuntimeError("2SA required but no trusted devices were returned.")
 
         print("Trusted devices:")
-        for index, _device in enumerate(devices):
+        for index, _trusted in enumerate(devices):
             print(f"  {index}: Trusted device")
 
         selected_index = _prompt_selection(
@@ -221,7 +221,7 @@ def pick_target_list(lists: Iterable[RemindersList], list_name: str) -> Reminder
 
 def wait_until(
     description: str,
-    predicate,
+    predicate: Callable[[], bool],
     timeout_seconds: float,
     poll_interval: float,
 ) -> bool:

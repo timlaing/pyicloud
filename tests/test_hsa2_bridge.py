@@ -143,6 +143,7 @@ def _decode_fields(data: bytes) -> dict[int, list[int | bytes]]:
         wire_type = key & 0x07
 
         if wire_type == 0:
+            value: int | bytes
             value, offset = _read_varint(data, offset)
         elif wire_type == 2:
             length, offset = _read_varint(data, offset)
@@ -421,13 +422,13 @@ def test_trusted_device_bridge_prover_normalizes_malformed_bridge_payloads() -> 
         prover.decrypt_message(base64.b64encode(b"\x01truncated").decode("ascii"))
 
 
-def test_trusted_device_bridge_bootstrap_keeps_websocket_open_and_persists_step2() -> (
-    None
-):
+def test_trusted_device_bridge_bootstrap_keeps_websocket_open_and_persists_step2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The bridge bootstrap should keep the websocket alive after step 0 succeeds."""
 
     topic = "com.apple.idmsauthwidget"
-    bridge_payload = {
+    bridge_payload: dict[str, object] = {
         "sessionUUID": "bridge-session",
         "nextStep": "2",
         "ruiURLKey": "hsa2TwoFactorAuthApprovalFlowUrl",
@@ -447,8 +448,9 @@ def test_trusted_device_bridge_bootstrap_keeps_websocket_open_and_persists_step2
             _encode_push_message(topic, bridge_payload, 2300),
         ],
         on_read=lambda read_count: (
-            (read_count == 1 or session.request_raw.call_count == 1)
-            or (_ for _ in ()).throw(
+            None
+            if (read_count == 1 or session.request_raw.call_count == 1)
+            else (_ for _ in ()).throw(
                 AssertionError("Bridge step 0 should be posted before waiting for push")
             )
         ),
@@ -464,11 +466,15 @@ def test_trusted_device_bridge_bootstrap_keeps_websocket_open_and_persists_step2
         timeout=1.0,
         websocket_factory=websocket_factory,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
 
     state = bootstrapper.start(
@@ -484,7 +490,7 @@ def test_trusted_device_bridge_bootstrap_keeps_websocket_open_and_persists_step2
     assert state.connection_path == websocket_url.rsplit("/", 1)[1]
     connection_message = unhexlify(state.connection_path)
     outer_fields = _decode_fields(connection_message)
-    inner_fields = _decode_fields(outer_fields[1][0])
+    inner_fields = _decode_fields(bytes(outer_fields[1][0]))
     assert inner_fields[1][0] == b"\x04public-key"
     assert bytes(inner_fields[3][0]).startswith(b"\x01\x03signature-for-")
     assert state.push_token == b"push-token".hex()
@@ -517,7 +523,9 @@ def test_trusted_device_bridge_bootstrap_keeps_websocket_open_and_persists_step2
     assert state.websocket is None
 
 
-def test_trusted_device_bridge_rejects_malformed_push_token() -> None:
+def test_trusted_device_bridge_rejects_malformed_push_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Malformed push tokens should surface as bridge prompt failures."""
 
     websocket = _FakeWebSocket([
@@ -527,8 +535,10 @@ def test_trusted_device_bridge_rejects_malformed_push_token() -> None:
         timeout=1.0,
         websocket_factory=lambda *_args: websocket,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
 
     with pytest.raises(
@@ -548,7 +558,9 @@ def test_trusted_device_bridge_rejects_malformed_push_token() -> None:
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_rejects_mismatched_session_uuid() -> None:
+def test_trusted_device_bridge_rejects_mismatched_session_uuid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The first bridge push should match the session UUID used for step 0."""
 
     topic = "com.apple.idmsauthwidget"
@@ -569,11 +581,15 @@ def test_trusted_device_bridge_rejects_mismatched_session_uuid() -> None:
         timeout=1.0,
         websocket_factory=lambda *_args: websocket,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
     session = MagicMock()
     session.request_raw.return_value = _response(200)
@@ -594,7 +610,9 @@ def test_trusted_device_bridge_rejects_mismatched_session_uuid() -> None:
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_start_propagates_unexpected_exception() -> None:
+def test_trusted_device_bridge_start_propagates_unexpected_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Unexpected bootstrap bugs should surface directly instead of being wrapped."""
 
     websocket = _FakeWebSocket([TypeError("boom")])
@@ -602,8 +620,10 @@ def test_trusted_device_bridge_start_propagates_unexpected_exception() -> None:
         timeout=1.0,
         websocket_factory=lambda *_args: websocket,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
 
     with pytest.raises(TypeError, match="boom"):
@@ -618,14 +638,16 @@ def test_trusted_device_bridge_start_propagates_unexpected_exception() -> None:
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence() -> None:
+def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Bridge-backed trusted-device verification should follow.
 
     Apple's step 2/4/6 flow.
     """
 
     topic = "com.apple.idmsauthwidget"
-    initial_push = {
+    initial_push: dict[str, object] = {
         "sessionUUID": "bridge-session",
         "nextStep": "2",
         "ruiURLKey": "hsa2TwoFactorAuthApprovalFlowUrl",
@@ -642,7 +664,7 @@ def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence() -
             _hex_to_b64(server_message1_hex) + "_" + _hex_to_b64(server_message2_hex)
         ).encode("utf-8")
     ).decode("ascii")
-    step4_push = {
+    step4_push: dict[str, object] = {
         "sessionUUID": "bridge-session",
         "nextStep": "4",
         "txnid": "2300_282820214_S",
@@ -650,7 +672,7 @@ def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence() -
         "idmsdata": "step4-idms",
         "akdata": {"step": 4},
     }
-    step6_push = {
+    step6_push: dict[str, object] = {
         "sessionUUID": "bridge-session",
         "nextStep": "6",
         "txnid": "2300_282820214_S",
@@ -678,11 +700,15 @@ def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence() -
         websocket_factory=lambda *_args: websocket,
         prover_factory=lambda: prover,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
 
     session = MagicMock()
@@ -788,14 +814,16 @@ def test_trusted_device_bridge_validate_code_runs_step2_step4_step6_sequence() -
     assert state.websocket is None
 
 
-def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push() -> None:
+def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Apple can finish the bridge flow with nextStep=4 when.
 
     EncryptedCode is present.
     """
 
     topic = "com.apple.idmsauthwidget"
-    initial_push = {
+    initial_push: dict[str, object] = {
         "sessionUUID": "bridge-session",
         "nextStep": "2",
         "txnid": "2300_282820214_S",
@@ -806,7 +834,7 @@ def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push() -> None
     step4_data = base64.b64encode(
         (_hex_to_b64("aa01") + "_" + _hex_to_b64("bb02")).encode("utf-8")
     ).decode("ascii")
-    prover_push = {
+    prover_push: dict[str, object] = {
         "sessionUUID": "bridge-session",
         "nextStep": "4",
         "txnid": "2300_282820214_S",
@@ -814,7 +842,7 @@ def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push() -> None
         "idmsdata": "step4-idms",
         "akdata": {"step": 4},
     }
-    final_push = {
+    final_push: dict[str, object] = {
         "sessionUUID": "bridge-session",
         "nextStep": "4",
         "txnid": "2300_282820214_S",
@@ -840,11 +868,15 @@ def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push() -> None
         websocket_factory=lambda *_args: websocket,
         prover_factory=lambda: prover,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
     session = MagicMock()
     session.request_raw.side_effect = [
@@ -889,7 +921,9 @@ def test_trusted_device_bridge_accepts_step4_encrypted_code_final_push() -> None
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_validate_code_returns_false_on_412() -> None:
+def test_trusted_device_bridge_validate_code_returns_false_on_412(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A bridge code-validate 412 should be treated as an invalid.
 
     Code, not a transport failure.
@@ -949,11 +983,15 @@ def test_trusted_device_bridge_validate_code_returns_false_on_412() -> None:
         websocket_factory=lambda *_args: websocket,
         prover_factory=lambda: prover,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
     session = MagicMock()
     session.request_raw.side_effect = [
@@ -986,7 +1024,9 @@ def test_trusted_device_bridge_validate_code_returns_false_on_412() -> None:
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_validate_code_rejects_error_push() -> None:
+def test_trusted_device_bridge_validate_code_rejects_error_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Bridge error pushes should surface as verification exceptions."""
 
     topic = "com.apple.idmsauthwidget"
@@ -1040,11 +1080,15 @@ def test_trusted_device_bridge_validate_code_rejects_error_push() -> None:
         websocket_factory=lambda *_args: websocket,
         prover_factory=lambda: prover,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
     session = MagicMock()
     session.request_raw.side_effect = [_response(200), _response(200), _response(200)]
@@ -1071,7 +1115,9 @@ def test_trusted_device_bridge_validate_code_rejects_error_push() -> None:
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_validate_code_rejects_malformed_final_push() -> None:
+def test_trusted_device_bridge_validate_code_rejects_malformed_final_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Final bridge pushes must include encryptedCode once the.
 
     Prover flow is complete.
@@ -1127,11 +1173,15 @@ def test_trusted_device_bridge_validate_code_rejects_malformed_final_push() -> N
         websocket_factory=lambda *_args: websocket,
         prover_factory=lambda: prover,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
     session = MagicMock()
     session.request_raw.side_effect = [_response(200), _response(200), _response(200)]
@@ -1158,7 +1208,9 @@ def test_trusted_device_bridge_validate_code_rejects_malformed_final_push() -> N
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_validate_code_rejects_mismatched_followup_push() -> None:
+def test_trusted_device_bridge_validate_code_rejects_mismatched_followup_push(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Follow-up bridge pushes must stay on the same bridge session."""
 
     topic = "com.apple.idmsauthwidget"
@@ -1198,11 +1250,15 @@ def test_trusted_device_bridge_validate_code_rejects_mismatched_followup_push() 
         websocket_factory=lambda *_args: websocket,
         prover_factory=lambda: prover,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
     session = MagicMock()
     session.request_raw.side_effect = [_response(200), _response(200)]
@@ -1229,7 +1285,9 @@ def test_trusted_device_bridge_validate_code_rejects_mismatched_followup_push() 
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_validate_code_closes_on_timeout() -> None:
+def test_trusted_device_bridge_validate_code_closes_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Timeouts after prompt delivery should surface as bridge verification failures."""
 
     topic = "com.apple.idmsauthwidget"
@@ -1258,11 +1316,15 @@ def test_trusted_device_bridge_validate_code_closes_on_timeout() -> None:
         websocket_factory=lambda *_args: websocket,
         prover_factory=lambda: prover,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
     session = MagicMock()
     session.request_raw.side_effect = [_response(200), _response(200)]
@@ -1289,9 +1351,9 @@ def test_trusted_device_bridge_validate_code_closes_on_timeout() -> None:
     assert websocket.closed is True
 
 
-def test_trusted_device_bridge_validate_code_wraps_step4_prover_message1_failure() -> (
-    None
-):
+def test_trusted_device_bridge_validate_code_wraps_step4_prover_message1_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Malformed step-4 prover data should surface as bridge verification failures."""
 
     topic = "com.apple.idmsauthwidget"
@@ -1334,11 +1396,15 @@ def test_trusted_device_bridge_validate_code_wraps_step4_prover_message1_failure
         websocket_factory=lambda *_args: websocket,
         prover_factory=lambda: prover,
     )
-    bootstrapper._generate_keypair = MagicMock(  # type: ignore[attr-defined]
-        return_value=(b"\x04public-key", _FakePrivateKey())
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_keypair",
+        MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
-    bootstrapper._generate_session_uuid = MagicMock(  # type: ignore[attr-defined]
-        return_value="bridge-session"
+    monkeypatch.setattr(
+        bootstrapper,
+        "_generate_session_uuid",
+        MagicMock(return_value="bridge-session"),
     )
     session = MagicMock()
     session.request_raw.side_effect = [_response(200), _response(200)]

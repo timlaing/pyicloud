@@ -306,12 +306,12 @@ def test_findmyiphone_service_manager(
         mock_refresh.assert_not_called()
         assert mock_is_alive.call_count == 1
 
-        device: AppleDevice = manager[0]
+        device = manager[0]
         assert isinstance(device, AppleDevice)
         assert mock_refresh.call_count == 1
         assert mock_is_alive.call_count == 2
 
-        device: AppleDevice = manager[device.data["id"]]
+        device = manager[device.data["id"]]
         assert isinstance(device, AppleDevice)
         assert mock_refresh.call_count == 1
         assert mock_is_alive.call_count == 4
@@ -337,7 +337,7 @@ def test_findmyiphone_service_manager(
         mock_refresh.assert_not_called()
         assert mock_is_alive.call_count == 2
 
-        devices: list[AppleDevice] = list(iter(manager))
+        devices = list(iter(manager))
         assert len(devices) == len(manager)
         assert mock_refresh.call_count == 2
         assert mock_is_alive.call_count == 4

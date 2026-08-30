@@ -422,13 +422,13 @@ LOGIN_2FA = {
     },
 }
 
-TRUSTED_DEVICE_1: dict = {
+TRUSTED_DEVICE_1: dict[str, Any] = {
     "deviceType": "SMS",
     "areaCode": "",
     "phoneNumber": "*******58",
     "deviceId": "1",
 }
-TRUSTED_DEVICES: dict = {"devices": [TRUSTED_DEVICE_1]}
+TRUSTED_DEVICES: dict[str, Any] = {"devices": [TRUSTED_DEVICE_1]}
 
-VERIFICATION_CODE_OK: dict = {"success": True}
-VERIFICATION_CODE_KO: dict = {"success": False}
+VERIFICATION_CODE_OK: dict[str, Any] = {"success": True}
+VERIFICATION_CODE_KO: dict[str, Any] = {"success": False}

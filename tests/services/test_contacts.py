@@ -22,7 +22,9 @@ def test_contacts_service_initialization(contacts_service: ContactsService) -> N
 
 @patch("requests.Response")
 def test_refresh_client(
-    mock_response, contacts_service: ContactsService, mock_session: MagicMock
+    mock_response: MagicMock,
+    contacts_service: ContactsService,
+    mock_session: MagicMock,
 ) -> None:
     """Test the refresh_client method."""
     mock_response.json.return_value = {
@@ -45,7 +47,9 @@ def test_refresh_client(
 
 @patch("requests.Response")
 def test_all_property(
-    mock_response, contacts_service: ContactsService, mock_session: MagicMock
+    mock_response: MagicMock,
+    contacts_service: ContactsService,
+    mock_session: MagicMock,
 ) -> None:
     """Test the all property."""
     mock_response.json.return_value = {
@@ -63,7 +67,9 @@ def test_all_property(
 
 @patch("requests.Response")
 def test_me_property(
-    mock_response, contacts_service: ContactsService, mock_session: MagicMock
+    mock_response: MagicMock,
+    contacts_service: ContactsService,
+    mock_session: MagicMock,
 ) -> None:
     """Test the me property."""
     mock_response.json.return_value = {

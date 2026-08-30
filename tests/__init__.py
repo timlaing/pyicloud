@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 from requests import Response
 
-from pyicloud import base
+from pyicloud.session import PyiCloudSession
 from tests.const import (
     ACCOUNT_DEVICES_WORKING,
     ACCOUNT_FAMILY_WORKING,
@@ -44,7 +44,7 @@ from tests.const import (
 class ResponseMock(Response):
     """Mocked Response."""
 
-    def __init__(self, result, status_code=200, **kwargs) -> None:
+    def __init__(self, result: Any, status_code: int = 200, **kwargs: Any) -> None:
         """Set up response mock."""
         Response.__init__(self)
         self.result = result
@@ -58,10 +58,10 @@ class ResponseMock(Response):
         return json.dumps(self.result)
 
 
-class PyiCloudSessionMock(base.PyiCloudSession):
+class PyiCloudSessionMock(PyiCloudSession):
     """Mocked PyiCloudSession."""
 
-    def _request(self, method, url, **kwargs) -> ResponseMock:
+    def _request(self, method: str, url: str, **kwargs: Any) -> ResponseMock:
         """Make the request."""
         params = kwargs.get("params")
         headers = kwargs.get("headers")
@@ -84,7 +84,9 @@ class PyiCloudSessionMock(base.PyiCloudSession):
 
         raise ValueError("No valid response")
 
-    def _handle_other_endpoints(self, url, method, data, params) -> ResponseMock | None:
+    def _handle_other_endpoints(
+        self, url: str, method: str, data: Any, params: dict[str, Any] | None
+    ) -> ResponseMock | None:
         """Handle other endpoints."""
         if "device/getDevices" in url and method == "GET":
             return ResponseMock(ACCOUNT_DEVICES_WORKING)
@@ -106,7 +108,11 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if "fmi" in url and method == "POST":
             return ResponseMock(FMI_FAMILY_WORKING)
 
-    def _handle_drive_endpoints_post(self, url, method, data) -> ResponseMock | None:
+        return None
+
+    def _handle_drive_endpoints_post(
+        self, url: str, method: str, data: Any
+    ) -> ResponseMock | None:
         """Handle drive endpoints post requests."""
         if (
             "retrieveItemDetailsInFolders" in url
@@ -129,7 +135,11 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         ):
             return resp
 
-    def _handle_drive_endpoints_get(self, url, method, params) -> ResponseMock | None:
+        return None
+
+    def _handle_drive_endpoints_get(
+        self, url: str, method: str, params: dict[str, Any] | None
+    ) -> ResponseMock | None:
         """Handle drive endpoints get requests."""
         if (
             "com.apple.CloudDocs/download/by_id" in url
@@ -156,7 +166,15 @@ class PyiCloudSessionMock(base.PyiCloudSession):
                 },
             )
 
-    def _handle_setup_endpoint(self, url, method, data, headers) -> ResponseMock | None:
+        return None
+
+    def _handle_setup_endpoint(
+        self,
+        url: str,
+        method: str,
+        data: Any,
+        headers: dict[str, Any] | None,
+    ) -> ResponseMock | None:
         """Handle setup endpoint requests."""
         if "accountLogin" in url and method == "POST":
             return self._handle_account_login(data)
@@ -173,7 +191,11 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         if "validate" in url and method == "POST" and headers:
             return self._handle_validate(headers)
 
-    def _handle_auth_endpoint(self, url, method, data) -> ResponseMock | None:
+        return None
+
+    def _handle_auth_endpoint(
+        self, url: str, method: str, data: Any
+    ) -> ResponseMock | None:
         """Handle auth endpoint requests."""
         if "signin" in url and method == "POST":
             return self._handle_signin(data)
@@ -183,6 +205,8 @@ class PyiCloudSessionMock(base.PyiCloudSession):
 
         if "trust" in url and method == "GET":
             return ResponseMock("", status_code=204)
+
+        return None
 
     def _handle_account_login(self, data: dict[str, Any]) -> ResponseMock:
         """Handle account login."""
@@ -254,6 +278,8 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         ):
             return ResponseMock(DRIVE_SUBFOLDER_WORKING)
 
+        return None
+
     def _handle_drive_trash_recover(self, data: dict[str, Any]) -> ResponseMock | None:
         """Handle drive trash recover."""
         items_data = data.get("items")
@@ -263,6 +289,8 @@ class PyiCloudSessionMock(base.PyiCloudSession):
             == "FOLDER::com.apple.CloudDocs::2BF8600B-5DCC-4421-805A-1C28D07197D5"
         ):
             return ResponseMock(DRIVE_TRASH_RECOVER_WORKING)
+
+        return None
 
     def _handle_drive_trash_delete(self, data: dict[str, Any]) -> ResponseMock | None:
         """Handle drive trash delete forever."""
@@ -274,12 +302,17 @@ class PyiCloudSessionMock(base.PyiCloudSession):
         ):
             return ResponseMock(DRIVE_TRASH_DELETE_FOREVER_WORKING)
 
+        return None
+
     def _handle_drive_download(self, params: dict[str, Any]) -> ResponseMock | None:
         """Handle drive download."""
         if params.get("document_id") == "516C896C-6AA5-4A30-B30E-5502C2333DAE":
             return ResponseMock(DRIVE_FILE_DOWNLOAD_WORKING)
 
+        return None
+
     def _handle_icloud_content(self, url: str) -> ResponseMock | None:
         """Handle iCloud content."""
         if "Scanned+document+1.pdf" in url:
             return ResponseMock({}, raw=BytesIO(b"PDF_CONTENT"))
+        return None

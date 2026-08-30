@@ -1,15 +1,21 @@
 """Tests for the PyiCloudCookieJar class and its handling of FMIP auth cookies."""
 
 from io import StringIO
+from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
 
+import pytest
 from requests.cookies import RequestsCookieJar
 
 from pyicloud.cookie_jar import _FMIP_AUTH_COOKIE_NAME, PyiCloudCookieJar
 
 
 def create_cookie_jar_with_cookie(
-    filename, name, domain="example.com", path="/", value="test"
+    filename: str,
+    name: str,
+    domain: str = "example.com",
+    path: str = "/",
+    value: str = "test",
 ) -> PyiCloudCookieJar:
     """Create a PyiCloudCookieJar with a single cookie."""
     with (
@@ -29,11 +35,13 @@ def test_load_no_filename() -> None:
     jar.load()  # No-op
 
 
-def test_load_with_filename_removes_fmip_cookie() -> None:
+def test_load_with_filename_removes_fmip_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that loading a jar with an FMIP cookie removes that cookie."""
     filename = "test_cookies.txt"
     buffer = StringIO()
-    buffer.close = MagicMock()
+    monkeypatch.setattr(buffer, "close", MagicMock())
     with (
         patch("builtins.open", new_callable=mock_open) as m,
         patch("os.open"),
@@ -57,11 +65,13 @@ def test_load_with_filename_removes_fmip_cookie() -> None:
         assert "other_cookie" in names
 
 
-def test_load_with_custom_filename_argument_removes_fmip_cookie() -> None:
+def test_load_with_custom_filename_argument_removes_fmip_cookie(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that loading a jar with an FMIP cookie removes that cookie."""
     filename = "test_cookies.txt"
     buffer = StringIO()
-    buffer.close = MagicMock()
+    monkeypatch.setattr(buffer, "close", MagicMock())
     with (
         patch("builtins.open", new_callable=mock_open) as m,
         patch("os.open"),
@@ -79,11 +89,13 @@ def test_load_with_custom_filename_argument_removes_fmip_cookie() -> None:
         assert _FMIP_AUTH_COOKIE_NAME not in names
 
 
-def test_load_handles_keyerror_on_clear() -> None:
+def test_load_handles_keyerror_on_clear(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that load handles KeyError from clear gracefully."""
     filename = "test_cookies.txt"
     buffer = StringIO()
-    buffer.close = MagicMock()
+    monkeypatch.setattr(buffer, "close", MagicMock())
     with (
         patch("builtins.open", new_callable=mock_open) as m,
         patch("os.open"),
@@ -99,7 +111,7 @@ def test_load_handles_keyerror_on_clear() -> None:
         jar2: PyiCloudCookieJar = PyiCloudCookieJar(filename=filename)
 
         # Monkeypatch clear to raise KeyError
-        def raise_keyerror(*args, **kwargs) -> None:
+        def raise_keyerror(*args: Any, **kwargs: Any) -> None:
             raise KeyError
 
         with patch.object(jar2, "clear", side_effect=raise_keyerror):

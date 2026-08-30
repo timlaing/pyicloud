@@ -1,6 +1,7 @@
 """Drive service tests."""
 # pylint: disable=protected-access
 
+from typing import Any
 from unittest.mock import ANY, Mock, patch
 
 import pytest
@@ -428,7 +429,7 @@ def test_get_upload_contentws_url_invalid_response_format(
     mock_file.name = "test_file.txt"
     mock_file.tell = Mock(side_effect=[0, 400, 0])  # Mock file size as 400 bytes
 
-    mock_response = []  # Invalid response format
+    mock_response: list[Any] = []  # Invalid response format
     with (
         patch.object(
             drive.session,

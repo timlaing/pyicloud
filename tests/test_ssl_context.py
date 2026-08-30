@@ -14,7 +14,14 @@ def test_ssl_verification_true(monkeypatch: MonkeyPatch) -> None:
     """Test that SSL verification is enabled by default."""
     called: dict[str, Any] = {}
 
-    def fake_merge(self, url, proxies, stream, verify, cert) -> dict[str, Any]:  # pylint: disable=unused-argument
+    def fake_merge(  # pylint: disable=unused-argument
+        self: Any,
+        url: Any,
+        proxies: Any,
+        stream: Any,
+        verify: Any,
+        cert: Any,
+    ) -> dict[str, Any]:
         called["verify"] = verify
         called["proxies"] = proxies
         return {"verify": verify, "proxies": proxies}
@@ -31,7 +38,14 @@ def test_ssl_verification_false(monkeypatch: MonkeyPatch) -> None:
     """Test that SSL verification is disabled when verify_ssl=False."""
     called: dict[str, Any] = {}
 
-    def fake_merge(self, url, proxies, stream, verify, cert) -> dict[str, Any]:  # pylint: disable=unused-argument
+    def fake_merge(  # pylint: disable=unused-argument
+        self: Any,
+        url: Any,
+        proxies: Any,
+        stream: Any,
+        verify: Any,
+        cert: Any,
+    ) -> dict[str, Any]:
         called["verify"] = verify
         called["proxies"] = proxies
         return {"verify": verify, "proxies": proxies}
@@ -50,7 +64,14 @@ def test_proxy_settings(monkeypatch: MonkeyPatch) -> None:
     """Test that proxy settings are applied correctly."""
     called: dict[str, Any] = {}
 
-    def fake_merge(self, url, proxies, stream, verify, cert) -> dict[str, Any]:  # pylint: disable=unused-argument
+    def fake_merge(  # pylint: disable=unused-argument
+        self: Any,
+        url: Any,
+        proxies: Any,
+        stream: Any,
+        verify: Any,
+        cert: Any,
+    ) -> dict[str, Any]:
         called["verify"] = verify
         called["proxies"] = proxies
         return {"verify": verify, "proxies": proxies}

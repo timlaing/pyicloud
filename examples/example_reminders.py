@@ -39,7 +39,7 @@ import os
 import sys
 from time import monotonic, sleep
 import traceback
-from typing import Any
+from typing import Any, cast
 
 from pyicloud import PyiCloudService
 from pyicloud.services.reminders.models.domain import (
@@ -228,7 +228,7 @@ def authenticate(args: argparse.Namespace) -> PyiCloudService:
             raise RuntimeError("2SA required but no trusted devices were returned.")
 
         print("Trusted devices:")
-        for index, _device in enumerate(devices):
+        for index, _trusted in enumerate(devices):
             print(f"  {index}: Trusted device")
 
         selected_index = _prompt_selection(
@@ -284,7 +284,7 @@ def approximately_same_time(
 
 def wait_until(
     description: str,
-    predicate,
+    predicate: Callable[[], bool],
     timeout_seconds: float,
     poll_interval: float,
 ) -> bool:
@@ -557,7 +557,7 @@ def main() -> int:
                 args.consistency_timeout,
                 args.poll_interval,
             )
-            return matched["reminder"], bool(matched["missing"])
+            return cast(Reminder | None, matched["reminder"]), bool(matched["missing"])
 
         def wait_for_linked_id(
             description: str,

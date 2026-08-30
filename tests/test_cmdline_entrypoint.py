@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import builtins
+from collections.abc import Callable
 import sys
 from types import ModuleType
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -12,11 +14,24 @@ import pytest
 from pyicloud import cmdline
 
 
+class _FakeCliApp(ModuleType):
+    """Typed fake of the ``pyicloud.cli.app`` module."""
+
+    app: object
+    main: Callable[[], int]
+
+
+class _FakeCli(ModuleType):
+    """Typed fake of the ``pyicloud.cli`` package module."""
+
+    app: _FakeCliApp
+
+
 def test_main_shows_install_hint_when_typer_missing(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Return 1 and print an install hint when Typer is unavailable."""
-    _real = builtins.__import__
+    _real = cast(Callable[..., object], builtins.__import__)
 
     def _side_effect(name: str, *args: object, **kwargs: object) -> object:
         if name in {"typer", "click"}:
@@ -41,11 +56,11 @@ def test_main_shows_install_hint_when_typer_missing(
 def test_main_calls_cli_main_when_available() -> None:
     """Delegate to pyicloud.cli.app.main when imports succeed."""
 
-    fake_cli_app = ModuleType("pyicloud.cli.app")
-    fake_cli_app.main = lambda: 7  # type: ignore[assignment]
-    fake_cli_app.app = None  # type: ignore[assignment]
-    fake_cli = ModuleType("pyicloud.cli")
-    fake_cli.app = fake_cli_app  # type: ignore[attr-defined]
+    fake_cli_app = _FakeCliApp("pyicloud.cli.app")
+    fake_cli_app.main = lambda: 7
+    fake_cli_app.app = None
+    fake_cli = _FakeCli("pyicloud.cli")
+    fake_cli.app = fake_cli_app
 
     with patch.dict(
         "sys.modules",
@@ -56,7 +71,7 @@ def test_main_calls_cli_main_when_available() -> None:
 
 def test_main_reraises_unrelated_missing_module() -> None:
     """Do not swallow ModuleNotFoundError for unrelated imports."""
-    _real = builtins.__import__
+    _real = cast(Callable[..., object], builtins.__import__)
 
     def _side_effect(name: str, *args: object, **kwargs: object) -> object:
         if name.startswith("pyicloud.cli.commands"):

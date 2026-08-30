@@ -5,11 +5,12 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import struct
 import tempfile
-from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -49,10 +50,10 @@ MINIMAL_JPEG = base64.b64decode(
 )
 
 
-class DummyAlbumContainer(list):
+class DummyAlbumContainer(list["DummyAlbum"]):
     """Album container fixture for sync tests."""
 
-    def find(self, name: str | None):
+    def find(self, name: str | None) -> DummyAlbum | None:
         """Return the album matching the given name, or None."""
         if name is None:
             return None
@@ -71,7 +72,7 @@ class DummyAlbum:
         self._assets = assets
 
     @property
-    def photos(self):
+    def photos(self) -> Iterator[DummyAsset]:
         """Yield this album's assets."""
         return iter(self._assets)
 
@@ -88,7 +89,7 @@ class DummyLibrary:
         """Return the library's sync cursor."""
         return self._cursor
 
-    def recently_added(self):
+    def recently_added(self) -> DummyAlbum:
         """Return every photo in the library."""
         return self.all
 
@@ -121,7 +122,7 @@ class DummyAsset:
         asset_date: datetime | None = None,
         added_date: datetime | None = None,
         resources: dict[str, PhotoResource] | None = None,
-        asset_record: dict | None = None,
+        asset_record: dict[str, Any] | None = None,
         payloads: dict[str, bytes] | None = None,
     ) -> None:
         self.id = asset_id
@@ -133,8 +134,10 @@ class DummyAsset:
             resolved_asset_date = datetime.now(timezone.utc) - timedelta(
                 days=added_days_ago
             )
-        self.asset_date = resolved_asset_date
-        self.added_date = added_date if added_date is not None else resolved_asset_date
+        self.asset_date: datetime | None = resolved_asset_date
+        self.added_date: datetime | None = (
+            added_date if added_date is not None else resolved_asset_date
+        )
         self.downloaded_versions: list[str] = []
         self.deleted = False
         self._asset_record = asset_record or {"fields": {"assetDate": {"value": 0}}}
@@ -150,7 +153,7 @@ class DummyAsset:
             )
         }
 
-    def download(self, version: str = "original", **kwargs) -> bytes:
+    def download(self, version: str = "original", **kwargs: Any) -> bytes:
         """Record the download and return the requested version's payload."""
         _ = kwargs
         self.downloaded_versions.append(version)
@@ -171,7 +174,7 @@ def test_sqlite_photo_sync_state_round_trip() -> None:
         with SQLitePhotoSyncState(db_path) as state:
             state.set_sync_cursor("cursor-1")
             state.upsert_resource(
-                resource=SimpleNamespace(
+                resource=SyncedPhotoResource(
                     asset_id="asset-1",
                     resource_key="original",
                     relative_path="2026/04/photo.jpg",
@@ -489,7 +492,7 @@ def test_run_photo_sync_auto_delete_continues_when_unlink_fails() -> None:
 
         original_unlink = Path.unlink
 
-        def flaky_unlink(path_obj: Path, *args, **kwargs) -> None:
+        def flaky_unlink(path_obj: Path, *args: Any, **kwargs: Any) -> None:
             if path_obj.name == "old-1.jpg":
                 raise OSError("locked")
             return original_unlink(path_obj, *args, **kwargs)

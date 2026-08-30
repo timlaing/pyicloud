@@ -167,7 +167,9 @@ def test_calendar_service_get_events() -> None:
         assert events[0]["title"] == "Test Event"
 
 
-def test_calendar_service_add_event() -> None:
+def test_calendar_service_add_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test CalendarService add_event method."""
     mock_session = MagicMock(spec=PyiCloudSession)
     mock_response = MagicMock(spec=Response)
@@ -177,13 +179,15 @@ def test_calendar_service_add_event() -> None:
         service = CalendarService(
             "https://example.com", mock_session, {"dsid": "12345"}
         )
-        service.get_ctag = MagicMock(return_value="etag123")
+        monkeypatch.setattr(service, "get_ctag", MagicMock(return_value="etag123"))
         event = EventObject(pguid="calendar123", title="New Event")
         response = service.add_event(event)
         assert response["status"] == "success"
 
 
-def test_calendar_service_remove_event() -> None:
+def test_calendar_service_remove_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test CalendarService remove_event method."""
     mock_session = MagicMock(spec=PyiCloudSession)
     mock_response = MagicMock(spec=Response)
@@ -193,7 +197,7 @@ def test_calendar_service_remove_event() -> None:
         service = CalendarService(
             "https://example.com", mock_session, {"dsid": "12345"}
         )
-        service.get_ctag = MagicMock(return_value="etag123")
+        monkeypatch.setattr(service, "get_ctag", MagicMock(return_value="etag123"))
 
         event = EventObject(pguid="calendar123", title="New Event")
         response = service.remove_event(event)
@@ -237,7 +241,7 @@ class _FixedDateTime(datetime):
     fixed: datetime = datetime(2025, 2, 10)
 
     @classmethod
-    def today(cls) -> "_FixedDateTime":  # type: ignore[override]
+    def today(cls) -> "_FixedDateTime":
         return cls.fromtimestamp(cls.fixed.timestamp())
 
 
@@ -513,7 +517,9 @@ def test_event_object_invitee_payload_structure() -> None:
         assert event_data["invitees"][1] == f"{event.guid}:user@example.com"
 
 
-def test_calendar_service_guid_bug_fix() -> None:
+def test_calendar_service_guid_bug_fix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that GUID vs Calendar GUID bug is fixed."""
     mock_session = MagicMock(spec=PyiCloudSession)
     mock_response = MagicMock(spec=Response)
@@ -526,13 +532,13 @@ def test_calendar_service_guid_bug_fix() -> None:
         )
 
         # Mock get_ctag to verify it's called with calendar GUID, not event GUID
-        def mock_get_ctag(guid):
+        def mock_get_ctag(guid: str) -> str:
             # This should be called with the calendar GUID (event.pguid)
             # NOT the event GUID (event.guid)
             assert guid == "calendar-guid-123"
             return "test-ctag"
 
-        service.get_ctag = mock_get_ctag
+        monkeypatch.setattr(service, "get_ctag", mock_get_ctag)
 
         # Create event with different event GUID and calendar GUID
         event = EventObject(pguid="calendar-guid-123", title="Test Event")

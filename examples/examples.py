@@ -147,12 +147,12 @@ def parse_args() -> None:
         HTTPS_PROXY = args.https_proxy
 
 
-def httpclient_logging_patch(level=HTTP_LOG_LEVEL) -> None:
+def httpclient_logging_patch(level: int = HTTP_LOG_LEVEL) -> None:
     """Enable HTTPConnection debug logging to the logging framework"""
     httpclient_logger: logging.Logger = logging.getLogger("http.client")
     httpclient_logger.setLevel(level)
 
-    def httpclient_log(*args) -> None:
+    def httpclient_log(*args: object) -> None:
         httpclient_logger.log(level, " ".join(map(str, args)))
 
     # mask the print() built-in in the http.client module to use
@@ -241,7 +241,7 @@ def handle_2sa(api: PyiCloudService) -> None:
         type=click.IntRange(0, len(trusted_devices) - 1),
         default=0,
     )
-    device: dict[str, Any] = trusted_devices[device_index]
+    device = trusted_devices[device_index]
     if not api.send_verification_code(device):
         print("Failed to send verification code")
         sys.exit(1)

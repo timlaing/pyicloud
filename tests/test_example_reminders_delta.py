@@ -3,7 +3,7 @@
 import importlib.util
 import os
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +15,7 @@ SCRIPT_PATH = os.path.join(
 )
 
 
-def _load_example_reminders_delta():
+def _load_example_reminders_delta() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "pyicloud_example_reminders_delta",
         SCRIPT_PATH,
@@ -31,7 +31,9 @@ def _load_example_reminders_delta():
 class TestExampleRemindersDelta(unittest.TestCase):
     """Tests for the example reminders delta script."""
 
-    def test_authenticate_uses_security_key_when_fido2_devices_are_available(self):
+    def test_authenticate_uses_security_key_when_fido2_devices_are_available(
+        self,
+    ) -> None:
         """Authenticate should prefer the FIDO2 security key flow over a 2FA code."""
         module = _load_example_reminders_delta()
         api = MagicMock()
@@ -53,7 +55,7 @@ class TestExampleRemindersDelta(unittest.TestCase):
         api.validate_2fa_code.assert_not_called()
         api.trust_session.assert_called_once_with()
 
-    def test_authenticate_2sa_uses_selected_trusted_device(self):
+    def test_authenticate_2sa_uses_selected_trusted_device(self) -> None:
         """Authenticate should send the code to the chosen trusted device."""
         module = _load_example_reminders_delta()
         api = MagicMock()
