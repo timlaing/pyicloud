@@ -8,12 +8,15 @@ pyicloud.services.notes_models.cloudkit and hides HTTP details.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 import json
 import logging
 import os
-from typing import Dict, Iterable, Iterator, List, NoReturn, Optional
+from typing import Any, NoReturn
+import uuid
 
 from pydantic import ValidationError
+from requests import Response
 
 from pyicloud.common.cloudkit import (
     CKFVString,
@@ -34,6 +37,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitRateLimited,
     redact_cloudkit_url,
 )
+from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE_REQ
 
@@ -55,7 +59,7 @@ class NotesAuthError(NotesError):
 class NotesRateLimited(NotesError):
     """429 Too Many Requests."""
 
-    def __init__(self, message: str, retry_after: Optional[float] = None):
+    def __init__(self, message: str, retry_after: float | None = None):
         super().__init__(message)
         self.retry_after = retry_after
 
@@ -63,7 +67,7 @@ class NotesRateLimited(NotesError):
 class NotesApiError(NotesError):
     """Catch-all API error."""
 
-    def __init__(self, message: str, payload: Optional[object] = None):
+    def __init__(self, message: str, payload: object | None = None):
         super().__init__(message)
         self.payload = payload
 
@@ -84,12 +88,12 @@ class CloudKitNotesClient:
     def __init__(
         self,
         base_url: str,
-        session,
-        base_params: Dict[str, object],
+        session: PyiCloudSession,
+        base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
-    ):
+    ) -> None:
         self._client = CloudKitContainerClient(
             base_url,
             session,
@@ -112,7 +116,7 @@ class CloudKitNotesClient:
             raise NotesRateLimited(str(exc), retry_after=exc.retry_after) from cause
         if isinstance(exc, CloudKitApiError):
             raise NotesApiError(str(exc), payload=exc.payload) from cause
-        raise
+        raise exc
 
     def _log_cloudkit_validation(self, op: str, exc: Exception) -> bool:
         if isinstance(exc, CloudKitApiError) and isinstance(
@@ -129,10 +133,11 @@ class CloudKitNotesClient:
         *,
         query: CKQueryObject,
         zone_id: CKZoneIDReq,
-        desired_keys: Optional[List[str]] = None,
-        results_limit: Optional[int] = None,
-        continuation: Optional[str] = None,
+        desired_keys: list[str] | None = None,
+        results_limit: int | None = None,
+        continuation: str | None = None,
     ) -> CKQueryResponse:
+        """Query records in the Notes zone, returning the typed response."""
         LOGGER.info("Executing query for recordType: %s", query.recordType)
         try:
             resp = self._client.query(
@@ -155,8 +160,9 @@ class CloudKitNotesClient:
         self,
         record_names: Iterable[str],
         *,
-        desired_keys: Optional[List[str]] = None,
+        desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
+        """Look up records by name in the Notes zone."""
         record_names_list = list(record_names)
         LOGGER.info("Executing lookup for %d records.", len(record_names_list))
         try:
@@ -179,6 +185,7 @@ class CloudKitNotesClient:
         *,
         zone_req: CKZoneChangesZoneReq,
     ) -> Iterator[CKZoneChangesZone]:
+        """Yield paged zone-change results for the Notes zone."""
         LOGGER.info("Start fetching changes for zone: %s", zone_req.zoneID.zoneName)
         page_num = 1
         try:
@@ -207,6 +214,7 @@ class CloudKitNotesClient:
         *,
         chunk_size: int = 65536,
     ) -> Iterator[bytes]:
+        """Stream raw bytes from a CloudKit asset URL."""
         try:
             yield from self._client.download_asset_stream(
                 url,
@@ -216,9 +224,7 @@ class CloudKitNotesClient:
             self._raise_notes_error(exc)
 
     def download_asset_to(self, url: str, directory: str) -> str:
-        import os
-        import uuid
-
+        """Download a CloudKit asset URL to a file in the given directory."""
         LOGGER.info(
             "Downloading asset from %s to directory %s",
             redact_cloudkit_url(url),
@@ -238,7 +244,8 @@ class CloudKitNotesClient:
     def current_sync_token(self, *, zone_name: str) -> str:
         """
         Fetch a current sync token cheaply by issuing a zero-limit query that
-        requests getCurrentSyncToken=true (already in params) and reading the top-level token.
+        requests getCurrentSyncToken=true (already in params) and reading the
+        top-level token.
 
         Some deployments place the token in CKQueryResponse.syncToken; if absent,
         we fall back to a one-shot changes call (no records) to harvest a token.
@@ -269,7 +276,6 @@ class CloudKitNotesClient:
                 "Failed to get sync token via query, falling back. Error: %s", e
             )
             # ignore and fall back
-            pass
 
         # Approach 2: one empty /changes/zone call to get initial token
         LOGGER.debug("Falling back to get sync token via changes call.")
@@ -294,7 +300,9 @@ class CloudKitNotesClient:
     # ----- Debug -----
 
     @staticmethod
-    def _dump_http_debug(op: str, url: str, payload: Dict, resp) -> None:
+    def _dump_http_debug(
+        op: str, url: str, payload: dict[str, Any], resp: Response
+    ) -> None:
         if not os.getenv("PYICLOUD_NOTES_DEBUG"):
             return
         ts = __import__("time").strftime("%Y%m%d-%H%M%S")
@@ -333,7 +341,7 @@ class CloudKitNotesClient:
             pass
 
     @staticmethod
-    def _log_validation(op: str, data: Dict, err: ValidationError) -> None:
+    def _log_validation(op: str, data: dict[str, Any], err: ValidationError) -> None:
         if not os.getenv("PYICLOUD_NOTES_DEBUG"):
             return
         ts = __import__("time").strftime("%Y%m%d-%H%M%S")

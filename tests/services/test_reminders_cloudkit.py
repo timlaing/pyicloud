@@ -3,18 +3,19 @@
 Tests all _record_to_*() methods and _decode_crdt_document() using
 realistic CKRecord JSON fixtures.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name
 
 import base64
+from datetime import datetime, timezone
 import json
 import logging
-import zlib
-from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
+import zlib
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -30,10 +31,12 @@ from pyicloud.common.cloudkit import (
     CKZoneChangesRequest,
     CKZoneChangesResponse,
     CKZoneChangesZone,
+    CKZoneChangesZoneReq,
     CKZoneID,
     CKZoneIDReq,
 )
 from pyicloud.common.cloudkit.base import resolve_cloudkit_validation_extra
+from pyicloud.common.cloudkit.models import CKStringListField
 from pyicloud.services.reminders._mappers import RemindersRecordMapper
 from pyicloud.services.reminders._protocol import (
     CRDTDecodeError,
@@ -76,9 +79,12 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
 REMINDERS_FIXTURE_DIR = FIXTURE_DIR / "reminders"
 
 
-def load_reminders_fixture(name):
+def load_reminders_fixture(name: str) -> dict[str, Any]:
     """Load a synthetic Reminders CloudKit fixture."""
-    return json.loads((REMINDERS_FIXTURE_DIR / name).read_text(encoding="utf-8"))
+    return cast(
+        dict[str, Any],
+        json.loads((REMINDERS_FIXTURE_DIR / name).read_text(encoding="utf-8")),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +93,7 @@ def load_reminders_fixture(name):
 
 
 @pytest.fixture
-def service():
+def service() -> RemindersService:
     """Create a RemindersService with parsing methods but no network."""
     svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
     svc._raw = MagicMock()
@@ -99,7 +105,9 @@ def service():
 # ---------------------------------------------------------------------------
 
 
-def _ck_record(record_type: str, record_name: str, fields: dict, **extra) -> CKRecord:
+def _ck_record(
+    record_type: str, record_name: str, fields: dict[str, Any], **extra: Any
+) -> CKRecord:
     """Build a CKRecord from a raw dict, same as CloudKit JSON on the wire."""
     raw = {
         "recordName": record_name,
@@ -118,23 +126,15 @@ def _ck_record(record_type: str, record_name: str, fields: dict, **extra) -> CKR
 
 def _make_crdt_blob(text: str) -> str:
     """Build a valid reminders CRDT blob: protobuf -> zlib -> base64 string."""
-    import base64
-    import zlib
-
-    from pyicloud.services.reminders.protobuf import (
-        reminders_pb2,
-        versioned_document_pb2,
-    )
-
-    s = reminders_pb2.String()
+    s = reminders_pb2.String()  # type: ignore[attr-defined]
     s.string = text
 
-    version = versioned_document_pb2.Version()
+    version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
     version.serializationVersion = 0
     version.minimumSupportedVersion = 0
     version.data = s.SerializeToString()
 
-    doc = versioned_document_pb2.Document()
+    doc = versioned_document_pb2.Document()  # type: ignore[attr-defined]
     doc.serializationVersion = 0
     doc.version.append(version)
 
@@ -144,19 +144,14 @@ def _make_crdt_blob(text: str) -> str:
 
 def _make_crdt_version_bytes(text: str) -> bytes:
     """Build the raw, uncompressed versioned_document.Version payload."""
-    from pyicloud.services.reminders.protobuf import (
-        reminders_pb2,
-        versioned_document_pb2,
-    )
-
-    s = reminders_pb2.String()
+    s = reminders_pb2.String()  # type: ignore[attr-defined]
     s.string = text
 
-    version = versioned_document_pb2.Version()
+    version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
     version.serializationVersion = 0
     version.minimumSupportedVersion = 0
     version.data = s.SerializeToString()
-    return version.SerializeToString()
+    return cast(bytes, version.SerializeToString())
 
 
 # Pre-built samples for test use
@@ -167,26 +162,28 @@ TITLE_DOC_SAMPLES = {
 }
 
 
-def test_reminder_domain_models_are_pydantic_and_mutable():
+def test_reminder_domain_models_are_pydantic_and_mutable() -> None:
+    """Reminder domain models are pydantic-backed and mutable."""
     reminder = Reminder(id="Reminder/A", list_id="List/A", title="A")
 
     assert reminder.model_dump()["id"] == "Reminder/A"
     reminder.deleted = True
     assert reminder.deleted is True
     with pytest.raises(ValidationError):
-        reminder.priority = "high"
+        reminder.priority = cast(Any, "high")
     reminder.priority = 3
     assert reminder.priority == 3
     with pytest.raises(ValidationError):
-        Reminder(
-            id="Reminder/B",
-            list_id="List/B",
-            title="B",
-            unexpected=True,
-        )
+        Reminder.model_validate({
+            "id": "Reminder/B",
+            "list_id": "List/B",
+            "title": "B",
+            "unexpected": True,
+        })
 
 
-def test_list_result_models_are_frozen():
+def test_list_result_models_are_frozen() -> None:
+    """ListRemindersResult models are frozen."""
     result = ListRemindersResult(
         reminders=[],
         alarms={},
@@ -200,14 +197,16 @@ def test_list_result_models_are_frozen():
         result.reminders = []
 
 
-def test_location_trigger_radius_must_be_non_negative():
+def test_location_trigger_radius_must_be_non_negative() -> None:
+    """Location trigger radius is validated as non-negative."""
     trigger = LocationTrigger(id="AlarmTrigger/A", alarm_id="Alarm/A")
 
     with pytest.raises(ValidationError):
         trigger.radius = -10.0
 
 
-def test_image_attachment_dimensions_and_size_must_be_non_negative():
+def test_image_attachment_dimensions_and_size_must_be_non_negative() -> None:
+    """Image attachment size and dimensions are validated as non-negative."""
     attachment = ImageAttachment(id="Attachment/A", reminder_id="Reminder/A")
 
     with pytest.raises(ValidationError):
@@ -218,7 +217,8 @@ def test_image_attachment_dimensions_and_size_must_be_non_negative():
         attachment.height = -1
 
 
-def test_recurrence_rule_domain_constraints_are_enforced():
+def test_recurrence_rule_domain_constraints_are_enforced() -> None:
+    """Recurrence rule domain constraints are enforced."""
     rule = RecurrenceRule(id="RecurrenceRule/A", reminder_id="Reminder/A")
 
     with pytest.raises(ValidationError):
@@ -229,14 +229,15 @@ def test_recurrence_rule_domain_constraints_are_enforced():
         rule.first_day_of_week = 7
 
 
-def test_protocol_crdt_round_trip():
+def test_protocol_crdt_round_trip() -> None:
+    """CRDT documents round-trip through encode and decode."""
     encoded = encode_crdt_document("Round trip")
 
     assert isinstance(encoded, str)
     assert decode_crdt_document(encoded) == "Round trip"
 
 
-def _decode_crdt_structure(encoded: str):
+def _decode_crdt_structure(encoded: str) -> Any:
     document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
     document.ParseFromString(zlib.decompress(base64.b64decode(encoded)))
     value = reminders_pb2.String()  # type: ignore[attr-defined]
@@ -253,18 +254,22 @@ def _decode_crdt_structure(encoded: str):
         ("🚀🚀", 4),
     ],
 )
-def test_protocol_crdt_declares_utf16_lengths(text: str, expected_length: int):
+def test_protocol_crdt_declares_utf16_lengths(text: str, expected_length: int) -> None:
+    """CRDT documents declare UTF-16 lengths for substrings and attribute runs."""
     value = _decode_crdt_structure(encode_crdt_document(text))
 
     assert expected_length == len(text.encode("utf-16-le")) // 2
     assert [s.length for s in value.substring if s.length] == [expected_length]
     assert [a.length for a in value.attributeRun] == [expected_length]
     assert [
-        replica.clock for clock in value.timestamp.clock for replica in clock.replicaClock
+        replica.clock
+        for clock in value.timestamp.clock
+        for replica in clock.replicaClock
     ] == [expected_length, 1]
 
 
-def test_protocol_resolution_token_map_structure():
+def test_protocol_resolution_token_map_structure() -> None:
+    """Resolution token maps have the expected structure."""
     payload = json.loads(generate_resolution_token_map(["titleDocument", "completed"]))
 
     assert set(payload.keys()) == {"map"}
@@ -276,7 +281,8 @@ def test_protocol_resolution_token_map_structure():
         assert token["replicaID"]
 
 
-def test_mapper_asset_backed_list_membership_download():
+def test_mapper_asset_backed_list_membership_download() -> None:
+    """Asset-backed list membership is downloaded and parsed."""
     raw = MagicMock()
     raw.download_asset_bytes.return_value = b'["REM-3","Reminder/REM-4"]'
     mapper = RemindersRecordMapper(lambda: raw, logging.getLogger(__name__))
@@ -307,7 +313,8 @@ def test_mapper_asset_backed_list_membership_download():
     )
 
 
-def test_cloudkit_client_uses_bounded_timeouts():
+def test_cloudkit_client_uses_bounded_timeouts() -> None:
+    """CloudKit client uses bounded connect and read timeouts."""
     session = MagicMock()
     session.post.return_value = MagicMock(
         status_code=200,
@@ -323,13 +330,19 @@ def test_cloudkit_client_uses_bounded_timeouts():
     assert session.get.call_args.kwargs["timeout"] == (10.0, 60.0)
 
 
-def test_resolve_cloudkit_validation_extra_honors_explicit_override(monkeypatch):
+def test_resolve_cloudkit_validation_extra_honors_explicit_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit validation extra override beats the environment variable."""
     monkeypatch.setenv("PYICLOUD_CK_EXTRA", "forbid")
 
     assert resolve_cloudkit_validation_extra("allow") == "allow"
 
 
-def test_reminders_client_allows_unexpected_fields_by_default(monkeypatch):
+def test_reminders_client_allows_unexpected_fields_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reminders client allows unexpected fields by default."""
     monkeypatch.delenv("PYICLOUD_CK_EXTRA", raising=False)
     session = MagicMock()
     payload = {
@@ -345,10 +358,13 @@ def test_reminders_client_allows_unexpected_fields_by_default(monkeypatch):
     response = client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
 
     assert isinstance(response, CKLookupResponse)
-    assert response.model_extra["unexpectedTopLevel"] == {"present": True}
+    extra = response.model_extra
+    assert extra is not None
+    assert extra["unexpectedTopLevel"] == {"present": True}
 
 
-def test_reminders_client_strict_mode_wraps_validation_error():
+def test_reminders_client_strict_mode_wraps_validation_error() -> None:
+    """Strict mode wraps validation errors as a RemindersApiError."""
     session = MagicMock()
     payload = {
         **load_reminders_fixture("reminders_lookup_account_response.json"),
@@ -362,28 +378,36 @@ def test_reminders_client_strict_mode_wraps_validation_error():
         validation_extra="forbid",
     )
 
+    reminder_ids = ["Reminder/1"]
+    zone = CKZoneIDReq(zoneName="Reminders")
+
     with pytest.raises(
         RemindersApiError, match="Lookup response validation failed"
     ) as excinfo:
-        client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
+        client.lookup(reminder_ids, zone)
 
     assert excinfo.value.payload == payload
     assert isinstance(excinfo.value.__cause__, ValidationError)
 
 
-def test_reminders_client_preserves_429_as_api_error():
+def test_reminders_client_preserves_429_as_api_error() -> None:
+    """A 429 response is preserved as a RemindersApiError."""
     session = MagicMock()
     payload = {"reason": "rate limited"}
     session.post.return_value = MagicMock(status_code=429, json=lambda: payload)
     client = CloudKitRemindersClient("https://example.com", session, {})
 
+    reminder_ids = ["Reminder/1"]
+    zone = CKZoneIDReq(zoneName="Reminders")
+
     with pytest.raises(RemindersApiError, match="HTTP 429") as excinfo:
-        client.lookup(["Reminder/1"], CKZoneIDReq(zoneName="Reminders"))
+        client.lookup(reminder_ids, zone)
 
     assert excinfo.value.payload == payload
 
 
-def test_reminders_client_current_sync_token_uses_query_sync_token():
+def test_reminders_client_current_sync_token_uses_query_sync_token() -> None:
+    """Current sync token is retrieved via a query sync token."""
     session = MagicMock()
     session.post.return_value = MagicMock(
         status_code=200,
@@ -401,7 +425,8 @@ def test_reminders_client_current_sync_token_uses_query_sync_token():
     assert query_payload["resultsLimit"] == 1
 
 
-def test_reminders_client_current_sync_token_returns_none_when_missing():
+def test_reminders_client_current_sync_token_returns_none_when_missing() -> None:
+    """Current sync token returns None when no token is present."""
     session = MagicMock()
     session.post.return_value = MagicMock(
         status_code=200,
@@ -414,7 +439,8 @@ def test_reminders_client_current_sync_token_returns_none_when_missing():
     assert token is None
 
 
-def test_reminders_service_passes_through_validation_override():
+def test_reminders_service_passes_through_validation_override() -> None:
+    """RemindersService passes the validation override through to the client."""
     service = RemindersService(
         "https://example.com",
         MagicMock(),
@@ -433,37 +459,41 @@ def test_reminders_service_passes_through_validation_override():
 class TestDecodeCrdtDocument:
     """Test the shared CRDT document decoder."""
 
-    def test_decode_message_benno(self, service):
+    def test_decode_message_benno(self, service: RemindersService) -> None:
+        """Decoding the Message Benno title document works."""
         result = service._decode_crdt_document(TITLE_DOC_SAMPLES["Message Benno"])
         assert result == "Message Benno"
 
-    def test_decode_prise_en_charge(self, service):
+    def test_decode_prise_en_charge(self, service: RemindersService) -> None:
+        """Decoding the PRISE EN CHARGE title document works."""
         result = service._decode_crdt_document(TITLE_DOC_SAMPLES["PRISE EN CHARGE"])
         assert result == "PRISE EN CHARGE"
 
-    def test_decode_cancel_hoess(self, service):
+    def test_decode_cancel_hoess(self, service: RemindersService) -> None:
+        """Decoding the Cancel Hoess title document works."""
         result = service._decode_crdt_document(TITLE_DOC_SAMPLES["Cancel Hoess"])
         assert result == "Cancel Hoess"
 
-    def test_decode_empty_raises(self, service):
+    def test_decode_empty_raises(self, service: RemindersService) -> None:
+        """Decoding an empty CRDT document raises CRDTDecodeError."""
         with pytest.raises(CRDTDecodeError, match="Unable to decode CRDT document"):
             service._decode_crdt_document("")
 
-    def test_decode_malformed_base64_raises(self, service):
+    def test_decode_malformed_base64_raises(self, service: RemindersService) -> None:
+        """Decoding malformed base64 raises CRDTDecodeError."""
         with pytest.raises(
             CRDTDecodeError, match="Invalid base64-encoded CRDT document"
         ):
             service._decode_crdt_document("!!!not-base64!!!")
 
-    def test_decode_bytes_input(self, service):
+    def test_decode_bytes_input(self, service: RemindersService) -> None:
         """Accept raw bytes as well as base64 string."""
-        import base64
-
         raw = base64.b64decode(TITLE_DOC_SAMPLES["Message Benno"])
         result = service._decode_crdt_document(raw)
         assert result == "Message Benno"
 
-    def test_decode_uncompressed_version_bytes(self, service):
+    def test_decode_uncompressed_version_bytes(self, service: RemindersService) -> None:
+        """Decoding raw uncompressed version bytes works."""
         raw = _make_crdt_version_bytes("Buy groceries")
 
         result = service._decode_crdt_document(raw)
@@ -479,7 +509,8 @@ class TestDecodeCrdtDocument:
 class TestRecordToReminder:
     """Test parsing a Reminder CKRecord."""
 
-    def test_basic_reminder(self, service):
+    def test_basic_reminder(self, service: RemindersService) -> None:
+        """Parsing a basic Reminder record works."""
         rec = _ck_record(
             "Reminder",
             "REM-001",
@@ -513,7 +544,8 @@ class TestRecordToReminder:
         assert r.alarm_ids == []
         assert r.hashtag_ids == []
 
-    def test_reminder_with_all_fields(self, service):
+    def test_reminder_with_all_fields(self, service: RemindersService) -> None:
+        """Parsing a fully populated Reminder record works."""
         completion_date = datetime(2024, 12, 29, tzinfo=timezone.utc)
         created = datetime(2024, 12, 28, tzinfo=timezone.utc)
         modified = datetime(2024, 12, 30, tzinfo=timezone.utc)
@@ -575,7 +607,10 @@ class TestRecordToReminder:
         assert r.hashtag_ids == ["hashtag-1"]
         assert r.attachment_ids == ["attach-1"]
 
-    def test_reminder_malformed_title_document_uses_placeholder(self, service):
+    def test_reminder_malformed_title_document_uses_placeholder(
+        self, service: RemindersService
+    ) -> None:
+        """A malformed title document falls back to a placeholder title."""
         rec = _ck_record(
             "Reminder",
             "REM-BAD-TITLE",
@@ -595,7 +630,10 @@ class TestRecordToReminder:
 
         assert reminder.title == "Error Decoding Title"
 
-    def test_reminder_falls_back_to_record_audit_timestamps(self, service):
+    def test_reminder_falls_back_to_record_audit_timestamps(
+        self, service: RemindersService
+    ) -> None:
+        """Record audit timestamps are used when field timestamps are absent."""
         created = datetime(2024, 12, 28, tzinfo=timezone.utc)
         modified = datetime(2024, 12, 30, tzinfo=timezone.utc)
         rec = _ck_record(
@@ -620,7 +658,10 @@ class TestRecordToReminder:
         assert reminder.created == created
         assert reminder.modified == modified
 
-    def test_reminder_with_uncompressed_version_bytes_documents(self, service):
+    def test_reminder_with_uncompressed_version_bytes_documents(
+        self, service: RemindersService
+    ) -> None:
+        """Uncompressed version-bytes documents are decoded."""
         rec = _ck_record(
             "Reminder",
             "REM-003B",
@@ -649,7 +690,7 @@ class TestRecordToReminder:
         assert reminder.title == "Buy groceries"
         assert reminder.desc == "Milk, Eggs"
 
-    def test_subtask_reminder(self, service):
+    def test_subtask_reminder(self, service: RemindersService) -> None:
         """Subtask reminders have a ParentReminder REFERENCE."""
         rec = _ck_record(
             "Reminder",
@@ -689,7 +730,8 @@ class TestRecordToReminder:
 class TestRecordToList:
     """Test parsing a List CKRecord."""
 
-    def test_basic_list(self, service):
+    def test_basic_list(self, service: RemindersService) -> None:
+        """Parsing a basic List record works."""
         rec = _ck_record(
             "List",
             "LIST-001",
@@ -709,25 +751,32 @@ class TestRecordToList:
         assert lst.count == 16
         assert lst.is_group is False
 
-    def test_fixture_list_query_record(self, service):
+    def test_fixture_list_query_record(self, service: RemindersService) -> None:
+        """Parsing a fixture List query record works."""
         response = CKQueryResponse.model_validate(
             load_reminders_fixture("reminders_query_lists_response.json")
         )
 
-        lst = service._record_to_list(response.records[0])
+        record = response.records[0]
+        assert isinstance(record, CKRecord)
+        lst = service._record_to_list(record)
 
         assert lst.id == "List/LIST-A"
         assert lst.title == "Synthetic List"
         assert lst.count == 1
         assert lst.reminder_ids == ["REM-FIXTURE"]
 
-    def test_list_untitled(self, service):
+    def test_list_untitled(self, service: RemindersService) -> None:
+        """A list without a name falls back to Untitled."""
         rec = _ck_record("List", "LIST-002", {})
         lst = service._record_to_list(rec)
         assert lst.title == "Untitled"
         assert lst.count == 0
 
-    def test_list_parses_inline_reminder_ids_json(self, service):
+    def test_list_parses_inline_reminder_ids_json(
+        self, service: RemindersService
+    ) -> None:
+        """Inline JSON ReminderIDs are parsed into reminder_ids."""
         rec = _ck_record(
             "List",
             "LIST-003",
@@ -743,7 +792,10 @@ class TestRecordToList:
         assert lst.reminder_ids == ["REM-1", "REM-2"]
         assert lst.count == 2
 
-    def test_list_falls_back_to_reminder_ids_length_when_count_missing(self, service):
+    def test_list_falls_back_to_reminder_ids_length_when_count_missing(
+        self, service: RemindersService
+    ) -> None:
+        """Count falls back to the reminder IDs length when missing."""
         rec = _ck_record(
             "List",
             "LIST-003A",
@@ -759,7 +811,10 @@ class TestRecordToList:
         assert lst.reminder_ids == ["REM-1", "REM-2", "REM-3"]
         assert lst.count == 3
 
-    def test_list_falls_back_to_reminder_ids_length_when_count_is_zero(self, service):
+    def test_list_falls_back_to_reminder_ids_length_when_count_is_zero(
+        self, service: RemindersService
+    ) -> None:
+        """Count falls back to the reminder IDs length when zero."""
         rec = _ck_record(
             "List",
             "LIST-003B",
@@ -776,7 +831,10 @@ class TestRecordToList:
         assert lst.reminder_ids == ["REM-1", "REM-2"]
         assert lst.count == 2
 
-    def test_list_parses_asset_backed_reminder_ids_from_downloaded_data(self, service):
+    def test_list_parses_asset_backed_reminder_ids_from_downloaded_data(
+        self, service: RemindersService
+    ) -> None:
+        """Asset-backed reminder IDs are parsed from downloaded data."""
         payload = base64.b64encode(b'["REM-1","Reminder/REM-2"]').decode("ascii")
         rec = _ck_record(
             "List",
@@ -792,10 +850,15 @@ class TestRecordToList:
         lst = service._record_to_list(rec)
         assert lst.reminder_ids == ["REM-1", "REM-2"]
         assert lst.count == 2
-        service._raw.download_asset_bytes.assert_not_called()
+        raw = cast(MagicMock, service._raw)
+        raw.download_asset_bytes.assert_not_called()
 
-    def test_list_parses_asset_backed_reminder_ids_from_download_url(self, service):
-        service._raw.download_asset_bytes.return_value = b'["REM-3","Reminder/REM-4"]'
+    def test_list_parses_asset_backed_reminder_ids_from_download_url(
+        self, service: RemindersService
+    ) -> None:
+        """Asset-backed reminder IDs are fetched and parsed from a download URL."""
+        raw = cast(MagicMock, service._raw)
+        raw.download_asset_bytes.return_value = b'["REM-3","Reminder/REM-4"]'
         rec = _ck_record(
             "List",
             "LIST-005",
@@ -810,7 +873,7 @@ class TestRecordToList:
         lst = service._record_to_list(rec)
         assert lst.reminder_ids == ["REM-3", "REM-4"]
         assert lst.count == 2
-        service._raw.download_asset_bytes.assert_called_once_with(
+        raw.download_asset_bytes.assert_called_once_with(
             "https://example.com/reminder-ids.json"
         )
 
@@ -828,10 +891,15 @@ class TestRecordToList:
         ],
     )
     def test_list_asset_failures_raise(
-        self, service, asset_value, download_side_effect
-    ):
+        self,
+        service: RemindersService,
+        asset_value: dict[str, Any],
+        download_side_effect: RemindersApiError | None,
+    ) -> None:
+        """Asset failures raise a RemindersApiError."""
+        raw = cast(MagicMock, service._raw)
         if download_side_effect is not None:
-            service._raw.download_asset_bytes.side_effect = download_side_effect
+            raw.download_asset_bytes.side_effect = download_side_effect
 
         rec = _ck_record(
             "List",
@@ -856,7 +924,8 @@ class TestRecordToList:
 class TestRecordToAlarm:
     """Test parsing an Alarm CKRecord."""
 
-    def test_alarm(self, service):
+    def test_alarm(self, service: RemindersService) -> None:
+        """Parsing an Alarm record works."""
         rec = _ck_record(
             "Alarm",
             "Alarm/ALARM-001",
@@ -887,7 +956,8 @@ class TestRecordToAlarm:
 class TestRecordToAlarmTrigger:
     """Test parsing supported AlarmTrigger CKRecords."""
 
-    def test_location_trigger(self, service):
+    def test_location_trigger(self, service: RemindersService) -> None:
+        """Parsing a Location alarm trigger works."""
         rec = _ck_record(
             "AlarmTrigger",
             "AlarmTrigger/TRIG-001",
@@ -917,7 +987,8 @@ class TestRecordToAlarmTrigger:
         assert t.proximity == Proximity.ARRIVING
         assert t.alarm_id == "Alarm/ALARM-001"
 
-    def test_location_trigger_leaving(self, service):
+    def test_location_trigger_leaving(self, service: RemindersService) -> None:
+        """A leaving proximity trigger is parsed correctly."""
         rec = _ck_record(
             "AlarmTrigger",
             "AlarmTrigger/TRIG-002",
@@ -936,7 +1007,8 @@ class TestRecordToAlarmTrigger:
         assert isinstance(t, LocationTrigger)
         assert t.proximity == Proximity.LEAVING
 
-    def test_vehicle_trigger_is_ignored(self, service):
+    def test_vehicle_trigger_is_ignored(self, service: RemindersService) -> None:
+        """Vehicle triggers are ignored."""
         rec = _ck_record(
             "AlarmTrigger",
             "AlarmTrigger/TRIG-003",
@@ -951,7 +1023,8 @@ class TestRecordToAlarmTrigger:
         )
         assert service._record_to_alarm_trigger(rec) is None
 
-    def test_unknown_type_returns_none(self, service):
+    def test_unknown_type_returns_none(self, service: RemindersService) -> None:
+        """Unknown trigger types return None."""
         rec = _ck_record(
             "AlarmTrigger",
             "AlarmTrigger/TRIG-005",
@@ -974,7 +1047,8 @@ class TestRecordToAlarmTrigger:
 class TestRecordToAttachment:
     """Test parsing Attachment CKRecords (URL and Image)."""
 
-    def test_url_attachment(self, service):
+    def test_url_attachment(self, service: RemindersService) -> None:
+        """Parsing a URL attachment works."""
         rec = _ck_record(
             "Attachment",
             "Attachment/ATT-001",
@@ -995,7 +1069,10 @@ class TestRecordToAttachment:
         assert att.uti == "public.url"
         assert att.reminder_id == "REM-URL"
 
-    def test_url_attachment_decodes_base64_payload(self, service):
+    def test_url_attachment_decodes_base64_payload(
+        self, service: RemindersService
+    ) -> None:
+        """URL attachment values are base64-decoded."""
         encoded_url = base64.b64encode(b"https://discord.gg/CAGYSbyqYk").decode("ascii")
         rec = _ck_record(
             "Attachment",
@@ -1016,7 +1093,10 @@ class TestRecordToAttachment:
         assert isinstance(att, URLAttachment)
         assert att.url == "https://discord.gg/CAGYSbyqYk"
 
-    def test_url_attachment_falls_back_to_raw_invalid_payload(self, service):
+    def test_url_attachment_falls_back_to_raw_invalid_payload(
+        self, service: RemindersService
+    ) -> None:
+        """A non-base64 URL payload falls back to the raw value."""
         rec = _ck_record(
             "Attachment",
             "Attachment/ATT-001C",
@@ -1036,7 +1116,8 @@ class TestRecordToAttachment:
         assert isinstance(att, URLAttachment)
         assert att.url == "not-base64-at-all"
 
-    def test_image_attachment(self, service):
+    def test_image_attachment(self, service: RemindersService) -> None:
+        """Parsing an Image attachment works."""
         rec = _ck_record(
             "Attachment",
             "Attachment/ATT-002",
@@ -1072,7 +1153,8 @@ class TestRecordToAttachment:
         assert att.reminder_id == "REM-IMG"
         assert "photo.jpeg" in att.file_asset_url
 
-    def test_unknown_type_returns_none(self, service):
+    def test_unknown_type_returns_none(self, service: RemindersService) -> None:
+        """Unknown attachment types return None."""
         rec = _ck_record(
             "Attachment",
             "Attachment/ATT-003",
@@ -1095,7 +1177,8 @@ class TestRecordToAttachment:
 class TestRecordToHashtag:
     """Test parsing Hashtag CKRecords."""
 
-    def test_hashtag(self, service):
+    def test_hashtag(self, service: RemindersService) -> None:
+        """Parsing a Hashtag record works."""
         rec = _ck_record(
             "Hashtag",
             "Hashtag/HASH-001",
@@ -1117,7 +1200,8 @@ class TestRecordToHashtag:
         assert h.reminder_id == "REM-TAG"
         assert h.created is not None
 
-    def test_hashtag_name_from_encrypted_bytes(self, service):
+    def test_hashtag_name_from_encrypted_bytes(self, service: RemindersService) -> None:
+        """Hashtag names are decoded from encrypted bytes."""
         rec = _ck_record(
             "Hashtag",
             "Hashtag/HASH-002",
@@ -1137,7 +1221,10 @@ class TestRecordToHashtag:
 
         assert h.name == "personal"
 
-    def test_hashtag_name_with_undecodable_bytes_does_not_crash(self, service):
+    def test_hashtag_name_with_undecodable_bytes_does_not_crash(
+        self, service: RemindersService
+    ) -> None:
+        """Undecodable hashtag name bytes do not crash parsing."""
         rec = _ck_record(
             "Hashtag",
             "Hashtag/HASH-003",
@@ -1169,10 +1256,8 @@ class TestRecordToHashtag:
 class TestStringListField:
     """Verify STRING_LIST fields are properly parsed by CKRecord."""
 
-    def test_string_list_parsed(self):
+    def test_string_list_parsed(self) -> None:
         """STRING_LIST should be parsed as CKStringListField, not CKPassthroughField."""
-        from pyicloud.common.cloudkit.models import CKStringListField
-
         rec = _ck_record(
             "Reminder",
             "REM-SL",
@@ -1184,7 +1269,8 @@ class TestStringListField:
         assert isinstance(field, CKStringListField)
         assert field.value == ["id-1", "id-2", "id-3"]
 
-    def test_empty_string_list(self):
+    def test_empty_string_list(self) -> None:
+        """An empty STRING_LIST field parses to an empty list."""
         rec = _ck_record(
             "Reminder",
             "REM-SL2",
@@ -1204,7 +1290,8 @@ class TestStringListField:
 class TestRecordToRecurrenceRule:
     """Test parsing RecurrenceRule CKRecords."""
 
-    def test_monthly_recurrence(self, service):
+    def test_monthly_recurrence(self, service: RemindersService) -> None:
+        """Parsing a monthly recurrence rule works."""
         rec = _ck_record(
             "RecurrenceRule",
             "RecurrenceRule/RR-001",
@@ -1229,7 +1316,8 @@ class TestRecordToRecurrenceRule:
         assert rr.occurrence_count == 0
         assert rr.first_day_of_week == 0
 
-    def test_weekly_with_occurrence_limit(self, service):
+    def test_weekly_with_occurrence_limit(self, service: RemindersService) -> None:
+        """A weekly recurrence rule with an occurrence limit is parsed."""
         rec = _ck_record(
             "RecurrenceRule",
             "RecurrenceRule/RR-002",
@@ -1251,7 +1339,10 @@ class TestRecordToRecurrenceRule:
         assert rr.occurrence_count == 10
         assert rr.first_day_of_week == 2
 
-    def test_unknown_frequency_defaults_to_daily(self, service):
+    def test_unknown_frequency_defaults_to_daily(
+        self, service: RemindersService
+    ) -> None:
+        """An unknown frequency defaults to daily."""
         rec = _ck_record(
             "RecurrenceRule",
             "RecurrenceRule/RR-003",
@@ -1276,26 +1367,25 @@ class TestRecordToRecurrenceRule:
 class TestModifySerialization:
     """Ensure request models preserve CloudKit wire shape."""
 
-    def test_double_field_keeps_is_encrypted_in_modify_payload(self):
-        trigger_record = CKWriteRecord.model_validate(
-            {
-                "recordName": "AlarmTrigger/TRIG-DOUBLE",
-                "recordType": "AlarmTrigger",
-                "fields": {
-                    "Latitude": {
-                        "type": "DOUBLE",
-                        "value": 48.8584,
-                        "isEncrypted": True,
-                    },
-                    "Longitude": {
-                        "type": "DOUBLE",
-                        "value": 2.2945,
-                        "isEncrypted": True,
-                    },
-                    "Type": {"type": "STRING", "value": "Location"},
+    def test_double_field_keeps_is_encrypted_in_modify_payload(self) -> None:
+        """Encrypted double fields keep isEncrypted in the modify payload."""
+        trigger_record = CKWriteRecord.model_validate({
+            "recordName": "AlarmTrigger/TRIG-DOUBLE",
+            "recordType": "AlarmTrigger",
+            "fields": {
+                "Latitude": {
+                    "type": "DOUBLE",
+                    "value": 48.8584,
+                    "isEncrypted": True,
                 },
-            }
-        )
+                "Longitude": {
+                    "type": "DOUBLE",
+                    "value": 2.2945,
+                    "isEncrypted": True,
+                },
+                "Type": {"type": "STRING", "value": "Location"},
+            },
+        })
         op = CKModifyOperation(operationType="create", record=trigger_record)
         payload = CKModifyRequest(
             operations=[op],
@@ -1306,7 +1396,8 @@ class TestModifySerialization:
         assert fields["Latitude"]["isEncrypted"] is True
         assert fields["Longitude"]["isEncrypted"] is True
 
-    def test_lookup_request_serializes_desired_keys(self):
+    def test_lookup_request_serializes_desired_keys(self) -> None:
+        """Lookup requests serialize desired keys."""
         payload = CKLookupRequest(
             records=[],
             zoneID=CKZoneIDReq(zoneName="Reminders", zoneType="REGULAR_CUSTOM_ZONE"),
@@ -1315,15 +1406,16 @@ class TestModifySerialization:
 
         assert payload["desiredKeys"] == ["TitleDocument", "NotesDocument"]
 
-    def test_zone_changes_request_serializes_results_limit(self):
+    def test_zone_changes_request_serializes_results_limit(self) -> None:
+        """Zone changes requests serialize the results limit."""
         payload = CKZoneChangesRequest(
             zones=[
-                {
-                    "zoneID": {
-                        "zoneName": "Reminders",
-                        "zoneType": "REGULAR_CUSTOM_ZONE",
-                    }
-                }
+                CKZoneChangesZoneReq(
+                    zoneID=CKZoneID(
+                        zoneName="Reminders",
+                        zoneType="REGULAR_CUSTOM_ZONE",
+                    )
+                )
             ],
             resultsLimit=50,
         ).model_dump(mode="json", exclude_none=True)
@@ -1334,7 +1426,8 @@ class TestModifySerialization:
 class TestMutationErrorHandling:
     """Mutation methods should raise on per-record CloudKit failures."""
 
-    def test_add_location_trigger_raises_on_partial_modify_failure(self):
+    def test_add_location_trigger_raises_on_partial_modify_failure(self) -> None:
+        """Partial modify failures raise a RemindersApiError."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(
@@ -1369,7 +1462,8 @@ class TestMutationErrorHandling:
 
         assert reminder.alarm_ids == []
 
-    def test_add_location_trigger_validates_radius_before_modify(self):
+    def test_add_location_trigger_validates_radius_before_modify(self) -> None:
+        """Radius is validated before issuing a modify request."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -1394,21 +1488,20 @@ class TestMutationErrorHandling:
 
         svc._raw.modify.assert_not_called()
 
-    def test_add_location_trigger_normalizes_shorthand_reminder_ids(self):
+    def test_add_location_trigger_normalizes_shorthand_reminder_ids(self) -> None:
+        """Shorthand reminder IDs are normalized to full record names."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
         def _ack(
             record_name: str, record_type: str, record_change_tag: str
         ) -> CKRecord:
-            return CKRecord.model_validate(
-                {
-                    "recordName": record_name,
-                    "recordType": record_type,
-                    "recordChangeTag": record_change_tag,
-                    "fields": {},
-                }
-            )
+            return CKRecord.model_validate({
+                "recordName": record_name,
+                "recordType": record_type,
+                "recordChangeTag": record_change_tag,
+                "fields": {},
+            })
 
         svc._raw.modify.return_value = CKModifyResponse(
             records=[
@@ -1449,7 +1542,10 @@ class TestMutationErrorHandling:
         assert alarm.reminder_id == "Reminder/REM-TRIG"
         assert trigger.id == "AlarmTrigger/TRIG-1"
 
-    def test_create_child_reminder_sets_parent_reference(self):
+    def test_create_child_reminder_sets_parent_reference(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Creating a child reminder sets the ParentReminder reference."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(records=[], syncToken="mock")
@@ -1459,7 +1555,11 @@ class TestMutationErrorHandling:
             title="Child reminder",
             parent_reminder_id="Reminder/PARENT-001",
         )
-        svc._writes._lookup_created_reminder = MagicMock(return_value=expected)
+        monkeypatch.setattr(
+            svc._writes,
+            "_lookup_created_reminder",
+            MagicMock(return_value=expected),
+        )
 
         created = svc.create(
             list_id="List/LIST-001",
@@ -1473,7 +1573,10 @@ class TestMutationErrorHandling:
         assert parent_field.value.recordName == "Reminder/PARENT-001"
         assert created.parent_reminder_id == "Reminder/PARENT-001"
 
-    def test_create_completed_reminder_sets_completion_date(self):
+    def test_create_completed_reminder_sets_completion_date(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Creating a completed reminder sets the CompletionDate field."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(records=[], syncToken="mock")
@@ -1483,7 +1586,11 @@ class TestMutationErrorHandling:
             title="Completed reminder",
             completed=True,
         )
-        svc._writes._lookup_created_reminder = MagicMock(return_value=expected)
+        monkeypatch.setattr(
+            svc._writes,
+            "_lookup_created_reminder",
+            MagicMock(return_value=expected),
+        )
 
         svc.create(
             list_id="List/LIST-001",
@@ -1506,16 +1613,15 @@ class TestAdditionalWriteApis:
 
     @staticmethod
     def _ack(record_name: str, record_type: str, record_change_tag: str) -> CKRecord:
-        return CKRecord.model_validate(
-            {
-                "recordName": record_name,
-                "recordType": record_type,
-                "recordChangeTag": record_change_tag,
-                "fields": {},
-            }
-        )
+        return CKRecord.model_validate({
+            "recordName": record_name,
+            "recordType": record_type,
+            "recordChangeTag": record_change_tag,
+            "fields": {},
+        })
 
-    def test_create_and_delete_hashtag(self):
+    def test_create_and_delete_hashtag(self) -> None:
+        """Creating and deleting hashtags updates local and remote state."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = self._ok_modify()
@@ -1551,7 +1657,8 @@ class TestAdditionalWriteApis:
         assert delete_ops[1].record.fields["Deleted"].value == 1
         assert svc._raw.modify.call_args.kwargs["atomic"] is True
 
-    def test_delete_hashtag_rejects_mismatched_parent(self):
+    def test_delete_hashtag_rejects_mismatched_parent(self) -> None:
+        """Deleting a hashtag with a mismatched parent raises ValueError."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -1575,7 +1682,8 @@ class TestAdditionalWriteApis:
         svc._raw.modify.assert_not_called()
         assert reminder.hashtag_ids == ["TAG-1"]
 
-    def test_create_update_delete_url_attachment(self):
+    def test_create_update_delete_url_attachment(self) -> None:
+        """Creating, updating, and deleting URL attachments works."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = self._ok_modify()
@@ -1618,7 +1726,8 @@ class TestAdditionalWriteApis:
         assert len(delete_ops) == 2
         assert delete_ops[1].record.fields["Deleted"].value == 1
 
-    def test_delete_attachment_rejects_mismatched_parent(self):
+    def test_delete_attachment_rejects_mismatched_parent(self) -> None:
+        """Deleting an attachment with a mismatched parent raises ValueError."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -1642,7 +1751,8 @@ class TestAdditionalWriteApis:
         svc._raw.modify.assert_not_called()
         assert reminder.attachment_ids == ["ATT-1"]
 
-    def test_create_url_attachment_normalizes_shorthand_reminder_ids(self):
+    def test_create_url_attachment_normalizes_shorthand_reminder_ids(self) -> None:
+        """Shorthand reminder IDs are normalized when creating a URL attachment."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(
@@ -1674,7 +1784,8 @@ class TestAdditionalWriteApis:
         assert operations[1].record.parent.recordName == "Reminder/REM-ATT"
         assert attachment.reminder_id == "Reminder/REM-ATT"
 
-    def test_update_attachment_rejects_noop(self):
+    def test_update_attachment_rejects_noop(self) -> None:
+        """Updating an attachment with no changes raises ValueError."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -1690,7 +1801,8 @@ class TestAdditionalWriteApis:
 
         svc._raw.modify.assert_not_called()
 
-    def test_update_image_attachment_validates_before_modify(self):
+    def test_update_image_attachment_validates_before_modify(self) -> None:
+        """Image attachment updates are validated before modifying."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -1710,7 +1822,8 @@ class TestAdditionalWriteApis:
 
         svc._raw.modify.assert_not_called()
 
-    def test_create_update_delete_recurrence_rule(self):
+    def test_create_update_delete_recurrence_rule(self) -> None:
+        """Creating, updating, and deleting recurrence rules works."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = self._ok_modify()
@@ -1757,7 +1870,8 @@ class TestAdditionalWriteApis:
         assert len(delete_ops) == 2
         assert delete_ops[1].record.fields["Deleted"].value == 1
 
-    def test_delete_recurrence_rule_rejects_mismatched_parent(self):
+    def test_delete_recurrence_rule_rejects_mismatched_parent(self) -> None:
+        """Deleting a recurrence rule with a mismatched parent raises ValueError."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -1780,7 +1894,8 @@ class TestAdditionalWriteApis:
         svc._raw.modify.assert_not_called()
         assert reminder.recurrence_rule_ids == ["RR-1"]
 
-    def test_create_recurrence_rule_validates_before_modify(self):
+    def test_create_recurrence_rule_validates_before_modify(self) -> None:
+        """Recurrence rules are validated before modifying."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -1801,7 +1916,8 @@ class TestAdditionalWriteApis:
 
         svc._raw.modify.assert_not_called()
 
-    def test_update_recurrence_rule_rejects_noop(self):
+    def test_update_recurrence_rule_rejects_noop(self) -> None:
+        """Updating a recurrence rule with no changes raises ValueError."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -1816,7 +1932,8 @@ class TestAdditionalWriteApis:
 
         svc._raw.modify.assert_not_called()
 
-    def test_delete_marks_reminder_deleted_and_modified(self):
+    def test_delete_marks_reminder_deleted_and_modified(self) -> None:
+        """Deleting marks the reminder deleted and sets LastModifiedDate."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = self._ok_modify()
@@ -1837,7 +1954,8 @@ class TestAdditionalWriteApis:
         expected_modified = delete_ops[0].record.fields["LastModifiedDate"].value
         assert reminder.modified == expected_modified
 
-    def test_update_persists_editable_reminder_fields(self):
+    def test_update_persists_editable_reminder_fields(self) -> None:
+        """Updating persists all editable reminder fields."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(
@@ -1878,7 +1996,8 @@ class TestAdditionalWriteApis:
         assert reminder.record_change_tag == "new-reminder-tag"
         assert reminder.modified == fields["LastModifiedDate"].value
 
-    def test_update_normalizes_shorthand_reminder_ids(self):
+    def test_update_normalizes_shorthand_reminder_ids(self) -> None:
+        """Updating normalizes shorthand reminder IDs."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(
@@ -1904,7 +2023,8 @@ class TestAdditionalWriteApis:
             == "Reminder/PARENT-001"
         )
 
-    def test_update_can_clear_optional_reminder_fields(self):
+    def test_update_can_clear_optional_reminder_fields(self) -> None:
+        """Updating can clear optional reminder fields."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(
@@ -1938,7 +2058,10 @@ class TestAdditionalWriteApis:
         assert "timeZone" in token_map["map"]
         assert "parentReminder" in token_map["map"]
 
-    def test_update_sets_completion_date_when_marked_completed_without_one(self):
+    def test_update_sets_completion_date_when_marked_completed_without_one(
+        self,
+    ) -> None:
+        """Marking complete without a date sets a completion date."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(
@@ -1964,7 +2087,8 @@ class TestAdditionalWriteApis:
         assert completion_value is not None
         assert reminder.completed_date == completion_value
 
-    def test_update_clears_completion_date_when_marked_incomplete(self):
+    def test_update_clears_completion_date_when_marked_incomplete(self) -> None:
+        """Marking incomplete clears the completion date."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = CKModifyResponse(
@@ -1993,11 +2117,12 @@ class TestAdditionalWriteApis:
         assert update_op.record.fields["CompletionDate"].value is None
         assert reminder.completed_date is None
 
-    def test_create_hashtag_hydrates_record_change_tags(self):
+    def test_create_hashtag_hydrates_record_change_tags(self) -> None:
+        """Creating a hashtag hydrates record change tags."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
-        def _side_effect(**kwargs):
+        def _side_effect(**kwargs: Any) -> CKModifyResponse:
             reminder_name = kwargs["operations"][0].record.recordName
             hashtag_name = kwargs["operations"][1].record.recordName
             return CKModifyResponse(
@@ -2022,7 +2147,8 @@ class TestAdditionalWriteApis:
         assert reminder.record_change_tag == "ctag-rem-new"
         assert hashtag.record_change_tag == "ctag-hash-new"
 
-    def test_create_hashtag_name_round_trips_via_mapper(self):
+    def test_create_hashtag_name_round_trips_via_mapper(self) -> None:
+        """Hashtag names round-trip through the record mapper."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = self._ok_modify()
@@ -2062,11 +2188,12 @@ class TestAdditionalWriteApis:
 
         assert parsed.name == "travel"
 
-    def test_create_url_attachment_hydrates_record_change_tags(self):
+    def test_create_url_attachment_hydrates_record_change_tags(self) -> None:
+        """Creating a URL attachment hydrates record change tags."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
-        def _side_effect(**kwargs):
+        def _side_effect(**kwargs: Any) -> CKModifyResponse:
             reminder_name = kwargs["operations"][0].record.recordName
             attachment_name = kwargs["operations"][1].record.recordName
             return CKModifyResponse(
@@ -2093,11 +2220,12 @@ class TestAdditionalWriteApis:
         assert reminder.record_change_tag == "ctag-rem-new"
         assert attachment.record_change_tag == "ctag-att-new"
 
-    def test_create_recurrence_rule_hydrates_record_change_tags(self):
+    def test_create_recurrence_rule_hydrates_record_change_tags(self) -> None:
+        """Creating a recurrence rule hydrates record change tags."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
-        def _side_effect(**kwargs):
+        def _side_effect(**kwargs: Any) -> CKModifyResponse:
             reminder_name = kwargs["operations"][0].record.recordName
             recurrence_name = kwargs["operations"][1].record.recordName
             return CKModifyResponse(
@@ -2122,11 +2250,12 @@ class TestAdditionalWriteApis:
         assert reminder.record_change_tag == "ctag-rem-new"
         assert rr.record_change_tag == "ctag-rr-new"
 
-    def test_update_methods_refresh_record_change_tag(self):
+    def test_update_methods_refresh_record_change_tag(self) -> None:
+        """Update methods refresh record change tags."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
-        def _side_effect(**kwargs):
+        def _side_effect(**kwargs: Any) -> CKModifyResponse:
             operation = kwargs["operations"][0]
             record_name = operation.record.recordName
             record_type = operation.record.recordType
@@ -2177,7 +2306,8 @@ class TestAdditionalWriteApis:
         svc.update_recurrence_rule(recurrence_rule, interval=2)
         assert recurrence_rule.record_change_tag == "new-recurrencerule-tag"
 
-    def test_update_hashtag_writes_encoded_name_field(self):
+    def test_update_hashtag_writes_encoded_name_field(self) -> None:
+        """Updating a hashtag writes an encoded name field."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.modify.return_value = self._ok_modify()
@@ -2347,20 +2477,24 @@ class TestReminderReadPaths:
             ]
         )
 
-    def test_reminders_aggregates_from_list_reminders(self):
+    def test_reminders_aggregates_from_list_reminders(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """reminders() aggregates and dedupes across lists."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
         rem_a = Reminder(id="Reminder/A", list_id=self.LIST_A, title="A")
         rem_b = Reminder(id="Reminder/B", list_id=self.LIST_B, title="B")
 
-        svc.lists = MagicMock(
+        lists_mock = MagicMock(
             return_value=[
                 RemindersList(id=self.LIST_A, title="List A"),
                 RemindersList(id=self.LIST_B, title="List B"),
             ]
         )
-        svc.list_reminders = MagicMock(
+        monkeypatch.setattr(svc, "lists", lists_mock)
+        list_reminders_mock = MagicMock(
             side_effect=[
                 ListRemindersResult(
                     reminders=[rem_a],
@@ -2380,16 +2514,17 @@ class TestReminderReadPaths:
                 ),  # duplicate across lists -> dedup
             ]
         )
+        monkeypatch.setattr(svc, "list_reminders", list_reminders_mock)
 
         out = list(svc.reminders())
         assert [r.id for r in out] == ["Reminder/A", "Reminder/B"]
-        assert svc.list_reminders.call_count == 2
-        assert svc.list_reminders.call_args_list[0].kwargs == {
+        assert list_reminders_mock.call_count == 2
+        assert list_reminders_mock.call_args_list[0].kwargs == {
             "list_id": self.LIST_A,
             "include_completed": True,
             "results_limit": 200,
         }
-        assert svc.list_reminders.call_args_list[1].kwargs == {
+        assert list_reminders_mock.call_args_list[1].kwargs == {
             "list_id": self.LIST_B,
             "include_completed": True,
             "results_limit": 200,
@@ -2397,16 +2532,18 @@ class TestReminderReadPaths:
         assert svc._raw.query.call_count == 0
         assert svc._raw.changes.call_count == 0
 
-    def test_lists_stops_when_changes_returns_no_zones(self):
+    def test_lists_stops_when_changes_returns_no_zones(self) -> None:
+        """lists() stops when zone changes return no zones."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
 
         out = list(svc.lists())
-        assert out == []
+        assert not out
         assert svc._raw.changes.call_count == 1
 
-    def test_lists_raises_on_error_item(self):
+    def test_lists_raises_on_error_item(self) -> None:
+        """lists() raises on a per-record error item."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.changes.return_value = self._changes_response(
@@ -2424,15 +2561,19 @@ class TestReminderReadPaths:
         with pytest.raises(RemindersApiError, match="List/LIST-A"):
             list(svc.lists())
 
-    def test_reminders_applies_list_filter(self):
+    def test_reminders_applies_list_filter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """reminders() applies a list filter."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
         rem_a = Reminder(id="Reminder/A", list_id=self.LIST_A, title="A")
         rem_b = Reminder(id="Reminder/B", list_id=self.LIST_A, title="B")
 
-        svc.lists = MagicMock()
-        svc.list_reminders = MagicMock(
+        lists_mock = MagicMock()
+        monkeypatch.setattr(svc, "lists", lists_mock)
+        list_reminders_mock = MagicMock(
             return_value=ListRemindersResult(
                 reminders=[rem_a, rem_b],
                 alarms={},
@@ -2442,19 +2583,21 @@ class TestReminderReadPaths:
                 recurrence_rules={},
             )
         )
+        monkeypatch.setattr(svc, "list_reminders", list_reminders_mock)
 
         out = list(svc.reminders(list_id=self.LIST_A))
         assert [r.id for r in out] == ["Reminder/A", "Reminder/B"]
-        svc.list_reminders.assert_called_once_with(
+        list_reminders_mock.assert_called_once_with(
             list_id=self.LIST_A,
             include_completed=True,
             results_limit=200,
         )
-        assert svc.lists.call_count == 0
+        assert lists_mock.call_count == 0
         assert svc._raw.query.call_count == 0
         assert svc._raw.changes.call_count == 0
 
-    def test_list_reminders_enforces_list_scope_for_related_records(self):
+    def test_list_reminders_enforces_list_scope_for_related_records(self) -> None:
+        """Related records are scoped to the requested list."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -2511,7 +2654,8 @@ class TestReminderReadPaths:
         assert set(result.hashtags.keys()) == {"Hashtag/TAG-A"}
         assert set(result.recurrence_rules.keys()) == {"RecurrenceRule/RR-A"}
 
-    def test_list_reminders_maps_fixture_query_response(self):
+    def test_list_reminders_maps_fixture_query_response(self) -> None:
+        """A fixture query response is mapped into a list result."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.query.return_value = CKQueryResponse.model_validate(
@@ -2529,7 +2673,8 @@ class TestReminderReadPaths:
         assert reminder.list_id == self.LIST_A
         assert reminder.due_date is not None
 
-    def test_list_reminders_paginates_query_results(self):
+    def test_list_reminders_paginates_query_results(self) -> None:
+        """Query results are paginated via continuation markers."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
@@ -2554,7 +2699,8 @@ class TestReminderReadPaths:
         assert first_call["continuation"] is None
         assert second_call["continuation"] == "page-2"
 
-    def test_list_reminders_raises_on_error_item(self):
+    def test_list_reminders_raises_on_error_item(self) -> None:
+        """list_reminders() raises on a per-record error item."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.query.return_value = CKQueryResponse(
@@ -2571,7 +2717,8 @@ class TestReminderReadPaths:
         with pytest.raises(RemindersApiError, match="Reminder/FAIL"):
             svc.list_reminders(list_id=self.LIST_A, include_completed=True)
 
-    def test_get_raises_lookup_error_when_missing(self):
+    def test_get_raises_lookup_error_when_missing(self) -> None:
+        """get() raises LookupError when the reminder is missing."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.lookup.return_value = MagicMock(records=[])
@@ -2579,7 +2726,8 @@ class TestReminderReadPaths:
         with pytest.raises(LookupError, match="Reminder not found"):
             svc.get("Reminder/MISSING")
 
-    def test_get_normalizes_unprefixed_reminder_id(self):
+    def test_get_normalizes_unprefixed_reminder_id(self) -> None:
+        """get() normalizes unprefixed reminder IDs."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.lookup.return_value = MagicMock(
@@ -2593,7 +2741,8 @@ class TestReminderReadPaths:
             "Reminder/NORMALIZED"
         ]
 
-    def test_get_raises_on_error_item(self):
+    def test_get_raises_on_error_item(self) -> None:
+        """get() raises on a per-record error item."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.lookup.return_value = MagicMock(
@@ -2651,23 +2800,24 @@ class TestReminderReadPaths:
     )
     def test_lookup_helpers_use_lookup_ids_and_map_records(
         self,
-        method_name,
-        id_field,
-        raw_id,
-        record_name,
-        record_factory_name,
-        expected_attr,
-        expected_value,
-    ):
+        method_name: str,
+        id_field: str,
+        raw_id: str,
+        record_name: str,
+        record_factory_name: str,
+        expected_attr: str,
+        expected_value: str | RecurrenceFrequency,
+    ) -> None:
+        """Lookup helpers use lookup IDs and map their records."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
 
-        reminder = Reminder(
-            id="Reminder/A",
-            list_id=self.LIST_A,
-            title="A",
-            **{id_field: [raw_id]},
-        )
+        reminder = Reminder.model_validate({
+            "id": "Reminder/A",
+            "list_id": self.LIST_A,
+            "title": "A",
+            id_field: [raw_id],
+        })
         record_factory = getattr(self, record_factory_name)
         svc._raw.lookup.return_value = MagicMock(
             records=[record_factory(record_name, "Reminder/A")]
@@ -2694,8 +2844,13 @@ class TestReminderReadPaths:
         ],
     )
     def test_lookup_helpers_raise_on_error_item(
-        self, method_name, id_field, raw_id, record_name
-    ):
+        self,
+        method_name: str,
+        id_field: str,
+        raw_id: str,
+        record_name: str,
+    ) -> None:
+        """Lookup helpers raise on a per-record error item."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.lookup.return_value = MagicMock(
@@ -2708,18 +2863,19 @@ class TestReminderReadPaths:
             ]
         )
 
-        reminder = Reminder(
-            id="Reminder/A",
-            list_id=self.LIST_A,
-            title="A",
-            **{id_field: [raw_id]},
-        )
+        reminder = Reminder.model_validate({
+            "id": "Reminder/A",
+            "list_id": self.LIST_A,
+            "title": "A",
+            id_field: [raw_id],
+        })
 
         method = getattr(svc, method_name)
         with pytest.raises(RemindersApiError, match=record_name):
             method(reminder)
 
-    def test_alarms_for_returns_typed_rows(self):
+    def test_alarms_for_returns_typed_rows(self) -> None:
+        """alarms_for() returns typed AlarmWithTrigger rows."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.lookup.side_effect = [
@@ -2758,7 +2914,8 @@ class TestReminderReadPaths:
         assert out[0].alarm.id == "Alarm/AL-1"
         assert out[0].trigger.id == "AlarmTrigger/TRIG-1"
 
-    def test_alarms_for_normalizes_prefixed_trigger_ids(self):
+    def test_alarms_for_normalizes_prefixed_trigger_ids(self) -> None:
+        """alarms_for() normalizes prefixed trigger IDs."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.lookup.side_effect = [
@@ -2797,7 +2954,8 @@ class TestReminderReadPaths:
             "AlarmTrigger/TRIG-1"
         ]
 
-    def test_alarms_for_raises_on_alarm_lookup_error_item(self):
+    def test_alarms_for_raises_on_alarm_lookup_error_item(self) -> None:
+        """alarms_for() raises on an alarm lookup error item."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.lookup.return_value = MagicMock(
@@ -2820,7 +2978,8 @@ class TestReminderReadPaths:
         with pytest.raises(RemindersApiError, match="Alarm/AL-1"):
             svc.alarms_for(reminder)
 
-    def test_alarms_for_raises_on_trigger_lookup_error_item(self):
+    def test_alarms_for_raises_on_trigger_lookup_error_item(self) -> None:
+        """alarms_for() raises on a trigger lookup error item."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.lookup.side_effect = [
@@ -2900,7 +3059,8 @@ class TestReminderDeltaSync:
             ]
         )
 
-    def test_sync_cursor_returns_final_paged_token(self):
+    def test_sync_cursor_returns_final_paged_token(self) -> None:
+        """sync_cursor() returns the final paged sync token."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.current_sync_token.return_value = None
@@ -2918,7 +3078,8 @@ class TestReminderDeltaSync:
         assert first_zone_req.desiredRecordTypes == []
         assert first_zone_req.desiredKeys == []
 
-    def test_sync_cursor_prefers_query_sync_token(self):
+    def test_sync_cursor_prefers_query_sync_token(self) -> None:
+        """sync_cursor() prefers the query sync token."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.current_sync_token.return_value = "tok-query"
@@ -2927,7 +3088,8 @@ class TestReminderDeltaSync:
         svc._raw.current_sync_token.assert_called_once()
         svc._raw.changes.assert_not_called()
 
-    def test_iter_changes_emits_updated_deleted_and_tombstone_events(self):
+    def test_iter_changes_emits_updated_deleted_and_tombstone_events(self) -> None:
+        """iter_changes() emits updated, deleted, and tombstone events."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.changes.return_value = self._changes_response(
@@ -2980,7 +3142,8 @@ class TestReminderDeltaSync:
         assert zone_req.syncToken == "tok-0"
         assert zone_req.desiredRecordTypes == ["Reminder"]
 
-    def test_iter_changes_maps_fixture_zone_response(self):
+    def test_iter_changes_maps_fixture_zone_response(self) -> None:
+        """A fixture zone changes response is mapped into events."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.changes.return_value = CKZoneChangesResponse.model_validate(
@@ -2995,7 +3158,8 @@ class TestReminderDeltaSync:
         assert out[0].reminder is not None
         assert out[0].reminder.title == "Fixture Reminder"
 
-    def test_iter_changes_paginates(self):
+    def test_iter_changes_paginates(self) -> None:
+        """iter_changes() paginates through zone changes."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.changes.side_effect = [
@@ -3019,7 +3183,8 @@ class TestReminderDeltaSync:
         assert first_zone_req.syncToken == "tok-0"
         assert second_zone_req.syncToken == "tok-1"
 
-    def test_iter_changes_raises_on_error_item(self):
+    def test_iter_changes_raises_on_error_item(self) -> None:
+        """iter_changes() raises on a per-record error item."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.changes.return_value = self._changes_response(
@@ -3041,53 +3206,52 @@ class TestReminderDeltaSync:
 class TestCloudKitQueryResponseRobustness:
     """Validate query parsing against malformed field values seen in real data."""
 
-    def test_query_response_tolerates_out_of_range_due_date_timestamp(self):
+    def test_query_response_tolerates_out_of_range_due_date_timestamp(self) -> None:
+        """Out-of-range DueDate timestamps are coerced to None."""
         # Captured variant: DueDate TIMESTAMP can be out-of-range (e.g. year 12177).
         # Parsing should coerce that field to None, not fail the entire response page.
-        response = CKQueryResponse.model_validate(
-            {
-                "records": [
-                    {
-                        "recordName": "Reminder/GOOD-1",
-                        "recordType": "Reminder",
-                        "fields": {
-                            "List": {
-                                "type": "REFERENCE",
-                                "value": {
-                                    "recordName": "List/LIST-A",
-                                    "action": "VALIDATE",
-                                },
+        response = CKQueryResponse.model_validate({
+            "records": [
+                {
+                    "recordName": "Reminder/GOOD-1",
+                    "recordType": "Reminder",
+                    "fields": {
+                        "List": {
+                            "type": "REFERENCE",
+                            "value": {
+                                "recordName": "List/LIST-A",
+                                "action": "VALIDATE",
                             },
-                            "Completed": {"type": "INT64", "value": 0},
-                            "Priority": {"type": "INT64", "value": 0},
-                            "Flagged": {"type": "INT64", "value": 0},
-                            "AllDay": {"type": "INT64", "value": 0},
-                            "Deleted": {"type": "INT64", "value": 0},
-                            "DueDate": {"type": "TIMESTAMP", "value": 1735488000000},
                         },
+                        "Completed": {"type": "INT64", "value": 0},
+                        "Priority": {"type": "INT64", "value": 0},
+                        "Flagged": {"type": "INT64", "value": 0},
+                        "AllDay": {"type": "INT64", "value": 0},
+                        "Deleted": {"type": "INT64", "value": 0},
+                        "DueDate": {"type": "TIMESTAMP", "value": 1735488000000},
                     },
-                    {
-                        "recordName": "Reminder/BAD-DUE-DATE",
-                        "recordType": "Reminder",
-                        "fields": {
-                            "List": {
-                                "type": "REFERENCE",
-                                "value": {
-                                    "recordName": "List/LIST-A",
-                                    "action": "VALIDATE",
-                                },
+                },
+                {
+                    "recordName": "Reminder/BAD-DUE-DATE",
+                    "recordType": "Reminder",
+                    "fields": {
+                        "List": {
+                            "type": "REFERENCE",
+                            "value": {
+                                "recordName": "List/LIST-A",
+                                "action": "VALIDATE",
                             },
-                            "Completed": {"type": "INT64", "value": 0},
-                            "Priority": {"type": "INT64", "value": 0},
-                            "Flagged": {"type": "INT64", "value": 0},
-                            "AllDay": {"type": "INT64", "value": 0},
-                            "Deleted": {"type": "INT64", "value": 0},
-                            "DueDate": {"type": "TIMESTAMP", "value": 322123125600000},
                         },
+                        "Completed": {"type": "INT64", "value": 0},
+                        "Priority": {"type": "INT64", "value": 0},
+                        "Flagged": {"type": "INT64", "value": 0},
+                        "AllDay": {"type": "INT64", "value": 0},
+                        "Deleted": {"type": "INT64", "value": 0},
+                        "DueDate": {"type": "TIMESTAMP", "value": 322123125600000},
                     },
-                ],
-            }
-        )
+                },
+            ],
+        })
 
         assert len(response.records) == 2
         good = response.records[0]
@@ -3097,24 +3261,23 @@ class TestCloudKitQueryResponseRobustness:
         assert good.fields.get_value("DueDate") is not None
         assert bad.fields.get_value("DueDate") is None
 
-    def test_query_response_parses_asset_backed_list_field(self):
+    def test_query_response_parses_asset_backed_list_field(self) -> None:
+        """A query response parses an asset-backed list field."""
         payload = base64.b64encode(b'["REM-1","REM-2"]').decode("ascii")
-        response = CKQueryResponse.model_validate(
-            {
-                "records": [
-                    {
-                        "recordName": "List/LIST-A",
-                        "recordType": "List",
-                        "fields": {
-                            "ReminderIDsAsset": {
-                                "type": "ASSET",
-                                "value": {"downloadedData": payload},
-                            }
-                        },
-                    }
-                ]
-            }
-        )
+        response = CKQueryResponse.model_validate({
+            "records": [
+                {
+                    "recordName": "List/LIST-A",
+                    "recordType": "List",
+                    "fields": {
+                        "ReminderIDsAsset": {
+                            "type": "ASSET",
+                            "value": {"downloadedData": payload},
+                        }
+                    },
+                }
+            ]
+        })
 
         rec = response.records[0]
         assert isinstance(rec, CKRecord)

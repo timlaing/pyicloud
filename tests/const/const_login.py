@@ -169,9 +169,13 @@ LOGIN_WORKING: dict[str, Any] = {
             "accountLoginUI": f"{ICLOUD_AUTH_URL}/signin?widgetKey={WIDGET_KEY}",
             "accountLogin": "https://setup.icloud.com/setup/ws/1/accountLogin",
             "accountRepairUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!repair",
-            "downloadICloudTerms": "https://setup.icloud.com/setup/ws/1/downloadLiteTerms",
+            "downloadICloudTerms": (
+                "https://setup.icloud.com/setup/ws/1/downloadLiteTerms"
+            ),
             "repairDone": "https://setup.icloud.com/setup/ws/1/repairDone",
-            "accountAuthorizeUI": f"{ICLOUD_AUTH_URL}/authorize/signin?client_id={WIDGET_KEY}",
+            "accountAuthorizeUI": (
+                f"{ICLOUD_AUTH_URL}/authorize/signin?client_id={WIDGET_KEY}"
+            ),
             "vettingUrlForEmail": "https://id.apple.com/IDMSEmailVetting/vetShareEmail",
             "accountCreate": "https://setup.icloud.com/setup/ws/1/createLiteAccount",
             "getICloudTerms": "https://setup.icloud.com/setup/ws/1/getTerms",
@@ -361,9 +365,13 @@ LOGIN_2FA = {
             "accountLoginUI": f"{ICLOUD_AUTH_URL}/signin?widgetKey={WIDGET_KEY}",
             "accountLogin": "https://setup.icloud.com/setup/ws/1/accountLogin",
             "accountRepairUI": ICLOUD_WIDGET_ACCOUNT_URL + WIDGET_KEY + "#!repair",
-            "downloadICloudTerms": "https://setup.icloud.com/setup/ws/1/downloadLiteTerms",
+            "downloadICloudTerms": (
+                "https://setup.icloud.com/setup/ws/1/downloadLiteTerms"
+            ),
             "repairDone": "https://setup.icloud.com/setup/ws/1/repairDone",
-            "accountAuthorizeUI": f"{ICLOUD_AUTH_URL}/authorize/signin?client_id={WIDGET_KEY}",
+            "accountAuthorizeUI": (
+                f"{ICLOUD_AUTH_URL}/authorize/signin?client_id={WIDGET_KEY}"
+            ),
             "vettingUrlForEmail": "https://id.apple.com/IDMSEmailVetting/vetShareEmail",
             "accountCreate": "https://setup.icloud.com/setup/ws/1/createLiteAccount",
             "getICloudTerms": "https://setup.icloud.com/setup/ws/1/getTerms",
@@ -414,13 +422,13 @@ LOGIN_2FA = {
     },
 }
 
-TRUSTED_DEVICE_1: dict = {
+TRUSTED_DEVICE_1: dict[str, Any] = {
     "deviceType": "SMS",
     "areaCode": "",
     "phoneNumber": "*******58",
     "deviceId": "1",
 }
-TRUSTED_DEVICES: dict = {"devices": [TRUSTED_DEVICE_1]}
+TRUSTED_DEVICES: dict[str, Any] = {"devices": [TRUSTED_DEVICE_1]}
 
-VERIFICATION_CODE_OK: dict = {"success": True}
-VERIFICATION_CODE_KO: dict = {"success": False}
+VERIFICATION_CODE_OK: dict[str, Any] = {"success": True}
+VERIFICATION_CODE_KO: dict[str, Any] = {"success": False}

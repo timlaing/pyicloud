@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
@@ -12,15 +12,19 @@ from pyicloud.common.cloudkit import CKQueryFilterBy, CKRecord, CKZoneIDReq
 from pyicloud.common.cloudkit.base import CKModel
 from pyicloud.exceptions import PyiCloudException
 
+if TYPE_CHECKING:
+    from .constants import DirectionEnum, ListTypeEnum, ObjectTypeEnum
+    from .service import BasePhotoAlbum, PhotoAsset
+
 
 class PhotosServiceException(PyiCloudException):
     """Photo service exception."""
 
     def __init__(
         self,
-        *args,
-        photo: "PhotoAsset | None" = None,
-        album: "BasePhotoAlbum | None" = None,
+        *args: Any,
+        photo: PhotoAsset | None = None,
+        album: BasePhotoAlbum | None = None,
     ) -> None:
         super().__init__(*args)
         self.photo = photo
@@ -33,12 +37,12 @@ class PhotoResource:
 
     key: str
     filename: str
-    url: Optional[str]
-    size: Optional[int]
-    type: Optional[str]
-    checksum: Optional[str] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
+    url: str | None
+    size: int | None
+    type: str | None
+    checksum: str | None = None
+    width: int | None = None
+    height: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Return a compatibility dict for legacy callers/tests."""
@@ -60,18 +64,18 @@ class PhotoChangeEvent:
 
     kind: str
     record_name: str
-    record_type: Optional[str]
+    record_type: str | None
     deleted: bool
-    modified: Optional[datetime]
+    modified: datetime | None
 
 
 @dataclass(slots=True, frozen=True)
 class SmartAlbumSpec:
     """Static configuration for one Photos smart album."""
 
-    obj_type: "ObjectTypeEnum"
-    list_type: "ListTypeEnum"
-    direction: "DirectionEnum"
+    obj_type: ObjectTypeEnum
+    list_type: ListTypeEnum
+    direction: DirectionEnum
     query_filters: tuple[CKQueryFilterBy, ...] = ()
 
 
@@ -155,9 +159,3 @@ class PhotosUploadResponse(CKModel):
     records: list[CKRecord] = Field(default_factory=list)
     errors: list[PhotosUploadError] = Field(default_factory=list)
     isDuplicate: bool | None = None
-
-
-# Import-only type hints to avoid circular imports at runtime.
-if False:  # pragma: no cover
-    from .constants import DirectionEnum, ListTypeEnum, ObjectTypeEnum
-    from .service import BasePhotoAlbum, PhotoAsset

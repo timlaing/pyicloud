@@ -136,7 +136,7 @@ than the `_<hex>` form owners see for themselves.
 
 ```python
 class RsvpStatus(IntEnum):
-    NO_RESPONSE = 0   # presumed default before first response
+    NO_RESPONSE = 0  # presumed default before first response
     NOT_GOING = 1
     MAYBE = 2
     GOING = 3
@@ -177,8 +177,8 @@ optional unless noted):
 
 ```python
 {
-    "startSince1970": int,    # ms since epoch (required)
-    "endSince1970": int,      # ms since epoch
+    "startSince1970": int,  # ms since epoch (required)
+    "endSince1970": int,  # ms since epoch
     "isAllDay": bool,
     "isOpenEnded": bool,
 }
@@ -188,10 +188,13 @@ optional unless noted):
 
 ```python
 {
-    "latitude": float, "longitude": float,
-    "title": str, "subtitle": str, "city": str,
-    "timeZoneIdentifier": str,    # IANA tz, e.g. "Europe/London"
-    "url": str,                   # https://maps.apple.com/...
+    "latitude": float,
+    "longitude": float,
+    "title": str,
+    "subtitle": str,
+    "city": str,
+    "timeZoneIdentifier": str,  # IANA tz, e.g. "Europe/London"
+    "url": str,  # https://maps.apple.com/...
 }
 ```
 
@@ -202,8 +205,8 @@ without a physical location.
 
 ```python
 {
-    "kind": str,                  # "image" observed
-    "visibility": int,            # 1 observed
+    "kind": str,  # "image" observed
+    "visibility": int,  # 1 observed
     "image": {"cropRect": [x, y, w, h]},  # if kind == "image"
 }
 ```
@@ -335,7 +338,9 @@ class InvitesService(BaseService):
         }
         # Three sub-clients, one per CK scope — see "Three-scope client" below.
         self._raw = CloudKitInvitesClient(
-            base, session, base_params,
+            base,
+            session,
+            base_params,
             validation_extra=cloudkit_validation_extra,
         )
 ```
@@ -480,11 +485,19 @@ and rewriting every call site — is why we didn't start there.
 Same shape as Notes / Reminders:
 
 ```python
-class InvitesError(Exception): pass
-class InvitesAuthError(InvitesError): pass         # 401/403 (cookies/PCS)
-class InvitesRateLimited(InvitesError):            # 429
+class InvitesError(Exception):
+    pass
+
+
+class InvitesAuthError(InvitesError):
+    pass  # 401/403 (cookies/PCS)
+
+
+class InvitesRateLimited(InvitesError):  # 429
     retry_after: Optional[float]
-class InvitesApiError(InvitesError):               # catch-all
+
+
+class InvitesApiError(InvitesError):  # catch-all
     payload: Optional[object]
 ```
 
@@ -517,6 +530,7 @@ lines 1395-1413:
 # in __init__
 self._invites: Optional[InvitesService] = None
 
+
 # new property
 @property
 def invites(self) -> InvitesService:
@@ -530,7 +544,10 @@ def invites(self) -> InvitesService:
                 params=self.params,
                 cloudkit_validation_extra=self._cloudkit_validation_extra,
             )
-        except (PyiCloudAPIResponseException, PyiCloudServiceNotActivatedException) as error:
+        except (
+            PyiCloudAPIResponseException,
+            PyiCloudServiceNotActivatedException,
+        ) as error:
             raise PyiCloudServiceUnavailable("Invites service not available") from error
     return self._invites
 ```
@@ -557,32 +574,39 @@ from pydantic import Field
 
 from pyicloud.common.models import FrozenServiceModel
 
+
 class RsvpStatus(IntEnum):
     NO_RESPONSE = 0
     NOT_GOING = 1
     MAYBE = 2
     GOING = 3
 
+
 class ParticipantType(StrEnum):
     OWNER = "OWNER"
-    PUBLIC_USER = "PUBLIC_USER"      # joined via shortGUID
-    USER = "USER"                    # invited via OneTimeLink
+    PUBLIC_USER = "PUBLIC_USER"  # joined via shortGUID
+    USER = "USER"  # invited via OneTimeLink
+
 
 class AcceptanceStatus(StrEnum):
     ACCEPTED = "ACCEPTED"
     INVITED = "INVITED"
     REMOVED = "REMOVED"
 
+
 class EventScope(StrEnum):
     """Which CK database scope the event lives in for the current user."""
-    PRIVATE = "private"              # user is the owner
-    SHARED = "shared"                # user is an accepted guest
+
+    PRIVATE = "private"  # user is the owner
+    SHARED = "shared"  # user is an accepted guest
+
 
 class EventTime(FrozenServiceModel):
-    start: datetime                  # required
+    start: datetime  # required
     end: Optional[datetime] = None
     is_all_day: bool = False
     is_open_ended: bool = False
+
 
 class EventPlace(FrozenServiceModel):
     title: Optional[str] = None
@@ -592,6 +616,7 @@ class EventPlace(FrozenServiceModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     url: Optional[str] = None
+
 
 class Participant(FrozenServiceModel):
     participant_id: str
@@ -603,12 +628,14 @@ class Participant(FrozenServiceModel):
     acceptance_status: AcceptanceStatus
     permission: str
 
+
 class OneTimeLinkGuest(FrozenServiceModel):
-    record_name: str                 # "<participantId>_otl"
+    record_name: str  # "<participantId>_otl"
     participant_id: str
     name: str = ""
     emails: tuple[str, ...] = ()
     phone_numbers: tuple[str, ...] = ()
+
 
 class EventShare(FrozenServiceModel):
     short_guid: str
@@ -619,6 +646,7 @@ class EventShare(FrozenServiceModel):
     @property
     def url(self) -> str:
         return f"https://www.icloud.com/invites/{self.short_guid}"
+
 
 class Rsvp(FrozenServiceModel):
     record_name: str
@@ -631,10 +659,11 @@ class Rsvp(FrozenServiceModel):
     image_download_url: Optional[str] = None
     record_change_tag: str
 
+
 class Event(FrozenServiceModel):
-    event_id: str                    # zoneName / UUID
-    scope: EventScope                # which CK DB this event lives in for current user
-    record_change_tag: str           # for optimistic concurrency
+    event_id: str  # zoneName / UUID
+    scope: EventScope  # which CK DB this event lives in for current user
+    record_change_tag: str  # for optimistic concurrency
     title: str
     notes: str = ""
     is_published: bool = False
@@ -645,9 +674,9 @@ class Event(FrozenServiceModel):
     max_additional_guests_per_rsvp: int = 0
     time: EventTime
     place: Optional[EventPlace] = None
-    background: dict = Field(default_factory=dict)   # opaque pass-through (v1)
-    style: dict = Field(default_factory=dict)        # opaque pass-through (v1)
-    integrations: tuple[str, ...] = ()               # widget type strings
+    background: dict = Field(default_factory=dict)  # opaque pass-through (v1)
+    style: dict = Field(default_factory=dict)  # opaque pass-through (v1)
+    integrations: tuple[str, ...] = ()  # widget type strings
     created_timestamp: datetime
     modified_timestamp: datetime
     share: EventShare

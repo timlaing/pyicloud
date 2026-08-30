@@ -1,9 +1,14 @@
 """Constants and enums for Notes CloudKit records and queries."""
 
+# Enum member names mirror the CloudKit wire record-type strings verbatim.
+# pylint: disable=invalid-name
+
 from enum import Enum
 
 
 class NotesRecordType(str, Enum):
+    """CloudKit record types for Notes."""
+
     Note = "Note"
     Folder = "Folder"
     PasswordProtectedNote = "PasswordProtectedNote"

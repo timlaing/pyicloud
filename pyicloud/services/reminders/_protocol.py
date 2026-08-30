@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import base64
-import binascii
+import gzip
 import json as _json
 import logging
 import time
+from typing import cast
+from urllib.parse import urlparse
 import uuid
 import zlib
-from urllib.parse import urlparse
+
+from pyicloud.common.cloudkit.models import CKFields
 
 from .protobuf import reminders_pb2, versioned_document_pb2
 
@@ -20,11 +23,11 @@ class CRDTDecodeError(ValueError):
     """Raised when a Reminders CRDT payload cannot be decoded."""
 
 
-def _ref_name(fields, key: str) -> str:
+def _ref_name(fields: CKFields, key: str) -> str:
     """Extract recordName from a REFERENCE field, or return ''."""
     field = fields.get_field(key)
     if field and field.value and hasattr(field.value, "recordName"):
-        return field.value.recordName
+        return cast(str, field.value.recordName)
     return ""
 
 
@@ -76,7 +79,7 @@ def _decode_attachment_url(value: str) -> str:
             f"{value}{padding}",
             validate=True,
         ).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
+    except ValueError:
         return value
 
     if _looks_like_url(decoded):
@@ -101,7 +104,9 @@ def _decode_cloudkit_text_value(value: object) -> str:
     return str(value)
 
 
-def _decode_crdt_document(encrypted_value: str | bytes) -> str:
+def _decode_crdt_document(  # noqa: S3776
+    encrypted_value: str | bytes,
+) -> str:
     """Decode a CRDT document (TitleDocument or NotesDocument)."""
     data = encrypted_value
     if isinstance(data, str):
@@ -110,16 +115,14 @@ def _decode_crdt_document(encrypted_value: str | bytes) -> str:
             data += "=" * padding
         try:
             data = base64.b64decode(data)
-        except (binascii.Error, ValueError) as exc:
+        except ValueError as exc:
             raise CRDTDecodeError("Invalid base64-encoded CRDT document") from exc
 
     try:
         data = zlib.decompress(data)
     except zlib.error:
         try:
-            import gzip as _gzip
-
-            data = _gzip.decompress(data)
+            data = gzip.decompress(data)
         except OSError as exc:
             LOGGER.debug("CRDT decompress skipped: %s (%s)", exc, data[:10])
 
@@ -148,7 +151,7 @@ def _decode_crdt_document(encrypted_value: str | bytes) -> str:
         value = reminders_pb2.String()  # type: ignore[attr-defined]
         value.ParseFromString(data)
         if value.string:
-            return value.string
+            return cast(str, value.string)
     except Exception as exc:  # pragma: no cover - legacy fallback path
         LOGGER.debug("bare String parse failed: %s", exc)
 

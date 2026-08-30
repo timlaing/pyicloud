@@ -1,11 +1,11 @@
 """Calendar service."""
 
-import time
 from calendar import monthrange
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
-from random import randint
-from typing import Any, List, Literal, Optional, TypeVar, Union, cast, overload
+from secrets import randbelow
+import time
+from typing import Any, Literal, TypeVar, cast, overload
 from uuid import uuid4
 
 from requests import Response
@@ -78,9 +78,9 @@ class AppleAlarm:
     # pylint: disable=invalid-name
 
     guid: str
-    pGuid: str
-    messageType: str = AlarmDefaults.MESSAGE_TYPE
-    isLocationBased: bool = AlarmDefaults.IS_LOCATION_BASED
+    pGuid: str  # noqa: S116
+    messageType: str = AlarmDefaults.MESSAGE_TYPE  # noqa: S116
+    isLocationBased: bool = AlarmDefaults.IS_LOCATION_BASED  # noqa: S116
     measurement: AlarmMeasurement = field(default_factory=AlarmMeasurement)
 
 
@@ -119,7 +119,7 @@ class AppleDateFormat:
             minutes_from_midnight=minutes_calc,
         )
 
-    def to_list(self) -> list[int]:
+    def to_list(self) -> list[int | str]:
         """Convert to Apple's expected list format."""
         return [
             self.date_string,
@@ -144,7 +144,7 @@ class AppleEventInvitee:
 
     email: str
     role: str = InviteeDefaults.ROLE
-    inviteeStatus: str = InviteeDefaults.STATUS
+    inviteeStatus: str = InviteeDefaults.STATUS  # noqa: S116
 
 
 @dataclass
@@ -158,13 +158,13 @@ class ApplePayloadInvitee:
     # pylint: disable=invalid-name
 
     guid: str
-    pGuid: str
+    pGuid: str  # noqa: S116
     role: str = InviteeDefaults.ROLE
-    isOrganizer: bool = False
+    isOrganizer: bool = False  # noqa: S116
     email: str = ""
-    inviteeStatus: str = InviteeDefaults.STATUS
-    commonName: str = ""
-    isMe: bool = False
+    inviteeStatus: str = InviteeDefaults.STATUS  # noqa: S116
+    commonName: str = ""  # noqa: S116
+    isMe: bool = False  # noqa: S116
 
 
 @dataclass
@@ -182,37 +182,37 @@ class AppleCalendarEvent:
     tz: str
     icon: int
     duration: int
-    allDay: bool
-    pGuid: str
+    allDay: bool  # noqa: S116
+    pGuid: str  # noqa: S116
     guid: str
 
-    startDate: List[int]
-    endDate: List[int]
-    localStartDate: List[int]
-    localEndDate: List[int]
-    createdDate: List[int]
-    lastModifiedDate: List[int]
+    startDate: list[int | str]  # noqa: S116
+    endDate: list[int | str]  # noqa: S116
+    localStartDate: list[int | str]  # noqa: S116
+    localEndDate: list[int | str]  # noqa: S116
+    createdDate: list[int | str]  # noqa: S116
+    lastModifiedDate: list[int | str]  # noqa: S116
 
-    extendedDetailsAreIncluded: bool
-    recurrenceException: bool
-    recurrenceMaster: bool
-    hasAttachments: bool
-    readOnly: bool = False
+    extendedDetailsAreIncluded: bool  # noqa: S116
+    recurrenceException: bool  # noqa: S116
+    recurrenceMaster: bool  # noqa: S116
+    hasAttachments: bool  # noqa: S116
+    readOnly: bool = False  # noqa: S116
     transparent: bool = False
-    birthdayIsYearlessBday: bool = False
-    birthdayShowAsCompany: bool = False
-    shouldShowJunkUIWhenAppropriate: bool = False
+    birthdayIsYearlessBday: bool = False  # noqa: S116
+    birthdayShowAsCompany: bool = False  # noqa: S116
+    shouldShowJunkUIWhenAppropriate: bool = False  # noqa: S116
 
     location: str = ""
     url: str = ""
     description: str = ""
     etag: str = ""
 
-    alarms: List[str] = field(default_factory=list)
-    attachments: List[Any] = field(default_factory=list)
-    invitees: List[str] = field(default_factory=list)
+    alarms: list[str] = field(default_factory=list)
+    attachments: list[Any] = field(default_factory=list)
+    invitees: list[str] = field(default_factory=list)
 
-    changeRecurring: Optional[str] = None
+    changeRecurring: str | None = None  # noqa: S116
 
 
 @dataclass
@@ -227,11 +227,11 @@ class EventObject:
     end_date: datetime = field(
         default_factory=lambda: datetime.today() + timedelta(minutes=60)
     )
-    local_start_date: Optional[datetime] = None
-    local_end_date: Optional[datetime] = None
+    local_start_date: datetime | None = None
+    local_end_date: datetime | None = None
     duration: int = field(init=False)
     icon: int = 0
-    change_recurring: Optional[str] = None
+    change_recurring: str | None = None
     tz: str = ""
     guid: str = ""
     location: str = ""
@@ -241,10 +241,10 @@ class EventObject:
     has_attachments: bool = False
     all_day: bool = False
     is_junk: bool = False
-    etag: Optional[str] = None
+    etag: str | None = None
 
-    invitees: List[str] = field(init=False, default_factory=list)
-    alarms: List[str] = field(init=False, default_factory=list)
+    invitees: list[str] = field(init=False, default_factory=list)
+    alarms: list[str] = field(init=False, default_factory=list)
     _alarm_metadata: dict[str, AlarmMeasurement] = field(
         init=False, default_factory=dict
     )
@@ -256,7 +256,8 @@ class EventObject:
 
         if self.start_date >= self.end_date:
             raise ValueError(
-                f"start_date ({self.start_date}) must be before end_date ({self.end_date})"
+                f"start_date ({self.start_date}) must be before "
+                f"end_date ({self.end_date})"
             )
 
         # Initialize optional dates
@@ -304,11 +305,11 @@ class EventObject:
         created_date_list = self.dt_to_list(current_dt)
         last_modified_list = self.dt_to_list(current_dt)
 
-        invitees_list: List[str] = []
+        invitees_list: list[str] = []
         if self.invitees:
             invitees_list = self.invitees
 
-        alarms_list: List[str] = []
+        alarms_list: list[str] = []
         if self.alarms:
             alarms_list = self.alarms
 
@@ -386,7 +387,7 @@ class EventObject:
 
         return data
 
-    def dt_to_list(self, dt: datetime, start: bool = True) -> list:
+    def dt_to_list(self, dt: datetime, start: bool = True) -> list[int | str]:
         """
         Converts python datetime object into a list format used
         by Apple's calendar.
@@ -394,7 +395,7 @@ class EventObject:
         apple_date = AppleDateFormat.from_datetime(dt, is_start=start)
         return apple_date.to_list()
 
-    def add_invitees(self, _invitees: Optional[list] = None) -> None:
+    def add_invitees(self, _invitees: list[str] | None = None) -> None:
         """
         Adds a list of emails to invitees in the correct format
         """
@@ -439,7 +440,7 @@ class EventObject:
         )
         return alarm_guid
 
-    def get(self, var: str):
+    def get(self, var: str) -> Any:
         """Get a variable"""
         return getattr(self, var, None)
 
@@ -452,7 +453,7 @@ class CalendarObject:
 
     title: str = CalendarDefaults.TITLE
     guid: str = ""
-    share_type: Optional[str] = None
+    share_type: str | None = None
     symbolic_color: str = CalendarDefaults.SYMBOLIC_COLOR
     supported_type: str = CalendarDefaults.SUPPORTED_TYPE
     object_type: str = CalendarDefaults.OBJECT_TYPE
@@ -463,22 +464,22 @@ class CalendarObject:
     extended_details_are_included: bool = True
     read_only: bool = False
     enabled: bool = True
-    ignore_event_updates: Optional[str] = None
-    email_notification: Optional[str] = None
-    last_modified_date: Optional[str] = None
-    me_as_participant: Optional[str] = None
-    pre_published_url: Optional[str] = None
-    participants: Optional[str] = None
-    defer_loading: Optional[str] = None
-    published_url: Optional[str] = None
-    remove_alarms: Optional[str] = None
-    ignore_alarms: Optional[str] = None
-    description: Optional[str] = None
-    remove_todos: Optional[str] = None
-    is_default: Optional[bool] = None
-    is_family: Optional[bool] = None
-    etag: Optional[str] = None
-    ctag: Optional[str] = None
+    ignore_event_updates: str | None = None
+    email_notification: str | None = None
+    last_modified_date: str | None = None
+    me_as_participant: str | None = None
+    pre_published_url: str | None = None
+    participants: str | None = None
+    defer_loading: str | None = None
+    published_url: str | None = None
+    remove_alarms: str | None = None
+    ignore_alarms: str | None = None
+    description: str | None = None
+    remove_todos: str | None = None
+    is_default: bool | None = None
+    is_family: bool | None = None
+    etag: str | None = None
+    ctag: str | None = None
 
     def __post_init__(self) -> None:
         if not self.guid:
@@ -491,7 +492,7 @@ class CalendarObject:
         """
         Creates a random rgbhex color.
         """
-        return f"#{randint(0, 255):02x}{randint(0, 255):02x}{randint(0, 255):02x}"
+        return f"#{randbelow(256):02x}{randbelow(256):02x}{randbelow(256):02x}"
 
     @property
     def request_data(self) -> dict[str, Any]:
@@ -526,28 +527,27 @@ class CalendarService(BaseService):
         """Returns the default parameters for the calendar service."""
         today: datetime = datetime.today()
         _, days_in_month = monthrange(today.year, today.month)
-        # monthrange returns: weekday of the first day of the month (0 -> Mon, 6 -> Sun) and
-        # number of days in the month (Jan -> 31, Feb -> 28/29, etc.)
+        # monthrange returns: weekday of the first day of the month (0 -> Mon,
+        # 6 -> Sun) and number of days in the month (Jan -> 31, Feb -> 28/29,
+        # etc.)
         from_dt = datetime(
             today.year, today.month, 1
         )  # Hardcoded to 1 so that startDate is always the first (1st) day of the month
         to_dt = datetime(today.year, today.month, days_in_month)
         params = dict(self.params)
-        params.update(
-            {
-                "lang": "en-us",
-                "usertz": get_localzone_name(),
-                "startDate": from_dt.strftime(DateFormats.API_DATE),
-                "endDate": to_dt.strftime(DateFormats.API_DATE),
-            }
-        )
+        params.update({
+            "lang": "en-us",
+            "usertz": get_localzone_name(),
+            "startDate": from_dt.strftime(DateFormats.API_DATE),
+            "endDate": to_dt.strftime(DateFormats.API_DATE),
+        })
 
         return params
 
-    def obj_from_dict(self, obj: T, _dict) -> T:
+    def obj_from_dict(self, obj: T, _dict: dict[str, Any]) -> T:
         """Creates an object from a dictionary with proper field validation."""
-        if hasattr(obj, "__dataclass_fields__"):
-            valid_fields = {f.name for f in fields(obj)}
+        if hasattr(obj, "__dataclass_fields__") and not isinstance(obj, type):
+            valid_fields = {f.name for f in fields(cast(Any, obj))}
 
             special_mappings = {
                 "pGuid": "pguid",
@@ -569,7 +569,7 @@ class CalendarService(BaseService):
 
     def get_ctag(self, guid: str) -> str:
         """Returns the ctag for a given calendar guid"""
-        ctag: Optional[str] = None
+        ctag: str | None = None
         for cal in self.get_calendars(as_objs=False):
             if isinstance(cal, CalendarObject) and cal.guid == guid:
                 ctag = cal.ctag
@@ -580,7 +580,9 @@ class CalendarService(BaseService):
                 return ctag
         raise ValueError("ctag not found.")
 
-    def refresh_client(self, from_dt=None, to_dt=None) -> dict[str, Any]:
+    def refresh_client(
+        self, from_dt: datetime | None = None, to_dt: datetime | None = None
+    ) -> dict[str, Any]:
         """
         Refresh the Calendar service and return a fresh event payload.
 
@@ -609,17 +611,15 @@ class CalendarService(BaseService):
             from_dt = anchor.replace(day=1)
             to_dt = anchor.replace(day=days_in_month)
         params = dict(self.params)
-        params.update(
-            {
-                "lang": "en-us",
-                "usertz": get_localzone_name(),
-                "startDate": from_dt.strftime(DateFormats.API_DATE),
-                "endDate": to_dt.strftime(DateFormats.API_DATE),
-                "dsid": self.session.service.data["dsInfo"]["dsid"],
-            }
-        )
+        params.update({
+            "lang": "en-us",
+            "usertz": get_localzone_name(),
+            "startDate": from_dt.strftime(DateFormats.API_DATE),
+            "endDate": to_dt.strftime(DateFormats.API_DATE),
+            "dsid": self.session.service.data["dsInfo"]["dsid"],
+        })
         req: Response = self.session.get(self._calendar_refresh_url, params=params)
-        return req.json()
+        return cast(dict[str, Any], req.json())
 
     @overload
     def get_calendars(self) -> list[dict[str, Any]]: ...
@@ -631,8 +631,8 @@ class CalendarService(BaseService):
     def get_calendars(self, as_objs: Literal[True]) -> list[CalendarObject]: ...
 
     def get_calendars(
-        self, as_objs: Union[Literal[True], Literal[False]] = False
-    ) -> Union[list[dict[str, Any]], list[CalendarObject]]:
+        self, as_objs: Literal[True] | Literal[False] = False
+    ) -> list[dict[str, Any]] | list[CalendarObject]:
         """
         Retrieves calendars of this month.
         """
@@ -658,7 +658,7 @@ class CalendarService(BaseService):
             params=params,
             json=data,
         )
-        return req.json()
+        return cast(dict[str, Any], req.json())
 
     def remove_calendar(self, cal_guid: str) -> dict[str, Any]:
         """
@@ -670,21 +670,21 @@ class CalendarService(BaseService):
         req: Response = self.session.post(
             f"{self._calendar_collections_url}/{cal_guid}", params=params, json={}
         )
-        return req.json()
+        return cast(dict[str, Any], req.json())
 
     @overload
     def get_events(
         self,
-        from_dt: Optional[datetime] = None,
-        to_dt: Optional[datetime] = None,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
         period: str = "month",
     ) -> list[dict[str, Any]]: ...
 
     @overload
     def get_events(
         self,
-        from_dt: Optional[datetime] = None,
-        to_dt: Optional[datetime] = None,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
         period: str = "month",
         as_objs: Literal[False] = False,
     ) -> list[dict[str, Any]]: ...
@@ -692,19 +692,19 @@ class CalendarService(BaseService):
     @overload
     def get_events(
         self,
-        from_dt: Optional[datetime] = None,
-        to_dt: Optional[datetime] = None,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
         period: str = "month",
         as_objs: Literal[True] = True,
     ) -> list[EventObject]: ...
 
     def get_events(
         self,
-        from_dt: Optional[datetime] = None,
-        to_dt: Optional[datetime] = None,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
         period: str = "month",
         as_objs: bool = False,
-    ) -> Union[list[dict[str, Any]], list[EventObject]]:
+    ) -> list[dict[str, Any]] | list[EventObject]:
         """
         Retrieves events for a given date range, by default, this month.
         """
@@ -724,7 +724,7 @@ class CalendarService(BaseService):
             to_dt = from_dt + timedelta(days=6)
 
         response: dict[str, Any] = self.refresh_client(from_dt, to_dt)
-        events: list = response.get("Event", [])
+        events: list[Any] = response.get("Event", [])
 
         if as_objs and events:
             for idx, event in enumerate(events):
@@ -735,29 +735,26 @@ class CalendarService(BaseService):
 
         return events
 
-    def get_event_detail(self, pguid, guid, as_obj: bool = False) -> EventObject:
+    def get_event_detail(
+        self, pguid: str, guid: str, as_obj: bool = False
+    ) -> EventObject | dict[str, Any]:
         """
         Fetches a single event's details by specifying a pguid
         (a calendar) and a guid (an event's ID).
         """
         params = dict(self.params)
-        params.update(
-            {
-                "lang": "en-us",
-                "usertz": get_localzone_name(),
-                "dsid": self.session.service.data["dsInfo"]["dsid"],
-            }
-        )
+        params.update({
+            "lang": "en-us",
+            "usertz": get_localzone_name(),
+            "dsid": self.session.service.data["dsInfo"]["dsid"],
+        })
         url: str = f"{self._calendar_event_detail_url}/{pguid}/{guid}"
         req: Response = self.session.get(url, params=params)
         response = req.json()
-        event = response["Event"][0]
+        event: dict[str, Any] = response["Event"][0]
 
         if as_obj and event:
-            event: EventObject = cast(
-                EventObject,
-                self.obj_from_dict(EventObject(pguid=pguid), event),
-            )
+            return self.obj_from_dict(EventObject(pguid=pguid), event)
 
         return event
 
@@ -774,11 +771,12 @@ class CalendarService(BaseService):
             params=params,
             json=data,
         )
-        return req.json()
+        return cast(dict[str, Any], req.json())
 
     def remove_event(self, event: EventObject) -> dict[str, Any]:
         """
-        Removes an Event from a calendar. The calendar's guid corresponds to the EventObject's pGuid
+        Removes an Event from a calendar. The calendar's guid corresponds to the
+        EventObject's pGuid
         """
         data = event.request_data
         data["ClientState"]["Collection"][0]["ctag"] = self.get_ctag(event.pguid)
@@ -797,4 +795,4 @@ class CalendarService(BaseService):
             params=params,
             json=data,
         )
-        return req.json()
+        return cast(dict[str, Any], req.json())

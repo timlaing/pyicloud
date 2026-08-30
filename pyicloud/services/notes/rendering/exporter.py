@@ -9,15 +9,17 @@ and higher-level APIs.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from contextlib import suppress
 import logging
 import os
 import re
-from typing import Dict, Iterable, List, Optional, Tuple
 
 from rich.console import Console
 
-from pyicloud.common.cloudkit import CKRecord
+from pyicloud.common.cloudkit import CKLookupResponse, CKRecord
 
+from ..client import CloudKitNotesClient
 from ..decoding import BodyDecoder
 from ..protobuf import notes_pb2 as pb
 from .ck_datasource import CloudKitNoteDataSource
@@ -29,7 +31,12 @@ console = Console()
 LOGGER = logging.getLogger(__name__)
 
 
-def decode_and_parse_note(record: CKRecord) -> Optional[pb.Note]:
+def _is_http_url(url: str) -> bool:
+    """Return True for absolute ``http``/``https`` asset URLs."""
+    return url.startswith("http://") or url.startswith("https://")
+
+
+def decode_and_parse_note(record: CKRecord) -> pb.Note | None:
     """Decode a Note CKRecord's TextDataEncrypted and return a parsed pb.Note.
 
     Returns None if body is missing or cannot be parsed.
@@ -50,9 +57,11 @@ def decode_and_parse_note(record: CKRecord) -> Optional[pb.Note]:
         return None
 
 
-def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> List[str]:
+def _attachment_ids_from_record_and_runs(  # noqa: S3776
+    record: CKRecord, note: pb.Note
+) -> list[str]:
     # Collect from Attachments field
-    ids: List[str] = []
+    ids: list[str] = []
     fld = record.fields.get_field("Attachments")
     if fld and hasattr(fld, "value"):
         for ref in getattr(fld, "value", []) or []:
@@ -60,7 +69,7 @@ def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> Lis
             if rn:
                 ids.append(rn)
     # Merge inline run identifiers
-    ids_from_runs: List[str] = []
+    ids_from_runs: list[str] = []
     for rattr in getattr(note, "attribute_run", []) or []:
         if rattr.HasField("attachment_info") and rattr.attachment_info.HasField(
             "attachment_identifier"
@@ -69,7 +78,7 @@ def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> Lis
             if aid:
                 ids_from_runs.append(aid)
     seen: set[str] = set()
-    merged: List[str] = []
+    merged: list[str] = []
     for a in ids + ids_from_runs:
         if a not in seen:
             seen.add(a)
@@ -77,12 +86,130 @@ def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> Lis
     return merged
 
 
+def _hydrate_attachment_records(
+    ds: CloudKitNoteDataSource,
+    resp: CKLookupResponse,
+    config: ExportConfig | None,
+) -> dict[str, str]:
+    """Add attachment records to the datasource and collect their Media refs.
+
+    Returns a mapping of media record name → parent attachment record name.
+    """
+    media_map: dict[str, str] = {}
+    debug = bool(getattr(config, "debug", False))
+    for rec_idx, rec in enumerate(resp.records):
+        if debug:
+            console.rule(f"rec_idx {rec_idx}")
+            console.print(rec)
+        if isinstance(rec, CKRecord):
+            ds.add_attachment_record(rec)
+            # Capture Media reference to follow for full-fidelity images
+            try:
+                fld = rec.fields.get_field("Media")
+                ref = getattr(fld, "value", None) if fld else None
+                rn = getattr(ref, "recordName", None)
+                if rn:
+                    media_map[rn] = rec.recordName
+            except Exception:
+                pass
+    return media_map
+
+
+def _follow_media_references(
+    ck_client: CloudKitNotesClient,
+    ds: CloudKitNoteDataSource,
+    media_map: dict[str, str],
+    config: ExportConfig | None,
+) -> None:
+    """Fetch Media records and promote their URLs onto parent attachments."""
+    if not media_map:
+        return
+    try:
+        mresp = ck_client.lookup(list(media_map.keys()))
+        if bool(getattr(config, "debug", False)):
+            try:
+                console.rule("media lookup response")
+                console.print(mresp)
+                LOGGER.info("attachment media resp:\n%s", mresp)
+            except Exception:
+                pass
+        for mrec in mresp.records:
+            if not isinstance(mrec, CKRecord):
+                continue
+            url = _media_field_url(mrec)
+            if url:
+                _wire_media_to_parent(ds, media_map, mrec, url, config)
+    except Exception:
+        pass
+
+
+def _media_field_url(mrec: CKRecord) -> str | None:
+    """Best-effort: find any field whose value looks like an asset token."""
+    url: str | None = None
+    try:
+        for k in mrec.fields:
+            fld = mrec.fields.get_field(k)
+            val = getattr(fld, "value", None)
+            u = getattr(val, "downloadURL", None)
+            if isinstance(u, str) and u:
+                url = u
+                break
+    except Exception:
+        url = None
+    return url
+
+
+def _wire_media_to_parent(
+    ds: CloudKitNoteDataSource,
+    media_map: dict[str, str],
+    mrec: CKRecord,
+    url: str,
+    config: ExportConfig | None,
+) -> None:
+    """Promote a Media URL to the parent attachment's primary, when appropriate."""
+    parent = media_map.get(mrec.recordName)
+    if not parent:
+        return
+    # Only promote Media-derived URLs to primary for image-like attachments.
+    # For 'public.url' (web links) and others, keep the primary_url as the
+    # actual destination, and use previews/Media only as thumbnails.
+    try:
+        parent_uti = (ds.get_attachment_uti(parent) or "").lower()
+    except Exception:
+        parent_uti = ""
+    # Use config-aware predicate to recognize image UTIs (jpeg/png/heic/webp...)
+    conf = config or ExportConfig()
+    is_image = conf.is_image_uti(parent_uti)
+    # Simple heuristic for audio/video promotion
+    is_av = (
+        "audio" in parent_uti
+        or "video" in parent_uti
+        or "movie" in parent_uti
+        or "mpeg" in parent_uti
+    )
+    is_media_upgrade = getattr(conf, "prefer_media_for_images", True) and (
+        is_image or is_av
+    )
+    # Only fetch current if we might need to check for upgrade
+    cur_primary = None
+    with suppress(Exception):
+        cur_primary = ds.get_primary_asset_url(parent)
+    if (not cur_primary) or is_media_upgrade:
+        try:
+            cur_thumb = ds.get_thumbnail_url(parent)
+        except Exception:
+            cur_thumb = None
+        # If missing, OR (we want upgrade AND current is likely just a thumbnail)
+        if (not cur_primary) or (is_media_upgrade and cur_primary == cur_thumb):
+            ds.set_primary_asset_url(parent, url)
+
+
 def build_datasource(
-    ck_client,
+    ck_client: CloudKitNotesClient,
     note_record: CKRecord,
     note: pb.Note,
-    config: Optional[ExportConfig] = None,
-) -> Tuple[CloudKitNoteDataSource, List[str]]:
+    config: ExportConfig | None = None,
+) -> tuple[CloudKitNoteDataSource, list[str]]:
     """Build a CloudKit-backed Note datasource for a single note.
 
     Returns (datasource, attachment_ids) where attachment_ids is the merged list
@@ -92,113 +219,20 @@ def build_datasource(
     att_ids = _attachment_ids_from_record_and_runs(note_record, note)
     if att_ids:
         resp = ck_client.lookup(att_ids)  # desired_keys=None → all fields
-        media_map: Dict[str, str] = {}  # media_record_name -> parent attachment id
-        debug = bool(getattr(config, "debug", False))
-        for rec_idx, rec in enumerate(resp.records):
-            if debug:
-                console.rule(f"rec_idx {rec_idx}")
-                console.print(rec)
-            if isinstance(rec, CKRecord):
-                ds.add_attachment_record(rec)
-                # Capture Media reference to follow for full-fidelity images
-                try:
-                    fld = rec.fields.get_field("Media")
-                    ref = getattr(fld, "value", None) if fld else None
-                    rn = getattr(ref, "recordName", None)
-                    if rn:
-                        media_map[rn] = rec.recordName
-                except Exception:
-                    pass
-        # Follow Media references to fetch original asset URLs and wire them to the parent
-        if media_map:
-            try:
-                mresp = ck_client.lookup(list(media_map.keys()))
-                if bool(getattr(config, "debug", False)):
-                    try:
-                        console.rule("media lookup response")
-                        console.print(mresp)
-                        LOGGER.info("attachment media resp:\n%s", mresp)
-                    except Exception:
-                        pass
-                for mrec in mresp.records:
-                    if not isinstance(mrec, CKRecord):
-                        continue
-                    url: Optional[str] = None
-                    # Best-effort: find any field whose value looks like an asset token with downloadURL
-                    try:
-                        for k in list(getattr(mrec, "fields", ()).keys()):
-                            fld = mrec.fields.get_field(k)
-                            val = getattr(fld, "value", None)
-                            u = getattr(val, "downloadURL", None)
-                            if isinstance(u, str) and u:
-                                url = u
-                                break
-                    except Exception:
-                        url = None
-                    if url:
-                        parent = media_map.get(mrec.recordName)
-                        if parent:
-                            # Only promote Media-derived URLs to primary for image-like attachments.
-                            # For 'public.url' (web links) and others, keep the primary_url as the
-                            # actual destination, and use previews/Media only as thumbnails.
-                            try:
-                                parent_uti = (
-                                    ds.get_attachment_uti(parent) or ""
-                                ).lower()
-                            except Exception:
-                                parent_uti = ""
-                            # Use config-aware predicate to recognize image UTIs (jpeg/png/heic/webp...)
-                            conf = config or ExportConfig()
-                            is_image = conf.is_image_uti(parent_uti)
-                            # Simple heuristic for audio/video promotion
-                            is_av = (
-                                "audio" in parent_uti
-                                or "video" in parent_uti
-                                or "movie" in parent_uti
-                                or "mpeg" in parent_uti
-                            )
-
-                            # Logic update:
-                            # 1. If we have no URL yet (e.g. VCard), ALWAYS take the Media URL.
-                            # 2. If we have a URL but it's an Image/AV, check if we should "upgrade"
-                            #    to the Media URL (e.g. valid preview -> full res).
-
-                            is_media_upgrade = getattr(
-                                conf, "prefer_media_for_images", True
-                            ) and (is_image or is_av)
-
-                            # Only fetch current if we might need to check for upgrade
-                            cur_primary = None
-                            try:
-                                cur_primary = ds.get_primary_asset_url(parent)
-                            except Exception:
-                                pass
-
-                            if (not cur_primary) or is_media_upgrade:
-                                try:
-                                    cur_thumb = ds.get_thumbnail_url(parent)
-                                except Exception:
-                                    cur_thumb = None
-
-                                # If missing, OR (we want upgrade AND current is likely just a thumbnail)
-                                if (not cur_primary) or (
-                                    is_media_upgrade and cur_primary == cur_thumb
-                                ):
-                                    ds.set_primary_asset_url(parent, url)
-            except Exception:
-                pass
+        media_map = _hydrate_attachment_records(ds, resp, config)
+        _follow_media_references(ck_client, ds, media_map, config)
     return ds, att_ids
 
 
-def download_pdf_assets(
-    ck_client,
+def download_pdf_assets(  # noqa: S3776
+    ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    config: Optional[ExportConfig] = None,
-) -> Dict[str, str]:
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
+) -> dict[str, str]:
     """Download PDFs for attachments and rewrite datasource URLs to local paths.
 
     Returns a mapping of attachment id → relative path used in HTML.
@@ -206,9 +240,9 @@ def download_pdf_assets(
     magic header is present.
     """
     os.makedirs(assets_dir, exist_ok=True)
-    updated: Dict[str, str] = {}
+    updated: dict[str, str] = {}
 
-    def _is_pdf_uti(s: Optional[str]) -> bool:
+    def _is_pdf_uti(s: str | None) -> bool:
         return bool(
             s
             and s.lower() in ("com.adobe.pdf", "public.pdf", "com.apple.paper.doc.pdf")
@@ -220,7 +254,7 @@ def download_pdf_assets(
         if not _is_pdf_uti(uti):
             continue
         url = ds.get_primary_asset_url(aid)
-        if not (url and (url.startswith("http://") or url.startswith("https://"))):
+        if not (url and _is_http_url(url)):
             # Skip thumbnails for PDFs — they are images and will not embed as PDF
             continue
         try:
@@ -249,26 +283,26 @@ def download_pdf_assets(
     return updated
 
 
-def download_image_assets(
-    ck_client,
+def download_image_assets(  # noqa: S3776
+    ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    config: Optional[ExportConfig] = None,
-) -> Dict[str, str]:
+    config: ExportConfig | None = None,
+) -> dict[str, str]:
     """Download image attachments and rewrite datasource URLs to local paths.
 
     Returns a mapping of attachment id → relative path used in HTML.
     Applies to common image UTIs (jpeg/png/heic/webp/gif/bmp/tiff...).
     """
     os.makedirs(assets_dir, exist_ok=True)
-    updated: Dict[str, str] = {}
+    updated: dict[str, str] = {}
 
     conf = config or ExportConfig()
 
-    def _infer_image_ext(head: bytes) -> Optional[str]:
+    def _infer_image_ext(head: bytes) -> str | None:
         try:
             if head.startswith(b"\xff\xd8\xff"):
                 return ".jpg"
@@ -300,12 +334,13 @@ def download_image_assets(
             continue
         url = ds.get_primary_asset_url(aid)
         if not url:
-            # Fallback to thumbnail for image-like attachments that only expose previews (e.g., com.apple.paper)
+            # Fallback to thumbnail for image-like attachments that only
+            # expose previews (e.g., com.apple.paper)
             try:
                 url = ds.get_thumbnail_url(aid)
             except Exception:
                 url = None
-        if not (url and (url.startswith("http://") or url.startswith("https://"))):
+        if not (url and _is_http_url(url)):
             # Already local or missing
             continue
         try:
@@ -333,23 +368,23 @@ def download_image_assets(
     return updated
 
 
-def download_av_assets(
-    ck_client,
+def download_av_assets(  # noqa: S3776
+    ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    config: Optional[ExportConfig] = None,
-) -> Dict[str, str]:
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
+) -> dict[str, str]:
     """Download audio/video attachments and rewrite datasource URLs to local paths.
 
     Returns a mapping of attachment id → relative path used in HTML.
     """
     os.makedirs(assets_dir, exist_ok=True)
-    updated: Dict[str, str] = {}
+    updated: dict[str, str] = {}
 
-    def _infer_av_ext(head: bytes) -> Optional[str]:
+    def _infer_av_ext(head: bytes) -> str | None:
         try:
             # M4A / MP4 / MOV (ISO Base Media)
             if len(head) >= 12 and head[4:8] == b"ftyp":
@@ -400,7 +435,7 @@ def download_av_assets(
             continue
 
         url = ds.get_primary_asset_url(aid)
-        if not (url and (url.startswith("http://") or url.startswith("https://"))):
+        if not (url and _is_http_url(url)):
             continue
 
         try:
@@ -436,20 +471,20 @@ def download_av_assets(
 
 
 def download_vcard_assets(
-    ck_client,
+    ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    config: Optional[ExportConfig] = None,
-) -> Dict[str, str]:
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
+) -> dict[str, str]:
     """Download VCard (contact) attachments and rewrite datasource URLs to local paths.
 
     Returns a mapping of attachment id → relative path used in HTML.
     """
     os.makedirs(assets_dir, exist_ok=True)
-    updated: Dict[str, str] = {}
+    updated: dict[str, str] = {}
     note_subdir = os.path.abspath(assets_dir)
 
     for aid in att_ids:
@@ -458,7 +493,7 @@ def download_vcard_assets(
             continue
 
         url = ds.get_primary_asset_url(aid)
-        if not (url and (url.startswith("http://") or url.startswith("https://"))):
+        if not (url and _is_http_url(url)):
             continue
 
         try:
@@ -485,13 +520,14 @@ def download_vcard_assets(
 
 def render_fragment(
     note: pb.Note,
-    ds: Optional[CloudKitNoteDataSource],
-    config: Optional[ExportConfig] = None,
+    ds: CloudKitNoteDataSource | None,
+    config: ExportConfig | None = None,
 ) -> str:
+    """Render a note body to an HTML fragment via the pure renderer."""
     return render_note_fragment(note, ds, config=config)
 
 
-def _safe_name(s: Optional[str]) -> str:
+def _safe_name(s: str | None) -> str:
     if not s:
         return "untitled"
     s = re.sub(r"\s+", " ", s).strip()
@@ -505,8 +541,9 @@ def write_html(
     out_dir: str,
     *,
     full_page: bool = False,
-    filename: Optional[str] = None,
+    filename: str | None = None,
 ) -> str:
+    """Write an HTML page or fragment to out_dir and return its path."""
     os.makedirs(out_dir, exist_ok=True)
     page = render_note_page(title, html_fragment) if full_page else html_fragment
     fname = filename or f"{_safe_name(title)}.html"
@@ -522,7 +559,9 @@ def write_html(
 class NoteExporter:
     """Orchestrator for exporting notes to HTML with assets."""
 
-    def __init__(self, ck_client, config: Optional[ExportConfig] = None):
+    def __init__(
+        self, ck_client: CloudKitNotesClient, config: ExportConfig | None = None
+    ):
         self.client = ck_client
         self.config = config or ExportConfig()
         self.renderer = NoteRenderer(self.config)
@@ -531,11 +570,12 @@ class NoteExporter:
         self,
         note_record: CKRecord,
         output_dir: str,
-        filename: Optional[str] = None,
-    ) -> Optional[str]:
+        filename: str | None = None,
+    ) -> str | None:
         """
         Export a single note record to HTML in the output directory.
-        Returns the path to the written HTML file, or None if export failed (e.g. no body).
+        Returns the path to the written HTML file, or None if export failed
+        (e.g. no body).
         """
         # 1. Decode
         note = decode_and_parse_note(note_record)

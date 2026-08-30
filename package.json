@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "devDependencies": {
+    "@prettier/plugin-xml": "^3.4.1",
+    "prettier": "^3.9.6",
+    "prettier-plugin-sort-json": "^4.2.0"
+  }
+}

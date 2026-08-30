@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager, suppress
+from datetime import datetime, timezone
 import json
 import os
-import tempfile
-from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterator, TypedDict
+import tempfile
+from typing import TypedDict
 
 ACCOUNT_INDEX_FILENAME = "accounts.json"
 
@@ -111,10 +112,8 @@ def _save_accounts_to_path(
     """Persist indexed accounts to a specific path."""
 
     if not accounts:
-        try:
+        with suppress(FileNotFoundError):
             index_path.unlink()
-        except FileNotFoundError:
-            pass
         return
 
     index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,10 +137,8 @@ def _save_accounts_to_path(
         os.replace(temp_path, index_path)
     except Exception:
         if temp_path is not None:
-            try:
+            with suppress(FileNotFoundError):
                 temp_path.unlink()
-            except FileNotFoundError:
-                pass
         raise
 
 
