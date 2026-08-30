@@ -6,6 +6,7 @@ from io import BytesIO
 import json
 from typing import Any
 from unittest.mock import MagicMock
+from urllib.parse import urlsplit
 
 from requests import Response
 
@@ -149,7 +150,7 @@ class PyiCloudSessionMock(PyiCloudSession):
             return resp
 
         if (
-            "icloud-content.com" in url
+            urlsplit(url).netloc.endswith("icloud-content.com")
             and method == "GET"
             and (resp := self._handle_icloud_content(url))
         ):

@@ -233,7 +233,8 @@ def handle_2sa(api: PyiCloudService) -> None:
     for i, device in enumerate(trusted_devices):
         name = device.get("deviceName")
         if name is None:
-            name = f"SMS to {device.get('phoneNumber')}"
+            phone = device.get("phoneNumber") or ""
+            name = f"SMS to *{phone[-4:]}"
         print(f"  {i}: {name}")
 
     device_index: int = click.prompt(
