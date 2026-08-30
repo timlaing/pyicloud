@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, Any, Literal, Self, Union
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import (
     Base64Bytes,
@@ -21,6 +21,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from typing_extensions import Self
 
 from .base import CKModel
 
