@@ -47,7 +47,6 @@ from pyicloud.hsa2_bridge import (
 )
 from pyicloud.services import (
     AccountService,
-    AppleDevice,
     CalendarService,
     ContactsService,
     DriveService,
@@ -56,6 +55,9 @@ from pyicloud.services import (
     PhotosService,
     RemindersService,
     UbiquityService,
+)
+from pyicloud.services import (
+    AppleDevice as AppleDevice,
 )
 from pyicloud.services.invites import InvitesService
 from pyicloud.services.notes import NotesService

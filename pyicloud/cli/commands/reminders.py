@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum
+from functools import partial
 from typing import Any, TypeVar, cast
 
 from pydantic import ValidationError
@@ -35,11 +36,12 @@ from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthE
 from pyicloud.services.reminders.models import (
     AlarmWithTrigger,
     ImageAttachment,
+    Proximity,
     RecurrenceFrequency,
     Reminder,
     URLAttachment,
 )
-from pyicloud.services.reminders.service import Attachment, Proximity
+from pyicloud.services.reminders.service import Attachment
 
 app = typer.Typer(help="Inspect and mutate Reminders.")
 alarm_app = typer.Typer(help="Work with reminder alarms.")
@@ -188,8 +190,9 @@ def _list_reminder_rows(
     for reminder_list in _reminders_call(api, lambda: list(reminders.lists())):
         snapshot = _reminders_call(
             api,
-            lambda lid=reminder_list.id: reminders.list_reminders(
-                list_id=lid,
+            partial(
+                reminders.list_reminders,
+                list_id=reminder_list.id,
                 include_completed=include_completed,
                 results_limit=results_limit,
             ),

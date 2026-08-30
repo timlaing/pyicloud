@@ -456,7 +456,8 @@ class BasePhotoLibrary(ABC):
             syncToken=since,
             reverse=False,
         )
-        for zone in self._client.iter_changes(zone_req=zone_req):
+        client = cast(PhotosCloudKitClient, self._client)
+        for zone in client.iter_changes(zone_req=zone_req):
             self._current_sync_token = zone.syncToken
             for record in zone.records:
                 if isinstance(record, CKTombstoneRecord):
@@ -935,7 +936,9 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     ) -> None:
         self._name = name
         self._library = library
-        self._client = client or getattr(library, "_client", None)
+        self._client = client or cast(
+            PhotosCloudKitClient | None, getattr(library, "_client", None)
+        )
         self._page_size = page_size
         self._direction = direction
         self._list_type = list_type
@@ -1007,7 +1010,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
             and hasattr(self.service, "session")
             and hasattr(self, "_get_url")
         ):
-            response = self.service.session.post(
+            http_response = self.service.session.post(
                 url=self._get_url(),
                 json=self._get_payload(
                     offset=max(0, index),
@@ -1016,9 +1019,10 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
                 ),
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            yield from self._process_photo_list_response(response.json())
+            yield from self._process_photo_list_response(http_response.json())
             return
-        response = self._client.query(
+        client = cast(PhotosCloudKitClient, self._client)
+        response = client.query(
             query=query,
             zone_id=CKZoneIDReq(**self._library.zone_id),
             results_limit=page_size * 2,
@@ -1032,25 +1036,26 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         query = photo_lookup_query(list_type=self._list_type, photo_id=photo_id)
         filters = self._query_filters(offset=0, direction=DirectionEnum.ASCENDING)
         if filters:
-            query.filterBy.extend(filters)
+            query.filterBy = list(query.filterBy or []) + filters
         if (
             (self._client is None or not _can_use_typed_cloudkit(self.service.session))
             and hasattr(self.service, "session")
             and hasattr(self, "_get_url")
         ):
-            response = self.service.session.post(
+            http_response = self.service.session.post(
                 url=self._get_url(),
                 json=self._get_photo_payload(photo_id),
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            for photo in self._process_photo_list_response(response.json()):
+            for photo in self._process_photo_list_response(http_response.json()):
                 if photo.id == photo_id:
                     return photo
             for photo in self.photos:
                 if photo.id == photo_id:
                     return photo
             raise KeyError(f"Photo does not exist: {photo_id}")
-        response = self._client.query(
+        client = cast(PhotosCloudKitClient, self._client)
+        response = client.query(
             query=query,
             zone_id=CKZoneIDReq(**self._library.zone_id),
             results_limit=self._photo_lookup_results_limit(),
@@ -1392,7 +1397,7 @@ class PhotoAlbum(BasePhotoAlbum):
             endpoint = self.service.service_endpoint
             params = urlencode(self.service.params)
             url = f"{endpoint}/records/modify?{params}"
-            response = self.service.session.post(
+            http_response = self.service.session.post(
                 url,
                 json={
                     "atomic": True,
@@ -1415,7 +1420,7 @@ class PhotoAlbum(BasePhotoAlbum):
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            payload = response.json()
+            payload = http_response.json()
             latest = (payload.get("records") or [{}])[0]
             self._record_change_tag = latest.get(
                 "recordChangeTag",
@@ -1597,7 +1602,8 @@ class PhotoAlbum(BasePhotoAlbum):
                     exc_info=True,
                 )
                 return 0
-        return self._client.batch_count(
+        client = cast(PhotosCloudKitClient, self._client)
+        return client.batch_count(
             container_id=self._get_container_id,
             zone_id=self._zone_id,
         )
@@ -2346,7 +2352,7 @@ class PhotosService(BaseService):
         else:
             album_obj = album
 
-        return cast(PhotoAsset | None, album_obj.upload(path))
+        return cast(PhotoAlbum, album_obj).upload(path)
 
     def sync_cursor(self) -> str:
         """Return the root library's current sync cursor."""

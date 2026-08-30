@@ -7,11 +7,10 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import hmac
 import secrets
-from typing import cast
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -226,6 +225,9 @@ class _ClientSharedSecret:
     transcript: bytes
     share_p: str
     share_v: str
+    _confirm_client: bytes = field(init=False, repr=False)
+    _confirm_server: bytes = field(init=False, repr=False)
+    _shared_key: bytes = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Derive confirmation keys and the final shared key from the transcript."""
@@ -254,7 +256,7 @@ class _ClientSharedSecret:
         ).hexdigest()
         if expected != message_hex:
             raise ValueError("invalid confirmation from server")
-        return cast(bytes, self._shared_key)
+        return self._shared_key
 
 
 @dataclass(frozen=True)
@@ -264,6 +266,9 @@ class _ServerSharedSecret:
     transcript: bytes
     share_p: str
     share_v: str
+    _confirm_client: bytes = field(init=False, repr=False)
+    _confirm_server: bytes = field(init=False, repr=False)
+    _shared_key: bytes = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Derive confirmation keys and the final shared key from the transcript."""
@@ -294,7 +299,7 @@ class _ServerSharedSecret:
         ).hexdigest()
         if expected != message_hex:
             raise ValueError("invalid confirmation from client")
-        return cast(bytes, self._shared_key)
+        return self._shared_key
 
 
 class _ClientHandshake:

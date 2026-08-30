@@ -75,9 +75,9 @@ def drive_list(
     drive = service_call("Drive", lambda: api.drive, account_name=api.account_name)
     node = _resolve_drive_node_or_abort(drive, path, trash=trash)
     if node.type == "file":
-        payload = normalize_drive_node(node)
+        node_payload = normalize_drive_node(node)
         if state.json_output:
-            state.write_json(payload)
+            state.write_json(node_payload)
             return
         state.console.print(
             console_table(
@@ -85,10 +85,10 @@ def drive_list(
                 ["Name", "Type", "Size", "Modified"],
                 [
                     (
-                        payload["name"],
-                        payload["type"],
-                        payload["size"],
-                        payload["modified"],
+                        node_payload["name"],
+                        node_payload["type"],
+                        node_payload["size"],
+                        node_payload["modified"],
                     )
                 ],
             )
