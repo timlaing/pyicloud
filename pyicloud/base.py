@@ -1401,6 +1401,8 @@ class PyiCloudService:
     @property
     def reminders(self) -> RemindersService:
         """Gets the 'Reminders' service."""
+        self._request_pcs_for_service("reminders")
+
         if not self._reminders:
             try:
                 service_root: str = self.get_webservice_url("ckdatabasews")

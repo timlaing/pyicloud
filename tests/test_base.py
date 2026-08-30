@@ -2101,6 +2101,7 @@ def test_reminders_returns_service(
             "pyicloud.base.RemindersService",
             return_value=mock_reminders_service,
         ) as mock_reminders_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._reminders = None
         result: RemindersService = pyicloud_service.reminders
@@ -2113,14 +2114,40 @@ def test_reminders_returns_service(
         assert result == mock_reminders_service
 
 
+def test_reminders_requests_pcs_for_service(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test reminders property requests PCS so encrypted fields are readable.
+
+    Without the PCS service key, CloudKit returns TitleDocument/NotesDocument
+    as undecryptable bytes and every title decodes to "Error Decoding Title".
+    """
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://reminders.example.com",
+        ),
+        patch("pyicloud.base.RemindersService", return_value=MagicMock()),
+        patch.object(
+            pyicloud_service,
+            "_request_pcs_for_service",
+        ) as mock_request_pcs,
+    ):
+        pyicloud_service._reminders = None
+        _: RemindersService = pyicloud_service.reminders
+        mock_request_pcs.assert_called_once_with("reminders")
+
+
 def test_reminders_returns_cached_instance(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Test reminders property returns cached instance if already set."""
     mock_reminders_service = MagicMock()
     pyicloud_service._reminders = mock_reminders_service
-    result: RemindersService = pyicloud_service.reminders
-    assert result == mock_reminders_service
+    with patch.object(pyicloud_service, "_request_pcs_for_service"):
+        result: RemindersService = pyicloud_service.reminders
+        assert result == mock_reminders_service
 
 
 def test_reminders_raises_on_api_exception(
@@ -2137,6 +2164,7 @@ def test_reminders_raises_on_api_exception(
             "pyicloud.base.RemindersService",
             side_effect=PyiCloudAPIResponseException("error"),
         ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._reminders = None
         with pytest.raises(
@@ -2150,10 +2178,13 @@ def test_reminders_raises_on_not_activated_exception(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Reminders wraps missing ckdatabasews activation as service unavailable."""
-    with patch.object(
-        pyicloud_service,
-        "get_webservice_url",
-        side_effect=PyiCloudServiceNotActivatedException("error"),
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            side_effect=PyiCloudServiceNotActivatedException("error"),
+        ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._reminders = None
         with pytest.raises(
