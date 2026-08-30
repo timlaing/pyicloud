@@ -1,11 +1,12 @@
 """Calendar service."""
 
 from calendar import monthrange
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta
 from secrets import randbelow
 import time
-from typing import Any, Literal, TypeVar, cast, overload
+from typing import Any, Literal, TypeVar, cast, get_args, overload
 from uuid import uuid4
 
 from requests import Response
@@ -119,6 +120,33 @@ class AppleDateFormat:
             minutes_from_midnight=minutes_calc,
         )
 
+    @classmethod
+    def from_list(cls, value: Sequence[int | str]) -> "AppleDateFormat":
+        """Build from Apple's 7-element date array."""
+        date_string, year, month, day, hour, minute = value[:6]
+        minutes_from_midnight = (
+            value[6] if len(value) > 6 else int(hour) * 60 + int(minute)
+        )
+        return cls(
+            date_string=str(date_string),
+            year=int(year),
+            month=int(month),
+            day=int(day),
+            hour=int(hour),
+            minute=int(minute),
+            minutes_from_midnight=int(minutes_from_midnight),
+        )
+
+    def to_datetime(self) -> datetime:
+        """Convert to a naive Python datetime.
+
+        Apple sends wall-clock time with the zone carried separately on the
+        event, so the result is intentionally naive.
+        """
+        return datetime(  # noqa: DTZ001
+            self.year, self.month, self.day, self.hour, self.minute
+        )
+
     def to_list(self) -> list[int | str]:
         """Convert to Apple's expected list format."""
         return [
@@ -130,6 +158,30 @@ class AppleDateFormat:
             self.minute,
             self.minutes_from_midnight,
         ]
+
+
+def _expects_datetime(annotation: Any) -> bool:
+    """Return whether a dataclass field is declared as holding a datetime."""
+    if annotation is datetime:
+        return True
+    return datetime in get_args(annotation)
+
+
+def _coerce(annotation: Any, value: Any) -> Any:
+    """Convert Apple's date arrays into datetimes for datetime fields.
+
+    The API returns dates as ``[YYYYMMDD, YYYY, MM, DD, HH, MM, minutes]``.
+    Fields declared as holding a ``datetime`` were previously populated with
+    that raw list, so the declared type did not match what callers received.
+    """
+    if not _expects_datetime(annotation) or isinstance(value, datetime):
+        return value
+    if isinstance(value, (list, tuple)) and len(value) >= 6:
+        try:
+            return AppleDateFormat.from_list(value).to_datetime()
+        except (TypeError, ValueError):
+            return value
+    return value
 
 
 @dataclass
@@ -548,6 +600,7 @@ class CalendarService(BaseService):
         """Creates an object from a dictionary with proper field validation."""
         if hasattr(obj, "__dataclass_fields__") and not isinstance(obj, type):
             valid_fields = {f.name for f in fields(cast(Any, obj))}
+            field_types = {f.name: f.type for f in fields(cast(Any, obj))}
 
             special_mappings = {
                 "pGuid": "pguid",
@@ -560,7 +613,9 @@ class CalendarService(BaseService):
                 )
 
                 if field_name in valid_fields:
-                    setattr(obj, field_name, value)
+                    setattr(
+                        obj, field_name, _coerce(field_types.get(field_name), value)
+                    )
         else:
             for key, value in _dict.items():
                 setattr(obj, key, value)

@@ -645,3 +645,52 @@ def test_apple_alarm_dataclass() -> None:
     assert alarm.messageType == AlarmDefaults.MESSAGE_TYPE
     assert alarm.isLocationBased == AlarmDefaults.IS_LOCATION_BASED
     assert alarm.measurement.minutes == 15
+
+
+def test_apple_date_format_round_trip() -> None:
+    """Apple's date array converts to a datetime and back."""
+    raw = [20260909, 2026, 9, 9, 10, 0, 600]
+
+    parsed = AppleDateFormat.from_list(raw)
+
+    assert parsed.to_datetime() == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
+    assert parsed.to_list() == ["20260909", 2026, 9, 9, 10, 0, 600]
+
+
+def test_event_dates_are_parsed_into_datetimes() -> None:
+    """Date fields are populated as datetimes, matching their annotations.
+
+    The API returns dates as a 7-element array, which used to be assigned to
+    the fields verbatim, so `EventObject.start_date` held a list despite being
+    declared as a `datetime`.
+    """
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {
+                "startDate": [20260909, 2026, 9, 9, 10, 0, 600],
+                "endDate": [20260909, 2026, 9, 9, 11, 0, 660],
+                "localStartDate": [20260909, 2026, 9, 9, 10, 0, 600],
+                "title": "Lunch",
+            },
+        )
+
+    # Apple sends naive wall-clock time; the zone lives on the event.
+    assert event.start_date == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
+    assert event.end_date == datetime(2026, 9, 9, 11, 0)  # noqa: DTZ001
+    assert event.local_start_date == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
+    assert event.title == "Lunch"
+
+
+def test_event_dates_tolerate_unexpected_values() -> None:
+    """A malformed date is left alone rather than raising."""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {"startDate": ["nope"], "endDate": None},
+        )
+
+    assert event.start_date == ["nope"]
+    assert event.end_date is None
