@@ -566,17 +566,18 @@ class PyiCloudService:
         try:
             self._authenticate_with_token()
         except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
-            self._srp_authentication(pause_2fa=pause_2fa)
-            if self._requires_mfa or (pause_2fa and self.data):
+            paused_login_succeeded = self._srp_authentication(pause_2fa=pause_2fa)
+            if self._requires_mfa:
                 LOGGER.debug(
                     "MFA is required; session-token authentication is deferred "
                     "until the 2FA challenge is completed."
                 )
                 return
-            self._authenticate_with_token(require_trust=not pause_2fa)
+            if not pause_2fa or not paused_login_succeeded:
+                self._authenticate_with_token(require_trust=not pause_2fa)
 
-    def _srp_authentication(self, pause_2fa: bool = False) -> None:
-        """SRP authentication."""
+    def _srp_authentication(self, pause_2fa: bool = False) -> bool:
+        """SRP authentication; returns True when a paused token login succeeded."""
         if self._password_raw is None:
             raise PyiCloudFailedLoginException("No password set")
 
@@ -671,7 +672,7 @@ class PyiCloudService:
                 and self._login_with_paused_token()
             ):
                 LOGGER.debug("Paused session-token login succeeded.")
-                return
+                return True
             LOGGER.debug("2FA required to complete authentication.")
             self._requires_mfa = True
             self._auth_data = self._get_mfa_auth_options()
@@ -685,6 +686,7 @@ class PyiCloudService:
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
+        return False
 
     def _login_with_paused_token(self) -> bool:
         """Attempt an untrusted session-token login for a paused 2FA session."""

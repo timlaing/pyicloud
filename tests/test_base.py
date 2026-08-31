@@ -3058,9 +3058,10 @@ def test_authenticate_pause_2fa_skips_second_token_auth_after_paused_login(
 ) -> None:
     """_authenticate should not re-run trusted token login after a paused login."""
 
-    def _paused_login(pause_2fa: bool) -> None:
+    def _paused_login(pause_2fa: bool) -> bool:
         del pause_2fa
         pyicloud_service.data = {"hsaTrustedBrowser": False, "webservices": {}}
+        return True
 
     with (
         patch.object(
@@ -3086,7 +3087,9 @@ def test_authenticate_pause_2fa_success_path_uses_untrusted_token_auth(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """SRP success with pause_2fa must not re-introduce a 2FA requirement."""
-    pyicloud_service.data = {}
+    # Non-empty (stale) data must not cause the follow-up token auth to be
+    # skipped; the gate should depend on whether a paused login actually ran.
+    pyicloud_service.data = {"hsaTrustedBrowser": False, "webservices": {}}
 
     calls: list[bool] = []
 
@@ -3104,7 +3107,7 @@ def test_authenticate_pause_2fa_success_path_uses_untrusted_token_auth(
         patch.object(
             pyicloud_service,
             "_srp_authentication",
-            return_value=None,
+            return_value=False,
         ),
     ):
         pyicloud_service._authenticate(pause_2fa=True)
