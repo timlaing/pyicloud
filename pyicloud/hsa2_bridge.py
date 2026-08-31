@@ -80,12 +80,28 @@ class Hsa2BootContext:
 
     @classmethod
     def from_auth_options(cls, auth_options: Mapping[str, Any]) -> Hsa2BootContext:
-        """Build a normalized boot context from Apple's auth-options payload."""
-        bridge_initiate_data = auth_options.get("bridgeInitiateData")
+        """Build a normalized boot context from Apple's auth-options payload.
+
+        Apple's JSON response may nest the boot data under ``direct.twoSV``
+        (the same shape as the HTML ``boot_args`` payload) or expose it at
+        the top level.  This method accepts both shapes and normalises them
+        so that callers always see the top-level keys.
+        """
+
+        direct = auth_options.get("direct")
+        direct_options: Mapping[str, Any] = auth_options
+        two_sv_options: Mapping[str, Any] = auth_options
+        if isinstance(direct, Mapping):
+            direct_options = direct
+            two_sv = direct.get("twoSV")
+            if isinstance(two_sv, Mapping):
+                two_sv_options = two_sv
+
+        bridge_initiate_data = two_sv_options.get("bridgeInitiateData")
         if not isinstance(bridge_initiate_data, dict):
             bridge_initiate_data = {}
 
-        phone_number_verification = auth_options.get("phoneNumberVerification")
+        phone_number_verification = two_sv_options.get("phoneNumberVerification")
         if not isinstance(phone_number_verification, dict):
             phone_number_verification = bridge_initiate_data.get(
                 "phoneNumberVerification"
@@ -93,17 +109,17 @@ class Hsa2BootContext:
         if not isinstance(phone_number_verification, dict):
             phone_number_verification = {}
 
-        auth_factors = auth_options.get("authFactors")
+        auth_factors = two_sv_options.get("authFactors")
         if not isinstance(auth_factors, list):
             auth_factors = []
 
-        source_app_id = auth_options.get("sourceAppId")
+        source_app_id = two_sv_options.get("sourceAppId")
         if source_app_id is not None:
             source_app_id = str(source_app_id)
 
         return cls(
-            auth_initial_route=str(auth_options.get("authInitialRoute") or ""),
-            has_trusted_devices=bool(auth_options.get("hasTrustedDevices")),
+            auth_initial_route=str(direct_options.get("authInitialRoute") or ""),
+            has_trusted_devices=bool(direct_options.get("hasTrustedDevices")),
             auth_factors=tuple(
                 factor for factor in auth_factors if isinstance(factor, str)
             ),

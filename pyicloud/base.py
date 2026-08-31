@@ -326,6 +326,7 @@ class PyiCloudService:
         self._invites: InvitesService | None = None
 
         self._requires_mfa: bool = False
+        self._two_factor_code_requested: bool = False
 
         if authenticate:
             self.authenticate()
@@ -446,6 +447,7 @@ class PyiCloudService:
         self._reminders = None
         self._invites = None
         self._requires_mfa = False
+        self._two_factor_code_requested = False
         self.params.pop("dsid", None)
 
     def _clear_trusted_device_bridge_state(self) -> None:
@@ -537,6 +539,12 @@ class PyiCloudService:
             self._authenticate_with_token()
         except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
             self._srp_authentication()
+            if self._requires_mfa:
+                LOGGER.debug(
+                    "MFA is required; session-token authentication is deferred "
+                    "until the 2FA challenge is completed."
+                )
+                return
             self._authenticate_with_token()
 
     def _srp_authentication(self) -> None:
@@ -628,8 +636,15 @@ class PyiCloudService:
             )
         except PyiCloud2FARequiredException:
             LOGGER.debug("2FA required to complete authentication.")
+            self._requires_mfa = True
             self._auth_data = self._get_mfa_auth_options()
-            self._request_2fa_code()
+            try:
+                self.request_2fa_code()
+            except (
+                PyiCloudAPIResponseException,
+                PyiCloudNoTrustedNumberAvailable,
+            ) as error:
+                LOGGER.debug("Automatic 2FA code delivery failed: %s", error)
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
@@ -751,9 +766,10 @@ class PyiCloudService:
     @property
     def requires_2fa(self) -> bool:
         """Returns True if two-factor authentication is required."""
-        return (
-            self._is_mfa_required()
-            and self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
+        return self._is_mfa_required() and (
+            self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
+            or self._requires_mfa
+            or bool(self._auth_data)
         )
 
     @property
@@ -825,42 +841,6 @@ class PyiCloudService:
         self._set_two_factor_delivery_state("unknown")
         return auth_options
 
-    def _request_2fa_code(self) -> None:
-        """Request a 2FA code delivery after SRP authentication requires MFA.
-
-        Apple does not automatically push a verification code for API-based
-        (non-browser) sessions after SRP. This method explicitly triggers the
-        push notification to trusted devices and falls back to SMS when available.
-        """
-        headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
-
-        try:
-            self.session.get(
-                f"{self._auth_endpoint}/verify/trusteddevice",
-                headers=headers,
-            )
-            LOGGER.debug("Requested 2FA code via trusted device push")
-        except Exception:  # noqa: BLE001
-            LOGGER.debug("Could not request 2FA device push; will try SMS fallback")
-
-        trusted_phone_number = self._trusted_phone_number()
-        if trusted_phone_number is not None:
-            try:
-                self.session.put(
-                    f"{self._auth_endpoint}/verify/phone",
-                    json={
-                        "phoneNumber": trusted_phone_number.as_phone_number_payload(),
-                        "mode": "sms",
-                    },
-                    headers=headers,
-                )
-                LOGGER.debug(
-                    "Requested 2FA code via SMS (phone id %s)",
-                    trusted_phone_number.device_id,
-                )
-            except Exception:  # noqa: BLE001
-                LOGGER.debug("Could not request 2FA SMS code")
-
     def _set_two_factor_delivery_state(
         self, method: str, notice: str | None = None
     ) -> None:
@@ -868,10 +848,13 @@ class PyiCloudService:
 
         self._two_factor_delivery_method = method
         self._two_factor_delivery_notice = notice
+        if method == "unknown":
+            self._two_factor_code_requested = False
 
     def use_existing_trusted_device_code(self) -> None:
         """Validate the next 2FA code as one already shown on a trusted device."""
 
+        self._two_factor_code_requested = False
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("trusted_device")
 
@@ -923,6 +906,7 @@ class PyiCloudService:
         )
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("sms", notice)
+        self._two_factor_code_requested = True
         return True
 
     @property
@@ -999,6 +983,12 @@ class PyiCloudService:
             self._set_two_factor_delivery_state("security_key")
             return False
 
+        if self._two_factor_code_requested:
+            LOGGER.debug(
+                "2FA code delivery for the current challenge is already in flight."
+            )
+            return True
+
         self._clear_trusted_device_bridge_state()
 
         if self._supports_trusted_device_bridge():
@@ -1014,6 +1004,7 @@ class PyiCloudService:
                     ),
                 )
                 self._set_two_factor_delivery_state("trusted_device")
+                self._two_factor_code_requested = True
                 return True
             except PyiCloudTrustedDevicePromptException:
                 LOGGER.debug(
@@ -1168,6 +1159,7 @@ class PyiCloudService:
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
+        self._two_factor_code_requested = False
         bridge_state = self._trusted_device_bridge_state
         try:
             if self.two_factor_delivery_method == "sms":
