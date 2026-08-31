@@ -17,6 +17,7 @@ import requests
 from requests import HTTPError, Response
 
 from pyicloud import PyiCloudService
+from pyicloud.const import AppleAuthError
 from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
@@ -1414,6 +1415,24 @@ def test_raise_error_access_denied(pyicloud_session: PyiCloudSession) -> None:
     with pytest.raises(PyiCloudAPIResponseException):
         pyicloud_session._raise_error(
             code="ACCESS_DENIED", reason="ACCESS_DENIED", response=response
+        )
+
+
+@pytest.mark.parametrize(
+    "auth_key",
+    ["authType", "authenticationType"],
+)
+def test_handle_request_error_two_factor(
+    pyicloud_session: PyiCloudSession, auth_key: str
+) -> None:
+    """2FA is detected for both the authType and authenticationType response keys."""
+    response = MagicMock()
+    response.json.return_value = {auth_key: "hsa2"}
+    response.headers = {"Content-Type": "application/json"}
+    with pytest.raises(PyiCloud2FARequiredException):
+        pyicloud_session._handle_request_error(
+            status_code=AppleAuthError.TWO_FACTOR_REQUIRED,
+            response=response,
         )
 
 

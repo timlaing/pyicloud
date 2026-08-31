@@ -356,10 +356,13 @@ class PyiCloudSession(requests.Session):
         response: Response,
     ) -> Response:
         """Handle request error."""
+        auth_type: str | None = response.json().get("authType") or response.json().get(
+            "authenticationType"
+        )
         if (
             status_code == AppleAuthError.TWO_FACTOR_REQUIRED
             and self._is_json_response(response)
-            and (response.json().get("authType") == "hsa2")
+            and auth_type == "hsa2"
         ):
             raise PyiCloud2FARequiredException(
                 apple_id=self.service.account_name,
