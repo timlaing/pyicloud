@@ -339,7 +339,7 @@ class PyiCloudService:
 
         return self._is_china_mainland
 
-    def authenticate(
+    def authenticate(  # noqa: S3776
         self,
         force_refresh: bool = False,
         service: str | None = None,
@@ -555,7 +555,9 @@ class PyiCloudService:
                 return
             self._authenticate_with_token()
 
-    def _srp_authentication(self, pause_2fa: bool = False) -> None:
+    def _srp_authentication(  # noqa: S3776
+        self, pause_2fa: bool = False
+    ) -> None:
         """SRP authentication."""
         if self._password_raw is None:
             raise PyiCloudFailedLoginException("No password set")
@@ -645,18 +647,13 @@ class PyiCloudService:
                 headers=self._get_auth_headers(),
             )
         except PyiCloud2FARequiredException:
-            if pause_2fa and self.session.data.get("session_token"):
-                LOGGER.debug(
-                    "2FA required but pause2FA is enabled; "
-                    "attempting session-token login."
-                )
-                try:
-                    self._authenticate_with_token(require_trust=False)
-                    return
-                except PyiCloudAPIResponseException:
-                    LOGGER.debug(
-                        "Paused session-token login failed; falling back to MFA flow."
-                    )
+            if (
+                pause_2fa
+                and self.session.data.get("session_token")
+                and self._login_with_paused_token()
+            ):
+                LOGGER.debug("Paused session-token login succeeded.")
+                return
             LOGGER.debug("2FA required to complete authentication.")
             self._requires_mfa = True
             self._auth_data = self._get_mfa_auth_options()
@@ -670,6 +667,20 @@ class PyiCloudService:
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
+
+    def _login_with_paused_token(self) -> bool:
+        """Attempt an untrusted session-token login for a paused 2FA session."""
+        if not self.session.data.get("session_token"):
+            return False
+        LOGGER.debug(
+            "2FA required but pause2FA is enabled; attempting session-token login."
+        )
+        try:
+            self._authenticate_with_token(require_trust=False)
+        except (PyiCloudAPIResponseException, PyiCloudFailedLoginException):
+            LOGGER.debug("Paused session-token login failed; falling back to MFA flow.")
+            return False
+        return True
 
     def _authenticate_with_token(self, require_trust: bool = True) -> None:
         """Authenticate using session token."""
