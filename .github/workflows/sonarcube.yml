@@ -110,7 +110,7 @@ jobs:
             -Dsonar.sources=pyicloud
             -Dsonar.tests=tests
             -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
-            -Dsonar.python.version=3.14
+            -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14
             -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
             -Dsonar.pullrequest.key=${{ steps.validate.outputs.pr-number }}
             -Dsonar.pullrequest.branch=${{ steps.validate.outputs.head-ref }}
