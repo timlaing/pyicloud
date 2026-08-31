@@ -25,7 +25,10 @@ from pyicloud.common.cloudkit import (
     CKZoneChangesResponse,
     CKZoneListResponse,
 )
-from pyicloud.common.cloudkit.client import CloudKitApiError
+from pyicloud.common.cloudkit.client import (
+    CloudKitApiError,
+    CloudKitRateLimited,
+)
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
@@ -54,6 +57,10 @@ from pyicloud.services.photos_cloudkit.mappers import (
     decode_encrypted_text,
     record_change_tag,
     record_field_value,
+)
+from pyicloud.services.photos_cloudkit.models import (
+    PhotosPutAssetResult,
+    PhotosPutAssetStatus,
 )
 from pyicloud.services.photos_cloudkit.queries import parent_filter, smart_album_filter
 from pyicloud.services.photos_legacy import AlbumContainer as LegacyAlbumContainer
@@ -678,8 +685,9 @@ def test_upload_file_no_records(mock_photos_service: MagicMock) -> None:
     )
 
 
-def test_upload_file_success_typed_client() -> None:
-    """Tests upload_file delegates to the typed Photos client when available."""
+def _indexed_client() -> MagicMock:
+    """Return a mock CloudKit client whose library reports indexing finished."""
+
     mock_client = MagicMock()
     mock_client.query.return_value = CKQueryResponse(
         records=[
@@ -691,81 +699,13 @@ def test_upload_file_success_typed_client() -> None:
         ],
         syncToken="sync-token",
     )
-    mock_client.upload_file.return_value = {
-        "records": [
-            {
-                "recordName": "uploaded_photo",
-                "recordChangeTag": "tag1",
-                "recordType": "CPLAsset",
-                "fields": {
-                    "masterRef": {"value": {"recordName": "uploaded_photo"}},
-                    "assetDate": {"value": 1700000000000},
-                    "addedDate": {"value": 1700000000000},
-                },
-                "zoneID": {"zoneName": "PrimarySync"},
-            },
-            {
-                "recordType": "CPLMaster",
-                "recordName": "uploaded_photo",
-                "recordChangeTag": "tag2",
-                "fields": {
-                    "filenameEnc": {
-                        "value": base64.b64encode(b"uploaded_photo.jpg").decode("utf-8")
-                    }
-                },
-                "zoneID": {"zoneName": "PrimarySync"},
-            },
-        ]
-    }
-    service: PhotosService = cast(
-        PhotosService,
-        SimpleNamespace(
-            session=object(),
-            service_endpoint="https://example.com/endpoint",
-            params={"dsid": "12345"},
-        ),
-    )
-
-    library = PhotoLibrary(
-        service=service,
-        zone_id={"zoneName": "PrimarySync"},
-        client=mock_client,
-        upload_url="https://upload.example.com",
-    )
-
-    asset = library.upload_file("test_photo.jpg")
-
-    assert asset is not None
-    assert asset.id == "uploaded_photo"
-    mock_client.upload_file.assert_called_once_with("test_photo.jpg", dsid="12345")
+    return mock_client
 
 
-def test_upload_file_typed_client_hydrates_skeletal_records() -> None:
-    """Tests upload_file performs a lookup when upload returns skeletal records."""
-    mock_client = MagicMock()
-    mock_client.query.return_value = CKQueryResponse(
-        records=[
-            _ck_record(
-                "CheckIndexingState",
-                "indexing",
-                {"state": {"type": "STRING", "value": "FINISHED"}},
-            )
-        ],
-        syncToken="sync-token",
-    )
-    mock_client.upload_file.return_value = {
-        "records": [
-            {
-                "recordType": "CPLMaster",
-                "recordName": "master123",
-            },
-            {
-                "recordType": "CPLAsset",
-                "recordName": "asset123",
-            },
-        ]
-    }
-    mock_client.lookup.return_value = CKLookupResponse(
+def _uploaded_records_lookup() -> CKLookupResponse:
+    """Return the hydrated CPLMaster/CPLAsset pair for an uploaded photo."""
+
+    return CKLookupResponse(
         records=[
             _ck_record(
                 "CPLMaster",
@@ -778,27 +718,29 @@ def test_upload_file_typed_client_hydrates_skeletal_records() -> None:
                         ),
                     }
                 },
-                recordChangeTag="master-tag",
             ),
             _ck_record(
                 "CPLAsset",
                 "asset123",
                 {
-                    "masterRef": {
-                        "type": "REFERENCE",
-                        "value": {
-                            "recordName": "master123",
-                            "action": "NONE",
-                        },
-                    },
-                    "assetDate": {"type": "TIMESTAMP", "value": 1700000000000},
-                    "addedDate": {"type": "TIMESTAMP", "value": 1700000000000},
+                    "masterRef": {"value": {"recordName": "master123"}},
+                    "assetDate": {"value": 1700000000000},
+                    "addedDate": {"value": 1700000000000},
                 },
-                recordChangeTag="asset-tag",
             ),
-        ],
-        syncToken="sync-token",
+        ]
     )
+
+
+def _upload_library(
+    mock_client: MagicMock, *, upload_hydration_timeout: float = 0.5
+) -> PhotoLibrary:
+    """Build a private library backed by ``mock_client``.
+
+    Hydration timings are shrunk so retry behaviour is exercised without
+    real waiting.
+    """
+
     service: PhotosService = cast(
         PhotosService,
         SimpleNamespace(
@@ -807,111 +749,239 @@ def test_upload_file_typed_client_hydrates_skeletal_records() -> None:
             params={"dsid": "12345"},
         ),
     )
-
-    library = PhotoLibrary(
+    return PhotoLibrary(
         service=service,
         zone_id={"zoneName": "PrimarySync"},
         client=mock_client,
         upload_url="https://upload.example.com",
+        photos_upload_url="https://photosupload.example.com",
+        upload_hydration_timeout=upload_hydration_timeout,
+        upload_hydration_interval=0.0,
     )
 
+
+def test_upload_file_success_typed_client() -> None:
+    """Tests upload_file delegates to the typed Photos client when available."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        uploadJobId="master123#PrimarySync:asset123",
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.return_value = _uploaded_records_lookup()
+
+    library = _upload_library(mock_client)
     asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
     assert asset.id == "asset123"
-    assert asset.filename == "uploaded_photo.jpg"
-    mock_client.lookup.assert_called_once()
-    assert mock_client.lookup.call_args.kwargs["record_names"] == [
-        "master123",
-        "asset123",
+    mock_client.upload_file.assert_called_once_with(
+        "test_photo.jpg", zone_name="PrimarySync"
+    )
+
+
+def test_upload_file_hydrates_record_names_from_put_asset() -> None:
+    """putAsset returns only record names, so a lookup always hydrates them."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        uploadJobId="master123#PrimarySync:asset123",
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.return_value = _uploaded_records_lookup()
+
+    library = _upload_library(mock_client)
+    asset = library.upload_file("test_photo.jpg")
+
+    assert asset is not None
+    lookup_kwargs = mock_client.lookup.call_args.kwargs
+    assert lookup_kwargs["record_names"] == ["master123", "asset123"]
+    assert lookup_kwargs["zone_id"].zoneName == "PrimarySync"
+
+
+def _not_found_lookup() -> CKLookupResponse:
+    """Return the NOT_FOUND pair CloudKit sends before an upload is indexed.
+
+    Apple returns these as error items rather than records, which is why
+    hydration ignores them and retries.
+    """
+
+    return CKLookupResponse(
+        records=[
+            CKErrorItem(recordName="master123", serverErrorCode="NOT_FOUND"),
+            CKErrorItem(recordName="asset123", serverErrorCode="NOT_FOUND"),
+        ]
+    )
+
+
+def test_upload_file_retries_until_cloudkit_indexes_the_records() -> None:
+    """A freshly uploaded asset is not queryable immediately, so hydration retries.
+
+    Measured against a live account, the lookup answered NOT_FOUND for roughly
+    14 seconds before both records appeared.
+    """
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        uploadJobId="master123#PrimarySync:asset123",
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.side_effect = [
+        _not_found_lookup(),
+        _not_found_lookup(),
+        _uploaded_records_lookup(),
     ]
-    assert mock_client.lookup.call_args.kwargs["zone_id"].zoneName == "PrimarySync"
-    assert "filenameEnc" in mock_client.lookup.call_args.kwargs["desired_keys"]
 
-
-def test_upload_file_typed_client_hydrates_duplicate_upload_records() -> None:
-    """Tests duplicate uploads still resolve to a usable PhotoAsset."""
-
-    mock_client = MagicMock()
-    mock_client.query.return_value = CKQueryResponse(
-        records=[
-            _ck_record(
-                "CheckIndexingState",
-                "indexing",
-                {"state": {"type": "STRING", "value": "FINISHED"}},
-            )
-        ],
-        syncToken="sync-token",
-    )
-    mock_client.upload_file.return_value = {
-        "isDuplicate": True,
-        "records": [
-            {
-                "recordType": "CPLMaster",
-                "recordName": "master123",
-            },
-            {
-                "recordType": "CPLAsset",
-                "recordName": "asset123",
-            },
-        ],
-    }
-    mock_client.lookup.return_value = CKLookupResponse(
-        records=[
-            _ck_record(
-                "CPLMaster",
-                "master123",
-                {
-                    "filenameEnc": {
-                        "type": "STRING",
-                        "value": base64.b64encode(b"existing_photo.jpg").decode(
-                            "utf-8"
-                        ),
-                    }
-                },
-                recordChangeTag="master-tag",
-            ),
-            _ck_record(
-                "CPLAsset",
-                "asset123",
-                {
-                    "masterRef": {
-                        "type": "REFERENCE",
-                        "value": {
-                            "recordName": "master123",
-                            "action": "NONE",
-                        },
-                    },
-                    "assetDate": {"type": "TIMESTAMP", "value": 1700000000000},
-                    "addedDate": {"type": "TIMESTAMP", "value": 1700000000000},
-                },
-                recordChangeTag="asset-tag",
-            ),
-        ],
-        syncToken="sync-token",
-    )
-    service: PhotosService = cast(
-        PhotosService,
-        SimpleNamespace(
-            session=object(),
-            service_endpoint="https://example.com/endpoint",
-            params={"dsid": "12345"},
-        ),
-    )
-
-    library = PhotoLibrary(
-        service=service,
-        zone_id={"zoneName": "PrimarySync"},
-        client=mock_client,
-        upload_url="https://upload.example.com",
-    )
-
-    asset = library.upload_file("test_photo.jpg")
+    library = _upload_library(mock_client)
+    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+        asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
     assert asset.id == "asset123"
-    assert asset.filename == "existing_photo.jpg"
-    mock_client.lookup.assert_called_once()
+    assert mock_client.lookup.call_count == 3
+    assert sleep.call_count == 2
+
+
+def test_upload_file_gives_up_when_indexing_never_completes() -> None:
+    """Hydration is bounded: a never-indexed asset returns None, not a hang."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        uploadJobId="master123#PrimarySync:asset123",
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.return_value = _not_found_lookup()
+
+    library = _upload_library(mock_client)
+    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+        asset = library._hydrate_uploaded_asset(
+            mock_client.upload_file.return_value, timeout=0.2, interval=0.0
+        )
+
+    assert asset is None
+    assert mock_client.lookup.call_count >= 2
+
+
+def test_upload_file_backs_off_between_hydration_attempts() -> None:
+    """The retry interval doubles, so a slow index costs few lookups."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.side_effect = [
+        _not_found_lookup(),
+        _not_found_lookup(),
+        _not_found_lookup(),
+        _uploaded_records_lookup(),
+    ]
+
+    library = _upload_library(mock_client, upload_hydration_timeout=300.0)
+    library._upload_hydration_interval = 2.0
+    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+        asset = library.upload_file("test_photo.jpg")
+
+    assert asset is not None
+    assert [call.args[0] for call in sleep.call_args_list] == [2.0, 4.0, 8.0]
+
+
+def test_upload_file_backs_off_when_rate_limited_mid_hydration() -> None:
+    """A 429 while waiting must not lose an upload that already succeeded."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.side_effect = [
+        CloudKitRateLimited("rate limited", retry_after=5.0),
+        _uploaded_records_lookup(),
+    ]
+
+    library = _upload_library(mock_client, upload_hydration_timeout=300.0)
+    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+        asset = library.upload_file("test_photo.jpg")
+
+    assert asset is not None
+    assert asset.id == "asset123"
+    # Apple's Retry-After is honoured rather than the default interval.
+    assert sleep.call_args_list[0].args[0] == 5.0
+
+
+def test_upload_file_returns_none_when_rate_limited_past_the_deadline() -> None:
+    """Persistent rate limiting is bounded like any other hydration failure."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.side_effect = CloudKitRateLimited("rate limited")
+
+    library = _upload_library(mock_client, upload_hydration_timeout=0.2)
+    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+        asset = library.upload_file("test_photo.jpg")
+
+    assert asset is None
+
+
+def test_upload_file_hydrates_duplicate_without_waiting() -> None:
+    """A duplicate's records already exist, so the first lookup resolves them."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=409, errorMessage="duplicate asset"),
+    )
+    mock_client.lookup.return_value = _uploaded_records_lookup()
+
+    library = _upload_library(mock_client)
+    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+        asset = library.upload_file("test_photo.jpg")
+
+    assert asset is not None
+    assert asset.id == "asset123"
+    assert mock_client.lookup.call_count == 1
+    sleep.assert_not_called()
+
+
+def test_upload_file_returns_none_without_record_names() -> None:
+    """A registration missing record names yields no asset rather than failing."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        uploadJobId="job-without-records",
+        cplMaster=None,
+        cplAsset=None,
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+
+    library = _upload_library(mock_client)
+
+    assert library.upload_file("test_photo.jpg") is None
+    mock_client.lookup.assert_not_called()
+
+
+def test_upload_file_returns_none_when_lookup_is_incomplete() -> None:
+    """A lookup that returns only one of the record pair yields no asset."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        uploadJobId="master123#PrimarySync:asset123",
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.return_value = CKLookupResponse(
+        records=[_ck_record("CPLMaster", "master123", {})]
+    )
+
+    library = _upload_library(mock_client)
+
+    assert library.upload_file("test_photo.jpg") is None
 
 
 def test_upload_file_typed_client_raises_api_response_exception() -> None:

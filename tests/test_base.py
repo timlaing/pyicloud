@@ -2211,6 +2211,7 @@ def test_photos_returns_service(pyicloud_service: PyiCloudService) -> None:
                 "https://photos.example.com",
                 "https://upload.example.com",
                 "https://shared.example.com",
+                "https://photosupload.example.com",
             ],
         ),
         patch(
@@ -2227,8 +2228,37 @@ def test_photos_returns_service(pyicloud_service: PyiCloudService) -> None:
             params=pyicloud_service.params,
             upload_url="https://upload.example.com",
             shared_streams_url="https://shared.example.com",
+            photos_upload_url="https://photosupload.example.com",
         )
         assert pyicloud_service.params["dsid"] == "12345"
+        assert result == mock_photos_service
+
+
+def test_photos_tolerates_missing_photosupload_webservice(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Accounts without a photosupload host still get a usable Photos service."""
+    mock_photos_service = MagicMock()
+
+    def _webservice_url(key: str) -> str:
+        if key == "photosupload":
+            raise PyiCloudServiceNotActivatedException("Webservice not available")
+        return f"https://{key}.example.com"
+
+    with (
+        patch.object(
+            pyicloud_service, "get_webservice_url", side_effect=_webservice_url
+        ),
+        patch(
+            "pyicloud.base.PhotosService", return_value=mock_photos_service
+        ) as mock_photos_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
+    ):
+        pyicloud_service._photos = None
+        pyicloud_service.data = {"dsInfo": {"dsid": "12345"}}
+        result: PhotosService = pyicloud_service.photos
+
+        assert mock_photos_cls.call_args.kwargs["photos_upload_url"] is None
         assert result == mock_photos_service
 
 
@@ -2255,6 +2285,7 @@ def test_photos_raises_on_api_exception(
                 "https://photos.example.com",
                 "https://upload.example.com",
                 "https://shared.example.com",
+                "https://photosupload.example.com",
             ],
         ),
         patch(

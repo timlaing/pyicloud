@@ -1,0 +1,5 @@
+{
+  "uploadUrls": {
+    "11111111-2222-3333-4444-555555555555": "https://cws.icloud-content.example.com:443/12345/singleFileUpload?tk=placeholder-token&ref=placeholder-ref&c=com.apple.imports.fdb&z=PhotosUploadImport&uuid=11111111-2222-3333-4444-555555555555&dataclass=com.apple.Dataclass.CloudKit&p=31&e=1798745600&chunker=FIXED"
+  }
+}

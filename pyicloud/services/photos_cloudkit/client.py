@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from pathlib import Path
-from typing import Any, cast
-from urllib.parse import urlencode
 
 from pydantic import ValidationError
-from requests import Response
 
 from pyicloud.common.cloudkit import (
     CKDatabaseChangesResponse,
@@ -36,8 +32,10 @@ from .models import (
     PhotosBatchCountRequestBatch,
     PhotosBatchCountResponse,
     PhotosBatchCountStringListValue,
-    PhotosUploadResponse,
+    PhotosPutAssetResult,
+    PhotosUploadStatus,
 )
+from .upload import PhotosUploader
 
 
 class PhotosCloudKitClient:
@@ -50,11 +48,21 @@ class PhotosCloudKitClient:
         session: PyiCloudSession,
         base_params: dict[str, object],
         upload_url: str | None = None,
+        photos_upload_url: str | None = None,
     ) -> None:
         self._session = session
         self._upload_url = upload_url
+        self._photos_upload_url = photos_upload_url
         self._base_params = base_params
         self._client = CloudKitContainerClient(base_url, session, base_params)
+        self._uploader: PhotosUploader | None = None
+        if photos_upload_url:
+            self._uploader = PhotosUploader(
+                session=session,
+                base_url=photos_upload_url,
+                base_params=base_params,
+                timeout=self._client.timeout,
+            )
 
     def query(
         self,
@@ -168,47 +176,34 @@ class PhotosCloudKitClient:
                 "Photos count query failed", payload=data.model_dump(mode="json")
             ) from exc
 
-    @staticmethod
-    def _response_json(response: Response, *, context: str) -> dict[str, Any]:
-        code = getattr(response, "status_code", 0)
-        if not isinstance(code, int):
-            code = 200
-        if code >= 400:
-            try:
-                payload = response.json()
-            except Exception:
-                payload = getattr(response, "text", None)
-            raise CloudKitApiError(
-                f"{context} failed with HTTP {code}", payload=payload
-            )
-        try:
-            return cast(dict[str, Any], response.json())
-        except Exception as exc:
-            raise CloudKitApiError(
-                f"{context} returned invalid JSON",
-                payload=getattr(response, "text", None),
-            ) from exc
+    def upload_status(self, job_ids: list[str]) -> dict[str, PhotosUploadStatus]:
+        """Report ingest progress for upload jobs returned by :meth:`upload_file`.
 
-    def upload_file(self, path: str, *, dsid: str) -> PhotosUploadResponse:
-        """Upload a file through Apple’s uploadimagews endpoint."""
+        Progress is informational: an asset becomes usable when CloudKit indexes
+        its records, which :meth:`upload_file`'s caller waits for separately.
+        """
 
-        if not self._upload_url:
+        if self._uploader is None:
             raise CloudKitApiError("Photos uploads are not configured")
-        upload_path = Path(path)
-        params = {"dsid": dsid, "filename": upload_path.name}
-        url = f"{self._upload_url}/upload?{urlencode(params)}"
-        with upload_path.open("rb") as handle:
-            response = self._session.post(
-                url=url,
-                data=handle,
-                timeout=self._client.timeout,
-            )
-        data = PhotosUploadResponse.model_validate(
-            self._response_json(response, context="Photos upload")
+        return self._uploader.upload_status(job_ids)
+
+    def upload_file(
+        self,
+        path: str,
+        *,
+        zone_name: str,
+        import_group: str | None = None,
+    ) -> PhotosPutAssetResult:
+        """Upload a file into ``zone_name`` and return its registration.
+
+        The returned result carries ``cplMaster`` and ``cplAsset`` record
+        names, which callers hydrate with a follow-up lookup once CloudKit
+        has indexed them. A file iCloud already holds comes back as a
+        duplicate result rather than an error.
+        """
+
+        if self._uploader is None:
+            raise CloudKitApiError("Photos uploads are not configured")
+        return self._uploader.upload(
+            path, zone_name=zone_name, import_group=import_group
         )
-        if data.errors:
-            first = data.errors[0]
-            raise CloudKitApiError(
-                f"{first.code or 'UPLOAD_ERROR'}: {first.message or ''}".strip()
-            )
-        return data

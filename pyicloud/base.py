@@ -1406,6 +1406,13 @@ class PyiCloudService:
             service_root: str = self.get_webservice_url("ckdatabasews")
             upload_url: str = self.get_webservice_url("uploadimagews")
             shared_streams_url: str = self.get_webservice_url("sharedstreams")
+            # Apple withdrew the single-POST uploadimagews endpoint; uploads now
+            # run against the photosupload host. Older accounts may not publish
+            # it, so uploads stay unconfigured rather than failing the service.
+            try:
+                photos_upload_url: str | None = self.get_webservice_url("photosupload")
+            except PyiCloudServiceNotActivatedException:
+                photos_upload_url = None
             self.params["dsid"] = self.data["dsInfo"]["dsid"]
 
             try:
@@ -1415,6 +1422,7 @@ class PyiCloudService:
                     params=self.params,
                     upload_url=upload_url,
                     shared_streams_url=shared_streams_url,
+                    photos_upload_url=photos_upload_url,
                 )
             except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(

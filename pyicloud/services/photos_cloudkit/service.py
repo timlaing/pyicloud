@@ -8,6 +8,7 @@ from collections.abc import Generator, Iterable, Iterator
 from datetime import datetime, timezone
 import logging
 import os
+import time
 from typing import Any, cast
 from unittest.mock import Mock
 from urllib.parse import urlencode
@@ -26,7 +27,7 @@ from pyicloud.common.cloudkit import (
     CKZoneID,
     CKZoneIDReq,
 )
-from pyicloud.common.cloudkit.client import CloudKitApiError
+from pyicloud.common.cloudkit.client import CloudKitApiError, CloudKitRateLimited
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
@@ -65,6 +66,7 @@ from .mappers import record_change_tag as _record_change_tag
 from .models import (
     PhotoChangeEvent,
     PhotoResource,
+    PhotosPutAssetResult,
     PhotosServiceException,
     PhotosUploadResponse,
     SmartAlbumSpec,
@@ -82,6 +84,16 @@ from .sync import PhotoSyncOptions, PhotoSyncResult, run_photo_sync, watch_photo
 LOGGER = logging.getLogger(__name__)
 
 SHARED_LIBRARY_ZONE_PREFIX = "SharedSync-"
+
+# An uploaded asset is registered before CloudKit indexes it. Measured against a
+# live account, the CPLMaster/CPLAsset lookup answered NOT_FOUND for 14-20
+# seconds before the records appeared, so hydration retries rather than giving
+# up on the first attempt. The default leaves roughly 3x headroom over that.
+UPLOAD_HYDRATION_TIMEOUT = 60.0
+UPLOAD_HYDRATION_INTERVAL = 2.0
+# The interval doubles up to this cap, so a slow index costs a handful of
+# lookups rather than one every two seconds for a minute.
+UPLOAD_HYDRATION_MAX_INTERVAL = 8.0
 
 
 def _new_album_position() -> int:
@@ -304,6 +316,9 @@ class BasePhotoLibrary(ABC):
         zone_id: dict[str, str] | None = None,
         client: PhotosCloudKitClient | None = None,
         upload_url: str | None = None,
+        photos_upload_url: str | None = None,
+        upload_hydration_timeout: float = UPLOAD_HYDRATION_TIMEOUT,
+        upload_hydration_interval: float = UPLOAD_HYDRATION_INTERVAL,
         scope: str = "private",
     ) -> None:
         self.service = service
@@ -320,10 +335,14 @@ class BasePhotoLibrary(ABC):
                 session=service.session,
                 base_params=service.params,
                 upload_url=upload_url,
+                photos_upload_url=photos_upload_url,
             )
         self._albums: AlbumContainer | None = None
         self._pending_albums: dict[str, PhotoAlbum] = {}
         self._upload_url = upload_url
+        self._photos_upload_url = photos_upload_url
+        self._upload_hydration_timeout = upload_hydration_timeout
+        self._upload_hydration_interval = upload_hydration_interval
         self.scope = scope
         self._indexing_state: str | None = None
         self._current_sync_token: str | None = None
@@ -812,28 +831,108 @@ class PhotoLibrary(BasePhotoLibrary):
                     return album
         return None
 
+    def _hydrate_uploaded_asset(
+        self,
+        result: PhotosPutAssetResult,
+        *,
+        timeout: float | None = None,
+        interval: float | None = None,
+    ) -> PhotoAsset | None:
+        """Turn a ``putAsset`` registration into a fully populated asset.
+
+        ``putAsset`` returns only the ``CPLMaster``/``CPLAsset`` record names,
+        so the records are always looked up before an asset is exposed.
+
+        Registration and indexing are separate: for a newly uploaded file the
+        lookup answers ``NOT_FOUND`` for 14-20 seconds before CloudKit makes
+        the records queryable, so it is retried until ``timeout`` elapses.
+        Duplicates resolve on the first attempt, since those records already
+        exist.
+        """
+
+        master_name = result.cplMaster
+        asset_name = result.cplAsset
+        if self._client is None or not master_name or not asset_name:
+            return None
+
+        if timeout is None:
+            timeout = self._upload_hydration_timeout
+        if interval is None:
+            interval = self._upload_hydration_interval
+
+        zone_id = CKZoneIDReq(**self.zone_id)
+        deadline = time.monotonic() + max(timeout, 0.0)
+        delay = interval
+
+        def _wait(seconds: float) -> bool:
+            """Sleep before the next attempt; False once the deadline passes."""
+
+            nonlocal delay
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(max(min(seconds, remaining), 0.0))
+            delay = min(delay * 2, UPLOAD_HYDRATION_MAX_INTERVAL)
+            return True
+
+        while True:
+            try:
+                lookup = self._client.lookup(
+                    record_names=[master_name, asset_name],
+                    zone_id=zone_id,
+                    desired_keys=PHOTO_DESIRED_KEYS,
+                )
+            except CloudKitRateLimited as exc:
+                # The bytes are already stored; back off rather than losing the
+                # record names to an exception.
+                if not _wait(exc.retry_after or delay):
+                    LOGGER.debug("Rate limited while waiting for the upload to index")
+                    return None
+                continue
+
+            records_by_type = {
+                record_record_type(record): record
+                for record in lookup.records
+                if isinstance(record, CKRecord)
+                and record_record_type(record) in {"CPLMaster", "CPLAsset"}
+            }
+            if "CPLMaster" in records_by_type and "CPLAsset" in records_by_type:
+                return self.asset_type(
+                    self.service,
+                    records_by_type["CPLMaster"],
+                    records_by_type["CPLAsset"],
+                    library=self,
+                )
+            if not _wait(delay):
+                LOGGER.debug(
+                    "Uploaded asset was still not indexed after %.0fs", timeout
+                )
+                return None
+
     def upload_file(self, path: str) -> PhotoAsset | None:
         """Upload a file into the library and return the created asset."""
 
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             try:
-                payload = self._client.upload_file(
+                result = self._client.upload_file(
                     path,
-                    dsid=str(self.service.params["dsid"]),
+                    zone_name=str(self.zone_id.get("zoneName") or ""),
                 )
             except CloudKitApiError as exc:
                 raise PyiCloudAPIResponseException(str(exc)) from exc
-        else:
-            filename = os.path.basename(path)
-            params = dict(self.service.params)
-            params["filename"] = filename
-            upload_url = f"{self._upload_url}/upload?{urlencode(params)}"
+            return self._hydrate_uploaded_asset(result)
 
-            with open(path, "rb") as file_obj:
-                response = self.service.session.post(url=upload_url, data=file_obj)
+        # Mock-like sessions (the in-repo test harness) never reach Apple, so
+        # they keep the untyped single-POST shape rather than the live flow.
+        filename = os.path.basename(path)
+        params = dict(self.service.params)
+        params["filename"] = filename
+        upload_url = f"{self._upload_url}/upload?{urlencode(params)}"
 
-            payload = response.json()
+        with open(path, "rb") as file_obj:
+            response = self.service.session.post(url=upload_url, data=file_obj)
 
+        payload = response.json()
         upload_payload = (
             payload
             if isinstance(payload, PhotosUploadResponse)
@@ -851,58 +950,20 @@ class PhotoLibrary(BasePhotoLibrary):
                 )
             )
 
-        records: list[CKRecord] = list(upload_payload.records)
-
         records_by_type = {
             record_record_type(record): record
-            for record in records
+            for record in upload_payload.records
             if isinstance(record, CKRecord)
             and record_record_type(record) in {"CPLMaster", "CPLAsset"}
         }
-        master_record = records_by_type.get("CPLMaster")
-        asset_record = records_by_type.get("CPLAsset")
-
-        # Apple’s upload endpoint can return skeletal CPLMaster/CPLAsset stubs
-        # with only record names; hydrate them before exposing a PhotoAsset.
-        needs_lookup = (
-            self._client is not None
-            and master_record is not None
-            and asset_record is not None
-            and (
-                _record_change_tag(master_record) is None
-                or _record_change_tag(asset_record) is None
-                or record_field_value(master_record, "filenameEnc") is None
-                or record_field_value(asset_record, "masterRef") is None
-            )
-        )
-        if needs_lookup:
-            assert self._client is not None
-            assert master_record is not None
-            assert asset_record is not None
-            lookup = self._client.lookup(
-                record_names=[
-                    record_name(master_record),
-                    record_name(asset_record),
-                ],
-                zone_id=CKZoneIDReq(**self.zone_id),
-                desired_keys=PHOTO_DESIRED_KEYS,
-            )
-            records_by_type = {
-                record_record_type(record): record
-                for record in lookup.records
-                if isinstance(record, CKRecord)
-                and record_record_type(record) in {"CPLMaster", "CPLAsset"}
-            }
-
         if "CPLMaster" not in records_by_type or "CPLAsset" not in records_by_type:
             return None
-        photo = self.asset_type(
+        return self.asset_type(
             self.service,
             records_by_type["CPLMaster"],
             records_by_type["CPLAsset"],
             library=self,
         )
-        return photo
 
     @property
     def all(self) -> PhotoAlbum:
@@ -2188,6 +2249,7 @@ class PhotosService(BaseService):
         params: dict[str, Any],
         upload_url: str,
         shared_streams_url: str,
+        photos_upload_url: str | None = None,
     ) -> None:
         super().__init__(service_root=service_root, session=session, params=params)
         self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
@@ -2203,6 +2265,7 @@ class PhotosService(BaseService):
             session=session,
             base_params=self.params,
             upload_url=upload_url,
+            photos_upload_url=photos_upload_url,
         )
         self._shared_client = PhotosCloudKitClient(
             base_url=shared_endpoint,
@@ -2210,6 +2273,7 @@ class PhotosService(BaseService):
             base_params=self.params,
         )
         self._upload_url = upload_url
+        self._photos_upload_url = photos_upload_url
         self._shared_streams_url = shared_streams_url
         self._libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary] | None = None
         self._legacy_service = None
@@ -2222,6 +2286,7 @@ class PhotosService(BaseService):
             client=self._private_client if _can_use_typed_cloudkit(session) else None,
             asset_type=PhotoAsset,
             upload_url=upload_url,
+            photos_upload_url=photos_upload_url,
             scope="private",
         )
         self._shared_library = PhotoStreamLibrary(

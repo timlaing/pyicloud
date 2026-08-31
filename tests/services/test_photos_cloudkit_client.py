@@ -4,10 +4,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
+from uuid import UUID
 
 import pytest
 
@@ -20,14 +24,9 @@ from pyicloud.common.cloudkit.models import (
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.services.photos_cloudkit.client import PhotosCloudKitClient
+from pyicloud.services.photos_cloudkit.upload import _local_time_zone
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
-SKELETAL_UPLOAD_PAYLOAD = json.loads(
-    (FIXTURE_DIR / "photos_upload_skeletal_response.json").read_text(encoding="utf-8")
-)
-DUPLICATE_UPLOAD_PAYLOAD = json.loads(
-    (FIXTURE_DIR / "photos_upload_duplicate_response.json").read_text(encoding="utf-8")
-)
 ZONES_LIST_PAYLOAD = json.loads(
     (FIXTURE_DIR / "photos_zones_list_response.json").read_text(encoding="utf-8")
 )
@@ -39,95 +38,299 @@ ZONE_CHANGES_PAYLOAD = json.loads(
 )
 
 
-def test_upload_file_returns_skeletal_upload_payload() -> None:
-    """Photos uploads should preserve Apple's skeletal record payloads."""
+UPLOAD_CLIENT_UUID = "11111111-2222-3333-4444-555555555555"
+UPLOAD_FIXTURE_DIR = FIXTURE_DIR / "photos_upload"
+CREATE_UPLOAD_URL_PAYLOAD = json.loads(
+    (UPLOAD_FIXTURE_DIR / "create_upload_url_response.json").read_text(encoding="utf-8")
+)
+SINGLE_FILE_UPLOAD_PAYLOAD = json.loads(
+    (UPLOAD_FIXTURE_DIR / "single_file_upload_response.json").read_text(
+        encoding="utf-8"
+    )
+)
+PUT_ASSET_PAYLOAD = json.loads(
+    (UPLOAD_FIXTURE_DIR / "put_asset_response.json").read_text(encoding="utf-8")
+)
+UPLOAD_STATUS_PAYLOAD = json.loads(
+    (UPLOAD_FIXTURE_DIR / "upload_status_response.json").read_text(encoding="utf-8")
+)
+UPLOAD_STATUS_UNKNOWN_PAYLOAD = json.loads(
+    (UPLOAD_FIXTURE_DIR / "upload_status_unknown_response.json").read_text(
+        encoding="utf-8"
+    )
+)
+PUT_ASSET_DUPLICATE_PAYLOAD = json.loads(
+    (UPLOAD_FIXTURE_DIR / "put_asset_duplicate_response.json").read_text(
+        encoding="utf-8"
+    )
+)
+PUT_ASSET_REJECTED_PAYLOAD = json.loads(
+    (UPLOAD_FIXTURE_DIR / "put_asset_rejected_response.json").read_text(
+        encoding="utf-8"
+    )
+)
+RESERVED_UPLOAD_URL = CREATE_UPLOAD_URL_PAYLOAD["uploadUrls"][UPLOAD_CLIENT_UUID]
 
-    session = MagicMock()
-    session.post.return_value = MagicMock(json=lambda: SKELETAL_UPLOAD_PAYLOAD)
-    client = PhotosCloudKitClient(
+
+def _upload_client(session: MagicMock) -> PhotosCloudKitClient:
+    """Build a client wired to both the CloudKit and photosupload hosts."""
+
+    return PhotosCloudKitClient(
         base_url="https://example.com/database/1/container/production/private",
         session=session,
         base_params={"dsid": "12345"},
         upload_url="https://upload.example.com",
+        photos_upload_url="https://photosupload.example.com",
     )
 
-    with patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")):
-        result = client.upload_file("/virtual/new_upload.jpg", dsid="12345")
 
-    assert [record.recordType for record in result.records] == ["CPLMaster", "CPLAsset"]
-    assert [record.recordName for record in result.records] == [
-        record["recordName"] for record in SKELETAL_UPLOAD_PAYLOAD["records"]
+@contextmanager
+def _upload_environment(
+    *, size: int = 3105, mtime: float = 1787731877.546
+) -> Iterator[None]:
+    """Pin the file metadata and client UUID the upload flow reads."""
+
+    with (
+        patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")),
+        patch(
+            "pyicloud.services.photos_cloudkit.upload.os.path.getsize",
+            return_value=size,
+        ),
+        patch(
+            "pyicloud.services.photos_cloudkit.upload.os.path.getmtime",
+            return_value=mtime,
+        ),
+        patch(
+            "pyicloud.services.photos_cloudkit.upload.uuid4",
+            return_value=UUID(UPLOAD_CLIENT_UUID),
+        ),
+    ):
+        yield
+
+
+def test_upload_file_runs_the_four_step_flow() -> None:
+    """A successful upload should reserve a URL, send bytes, then register."""
+
+    session = MagicMock()
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: PUT_ASSET_PAYLOAD),
     ]
-    assert session.post.call_args.kwargs["url"].startswith(
-        "https://upload.example.com/upload?"
+    client = _upload_client(session)
+
+    with _upload_environment():
+        result = client.upload_file("/virtual/new_upload.jpg", zone_name="PrimarySync")
+
+    assert result.cplMaster == PUT_ASSET_PAYLOAD[0]["cplMaster"]
+    assert result.cplAsset == PUT_ASSET_PAYLOAD[0]["cplAsset"]
+    assert result.uploadJobId == PUT_ASSET_PAYLOAD[0]["uploadJobId"]
+
+    urls = [call.kwargs["url"] for call in session.post.call_args_list]
+    assert urls[0].startswith(
+        "https://photosupload.example.com/photosupload/createUploadUrl?"
     )
-    assert "dsid=12345" in session.post.call_args.kwargs["url"]
-    assert "filename=new_upload.jpg" in session.post.call_args.kwargs["url"]
-    assert session.post.call_args.kwargs["timeout"] == (10.0, 60.0)
+    assert "dsid=12345" in urls[0]
+    assert urls[1] == RESERVED_UPLOAD_URL
+    assert urls[2].startswith("https://photosupload.example.com/photosupload/putAsset?")
+
+    reserve_body = session.post.call_args_list[0].kwargs["json"]
+    assert reserve_body == {
+        "zoneName": "PrimarySync",
+        "assets": {UPLOAD_CLIENT_UUID: 3105},
+    }
+
+    register_body = session.post.call_args_list[2].kwargs["json"]
+    assert register_body["zoneName"] == "PrimarySync"
+    assert register_body["importGroup"] == UPLOAD_CLIENT_UUID
+    assert register_body["files"][0]["fileName"] == "new_upload.jpg"
+    assert register_body["files"][0]["lastModDate"] == 1787731877546
+    # The receipt from step 2 is echoed back verbatim.
+    assert (
+        register_body["files"][0]["singleFileUploadRequest"]
+        == SINGLE_FILE_UPLOAD_PAYLOAD["singleFile"]
+    )
+    assert session.post.call_args_list[0].kwargs["timeout"] == (10.0, 60.0)
 
 
-def test_upload_file_returns_duplicate_upload_payload() -> None:
-    """Duplicate uploads should preserve Apple's duplicate marker for callers."""
+def test_upload_file_passes_shared_library_zone_through() -> None:
+    """Shared Library zones reach Apple rather than being blocked client-side."""
 
     session = MagicMock()
-    session.post.return_value = MagicMock(json=lambda: DUPLICATE_UPLOAD_PAYLOAD)
-    client = PhotosCloudKitClient(
-        base_url="https://example.com/database/1/container/production/private",
-        session=session,
-        base_params={"dsid": "12345"},
-        upload_url="https://upload.example.com",
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: PUT_ASSET_PAYLOAD),
+    ]
+    client = _upload_client(session)
+
+    with _upload_environment():
+        client.upload_file("/virtual/shared.jpg", zone_name="SharedSync-ABCDEF")
+
+    assert session.post.call_args_list[0].kwargs["json"]["zoneName"] == (
+        "SharedSync-ABCDEF"
+    )
+    assert session.post.call_args_list[2].kwargs["json"]["zoneName"] == (
+        "SharedSync-ABCDEF"
     )
 
-    with patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")):
-        result = client.upload_file("/virtual/duplicate_upload.jpg", dsid="12345")
 
-    assert result.isDuplicate is True
-    assert result.records[0].recordType == "CPLMaster"
-    assert result.records[1].recordType == "CPLAsset"
-
-
-def test_upload_file_requires_upload_url() -> None:
-    """Uploads should fail clearly when the upload endpoint is not configured."""
+def test_upload_file_requires_photos_upload_url() -> None:
+    """Uploads should fail clearly when the photosupload host is unavailable."""
 
     client = PhotosCloudKitClient(
         base_url="https://example.com/database/1/container/production/private",
         session=MagicMock(),
         base_params={"dsid": "12345"},
-        upload_url=None,
+        upload_url="https://upload.example.com",
+        photos_upload_url=None,
     )
 
     with pytest.raises(CloudKitApiError, match="Photos uploads are not configured"):
-        client.upload_file("/virtual/missing_upload_url.jpg", dsid="12345")
+        client.upload_file("/virtual/missing_host.jpg", zone_name="PrimarySync")
 
 
-def test_upload_file_raises_cloudkit_error_for_upload_errors() -> None:
-    """Upload error payloads should be normalized into CloudKitApiError."""
+def test_upload_file_raises_when_no_url_is_reserved() -> None:
+    """A reservation that omits our client UUID should not silently succeed."""
 
     session = MagicMock()
     session.post.return_value = MagicMock(
-        json=lambda: {
-            "errors": [
-                {
-                    "code": "TYPE_UNSUPPORTED",
-                    "message": "Unsupported file type",
-                }
-            ]
-        }
+        status_code=200, json=lambda: {"uploadUrls": {}}
     )
-    client = PhotosCloudKitClient(
-        base_url="https://example.com/database/1/container/production/private",
-        session=session,
-        base_params={"dsid": "12345"},
-        upload_url="https://upload.example.com",
-    )
+    client = _upload_client(session)
 
     with (
-        patch("pathlib.Path.open", mock_open(read_data=b"png-bytes")),
-        pytest.raises(
-            CloudKitApiError, match="TYPE_UNSUPPORTED: Unsupported file type"
-        ),
+        _upload_environment(),
+        pytest.raises(CloudKitApiError, match="did not return an upload URL"),
     ):
-        client.upload_file("/virtual/bad_upload.png", dsid="12345")
+        client.upload_file("/virtual/no_url.jpg", zone_name="PrimarySync")
+
+
+def test_upload_file_raises_when_registration_is_rejected() -> None:
+    """A non-success putAsset status should surface as an error."""
+
+    session = MagicMock()
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: PUT_ASSET_REJECTED_PAYLOAD),
+    ]
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(CloudKitApiError, match="rejected rejected.jpg with status 503"),
+    ):
+        client.upload_file("/virtual/rejected.jpg", zone_name="PrimarySync")
+
+
+def test_upload_file_returns_existing_asset_for_duplicate() -> None:
+    """A file iCloud already holds comes back as a result, not an error.
+
+    Verified against a live account: Apple answers 409 with an errorMessage,
+    omits isRetryable and uploadJobId, but still supplies both record names.
+    """
+
+    session = MagicMock()
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: PUT_ASSET_DUPLICATE_PAYLOAD),
+    ]
+    client = _upload_client(session)
+
+    with _upload_environment():
+        result = client.upload_file(
+            "/virtual/already_there.jpg", zone_name="PrimarySync"
+        )
+
+    assert result.is_duplicate is True
+    assert result.cplMaster == PUT_ASSET_DUPLICATE_PAYLOAD[0]["cplMaster"]
+    assert result.cplAsset == PUT_ASSET_DUPLICATE_PAYLOAD[0]["cplAsset"]
+    assert result.uploadJobId is None
+    assert result.response is not None
+    assert result.response.isRetryable is None
+    assert result.response.errorMessage == "duplicate asset"
+
+
+def test_upload_file_success_is_not_flagged_as_duplicate() -> None:
+    """A normal 200 registration must not be mistaken for a duplicate."""
+
+    session = MagicMock()
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: PUT_ASSET_PAYLOAD),
+    ]
+    client = _upload_client(session)
+
+    with _upload_environment():
+        result = client.upload_file("/virtual/fresh.jpg", zone_name="PrimarySync")
+
+    assert result.is_duplicate is False
+
+
+def test_upload_status_sends_the_job_ids_envelope() -> None:
+    """Apple accepts only {"uploadJobIds": [...]}; every other shape 400s."""
+
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        status_code=200, json=lambda: UPLOAD_STATUS_PAYLOAD
+    )
+    client = _upload_client(session)
+
+    job_id = next(iter(UPLOAD_STATUS_PAYLOAD))
+    statuses = client.upload_status([job_id])
+
+    assert session.post.call_args.kwargs["json"] == {"uploadJobIds": [job_id]}
+    assert session.post.call_args.kwargs["url"].startswith(
+        "https://photosupload.example.com/photosupload/uploadStatus?"
+    )
+    assert statuses[job_id].progress == 95
+    assert statuses[job_id].is_unknown is False
+
+
+def test_upload_status_marks_unknown_jobs() -> None:
+    """An unrecognised job id comes back as errorCode 404, not as an omission."""
+
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        status_code=200, json=lambda: UPLOAD_STATUS_UNKNOWN_PAYLOAD
+    )
+    client = _upload_client(session)
+
+    job_id = next(iter(UPLOAD_STATUS_UNKNOWN_PAYLOAD))
+    statuses = client.upload_status([job_id])
+
+    assert statuses[job_id].is_unknown is True
+    assert statuses[job_id].progress is None
+
+
+def test_upload_status_requires_photos_upload_url() -> None:
+    """Progress lookups need the photosupload host just like uploads do."""
+
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=MagicMock(),
+        base_params={"dsid": "12345"},
+        photos_upload_url=None,
+    )
+
+    with pytest.raises(CloudKitApiError, match="Photos uploads are not configured"):
+        client.upload_status(["job"])
+
+
+def test_upload_status_raises_when_payload_is_not_a_mapping() -> None:
+    """uploadStatus answers with a mapping keyed by job id."""
+
+    session = MagicMock()
+    session.post.return_value = MagicMock(status_code=200, json=lambda: [])
+    client = _upload_client(session)
+
+    with pytest.raises(
+        CloudKitApiError, match="uploadStatus returned an unexpected payload"
+    ):
+        client.upload_status(["job"])
 
 
 def test_upload_file_raises_cloudkit_error_for_http_error() -> None:
@@ -137,18 +340,15 @@ def test_upload_file_raises_cloudkit_error_for_http_error() -> None:
     response = MagicMock(status_code=503, text="upstream unavailable")
     response.json.side_effect = ValueError("not json")
     session.post.return_value = response
-    client = PhotosCloudKitClient(
-        base_url="https://example.com/database/1/container/production/private",
-        session=session,
-        base_params={"dsid": "12345"},
-        upload_url="https://upload.example.com",
-    )
+    client = _upload_client(session)
 
     with (
-        patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")),
-        pytest.raises(CloudKitApiError, match="Photos upload failed with HTTP 503"),
+        _upload_environment(),
+        pytest.raises(
+            CloudKitApiError, match="Photos createUploadUrl failed with HTTP 503"
+        ),
     ):
-        client.upload_file("/virtual/http_error.jpg", dsid="12345")
+        client.upload_file("/virtual/http_error.jpg", zone_name="PrimarySync")
 
 
 def test_upload_file_raises_cloudkit_error_for_invalid_json() -> None:
@@ -158,18 +358,112 @@ def test_upload_file_raises_cloudkit_error_for_invalid_json() -> None:
     response = MagicMock(status_code=200, text="not-json")
     response.json.side_effect = ValueError("not json")
     session.post.return_value = response
-    client = PhotosCloudKitClient(
-        base_url="https://example.com/database/1/container/production/private",
-        session=session,
-        base_params={"dsid": "12345"},
-        upload_url="https://upload.example.com",
-    )
+    client = _upload_client(session)
 
     with (
-        patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")),
-        pytest.raises(CloudKitApiError, match="Photos upload returned invalid JSON"),
+        _upload_environment(),
+        pytest.raises(
+            CloudKitApiError, match="Photos createUploadUrl returned invalid JSON"
+        ),
     ):
-        client.upload_file("/virtual/invalid_json.jpg", dsid="12345")
+        client.upload_file("/virtual/invalid_json.jpg", zone_name="PrimarySync")
+
+
+def test_local_time_zone_uses_javascript_offset_sign() -> None:
+    """Apple expects getTimezoneOffset() semantics: UTC+2 is sent as -120."""
+
+    zone = timezone(timedelta(hours=2))
+    with patch("pyicloud.services.photos_cloudkit.upload.datetime") as mock_datetime:
+        mock_datetime.now.return_value.astimezone.return_value = datetime(
+            2026, 8, 26, 12, 0, tzinfo=zone
+        )
+        _, minutes = _local_time_zone()
+
+    assert minutes == -120
+
+
+def test_upload_file_raises_when_reservation_payload_is_malformed() -> None:
+    """A reservation payload of the wrong shape should not be silently ignored."""
+
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        status_code=200, json=lambda: {"uploadUrls": "not-a-mapping"}
+    )
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(
+            CloudKitApiError, match="createUploadUrl returned an unexpected payload"
+        ),
+    ):
+        client.upload_file("/virtual/malformed.jpg", zone_name="PrimarySync")
+
+
+def test_upload_file_raises_when_receipt_is_missing() -> None:
+    """The content host must return a singleFile receipt to register the asset."""
+
+    session = MagicMock()
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: {"unexpected": True}),
+    ]
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(
+            CloudKitApiError, match="singleFileUpload returned an unexpected payload"
+        ),
+    ):
+        client.upload_file("/virtual/no_receipt.jpg", zone_name="PrimarySync")
+
+
+def test_upload_file_raises_when_put_asset_is_not_a_list() -> None:
+    """putAsset answers with a list; anything else is treated as an error."""
+
+    session = MagicMock()
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: {"not": "a list"}),
+    ]
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(
+            CloudKitApiError, match="putAsset returned an unexpected payload"
+        ),
+    ):
+        client.upload_file("/virtual/bad_put.jpg", zone_name="PrimarySync")
+
+
+def test_upload_file_raises_when_put_asset_registers_nothing() -> None:
+    """An empty registration list means the asset never landed."""
+
+    session = MagicMock()
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: []),
+    ]
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(CloudKitApiError, match="putAsset returned no assets"),
+    ):
+        client.upload_file("/virtual/empty_put.jpg", zone_name="PrimarySync")
+
+
+def test_local_time_zone_falls_back_when_tzlocal_is_unavailable() -> None:
+    """A tzlocal failure should still yield a usable zone name."""
+
+    with patch("tzlocal.get_localzone", side_effect=RuntimeError("no tzdata")):
+        zone_id, _ = _local_time_zone()
+
+    assert zone_id
 
 
 def test_batch_count_posts_expected_internal_query_payload() -> None:

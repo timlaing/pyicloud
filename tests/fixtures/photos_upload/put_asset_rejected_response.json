@@ -1,0 +1,11 @@
+[
+  {
+    "uploadJobId": "AX/92+r9B5N+sKNFEfAYZX0FjsNr#PrimarySync:6D6CB701-C0BD-490D-92D4-181E47C67C7A",
+    "cplMaster": "AX/92+r9B5N+sKNFEfAYZX0FjsNr",
+    "cplAsset": "6D6CB701-C0BD-490D-92D4-181E47C67C7A",
+    "response": {
+      "status": 503,
+      "isRetryable": true
+    }
+  }
+]
