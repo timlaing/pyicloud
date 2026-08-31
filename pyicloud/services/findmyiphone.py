@@ -20,7 +20,6 @@ from pyicloud.session import PyiCloudSession
 
 _FMIP_CLIENT_CONTEXT_TIMEZONE: str = "US/Pacific"
 _LOGGER: logging.Logger = logging.getLogger(__name__)
-_MAX_REFRESH_RETRIES: int = 5
 
 
 def _monitor_thread(
@@ -55,6 +54,8 @@ class FindMyiPhoneServiceManager(BaseService):
         params: dict[str, Any],
         with_family: bool = False,
         refresh_interval: float | None = None,
+        family_poll_delay: float = 0.5,
+        family_poll_max_retries: int = 5,
     ) -> None:
         """Initialize the FindMyiPhoneServiceManager."""
         super().__init__(service_root, session, params)
@@ -62,6 +63,8 @@ class FindMyiPhoneServiceManager(BaseService):
         self._refresh_interval: float = (
             refresh_interval if refresh_interval is not None else 5.0 * 60.0
         )
+        self._family_poll_delay: float = family_poll_delay
+        self._family_poll_max_retries: int = family_poll_max_retries
 
         fmip_endpoint: str = f"{service_root}/fmipservice/client/web"
         self._fmip_init_url: str = f"{fmip_endpoint}/initClient"
@@ -112,14 +115,14 @@ class FindMyiPhoneServiceManager(BaseService):
         # Some members (e.g. Macs with location sharing disabled) remain permanently
         # LOADING and will never resolve. Track which members are LOADING between
         # retries and stop as soon as there is no progress, rather than always
-        # exhausting _MAX_REFRESH_RETRIES for stuck members.
+        # exhausting family_poll_max_retries for stuck members.
         retries: int = 0
         prev_loading_keys: set[str] = set()
         while (
             self._with_family
             and self._user_info
             and self._user_info.get("hasMembers", False)
-            and retries < _MAX_REFRESH_RETRIES
+            and retries < self._family_poll_max_retries
         ):
             loading_keys = {
                 k
@@ -136,7 +139,7 @@ class FindMyiPhoneServiceManager(BaseService):
                 break  # no change since last retry — give up on permanently
                 # stuck members
             prev_loading_keys = loading_keys
-            time.sleep(0.1)
+            time.sleep(self._family_poll_delay)
             self._refresh_client(locate=locate)
             retries += 1
 
