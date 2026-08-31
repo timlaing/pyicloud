@@ -91,8 +91,8 @@ jobs:
             echo "Could not resolve pull request metadata for $HEAD_SHA"; exit 1
           fi
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid PR number"; exit 1; }
-          [[ "$PR_HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid head branch"; exit 1; }
-          [[ "$PR_BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid base branch"; exit 1; }
+          [[ "$PR_HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/@_.+-]*$ ]] || { echo "Invalid head branch"; exit 1; }
+          [[ "$PR_BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/@_.+-]*$ ]] || { echo "Invalid base branch"; exit 1; }
           echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head-ref=$PR_HEAD_REF" >> "$GITHUB_OUTPUT"
           echo "base-ref=$PR_BASE_REF" >> "$GITHUB_OUTPUT"
