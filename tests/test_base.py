@@ -3080,3 +3080,70 @@ def test_authenticate_pause_2fa_skips_second_token_auth_after_paused_login(
         # Only the failed initial trusted login; no second re-login.
         assert mock_authenticate_with_token.call_count == 1
         assert pyicloud_service._requires_mfa is False
+
+
+def test_authenticate_rejects_cached_untrusted_session_without_pause_2fa(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A cached untrusted (paused) session must not be reused without pause_2fa."""
+    pyicloud_service._session = MagicMock()
+    pyicloud_service._session.data = {"session_token": "paused-token"}
+
+    with (
+        patch.object(
+            pyicloud_service, "_validate_token", return_value={}
+        ) as mock_validate_token,
+        patch.object(
+            pyicloud_service,
+            "_authenticate",
+        ) as mock_authenticate,
+    ):
+        pyicloud_service.authenticate()
+
+        mock_validate_token.assert_not_called()
+        mock_authenticate.assert_called_once_with(pause_2fa=False)
+
+
+def test_authenticate_reuses_cached_untrusted_session_with_pause_2fa(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A cached untrusted (paused) session is reused when pause_2fa is enabled."""
+    pyicloud_service._session = MagicMock()
+    pyicloud_service._session.data = {"session_token": "paused-token"}
+
+    with (
+        patch.object(
+            pyicloud_service, "_validate_token", return_value={}
+        ) as mock_validate_token,
+        patch.object(
+            pyicloud_service,
+            "_authenticate",
+        ) as mock_authenticate,
+    ):
+        pyicloud_service.authenticate(pause_2fa=True)
+
+        mock_validate_token.assert_called_once()
+        mock_authenticate.assert_not_called()
+
+
+def test_authenticate_reuses_cached_trusted_session_without_pause_2fa(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A cached trusted session is still reused with the default flow."""
+    pyicloud_service._session = MagicMock()
+    pyicloud_service._session.data = {"session_token": "valid-token"}
+    pyicloud_service.data = {"hsaTrustedBrowser": True}
+
+    with (
+        patch.object(
+            pyicloud_service, "_validate_token", return_value={}
+        ) as mock_validate_token,
+        patch.object(
+            pyicloud_service,
+            "_authenticate",
+        ) as mock_authenticate,
+    ):
+        pyicloud_service.authenticate()
+
+        mock_validate_token.assert_called_once()
+        mock_authenticate.assert_not_called()

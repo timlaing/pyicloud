@@ -354,7 +354,11 @@ class PyiCloudService:
             pause_2fa = self._pause_2fa
 
         login_successful = False
-        if self.session.data.get("session_token") and not force_refresh:
+        if (
+            self.session.data.get("session_token")
+            and not force_refresh
+            and (pause_2fa or self.is_trusted_session)
+        ):
             try:
                 self.data = self._validate_token()
                 login_successful = True
