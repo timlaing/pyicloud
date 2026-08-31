@@ -6,7 +6,7 @@ import base64
 import json
 import socket
 from binascii import unhexlify
-from typing import Callable
+from typing import Any, Callable
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -262,6 +262,82 @@ def test_parse_boot_args_html_accepts_reordered_script_attributes() -> None:
     assert boot_context.bridge_initiate_data["webSocketUrl"] == (
         "websocket.push.apple.com"
     )
+
+
+def test_from_auth_options_parses_nested_direct_two_sv() -> None:
+    """JSON auth options nested under direct.twoSV should yield the bridge context."""
+
+    auth_options: dict[str, Any] = {
+        "direct": {
+            "authInitialRoute": "auth/bridge/step",
+            "hasTrustedDevices": True,
+            "twoSV": {
+                "authFactors": ["web_piggybacking", "robocall", "sms", "generatedcode"],
+                "sourceAppId": 1159,
+                "bridgeInitiateData": {
+                    "apnsTopic": "com.apple.idmsauthwidget",
+                    "apnsEnvironment": "prod",
+                    "webSocketUrl": "websocket.push.apple.com",
+                    "phoneNumberVerification": {
+                        "trustedPhoneNumber": {
+                            "id": 3,
+                            "nonFTEU": False,
+                            "pushMode": "sms",
+                        }
+                    },
+                },
+            },
+        }
+    }
+
+    boot_context = Hsa2BootContext.from_auth_options(auth_options)
+
+    assert boot_context.auth_initial_route == "auth/bridge/step"
+    assert boot_context.has_trusted_devices is True
+    assert boot_context.auth_factors == (
+        "web_piggybacking",
+        "robocall",
+        "sms",
+        "generatedcode",
+    )
+    assert boot_context.bridge_initiate_data["webSocketUrl"] == (
+        "websocket.push.apple.com"
+    )
+    assert boot_context.phone_number_verification["trustedPhoneNumber"]["id"] == 3
+    assert boot_context.source_app_id == "1159"
+
+
+def test_from_auth_options_accepts_flat_auth_options() -> None:
+    """Flattened top-level auth options should remain supported."""
+
+    auth_options: dict[str, Any] = {
+        "authInitialRoute": "auth/bridge/step",
+        "hasTrustedDevices": True,
+        "authFactors": ["web_piggybacking", "sms"],
+        "bridgeInitiateData": {
+            "apnsTopic": "com.apple.idmsauthwidget",
+            "apnsEnvironment": "prod",
+            "webSocketUrl": "websocket.push.apple.com",
+        },
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {
+                "id": 3,
+                "nonFTEU": False,
+                "pushMode": "sms",
+            }
+        },
+        "sourceAppId": "1159",
+    }
+
+    boot_context = Hsa2BootContext.from_auth_options(auth_options)
+
+    assert boot_context.auth_initial_route == "auth/bridge/step"
+    assert boot_context.has_trusted_devices is True
+    assert boot_context.bridge_initiate_data["webSocketUrl"] == (
+        "websocket.push.apple.com"
+    )
+    assert boot_context.phone_number_verification["trustedPhoneNumber"]["id"] == 3
+    assert boot_context.source_app_id == "1159"
 
 
 def test_read_varint_rejects_malformed_overlong_varint() -> None:

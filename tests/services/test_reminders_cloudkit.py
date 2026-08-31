@@ -260,7 +260,9 @@ def test_protocol_crdt_declares_utf16_lengths(text: str, expected_length: int):
     assert [s.length for s in value.substring if s.length] == [expected_length]
     assert [a.length for a in value.attributeRun] == [expected_length]
     assert [
-        replica.clock for clock in value.timestamp.clock for replica in clock.replicaClock
+        replica.clock
+        for clock in value.timestamp.clock
+        for replica in clock.replicaClock
     ] == [expected_length, 1]
 
 
