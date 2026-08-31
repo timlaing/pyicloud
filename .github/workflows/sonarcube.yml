@@ -2,7 +2,7 @@ name: SonarQube
 
 on:
   workflow_run:
-    workflows: [Test]
+    workflows: [Tests]
     types: [completed]
 
 jobs:
