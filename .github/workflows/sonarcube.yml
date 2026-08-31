@@ -1,90 +1,146 @@
-name:
-  SonarCloud.io
+name: SonarCloud.io
 
-  # yamllint disable-line rule:truthy
+# yamllint disable-line rule:truthy
 on:
-  push:
-    branches:
-      - main
-  pull_request_target:
-    types: [opened, synchronize, reopened]
-    paths-ignore:
-      - "**/*.md"
-      - "LICENSE*"
-      - "TERMS_OF_USE*"
-      - ".github/**/*.md"
-jobs:
-  coverage:
-    name: Generate Coverage
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Setup Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_all.txt
-      - name: Get coverage info
-        run: pytest --cov=. --cov-config=.coveragerc --cov-report xml:coverage.xml
-      - name: Upload code coverage
-        uses: actions/upload-artifact@v7
-        with:
-          name: code-coverage
-          path: coverage.xml
-  sonarqube:
-    name: SonarQube
-    runs-on: ubuntu-latest
-    needs: coverage
-    if: github.event_name == 'push'
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # Shallow clones should be disabled for a better relevancy of analysis
-      - name: Download coverage artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: code-coverage
-          path: .
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v8
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
 
-  sonarqube-untrusted-pr:
-    name: SonarQube (Fork/Bot PR)
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  sonarqube:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'pull_request' ||
+       (github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request_target'
-    permissions:
-      contents: read
-      pull-requests: write
+    timeout-minutes: 15
+    env:
+      SONAR_HOST_URL: https://sonarcloud.io
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Setup Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_all.txt
-      - name: Get coverage info
-        run: pytest --cov=. --cov-config=.coveragerc --cov-report xml:coverage.xml
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v8
+          ref: ${{ github.event.workflow_run.head_sha }}
+          allow-unsafe-pr-checkout: ${{ github.event.workflow_run.event == 'pull_request' }}
+
+      - name: Require SonarQube credentials
+        if: ${{ secrets.SONAR_TOKEN == '' }}
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          echo "SONAR_TOKEN is not set; cannot run SonarQube analysis"
+          exit 1
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-report
+          path: .coverage
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Remove pull-request-controlled scanner configuration
+        run: rm -f sonar-project.properties
+
+      - name: Validate coverage report
+        run: |
+          set -euo pipefail
+          test -f .coverage/coverage.xml || { echo "Coverage report missing"; exit 1; }
+          python3 -c "import sys, xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" .coverage/coverage.xml
+
+      - name: Validate run metadata
+        id: validate
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          PR_HEAD_REF: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
+          PR_BASE_REF: ${{ github.event.workflow_run.pull_requests[0].base.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid HEAD_SHA"; exit 1; }
+          echo "head-sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          if [[ "$RUN_EVENT" != "pull_request" ]]; then
+            exit 0
+          fi
+          PR_NUMBER="${PR_NUMBER:-}"
+          PR_HEAD_REF="${PR_HEAD_REF:-}"
+          PR_BASE_REF="${PR_BASE_REF:-}"
+          if [[ -z "$PR_NUMBER" || -z "$PR_HEAD_REF" || -z "$PR_BASE_REF" ]]; then
+            PR_FILE="$(mktemp)"
+            # Constrain by the head SHA so we don't rely on gh pr list's default
+            # 30-result page. gh --search matches PRs that contain the commit,
+            # which works whether HEAD_SHA is the PR tip or the merge SHA.
+            gh pr list --state open --search "$HEAD_SHA" --limit 100 \
+              --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
+            PR_MATCHES="$(jq -c '.' "$PR_FILE")"
+            PR_MATCH_COUNT="$(jq 'length' <<< "$PR_MATCHES")"
+            if [[ "$PR_MATCH_COUNT" -gt 1 ]]; then
+              echo "Ambiguous pull request metadata for $HEAD_SHA"; exit 1
+            fi
+            PR_MATCH="$(jq -c '.[0] // empty' <<< "$PR_MATCHES")"
+            if [[ -n "$PR_MATCH" ]]; then
+              PR_NUMBER="${PR_NUMBER:-$(jq -r '.number' <<< "$PR_MATCH")}"
+              PR_HEAD_REF="$(jq -r '.headRefName' <<< "$PR_MATCH")"
+              PR_BASE_REF="$(jq -r '.baseRefName' <<< "$PR_MATCH")"
+            fi
+          fi
+          if [[ -z "$PR_NUMBER" || -z "$PR_HEAD_REF" || -z "$PR_BASE_REF" ]]; then
+            echo "Could not resolve pull request metadata for $HEAD_SHA"; exit 1
+          fi
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid PR number"; exit 1; }
+          [[ "$PR_HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/@_.+-]*$ ]] || { echo "Invalid head branch"; exit 1; }
+          [[ "$PR_BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/@_.+-]*$ ]] || { echo "Invalid base branch"; exit 1; }
+          echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head-ref=$PR_HEAD_REF" >> "$GITHUB_OUTPUT"
+          echo "base-ref=$PR_BASE_REF" >> "$GITHUB_OUTPUT"
+
+      - name: SonarQube Scan (branch)
+        if: >
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: >-
+            -Dsonar.projectKey=timlaing_pyicloud
+            -Dsonar.organization=timlaing
+            -Dsonar.projectName=pyicloud
+            -Dsonar.sources=./pyicloud
+            -Dsonar.tests=./tests
+            -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
+            -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14
+            -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
+            -Dsonar.qualitygate.wait=true
+
+      - name: SonarQube Scan (pull request)
+        if: github.event.workflow_run.event == 'pull_request'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: >-
+            -Dsonar.projectKey=timlaing_pyicloud
+            -Dsonar.organization=timlaing
+            -Dsonar.projectName=pyicloud
+            -Dsonar.sources=./pyicloud
+            -Dsonar.tests=./tests
+            -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
+            -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14
+            -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
+            -Dsonar.pullrequest.key=${{ steps.validate.outputs.pr-number }}
+            -Dsonar.pullrequest.branch=${{ steps.validate.outputs.head-ref }}
+            -Dsonar.pullrequest.base=${{ steps.validate.outputs.base-ref }}
+            -Dsonar.pullrequest.provider=github
+            -Dsonar.pullrequest.github.repository=${{ github.repository }}
+            -Dsonar.qualitygate.wait=true

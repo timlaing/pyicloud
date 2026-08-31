@@ -53,3 +53,12 @@ jobs:
             --cov="pyicloud" \
             --cov-report=xml \
             --junitxml=junit.xml -o junit_family=legacy
+
+      - name: Upload coverage report
+        if: matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 7
