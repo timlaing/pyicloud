@@ -796,18 +796,11 @@ def test_refresh_client_with_reauth_no_devices_raises(
         manager._refresh_client_with_reauth(locate=True)
 
 
-def test_family_poll_delay_is_used(
-    pyicloud_service_working: PyiCloudService,
-) -> None:
+def test_family_poll_delay_is_used() -> None:
     """Test _initialize_devices sleeps using the configured family_poll_delay."""
-    with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
-        "_refresh_client_with_reauth",
-        return_value=None,
-    ):
-        manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager: FindMyiPhoneServiceManager = _make_manager(family_poll_delay=1.5)
     manager._with_family = True
-    manager._family_poll_delay = 1.5
 
     with (
         patch("time.sleep", return_value=None) as mock_sleep,
@@ -840,18 +833,11 @@ def test_family_poll_delay_is_used(
         assert mock_sleep.call_args_list == [call(1.5)]
 
 
-def test_family_poll_max_retries_is_respected(
-    pyicloud_service_working: PyiCloudService,
-) -> None:
+def test_family_poll_max_retries_is_respected() -> None:
     """Test _initialize_devices stops after the configured family_poll_max_retries."""
-    with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
-        "_refresh_client_with_reauth",
-        return_value=None,
-    ):
-        manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager: FindMyiPhoneServiceManager = _make_manager(family_poll_max_retries=2)
     manager._with_family = True
-    manager._family_poll_max_retries = 2
 
     def member_info(loading: tuple[str, ...]) -> dict[str, object]:
         """Build a membersInfo payload with the given members still LOADING."""
@@ -906,14 +892,20 @@ def _make_manager(
 
 
 def test_family_poll_parameters_reject_invalid_values() -> None:
-    """Test family_poll parameters reject negative values and bools."""
+    """Test family_poll parameters reject negative, non-numeric, and bool values."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
         with pytest.raises(ValueError):
             _make_manager(family_poll_delay=-1)
         with pytest.raises(ValueError):
+            _make_manager(family_poll_delay=True)
+        with pytest.raises(ValueError):
+            _make_manager(family_poll_delay="0.5")
+        with pytest.raises(ValueError):
             _make_manager(family_poll_max_retries=-1)
         with pytest.raises(ValueError):
-            _make_manager(family_poll_delay=True)
+            _make_manager(family_poll_max_retries=True)
+        with pytest.raises(ValueError):
+            _make_manager(family_poll_max_retries=2.5)
 
 
 def test_monitor_thread_calls_func_at_interval() -> None:
