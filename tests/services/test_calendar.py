@@ -2,6 +2,8 @@
 # pylint: disable=protected-access
 
 from datetime import datetime
+import os
+import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -712,6 +714,31 @@ def test_event_duration_left_alone_when_dates_unparsable() -> None:
     assert event.end_date == "also-nope"
     # Dates stayed unparsable, so the constructor-derived duration persists.
     assert event.duration == 60
+
+
+def test_event_duration_is_wall_clock_across_dst() -> None:
+    """_refresh_duration yields the wall-clock delta across a DST transition.
+
+    Dates are naive wall-clock times, so the elapsed minutes must not be
+    derived via ``datetime.timestamp()``, which folds in the process timezone
+    and reports a shorter duration across a DST transition.
+    """
+    os.environ["TZ"] = "America/New_York"
+    time.tzset()
+    try:
+        with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+            service = CalendarService("https://example.com", MagicMock(), {})
+        event = EventObject(pguid="cal")
+        # 01:30 -> 03:30 straddles the 2026-03-08 spring-forward (02:00 -> 03:00).
+        event.start_date = datetime(2026, 3, 8, 1, 30)
+        event.end_date = datetime(2026, 3, 8, 3, 30)
+        service._refresh_duration(event)
+        # The wall-clock delta is 120 minutes; a timestamp()-based calculation
+        # would instead report only 60 in the America/New_York timezone.
+        assert event.duration == 120
+    finally:
+        os.environ.pop("TZ", None)
+        time.tzset()
 
 
 def test_event_dates_tolerate_unexpected_values() -> None:

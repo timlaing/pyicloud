@@ -327,9 +327,9 @@ class EventObject:
             self.tz = get_localzone_name()
 
         # Calculate duration (should now always be positive due to validation)
-        self.duration = int(
-            (self.end_date.timestamp() - self.start_date.timestamp()) / 60
-        )
+        # Dates are naive wall-clock times, so subtract them directly rather
+        # than via timestamp(), which would fold in the process timezone/DST.
+        self.duration = int((self.end_date - self.start_date).total_seconds() / 60)
 
     def to_apple_event(self) -> AppleCalendarEvent:
         """
@@ -608,7 +608,7 @@ class CalendarService(BaseService):
             return
         if not isinstance(start_date, datetime) or not isinstance(end_date, datetime):
             return
-        obj.duration = int((end_date.timestamp() - start_date.timestamp()) / 60)
+        obj.duration = int((end_date - start_date).total_seconds() / 60)
 
     def obj_from_dict(self, obj: T, _dict: dict[str, Any]) -> T:
         """Creates an object from a dictionary with proper field validation."""
