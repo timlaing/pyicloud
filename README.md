@@ -78,6 +78,24 @@ api = PyiCloudService(
 api.devices
 ```
 
+When `with_family=True`, Find My polls Apple's backend while family
+members' devices finish loading (`deviceFetchStatus` is `"LOADING"`). By
+default it polls every `0.5s` up to `5` times before giving up; both can be
+tuned via `family_poll_delay` and `family_poll_max_retries`:
+
+```python
+from pyicloud import PyiCloudService
+
+api = PyiCloudService(
+    "jappleseed@apple.com",
+    "password",
+    with_family=True,
+    family_poll_delay=1.0,  # seconds between polls (default: 0.5)
+    family_poll_max_retries=10,  # max polls (default: 5)
+)
+api.devices
+```
+
 ### Minimal authentication for Find My (`pause_2fa`)
 
 Some services (notably Find My) can be used without completing two-factor
