@@ -360,7 +360,10 @@ class PyiCloudSession(requests.Session):
             response
         ):
             data: dict[str, Any] = response.json()
-            if (data.get("authType") or data.get("authenticationType")) == "hsa2":
+            if (
+                data.get("authType") == "hsa2"
+                or data.get("authenticationType") == "hsa2"
+            ):
                 raise PyiCloud2FARequiredException(
                     apple_id=self.service.account_name,
                     response=response,

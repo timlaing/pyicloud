@@ -1419,15 +1419,23 @@ def test_raise_error_access_denied(pyicloud_session: PyiCloudSession) -> None:
 
 
 @pytest.mark.parametrize(
-    "auth_key",
-    ["authType", "authenticationType"],
+    "payload",
+    [
+        {"authType": "hsa2"},
+        {"authenticationType": "hsa2"},
+        {"authType": "other", "authenticationType": "hsa2"},
+    ],
 )
 def test_handle_request_error_two_factor(
-    pyicloud_session: PyiCloudSession, auth_key: str
+    pyicloud_session: PyiCloudSession, payload: dict[str, str]
 ) -> None:
-    """2FA is detected for both the authType and authenticationType response keys."""
+    """2FA is detected via either response key.
+
+    Covers apple's alternate 'authenticationType' key, and the case where both
+    keys are present but 'authType' carries a non-hsa2 (truthy) value.
+    """
     response = MagicMock()
-    response.json.return_value = {auth_key: "hsa2"}
+    response.json.return_value = payload
     response.headers = {"Content-Type": "application/json"}
     with pytest.raises(PyiCloud2FARequiredException):
         pyicloud_session._handle_request_error(
