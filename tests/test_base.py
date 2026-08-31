@@ -1444,6 +1444,46 @@ def test_handle_request_error_two_factor(
         )
 
 
+@pytest.mark.parametrize(
+    "json_result",
+    [
+        None,
+        "not a dict",
+        [],
+    ],
+)
+def test_handle_request_error_two_factor_invalid_json_body(
+    pyicloud_session: PyiCloudSession, json_result: object
+) -> None:
+    """A non-object/invalid 409 body falls through to the generic error path.
+
+    The HSA2 detector must not raise a JSON parsing or attribute error that
+    masks the intended PyiCloudAPIResponseException.
+    """
+    response = MagicMock()
+    response.json.return_value = json_result
+    response.headers = {"Content-Type": "application/json"}
+    with pytest.raises(PyiCloudAPIResponseException):
+        pyicloud_session._handle_request_error(
+            status_code=AppleAuthError.TWO_FACTOR_REQUIRED,
+            response=response,
+        )
+
+
+def test_handle_request_error_two_factor_json_decode_error(
+    pyicloud_session: PyiCloudSession,
+) -> None:
+    """A 409 whose JSON body fails to decode falls through to the generic path."""
+    response = MagicMock()
+    response.json.side_effect = ValueError("bad json")
+    response.headers = {"Content-Type": "application/json"}
+    with pytest.raises(PyiCloudAPIResponseException):
+        pyicloud_session._handle_request_error(
+            status_code=AppleAuthError.TWO_FACTOR_REQUIRED,
+            response=response,
+        )
+
+
 def test_request_pcs_for_service_icdrs_not_disabled(
     pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
 ) -> None:

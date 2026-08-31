@@ -359,11 +359,8 @@ class PyiCloudSession(requests.Session):
         if status_code == AppleAuthError.TWO_FACTOR_REQUIRED and self._is_json_response(
             response
         ):
-            data: dict[str, Any] = response.json()
-            if (
-                data.get("authType") == "hsa2"
-                or data.get("authenticationType") == "hsa2"
-            ):
+            auth_type: str | None = self._auth_type_from_hsa2_body(response)
+            if auth_type == "hsa2":
                 raise PyiCloud2FARequiredException(
                     apple_id=self.service.account_name,
                     response=response,
@@ -376,6 +373,26 @@ class PyiCloudSession(requests.Session):
             )
 
         self._raise_error(response, status_code, response.reason)
+
+    def _auth_type_from_hsa2_body(self, response: Response) -> str | None:
+        """Return the HSA2 authentication type from a challenge body, if any.
+
+        Apple uses ``authType`` on some endpoints and ``authenticationType`` on
+        the SMS securitycode challenge responses. JSON parsing is best-effort so
+        an empty, invalid, or non-object body falls through to the generic error
+        path rather than masking it.
+        """
+        try:
+            data = response.json()
+        except ValueError:
+            return None
+        if not isinstance(data, dict):
+            return None
+        if data.get("authType") == "hsa2":
+            return "hsa2"
+        if data.get("authenticationType") == "hsa2":
+            return "hsa2"
+        return None
 
     def _decode_json_response(self, response: Response) -> None:
         """Decode JSON response."""
