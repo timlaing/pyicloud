@@ -78,6 +78,31 @@ api = PyiCloudService(
 api.devices
 ```
 
+### Minimal authentication for Find My (`pause_2fa`)
+
+Some services (notably Find My) can be used without completing two-factor
+authentication (2FA). To allow a Find My-only workflow on an account that has
+2FA enabled, pass `pause_2fa=True` to the constructor. Authentication proceeds
+with an _untrusted_ session, so 2FA is not prompted and code delivery is
+deferred:
+
+```python
+from pyicloud import PyiCloudService
+
+api = PyiCloudService("jappleseed@apple.com", "password", pause_2fa=True)
+print(api.iphone.location)
+```
+
+**Security implications:** with `pause_2fa=True` the resulting session is **not
+trusted** by Apple, and only a limited set of 2FA-gated operations is
+available. It is intended for lightweight/headless usage (e.g. locating a
+device) where completing interactive 2FA each run is undesirable. Any operation
+that requires a trusted session — such as full 2FA-protected account access —
+will still need the normal 2FA flow (`request_2fa_code()` /
+`validate_2fa_code()`). In particular, a cached _untrusted_ session is only
+reused when the current call also enables `pause_2fa`; it is rejected on the
+default (trusted) flow to avoid silently bypassing 2FA.
+
 ## Command-Line Interface
 
 The `icloud` command line interface is organized around top-level
