@@ -14,14 +14,14 @@ jobs:
     name: Run prek checks
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Register problem matchers
         run: |
           echo "::add-matcher::.github/workflows/matchers/yamllint.json"
           echo "::add-matcher::.github/workflows/matchers/check-json.json"
           echo "::add-matcher::.github/workflows/matchers/check-executables-have-shebangs.json"
           echo "::add-matcher::.github/workflows/matchers/codespell.json"
-
-      - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
