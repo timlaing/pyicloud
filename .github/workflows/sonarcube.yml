@@ -74,7 +74,10 @@ jobs:
           PR_BASE_REF="${PR_BASE_REF:-}"
           if [[ -z "$PR_NUMBER" || -z "$PR_HEAD_REF" || -z "$PR_BASE_REF" ]]; then
             PR_FILE="$(mktemp)"
-            gh pr list --state open --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
+            # Constrain by the head SHA so we don't rely on gh pr list's default
+            # 30-result page; the headRefOid filter below still guards the match.
+            gh pr list --state open --search "$HEAD_SHA" --limit 100 \
+              --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
             PR_MATCH="$(jq -c ".[] | select(.headRefOid == \"$HEAD_SHA\")" "$PR_FILE" | head -n 1)"
             if [[ -n "$PR_MATCH" ]]; then
               PR_NUMBER="${PR_NUMBER:-$(jq -r '.number' <<< "$PR_MATCH")}"
