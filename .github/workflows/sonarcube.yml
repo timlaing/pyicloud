@@ -1,42 +1,32 @@
-name: SonarCloud.io
+name: SonarQube
 
-# yamllint disable-line rule:truthy
 on:
   workflow_run:
     workflows: [Tests]
     types: [completed]
 
-permissions:
-  actions: read
-  contents: read
-  pull-requests: read
-
 jobs:
   sonarqube:
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      (github.event.workflow_run.event == 'pull_request' ||
-       (github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'main'))
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
     env:
       SONAR_HOST_URL: https://sonarcloud.io
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha }}
-          allow-unsafe-pr-checkout: ${{ github.event.workflow_run.event == 'pull_request' }}
 
       - name: Require SonarQube credentials
-        if: ${{ secrets.SONAR_TOKEN == '' }}
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          echo "SONAR_TOKEN is not set; cannot run SonarQube analysis"
-          exit 1
+        if: env.SONAR_TOKEN == ''
+        run: exit 1
 
       - name: Download coverage report
         uses: actions/download-artifact@v8
@@ -62,9 +52,6 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_EVENT: ${{ github.event.workflow_run.event }}
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
-          PR_HEAD_REF: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
-          PR_BASE_REF: ${{ github.event.workflow_run.pull_requests[0].base.ref }}
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid HEAD_SHA"; exit 1; }
@@ -72,69 +59,56 @@ jobs:
           if [[ "$RUN_EVENT" != "pull_request" ]]; then
             exit 0
           fi
-          PR_NUMBER="${PR_NUMBER:-}"
-          PR_HEAD_REF="${PR_HEAD_REF:-}"
-          PR_BASE_REF="${PR_BASE_REF:-}"
-          if [[ -z "$PR_NUMBER" || -z "$PR_HEAD_REF" || -z "$PR_BASE_REF" ]]; then
+          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
+          if [[ -z "$PR_NUMBER" ]]; then
+            # workflow_run.pull_requests is empty for fork PRs; resolve via the API.
             PR_FILE="$(mktemp)"
-            # Constrain by the head SHA so we don't rely on gh pr list's default
-            # 30-result page. gh --search matches PRs that contain the commit,
-            # which works whether HEAD_SHA is the PR tip or the merge SHA.
-            gh pr list --state open --search "$HEAD_SHA" --limit 100 \
-              --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
-            PR_MATCHES="$(jq -c '.' "$PR_FILE")"
-            PR_MATCH_COUNT="$(jq 'length' <<< "$PR_MATCHES")"
-            if [[ "$PR_MATCH_COUNT" -gt 1 ]]; then
-              echo "Ambiguous pull request metadata for $HEAD_SHA"; exit 1
-            fi
-            PR_MATCH="$(jq -c '.[0] // empty' <<< "$PR_MATCHES")"
+            gh pr list --state open --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
+            PR_MATCH="$(jq -c ".[] | select(.headRefOid == \"$HEAD_SHA\")" "$PR_FILE" | head -n 1)"
             if [[ -n "$PR_MATCH" ]]; then
-              PR_NUMBER="${PR_NUMBER:-$(jq -r '.number' <<< "$PR_MATCH")}"
-              PR_HEAD_REF="$(jq -r '.headRefName' <<< "$PR_MATCH")"
-              PR_BASE_REF="$(jq -r '.baseRefName' <<< "$PR_MATCH")"
+              PR_NUMBER="$(jq -r '.number' <<< "$PR_MATCH")"
+              HEAD_REF="$(jq -r '.headRefName' <<< "$PR_MATCH")"
+              BASE_REF="$(jq -r '.baseRefName' <<< "$PR_MATCH")"
             fi
+          else
+            HEAD_REF="${{ github.event.workflow_run.pull_requests[0].head.ref }}"
+            BASE_REF="${{ github.event.workflow_run.pull_requests[0].base.ref }}"
           fi
-          if [[ -z "$PR_NUMBER" || -z "$PR_HEAD_REF" || -z "$PR_BASE_REF" ]]; then
+          if [[ -z "$PR_NUMBER" || -z "$HEAD_REF" || -z "$BASE_REF" ]]; then
             echo "Could not resolve pull request metadata for $HEAD_SHA"; exit 1
           fi
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid PR number"; exit 1; }
-          [[ "$PR_HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/@_.+-]*$ ]] || { echo "Invalid head branch"; exit 1; }
-          [[ "$PR_BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/@_.+-]*$ ]] || { echo "Invalid base branch"; exit 1; }
+          [[ "$HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid head branch"; exit 1; }
+          [[ "$BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid base branch"; exit 1; }
           echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "head-ref=$PR_HEAD_REF" >> "$GITHUB_OUTPUT"
-          echo "base-ref=$PR_BASE_REF" >> "$GITHUB_OUTPUT"
+          echo "head-ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
+          echo "base-ref=$BASE_REF" >> "$GITHUB_OUTPUT"
 
       - name: SonarQube Scan (branch)
-        if: >
-          github.event.workflow_run.event == 'push' &&
-          github.event.workflow_run.head_branch == 'main'
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        if: github.event.workflow_run.event == 'push'
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:
           args: >-
             -Dsonar.projectKey=timlaing_pyicloud
             -Dsonar.organization=timlaing
             -Dsonar.projectName=pyicloud
-            -Dsonar.sources=./pyicloud
-            -Dsonar.tests=./tests
+            -Dsonar.sources=pyicloud
+            -Dsonar.tests=tests
             -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
-            -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14
+            -Dsonar.python.version=3.14
             -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
             -Dsonar.qualitygate.wait=true
 
       - name: SonarQube Scan (pull request)
         if: github.event.workflow_run.event == 'pull_request'
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:
           args: >-
             -Dsonar.projectKey=timlaing_pyicloud
             -Dsonar.organization=timlaing
             -Dsonar.projectName=pyicloud
-            -Dsonar.sources=./pyicloud
-            -Dsonar.tests=./tests
+            -Dsonar.sources=pyicloud
+            -Dsonar.tests=tests
             -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
             -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14
             -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
