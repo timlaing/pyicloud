@@ -63,6 +63,10 @@ class FindMyiPhoneServiceManager(BaseService):
         self._refresh_interval: float = (
             refresh_interval if refresh_interval is not None else 5.0 * 60.0
         )
+        if isinstance(family_poll_delay, bool) or family_poll_delay < 0:
+            raise ValueError("family_poll_delay must be a non-negative number")
+        if isinstance(family_poll_max_retries, bool) or family_poll_max_retries < 0:
+            raise ValueError("family_poll_max_retries must be a non-negative integer")
         self._family_poll_delay: float = family_poll_delay
         self._family_poll_max_retries: int = family_poll_max_retries
 
