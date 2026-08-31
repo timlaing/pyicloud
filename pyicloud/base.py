@@ -373,21 +373,21 @@ class PyiCloudService:
     def _try_reuse_cached_session(self, force_refresh: bool, pause_2fa: bool) -> bool:
         """Validate and reuse a cached session token when it is allowed.
 
-        A cached session is only reused when it is trusted, or when the caller
-        explicitly opted into a paused (untrusted) 2FA session.
+        An intentionally untrusted (paused) session is only reused when the
+        caller explicitly opted into a paused 2FA flow; a trusted session is
+        always reusable so cookie/session persistence keeps working.
         """
-        if (
-            not self.session.data.get("session_token")
-            or force_refresh
-            or not (pause_2fa or self.is_trusted_session)
-        ):
+        if not self.session.data.get("session_token") or force_refresh:
             return False
         try:
             self.data = self._validate_token()
-            return True
         except PyiCloudAPIResponseException:
             LOGGER.debug("Invalid authentication token, will log in from scratch.")
             return False
+        if not self.is_trusted_session and not pause_2fa:
+            LOGGER.debug("Cached session is untrusted; requiring full authentication.")
+            return False
+        return True
 
     def _try_service_one_factor_login(self, service: str | None) -> bool:
         """Attempt a one-factor login for the requested service."""
