@@ -750,6 +750,21 @@ class TestRecordToList:
         assert lst.color == "#FF6600"
         assert lst.count == 16
         assert lst.is_group is False
+        assert lst.deleted is False
+
+    def test_deleted_list(self, service: RemindersService) -> None:
+        """A deleted list keeps its tombstone in the zone; expose the flag."""
+        rec = _ck_record(
+            "List",
+            "LIST-003",
+            {
+                "Name": {"type": "STRING", "value": "Old list"},
+                "Deleted": {"type": "INT64", "value": 1},
+            },
+        )
+        lst = service._record_to_list(rec)
+
+        assert lst.deleted is True
 
     def test_fixture_list_query_record(self, service: RemindersService) -> None:
         """Parsing a fixture List query record works."""
