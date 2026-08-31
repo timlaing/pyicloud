@@ -104,7 +104,9 @@ jobs:
           echo "base-ref=$PR_BASE_REF" >> "$GITHUB_OUTPUT"
 
       - name: SonarQube Scan (branch)
-        if: github.event.workflow_run.event == 'push'
+        if: >
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
