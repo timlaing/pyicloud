@@ -333,6 +333,55 @@ def test_upload_status_raises_when_payload_is_not_a_mapping() -> None:
         client.upload_status(["job"])
 
 
+def test_upload_file_refuses_a_non_https_upload_url() -> None:
+    """File bytes and the URL's own token must never go out in the clear."""
+
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "uploadUrls": {
+                UPLOAD_CLIENT_UUID: "http://cws.icloud-content.example.com/upload"
+            }
+        },
+    )
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(CloudKitApiError, match="not HTTPS"),
+    ):
+        client.upload_file("/virtual/insecure.jpg", zone_name="PrimarySync")
+
+    # The reservation happened, but no file data was sent.
+    assert session.post.call_count == 1
+
+
+def test_upload_file_rejects_a_surplus_put_asset_result() -> None:
+    """One file is registered, so a longer result list is not trustworthy.
+
+    Taking the first entry of a surplus response could hand back another
+    asset's record names.
+    """
+
+    session = MagicMock()
+    session.post.side_effect = [
+        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: PUT_ASSET_PAYLOAD + PUT_ASSET_PAYLOAD,
+        ),
+    ]
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(CloudKitApiError, match="returned 2 results for one file"),
+    ):
+        client.upload_file("/virtual/surplus.jpg", zone_name="PrimarySync")
+
+
 def test_upload_file_raises_cloudkit_error_for_http_error() -> None:
     """Upload HTTP failures should be raised before response validation."""
 
@@ -440,7 +489,11 @@ def test_upload_file_raises_when_put_asset_is_not_a_list() -> None:
 
 
 def test_upload_file_raises_when_put_asset_registers_nothing() -> None:
-    """An empty registration list means the asset never landed."""
+    """An empty registration list means the asset never landed.
+
+    Covered by the same cardinality guard as a surplus list: exactly one file
+    was registered, so exactly one result is expected.
+    """
 
     session = MagicMock()
     session.post.side_effect = [
@@ -452,7 +505,7 @@ def test_upload_file_raises_when_put_asset_registers_nothing() -> None:
 
     with (
         _upload_environment(),
-        pytest.raises(CloudKitApiError, match="putAsset returned no assets"),
+        pytest.raises(CloudKitApiError, match="returned 0 results for one file"),
     ):
         client.upload_file("/virtual/empty_put.jpg", zone_name="PrimarySync")
 

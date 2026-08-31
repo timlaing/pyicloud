@@ -913,6 +913,50 @@ def test_upload_file_backs_off_when_rate_limited_mid_hydration() -> None:
     assert sleep.call_args_list[0].args[0] == 5.0
 
 
+def test_upload_file_retries_transient_lookup_failures() -> None:
+    """A transient CloudKit error must not discard an upload that succeeded."""
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.side_effect = [
+        CloudKitApiError("Lookup failed with HTTP 500"),
+        _uploaded_records_lookup(),
+    ]
+
+    library = _upload_library(mock_client, upload_hydration_timeout=300.0)
+    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+        asset = library.upload_file("test_photo.jpg")
+
+    assert asset is not None
+    assert asset.id == "asset123"
+
+
+def test_upload_file_normalises_persistent_lookup_failures() -> None:
+    """A lookup that keeps failing raises the public exception type.
+
+    CloudKitApiError does not derive from PyiCloudException, so without this it
+    would escape upload_file unchanged and the method's error contract would
+    depend on whether registration or hydration failed.
+    """
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.side_effect = CloudKitApiError("Lookup failed with HTTP 500")
+
+    library = _upload_library(mock_client, upload_hydration_timeout=0.2)
+    with (
+        patch("pyicloud.services.photos_cloudkit.service.time.sleep"),
+        pytest.raises(PyiCloudAPIResponseException, match="HTTP 500"),
+    ):
+        library.upload_file("test_photo.jpg")
+
+
 def test_upload_file_returns_none_when_rate_limited_past_the_deadline() -> None:
     """Persistent rate limiting is bounded like any other hydration failure."""
     mock_client = _indexed_client()

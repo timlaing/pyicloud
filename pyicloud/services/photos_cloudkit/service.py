@@ -848,6 +848,11 @@ class PhotoLibrary(BasePhotoLibrary):
         the records queryable, so it is retried until ``timeout`` elapses.
         Duplicates resolve on the first attempt, since those records already
         exist.
+
+        Returns ``None`` if the records are still not indexed when ``timeout``
+        elapses; the file is stored in iCloud regardless. A lookup that keeps
+        failing outright raises ``PyiCloudAPIResponseException``, so a broken
+        lookup is distinguishable from a slow one.
         """
 
         master_name = result.cplMaster
@@ -888,6 +893,15 @@ class PhotoLibrary(BasePhotoLibrary):
                 if not _wait(exc.retry_after or delay):
                     LOGGER.debug("Rate limited while waiting for the upload to index")
                     return None
+                continue
+            except CloudKitApiError as exc:
+                # Same reasoning: a transient CloudKit failure inside the
+                # indexing window should not discard an upload that succeeded.
+                # A persistent one is reported rather than being mistaken for a
+                # slow index, and is normalised so this method raises the same
+                # exception type whether registration or hydration failed.
+                if not _wait(delay):
+                    raise PyiCloudAPIResponseException(str(exc)) from exc
                 continue
 
             records_by_type = {

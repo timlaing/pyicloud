@@ -25,7 +25,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -148,8 +148,18 @@ class PhotosUploader:
         return dict(parsed.uploadUrls)
 
     def send_bytes(self, url: str, path: Path) -> PhotosSingleFileUpload:
-        """Send the file at ``path`` to a reserved upload ``url``."""
+        """Send the file at ``path`` to a reserved upload ``url``.
 
+        The URL is echoed from Apple's reservation response and carries its own
+        access token, so the scheme is checked before any bytes leave: a
+        non-HTTPS target would put both the file and the token on the wire in
+        the clear.
+        """
+
+        if urlparse(url).scheme != "https":
+            raise CloudKitApiError(
+                "Photos upload URL is not HTTPS; refusing to send file data"
+            )
         with path.open("rb") as handle:
             response = self._session.post(url=url, data=handle, timeout=self._timeout)
         data = response_json(response, context="Photos singleFileUpload")
@@ -274,8 +284,14 @@ class PhotosUploader:
             import_group=import_group or client_uuid,
             local_time_zone_id=zone_id,
         )
-        if not results:
-            raise CloudKitApiError("Photos putAsset returned no assets")
+        # Exactly one file was registered, so exactly one result is expected;
+        # taking the first of a longer list could return another asset's
+        # record names.
+        if len(results) != 1:
+            raise CloudKitApiError(
+                f"Photos putAsset returned {len(results)} results for one file",
+                payload=[item.model_dump(mode="json") for item in results],
+            )
 
         result = results[0]
         status = result.response.status if result.response else None
