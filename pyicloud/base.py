@@ -257,6 +257,7 @@ class PyiCloudService:
         *,
         authenticate: bool = True,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
+        pause_2fa: bool = False,
     ) -> None:
         """Initialize a service session for one Apple ID account."""
         self._is_china_mainland: bool = (
@@ -327,9 +328,10 @@ class PyiCloudService:
 
         self._requires_mfa: bool = False
         self._two_factor_code_requested: bool = False
+        self._pause_2fa: bool = pause_2fa
 
         if authenticate:
-            self.authenticate()
+            self.authenticate(pause_2fa=pause_2fa)
 
     @property
     def is_china_mainland(self) -> bool:
@@ -338,12 +340,18 @@ class PyiCloudService:
         return self._is_china_mainland
 
     def authenticate(
-        self, force_refresh: bool = False, service: str | None = None
+        self,
+        force_refresh: bool = False,
+        service: str | None = None,
+        pause_2fa: bool | None = None,
     ) -> None:
         """
         Handles authentication, and persists cookies so that
         subsequent logins will not cause additional e-mails from Apple.
         """
+
+        if pause_2fa is None:
+            pause_2fa = self._pause_2fa
 
         login_successful = False
         if self.session.data.get("session_token") and not force_refresh:
@@ -372,7 +380,7 @@ class PyiCloudService:
 
         if not login_successful:
             try:
-                self._authenticate()
+                self._authenticate(pause_2fa=pause_2fa)
                 LOGGER.debug("Authentication completed successfully")
             except PyiCloud2FARequiredException:
                 self._requires_mfa = True
@@ -531,15 +539,15 @@ class PyiCloudService:
             "local_session_cleared": local_session_cleared,
         }
 
-    def _authenticate(self) -> None:
+    def _authenticate(self, pause_2fa: bool = False) -> None:
         """Authenticate with either the cached session token or fresh credentials."""
         LOGGER.debug("Authenticating as %s", self.account_name)
 
         try:
             self._authenticate_with_token()
         except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
-            self._srp_authentication()
-            if self._requires_mfa:
+            self._srp_authentication(pause_2fa=pause_2fa)
+            if self._requires_mfa or (pause_2fa and self.data):
                 LOGGER.debug(
                     "MFA is required; session-token authentication is deferred "
                     "until the 2FA challenge is completed."
@@ -547,7 +555,7 @@ class PyiCloudService:
                 return
             self._authenticate_with_token()
 
-    def _srp_authentication(self) -> None:
+    def _srp_authentication(self, pause_2fa: bool = False) -> None:
         """SRP authentication."""
         if self._password_raw is None:
             raise PyiCloudFailedLoginException("No password set")
@@ -624,6 +632,8 @@ class PyiCloudService:
             }
         if self.session.data.get("trust_token"):
             data["trustTokens"] = [self.session.data.get("trust_token")]
+        if pause_2fa:
+            data["pause2FA"] = True
 
         try:
             self.session.post(
@@ -635,6 +645,18 @@ class PyiCloudService:
                 headers=self._get_auth_headers(),
             )
         except PyiCloud2FARequiredException:
+            if pause_2fa and self.session.data.get("session_token"):
+                LOGGER.debug(
+                    "2FA required but pause2FA is enabled; "
+                    "attempting session-token login."
+                )
+                try:
+                    self._authenticate_with_token(require_trust=False)
+                    return
+                except PyiCloudAPIResponseException:
+                    LOGGER.debug(
+                        "Paused session-token login failed; falling back to MFA flow."
+                    )
             LOGGER.debug("2FA required to complete authentication.")
             self._requires_mfa = True
             self._auth_data = self._get_mfa_auth_options()
@@ -649,7 +671,7 @@ class PyiCloudService:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
 
-    def _authenticate_with_token(self) -> None:
+    def _authenticate_with_token(self, require_trust: bool = True) -> None:
         """Authenticate using session token."""
         if not self.session.data.get("session_token"):
             raise PyiCloudFailedLoginException("No session token available")
@@ -671,7 +693,7 @@ class PyiCloudService:
 
             self._handle_accept_terms(login_data)
 
-            if not self.is_trusted_session:
+            if require_trust and not self.is_trusted_session:
                 raise PyiCloud2FARequiredException(self.account_name, resp)
 
             self._auth_data = {}

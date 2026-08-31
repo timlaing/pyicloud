@@ -39,7 +39,7 @@ from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
 from pyicloud.session import PyiCloudSession
 from pyicloud.utils import b64_encode
-from tests.const import LOGIN_2FA
+from tests.const import LOGIN_2FA, LOGIN_WORKING
 
 
 def test_authenticate_with_force_refresh(
@@ -2683,7 +2683,8 @@ def test_authenticate_skips_token_auth_after_srp_2fa_required(
 ) -> None:
     """_authenticate avoids re-trying token auth once SRP reports MFA pending."""
 
-    def _mark_mfa_required() -> None:
+    def _mark_mfa_required(pause_2fa: bool = False) -> None:
+        del pause_2fa
         pyicloud_service._requires_mfa = True
         pyicloud_service._auth_data = {
             "phoneNumberVerification": {
@@ -2750,3 +2751,282 @@ def test_request_2fa_code_is_idempotent_for_srp_auto_request(
 
     pyicloud_service._trusted_device_bridge.start.assert_not_called()
     mock_session.put.assert_not_called()
+
+
+def test_constructor_passes_pause_2fa_to_authenticate() -> None:
+    """Constructor should forward pause_2fa to the authenticate call."""
+
+    with (
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
+        patch("builtins.open", new_callable=mock_open),
+    ):
+        mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
+
+        service = PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            pause_2fa=True,
+        )
+
+        mock_authenticate.assert_called_once_with(pause_2fa=True)
+        assert service._pause_2fa is True
+
+
+def test_authenticate_with_token_require_trust_false_allows_untrusted_session(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """accountLogin should succeed for a paused (untrusted) session."""
+    login_payload = dict(LOGIN_WORKING)
+    login_payload["hsaTrustedBrowser"] = False
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = login_payload
+
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(return_value=mock_resp),
+    )
+    pyicloud_service.session._data = {
+        "session_token": "paused-token",
+        "account_country": "USA",
+        "trust_token": "",
+    }
+
+    pyicloud_service._authenticate_with_token(require_trust=False)
+
+    assert pyicloud_service.data["hsaTrustedBrowser"] is False
+    assert pyicloud_service.requires_2fa is True
+    assert pyicloud_service._requires_mfa is False
+
+
+def test_authenticate_with_token_require_trust_true_raises_for_paused_session(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """accountLogin with require_trust=True should raise for a paused session."""
+    login_payload = dict(LOGIN_WORKING)
+    login_payload["hsaTrustedBrowser"] = False
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = login_payload
+
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(return_value=mock_resp),
+    )
+    pyicloud_service.session._data = {
+        "session_token": "paused-token",
+        "account_country": "USA",
+        "trust_token": "",
+    }
+
+    with pytest.raises(PyiCloud2FARequiredException):
+        pyicloud_service._authenticate_with_token(require_trust=True)
+
+
+def test_srp_authentication_pause_2fa_includes_pause2fa_flag(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """SRP should send pause2FA=True when pause_2fa is enabled."""
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+    complete_response = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = [
+            init_response,
+            complete_response,
+        ]
+
+        pyicloud_service._srp_authentication(pause_2fa=True)
+
+        args, kwargs = mock_session.post.call_args
+        assert kwargs["json"]["pause2FA"] is True
+        assert args[0] == f"{pyicloud_service._auth_endpoint}/signin/complete"
+
+
+def test_srp_authentication_without_pause_2fa_omits_pause2fa_flag(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """SRP should omit pause2FA when pause_2fa is disabled."""
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+    complete_response = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = [
+            init_response,
+            complete_response,
+        ]
+
+        pyicloud_service._srp_authentication(pause_2fa=False)
+
+        _, kwargs = mock_session.post.call_args
+        assert "pause2FA" not in kwargs["json"]
+
+
+def test_srp_authentication_pause_2fa_uses_token_when_409_returned(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Paused SRP should authenticate via token when Apple returns 2FA."""
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+        patch.object(pyicloud_service, "_authenticate_with_token") as mock_token_auth,
+        patch.object(pyicloud_service, "_get_mfa_auth_options"),
+        patch.object(pyicloud_service, "request_2fa_code"),
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {"session_token": "paused-token"}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = [
+            init_response,
+            PyiCloud2FARequiredException("test@example.com", MagicMock()),
+        ]
+
+        pyicloud_service._srp_authentication(pause_2fa=True)
+
+        mock_token_auth.assert_called_once_with(require_trust=False)
+        assert pyicloud_service._requires_mfa is False
+        cast(Any, pyicloud_service.request_2fa_code).assert_not_called()
+
+
+def test_srp_authentication_pause_2fa_falls_back_to_mfa_without_token(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Paused SRP without a session token should fall back to MFA flow."""
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+        patch.object(pyicloud_service, "_get_mfa_auth_options", return_value={}),
+        patch.object(pyicloud_service, "request_2fa_code"),
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        mock_session.post.side_effect = [
+            init_response,
+            PyiCloud2FARequiredException("test@example.com", MagicMock()),
+        ]
+
+        pyicloud_service._srp_authentication(pause_2fa=True)
+
+        assert pyicloud_service._requires_mfa is True
+        cast(Any, pyicloud_service.request_2fa_code).assert_called_once()
+
+
+def test_authenticate_pause_2fa_skips_second_token_auth_after_paused_login(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """_authenticate should not re-run trusted token login after a paused login."""
+
+    def _paused_login(pause_2fa: bool) -> None:
+        del pause_2fa
+        pyicloud_service.data = {"hsaTrustedBrowser": False, "webservices": {}}
+
+    with (
+        patch.object(
+            pyicloud_service,
+            "_authenticate_with_token",
+            side_effect=PyiCloudFailedLoginException("no session token"),
+        ) as mock_authenticate_with_token,
+        patch.object(
+            pyicloud_service,
+            "_srp_authentication",
+            side_effect=_paused_login,
+        ) as mock_srp_authentication,
+    ):
+        pyicloud_service._authenticate(pause_2fa=True)
+
+        mock_srp_authentication.assert_called_once_with(pause_2fa=True)
+        # Only the failed initial trusted login; no second re-login.
+        assert mock_authenticate_with_token.call_count == 1
+        assert pyicloud_service._requires_mfa is False
