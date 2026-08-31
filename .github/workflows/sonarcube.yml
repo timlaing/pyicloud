@@ -9,7 +9,7 @@ on:
 permissions:
   actions: read
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 jobs:
   sonarqube:
@@ -21,7 +21,6 @@ jobs:
     timeout-minutes: 15
     env:
       SONAR_HOST_URL: https://sonarcloud.io
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,7 +29,9 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Require SonarQube credentials
-        if: env.SONAR_TOKEN == ''
+        if: ${{ secrets.SONAR_TOKEN == '' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           echo "SONAR_TOKEN is not set; cannot run SonarQube analysis"
           exit 1
@@ -98,6 +99,8 @@ jobs:
 
       - name: SonarQube Scan (branch)
         if: github.event.workflow_run.event == 'push'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:
           args: >-
@@ -113,6 +116,8 @@ jobs:
 
       - name: SonarQube Scan (pull request)
         if: github.event.workflow_run.event == 'pull_request'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         with:
           args: >-
