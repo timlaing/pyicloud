@@ -596,6 +596,20 @@ class CalendarService(BaseService):
 
         return params
 
+    def _refresh_duration(self, obj: Any) -> None:
+        """Recompute an object's duration from its resolved start/end dates.
+
+        The object is constructed with default dates, so ``duration`` reflects
+        the defaults rather than the dates populated from the API payload.
+        """
+        start_date = getattr(obj, "start_date", None)
+        end_date = getattr(obj, "end_date", None)
+        if not hasattr(obj, "duration"):
+            return
+        if not isinstance(start_date, datetime) or not isinstance(end_date, datetime):
+            return
+        obj.duration = int((end_date.timestamp() - start_date.timestamp()) / 60)
+
     def obj_from_dict(self, obj: T, _dict: dict[str, Any]) -> T:
         """Creates an object from a dictionary with proper field validation."""
         if hasattr(obj, "__dataclass_fields__") and not isinstance(obj, type):
@@ -616,6 +630,8 @@ class CalendarService(BaseService):
                     setattr(
                         obj, field_name, _coerce(field_types.get(field_name), value)
                     )
+
+            self._refresh_duration(obj)
         else:
             for key, value in _dict.items():
                 setattr(obj, key, value)

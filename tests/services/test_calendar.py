@@ -683,6 +683,37 @@ def test_event_dates_are_parsed_into_datetimes() -> None:
     assert event.title == "Lunch"
 
 
+def test_event_duration_matches_resolved_dates() -> None:
+    """Duration reflects the parsed dates, not the constructor defaults."""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {
+                "startDate": [20260909, 2026, 9, 9, 9, 30, 570],
+                "endDate": [20260909, 2026, 9, 9, 12, 45, 765],
+            },
+        )
+
+    # 09:30 -> 12:45 is 195 minutes, not the constructor's default of 60.
+    assert event.duration == 195
+
+
+def test_event_duration_left_alone_when_dates_unparsable() -> None:
+    """Duration is not recomputed when dates could not be parsed."""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {"startDate": ["nope"], "endDate": "also-nope"},
+        )
+
+    assert event.start_date == ["nope"]
+    assert event.end_date == "also-nope"
+    # Dates stayed unparsable, so the constructor-derived duration persists.
+    assert event.duration == 60
+
+
 def test_event_dates_tolerate_unexpected_values() -> None:
     """A malformed date is left alone rather than raising."""
     with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
