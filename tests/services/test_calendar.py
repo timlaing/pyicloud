@@ -694,3 +694,25 @@ def test_event_dates_tolerate_unexpected_values() -> None:
 
     assert event.start_date == ["nope"]
     assert event.end_date is None
+
+
+def test_event_dates_tolerate_overflow_year() -> None:
+    """An absurdly large year raises OverflowError, which is tolerated."""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {
+                "startDate": [
+                    20260909,
+                    10**1000,
+                    9,
+                    9,
+                    10,
+                    0,
+                    600,
+                ]
+            },
+        )
+
+    assert event.start_date == [20260909, 10**1000, 9, 9, 10, 0, 600]

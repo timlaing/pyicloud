@@ -179,7 +179,7 @@ def _coerce(annotation: Any, value: Any) -> Any:
     if isinstance(value, (list, tuple)) and len(value) >= 6:
         try:
             return AppleDateFormat.from_list(value).to_datetime()
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return value
     return value
 
