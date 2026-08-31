@@ -573,7 +573,7 @@ class PyiCloudService:
                     "until the 2FA challenge is completed."
                 )
                 return
-            self._authenticate_with_token()
+            self._authenticate_with_token(require_trust=not pause_2fa)
 
     def _srp_authentication(self, pause_2fa: bool = False) -> None:
         """SRP authentication."""

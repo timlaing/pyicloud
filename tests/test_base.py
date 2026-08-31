@@ -3082,6 +3082,39 @@ def test_authenticate_pause_2fa_skips_second_token_auth_after_paused_login(
         assert pyicloud_service._requires_mfa is False
 
 
+def test_authenticate_pause_2fa_success_path_uses_untrusted_token_auth(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """SRP success with pause_2fa must not re-introduce a 2FA requirement."""
+    pyicloud_service.data = {}
+
+    calls: list[bool] = []
+
+    def _token_auth(require_trust: bool = True) -> None:
+        calls.append(require_trust)
+        if len(calls) == 1:
+            raise PyiCloudFailedLoginException("no session token")
+
+    with (
+        patch.object(
+            pyicloud_service,
+            "_authenticate_with_token",
+            side_effect=_token_auth,
+        ) as mock_authenticate_with_token,
+        patch.object(
+            pyicloud_service,
+            "_srp_authentication",
+            return_value=None,
+        ),
+    ):
+        pyicloud_service._authenticate(pause_2fa=True)
+
+        # Initial attempt failed; SRP completed; the follow-up token auth must
+        # accept the intentionally-untrusted paused session (require_trust=False).
+        assert mock_authenticate_with_token.call_count == 2
+        assert calls[1] is False
+
+
 def test_authenticate_rejects_cached_untrusted_session_without_pause_2fa(
     pyicloud_service: PyiCloudService,
 ) -> None:
