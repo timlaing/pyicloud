@@ -339,7 +339,7 @@ class PyiCloudService:
 
         return self._is_china_mainland
 
-    def authenticate(  # noqa: S3776
+    def authenticate(
         self,
         force_refresh: bool = False,
         service: str | None = None,
@@ -354,33 +354,11 @@ class PyiCloudService:
             pause_2fa = self._pause_2fa
 
         login_successful = False
-        if (
-            self.session.data.get("session_token")
-            and not force_refresh
-            and (pause_2fa or self.is_trusted_session)
-        ):
-            try:
-                self.data = self._validate_token()
-                login_successful = True
-            except PyiCloudAPIResponseException:
-                LOGGER.debug("Invalid authentication token, will log in from scratch.")
+        if self._try_reuse_cached_session(force_refresh, pause_2fa):
+            login_successful = True
 
-        if (
-            not login_successful
-            and service is not None
-            and self.data.get("apps")
-            and service in self.data["apps"]
-        ):
-            app: dict[str, Any] = self.data["apps"][service]
-            if "canLaunchWithOneFactor" in app and app["canLaunchWithOneFactor"]:
-                LOGGER.debug("Authenticating as %s for %s", self.account_name, service)
-                try:
-                    self._authenticate_with_credentials_service(service)
-                    login_successful = True
-                except PyiCloudFailedLoginException:
-                    LOGGER.debug(
-                        "Could not log into service. Attempting brand new login."
-                    )
+        if not login_successful and self._try_service_one_factor_login(service):
+            login_successful = True
 
         if not login_successful:
             try:
@@ -391,6 +369,44 @@ class PyiCloudService:
                 LOGGER.debug("2FA is required")
 
         self._update_state()
+
+    def _try_reuse_cached_session(self, force_refresh: bool, pause_2fa: bool) -> bool:
+        """Validate and reuse a cached session token when it is allowed.
+
+        A cached session is only reused when it is trusted, or when the caller
+        explicitly opted into a paused (untrusted) 2FA session.
+        """
+        if (
+            not self.session.data.get("session_token")
+            or force_refresh
+            or not (pause_2fa or self.is_trusted_session)
+        ):
+            return False
+        try:
+            self.data = self._validate_token()
+            return True
+        except PyiCloudAPIResponseException:
+            LOGGER.debug("Invalid authentication token, will log in from scratch.")
+            return False
+
+    def _try_service_one_factor_login(self, service: str | None) -> bool:
+        """Attempt a one-factor login for the requested service."""
+        if (
+            service is None
+            or not self.data.get("apps")
+            or service not in self.data["apps"]
+        ):
+            return False
+        app: dict[str, Any] = self.data["apps"][service]
+        if "canLaunchWithOneFactor" not in app or not app["canLaunchWithOneFactor"]:
+            return False
+        LOGGER.debug("Authenticating as %s for %s", self.account_name, service)
+        try:
+            self._authenticate_with_credentials_service(service)
+            return True
+        except PyiCloudFailedLoginException:
+            LOGGER.debug("Could not log into service. Attempting brand new login.")
+            return False
 
     def _handle_accept_terms(self, login_data: dict[str, Any]) -> None:
         """Handle accepting updated terms of service."""
@@ -559,9 +575,7 @@ class PyiCloudService:
                 return
             self._authenticate_with_token()
 
-    def _srp_authentication(  # noqa: S3776
-        self, pause_2fa: bool = False
-    ) -> None:
+    def _srp_authentication(self, pause_2fa: bool = False) -> None:
         """SRP authentication."""
         if self._password_raw is None:
             raise PyiCloudFailedLoginException("No password set")
