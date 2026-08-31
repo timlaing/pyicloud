@@ -1,11 +1,11 @@
 """Pyicloud Session handling"""
 
+from json import JSONDecodeError, dump, load
 import logging
 import os
-from json import JSONDecodeError, dump, load
 from os import path
 from re import match
-from typing import TYPE_CHECKING, Any, NoReturn, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import requests
 from requests.models import Response
@@ -33,28 +33,26 @@ if TYPE_CHECKING:
     from pyicloud.base import PyiCloudService
 
 
-NON_PERSISTED_SESSION_KEYS = frozenset(
-    {
-        "akdata",
-        "connection_path",
-        "data",
-        "encryptedCode",
-        "encrypted_code",
-        "idmsdata",
-        "mid",
-        "nextStep",
-        "next_step",
-        "ptkn",
-        "push_token",
-        "salt",
-        "sessionUUID",
-        "session_uuid",
-        "source_app_id",
-        "topic",
-        "topics_by_hash",
-        "txnid",
-    }
-)
+NON_PERSISTED_SESSION_KEYS = frozenset({
+    "akdata",
+    "connection_path",
+    "data",
+    "encryptedCode",
+    "encrypted_code",
+    "idmsdata",
+    "mid",
+    "nextStep",
+    "next_step",
+    "ptkn",
+    "push_token",
+    "salt",
+    "sessionUUID",
+    "session_uuid",
+    "source_app_id",
+    "topic",
+    "topics_by_hash",
+    "txnid",
+})
 
 
 class PyiCloudSession(requests.Session):
@@ -66,7 +64,7 @@ class PyiCloudSession(requests.Session):
         client_id: str,
         cookie_directory: str,
         verify: bool = False,
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         """Initialize the persisted requests session used by the service."""
         super().__init__()
@@ -104,14 +102,15 @@ class PyiCloudSession(requests.Session):
                 cast(PyiCloudCookieJar, self.cookies).load()
             except (OSError, ValueError) as exc:
                 self._logger.warning(
-                    "Failed to load cookie jar %s: %s; starting without persisted cookies",
+                    "Failed to load cookie jar %s: %s; starting without persisted "
+                    "cookies",
                     self.cookiejar_path,
                     exc,
                 )
                 cast(PyiCloudCookieJar, self.cookies).clear()
 
         self._logger.debug("Using session file %s", self.session_path)
-        self._data: dict[str, Any] = {}
+        self._data = {}
         try:
             with open(self.session_path, encoding="utf-8") as session_f:
                 self._data = load(session_f)
@@ -185,27 +184,27 @@ class PyiCloudSession(requests.Session):
 
     def request(
         self,
-        method,
-        url,
-        params=None,
-        data=None,
-        headers=None,
-        cookies=None,
-        files=None,
-        auth=None,
-        timeout=None,
-        allow_redirects=True,
-        proxies=None,
-        hooks=None,
-        stream=None,
-        verify=None,
-        cert=None,
-        json=None,
+        method: str | bytes,
+        url: str | bytes,
+        params: Any = None,
+        data: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        files: Any = None,
+        auth: Any = None,
+        timeout: Any = None,
+        allow_redirects: bool = True,
+        proxies: Any = None,
+        hooks: Any = None,
+        stream: Any = None,
+        verify: Any = None,
+        cert: Any = None,
+        json: Any = None,
     ) -> Response:
         """Dispatch a request through the normalized session request pipeline."""
         return self._request(
-            method,
-            url,
+            cast(str, method),
+            cast(str, url),
             params=params,
             data=data,
             headers=headers,
@@ -223,23 +222,23 @@ class PyiCloudSession(requests.Session):
         )
 
     def request_raw(
-        self,
-        method,
-        url,
-        params=None,
-        data=None,
-        headers=None,
-        cookies=None,
-        files=None,
-        auth=None,
-        timeout=None,
-        allow_redirects=True,
-        proxies=None,
-        hooks=None,
-        stream=None,
-        verify=None,
-        cert=None,
-        json=None,
+        self,  # noqa: S107
+        method: str,
+        url: str,
+        params: Any = None,
+        data: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        files: Any = None,
+        auth: Any = None,
+        timeout: Any = None,
+        allow_redirects: bool = True,
+        proxies: Any = None,
+        hooks: Any = None,
+        stream: Any = None,
+        verify: Any = None,
+        cert: Any = None,
+        json: Any = None,
     ) -> Response:
         """Dispatch a request without response-status normalization."""
 
@@ -264,9 +263,9 @@ class PyiCloudSession(requests.Session):
 
     def _request_raw(
         self,
-        method,
-        url,
-        **kwargs,
+        method: str,
+        url: str,
+        **kwargs: Any,
     ) -> Response:
         """Perform a request and persist cookies/session data without raising."""
 
@@ -289,9 +288,9 @@ class PyiCloudSession(requests.Session):
 
     def _request(
         self,
-        method,
-        url,
-        **kwargs,
+        method: str,
+        url: str,
+        **kwargs: Any,
     ) -> Response:
         """Request method."""
         self.logger.debug(
@@ -320,7 +319,7 @@ class PyiCloudSession(requests.Session):
                     AppleAuthError.FIND_MY_REAUTH_REQUIRED,
                     AppleAuthError.LOGIN_TOKEN_EXPIRED,
                     AppleAuthError.GENERAL_AUTH_ERROR,
-                ],
+                ]
             ):
                 return self._handle_request_error(
                     status_code=status_code,
@@ -340,7 +339,9 @@ class PyiCloudSession(requests.Session):
 
     @staticmethod
     def _raise_request_exception(err: requests.exceptions.RequestException) -> NoReturn:
-        """Normalize low-level requests failures into the session's public error type."""
+        """Normalize low-level requests failures into the session's public error
+        type.
+        """
 
         if isinstance(err, requests.HTTPError) and err.response is not None:
             raise PyiCloudAPIResponseException(
@@ -379,9 +380,9 @@ class PyiCloudSession(requests.Session):
             return
 
         try:
-            data: Union[list[dict[str, Any]], dict[str, Any]] = response.json()
+            data: list[dict[str, Any]] | dict[str, Any] = response.json()
             if isinstance(data, dict):
-                reason: Optional[str] = data.get("errorMessage")
+                reason: str | None = data.get("errorMessage")
                 reason = reason or data.get("reason")
                 reason = reason or data.get("errorReason")
                 reason = reason or data.get("error")
@@ -389,18 +390,19 @@ class PyiCloudSession(requests.Session):
                     reason = "Unknown reason"
 
                 if reason:
-                    code: Optional[Union[int, str]] = data.get("errorCode")
+                    code: int | str | None = data.get("errorCode")
                     code = code or data.get("serverErrorCode")
                     self._raise_error(response, code, reason)
 
         except JSONDecodeError:
             self.logger.debug(
-                "Failed to parse response body as JSON despite JSON mimetype; status=%s",
+                "Failed to parse response body as JSON despite JSON mimetype; "
+                "status=%s",
                 getattr(response, "status_code", "unknown"),
             )
 
     def _raise_error(
-        self, response: Response, code: Optional[Union[int, str]], reason: str
+        self, response: Response, code: int | str | None, reason: str
     ) -> NoReturn:
         """Raise the session's public exception for a parsed iCloud error payload."""
         if (

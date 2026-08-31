@@ -22,8 +22,9 @@ client; see the Invites design doc.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import logging
-from typing import Any, Dict, Iterable, List, Literal, NoReturn, Optional
+from typing import Any, Literal, NoReturn, cast
 from urllib.parse import urlencode
 
 from pyicloud.common.cloudkit import (
@@ -64,7 +65,7 @@ class InvitesAuthError(InvitesError):
 class InvitesRateLimited(InvitesError):
     """429 Too Many Requests."""
 
-    def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after
 
@@ -72,7 +73,7 @@ class InvitesRateLimited(InvitesError):
 class InvitesApiError(InvitesError):
     """Catch-all API error."""
 
-    def __init__(self, message: str, payload: Optional[object] = None) -> None:
+    def __init__(self, message: str, payload: object | None = None) -> None:
         super().__init__(message)
         self.payload = payload
 
@@ -95,7 +96,7 @@ class CloudKitInvitesClient:
         self,
         env_base_url: str,
         session: Any,
-        base_params: Dict[str, object],
+        base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
         timeout: tuple[float, float] = DEFAULT_TIMEOUT,
@@ -105,7 +106,7 @@ class CloudKitInvitesClient:
         self._timeout = timeout
         self._public_base = f"{env_base_url}/public"
 
-        common_kwargs: Dict[str, Any] = {
+        common_kwargs: dict[str, Any] = {
             "session": session,
             "base_params": base_params,
             "validation_extra": validation_extra,
@@ -137,7 +138,7 @@ class CloudKitInvitesClient:
             raise InvitesRateLimited(str(exc), retry_after=exc.retry_after) from cause
         if isinstance(exc, CloudKitApiError):
             raise InvitesApiError(str(exc), payload=exc.payload) from cause
-        raise
+        raise exc
 
     # ----- Records-in-zones scoped wrappers ----------------------------------
 
@@ -146,12 +147,13 @@ class CloudKitInvitesClient:
         scope: ScopeLiteral,
         *,
         query: CKQueryObject,
-        zone_id: Optional[CKZoneIDReq] = None,
-        desired_keys: Optional[List[str]] = None,
-        results_limit: Optional[int] = None,
-        continuation: Optional[str] = None,
+        zone_id: CKZoneIDReq | None = None,
+        desired_keys: list[str] | None = None,
+        results_limit: int | None = None,
+        continuation: str | None = None,
         zone_wide: bool = False,
     ) -> CKQueryResponse:
+        """Query records in the given scope, returning the typed response."""
         try:
             return self._client_for(scope).query(
                 query=query,
@@ -170,8 +172,9 @@ class CloudKitInvitesClient:
         record_names: Iterable[str],
         *,
         zone_id: CKZoneIDReq,
-        desired_keys: Optional[List[str]] = None,
+        desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
+        """Look up records by name in the given scope."""
         try:
             return self._client_for(scope).lookup(
                 record_names,
@@ -185,10 +188,11 @@ class CloudKitInvitesClient:
         self,
         scope: ScopeLiteral,
         *,
-        operations: List[CKModifyOperation],
+        operations: list[CKModifyOperation],
         zone_id: CKZoneIDReq,
-        atomic: Optional[bool] = None,
+        atomic: bool | None = None,
     ) -> CKModifyResponse:
+        """Create, update, or delete records in the given scope."""
         try:
             return self._client_for(scope).modify(
                 operations=operations,
@@ -203,8 +207,9 @@ class CloudKitInvitesClient:
         scope: ScopeLiteral,
         *,
         zone_req: CKZoneChangesZoneReq,
-        results_limit: Optional[int] = None,
+        results_limit: int | None = None,
     ) -> CKZoneChangesResponse:
+        """Fetch a page of zone changes for the given scope."""
         try:
             return self._client_for(scope).changes(
                 zone_req=zone_req,
@@ -215,21 +220,21 @@ class CloudKitInvitesClient:
 
     # ----- Public-scope resolve / accept -------------------------------------
 
-    def resolve(self, short_guids: List[str]) -> Dict[str, Any]:
+    def resolve(self, short_guids: list[str]) -> dict[str, Any]:
         """POST ``public/records/resolve`` — preview a share without joining."""
         return self._post_public(
             "/records/resolve",
             {"shortGUIDs": [{"value": g} for g in short_guids]},
         )
 
-    def accept(self, short_guids: List[str]) -> Dict[str, Any]:
+    def accept(self, short_guids: list[str]) -> dict[str, Any]:
         """POST ``public/records/accept`` — accept a share and gain access."""
         return self._post_public(
             "/records/accept",
             {"shortGUIDs": [{"value": g} for g in short_guids]},
         )
 
-    def _post_public(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _post_public(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """POST to the public-scope endpoint.
 
         Mirrors the auth / rate-limit / error-response handling of the common
@@ -250,7 +255,7 @@ class CloudKitInvitesClient:
         if code in (401, 403):
             raise InvitesAuthError(f"HTTP {code}: unauthorized")
         if code == 429:
-            retry_after: Optional[float] = None
+            retry_after: float | None = None
             try:
                 hdr = resp.headers.get("Retry-After")
                 if hdr:
@@ -266,16 +271,16 @@ class CloudKitInvitesClient:
             raise InvitesApiError(f"HTTP {code}", payload=body)
 
         try:
-            return resp.json()
+            return cast(dict[str, Any], resp.json())
         except Exception as exc:
             raise InvitesApiError(
                 "Invalid JSON response",
                 payload=getattr(resp, "text", None),
             ) from exc
 
-    def _normalized_params(self) -> Dict[str, str]:
+    def _normalized_params(self) -> dict[str, str]:
         """Stringify base params the same way the common HTTP wrapper does."""
-        out: Dict[str, str] = {}
+        out: dict[str, str] = {}
         for key, value in self._base_params.items():
             if isinstance(value, bool):
                 out[key] = "true" if value else "false"
@@ -286,6 +291,7 @@ class CloudKitInvitesClient:
     # ----- Asset helpers -----------------------------------------------------
 
     def download_asset_bytes(self, url: str) -> bytes:
+        """Download raw bytes from a CloudKit asset URL via the private scope."""
         try:
             return self._private.download_asset_bytes(url)
         except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:

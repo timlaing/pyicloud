@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterable
+from datetime import datetime, timezone
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import Any, cast
 
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.common.cloudkit.models import CKAssetToken
@@ -16,7 +17,9 @@ from .models import PhotoResource
 LOGGER = logging.getLogger(__name__)
 
 
-def decode_encrypted_text(record: CKRecord, field_name: str) -> str | None:
+def decode_encrypted_text(
+    record: CKRecord | dict[str, Any], field_name: str
+) -> str | None:
     """Decode a base64-wrapped text field from STRING or ENCRYPTED_BYTES."""
 
     value = record_field_value(record, field_name)
@@ -43,7 +46,7 @@ def decode_encrypted_text(record: CKRecord, field_name: str) -> str | None:
             return None
 
 
-def record_field_value(record: CKRecord | dict[str, Any], field_name: str):
+def record_field_value(record: CKRecord | dict[str, Any], field_name: str) -> Any:
     """Return a field value from a typed record or a legacy raw-dict record."""
 
     if isinstance(record, CKRecord):
@@ -70,7 +73,7 @@ def record_name(record: CKRecord | dict[str, Any]) -> str:
 
     if isinstance(record, CKRecord):
         return record.recordName
-    return record["recordName"]
+    return cast(str, record["recordName"])
 
 
 def record_record_type(record: CKRecord | dict[str, Any]) -> str:
@@ -78,7 +81,7 @@ def record_record_type(record: CKRecord | dict[str, Any]) -> str:
 
     if isinstance(record, CKRecord):
         return record.recordType
-    return record["recordType"]
+    return cast(str, record["recordType"])
 
 
 def record_zone(record: CKRecord | dict[str, Any]) -> dict[str, Any] | None:
@@ -110,7 +113,7 @@ def master_asset_pairs(
     return assets_by_master, masters
 
 
-def timestamp_or_epoch(value) -> datetime:
+def timestamp_or_epoch(value: Any) -> datetime:
     """Normalize optional CloudKit timestamps to a stable datetime."""
 
     if isinstance(value, datetime):

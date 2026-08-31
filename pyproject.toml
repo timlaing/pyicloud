@@ -1,3 +1,67 @@
+
+[project]
+name = "pyicloud"
+dynamic = ["version", "readme", "dependencies", "optional-dependencies"]
+description = "PyiCloud is a module which allows pythonistas to interact with iCloud webservices."
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "The PyiCloud Authors"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries"
+]
+keywords = ["icloud", "find-my-iphone"]
+
+[project.urls]
+homepage = "https://github.com/timlaing/pyicloud"
+download = "https://github.com/timlaing/pyicloud/releases/latest"
+bug_tracker = "https://github.com/timlaing/pyicloud/issues"
+repository = "https://github.com/timlaing/pyicloud"
+
+[project.scripts]
+icloud = "pyicloud.cmdline:main"
+
+[build-system]
+requires = ["setuptools >= 77.0,< 84.1", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "grpcio-tools>=1.76.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyicloud*"]
+
+[tool.setuptools.package-data]
+"pyicloud.services.notes.protobuf" = ["*.pyi"]
+
+[tool.setuptools.dynamic]
+readme = {file = "README.md", content-type = "text/markdown"}
+dependencies = {file = ["requirements.txt"]}
+optional-dependencies = { dev = { file = ["requirements_dev.txt", "requirements_cli.txt"] }, cli = { file = ["requirements_cli.txt"] } }
+
+
 [tool.ruff]
 exclude = [
     ".bzr",
@@ -35,13 +99,131 @@ indent-width = 4
 # Assume Python 3.10
 target-version = "py310"
 
+
+[tool.ruff.analyze]
+preview=true
+
+[tool.ruff.format]
+preview=true
+
+[tool.ruff.lint]
+preview=true
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "UP007",  # use X | Y for union types (HA uses Optional in some places)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components"]
+force-sort-within-sections=true
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer registers CLI options/arguments from these calls in parameter defaults.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+
+[tool.mypy]
+python_version = "3.14"
+explicit_package_bases = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+check_untyped_defs = true
+exclude_gitignore = true
+strict = true
+show_error_codes = true
+pretty = true
+# Generated protobuf code is never hand-edited (see AGENTS.md); the committed
+# *_pb2.py stubs are excluded the same way the pylint sweep excludes protobuf.
+exclude = [
+    "pyicloud/services/notes/protobuf/",
+    "pyicloud/services/reminders/protobuf/",
+]
+
+# Generated protobuf code is never hand-edited (see AGENTS.md). Excluded but
+# imported modules are still analysed for types; silence the error codes that
+# fire inside the generated stubs regardless of the environment (the pylint
+# sweep likewise ignores generated _pb2 modules).
+[[tool.mypy.overrides]]
+module = [
+    "pyicloud.services.notes.protobuf.*",
+    "pyicloud.services.reminders.protobuf.*",
+]
+disable_error_code = ["metaclass", "misc", "type-arg"]
+
+[tool.pylint.main]
+jobs = 2
+persistent = false
+extension-pkg-whitelist = "ciso8601"
+ignore-patterns = [
+    "^.*_pb2\\.py$"
+]
+
+[tool.pylint.typecheck]
+# Members of generated protobuf modules are created dynamically at import
+# time, so pylint cannot see them (E1101). They are imported under varying
+# aliases (e.g. "notes_pb2 as pb"), so matching on the module path is
+# unreliable; instead enumerate the generated member names.
+generated-members = [
+    "StyleType",
+    "Alignment",
+    "WritingDirection",
+    "NoteStoreProto",
+    "MergableDataProto",
+    "String",
+    "Document",
+    "Version",
+]
+
+[tool.pylint."messages control"]
+# Reasons disabled:
+# duplicate-code - unavoidable
+# too-many-* - are not enforced for the sake of readability
+# too-few-* - same as too-many-*
+# inconsistent-return-statements - doesn't handle raise
+disable = [
+  "duplicate-code",
+  "inconsistent-return-statements",
+  "too-few-public-methods",
+  "too-many-ancestors",
+  "too-many-arguments",
+  "too-many-branches",
+  "too-many-instance-attributes",
+  "too-many-lines",
+  "too-many-locals",
+  "too-many-public-methods",
+  "too-many-return-statements",
+  "too-many-statements",
+  "too-many-boolean-expressions",
+  "too-many-positional-arguments",
+]
+
+[tool.pylint.format]
+max-line-length = 88
+expected-line-ending-format = "LF"
+
+[tool.pylint.exceptions]
+overgeneral-exceptions = "pyicloud.exceptions.PyiCloudException"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 norecursedirs = [".git", ".tox", "build", "lib"]
-addopts = ["--disable-socket", "--allow-unix-socket"]
+addopts = ["--disable-socket", "--allow-unix-socket", "--timeout=2"]
+
 
 [tool.coverage.run]
 branch = true
+relative_files = true
 omit = [
     "examples.py",
     "conftest.py",
@@ -56,69 +238,5 @@ source = [
     "tests/"
 ]
 
-[tool.isort]
-profile = "black"
-
-
-[tool.setuptools_scm]
-local_scheme = "no-local-version"
-
-[build-system]
-requires = ["setuptools >= 77.0,< 84.1", "setuptools-scm"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "pyicloud"
-dynamic = ["version", "readme", "dependencies", "optional-dependencies"]
-description = "PyiCloud is a module which allows pythonistas to interact with iCloud webservices."
-requires-python = ">=3.10"
-license = "MIT"
-license-files = ["LICENSE.txt"]
-authors = [
-    {name = "The PyiCloud Authors"}
-]
-classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python",
-    "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "Topic :: Software Development :: Libraries"
-]
-keywords = ["icloud", "find-my-iphone"]
-
-
-[project.urls]
-homepage = "https://github.com/timlaing/pyicloud"
-download = "https://github.com/timlaing/pyicloud/releases/latest"
-bug_tracker = "https://github.com/timlaing/pyicloud/issues"
-repository = "https://github.com/timlaing/pyicloud"
-
-[project.scripts]
-icloud = "pyicloud.cmdline:main"
-
-[dependency-groups]
-dev = [
-    "grpcio-tools>=1.76.0",
-]
-
-[tool.setuptools]
-include-package-data = true
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["pyicloud*"]
-
-[tool.setuptools.package-data]
-"pyicloud.services.notes.protobuf" = ["*.pyi"]
-
-[tool.setuptools.dynamic]
-readme = {file = "README.md", content-type = "text/markdown"}
-dependencies = {file = ["requirements.txt"]}
-optional-dependencies = { test = { file = ["requirements_test.txt", "requirements_cli.txt"] }, cli = { file = ["requirements_cli.txt"] } }
+[tool.pyright]
+typeCheckingMode = "off"

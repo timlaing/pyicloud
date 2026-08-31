@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import json as _json
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, cast
 
 from pyicloud.common.cloudkit import CKRecord
 
@@ -98,7 +99,8 @@ class RemindersRecordMapper:
             download_url = getattr(asset, "downloadURL", None)
             if not download_url:
                 raise RemindersApiError(
-                    f"List {rec.recordName} ReminderIDsAsset is missing data and downloadURL",
+                    f"List {rec.recordName} ReminderIDsAsset is missing "
+                    f"data and downloadURL",
                     payload={"recordName": rec.recordName},
                 )
             asset_bytes = self._get_raw().download_asset_bytes(download_url)
@@ -126,9 +128,10 @@ class RemindersRecordMapper:
                 field_name,
                 record_name,
             )
-            return value.decode("utf-8", errors="replace")
+            return cast(str, value.decode("utf-8", errors="replace"))
 
     def record_to_list(self, rec: CKRecord) -> RemindersList:
+        """Map a CloudKit list record to a ``RemindersList`` domain model."""
         fields = rec.fields
         title = fields.get_value("Name")
         color = fields.get_value("Color")
@@ -147,12 +150,13 @@ class RemindersRecordMapper:
             count=count,
             badge_emblem=fields.get_value("BadgeEmblem"),
             sorting_style=fields.get_value("SortingStyle"),
-            is_group=bool(fields.get_value("IsGroup") or 0),
+            is_group=bool(fields.get_value("IsGroup")),
             reminder_ids=reminder_ids,
             record_change_tag=rec.recordChangeTag,
         )
 
-    def record_to_reminder(self, rec: CKRecord) -> Reminder:
+    def record_to_reminder(self, rec: CKRecord) -> Reminder:  # noqa: S3776
+        """Map a CloudKit reminder record to a ``Reminder`` domain model."""
         fields = rec.fields
         created = fields.get_value("CreationDate")
         if created is None and rec.created is not None:
@@ -202,12 +206,12 @@ class RemindersRecordMapper:
             desc=desc,
             due_date=fields.get_value("DueDate"),
             start_date=fields.get_value("StartDate"),
-            completed=bool(fields.get_value("Completed") or 0),
+            completed=bool(fields.get_value("Completed")),
             completed_date=fields.get_value("CompletionDate"),
             priority=int(fields.get_value("Priority") or 0),
-            flagged=bool(fields.get_value("Flagged") or 0),
-            all_day=bool(fields.get_value("AllDay") or 0),
-            deleted=bool(fields.get_value("Deleted") or 0),
+            flagged=bool(fields.get_value("Flagged")),
+            all_day=bool(fields.get_value("AllDay")),
+            deleted=bool(fields.get_value("Deleted")),
             time_zone=fields.get_value("TimeZone"),
             alarm_ids=[
                 _as_raw_id(x, "Alarm") for x in (fields.get_value("AlarmIDs") or [])
@@ -230,6 +234,7 @@ class RemindersRecordMapper:
         )
 
     def record_to_alarm(self, rec: CKRecord) -> Alarm:
+        """Map a CloudKit alarm record to an ``Alarm`` domain model."""
         fields = rec.fields
         return Alarm(
             id=rec.recordName,
@@ -239,7 +244,8 @@ class RemindersRecordMapper:
             record_change_tag=rec.recordChangeTag,
         )
 
-    def record_to_alarm_trigger(self, rec: CKRecord) -> Optional[LocationTrigger]:
+    def record_to_alarm_trigger(self, rec: CKRecord) -> LocationTrigger | None:
+        """Map a CloudKit alarm trigger record to a ``LocationTrigger``."""
         fields = rec.fields
         trigger_type = fields.get_value("Type") or ""
         alarm_id = _ref_name(fields, "Alarm")
@@ -276,7 +282,8 @@ class RemindersRecordMapper:
         )
         return None
 
-    def record_to_attachment(self, rec: CKRecord) -> Optional[Attachment]:
+    def record_to_attachment(self, rec: CKRecord) -> Attachment | None:
+        """Map a CloudKit attachment record to a URL or image attachment."""
         fields = rec.fields
         att_type = fields.get_value("Type") or ""
         reminder_id = _ref_name(fields, "Reminder")
@@ -316,6 +323,7 @@ class RemindersRecordMapper:
         return None
 
     def record_to_hashtag(self, rec: CKRecord) -> Hashtag:
+        """Map a CloudKit hashtag record to a ``Hashtag`` domain model."""
         fields = rec.fields
         return Hashtag(
             id=rec.recordName,
@@ -330,6 +338,7 @@ class RemindersRecordMapper:
         )
 
     def record_to_recurrence_rule(self, rec: CKRecord) -> RecurrenceRule:
+        """Map a CloudKit recurrence rule record to a ``RecurrenceRule``."""
         fields = rec.fields
         freq_raw = fields.get_value("Frequency") or 1
         try:

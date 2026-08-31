@@ -18,14 +18,17 @@ cyclic import).
 
 from __future__ import annotations
 
-import html
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+import html
+from typing import Any
 from urllib.parse import urlsplit
 
 from tinyhtml import h
 
 from .table_builder import render_table_from_mergeable
+
+ATTACHMENT_LINK_CLASS = "attachment link"
 
 
 @dataclass(frozen=True)
@@ -34,17 +37,17 @@ class AttachmentContext:
 
     id: str
     uti: str
-    title: Optional[str]
-    primary_url: Optional[str]
-    thumb_url: Optional[str]
-    mergeable_gz: Optional[bytes]
+    title: str | None
+    primary_url: str | None
+    thumb_url: str | None
+    mergeable_gz: bytes | None
     # Optional: preceding text in the same paragraph/line before the attachment
-    prior_text: Optional[str] = None
+    prior_text: str | None = None
     # Optional: behavior flags supplied by caller
-    link_target: Optional[str] = None
-    link_rel: Optional[str] = None
-    link_referrerpolicy: Optional[str] = None
-    pdf_object_height: Optional[int] = None
+    link_target: str | None = None
+    link_rel: str | None = None
+    link_referrerpolicy: str | None = None
+    pdf_object_height: int | None = None
 
     def base_attrs(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         """Build base HTML attributes for attachment elements."""
@@ -59,10 +62,10 @@ class AttachmentContext:
 
 
 def _safe_url(
-    url: Optional[str],
+    url: str | None,
     *,
     allowed_schemes: set[str],
-) -> Optional[str]:
+) -> str | None:
     if not url:
         return None
 
@@ -93,7 +96,7 @@ def _link_attrs(
     ctx: AttachmentContext,
     *,
     class_name: str,
-    href: Optional[str] = None,
+    href: str | None = None,
 ) -> dict[str, str]:
     attrs = {"class": class_name}
     if href:
@@ -111,7 +114,7 @@ class _Renderer:
     """Base class for attachment type renderers."""
 
     def render(
-        self, ctx: AttachmentContext, render_note_cb: Callable
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
     ) -> str:  # pragma: no cover - interface
         """Render attachment to HTML fragment based on its type."""
         raise NotImplementedError
@@ -120,19 +123,25 @@ class _Renderer:
 class _DefaultRenderer(_Renderer):
     """Fallback renderer for unknown attachment types."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         label = ctx.title or ctx.uti or "attachment"
         href = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         return h(
             "a",
-            **ctx.base_attrs(_link_attrs(ctx, class_name="attachment link", href=href)),
+            **ctx.base_attrs(
+                _link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS, href=href)
+            ),
         )(label).render()
 
 
 class _TableRenderer(_Renderer):
     """Render table attachments with embedded table data."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         if ctx.mergeable_gz:
             html_tbl = render_table_from_mergeable(ctx.mergeable_gz, render_note_cb)
             if html_tbl:
@@ -142,14 +151,18 @@ class _TableRenderer(_Renderer):
         href = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         return h(
             "a",
-            **ctx.base_attrs(_link_attrs(ctx, class_name="attachment link", href=href)),
+            **ctx.base_attrs(
+                _link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS, href=href)
+            ),
         )(label).render()
 
 
 class _UrlRenderer(_Renderer):
     """Render URL/link attachments."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         title = ctx.title or ctx.uti or "link"
         href = _safe_url(
             ctx.primary_url,
@@ -159,19 +172,21 @@ class _UrlRenderer(_Renderer):
             return h(
                 "a",
                 **ctx.base_attrs(
-                    _link_attrs(ctx, class_name="attachment link", href=href)
+                    _link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS, href=href)
                 ),
             )(title).render()
         return h(
             "a",
-            **ctx.base_attrs(_link_attrs(ctx, class_name="attachment link")),
+            **ctx.base_attrs(_link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS)),
         )(title).render()
 
 
 class _ImageRenderer(_Renderer):
     """Render image attachments with responsive sizing."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         url = _safe_url(
             ctx.primary_url,
             allowed_schemes={"http", "https"},
@@ -182,60 +197,67 @@ class _ImageRenderer(_Renderer):
         alt = ctx.title or ctx.uti or "image"
         if url:
             # Add responsive sizing so large images don't overflow the viewport
-            attrs = ctx.base_attrs(
-                {
-                    "src": url,
-                    "alt": alt,
-                    "class": "attachment image",
-                    "style": "max-width:100%;height:auto",
-                }
-            )
+            attrs = ctx.base_attrs({
+                "src": url,
+                "alt": alt,
+                "class": "attachment image",
+                "style": "max-width:100%;height:auto",
+            })
             attr_html = " ".join(f'{k}="{html.escape(v)}"' for k, v in attrs.items())
             return f"<img {attr_html}>"
-        return h("a", **ctx.base_attrs({"class": "attachment link"}))(alt).render()
+        return h("a", **ctx.base_attrs({"class": ATTACHMENT_LINK_CLASS}))(alt).render()
 
 
 class _AudioRenderer(_Renderer):
     """Render audio attachments with controls."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         url = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         if url:
             attrs = ctx.base_attrs({"src": url, "class": "attachment audio"})
             attr_html = " ".join(f'{k}="{html.escape(v)}"' for k, v in attrs.items())
             return f"<audio controls {attr_html}></audio>"
         title = ctx.title or ctx.uti or "audio"
-        return h("a", **ctx.base_attrs({"class": "attachment link"}))(title).render()
+        return h("a", **ctx.base_attrs({"class": ATTACHMENT_LINK_CLASS}))(
+            title
+        ).render()
 
 
 class _VideoRenderer(_Renderer):
     """Render video attachments with controls and responsive sizing."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         url = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         if url:
-            attrs = ctx.base_attrs(
-                {
-                    "src": url,
-                    "class": "attachment video",
-                    "controls": "controls",
-                    "style": "max-width:100%;height:auto",
-                }
-            )
+            attrs = ctx.base_attrs({
+                "src": url,
+                "class": "attachment video",
+                "controls": "controls",
+                "style": "max-width:100%;height:auto",
+            })
             attr_html = " ".join(f'{k}="{html.escape(v)}"' for k, v in attrs.items())
             return f"<video {attr_html}></video>"
         title = ctx.title or ctx.uti or "video"
-        return h("a", **ctx.base_attrs({"class": "attachment link"}))(title).render()
+        return h("a", **ctx.base_attrs({"class": ATTACHMENT_LINK_CLASS}))(
+            title
+        ).render()
 
 
 class _PdfRenderer(_Renderer):
     """Render PDF attachments embedded or as links."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         title = ctx.title or "PDF"
         url = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         if url:
-            # Only embed local PDFs. Remote CloudKit URLs often force downloads and break UX.
+            # Only embed local PDFs. Remote CloudKit URLs often force
+            # downloads and break UX.
             is_remote = _is_remote_url(url)
             if not is_remote:
                 height_px = (
@@ -244,19 +266,17 @@ class _PdfRenderer(_Renderer):
                     and ctx.pdf_object_height > 0
                     else 600
                 )
-                obj_attrs = ctx.base_attrs(
-                    {
-                        "data": url,
-                        "type": "application/pdf",
-                        "class": "attachment pdf",
-                        # allow config to control height
-                        "style": f"width:100%;height:{height_px}px",
-                    }
-                )
+                obj_attrs = ctx.base_attrs({
+                    "data": url,
+                    "type": "application/pdf",
+                    "class": "attachment pdf",
+                    # allow config to control height
+                    "style": f"width:100%;height:{height_px}px",
+                })
                 fallback = h(
                     "a",
                     **ctx.base_attrs(
-                        _link_attrs(ctx, class_name="attachment link", href=url)
+                        _link_attrs(ctx, class_name=ATTACHMENT_LINK_CLASS, href=url)
                     ),
                 )(title)
                 return h("object", **obj_attrs)(fallback).render()
@@ -274,7 +294,9 @@ class _PdfRenderer(_Renderer):
 class _VCardRenderer(_Renderer):
     """Render contact/vCard attachments."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         title = ctx.title or "contact"
         href = _safe_url(ctx.primary_url, allowed_schemes={"http", "https"})
         if href:
@@ -290,7 +312,9 @@ class _VCardRenderer(_Renderer):
 class _HashtagRenderer(_Renderer):
     """Render hashtag inline attachments."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         # Avoid double prefix when AltText already includes '#'
         if ctx.title:
             raw = ctx.title.strip()
@@ -306,8 +330,11 @@ class _HashtagRenderer(_Renderer):
 class _CalculatorRenderer(_Renderer):
     """Render calculator result inline attachments."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
-        # Render exactly what the server provides (AltTextEncrypted/TitleEncrypted/SummaryEncrypted),
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
+        # Render exactly what the server provides
+        # (AltTextEncrypted/TitleEncrypted/SummaryEncrypted),
         # without any additional normalization.
         label = ctx.title or ctx.uti or "result"
         return h("span", **ctx.base_attrs({"class": "attachment calc"}))(label).render()
@@ -319,7 +346,9 @@ class _CalculatorRenderer(_Renderer):
 class _GraphExpressionRenderer(_Renderer):
     """Render graph expression inline attachments from calculator."""
 
-    def render(self, ctx: AttachmentContext, render_note_cb: Callable) -> str:
+    def render(
+        self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
+    ) -> str:
         label = ctx.title or ctx.uti or "expression"
         return h("span", **ctx.base_attrs({"class": "attachment calc-graph"}))(
             label
@@ -379,6 +408,7 @@ _PREFIX: list[tuple[str, _Renderer]] = [
 def render_attachment(
     ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
 ) -> str:
+    """Render an attachment to HTML using the renderer matching its UTI."""
     uti = (ctx.uti or "").lower()
     r = _EXACT.get(uti)
     if r is not None:

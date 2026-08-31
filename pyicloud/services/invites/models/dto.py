@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum, IntEnum
-from typing import Optional
+from typing import Any
 
 from pydantic import Field
 
@@ -53,7 +53,7 @@ class EventTime(FrozenServiceModel):
     """Decoded ``EventDetails.time`` payload."""
 
     start: datetime
-    end: Optional[datetime] = None
+    end: datetime | None = None
     is_all_day: bool = False
     is_open_ended: bool = False
 
@@ -65,23 +65,23 @@ class EventPlace(FrozenServiceModel):
     only ``city`` and ``time_zone_identifier``.
     """
 
-    title: Optional[str] = None
-    subtitle: Optional[str] = None
-    city: Optional[str] = None
-    time_zone_identifier: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    url: Optional[str] = None
+    title: str | None = None
+    subtitle: str | None = None
+    city: str | None = None
+    time_zone_identifier: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    url: str | None = None
 
 
 class Participant(FrozenServiceModel):
     """A participant on the event's ``cloudkit.share`` record."""
 
     participant_id: str
-    user_record_name: Optional[str] = None
-    given_name: Optional[str] = None
-    family_name: Optional[str] = None
-    email: Optional[str] = None
+    user_record_name: str | None = None
+    given_name: str | None = None
+    family_name: str | None = None
+    email: str | None = None
     type: ParticipantType
     acceptance_status: AcceptanceStatus
     permission: str
@@ -107,7 +107,7 @@ class EventShare(FrozenServiceModel):
     # ``participantId`` of the current authenticated user on this share — used
     # to locate or create the user's own ``RSVP`` record. Set from
     # ``cloudkit.share.currentUserParticipant.participantId`` at parse time.
-    current_user_participant_id: Optional[str] = None
+    current_user_participant_id: str | None = None
 
     @property
     def url(self) -> str:
@@ -122,11 +122,11 @@ class Rsvp(FrozenServiceModel):
     participant_id: str
     name: str = ""
     status: RsvpStatus
-    message: Optional[str] = None
+    message: str | None = None
     num_additional_adults: int = 0
     num_additional_kids: int = 0
-    image_download_url: Optional[str] = None
-    record_change_tag: Optional[str] = None
+    image_download_url: str | None = None
+    record_change_tag: str | None = None
 
 
 class Event(FrozenServiceModel):
@@ -134,7 +134,7 @@ class Event(FrozenServiceModel):
 
     event_id: str  # zoneName / UUID
     scope: EventScope
-    record_change_tag: Optional[str] = None
+    record_change_tag: str | None = None
     title: str = ""
     notes: str = ""
     host_display_name: str = ""
@@ -142,16 +142,16 @@ class Event(FrozenServiceModel):
     is_private: bool = False
     is_cancelled: bool = False
     block_new_rsvps: bool = False
-    max_attendees: Optional[int] = None
+    max_attendees: int | None = None
     max_additional_guests_per_rsvp: int = 0
-    time: Optional[EventTime] = None
-    place: Optional[EventPlace] = None
-    background: dict = Field(default_factory=dict)
-    style: dict = Field(default_factory=dict)
+    time: EventTime | None = None
+    place: EventPlace | None = None
+    background: dict[str, Any] = Field(default_factory=dict)
+    style: dict[str, Any] = Field(default_factory=dict)
     integrations: tuple[str, ...] = ()
-    created_timestamp: Optional[datetime] = None
-    modified_timestamp: Optional[datetime] = None
-    share: Optional[EventShare] = None
+    created_timestamp: datetime | None = None
+    modified_timestamp: datetime | None = None
+    share: EventShare | None = None
     rsvps: tuple[Rsvp, ...] = ()
 
 
@@ -160,10 +160,10 @@ class ResolvedShare(FrozenServiceModel):
 
     short_guid: str
     event_id: str  # zoneName from the resolved share
-    owner_record_name: Optional[str] = None
-    owner_email: Optional[str] = None
-    owner_given_name: Optional[str] = None
-    owner_family_name: Optional[str] = None
+    owner_record_name: str | None = None
+    owner_email: str | None = None
+    owner_given_name: str | None = None
+    owner_family_name: str | None = None
     participant_status: str  # ACCEPTED, INVITED, etc. for the requester
     participant_type: str
     participant_permission: str

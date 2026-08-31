@@ -132,7 +132,8 @@ def test_apple_device_properties(pyicloud_service_working: PyiCloudService) -> N
     assert "id" in device.data
     with (
         patch(
-            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+            "_refresh_client_with_reauth"
         ) as mock_refresh,
         patch(
             "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
@@ -153,7 +154,8 @@ def test_apple_device_properties(pyicloud_service_working: PyiCloudService) -> N
     device_id = device.data["id"]
     with (
         patch(
-            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+            "_refresh_client_with_reauth"
         ) as mock_refresh,
         patch(
             "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
@@ -174,7 +176,8 @@ def test_apple_device_properties(pyicloud_service_working: PyiCloudService) -> N
         _ = device.non_existent_attribute
     with (
         patch(
-            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+            "_refresh_client_with_reauth"
         ) as mock_refresh,
         patch(
             "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
@@ -289,7 +292,8 @@ def test_findmyiphone_service_manager(
     # Test __getitem__
     with (
         patch(
-            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+            "_refresh_client_with_reauth"
         ) as mock_refresh,
         patch(
             "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
@@ -302,12 +306,12 @@ def test_findmyiphone_service_manager(
         mock_refresh.assert_not_called()
         assert mock_is_alive.call_count == 1
 
-        device: AppleDevice = manager[0]
+        device = manager[0]
         assert isinstance(device, AppleDevice)
         assert mock_refresh.call_count == 1
         assert mock_is_alive.call_count == 2
 
-        device: AppleDevice = manager[device.data["id"]]
+        device = manager[device.data["id"]]
         assert isinstance(device, AppleDevice)
         assert mock_refresh.call_count == 1
         assert mock_is_alive.call_count == 4
@@ -318,7 +322,8 @@ def test_findmyiphone_service_manager(
     # Test __iter__
     with (
         patch(
-            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth"
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+            "_refresh_client_with_reauth"
         ) as mock_refresh,
         patch(
             "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
@@ -332,7 +337,7 @@ def test_findmyiphone_service_manager(
         mock_refresh.assert_not_called()
         assert mock_is_alive.call_count == 2
 
-        devices: list[AppleDevice] = list(iter(manager))
+        devices = list(iter(manager))
         assert len(devices) == len(manager)
         assert mock_refresh.call_count == 2
         assert mock_is_alive.call_count == 4
@@ -344,7 +349,8 @@ def test_findmyiphone_service_manager(
 def test_refresh_no_content(pyicloud_service_working: PyiCloudService) -> None:
     """Tests refresh_client handles no content response."""
     with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+        "_refresh_client_with_reauth",
         return_value=None,
     ):
         manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
@@ -375,7 +381,8 @@ def test_refresh_no_content(pyicloud_service_working: PyiCloudService) -> None:
 def test_refresh_with_server_ctx(pyicloud_service_working: PyiCloudService) -> None:
     """Tests refresh_client handles serverContext in response."""
     with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+        "_refresh_client_with_reauth",
         return_value=None,
     ):
         manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
@@ -553,7 +560,9 @@ def test_erase_device_default_arguments(
 def test_refresh_client_with_reauth_auth_required(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Test refresh_client_with_reauth handles PyiCloudAuthRequiredException and reauthenticates."""
+    """Test refresh_client_with_reauth handles PyiCloudAuthRequiredException and
+    reauthenticates.
+    """
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
 
     # Patch _refresh_client to raise PyiCloudAuthRequiredException first, then succeed
@@ -576,7 +585,9 @@ def test_refresh_client_with_reauth_auth_required(
 def test_refresh_client_with_reauth_failed(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Test refresh_client_with_reauth handles PyiCloudAuthRequiredException and reauthenticates."""
+    """Test refresh_client_with_reauth handles PyiCloudAuthRequiredException and
+    reauthenticates.
+    """
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
 
     # Patch _refresh_client to raise PyiCloudAuthRequiredException first, then succeed
@@ -620,9 +631,12 @@ def test_refresh_client_with_reauth_with_locate(
 def test_refresh_client_with_reauth_with_loading_to_done(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Test refresh_client_with_reauth calls _refresh_client if the members are loading."""
+    """Test refresh_client_with_reauth calls _refresh_client if the members are
+    loading.
+    """
     with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+        "_refresh_client_with_reauth",
         return_value=None,
     ):
         manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
@@ -698,7 +712,8 @@ def test_refresh_client_with_reauth_with_loading_no_complete(
     Total refresh calls: 1 initial + 2 loop iterations = 3.
     """
     with patch(
-        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager._refresh_client_with_reauth",
+        "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager."
+        "_refresh_client_with_reauth",
         return_value=None,
     ):
         manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
@@ -767,15 +782,17 @@ def test_refresh_client_with_reauth_with_loading_no_complete(
 def test_refresh_client_with_reauth_no_devices_raises(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Test refresh_client_with_reauth raises PyiCloudNoDevicesException when no devices."""
+    """Test refresh_client_with_reauth raises PyiCloudNoDevicesException when no
+    devices.
+    """
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
 
     with (
         patch.object(manager, "_refresh_client"),
         patch.object(manager, "_devices", {}),
+        pytest.raises(PyiCloudNoDevicesException),
     ):
-        with pytest.raises(PyiCloudNoDevicesException):
-            manager._refresh_client_with_reauth(locate=True)
+        manager._refresh_client_with_reauth(locate=True)
 
 
 def test_monitor_thread_calls_func_at_interval() -> None:

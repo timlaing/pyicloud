@@ -81,7 +81,9 @@ def _auth_status_rows(payload: dict[str, object]) -> list[tuple[str, object]]:
     ]
 
 
-def _auth_payload(state: CLIState, api, status: dict[str, object]) -> dict[str, object]:
+def _auth_payload(
+    state: CLIState, api: PyiCloudService, status: dict[str, object]
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "account_name": api.account_name,
         "has_keyring_password": state.has_keyring_password(api.account_name),
@@ -92,7 +94,8 @@ def _auth_payload(state: CLIState, api, status: dict[str, object]) -> dict[str, 
 
 
 def _auth_status_authenticated(state: CLIState) -> bool:
-    """Check if the current state has an authenticated session, and print details if not."""
+    """Check if the current state has an authenticated session, and print
+    details if not."""
     if not state.has_explicit_username:
         active_probes = state.active_session_probes()
         if not active_probes:
@@ -254,14 +257,14 @@ def _auth_logout_find_account(state: CLIState) -> PyiCloudService | None:
     if not active_probes:
         if state.json_output:
             state.write_json({"authenticated": False, "accounts": []})
-            return
+            return None
         state.console.print(state.not_logged_in_message())
-        return
+        return None
     if len(active_probes) > 1:
         raise CLIAbort(
-            state.multiple_logged_in_accounts_message(
-                [api.account_name for api, _status in active_probes]
-            )
+            state.multiple_logged_in_accounts_message([
+                api.account_name for api, _status in active_probes
+            ])
         )
     api, _status = active_probes[0]
     return api
@@ -306,6 +309,7 @@ def auth_logout(
         log_level=log_level,
     )
     state = get_state(ctx)
+    api: PyiCloudService | None
     if state.has_explicit_username:
         api = state.get_probe_api()
         api.get_auth_status()
@@ -347,7 +351,8 @@ def auth_logout(
         state.console.print("Logged out and cleared local session.")
     elif keyring_removed:
         state.console.print(
-            "Cleared local session, removed stored password; remote logout was not confirmed."
+            "Cleared local session, removed stored password; remote logout "
+            "was not confirmed."
         )
     else:
         state.console.print("Cleared local session; remote logout was not confirmed.")

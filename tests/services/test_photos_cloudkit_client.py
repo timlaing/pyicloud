@@ -1,5 +1,7 @@
 """Unit tests for PhotosCloudKitClient raw Photos-specific endpoints."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import json
@@ -10,6 +12,12 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 
 from pyicloud.common.cloudkit.client import CloudKitApiError, CloudKitRateLimited
+from pyicloud.common.cloudkit.models import (
+    CKRecord,
+    CKTombstoneRecord,
+    CKZoneChangesZoneReq,
+    CKZoneID,
+)
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.services.photos_cloudkit.client import PhotosCloudKitClient
 
@@ -165,7 +173,8 @@ def test_upload_file_raises_cloudkit_error_for_invalid_json() -> None:
 
 
 def test_batch_count_posts_expected_internal_query_payload() -> None:
-    """Photos count queries should hit the internal batch endpoint with the expected payload."""
+    """Photos count queries should hit the internal batch endpoint
+    with the expected payload."""
 
     session = MagicMock()
     session.post.return_value = MagicMock(
@@ -201,7 +210,9 @@ def test_batch_count_posts_expected_internal_query_payload() -> None:
     assert payload["batch"][0]["zoneID"] == {"zoneName": "PrimarySync"}
 
 
-def test_batch_count_debug_log_omits_cloudkit_query_params(caplog) -> None:
+def test_batch_count_debug_log_omits_cloudkit_query_params(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """CloudKit request logs should avoid user-identifying query parameters."""
 
     session = MagicMock()
@@ -300,7 +311,9 @@ def test_download_asset_bytes_preserves_rate_limit_retry_after() -> None:
     assert exc_info.value.retry_after == 2.5
 
 
-def test_download_asset_bytes_redacts_signed_url_in_debug_log(caplog) -> None:
+def test_download_asset_bytes_redacts_signed_url_in_debug_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Asset GET logs should not include signed download URLs."""
 
     session = MagicMock()
@@ -351,14 +364,16 @@ def test_zones_list_parses_fixture_payload() -> None:
         session=MagicMock(),
         base_params={"dsid": "12345"},
     )
-    client._client._http.post = MagicMock(return_value=ZONES_LIST_PAYLOAD)
 
-    result = client.zones_list()
+    with patch.object(
+        client._client._http, "post", return_value=ZONES_LIST_PAYLOAD
+    ) as post_mock:
+        result = client.zones_list()
 
     assert result.zones[0].zoneID.zoneName == "PrimarySync"
     assert result.zones[0].syncToken == "SYNC_TOKEN_101"
     assert result.zones[1].zoneID.zoneName == "CustomZone"
-    client._client._http.post.assert_called_once_with("/zones/list", {})
+    post_mock.assert_called_once_with("/zones/list", {})
 
 
 def test_database_changes_parses_fixture_payload() -> None:
@@ -369,50 +384,55 @@ def test_database_changes_parses_fixture_payload() -> None:
         session=MagicMock(),
         base_params={"dsid": "12345"},
     )
-    client._client._http.post = MagicMock(return_value=DATABASE_CHANGES_PAYLOAD)
 
-    result = client.database_changes(sync_token="SYNC_TOKEN_101")
+    with patch.object(
+        client._client._http, "post", return_value=DATABASE_CHANGES_PAYLOAD
+    ) as post_mock:
+        result = client.database_changes(sync_token="SYNC_TOKEN_101")
 
     assert result.syncToken == "SYNC_TOKEN_102"
     assert [zone.zoneID.zoneName for zone in result.zones] == [
         "PrimarySync",
         "CustomZone",
     ]
-    client._client._http.post.assert_called_once_with(
+    post_mock.assert_called_once_with(
         "/changes/database",
         {"syncToken": "SYNC_TOKEN_101"},
     )
 
 
 def test_iter_changes_parses_fixture_payload() -> None:
-    """Zone changes should yield typed record and tombstone entries from fixture JSON."""
+    """Zone changes should yield typed record and tombstone entries from
+    fixture JSON."""
 
     client = PhotosCloudKitClient(
         base_url="https://example.com/database/1/container/production/private",
         session=MagicMock(),
         base_params={"dsid": "12345"},
     )
-    client._client._http.post = MagicMock(return_value=ZONE_CHANGES_PAYLOAD)
 
-    zones = list(
-        client.iter_changes(
-            zone_req={
-                "zoneID": {
-                    "zoneName": "PrimarySync",
-                    "ownerRecordName": "OWNER_RECORD_NAME_001",
-                    "zoneType": "REGULAR_CUSTOM_ZONE",
-                },
-                "syncToken": "SYNC_TOKEN_102",
-                "reverse": False,
-            }
+    with patch.object(client._client._http, "post", return_value=ZONE_CHANGES_PAYLOAD):
+        zones = list(
+            client.iter_changes(
+                zone_req=CKZoneChangesZoneReq(
+                    zoneID=CKZoneID(
+                        zoneName="PrimarySync",
+                        ownerRecordName="OWNER_RECORD_NAME_001",
+                        zoneType="REGULAR_CUSTOM_ZONE",
+                    ),
+                    syncToken="SYNC_TOKEN_102",
+                    reverse=False,
+                )
+            )
         )
-    )
 
     assert len(zones) == 1
     zone = zones[0]
     assert zone.zoneID.zoneName == "PrimarySync"
     assert zone.syncToken == "SYNC_TOKEN_103"
+    assert isinstance(zone.records[0], CKRecord)
     assert zone.records[0].recordType == "CPLAsset"
     assert zone.records[0].recordName == "ASSET_RECORD_ID_101"
+    assert isinstance(zone.records[1], CKTombstoneRecord)
     assert zone.records[1].deleted is True
     assert zone.records[1].recordName == "ALBUM_RECORD_ID_999"

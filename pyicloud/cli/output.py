@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import json
+from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
+import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -34,7 +35,7 @@ def json_default(value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, Path):
         return str(value)
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
     if isinstance(value, SimpleNamespace):
         return vars(value)
@@ -121,7 +122,7 @@ def print_json_text(console: Console, payload: Any) -> None:
     console.print_json(json=to_json_string(payload, indent=2))
 
 
-def format_color_value(value: Any) -> str:
+def format_color_value(value: Any) -> str:  # noqa: S3776
     """Return a compact human-friendly representation of reminder colors."""
 
     if not value:

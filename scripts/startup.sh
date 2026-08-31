@@ -10,9 +10,10 @@ if [ ! -n "$VIRTUAL_ENV" ]; then
 fi
 
 echo "Installing development dependencies..."
-
 uv pip install \
   -e . \
   -r requirements_all.txt \
   --upgrade \
   --config-settings editable_mode=compat
+
+npm install

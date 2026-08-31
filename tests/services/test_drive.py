@@ -1,7 +1,7 @@
 """Drive service tests."""
 # pylint: disable=protected-access
 
-from typing import Optional
+from typing import Any
 from unittest.mock import ANY, Mock, patch
 
 import pytest
@@ -77,7 +77,7 @@ def test_trash_delete_forever(pyicloud_service_working: PyiCloudService) -> None
 
 def test_folder_app(pyicloud_service_working: PyiCloudService) -> None:
     """Test the /Preview folder."""
-    folder: Optional[DriveNode] = pyicloud_service_working.drive["Preview"]
+    folder: DriveNode | None = pyicloud_service_working.drive["Preview"]
     assert folder
     assert folder.name == "Preview"
     assert folder.type == "app_library"
@@ -97,7 +97,7 @@ def test_folder_not_exists(pyicloud_service_working: PyiCloudService) -> None:
 
 def test_folder(pyicloud_service_working: PyiCloudService) -> None:
     """Test the /pyiCloud folder."""
-    folder: Optional[DriveNode] = pyicloud_service_working.drive["pyiCloud"]
+    folder: DriveNode | None = pyicloud_service_working.drive["pyiCloud"]
     assert folder
     assert folder.name == "pyiCloud"
     assert folder.type == "folder"
@@ -110,9 +110,9 @@ def test_folder(pyicloud_service_working: PyiCloudService) -> None:
 
 def test_subfolder(pyicloud_service_working: PyiCloudService) -> None:
     """Test the /pyiCloud/Test folder."""
-    parent_folder: Optional[DriveNode] = pyicloud_service_working.drive["pyiCloud"]
+    parent_folder: DriveNode | None = pyicloud_service_working.drive["pyiCloud"]
     assert parent_folder is not None, "Expected to find 'pyiCloud' folder."
-    folder: Optional[DriveNode] = parent_folder["Test"]
+    folder: DriveNode | None = parent_folder["Test"]
     assert folder
     assert folder.name == "Test"
     assert folder.type == "folder"
@@ -125,11 +125,11 @@ def test_subfolder(pyicloud_service_working: PyiCloudService) -> None:
 
 def test_subfolder_file(pyicloud_service_working: PyiCloudService) -> None:
     """Test the /pyiCloud/Test/Scanned document 1.pdf file."""
-    drive: Optional[DriveNode] = pyicloud_service_working.drive["pyiCloud"]
+    drive: DriveNode | None = pyicloud_service_working.drive["pyiCloud"]
     assert drive
-    folder: Optional[DriveNode] = drive["Test"]
+    folder: DriveNode | None = drive["Test"]
     assert folder
-    file_test: Optional[DriveNode] = folder["Scanned document 1.pdf"]
+    file_test: DriveNode | None = folder["Scanned document 1.pdf"]
     assert file_test
     assert file_test.name == "Scanned document 1.pdf"
     assert file_test.type == "file"
@@ -143,11 +143,11 @@ def test_subfolder_file(pyicloud_service_working: PyiCloudService) -> None:
 
 def test_file_open(pyicloud_service_working: PyiCloudService) -> None:
     """Test the /pyiCloud/Test/Scanned document 1.pdf file open."""
-    drive: Optional[DriveNode] = pyicloud_service_working.drive["pyiCloud"]
+    drive: DriveNode | None = pyicloud_service_working.drive["pyiCloud"]
     assert drive
-    folder: Optional[DriveNode] = drive["Test"]
+    folder: DriveNode | None = drive["Test"]
     assert folder
-    file_test: Optional[DriveNode] = folder["Scanned document 1.pdf"]
+    file_test: DriveNode | None = folder["Scanned document 1.pdf"]
     assert file_test
     with file_test.open(stream=True) as response:
         assert response.raw
@@ -429,7 +429,7 @@ def test_get_upload_contentws_url_invalid_response_format(
     mock_file.name = "test_file.txt"
     mock_file.tell = Mock(side_effect=[0, 400, 0])  # Mock file size as 400 bytes
 
-    mock_response = []  # Invalid response format
+    mock_response: list[Any] = []  # Invalid response format
     with (
         patch.object(
             drive.session,
@@ -658,9 +658,11 @@ def test_get_token_from_cookie_no_token_cookie(
     mock_cookie.name = "OTHER_COOKIE"
     mock_cookie.value = "some_value"
 
-    with patch.object(drive.session, "cookies", [mock_cookie]):
-        with pytest.raises(TokenException, match="Token cookie not found"):
-            drive._get_token_from_cookie()
+    with (
+        patch.object(drive.session, "cookies", [mock_cookie]),
+        pytest.raises(TokenException, match="Token cookie not found"),
+    ):
+        drive._get_token_from_cookie()
 
 
 def test_get_token_from_cookie_empty_value(
@@ -675,9 +677,11 @@ def test_get_token_from_cookie_empty_value(
     mock_cookie.name = COOKIE_APPLE_WEBAUTH_VALIDATE
     mock_cookie.value = ""
 
-    with patch.object(drive.session, "cookies", [mock_cookie]):
-        with pytest.raises(TokenException, match="Token cookie not found"):
-            drive._get_token_from_cookie()
+    with (
+        patch.object(drive.session, "cookies", [mock_cookie]),
+        pytest.raises(TokenException, match="Token cookie not found"),
+    ):
+        drive._get_token_from_cookie()
 
 
 def test_get_token_from_cookie_invalid_token_format(
@@ -692,12 +696,14 @@ def test_get_token_from_cookie_invalid_token_format(
     mock_cookie.name = COOKIE_APPLE_WEBAUTH_VALIDATE
     mock_cookie.value = "invalid_format_without_token"
 
-    with patch.object(drive.session, "cookies", [mock_cookie]):
-        with pytest.raises(
+    with (
+        patch.object(drive.session, "cookies", [mock_cookie]),
+        pytest.raises(
             TokenException,
             match="Can't extract token from invalid_format_without_token",
-        ):
-            drive._get_token_from_cookie()
+        ),
+    ):
+        drive._get_token_from_cookie()
 
 
 def test_get_token_from_cookie_multiple_cookies(

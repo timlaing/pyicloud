@@ -2,26 +2,32 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Dict
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from pydantic import ValidationError
+from requests import Response
 
 from pyicloud.common.cloudkit import (
+    CKDatabaseChangesResponse,
     CKLookupResponse,
     CKModifyOperation,
     CKModifyResponse,
     CKQueryObject,
     CKQueryResponse,
+    CKZoneChangesZone,
     CKZoneChangesZoneReq,
     CKZoneIDReq,
+    CKZoneListResponse,
 )
 from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
     CloudKitContainerClient,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
+from pyicloud.session import PyiCloudSession
 
 from .models import (
     PhotosBatchCountFilter,
@@ -41,8 +47,8 @@ class PhotosCloudKitClient:
         self,
         *,
         base_url: str,
-        session,
-        base_params: Dict[str, object],
+        session: PyiCloudSession,
+        base_params: dict[str, object],
         upload_url: str | None = None,
     ) -> None:
         self._session = session
@@ -59,6 +65,7 @@ class PhotosCloudKitClient:
         continuation: str | None = None,
         desired_keys: list[str] | None = None,
     ) -> CKQueryResponse:
+        """Run a CloudKit query against a Photos zone."""
         return self._client.query(
             query=query,
             zone_id=zone_id,
@@ -71,7 +78,8 @@ class PhotosCloudKitClient:
         self,
         *,
         zone_req: CKZoneChangesZoneReq,
-    ):
+    ) -> Iterator[CKZoneChangesZone]:
+        """Yield CloudKit record changes in the given zone."""
         yield from self._client.iter_changes(zone_req=zone_req)
 
     def modify(
@@ -81,6 +89,7 @@ class PhotosCloudKitClient:
         zone_id: CKZoneIDReq,
         atomic: bool | None = None,
     ) -> CKModifyResponse:
+        """Apply a batch of CloudKit modify operations in the given zone."""
         return self._client.modify(
             operations=operations, zone_id=zone_id, atomic=atomic
         )
@@ -92,19 +101,25 @@ class PhotosCloudKitClient:
         zone_id: CKZoneIDReq,
         desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
+        """Look up CloudKit records by name in the given zone."""
         return self._client.lookup(
             record_names=record_names,
             zone_id=zone_id,
             desired_keys=desired_keys,
         )
 
-    def zones_list(self):
+    def zones_list(self) -> CKZoneListResponse:
+        """List the CloudKit zones for the Photos container."""
         return self._client.zones_list()
 
-    def database_changes(self, *, sync_token: str | None = None):
+    def database_changes(
+        self, *, sync_token: str | None = None
+    ) -> CKDatabaseChangesResponse:
+        """Yield CloudKit database changes, optionally from a sync token."""
         return self._client.database_changes(sync_token=sync_token)
 
     def download_asset_bytes(self, url: str) -> bytes:
+        """Download the raw bytes of a CloudKit asset at ``url``."""
         return self._client.download_asset_bytes(url)
 
     def batch_count(self, *, container_id: str, zone_id: dict[str, str]) -> int:
@@ -135,7 +150,7 @@ class PhotosCloudKitClient:
                 )
             ]
         ).model_dump(mode="json", exclude_none=True)
-        raw_data = self._client._http.post(
+        raw_data = self._client.raw_post(
             "/internal/records/query/batch",
             payload,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
@@ -154,7 +169,7 @@ class PhotosCloudKitClient:
             ) from exc
 
     @staticmethod
-    def _response_json(response, *, context: str) -> Dict:
+    def _response_json(response: Response, *, context: str) -> dict[str, Any]:
         code = getattr(response, "status_code", 0)
         if not isinstance(code, int):
             code = 200
@@ -167,7 +182,7 @@ class PhotosCloudKitClient:
                 f"{context} failed with HTTP {code}", payload=payload
             )
         try:
-            return response.json()
+            return cast(dict[str, Any], response.json())
         except Exception as exc:
             raise CloudKitApiError(
                 f"{context} returned invalid JSON",
@@ -186,7 +201,7 @@ class PhotosCloudKitClient:
             response = self._session.post(
                 url=url,
                 data=handle,
-                timeout=self._client._http._REQUEST_TIMEOUT,
+                timeout=self._client.timeout,
             )
         data = PhotosUploadResponse.model_validate(
             self._response_json(response, context="Photos upload")

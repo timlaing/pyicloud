@@ -20,8 +20,9 @@ advanced or unsupported CloudKit workflows.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 import logging
-from typing import Dict, Iterable, Iterator, List, Optional
+from typing import Any, Literal
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -40,6 +41,7 @@ from pyicloud.common.cloudkit import (
 from pyicloud.common.cloudkit.models import CKReferenceField, CKReferenceListField
 from pyicloud.services.base import BaseService
 from pyicloud.services.notes.decoding import BodyDecoder
+from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE, NOTES_ZONE_NAME, NOTES_ZONE_REQ
 from .client import (
@@ -53,6 +55,9 @@ from .domain import AttachmentId, NoteBody
 from .models import Attachment, Note, NoteSummary
 from .models.constants import NotesDesiredKey, NotesRecordType
 from .models.dto import ChangeEvent, NoteFolder
+from .rendering.exporter import NoteExporter, build_datasource, decode_and_parse_note
+from .rendering.options import ExportConfig
+from .rendering.renderer import NoteRenderer
 
 LOGGER = logging.getLogger(__name__)
 _HAS_SUBFOLDER_FIELD = "HasSubfolder"
@@ -61,13 +66,9 @@ _HAS_SUBFOLDER_FIELD = "HasSubfolder"
 class NoteNotFound(NotesError):
     """Raised when a note cannot be found."""
 
-    pass
-
 
 class NoteLockedError(NotesError):
     """Raised when a note is password protected and cannot be accessed."""
-
-    pass
 
 
 # ----------------------------- NotesService ----------------------------------
@@ -90,13 +91,16 @@ class NotesService(BaseService):
     def __init__(
         self,
         service_root: str,
-        session,
-        params: Dict[str, str],
+        session: PyiCloudSession,
+        params: dict[str, str],
         *,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
-    ):
+    ) -> None:
         super().__init__(service_root=service_root, session=session, params=params)
-        endpoint = f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}/{self._SCOPE}"
+        endpoint = (
+            f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}/"
+            f"{self._SCOPE}"
+        )
         # Sensible defaults; lower-case booleans are applied in the raw client
         base_params = {
             "remapEnums": True,
@@ -110,8 +114,8 @@ class NotesService(BaseService):
             validation_extra=cloudkit_validation_extra,
         )
         # In-memory caches
-        self._folder_name_cache: Dict[str, Optional[str]] = {}
-        self._attachment_meta_cache: Dict[str, Attachment] = {}
+        self._folder_name_cache: dict[str, str | None] = {}
+        self._attachment_meta_cache: dict[str, Attachment] = {}
 
     # -------------------------- Public API methods ---------------------------
 
@@ -152,7 +156,7 @@ class NotesService(BaseService):
             sortBy=[CKQuerySortBy(fieldName="modTime", ascending=False)],
         )
         yielded = 0
-        cont: Optional[str] = None
+        cont: str | None = None
         LOGGER.debug("Fetching recents: limit=%d", limit)
         while True:
             remaining = limit - yielded
@@ -192,7 +196,8 @@ class NotesService(BaseService):
         if limit <= 0:
             return
         emitted = 0
-        # Pull a larger window than requested to increase the chance of finding matches fast.
+        # Pull a larger window than requested to increase the chance of finding
+        # matches fast.
         window = max(200, limit * 5)
         LOGGER.debug(
             "Fetching recents in folder: folder_id=%s limit=%d", folder_id, limit
@@ -207,7 +212,7 @@ class NotesService(BaseService):
                     )
                     return
 
-    def iter_all(self, *, since: Optional[str] = None) -> Iterable[NoteSummary]:
+    def iter_all(self, *, since: str | None = None) -> Iterable[NoteSummary]:
         """
         Yield note summaries from the Notes changes feed.
 
@@ -228,16 +233,14 @@ class NotesService(BaseService):
             zone_req=CKZoneChangesZoneReq(
                 zoneID=NOTES_ZONE,
                 desiredRecordTypes=[NotesRecordType.Note],
-                desiredKeys=self._coerce_keys(
-                    [
-                        NotesDesiredKey.TITLE_ENCRYPTED,
-                        NotesDesiredKey.SNIPPET_ENCRYPTED,
-                        NotesDesiredKey.MODIFICATION_DATE,
-                        NotesDesiredKey.DELETED,
-                        NotesDesiredKey.FOLDER,
-                        NotesDesiredKey.ATTACHMENTS,
-                    ]
-                ),
+                desiredKeys=self._coerce_keys([
+                    NotesDesiredKey.TITLE_ENCRYPTED,
+                    NotesDesiredKey.SNIPPET_ENCRYPTED,
+                    NotesDesiredKey.MODIFICATION_DATE,
+                    NotesDesiredKey.DELETED,
+                    NotesDesiredKey.FOLDER,
+                    NotesDesiredKey.ATTACHMENTS,
+                ]),
                 syncToken=since,
                 reverse=False,
             ),
@@ -268,7 +271,7 @@ class NotesService(BaseService):
                 )
             ],
         )
-        cont: Optional[str] = None
+        cont: str | None = None
         LOGGER.debug("Fetching folders")
         while True:
             resp: CKQueryResponse = self._raw.query(
@@ -301,7 +304,7 @@ class NotesService(BaseService):
                 return
 
     def in_folder(
-        self, folder_id: str, *, limit: Optional[int] = None
+        self, folder_id: str, *, limit: int | None = None
     ) -> Iterable[NoteSummary]:
         """
         Yield non-deleted notes in ``folder_id``, ordered newest first.
@@ -318,19 +321,17 @@ class NotesService(BaseService):
             zone_req=CKZoneChangesZoneReq(
                 zoneID=NOTES_ZONE,
                 desiredRecordTypes=[NotesRecordType.Note],
-                desiredKeys=self._coerce_keys(
-                    [
-                        NotesDesiredKey.TITLE_ENCRYPTED,
-                        NotesDesiredKey.SNIPPET_ENCRYPTED,
-                        NotesDesiredKey.MODIFICATION_DATE,
-                        NotesDesiredKey.DELETED,
-                        NotesDesiredKey.FOLDER,
-                        NotesDesiredKey.FIRST_ATTACHMENT_UTI_ENCRYPTED,
-                        NotesDesiredKey.FIRST_ATTACHMENT_THUMBNAIL,
-                        NotesDesiredKey.FIRST_ATTACHMENT_THUMBNAIL_ORIENTATION,
-                        NotesDesiredKey.ATTACHMENTS,
-                    ]
-                ),
+                desiredKeys=self._coerce_keys([
+                    NotesDesiredKey.TITLE_ENCRYPTED,
+                    NotesDesiredKey.SNIPPET_ENCRYPTED,
+                    NotesDesiredKey.MODIFICATION_DATE,
+                    NotesDesiredKey.DELETED,
+                    NotesDesiredKey.FOLDER,
+                    NotesDesiredKey.FIRST_ATTACHMENT_UTI_ENCRYPTED,
+                    NotesDesiredKey.FIRST_ATTACHMENT_THUMBNAIL,
+                    NotesDesiredKey.FIRST_ATTACHMENT_THUMBNAIL_ORIENTATION,
+                    NotesDesiredKey.ATTACHMENTS,
+                ]),
                 reverse=True,  # newest first
             )
         ):
@@ -338,7 +339,7 @@ class NotesService(BaseService):
                 if not isinstance(rec, CKRecord):
                     continue
                 rec_folder_id = self._extract_folder_id(rec)
-                deleted = bool(rec.fields.get_value("Deleted") or False)
+                deleted = bool(rec.fields.get_value("Deleted"))
                 if deleted or rec_folder_id != folder_id:
                     continue
                 yield self._summary_from_record(rec)
@@ -402,11 +403,11 @@ class NotesService(BaseService):
                 "notes.body.decoded %s",
                 "ok" if note_body and note_body.text else "empty",
             )
-        attachments: Optional[List[Attachment]] = None
-        html: Optional[str] = None
+        attachments: list[Attachment] | None = None
+        html: str | None = None
 
         text = note_body.text if note_body else None
-        attachment_ids: List[AttachmentId] = []
+        attachment_ids: list[AttachmentId] = []
         if note_body and note_body.attachment_ids:
             attachment_ids = note_body.attachment_ids
 
@@ -439,7 +440,7 @@ class NotesService(BaseService):
         LOGGER.debug("Fetching sync cursor for Notes zone")
         return self._raw.current_sync_token(zone_name=NOTES_ZONE_NAME)
 
-    def export_note(self, note_id: str, output_dir: str, **config_kwargs) -> str:
+    def export_note(self, note_id: str, output_dir: str, **config_kwargs: Any) -> str:
         """
         Export a note to HTML on disk and return the generated file path.
 
@@ -460,10 +461,6 @@ class NotesService(BaseService):
         """
         target = self._lookup_note_record(note_id)
 
-        # Lazy import to avoid circular dependency
-        from .rendering.exporter import NoteExporter
-        from .rendering.options import ExportConfig
-
         config = ExportConfig(**config_kwargs)
         exporter = NoteExporter(self._raw, config=config)
         path = exporter.export(target, output_dir=output_dir)
@@ -471,7 +468,7 @@ class NotesService(BaseService):
             raise NotesError(f"Failed to export note: {note_id}")
         return path
 
-    def render_note(self, note_id: str, **config_kwargs) -> str:
+    def render_note(self, note_id: str, **config_kwargs: Any) -> str:
         """
         Render a note to an HTML fragment string.
 
@@ -486,10 +483,6 @@ class NotesService(BaseService):
         """
         target = self._lookup_note_record(note_id)
 
-        from .rendering.exporter import build_datasource, decode_and_parse_note
-        from .rendering.options import ExportConfig
-        from .rendering.renderer import NoteRenderer
-
         config = ExportConfig(**config_kwargs)
         note = decode_and_parse_note(target)
         if not note:
@@ -499,7 +492,9 @@ class NotesService(BaseService):
         renderer = NoteRenderer(config)
         return renderer.render(note, ds)
 
-    def iter_changes(self, *, since: Optional[str] = None) -> Iterable[ChangeEvent]:
+    def iter_changes(  # noqa: S3776
+        self, *, since: str | None = None
+    ) -> Iterable[ChangeEvent]:
         """
         Yield ``ChangeEvent`` items from the Notes changes feed.
 
@@ -515,24 +510,24 @@ class NotesService(BaseService):
             zone_req=CKZoneChangesZoneReq(
                 zoneID=NOTES_ZONE,
                 desiredRecordTypes=[NotesRecordType.Note],
-                desiredKeys=self._coerce_keys(
-                    [
-                        NotesDesiredKey.TITLE_ENCRYPTED,
-                        NotesDesiredKey.SNIPPET_ENCRYPTED,
-                        NotesDesiredKey.MODIFICATION_DATE,
-                        NotesDesiredKey.DELETED,
-                        NotesDesiredKey.FOLDER,
-                        NotesDesiredKey.ATTACHMENTS,
-                    ]
-                ),
+                desiredKeys=self._coerce_keys([
+                    NotesDesiredKey.TITLE_ENCRYPTED,
+                    NotesDesiredKey.SNIPPET_ENCRYPTED,
+                    NotesDesiredKey.MODIFICATION_DATE,
+                    NotesDesiredKey.DELETED,
+                    NotesDesiredKey.FOLDER,
+                    NotesDesiredKey.ATTACHMENTS,
+                ]),
                 syncToken=since,
                 reverse=False,
             )
         ):
             for rec in zone.records:
                 if isinstance(rec, CKRecord):
-                    deleted_flag = bool(rec.fields.get_value("Deleted") or False)
-                    evt_type = "deleted" if deleted_flag else "updated"
+                    deleted_flag = bool(rec.fields.get_value("Deleted"))
+                    evt_type: Literal["updated", "deleted"] = (
+                        "deleted" if deleted_flag else "updated"
+                    )
                     yield ChangeEvent(
                         type=evt_type,
                         note=self._summary_from_record(rec),
@@ -595,7 +590,7 @@ class NotesService(BaseService):
 
     # -------------------------- Internal helpers -----------------------------
 
-    def _matches_current_sync_cursor(self, since: Optional[str]) -> bool:
+    def _matches_current_sync_cursor(self, since: str | None) -> bool:
         """Return whether an incremental Notes cursor is already current."""
         if not since:
             return False
@@ -610,7 +605,7 @@ class NotesService(BaseService):
         self,
         note_id: str,
         *,
-        desired_keys: Optional[Iterable[object]] = None,
+        desired_keys: Iterable[object] | None = None,
     ) -> CKRecord:
         """Return one Notes record or raise ``NoteNotFound``."""
         resp = self._raw.lookup(
@@ -625,10 +620,10 @@ class NotesService(BaseService):
         raise NoteNotFound(f"Note not found: {note_id}")
 
     @staticmethod
-    def _coerce_keys(keys: Optional[Iterable[object]]) -> Optional[List[str]]:
+    def _coerce_keys(keys: Iterable[object] | None) -> list[str] | None:
         if keys is None:
             return None
-        out: List[str] = []
+        out: list[str] = []
         for k in keys:
             if isinstance(k, NotesDesiredKey):
                 out.append(k.value)
@@ -637,7 +632,7 @@ class NotesService(BaseService):
         return out
 
     @staticmethod
-    def _decode_encrypted(b: Optional[bytes | str]) -> Optional[str]:
+    def _decode_encrypted(b: bytes | str | None) -> str | None:
         if b is None:
             return None
         if isinstance(b, str):
@@ -647,7 +642,7 @@ class NotesService(BaseService):
         except Exception:
             return None
 
-    def _extract_folder_id(self, rec: CKRecord) -> Optional[str]:
+    def _extract_folder_id(self, rec: CKRecord) -> str | None:
         f = rec.fields.get_field("Folder")
         if isinstance(f, CKReferenceField) and f.value:
             return f.value.recordName
@@ -656,14 +651,14 @@ class NotesService(BaseService):
             return fl.value[0].recordName
         return None
 
-    def _folder_name(self, folder_id: Optional[str]) -> Optional[str]:
+    def _folder_name(self, folder_id: str | None) -> str | None:
         if not folder_id:
             return None
         if folder_id in self._folder_name_cache:
             return self._folder_name_cache[folder_id]
         try:
             resp = self._raw.lookup([folder_id], desired_keys=["TitleEncrypted"])
-            name: Optional[str] = None
+            name: str | None = None
             for rec in resp.records:
                 if isinstance(rec, CKRecord) and rec.recordName == folder_id:
                     name = self._decode_encrypted(
@@ -684,7 +679,7 @@ class NotesService(BaseService):
         modified = rec.fields.get_value(
             "ModificationDate"
         )  # already tz-aware datetime or None
-        deleted = bool(rec.fields.get_value("Deleted") or False)
+        deleted = bool(rec.fields.get_value("Deleted"))
         folder_id = self._extract_folder_id(rec)
         folder_name = self._folder_name(folder_id)
         is_locked = (
@@ -702,7 +697,7 @@ class NotesService(BaseService):
             is_locked=is_locked,
         )
 
-    def _decode_note_body(self, rec: CKRecord) -> Optional[NoteBody]:
+    def _decode_note_body(self, rec: CKRecord) -> NoteBody | None:
         """Decode TextDataEncrypted into a NoteBody (text + attachment IDs)."""
 
         raw = rec.fields.get_value("TextDataEncrypted")
@@ -727,22 +722,22 @@ class NotesService(BaseService):
             LOGGER.warning("notes.body.decode_failed id=%s err=%s", rec.recordName, e)
             return None
 
-    def _resolve_attachments_for_record(
+    def _resolve_attachments_for_record(  # noqa: S3776
         self,
         rec: CKRecord,
         *,
-        attachment_ids: Optional[List[AttachmentId]] = None,
-    ) -> List[Attachment]:
+        attachment_ids: list[AttachmentId] | None = None,
+    ) -> list[Attachment]:
         """Hydrate attachment metadata for a note.
 
         Combines attachment identifiers from CloudKit references and the decoded
         protobuf body. Missing records are skipped gracefully.
         """
 
-        out: List[Attachment] = []
+        out: list[Attachment] = []
 
-        alias_ids: List[str] = []
-        lookup_candidates: List[str] = []
+        alias_ids: list[str] = []
+        lookup_candidates: list[str] = []
 
         if attachment_ids:
             for aid in attachment_ids:
@@ -752,7 +747,7 @@ class NotesService(BaseService):
 
         fld = rec.fields.get_field("Attachments")
         if fld and hasattr(fld, "value"):
-            refs: List[CKReference] = getattr(fld, "value", []) or []
+            refs: list[CKReference] = getattr(fld, "value", []) or []
             for ref in refs:
                 rn = getattr(ref, "recordName", None)
                 if rn:
@@ -761,7 +756,7 @@ class NotesService(BaseService):
 
         # Deduplicate alias list while preserving order
         seen_alias: set[str] = set()
-        ids: List[str] = []
+        ids: list[str] = []
         for cid in alias_ids:
             if cid not in seen_alias:
                 seen_alias.add(cid)
@@ -778,7 +773,7 @@ class NotesService(BaseService):
 
         # Fetch metadata for uncached attachments
         seen_lookup: set[str] = set()
-        lookup_ids: List[str] = []
+        lookup_ids: list[str] = []
         lookup_source_ids = lookup_candidates if lookup_candidates else ids
         for cid in lookup_source_ids:
             if cid not in seen_lookup:
@@ -839,8 +834,8 @@ class NotesService(BaseService):
                         alias,
                     )
 
-        for aid in ids or lookup_ids:
-            att = self._attachment_meta_cache.get(aid)
+        for cid in ids or lookup_ids:
+            att = self._attachment_meta_cache.get(cid)
             if att and att not in out:
                 out.append(att)
 
@@ -852,7 +847,7 @@ class NotesService(BaseService):
         return out
 
     @staticmethod
-    def _coerce_string(rec: CKRecord, names: List[str]) -> Optional[str]:
+    def _coerce_string(rec: CKRecord, names: list[str]) -> str | None:
         for n in names:
             v = rec.fields.get_value(n)
             if v is None:
@@ -867,7 +862,7 @@ class NotesService(BaseService):
         return None
 
     @staticmethod
-    def _attachment_aliases(rec: CKRecord, record_name: str) -> List[str]:
+    def _attachment_aliases(rec: CKRecord, record_name: str) -> list[str]:
         aliases = [record_name]
         identifier = NotesService._coerce_string(
             rec, ["AttachmentIdentifier", "attachmentIdentifier", "Identifier"]
@@ -876,7 +871,7 @@ class NotesService(BaseService):
             aliases.append(identifier)
         return aliases
 
-    def _build_attachment_from_record(self, rec: CKRecord) -> Optional[Attachment]:
+    def _build_attachment_from_record(self, rec: CKRecord) -> Attachment | None:
         aid = getattr(rec, "recordName", None)
         if not aid:
             return None
@@ -919,7 +914,7 @@ class NotesService(BaseService):
         )
 
     @staticmethod
-    def _coerce_int(rec: CKRecord, names: List[str]) -> Optional[int]:
+    def _coerce_int(rec: CKRecord, names: list[str]) -> int | None:
         for n in names:
             v = rec.fields.get_value(n)
             if isinstance(v, int):
@@ -931,7 +926,7 @@ class NotesService(BaseService):
         return None
 
     @staticmethod
-    def _coerce_asset_url(rec: CKRecord, names: List[str]) -> Optional[str]:
+    def _coerce_asset_url(rec: CKRecord, names: list[str]) -> str | None:
         for n in names:
             fld = rec.fields.get_field(n)
             if not fld:
@@ -944,7 +939,7 @@ class NotesService(BaseService):
         return None
 
     @staticmethod
-    def _coerce_asset_url_from_list(rec: CKRecord, name: str) -> Optional[str]:
+    def _coerce_asset_url_from_list(rec: CKRecord, name: str) -> str | None:
         fld = rec.fields.get_field(name)
         if not fld:
             return None
@@ -960,16 +955,20 @@ class NotesService(BaseService):
                     return url
         return None
 
-    def _download_attachment_to(self, att: Attachment, directory: str) -> str:
+    def download_attachment_to(self, att: Attachment, directory: str) -> str:
+        """Download an attachment to a directory and return the local path."""
+
         url = att.download_url or att.preview_url or att.thumbnail_url
         if not url:
             raise NotesApiError("Attachment does not expose a download URL.")
         LOGGER.debug("Downloading attachment %s to %s", att.id, directory)
         return self._raw.download_asset_to(url, directory)
 
-    def _stream_attachment(
+    def stream_attachment(
         self, att: Attachment, *, chunk_size: int = 65536
     ) -> Iterator[bytes]:
+        """Yield the attachment bytes in chunks."""
+
         url = att.download_url or att.preview_url or att.thumbnail_url
         if not url:
             raise NotesApiError("Attachment does not expose a download URL.")

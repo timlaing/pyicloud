@@ -6,10 +6,12 @@ Converts a parsed pb.Note into minimal, readable HTML. No I/O.
 
 from __future__ import annotations
 
-import html
+from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import List, Optional, Tuple, cast
+import html
+from typing import TypedDict, cast
 from urllib.parse import urlsplit
 
 from ..protobuf import notes_pb2 as pb
@@ -17,8 +19,24 @@ from .attachments import AttachmentContext, render_attachment
 from .options import ExportConfig
 from .renderer_iface import AttachmentRef, NoteDataSource
 
+LI_CLOSE = "</li>"
+CHECKED_ATTR = " checked"
+NBSP = "&nbsp;"
+
+
+class _ListFrame(TypedDict):
+    """Stack frame describing an open HTML list element."""
+
+    indent: int
+    tag: str
+    li_open: bool
+    li_index: int | None
+    li_has_content: bool
+
 
 class StyleType(IntEnum):
+    """Enum of Apple Notes paragraph and run text styles."""
+
     DEFAULT = -1
     TITLE = 0
     HEADING = 1
@@ -31,7 +49,7 @@ class StyleType(IntEnum):
     CHECKBOX = 103
 
 
-def _is_list_style(st: Optional[int]) -> bool:
+def _is_list_style(st: int | None) -> bool:
     return st in (
         StyleType.DOTTED_LIST,
         StyleType.DASHED_LIST,
@@ -40,7 +58,7 @@ def _is_list_style(st: Optional[int]) -> bool:
     )
 
 
-def _safe_anchor_href(url: Optional[str]) -> Optional[str]:
+def _safe_anchor_href(url: str | None) -> str | None:
     if not url:
         return None
 
@@ -106,30 +124,33 @@ def _css_font_stack(name: str) -> str:
 
 @dataclass(frozen=True)
 class StyleSig:
+    """Signature of styling parsed from a protobuf AttributeRun."""
+
     # Inline styling
-    font_weight: Optional[int]
-    underlined: Optional[int]
-    strikethrough: Optional[int]
-    superscript: Optional[int]
-    link: Optional[str]
-    color_hex: Optional[str]
-    emphasis_style: Optional[int]  # FIX: added
-    font_size_pt: Optional[float]
-    font_name: Optional[str]
+    font_weight: int | None
+    underlined: int | None
+    strikethrough: int | None
+    superscript: int | None
+    link: str | None
+    color_hex: str | None
+    emphasis_style: int | None  # FIX: added
+    font_size_pt: float | None
+    font_name: str | None
 
     # Block/paragraph styling
-    style_type: Optional[int]
-    alignment: Optional[int]
-    indent_amount: Optional[int]
-    block_quote: Optional[int]
-    writing_direction: Optional[int]
-    checklist_done: Optional[int]
-    start_number: Optional[int]
-    highlight: Optional[int]
-    paragraph_uuid: Optional[bytes]
+    style_type: int | None
+    alignment: int | None
+    indent_amount: int | None
+    block_quote: int | None
+    writing_direction: int | None
+    checklist_done: int | None
+    start_number: int | None
+    highlight: int | None
+    paragraph_uuid: bytes | None
 
     @staticmethod
-    def from_run(run: pb.AttributeRun) -> "StyleSig":
+    def from_run(run: pb.AttributeRun) -> StyleSig:  # noqa: S3776
+        """Extract a StyleSig from a protobuf AttributeRun."""
         ps = run.paragraph_style if run.HasField("paragraph_style") else None
         st = align = indent = bq = wd = None
         start_num = None  # default when no paragraph_style/start provided
@@ -236,7 +257,8 @@ class StyleSig:
             paragraph_uuid=para_uuid,
         )
 
-    def same_paragraph_as(self, other: "StyleSig") -> bool:
+    def same_paragraph_as(self, other: StyleSig) -> bool:
+        """Return whether two signatures share paragraph-level styling."""
         # If both runs carry a paragraph UUID and it differs, this is a new paragraph
         if (
             self.paragraph_uuid
@@ -260,11 +282,13 @@ class StyleSig:
             # Checklist item state is part of the paragraph semantics; if it differs,
             # do not merge runs so each item carries its own done/unchecked state.
             and self.checklist_done == other.checklist_done
-            # Start number for ordered lists can differ between paragraphs; avoid merging.
+            # Start number for ordered lists can differ between
+            # paragraphs; avoid merging.
             and self.start_number == other.start_number
         )
 
-    def same_inline_as(self, other: "StyleSig") -> bool:
+    def same_inline_as(self, other: StyleSig) -> bool:
+        """Return whether two signatures share inline text styling."""
         return (
             self.font_weight == other.font_weight
             and self.underlined == other.underlined
@@ -278,19 +302,22 @@ class StyleSig:
             and self.highlight == other.highlight
         )
 
-    def same_effective_style(self, other: "StyleSig") -> bool:
+    def same_effective_style(self, other: StyleSig) -> bool:
+        """Return whether two signatures share all effective styling."""
         return self.same_paragraph_as(other) and self.same_inline_as(other)
 
 
 @dataclass
 class MergedRun:
+    """A run of text merged from adjacent runs with uniform style."""
+
     length: int
     sig: StyleSig
-    attachment: Optional[AttachmentRef]
+    attachment: AttachmentRef | None
 
 
-def _merge_runs(runs) -> List[MergedRun]:
-    out: List[MergedRun] = []
+def _merge_runs(runs: Iterable[pb.AttributeRun]) -> list[MergedRun]:
+    out: list[MergedRun] = []
     for r in runs:
         sig = StyleSig.from_run(r)
         attachment = None
@@ -311,7 +338,7 @@ def _merge_runs(runs) -> List[MergedRun]:
     return out
 
 
-def _slice_for_run(s: str, start: int, length_units: int) -> Tuple[str, int]:
+def _slice_for_run(s: str, start: int, length_units: int) -> tuple[str, int]:
     end_guess = start + length_units
     while True:
         chunk = s[start:end_guess]
@@ -322,22 +349,41 @@ def _slice_for_run(s: str, start: int, length_units: int) -> Tuple[str, int]:
         end_guess = new_end
 
 
-def render_note_fragment(
+def _should_close_paragraph(mr: MergedRun, next_mr: MergedRun | None) -> bool:
+    """Return whether to close the current paragraph before the next run.
+
+    The parent <li> is kept open when the next paragraph is a deeper-indented
+    list item, so the nested <ul>/<ol> is emitted inside the correct item
+    rather than inside an empty sibling <li>.
+    """
+    if next_mr is not None:
+        cur_st = mr.sig.style_type
+        nxt_st = next_mr.sig.style_type
+        if _is_list_style(cur_st) and _is_list_style(nxt_st):
+            cur_indent = int(mr.sig.indent_amount or 0)
+            nxt_indent = int(next_mr.sig.indent_amount or 0)
+            if nxt_indent > cur_indent:
+                return False
+    return True
+
+
+def render_note_fragment(  # noqa: S3776
     note: pb.Note,
-    datasource: Optional[NoteDataSource],
-    config: Optional[ExportConfig] = None,
+    datasource: NoteDataSource | None,
+    config: ExportConfig | None = None,
 ) -> str:
+    """Render a note body to an HTML fragment string."""
     text = note.note_text or ""
     merged = _merge_runs(note.attribute_run)
 
-    fragments: List[str] = []
+    fragments: list[str] = []
     para_tag_open = ""
     para_tag_close = ""
     deferred_breaks = 0
-    # strip_leading_break_next = False
 
-    def _emphasis_css(emph_val: Optional[int]) -> List[str]:
-        # Use the highlight value from the signature, which may come from emphasis_style or highlight_color
+    def _emphasis_css(emph_val: int | None) -> list[str]:
+        # Use the highlight value from the signature, which may come from
+        # emphasis_style or highlight_color
         if emph_val is None:
             return []
         # Map emphasis palette index to CSS variables that adapt to light/dark.
@@ -348,16 +394,14 @@ def render_note_fragment(
         return [f"background-color:var(--hl{idx}-bg)"]
 
     i = 0
-    list_stack: List[
-        dict
-    ] = []  # {"indent": int, "tag": str, "li_open": bool, "li_index": Optional[int], "li_has_content": bool}
+    list_stack: list[_ListFrame] = []
 
     def _close_top_list() -> None:
         if not list_stack:
             return
         top = list_stack.pop()
         if top.get("li_open"):
-            fragments.append("</li>")
+            fragments.append(LI_CLOSE)
         fragments.append(f"</{top['tag']}>")
 
     def _close_lists_to(target_indent: int) -> None:
@@ -368,8 +412,8 @@ def render_note_fragment(
         indent: int,
         desired_tag: str,
         *,
-        start: Optional[int] = None,
-        cls: Optional[str] = None,
+        start: int | None = None,
+        cls: str | None = None,
     ) -> None:
         while list_stack and (
             list_stack[-1]["indent"] > indent
@@ -388,22 +432,20 @@ def render_note_fragment(
             level = (list_stack[-1]["indent"] + 1) if list_stack else 0
             # Use the same list type at all nesting levels for consistency
             tag = desired_tag
-            attrs: List[str] = []
+            attrs: list[str] = []
             if cls and tag == "ul":
                 attrs.append(f'class="{html.escape(cls)}"')
             if start and tag == "ol" and level == indent and int(start) > 1:
                 attrs.append(f'start="{int(start)}"')
             attr_text = (" " + " ".join(attrs)) if attrs else ""
             fragments.append(f"<{tag}{attr_text}>")
-            list_stack.append(
-                {
-                    "indent": level,
-                    "tag": tag,
-                    "li_open": False,
-                    "li_index": None,
-                    "li_has_content": False,
-                }
-            )
+            list_stack.append({
+                "indent": level,
+                "tag": tag,
+                "li_open": False,
+                "li_index": None,
+                "li_has_content": False,
+            })
 
     def paragraph_open(sig: StyleSig) -> None:
         nonlocal para_tag_open, para_tag_close
@@ -420,7 +462,7 @@ def render_note_fragment(
             # If a list item is already open at this level and had content, that
             # item is complete; close it before starting a new one.
             if list_stack[-1]["li_open"] and list_stack[-1].get("li_has_content"):
-                fragments.append("</li>")
+                fragments.append(LI_CLOSE)
                 list_stack[-1]["li_open"] = False
             if not list_stack[-1]["li_open"]:
                 fragments.append("<li>")
@@ -428,10 +470,10 @@ def render_note_fragment(
                 list_stack[-1]["li_index"] = len(fragments) - 1
                 list_stack[-1]["li_has_content"] = False
             if sig.style_type == StyleType.CHECKBOX:
-                checked = " checked" if sig.checklist_done == 1 else ""
+                checked = CHECKED_ATTR if sig.checklist_done == 1 else ""
                 fragments.append(f'<input type="checkbox" disabled{checked}> ')
             para_tag_open = "<li>"
-            para_tag_close = "</li>"
+            para_tag_close = LI_CLOSE
             return
 
         _close_lists_to(-1)
@@ -447,7 +489,7 @@ def render_note_fragment(
             tag = "p"
         if sig.block_quote == 1 and tag == "p":
             tag = "blockquote"
-        styles: List[str] = []
+        styles: list[str] = []
         if sig.alignment == 1:
             styles.append("text-align:center")
         elif sig.alignment == 2:
@@ -468,7 +510,7 @@ def render_note_fragment(
         nonlocal para_tag_close, deferred_breaks
         deferred_breaks = 0
         if para_tag_close:
-            if para_tag_close == "</li>" and list_stack:
+            if para_tag_close == LI_CLOSE and list_stack:
                 if list_stack[-1]["li_open"]:
                     # If li had no content, drop the opening and skip the closing
                     if not list_stack[-1].get("li_has_content"):
@@ -497,14 +539,14 @@ def render_note_fragment(
                             fragments.pop()
                         fragments.append(para_tag_close)
                     list_stack[-1]["li_open"] = False
-            elif para_tag_close != "</li>":
+            elif para_tag_close != LI_CLOSE:
                 fragments.append(para_tag_close)
         para_tag_close = ""
 
     def _preserve_leading_ws(text: str) -> str:
         # Convert leading spaces/tabs on each line into &nbsp; so indentation is visible
         # while keeping normal whitespace collapsing for the rest of the line.
-        out: List[str] = []
+        out: list[str] = []
         i = 0
         n = len(text)
         while i < n:
@@ -517,13 +559,13 @@ def render_note_fragment(
             esc = html.escape(line)
             # measure leading spaces/tabs in original (not escaped)
             k = 0
-            prefix: List[str] = []
+            prefix: list[str] = []
             for ch in line:
                 if ch == " ":
-                    prefix.append("&nbsp;")
+                    prefix.append(NBSP)
                     k += 1
                 elif ch == "\t":
-                    prefix.append("&nbsp;" * 4)
+                    prefix.append(NBSP * 4)
                     k += 1
                 else:
                     break
@@ -538,7 +580,7 @@ def render_note_fragment(
         return "".join(out)
 
     def wrap_inline(sig: StyleSig, html_text: str) -> str:
-        styles: List[str] = []
+        styles: list[str] = []
         if sig.font_weight in (1, 3):
             styles.append("font-weight:bold")
         if sig.font_weight in (2, 3):
@@ -554,13 +596,11 @@ def render_note_fragment(
             except Exception:
                 pass
         if sig.font_size_pt:
-            try:
+            with suppress(Exception):
                 styles.append(f"font-size:{float(sig.font_size_pt):.0f}pt")
-            except Exception:
-                pass
         if sig.font_name:
             styles.append(f"font-family:{_css_font_stack(str(sig.font_name))}")
-        deco: List[str] = []
+        deco: list[str] = []
         if sig.underlined == 1:
             deco.append("underline")
         if sig.strikethrough == 1:
@@ -585,15 +625,138 @@ def render_note_fragment(
                     rp = str(config.referrer_policy)
             except Exception:
                 pass
-            styled = f'<a href="{html.escape(safe_href)}" target="_blank" rel="{html.escape(rel)}" referrerpolicy="{html.escape(rp)}">{styled}</a>'
+            styled = (
+                f'<a href="{html.escape(safe_href)}" target="_blank" '
+                f'rel="{html.escape(rel)}" referrerpolicy="{html.escape(rp)}">'
+                f"{styled}</a>"
+            )
         if sig.superscript == 1:
             styled = f"<sup>{styled}</sup>"
         elif sig.superscript == -1:
             styled = f"<sub>{styled}</sub>"
         return styled
 
+    def _replace_spacer_with_item(sig: StyleSig) -> None:
+        """Close an open bulletless spacer <li> and start a standard item."""
+        if not (list_stack and list_stack[-1]["li_open"]):
+            return
+        idx = list_stack[-1]["li_index"]
+        if idx is None or idx >= len(fragments):
+            return
+        # A spacer looks like <li style="list-style-type: none">
+        if 'style="list-style-type: none"' not in fragments[idx]:
+            return
+        # Close spacer
+        fragments.append(LI_CLOSE)
+        list_stack[-1]["li_open"] = False
+        # Open new standard item
+        fragments.append("<li>")
+        list_stack[-1]["li_open"] = True
+        list_stack[-1]["li_index"] = len(fragments) - 1
+        list_stack[-1]["li_has_content"] = False
+        if sig.style_type == StyleType.CHECKBOX:
+            checked = CHECKED_ATTR if sig.checklist_done == 1 else ""
+            fragments.append(f'<input type="checkbox" disabled{checked}> ')
+
+    def _open_sibling_item(sig: StyleSig, next_seg: str | None) -> None:
+        """End the current list item and open a new sibling item."""
+        fragments.append(LI_CLOSE)
+        list_stack[-1]["li_open"] = False
+        # open next
+        style_attr = ""
+        # If next segment is empty (and not the trailing nesting case), it's a
+        # blank line. Hide the marker. We know next_seg is the content of the
+        # next item.
+        is_next_empty = next_seg == ""
+        if is_next_empty:
+            style_attr = ' style="list-style-type: none"'
+        fragments.append(f"<li{style_attr}>")
+        # Track the index of the opening tag
+        list_stack[-1]["li_index"] = len(fragments) - 1
+        list_stack[-1]["li_open"] = True
+        if is_next_empty:
+            # Ensure it has height
+            fragments.append(NBSP)
+        list_stack[-1]["li_has_content"] = False
+        # For checklist style, inject a checkbox for each new item
+        # ONLY if it's not a spacer (empty).
+        if sig.style_type == StyleType.CHECKBOX and not is_next_empty:
+            checked = CHECKED_ATTR if sig.checklist_done == 1 else ""
+            fragments.append(f'<input type="checkbox" disabled{checked}> ')
+
+    def _render_list_segments(sig: StyleSig, s: str) -> None:
+        """Emit a list-styled text run, splitting segments into sibling items."""
+        segs = s.split("\n")
+        for k, seg in enumerate(segs):
+            if seg:
+                # If we are strictly inside a list item that is a
+                # "spacer" (bulletless), and we are about to add text,
+                # we must close the spacer and start a real list item so
+                # the text gets a bullet.
+                _replace_spacer_with_item(sig)
+                fragments.append(wrap_inline(sig, html.escape(seg)))
+                if seg.strip():
+                    list_stack[-1]["li_has_content"] = True
+            else:
+                # Empty segment implies a newline in the source (e.g. \n\n).
+                # Apple Notes renders this as a vertical space (blank line)
+                # but WITHOUT a bullet. The empty segment is consumed as a
+                # trailing newline (kept for nesting) or an actual blank line.
+                pass
+
+            if k < len(segs) - 1:
+                next_seg = segs[k + 1] if (k + 1) < len(segs) else None
+                # If this is the trailing newline (next seg empty and last),
+                # keep the current <li> open so a nested list can attach to it.
+                if next_seg == "" and (k + 1) == len(segs) - 1:
+                    continue
+                _open_sibling_item(sig, next_seg)
+
+    def _render_plain_segments(sig: StyleSig, s: str) -> None:
+        """Emit text segments keeping newlines as <br> (non-list runs)."""
+        segs = s.split("\n")
+        for k, seg in enumerate(segs):
+            if seg:
+                fragments.append(wrap_inline(sig, html.escape(seg)))
+                if seg.strip():
+                    list_stack[-1]["li_has_content"] = True
+            if k < len(segs) - 1:
+                fragments.append("<br>")
+
+    def _flush_newline_gap(sig: StyleSig, s: str) -> None:
+        """Accumulate blank-line runs as deferred <br> or emit them as text."""
+        nonlocal deferred_breaks
+        if s.replace("\n", "").replace("\u2028", "") == "":
+            deferred_breaks += s.count("\n") + s.count("\u2028")
+            return
+        if deferred_breaks > 0:
+            fragments.append("<br>" * deferred_breaks)
+            deferred_breaks = 0
+        if sig.style_type == StyleType.MONOSPACED:
+            safe = html.escape(s)
+        else:
+            # Preserve leading spaces/tabs per line for visible indentation
+            safe = _preserve_leading_ws(s)
+        fragments.append(wrap_inline(sig, safe))
+        if list_stack and list_stack[-1]["li_open"]:
+            list_stack[-1]["li_has_content"] = list_stack[-1].get("li_has_content") or (
+                s.strip() != ""
+            )
+
+    def _close_previous_paragraph(prev_sig: StyleSig, cur_sig: StyleSig) -> None:
+        """Close the previous paragraph unless moving into a deeper-indented
+        list item (the nested list must remain inside the current <li>)."""
+        if _is_list_style(getattr(prev_sig, "style_type", None)) and _is_list_style(
+            getattr(cur_sig, "style_type", None)
+        ):
+            prev_indent = int(getattr(prev_sig, "indent_amount", 0) or 0)
+            cur_indent = int(getattr(cur_sig, "indent_amount", 0) or 0)
+            if cur_indent > prev_indent:
+                return
+        paragraph_close()
+
     total = len(merged)
-    prev_sig: Optional[StyleSig] = None
+    prev_sig: StyleSig | None = None
     for idx, mr in enumerate(merged):
         next_mr = merged[idx + 1] if idx + 1 < total else None
         is_para_boundary = next_mr is None or not mr.sig.same_paragraph_as(next_mr.sig)
@@ -603,16 +766,7 @@ def render_note_fragment(
                 # Avoid closing the parent list item when transitioning to a
                 # deeper-indented list paragraph; the nested list should remain
                 # inside the current <li>.
-                close_prev = True
-                if _is_list_style(
-                    getattr(prev_sig, "style_type", None)
-                ) and _is_list_style(getattr(mr.sig, "style_type", None)):
-                    prev_indent = int(getattr(prev_sig, "indent_amount", 0) or 0)
-                    cur_indent = int(getattr(mr.sig, "indent_amount", 0) or 0)
-                    if cur_indent > prev_indent:
-                        close_prev = False
-                if close_prev:
-                    paragraph_close()
+                _close_previous_paragraph(prev_sig, mr.sig)
             paragraph_open(mr.sig)
 
         if mr.attachment is not None:
@@ -622,7 +776,8 @@ def render_note_fragment(
             primary = None
             thumb = None
             gz = None
-            # Capture preceding text on the same paragraph/line for inline renderers (e.g., calculator)
+            # Capture preceding text on the same paragraph/line for inline
+            # renderers (e.g., calculator)
             prior_text = None
             try:
                 # 'i' is the current Python-string index for this run start
@@ -639,13 +794,11 @@ def render_note_fragment(
                 get_t = getattr(datasource, "get_thumbnail_url", None)
                 get_m = getattr(datasource, "get_mergeable_gz", None)
                 title = (
-                    cast(Optional[str], get_title(ident))
-                    if callable(get_title)
-                    else None
+                    cast(str | None, get_title(ident)) if callable(get_title) else None
                 )
-                primary = cast(Optional[str], get_p(ident)) if callable(get_p) else None
-                thumb = cast(Optional[str], get_t(ident)) if callable(get_t) else None
-                gz = cast(Optional[bytes], get_m(ident)) if callable(get_m) else None
+                primary = cast(str | None, get_p(ident)) if callable(get_p) else None
+                thumb = cast(str | None, get_t(ident)) if callable(get_t) else None
+                gz = cast(bytes | None, get_m(ident)) if callable(get_m) else None
 
             # Derive link behavior from config
             link_target = (
@@ -693,179 +846,23 @@ def render_note_fragment(
                 # Inside a list item
                 if _is_list_style(mr.sig.style_type):
                     # For any list style, a newline generally means a new sibling item
-                    segs = s.split("\n")
-                    for k, seg in enumerate(segs):
-                        if seg:
-                            # If we are strictly inside a list item that is a "spacer" (bulletless),
-                            # and we are about to add text, we must close the spacer and start a
-                            # real list item so the text gets a bullet.
-                            if list_stack and list_stack[-1]["li_open"]:
-                                idx = list_stack[-1]["li_index"]
-                                if idx is not None and idx < len(fragments):
-                                    tag = fragments[idx]
-                                    if 'style="list-style-type: none"' in tag:
-                                        fragments.append("</li>")
-                                        list_stack[-1]["li_open"] = False
-
-                                        # Open new standard item
-                                        fragments.append("<li>")
-                                        list_stack[-1]["li_open"] = True
-                                        list_stack[-1]["li_index"] = len(fragments) - 1
-                                        list_stack[-1]["li_has_content"] = False
-
-                                        if mr.sig.style_type == StyleType.CHECKBOX:
-                                            checked = (
-                                                " checked"
-                                                if mr.sig.checklist_done == 1
-                                                else ""
-                                            )
-                                            fragments.append(
-                                                f'<input type="checkbox" disabled{checked}> '
-                                            )
-
-                            fragments.append(wrap_inline(mr.sig, html.escape(seg)))
-                            if seg.strip():
-                                list_stack[-1]["li_has_content"] = True
-                        else:
-                            # Empty segment implies a newline in the source (e.g. \n\n).
-                            # Apple Notes renders this as a vertical space (blank line)
-                            # but WITHOUT a bullet.
-                            # We check if this is a "trailing" newline used for nesting (handled below)
-                            # or an actual blank line.
-                            pass
-
-                        if k < len(segs) - 1:
-                            next_seg = segs[k + 1] if (k + 1) < len(segs) else None
-                            # If the newline is the trailing one (next seg empty and last),
-                            # keep the current <li> open so a nested list can attach to it.
-                            if next_seg == "" and (k + 1) == len(segs) - 1:
-                                continue
-
-                            # Otherwise, end current item and start a new sibling item.
-                            # If the current item (seg) was empty, we want it to be "bulletless".
-                            # But we've already opened the <li> tag at the top of the loop or previous iter.
-                            # So we need to retroactively apply style or just insure content forces height?
-                            # Actually, we can just close the current <li>.
-                            # If it was empty (seg==""), the browser renders an empty bullet point <li></li>.
-
-                            # Correction: We want to hide the bullet for *this* item if it's empty.
-                            # But the <li> tag was emitted *before* we processed this segment
-                            # (at the end of the previous iteration or start of block).
-                            # We can't easily change the opening tag now.
-
-                            # Alternative: Handle the *next* opening tag.
-
-                            fragments.append("</li>")
-                            list_stack[-1]["li_open"] = False
-
-                            # open next
-                            style_attr = ""
-                            # If next segment is empty (and not the trailing nesting case),
-                            # it's a blank line. Hide the marker.
-                            # We know next_seg is the content of the next item.
-                            is_next_empty = next_seg == ""
-                            # Caution: if next_seg is "" AND it's the last one, we skipped above.
-                            # So if we are here, next_seg might be empty (spacer) or "Text".
-
-                            if is_next_empty:
-                                style_attr = ' style="list-style-type: none"'
-
-                            fragments.append(f"<li{style_attr}>")
-                            # Track the index of the opening tag
-                            list_stack[-1]["li_index"] = len(fragments) - 1
-                            list_stack[-1]["li_open"] = True
-
-                            if is_next_empty:
-                                # Ensure it has height
-                                fragments.append("&nbsp;")
-
-                            list_stack[-1]["li_has_content"] = False
-
-                            # For checklist style, inject a checkbox for each new item
-                            # ONLY if it's not a spacer (empty).
-                            if (
-                                mr.sig.style_type == StyleType.CHECKBOX
-                                and not is_next_empty
-                            ):
-                                checked = (
-                                    " checked" if mr.sig.checklist_done == 1 else ""
-                                )
-                                fragments.append(
-                                    f'<input type="checkbox" disabled{checked}> '
-                                )
+                    _render_list_segments(mr.sig, s)
                 else:
                     # Non-list paragraphs keep newlines as <br>
-                    segs = s.split("\n")
-                    for k, seg in enumerate(segs):
-                        if seg:
-                            fragments.append(wrap_inline(mr.sig, html.escape(seg)))
-                            if seg.strip():
-                                list_stack[-1]["li_has_content"] = True
-                        if k < len(segs) - 1:
-                            fragments.append("<br>")
+                    _render_plain_segments(mr.sig, s)
             else:
                 if is_para_boundary:
                     s = s.rstrip("\n\u2028")
 
-                # If we are in a list item, check if it was a "spacer" (empty bulletless item)
-                # created by a previous run's trailing newlines. If so, and we have text,
-                # we should close the spacer and start a new real item.
-                if list_stack and list_stack[-1]["li_open"]:
-                    # Check if current item is a spacer
-                    idx = list_stack[-1]["li_index"]
-                    if idx is not None and idx < len(fragments):
-                        # A spacer looks like <li style="list-style-type: none">
-                        tag = fragments[idx]
-                        if 'style="list-style-type: none"' in tag:
-                            # Close spacer
-                            fragments.append("</li>")
-                            list_stack[-1]["li_open"] = False
-                            # Open new standard item
-                            fragments.append("<li>")
-                            list_stack[-1]["li_open"] = True
-                            list_stack[-1]["li_index"] = len(fragments) - 1
-                            list_stack[-1]["li_has_content"] = False
-                            if mr.sig.style_type == StyleType.CHECKBOX:
-                                checked = (
-                                    " checked" if mr.sig.checklist_done == 1 else ""
-                                )
-                                fragments.append(
-                                    f'<input type="checkbox" disabled{checked}> '
-                                )
+                # If we are in a list item, check if it was a "spacer"
+                # (empty bulletless item) created by a previous run's trailing
+                # newlines. If so, and we have text, we should close the spacer
+                # and start a new real item.
+                _replace_spacer_with_item(mr.sig)
+                _flush_newline_gap(mr.sig, s)
 
-                if s.replace("\n", "").replace("\u2028", "") == "":
-                    deferred_breaks += s.count("\n") + s.count("\u2028")
-                else:
-                    if deferred_breaks > 0:
-                        fragments.append("<br>" * deferred_breaks)
-                        deferred_breaks = 0
-                    if mr.sig.style_type == StyleType.MONOSPACED:
-                        safe = html.escape(s)
-                    else:
-                        # Preserve leading spaces/tabs per line for visible indentation
-                        safe = _preserve_leading_ws(s)
-                    fragments.append(wrap_inline(mr.sig, safe))
-                    if list_stack and list_stack[-1]["li_open"]:
-                        list_stack[-1]["li_has_content"] = list_stack[-1].get(
-                            "li_has_content"
-                        ) or (s.strip() != "")
-
-        if is_para_boundary:
-            # Do not close the current <li> when the next paragraph is a
-            # deeper-indented list item. Keeping the parent <li> open ensures
-            # the nested <ul>/<ol> is emitted inside the correct item rather
-            # than inside an empty sibling <li>.
-            should_close = True
-            if next_mr is not None:
-                cur_st = mr.sig.style_type
-                nxt_st = next_mr.sig.style_type
-                if _is_list_style(cur_st) and _is_list_style(nxt_st):
-                    cur_indent = int(mr.sig.indent_amount or 0)
-                    nxt_indent = int(next_mr.sig.indent_amount or 0)
-                    if nxt_indent > cur_indent:
-                        should_close = False
-            if should_close:
-                paragraph_close()
+        if is_para_boundary and _should_close_paragraph(mr, next_mr):
+            paragraph_close()
         prev_sig = mr.sig
 
     if prev_sig is not None and para_tag_close:
@@ -875,17 +872,22 @@ def render_note_fragment(
 
 
 def render_note_page(title: str, html_fragment: str, extra_css: str = "") -> str:
+    """Wrap an HTML fragment in a self-contained HTML page with CSS."""
     return (
         '<!doctype html><meta charset="utf-8">'
         '<meta name="color-scheme" content="light dark">'
         f"<title>{html.escape(title)}</title>"
         "<style>"
         # Highlight palette (light)
-        " :root{--hl1-bg:#BA55D333;--hl2-bg:#D5000044;--hl3-bg:#FF6F0022;--hl4-bg:#289C8ECC;--hl5-bg:#2196F333}"
+        " :root{--hl1-bg:#BA55D333;--hl2-bg:#D5000044;"
+        "--hl3-bg:#FF6F0022;--hl4-bg:#289C8ECC;--hl5-bg:#2196F333}"
         # Base (light) styles
-        "body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.4;background:#fff;color:#000}"
+        "body{font-family:-apple-system,BlinkMacSystemFont,"
+        "Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.4;"
+        "background:#fff;color:#000}"
         "pre{white-space:pre-wrap}"
-        "blockquote{margin:.5em 0 .5em 1em;padding-left:.8em;border-left:3px solid #ddd}"
+        "blockquote{margin:.5em 0 .5em 1em;padding-left:.8em;"
+        "border-left:3px solid #ddd}"
         "a{text-decoration:underline}"
         "img{max-width:100%;height:auto}"
         "table{border-collapse:collapse;margin:.5rem 0}"
@@ -895,7 +897,8 @@ def render_note_page(title: str, html_fragment: str, extra_css: str = "") -> str
         # Automatic dark mode via user preference
         "@media (prefers-color-scheme: dark){"
         # Highlight palette (dark) — slightly more opaque/lighter for contrast
-        " :root{--hl1-bg:#BA55D380;--hl2-bg:#FF525266;--hl3-bg:#FFB74D55;--hl4-bg:#80CBC480;--hl5-bg:#64B5F680}"
+        " :root{--hl1-bg:#BA55D380;--hl2-bg:#FF525266;"
+        "--hl3-bg:#FFB74D55;--hl4-bg:#80CBC480;--hl5-bg:#64B5F680}"
         "body{background:#111;color:#eee}"
         "a{color:#8ab4f8}"
         "blockquote{border-left-color:#444}"
@@ -911,10 +914,10 @@ def render_note_page(title: str, html_fragment: str, extra_css: str = "") -> str
 class NoteRenderer:
     """Class-based interface for note rendering."""
 
-    def __init__(self, config: Optional[ExportConfig] = None):
+    def __init__(self, config: ExportConfig | None = None):
         self.config = config or ExportConfig()
 
-    def render(self, note: pb.Note, datasource: Optional[NoteDataSource] = None) -> str:
+    def render(self, note: pb.Note, datasource: NoteDataSource | None = None) -> str:
         """Render the note body to an HTML fragment string."""
         return render_note_fragment(note, datasource, config=self.config)
 

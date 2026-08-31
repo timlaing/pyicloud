@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+import logging
 from pathlib import Path, PurePosixPath
-from typing import Any, Optional
+from typing import IO, Any, cast
 
-import typer
 from click import confirm
 from rich.console import Console
+import typer
 
 from pyicloud import PyiCloudService, utils
 from pyicloud.base import resolve_cookie_directory
@@ -25,6 +26,8 @@ from pyicloud.exceptions import (
     PyiCloudTrustedDevicePromptException,
     PyiCloudTrustedDeviceVerificationException,
 )
+from pyicloud.services.drive import DriveNode, DriveService
+from pyicloud.services.findmyiphone import AppleDevice
 from pyicloud.ssl_context import configurable_ssl_verification
 
 from .account_index import (
@@ -66,15 +69,15 @@ class LogLevel(str, Enum):
 class CLICommandOptions:
     """Command-local options captured from the leaf command."""
 
-    username: Optional[str] = None
-    password: Optional[str] = None
-    china_mainland: Optional[bool] = None
+    username: str | None = None
+    password: str | None = None
+    china_mainland: bool | None = None
     interactive: bool = True
     accept_terms: bool = False
     with_family: bool = False
-    session_dir: Optional[str] = None
-    http_proxy: Optional[str] = None
-    https_proxy: Optional[str] = None
+    session_dir: str | None = None
+    http_proxy: str | None = None
+    https_proxy: str | None = None
     no_verify_ssl: bool = False
     log_level: LogLevel = LogLevel.WARNING
     output_format: OutputFormat = OutputFormat.TEXT
@@ -86,15 +89,15 @@ class CLIState:
     def __init__(
         self,
         *,
-        username: Optional[str],
-        password: Optional[str],
-        china_mainland: Optional[bool],
+        username: str | None,
+        password: str | None,
+        china_mainland: bool | None,
         interactive: bool,
         accept_terms: bool,
         with_family: bool,
-        session_dir: Optional[str],
-        http_proxy: Optional[str],
-        https_proxy: Optional[str],
+        session_dir: str | None,
+        http_proxy: str | None,
+        https_proxy: str | None,
         no_verify_ssl: bool,
         log_level: LogLevel,
         output_format: OutputFormat,
@@ -115,13 +118,13 @@ class CLIState:
         self.console = Console()
         self.err_console = Console(stderr=True)
         self._stack = ExitStack()
-        self._api: Optional[PyiCloudService] = None
-        self._probe_api: Optional[PyiCloudService] = None
-        self._resolved_username: Optional[str] = self.username or None
+        self._api: PyiCloudService | None = None
+        self._probe_api: PyiCloudService | None = None
+        self._resolved_username: str | None = self.username or None
         self._logging_configured = False
 
     @classmethod
-    def from_options(cls, options: CLICommandOptions) -> "CLIState":
+    def from_options(cls, options: CLICommandOptions) -> CLIState:
         """Build CLI state from one leaf command's options."""
 
         return cls(
@@ -182,7 +185,7 @@ class CLIState:
         self.prune_local_accounts()
         return False
 
-    def has_keyring_password(self, username: Optional[str] = None) -> bool:
+    def has_keyring_password(self, username: str | None = None) -> bool:
         """Return whether a keyring password exists for a username."""
 
         candidate = (username or self._resolved_username or self.username).strip()
@@ -206,12 +209,12 @@ class CLIState:
 
         return self.local_accounts()
 
-    def account_entry(self, username: str) -> Optional[AccountIndexEntry]:
+    def account_entry(self, username: str) -> AccountIndexEntry | None:
         """Return the indexed account entry for a username, if present."""
 
         return load_accounts(self.session_root).get(username)
 
-    def resolved_china_mainland(self, username: str) -> Optional[bool]:
+    def resolved_china_mainland(self, username: str) -> bool | None:
         """Resolve China mainland mode for an account from command or stored state."""
 
         if self.china_mainland is not None:
@@ -264,7 +267,9 @@ class CLIState:
         )
 
     def not_logged_in_for_account_message(self, username: str) -> str:
-        """Return the message for account-targeted commands without an active session."""
+        """Return the message for account-targeted commands without an
+        active session.
+        """
 
         return (
             f"You are not logged into iCloud for {username}. Run: "
@@ -277,11 +282,12 @@ class CLIState:
 
         options = "\n".join(f"  - {username}" for username in usernames)
         return (
-            "Multiple logged-in iCloud accounts were found; pass --username to choose one.\n"
+            "Multiple logged-in iCloud accounts were found; pass "
+            "--username to choose one.\n"
             f"{options}"
         )
 
-    def _password_for_login(self, username: str) -> tuple[Optional[str], Optional[str]]:
+    def _password_for_login(self, username: str) -> tuple[str | None, str | None]:
         """Return the password and its source for an interactive login flow."""
         if self.password:
             return self.password, "explicit"
@@ -302,7 +308,7 @@ class CLIState:
         logging.basicConfig(level=self.log_level.logging_level())
         self._logging_configured = True
 
-    def _stored_password_for_session(self, username: str) -> Optional[str]:
+    def _stored_password_for_session(self, username: str) -> str | None:
         """Return a non-interactive password for service-level reauthentication."""
 
         if self.password:
@@ -322,7 +328,7 @@ class CLIState:
             raise CLIAbort("Invalid device selection.")
         return idx
 
-    def _handle_2fa(self, api: PyiCloudService) -> None:
+    def _handle_2fa(self, api: PyiCloudService) -> None:  # noqa: S3776
         """Complete Apple's HSA2 flow using a security key or code-based challenge."""
         fido2_devices = list(getattr(api, "fido2_devices", []) or [])
         if fido2_devices:
@@ -340,12 +346,14 @@ class CLIState:
         else:
             if not self.interactive:
                 raise CLIAbort(
-                    "Two-factor authentication is required, but interactive prompts are disabled."
+                    "Two-factor authentication is required, but interactive "
+                    "prompts are disabled."
                 )
             try:
                 if not api.request_2fa_code():
                     raise CLIAbort(
-                        "This 2FA challenge requires a security key. Connect one and retry."
+                        "This 2FA challenge requires a security key. Connect "
+                        "one and retry."
                     )
 
                 notice = getattr(api, "two_factor_delivery_notice", None)
@@ -399,7 +407,8 @@ class CLIState:
         devices = list(api.trusted_devices or [])
         if not devices:
             raise CLIAbort(
-                "Two-step authentication is required but no trusted devices are available."
+                "Two-step authentication is required but no trusted devices "
+                "are available."
             )
         self.console.print("Trusted devices:")
         for index, device in enumerate(devices):
@@ -411,7 +420,8 @@ class CLIState:
         device = devices[selected_index]
         if not self.interactive:
             raise CLIAbort(
-                "Two-step authentication is required, but interactive prompts are disabled."
+                "Two-step authentication is required, but interactive prompts "
+                "are disabled."
             )
         if not api.send_verification_code(device):
             raise CLIAbort("Failed to send the 2SA verification code.")
@@ -491,9 +501,9 @@ class CLIState:
             raise CLIAbort(self.not_logged_in_message())
         if len(active_probes) > 1:
             raise CLIAbort(
-                self.multiple_logged_in_accounts_message(
-                    [api.account_name for api, _status in active_probes]
-                )
+                self.multiple_logged_in_accounts_message([
+                    api.account_name for api, _status in active_probes
+                ])
             )
 
         probe_api, _status = active_probes[0]
@@ -538,7 +548,7 @@ class CLIState:
 
     @staticmethod
     def _hydrate_api_from_probe(
-        api: PyiCloudService, probe_api: Optional[PyiCloudService]
+        api: PyiCloudService, probe_api: PyiCloudService | None
     ) -> bool:
         """Populate auth-derived state on a session-backed API from a probe."""
 
@@ -557,7 +567,7 @@ class CLIState:
             params.update({"dsid": ds_info["dsid"]})
 
         if "webservices" in probe_data:
-            setattr(api, "_webservices", probe_data["webservices"])
+            api.webservices = probe_data["webservices"]
 
         return True
 
@@ -570,9 +580,7 @@ class CLIState:
         self._probe_api = self.build_probe_api(username)
         return self._probe_api
 
-    def auth_storage_info(
-        self, api: Optional[PyiCloudService] = None
-    ) -> dict[str, Any]:
+    def auth_storage_info(self, api: PyiCloudService | None = None) -> dict[str, Any]:
         """Return session storage paths and presence flags."""
 
         probe_api = api or self.get_probe_api()
@@ -619,7 +627,9 @@ def get_state(ctx: typer.Context) -> CLIState:
     return resolved
 
 
-def service_call(label: str, fn, *, account_name: Optional[str] = None):
+def service_call(
+    label: str, fn: Callable[[], Any], *, account_name: str | None = None
+) -> Any:
     """Wrap a service call with user-facing service-unavailable handling."""
 
     try:
@@ -637,7 +647,7 @@ def service_call(label: str, fn, *, account_name: Optional[str] = None):
         ) from err
 
 
-def parse_datetime(value: Optional[str]) -> Optional[datetime]:
+def parse_datetime(value: str | None) -> datetime | None:
     """Parse an ISO-8601 datetime string."""
 
     if value is None:
@@ -654,7 +664,9 @@ def parse_datetime(value: Optional[str]) -> Optional[datetime]:
     return dt
 
 
-def resolve_device(api: PyiCloudService, query: str, *, require_unique: bool = False):
+def resolve_device(
+    api: PyiCloudService, query: str, *, require_unique: bool = False
+) -> AppleDevice:
     """Return a device matched by id or common display names."""
 
     lowered = query.strip().lower()
@@ -664,7 +676,7 @@ def resolve_device(api: PyiCloudService, query: str, *, require_unique: bool = F
     for device in devices:
         identifier = str(getattr(device, "id", "")).strip().lower()
         if identifier and identifier == lowered:
-            return device
+            return cast(AppleDevice, device)
 
     matches = []
     seen_ids: set[str] = set()
@@ -697,10 +709,12 @@ def resolve_device(api: PyiCloudService, query: str, *, require_unique: bool = F
         raise CLIAbort(
             f"Multiple devices matched '{query}'. Use a device id instead.\n{options}"
         )
-    return matches[0]
+    return cast(AppleDevice, matches[0])
 
 
-def resolve_drive_node(drive, path: str, *, trash: bool = False):
+def resolve_drive_node(
+    drive: DriveService, path: str, *, trash: bool = False
+) -> DriveNode:
     """Resolve an iCloud Drive node."""
 
     node = drive.trash if trash else drive.root
@@ -714,7 +728,7 @@ def resolve_drive_node(drive, path: str, *, trash: bool = False):
     return node
 
 
-def _write_to_file(response: Any, file_out) -> None:
+def _write_to_file(response: Any, file_out: IO[bytes]) -> None:
     """Write a download response to a file, streaming if possible."""
     if hasattr(response, "iter_content"):
         for chunk in response.iter_content(chunk_size=8192):

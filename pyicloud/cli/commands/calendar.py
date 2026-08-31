@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from pyicloud.cli.context import get_state, parse_datetime, service_call
@@ -52,7 +50,7 @@ def calendar_calendars(
     api = state.get_api()
     payload = [
         normalize_calendar(calendar)
-        for calendar in service_call("Calendar", lambda: api.calendar.get_calendars())
+        for calendar in service_call("Calendar", api.calendar.get_calendars)
     ]
     if state.json_output:
         state.write_json(payload)
@@ -77,10 +75,10 @@ def calendar_calendars(
 @app.command("events")
 def calendar_events(
     ctx: typer.Context,
-    from_dt: Optional[str] = typer.Option(None, "--from", help="Start datetime."),
-    to_dt: Optional[str] = typer.Option(None, "--to", help="End datetime."),
+    from_dt: str | None = typer.Option(None, "--from", help="Start datetime."),
+    to_dt: str | None = typer.Option(None, "--to", help="End datetime."),
     period: str = typer.Option("month", "--period", help="Calendar period shortcut."),
-    calendar_guid: Optional[str] = typer.Option(
+    calendar_guid: str | None = typer.Option(
         None,
         "--calendar-guid",
         help="Only show events from one calendar. Filtering is applied client-side.",
