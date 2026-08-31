@@ -13,7 +13,10 @@ permissions:
 
 jobs:
   sonarqube:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event == 'push' ||
+       github.event.workflow_run.event == 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -28,7 +31,9 @@ jobs:
 
       - name: Require SonarQube credentials
         if: env.SONAR_TOKEN == ''
-        run: exit 1
+        run: |
+          echo "SONAR_TOKEN is not set; cannot run SonarQube analysis"
+          exit 1
 
       - name: Download coverage report
         uses: actions/download-artifact@v8
@@ -65,27 +70,27 @@ jobs:
             exit 0
           fi
           PR_NUMBER="${PR_NUMBER:-}"
-          if [[ -z "$PR_NUMBER" ]]; then
+          PR_HEAD_REF="${PR_HEAD_REF:-}"
+          PR_BASE_REF="${PR_BASE_REF:-}"
+          if [[ -z "$PR_NUMBER" || -z "$PR_HEAD_REF" || -z "$PR_BASE_REF" ]]; then
             PR_FILE="$(mktemp)"
             gh pr list --state open --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
             PR_MATCH="$(jq -c ".[] | select(.headRefOid == \"$HEAD_SHA\")" "$PR_FILE" | head -n 1)"
             if [[ -n "$PR_MATCH" ]]; then
-              PR_NUMBER="$(jq -r '.number' <<< "$PR_MATCH")"
+              PR_NUMBER="${PR_NUMBER:-$(jq -r '.number' <<< "$PR_MATCH")}"
               PR_HEAD_REF="$(jq -r '.headRefName' <<< "$PR_MATCH")"
               PR_BASE_REF="$(jq -r '.baseRefName' <<< "$PR_MATCH")"
             fi
           fi
-          HEAD_REF="$PR_HEAD_REF"
-          BASE_REF="$PR_BASE_REF"
-          if [[ -z "$PR_NUMBER" || -z "$HEAD_REF" || -z "$BASE_REF" ]]; then
+          if [[ -z "$PR_NUMBER" || -z "$PR_HEAD_REF" || -z "$PR_BASE_REF" ]]; then
             echo "Could not resolve pull request metadata for $HEAD_SHA"; exit 1
           fi
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid PR number"; exit 1; }
-          [[ "$HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid head branch"; exit 1; }
-          [[ "$BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid base branch"; exit 1; }
+          [[ "$PR_HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid head branch"; exit 1; }
+          [[ "$PR_BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid base branch"; exit 1; }
           echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "head-ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
-          echo "base-ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+          echo "head-ref=$PR_HEAD_REF" >> "$GITHUB_OUTPUT"
+          echo "base-ref=$PR_BASE_REF" >> "$GITHUB_OUTPUT"
 
       - name: SonarQube Scan (branch)
         if: github.event.workflow_run.event == 'push'
