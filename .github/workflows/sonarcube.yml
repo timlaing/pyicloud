@@ -75,10 +75,11 @@ jobs:
           if [[ -z "$PR_NUMBER" || -z "$PR_HEAD_REF" || -z "$PR_BASE_REF" ]]; then
             PR_FILE="$(mktemp)"
             # Constrain by the head SHA so we don't rely on gh pr list's default
-            # 30-result page; the headRefOid filter below still guards the match.
+            # 30-result page. gh --search matches PRs that contain the commit,
+            # which works whether HEAD_SHA is the PR tip or the merge SHA.
             gh pr list --state open --search "$HEAD_SHA" --limit 100 \
               --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
-            PR_MATCH="$(jq -c ".[] | select(.headRefOid == \"$HEAD_SHA\")" "$PR_FILE" | head -n 1)"
+            PR_MATCH="$(jq -c '.[0] // empty' "$PR_FILE")"
             if [[ -n "$PR_MATCH" ]]; then
               PR_NUMBER="${PR_NUMBER:-$(jq -r '.number' <<< "$PR_MATCH")}"
               PR_HEAD_REF="$(jq -r '.headRefName' <<< "$PR_MATCH")"
