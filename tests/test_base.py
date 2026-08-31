@@ -1463,6 +1463,8 @@ def test_handle_request_error_two_factor_invalid_json_body(
     response = MagicMock()
     response.json.return_value = json_result
     response.headers = {"Content-Type": "application/json"}
+    response.reason = "Conflict"
+    response.text = ""
     with pytest.raises(PyiCloudAPIResponseException):
         pyicloud_session._handle_request_error(
             status_code=AppleAuthError.TWO_FACTOR_REQUIRED,
@@ -1477,6 +1479,8 @@ def test_handle_request_error_two_factor_json_decode_error(
     response = MagicMock()
     response.json.side_effect = ValueError("bad json")
     response.headers = {"Content-Type": "application/json"}
+    response.reason = "Conflict"
+    response.text = ""
     with pytest.raises(PyiCloudAPIResponseException):
         pyicloud_session._handle_request_error(
             status_code=AppleAuthError.TWO_FACTOR_REQUIRED,
