@@ -752,7 +752,7 @@ class TestRecordToList:
         assert lst.is_group is False
         assert lst.deleted is False
 
-    def test_deleted_list(self, service):
+    def test_deleted_list(self, service: RemindersService) -> None:
         """A deleted list keeps its tombstone in the zone; expose the flag."""
         rec = _ck_record(
             "List",
