@@ -24,6 +24,7 @@ from pyicloud.exceptions import (
     PyiCloud2SARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
+    PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
@@ -37,7 +38,7 @@ from pyicloud.services.notes import NotesService
 from pyicloud.services.photos import PhotosService
 from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
-from pyicloud.session import PyiCloudSession
+from pyicloud.session import PyiCloudSession, describe_endpoint
 from pyicloud.utils import b64_encode
 from tests.const import LOGIN_2FA, LOGIN_WORKING
 
@@ -1329,6 +1330,90 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
         )
         mock_save.assert_called_once()
         assert open_mock.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        # Query strings carry the dsid and client identifiers.
+        (
+            "https://p31-uploadimagews.icloud.com/upload?f=a.jpg&dsid=108580123",
+            "p31-uploadimagews.icloud.com/upload",
+        ),
+        # Content hosts put the dsid in the path instead.
+        (
+            "https://cws.icloud-content.com:443/108580123/singleFileUpload?tk=secret",
+            "cws.icloud-content.com:443/<id>/singleFileUpload",
+        ),
+        # Credentials in the netloc are dropped with the userinfo.
+        (
+            "https://user:pw@p51-drivews.icloud.com/ws/com.apple.CloudDocs",
+            "p51-drivews.icloud.com/ws/com.apple.CloudDocs",
+        ),
+        # Short numeric segments are route structure, not identifiers.
+        (
+            "https://p51-ckdatabasews.icloud.com/database/1/com.apple.photos/records",
+            "p51-ckdatabasews.icloud.com/database/1/com.apple.photos/records",
+        ),
+        (b"https://example.com/path?token=secret", "example.com/path"),
+    ],
+)
+def test_describe_endpoint_is_safe_to_quote(url: str | bytes, expected: str) -> None:
+    """The endpoint label identifies the route without leaking identifiers."""
+
+    label = describe_endpoint(url)
+    assert label == expected
+    assert "secret" not in label
+    assert "108580123" not in label
+
+
+@pytest.mark.parametrize("json_body", [True, False])
+def test_request_reports_a_withdrawn_endpoint(
+    pyicloud_service_working: PyiCloudService,
+    json_body: bool,
+) -> None:
+    """A 410 identifies itself as a withdrawn endpoint, body or no body.
+
+    Apple sent a JSON body when it withdrew the Photos upload endpoint, but
+    nothing guarantees that, so the signal is taken from the status code.
+    """
+
+    with (
+        patch("requests.Session.request") as mock_request,
+        patch("builtins.open", new_callable=mock_open),
+        patch("http.cookiejar.LWPCookieJar.save"),
+    ):
+        mock_response = MagicMock()
+        mock_response.status_code = 410
+        mock_response.ok = False
+        mock_response.text = ""
+        if json_body:
+            mock_response.json.return_value = {"errorReason": "Gone", "errorCode": 410}
+            mock_response.headers.get.return_value = "application/json"
+        else:
+            mock_response.json.side_effect = ValueError("not json")
+            mock_response.headers.get.return_value = "text/html"
+        mock_request.return_value = mock_response
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
+
+        with pytest.raises(PyiCloudEndpointGoneException) as excinfo:
+            pyicloud_session.request(
+                "POST",
+                "https://p31-uploadimagews.icloud.com:443/upload"
+                "?filename=cat.jpg&dsid=108580123",
+            )
+
+    error = excinfo.value
+    assert error.code == 410
+    assert error.endpoint == "p31-uploadimagews.icloud.com:443/upload"
+    # The message is meant to be pasted into a bug report.
+    assert "dsid" not in str(error)
+    assert "108580123" not in str(error)
+    assert "github.com/timlaing/pyicloud/issues" in str(error)
+    # Existing handlers must keep catching it.
+    assert isinstance(error, PyiCloudAPIResponseException)
 
 
 def test_request_raw_normalizes_transport_failure(
