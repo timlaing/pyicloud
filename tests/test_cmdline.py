@@ -4345,7 +4345,7 @@ def test_doctor_reports_a_malformed_unused_entry_without_failing() -> None:
     assert result.exit_code == 0
     # Flagged where the key is read, and explained below it.
     assert "schoolwork (no url)" in text
-    assert "get_webservice_url() would raise KeyError" in text
+    assert "Advertised without a usable url, so it cannot be resolved" in text
     assert "No problems found" in text
 
 

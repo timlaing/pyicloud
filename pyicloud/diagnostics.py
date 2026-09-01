@@ -129,16 +129,18 @@ def _describe_known(key: str, entry: Any, powers: tuple[str, ...]) -> Webservice
 
     url = _entry_url(entry)
     if url is None:
-        # get_webservice_url() indexes ["url"] directly, so an entry without one
-        # raises KeyError rather than the library's own not-activated error.
+        # Deliberately says what the condition means rather than which
+        # exception it produces: Apple advertising a key broken is a different
+        # upstream event from not advertising it, whatever the library then
+        # raises.
         return WebserviceFinding(
             key=key,
             status=WebserviceStatus.MALFORMED,
             powers=powers,
             url=None,
             detail=(
-                f"Advertised without a usable url; resolving it raises rather "
-                f"than reporting {affected} as unavailable."
+                f"Advertised without a usable url, so it cannot be resolved "
+                f"and {affected} will not work."
             ),
         )
 
@@ -167,8 +169,8 @@ def _describe_unused(key: str, entry: Any) -> WebserviceFinding:
             powers=(),
             url=None,
             detail=(
-                "Advertised without a usable url. pyicloud does not use this "
-                "key, but get_webservice_url() would raise KeyError on it."
+                "Advertised without a usable url, so it cannot be resolved. "
+                "pyicloud does not use this key, so nothing here depends on it."
             ),
         )
     # No detail: the status already says everything there is to say, and a

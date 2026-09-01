@@ -91,8 +91,8 @@ def test_an_unused_key_without_a_url_is_reported_but_not_a_problem() -> None:
     """The `schoolwork: {}` shape a live account actually returns.
 
     pyicloud never resolves `schoolwork`, so an empty entry for it must not
-    condemn the account -- but `get_webservice_url()` is public and would raise
-    KeyError on it, so it is still worth seeing.
+    condemn the account. It is still worth reporting: Apple advertising a key
+    broken is a different upstream state from not advertising it at all.
     """
 
     advertised = _healthy_map()
@@ -103,7 +103,7 @@ def test_an_unused_key_without_a_url_is_reported_but_not_a_problem() -> None:
     assert finding.status is WebserviceStatus.MALFORMED
     assert not finding.is_problem
     assert not finding.needed
-    assert "KeyError" in finding.detail
+    assert "cannot be resolved" in finding.detail
     assert not webservice_problems(diagnose_webservices(advertised))
 
 
