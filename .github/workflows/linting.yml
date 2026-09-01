@@ -1,25 +1,46 @@
 name: Linting
 
-# yamllint disable-line rule:truthy
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
+
 jobs:
   prek:
     name: Run prek checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - name: Install Node dependencies
-        run: npm ci
+      - uses: actions/checkout@v4
+
       - name: Register problem matchers
         run: |
           echo "::add-matcher::.github/workflows/matchers/yamllint.json"
           echo "::add-matcher::.github/workflows/matchers/check-json.json"
           echo "::add-matcher::.github/workflows/matchers/check-executables-have-shebangs.json"
           echo "::add-matcher::.github/workflows/matchers/codespell.json"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements_all.txt
+
+      - name: Install Prettier dependencies
+        run: npm ci
+
       - name: Run prek
-        uses: j178/prek-action@v2 # v1.1.0
-        env:
-          RUFF_OUTPUT_FORMAT: github
+        run: .venv/bin/prek run --all-files
