@@ -1036,7 +1036,16 @@ this took 14-20 seconds. Uploading a file iCloud already holds returns the
 If indexing has not finished within the 60-second budget, `upload()` returns
 `None`. The file is stored in iCloud regardless and appears once indexing
 completes, so treat `None` as "uploaded, not yet readable" rather than as a
-failure. Adjust the budget with `upload_hydration_timeout` on `PhotosService`.
+failure. Both the budget and the retry interval are configurable:
+
+```python
+api = PyiCloudService(
+    "jappleseed@apple.com",
+    "password",
+    upload_hydration_timeout=120.0,  # optional, default 60
+    upload_hydration_interval=5.0,  # optional, default 2
+)
+```
 
 To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool indicating success.
 

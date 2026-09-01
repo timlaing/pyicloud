@@ -61,6 +61,10 @@ from pyicloud.services import (  # pylint: disable=useless-import-alias
 )
 from pyicloud.services.invites import InvitesService
 from pyicloud.services.notes import NotesService
+from pyicloud.services.photos import (
+    UPLOAD_HYDRATION_INTERVAL,
+    UPLOAD_HYDRATION_TIMEOUT,
+)
 from pyicloud.session import PyiCloudSession
 from pyicloud.srp_password import SrpPassword, SrpProtocolType
 from pyicloud.utils import (
@@ -260,6 +264,8 @@ class PyiCloudService:
         authenticate: bool = True,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
         pause_2fa: bool = False,
+        upload_hydration_timeout: float = UPLOAD_HYDRATION_TIMEOUT,
+        upload_hydration_interval: float = UPLOAD_HYDRATION_INTERVAL,
     ) -> None:
         """Initialize a service session for one Apple ID account."""
         self._is_china_mainland: bool = (
@@ -274,6 +280,8 @@ class PyiCloudService:
         self._apple_id: str = apple_id
         self._accept_terms: bool = accept_terms
         self._refresh_interval: float | None = refresh_interval
+        self._upload_hydration_timeout: float = upload_hydration_timeout
+        self._upload_hydration_interval: float = upload_hydration_interval
 
         if self._password_raw is None and authenticate:
             self._password_raw = get_password_from_keyring(apple_id)
@@ -1439,6 +1447,8 @@ class PyiCloudService:
                     upload_url=upload_url,
                     shared_streams_url=shared_streams_url,
                     photos_upload_url=photos_upload_url,
+                    upload_hydration_timeout=self._upload_hydration_timeout,
+                    upload_hydration_interval=self._upload_hydration_interval,
                 )
             except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(

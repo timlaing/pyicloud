@@ -2,6 +2,8 @@
 
 from .constants import (
     PRIMARY_ZONE,
+    UPLOAD_HYDRATION_INTERVAL,
+    UPLOAD_HYDRATION_TIMEOUT,
     AlbumTypeEnum,
     DirectionEnum,
     ListTypeEnum,
@@ -55,6 +57,8 @@ __all__ = [
     "PhotosService",
     "PhotosServiceException",
     "PRIMARY_ZONE",
+    "UPLOAD_HYDRATION_INTERVAL",
+    "UPLOAD_HYDRATION_TIMEOUT",
     "SQLitePhotoSyncState",
     "SmartAlbumEnum",
     "SmartPhotoAlbum",

@@ -34,7 +34,11 @@ from pyicloud.services.calendar import CalendarService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.services.notes import NotesService
-from pyicloud.services.photos import PhotosService
+from pyicloud.services.photos import (
+    UPLOAD_HYDRATION_INTERVAL,
+    UPLOAD_HYDRATION_TIMEOUT,
+    PhotosService,
+)
 from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
 from pyicloud.session import PyiCloudSession
@@ -2268,9 +2272,34 @@ def test_photos_returns_service(pyicloud_service: PyiCloudService) -> None:
             upload_url="https://upload.example.com",
             shared_streams_url="https://shared.example.com",
             photos_upload_url="https://photosupload.example.com",
+            upload_hydration_timeout=UPLOAD_HYDRATION_TIMEOUT,
+            upload_hydration_interval=UPLOAD_HYDRATION_INTERVAL,
         )
         assert pyicloud_service.params["dsid"] == "12345"
         assert result == mock_photos_service
+
+
+def test_photos_passes_upload_hydration_settings(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Upload hydration timings are configurable from PyiCloudService."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            side_effect=lambda key: f"https://{key}.example.com",
+        ),
+        patch("pyicloud.base.PhotosService") as mock_photos_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
+    ):
+        pyicloud_service._photos = None
+        pyicloud_service._upload_hydration_timeout = 12.5
+        pyicloud_service._upload_hydration_interval = 0.5
+        pyicloud_service.data = {"dsInfo": {"dsid": "12345"}}
+        _ = pyicloud_service.photos
+
+        assert mock_photos_cls.call_args.kwargs["upload_hydration_timeout"] == 12.5
+        assert mock_photos_cls.call_args.kwargs["upload_hydration_interval"] == 0.5
 
 
 def test_photos_tolerates_missing_photosupload_webservice(

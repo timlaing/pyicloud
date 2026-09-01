@@ -108,3 +108,15 @@ PRIMARY_ZONE: dict[str, str] = {
     "zoneName": "PrimarySync",
     "zoneType": "REGULAR_CUSTOM_ZONE",
 }
+
+
+# An uploaded asset is registered before CloudKit indexes it: the
+# CPLMaster/CPLAsset lookup answers NOT_FOUND for 14-20 seconds before the
+# records appear, so hydration retries instead of giving up on the first
+# attempt. The default budget leaves roughly 3x headroom over that, and the
+# interval doubles up to the cap so a slow index costs a handful of lookups
+# rather than one every two seconds. Override per service with
+# ``upload_hydration_timeout`` / ``upload_hydration_interval``.
+UPLOAD_HYDRATION_TIMEOUT: float = 60.0
+UPLOAD_HYDRATION_INTERVAL: float = 2.0
+UPLOAD_HYDRATION_MAX_INTERVAL: float = 8.0

@@ -47,6 +47,9 @@ from .client import PhotosCloudKitClient
 from .constants import (
     PRIMARY_ZONE,
     SUPPORTED_SHARED_LIBRARY_SMART_ALBUMS,
+    UPLOAD_HYDRATION_INTERVAL,
+    UPLOAD_HYDRATION_MAX_INTERVAL,
+    UPLOAD_HYDRATION_TIMEOUT,
     AlbumTypeEnum,
     DirectionEnum,
     ListTypeEnum,
@@ -84,16 +87,6 @@ from .sync import PhotoSyncOptions, PhotoSyncResult, run_photo_sync, watch_photo
 LOGGER = logging.getLogger(__name__)
 
 SHARED_LIBRARY_ZONE_PREFIX = "SharedSync-"
-
-# An uploaded asset is registered before CloudKit indexes it. Measured against a
-# live account, the CPLMaster/CPLAsset lookup answered NOT_FOUND for 14-20
-# seconds before the records appeared, so hydration retries rather than giving
-# up on the first attempt. The default leaves roughly 3x headroom over that.
-UPLOAD_HYDRATION_TIMEOUT = 60.0
-UPLOAD_HYDRATION_INTERVAL = 2.0
-# The interval doubles up to this cap, so a slow index costs a handful of
-# lookups rather than one every two seconds for a minute.
-UPLOAD_HYDRATION_MAX_INTERVAL = 8.0
 
 
 def _new_album_position() -> int:
@@ -936,8 +929,6 @@ class PhotoLibrary(BasePhotoLibrary):
                 raise PyiCloudAPIResponseException(str(exc)) from exc
             return self._hydrate_uploaded_asset(result)
 
-        # Mock-like sessions (the in-repo test harness) never reach Apple, so
-        # they keep the untyped single-POST shape rather than the live flow.
         filename = os.path.basename(path)
         params = dict(self.service.params)
         params["filename"] = filename
@@ -2264,6 +2255,8 @@ class PhotosService(BaseService):
         upload_url: str,
         shared_streams_url: str,
         photos_upload_url: str | None = None,
+        upload_hydration_timeout: float = UPLOAD_HYDRATION_TIMEOUT,
+        upload_hydration_interval: float = UPLOAD_HYDRATION_INTERVAL,
     ) -> None:
         super().__init__(service_root=service_root, session=session, params=params)
         self.params.update({"remapEnums": True, "getCurrentSyncToken": True})
@@ -2301,6 +2294,8 @@ class PhotosService(BaseService):
             asset_type=PhotoAsset,
             upload_url=upload_url,
             photos_upload_url=photos_upload_url,
+            upload_hydration_timeout=upload_hydration_timeout,
+            upload_hydration_interval=upload_hydration_interval,
             scope="private",
         )
         self._shared_library = PhotoStreamLibrary(
