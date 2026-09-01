@@ -1772,6 +1772,49 @@ def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
     assert photos_service.params["getCurrentSyncToken"] is True
 
 
+def test_libraries_inherit_upload_hydration_settings(
+    mock_photos_service: MagicMock,
+) -> None:
+    """Secondary zone libraries must use the configured hydration timings.
+
+    They are built by the `libraries` property rather than the constructor, so
+    a configured value reaching only the root library would be silently ignored
+    for every other zone.
+    """
+    mock_photos_service.session.post.return_value.json.side_effect = [
+        {"records": [{"fields": {"state": {"value": "FINISHED"}}}]},
+        {
+            "zones": [
+                {
+                    "zoneID": {
+                        "zoneName": "PrimarySync",
+                        "zoneType": "REGULAR_CUSTOM_ZONE",
+                    },
+                    "deleted": False,
+                    "syncToken": "root-sync-token",
+                },
+                {"zoneID": {"zoneName": "CustomZone"}, "deleted": False},
+            ]
+        },
+        {"records": [{"fields": {"state": {"value": "FINISHED"}}}]},
+    ]
+    photos_service = PhotosService(
+        service_root="https://example.com",
+        session=mock_photos_service.session,
+        params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+        shared_streams_url="https://shared.example.com",
+        upload_hydration_timeout=12.5,
+        upload_hydration_interval=0.25,
+    )
+
+    for name, library in photos_service.libraries.items():
+        if not isinstance(library, PhotoLibrary):
+            continue
+        assert library._upload_hydration_timeout == 12.5, name
+        assert library._upload_hydration_interval == 0.25, name
+
+
 def test_photos_service_libraries(mock_photos_service: MagicMock) -> None:
     """Tests the libraries property."""
     mock_photos_service.session.post.return_value.json.side_effect = [

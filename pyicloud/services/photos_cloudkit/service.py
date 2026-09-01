@@ -2281,6 +2281,8 @@ class PhotosService(BaseService):
         )
         self._upload_url = upload_url
         self._photos_upload_url = photos_upload_url
+        self._upload_hydration_timeout = upload_hydration_timeout
+        self._upload_hydration_interval = upload_hydration_interval
         self._shared_streams_url = shared_streams_url
         self._libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary] | None = None
         self._legacy_service = None
@@ -2335,6 +2337,8 @@ class PhotosService(BaseService):
                         self,
                         zone_id=zone_dict,
                         client=self._private_client,
+                        upload_hydration_timeout=self._upload_hydration_timeout,
+                        upload_hydration_interval=self._upload_hydration_interval,
                         scope=scope,
                     )
                 try:
@@ -2351,6 +2355,8 @@ class PhotosService(BaseService):
                             self,
                             zone_id=zone_dict,
                             client=self._shared_client,
+                            upload_hydration_timeout=self._upload_hydration_timeout,
+                            upload_hydration_interval=self._upload_hydration_interval,
                             scope="shared-library",
                         )
                 except (CloudKitApiError, PyiCloudException):  # pylint: disable=broad-exception-caught
@@ -2376,7 +2382,13 @@ class PhotosService(BaseService):
                     if _is_shared_library_zone_name(zone_name):
                         key = f"shared:{zone_name}"
                         scope = "shared-library"
-                    libraries[key] = PhotoLibrary(self, zone_id=zone_id, scope=scope)
+                    libraries[key] = PhotoLibrary(
+                        self,
+                        zone_id=zone_id,
+                        upload_hydration_timeout=self._upload_hydration_timeout,
+                        upload_hydration_interval=self._upload_hydration_interval,
+                        scope=scope,
+                    )
             self._libraries = libraries
         return self._libraries
 
