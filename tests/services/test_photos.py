@@ -33,6 +33,7 @@ from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudServiceNotActivatedException,
+    PyiCloudServiceUnavailable,
 )
 from pyicloud.services.photos import (
     PRIMARY_ZONE,
@@ -1770,6 +1771,52 @@ def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
     assert isinstance(photos_service._shared_library, PhotoStreamLibrary)
     assert photos_service.params["remapEnums"] is True
     assert photos_service.params["getCurrentSyncToken"] is True
+
+
+def test_photos_service_without_shared_streams_host(
+    mock_photos_service: MagicMock,
+) -> None:
+    """A missing shared-streams host disables that feature, not the service.
+
+    `sharedstreams` only backs the legacy shared-stream albums, so the private
+    library must stay usable without it.
+    """
+    photos_service = PhotosService(
+        service_root="https://example.com",
+        session=mock_photos_service.session,
+        params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+        shared_streams_url=None,
+    )
+
+    # The private library is unaffected...
+    assert photos_service._root_library is not None
+    # ...and the shared-stream albums report unavailable rather than crashing.
+    with pytest.raises(PyiCloudServiceUnavailable, match="Shared photo streams"):
+        _ = photos_service.shared_streams
+
+
+def test_libraries_omits_shared_when_host_is_absent(
+    mock_photos_service: MagicMock,
+) -> None:
+    """The libraries mapping simply has no `shared` entry without the host."""
+    mock_photos_service.session.post.return_value.json.side_effect = [
+        {"records": [{"fields": {"state": {"value": "FINISHED"}}}]},
+        {"zones": [{"zoneID": {"zoneName": "CustomZone"}, "deleted": False}]},
+        {"records": [{"fields": {"state": {"value": "FINISHED"}}}]},
+    ]
+    photos_service = PhotosService(
+        service_root="https://example.com",
+        session=mock_photos_service.session,
+        params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+        shared_streams_url=None,
+    )
+
+    libraries = photos_service.libraries
+    assert "root" in libraries
+    assert "shared" not in libraries
+    assert "CustomZone" in libraries
 
 
 def test_libraries_inherit_upload_hydration_settings(

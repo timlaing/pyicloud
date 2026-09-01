@@ -2304,19 +2304,23 @@ def test_photos_passes_upload_hydration_settings(
         assert mock_photos_cls.call_args.kwargs["upload_hydration_interval"] == 0.5
 
 
-@pytest.mark.parametrize("missing", ["uploadimagews", "photosupload", "both"])
-def test_photos_tolerates_missing_upload_webservices(
+@pytest.mark.parametrize(
+    "missing", ["uploadimagews", "photosupload", "sharedstreams", "both"]
+)
+def test_photos_tolerates_missing_optional_webservices(
     pyicloud_service: PyiCloudService,
     missing: str,
 ) -> None:
-    """Neither upload host may take the whole Photos service down.
+    """No single-feature host may take the whole Photos service down.
 
-    Apple withdrew `uploadimagews` and may stop advertising it, and not every
-    account advertises `photosupload`. Losing either should leave uploads
-    unconfigured while reads keep working.
+    Apple withdrew `uploadimagews` and may stop advertising it, not every
+    account advertises `photosupload`, and `sharedstreams` powers only the
+    legacy shared-stream albums. Losing any of them should disable that feature
+    while the rest of the service keeps working.
     """
     mock_photos_service = MagicMock()
-    absent = {"uploadimagews", "photosupload"} if missing == "both" else {missing}
+    optional = {"uploadimagews", "photosupload", "sharedstreams"}
+    absent = optional if missing == "both" else {missing}
 
     def _webservice_url(key: str) -> str:
         if key in absent:
@@ -2344,6 +2348,9 @@ def test_photos_tolerates_missing_upload_webservices(
         )
         assert kwargs["photos_upload_url"] == (
             None if "photosupload" in absent else "https://photosupload.example.com"
+        )
+        assert kwargs["shared_streams_url"] == (
+            None if "sharedstreams" in absent else "https://sharedstreams.example.com"
         )
         assert result == mock_photos_service
 

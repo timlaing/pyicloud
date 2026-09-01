@@ -33,6 +33,7 @@ from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudException,
     PyiCloudServiceNotActivatedException,
+    PyiCloudServiceUnavailable,
 )
 from pyicloud.services.base import BaseService
 from pyicloud.services.photos_legacy import (
@@ -2253,7 +2254,7 @@ class PhotosService(BaseService):
         session: PyiCloudSession,
         params: dict[str, Any],
         upload_url: str | None,
-        shared_streams_url: str,
+        shared_streams_url: str | None,
         photos_upload_url: str | None = None,
         upload_hydration_timeout: float = UPLOAD_HYDRATION_TIMEOUT,
         upload_hydration_interval: float = UPLOAD_HYDRATION_INTERVAL,
@@ -2288,6 +2289,8 @@ class PhotosService(BaseService):
         self._legacy_service = None
         shared_streams_album_url = (
             f"{shared_streams_url}/{self.params['dsid']}/sharedstreams/webgetalbumslist"
+            if shared_streams_url
+            else None
         )
         self._root_library = PhotoLibrary(
             self,
@@ -2300,9 +2303,13 @@ class PhotosService(BaseService):
             upload_hydration_interval=upload_hydration_interval,
             scope="private",
         )
-        self._shared_library = PhotoStreamLibrary(
-            cast(LegacyPhotosService, self),
-            shared_streams_url=shared_streams_album_url,
+        self._shared_library: PhotoStreamLibrary | None = (
+            PhotoStreamLibrary(
+                cast(LegacyPhotosService, self),
+                shared_streams_url=shared_streams_album_url,
+            )
+            if shared_streams_album_url
+            else None
         )
 
     @property
@@ -2316,8 +2323,9 @@ class PhotosService(BaseService):
         if self._libraries is None:
             libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary] = {
                 "root": self._root_library,
-                "shared": self._shared_library,
             }
+            if self._shared_library is not None:
+                libraries["shared"] = self._shared_library
             if _can_use_typed_cloudkit(self.session):
                 private_zones = self._private_client.zones_list()
                 for zone in private_zones.zones:
@@ -2404,7 +2412,16 @@ class PhotosService(BaseService):
 
     @property
     def shared_streams(self) -> AlbumContainer:
-        """Return the shared photo stream albums."""
+        """Return the shared photo stream albums.
+
+        Raises ``PyiCloudServiceUnavailable`` when the account does not
+        advertise the shared-streams host, since the rest of the service is
+        usable without it.
+        """
+        if self._shared_library is None:
+            raise PyiCloudServiceUnavailable(
+                "Shared photo streams are not available for this account"
+            )
         return AlbumContainer(
             cast(list[BasePhotoAlbum], list(self._shared_library.albums))
         )

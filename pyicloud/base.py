@@ -1441,12 +1441,14 @@ class PyiCloudService:
 
         if not self._photos:
             service_root: str = self.get_webservice_url("ckdatabasews")
-            shared_streams_url: str = self.get_webservice_url("sharedstreams")
-            # Both upload hosts are optional. Apple withdrew the single-POST
-            # uploadimagews endpoint and may stop advertising it entirely, and
-            # not every account advertises photosupload. Neither should be able
-            # to take the whole Photos service down: without them uploads report
-            # as unconfigured while reads keep working.
+            # Only ckdatabasews is load-bearing here. The upload hosts and the
+            # legacy shared-streams host each power one feature, so a missing
+            # one disables that feature rather than the whole service: Apple has
+            # already withdrawn what uploadimagews points at and may stop
+            # advertising it, and not every account advertises the others.
+            shared_streams_url: str | None = self._optional_webservice_url(
+                "sharedstreams"
+            )
             upload_url: str | None = self._optional_webservice_url("uploadimagews")
             photos_upload_url: str | None = self._optional_webservice_url(
                 "photosupload"
