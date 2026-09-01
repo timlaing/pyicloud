@@ -965,6 +965,45 @@ def test_trust_session_success(pyicloud_service: PyiCloudService) -> None:
         assert pyicloud_service.trust_session()
 
 
+def test_trust_session_refreshes_webservices(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Trusting a session must refresh the webservices map, not just the data.
+
+    Apple's pre-2FA accountLogin response carries a reduced webservices map.
+    trust_session() re-authenticates with the session token and receives the
+    complete one, so `_webservices` has to be refreshed alongside `data`;
+    otherwise get_webservice_url() raises for a service that is present in
+    `data["webservices"]`.
+    """
+
+    pyicloud_service.data = {
+        "webservices": {"ckdatabasews": {"url": "https://p51-ckdatabasews.example"}}
+    }
+    pyicloud_service._update_state()
+    assert "drivews" not in (pyicloud_service.webservices or {})
+
+    with patch("pyicloud.base.PyiCloudSession") as mock_session:
+        mock_session.data = {
+            "session_token": "test_session_token",
+            "account_country": "GBR",
+        }
+        mock_session.post.return_value.json.return_value = {
+            "dsInfo": {"dsid": "12345"},
+            "hsaTrustedBrowser": True,
+            "webservices": {
+                "ckdatabasews": {"url": "https://p51-ckdatabasews.example"},
+                "drivews": {"pcsRequired": True, "url": "https://p51-drivews.example"},
+            },
+        }
+        pyicloud_service._session = mock_session
+        assert pyicloud_service.trust_session()
+
+    assert (
+        pyicloud_service.get_webservice_url("drivews") == "https://p51-drivews.example"
+    )
+
+
 def test_trust_session_failure(pyicloud_service: PyiCloudService) -> None:
     """Test the trust_session method with a failed response."""
     with patch("pyicloud.base.PyiCloudSession") as mock_session:
