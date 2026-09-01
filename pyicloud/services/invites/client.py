@@ -36,6 +36,7 @@ from pyicloud.common.cloudkit import (
     CKZoneChangesResponse,
     CKZoneChangesZoneReq,
     CKZoneIDReq,
+    CKZoneListResponse,
     CloudKitExtraMode,
 )
 from pyicloud.common.cloudkit.client import (
@@ -44,9 +45,12 @@ from pyicloud.common.cloudkit.client import (
     CloudKitContainerClient,
     CloudKitRateLimited,
 )
+from pyicloud.exceptions import PyiCloudAPIResponseException
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = (10.0, 60.0)
+_UNAUTHORIZED_STATUSES = (401, 403)
+_RATE_LIMITED_STATUS = 429
 
 ScopeLiteral = Literal["private", "shared"]
 
@@ -138,9 +142,36 @@ class CloudKitInvitesClient:
             raise InvitesRateLimited(str(exc), retry_after=exc.retry_after) from cause
         if isinstance(exc, CloudKitApiError):
             raise InvitesApiError(str(exc), payload=exc.payload) from cause
+        if isinstance(exc, PyiCloudAPIResponseException):
+            # CloudKitHttp.post() maps 4xx onto the CloudKit errors above, but
+            # never gets the chance: PyiCloudSession raises on a non-ok JSON
+            # response first, so the transport error arrives here untranslated
+            # and callers catching InvitesError never see it. Map it the same
+            # way the HTTP layer would have.
+            if exc.code in _UNAUTHORIZED_STATUSES:
+                raise InvitesAuthError(str(exc)) from cause
+            if exc.code == _RATE_LIMITED_STATUS:
+                raise InvitesRateLimited(str(exc)) from cause
+            raise InvitesApiError(str(exc)) from cause
         raise exc
 
     # ----- Records-in-zones scoped wrappers ----------------------------------
+
+    def zones_list(self, scope: ScopeLiteral) -> CKZoneListResponse:
+        """List the zones in the given scope.
+
+        The shared database rejects zone-wide queries, so enumerating it means
+        listing its zones first and reading each one.
+        """
+        try:
+            return self._client_for(scope).zones_list()
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
 
     def query(
         self,
@@ -163,7 +194,12 @@ class CloudKitInvitesClient:
                 continuation=continuation,
                 zone_wide=zone_wide,
             )
-        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
             self._raise_invites_error(exc)
 
     def lookup(
@@ -181,7 +217,12 @@ class CloudKitInvitesClient:
                 zone_id=zone_id,
                 desired_keys=desired_keys,
             )
-        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
             self._raise_invites_error(exc)
 
     def modify(
@@ -199,7 +240,12 @@ class CloudKitInvitesClient:
                 zone_id=zone_id,
                 atomic=atomic,
             )
-        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
             self._raise_invites_error(exc)
 
     def changes(
@@ -215,7 +261,12 @@ class CloudKitInvitesClient:
                 zone_req=zone_req,
                 results_limit=results_limit,
             )
-        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
             self._raise_invites_error(exc)
 
     # ----- Public-scope resolve / accept -------------------------------------
@@ -294,5 +345,10 @@ class CloudKitInvitesClient:
         """Download raw bytes from a CloudKit asset URL via the private scope."""
         try:
             return self._private.download_asset_bytes(url)
-        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
             self._raise_invites_error(exc)
