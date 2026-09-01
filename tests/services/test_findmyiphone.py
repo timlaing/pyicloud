@@ -3,6 +3,7 @@
 # pylint: disable=protected-access
 
 from datetime import datetime, timedelta
+from typing import Any
 from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
@@ -793,6 +794,118 @@ def test_refresh_client_with_reauth_no_devices_raises(
         pytest.raises(PyiCloudNoDevicesException),
     ):
         manager._refresh_client_with_reauth(locate=True)
+
+
+def test_family_poll_delay_is_used() -> None:
+    """Test _initialize_devices sleeps using the configured family_poll_delay."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager: FindMyiPhoneServiceManager = _make_manager(family_poll_delay=1.5)
+    manager._with_family = True
+
+    with (
+        patch("time.sleep", return_value=None) as mock_sleep,
+        patch.object(manager, "_refresh_client"),
+        patch.object(manager, "_user_info") as mock_user_info,
+        patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
+    ):
+        mock_user_info.__getitem__.return_value = True
+        mock_user_info.get.side_effect = [
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "LOADING",
+                },
+            },
+            True,
+            {
+                "member1": {
+                    "firstName": "Member1",
+                    "lastName": "One",
+                    "appleId": "member1@example.com",
+                    "deviceFetchStatus": "DONE",
+                },
+            },
+        ]
+        manager._refresh_client_with_reauth(locate=True)
+        assert mock_sleep.call_args_list == [call(1.5)]
+
+
+def test_family_poll_max_retries_is_respected() -> None:
+    """Test _initialize_devices stops after the configured family_poll_max_retries."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager: FindMyiPhoneServiceManager = _make_manager(family_poll_max_retries=2)
+    manager._with_family = True
+
+    def member_info(loading: tuple[str, ...]) -> dict[str, object]:
+        """Build a membersInfo payload with the given members still LOADING."""
+        return {
+            member: {
+                "firstName": member,
+                "lastName": "X",
+                "appleId": f"{member}@e.com",
+                "deviceFetchStatus": "LOADING" if member in loading else "DONE",
+            }
+            for member in ("m1", "m2", "m3")
+        }
+
+    # Each poll makes progress (one more member resolves), so the loop runs
+    # until family_poll_max_retries is reached rather than breaking on no-progress.
+    mock_user_info_get: list[object] = [
+        True,
+        member_info(("m1", "m2", "m3")),  # iteration 0
+        True,
+        member_info(("m2", "m3")),  # iteration 1
+        True,  # iteration 2: hasMembers True, but retries == max -> exit
+    ]
+
+    with (
+        patch("time.sleep", return_value=None),
+        patch.object(manager, "_refresh_client") as mock_refresh,
+        patch.object(manager, "_user_info") as mock_user_info,
+        patch.object(manager, "_devices", {"dummy_id": "dummy_device"}),
+    ):
+        mock_user_info.__getitem__.return_value = True
+        mock_user_info.get.side_effect = mock_user_info_get
+        manager._refresh_client_with_reauth(locate=True)
+        # 1 initial + _family_poll_max_retries loop iterations
+        assert mock_refresh.call_count == 1 + 2
+
+
+def _make_manager(
+    service_root: str = "root",
+    token_endpoint: str = "token",
+    session: MagicMock | None = None,
+    params: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> FindMyiPhoneServiceManager:
+    """Construct a FindMyiPhoneServiceManager without network calls."""
+    return FindMyiPhoneServiceManager(
+        service_root=service_root,
+        token_endpoint=token_endpoint,
+        session=session or MagicMock(),
+        params=params or {},
+        **kwargs,
+    )
+
+
+def test_family_poll_parameters_reject_invalid_values() -> None:
+    """Test family_poll parameters reject negative, non-numeric, and bool values."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        with pytest.raises(ValueError):
+            _make_manager(family_poll_delay=-1)
+        with pytest.raises(ValueError):
+            _make_manager(family_poll_delay=True)
+        with pytest.raises(ValueError):
+            _make_manager(family_poll_delay="0.5")
+        with pytest.raises(ValueError):
+            _make_manager(family_poll_max_retries=-1)
+        with pytest.raises(ValueError):
+            _make_manager(family_poll_max_retries=True)
+        with pytest.raises(ValueError):
+            _make_manager(family_poll_max_retries=2.5)
 
 
 def test_monitor_thread_calls_func_at_interval() -> None:
