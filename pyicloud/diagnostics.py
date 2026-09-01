@@ -113,12 +113,19 @@ def _entry_status(entry: Any) -> str | None:
     return status if isinstance(status, str) and status.strip() else None
 
 
-def _describe_known(key: str, entry: Any, powers: tuple[str, ...]) -> WebserviceFinding:
-    """Build the finding for a key the library depends on."""
+def _describe_known(
+    key: str, entry: Any, powers: tuple[str, ...], *, advertised: bool
+) -> WebserviceFinding:
+    """Build the finding for a key the library depends on.
+
+    ``advertised`` is passed rather than inferred from ``entry``, because a key
+    Apple sends as ``null`` is an entry with an unusable shape, not an absent
+    one, and reporting it as "not advertising this key" would be false.
+    """
 
     affected = ", ".join(powers)
 
-    if entry is None:
+    if not advertised:
         return WebserviceFinding(
             key=key,
             status=WebserviceStatus.MISSING,
@@ -198,7 +205,12 @@ def diagnose_webservices(
     entries: Mapping[str, Any] = advertised or {}
 
     findings: list[WebserviceFinding] = [
-        _describe_known(entry.key, entries.get(entry.key), entry.powers)
+        _describe_known(
+            entry.key,
+            entries.get(entry.key),
+            entry.powers,
+            advertised=entry.key in entries,
+        )
         for entry in WEBSERVICES
     ]
 

@@ -107,6 +107,31 @@ def test_an_unused_key_without_a_url_is_reported_but_not_a_problem() -> None:
     assert not webservice_problems(diagnose_webservices(advertised))
 
 
+def test_an_advertised_null_is_malformed_rather_than_missing() -> None:
+    """`{"findme": null}` is an entry with a bad shape, not an absent key.
+
+    Both are problems, so the exit code is the same either way -- but saying
+    "Apple is not advertising this key" when Apple did advertise it points the
+    reader at the wrong upstream event.
+    """
+
+    advertised = _healthy_map()
+    advertised["findme"] = None
+
+    findings = diagnose_webservices(advertised)
+    finding = _finding(findings, "findme")
+
+    assert finding.status is WebserviceStatus.MALFORMED
+    assert finding.is_problem
+    assert "not advertising" not in finding.detail
+
+    # An genuinely absent key still reports as missing.
+    del advertised["calendar"]
+    absent = _finding(diagnose_webservices(advertised), "calendar")
+    assert absent.status is WebserviceStatus.MISSING
+    assert "not advertising" in absent.detail
+
+
 def test_keys_the_library_does_not_use_are_context_not_complaints() -> None:
     """Extra advertised services are reported last and never fail the run.
 

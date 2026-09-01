@@ -283,7 +283,16 @@ def doctor(  # noqa: PLR0913
 
     env = environment()
     session, api = _session_report(state)
-    findings = diagnose_webservices(api.webservices) if api is not None else ()
+    # Gated on the session status rather than on `api` being non-null: the two
+    # can disagree, because the status is re-read after get_api() returns, and
+    # a report that lists findings while the verdict says the map could not be
+    # checked contradicts itself.
+    authenticated = bool(session["authenticated"])
+    findings = (
+        diagnose_webservices(api.webservices)
+        if api is not None and authenticated
+        else ()
+    )
     problems = webservice_problems(findings)
     # Not being logged in is not a defect, but it does mean nothing was
     # verified -- reporting that as success would mislead anything scripting

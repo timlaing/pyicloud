@@ -4349,6 +4349,36 @@ def test_doctor_reports_a_malformed_unused_entry_without_failing() -> None:
     assert "No problems found" in text
 
 
+def test_doctor_emits_no_findings_when_the_session_reports_unauthenticated() -> None:
+    """The findings and the verdict must not contradict each other.
+
+    get_api() can return while a later status read says the session is not
+    authenticated, and reporting a service map as OK under a verdict that says
+    the map could not be checked is worse than reporting nothing.
+    """
+
+    fake_api = _doctor_api()
+    # Authenticated for the two reads get_api() makes, then not for the one
+    # the report itself takes.
+    authed = {
+        "authenticated": True,
+        "trusted_session": True,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    fake_api.get_auth_status = MagicMock(
+        side_effect=[authed, authed, {**authed, "authenticated": False}]
+    )
+
+    result = _invoke(fake_api, "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["session"]["authenticated"] is False
+    assert payload["webservices"] == []
+    assert payload["ok"] is False
+
+
 def test_doctor_json_output_is_machine_readable() -> None:
     """JSON mode carries the verdict, the environment and every finding."""
 
