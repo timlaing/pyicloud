@@ -731,6 +731,16 @@ class PyiCloudService:
             if require_trust and not self.is_trusted_session:
                 raise PyiCloud2FARequiredException(self.account_name, resp)
 
+            # accountLogin returns a fresh webservices map, so derived state has
+            # to be refreshed here rather than only in authenticate(). Reached
+            # via trust_session() after 2FA, which otherwise leaves
+            # `_webservices` holding the reduced map from the pre-2FA login and
+            # makes get_webservice_url() raise for services that are present in
+            # `self.data`. Deliberately after the trust check, so the paths that
+            # raise keep deferring to authenticate()'s own _update_state() and
+            # this stays a no-op for them.
+            self._update_state()
+
             self._auth_data = {}
             self._hsa2_boot_context = None
             self._clear_trusted_device_bridge_state()
