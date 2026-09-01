@@ -1323,12 +1323,28 @@ class PyiCloudService:
 
     def get_webservice_url(self, ws_key: str) -> str:
         """Get webservice URL, raise an exception if not exists."""
-        if self._webservices is None or self._webservices.get(ws_key) is None:
+        entry: dict[str, Any] | None = (
+            self._webservices.get(ws_key) if self._webservices else None
+        )
+        if entry is None:
             raise PyiCloudServiceNotActivatedException(
                 f"Webservice not available: {ws_key}"
             )
 
-        return cast(str, self._webservices[ws_key]["url"])
+        # Apple sometimes advertises a key with an empty entry -- `schoolwork:
+        # {}` is a live example. Indexing ["url"] there raised a bare
+        # KeyError('url'), which is not a PyiCloudException and names neither
+        # the service nor the reason, so callers could not handle it and users
+        # could not act on it. An entry without a usable url means the same
+        # thing to a caller as one that was never advertised.
+        url: Any = entry.get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise PyiCloudServiceNotActivatedException(
+                f"Webservice not available: {ws_key} "
+                "(Apple advertised it without a url)"
+            )
+
+        return url
 
     @property
     def devices(self) -> FindMyiPhoneServiceManager:

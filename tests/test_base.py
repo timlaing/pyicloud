@@ -948,6 +948,68 @@ def test_get_webservice_url_failure(pyicloud_service: PyiCloudService) -> None:
         pyicloud_service.get_webservice_url("invalid_key")
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        # The shape a live account actually returns for `schoolwork`.
+        pytest.param({}, id="empty-entry"),
+        pytest.param({"url": None}, id="null-url"),
+        pytest.param({"url": ""}, id="empty-url"),
+        pytest.param({"url": "   "}, id="blank-url"),
+        pytest.param({"status": "active"}, id="status-but-no-url"),
+    ],
+)
+def test_get_webservice_url_rejects_an_entry_without_a_url(
+    pyicloud_service: PyiCloudService, entry: dict[str, Any]
+) -> None:
+    """An advertised key with no usable url must not raise a bare KeyError.
+
+    Apple advertises `schoolwork: {}` on real accounts. Indexing ["url"] there
+    raised KeyError('url'), which is not a PyiCloudException, so callers could
+    not catch it alongside the not-activated case it is equivalent to.
+    """
+
+    pyicloud_service._webservices = {"schoolwork": entry}
+
+    with pytest.raises(PyiCloudServiceNotActivatedException) as excinfo:
+        pyicloud_service.get_webservice_url("schoolwork")
+
+    message = str(excinfo.value)
+    assert "schoolwork" in message
+    assert "without a url" in message
+
+
+def test_get_webservice_url_distinguishes_absent_from_malformed(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Both raise the same type, but the message says which happened.
+
+    The distinction is upstream state worth quoting in a bug report: Apple not
+    advertising a key at all is a different event from advertising it broken.
+    """
+
+    pyicloud_service._webservices = {"schoolwork": {}}
+
+    with pytest.raises(PyiCloudServiceNotActivatedException) as malformed:
+        pyicloud_service.get_webservice_url("schoolwork")
+    with pytest.raises(PyiCloudServiceNotActivatedException) as absent:
+        pyicloud_service.get_webservice_url("never-advertised")
+
+    assert "without a url" in str(malformed.value)
+    assert "without a url" not in str(absent.value)
+
+
+def test_get_webservice_url_without_any_map(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Resolving before authentication reports the service as unavailable."""
+
+    pyicloud_service._webservices = None
+
+    with pytest.raises(PyiCloudServiceNotActivatedException):
+        pyicloud_service.get_webservice_url("drivews")
+
+
 def test_trust_session_success(pyicloud_service: PyiCloudService) -> None:
     """Test the trust_session method with a successful response."""
 
