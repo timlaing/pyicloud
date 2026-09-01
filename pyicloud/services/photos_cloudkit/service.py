@@ -2252,7 +2252,7 @@ class PhotosService(BaseService):
         service_root: str,
         session: PyiCloudSession,
         params: dict[str, Any],
-        upload_url: str,
+        upload_url: str | None,
         shared_streams_url: str,
         photos_upload_url: str | None = None,
         upload_hydration_timeout: float = UPLOAD_HYDRATION_TIMEOUT,

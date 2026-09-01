@@ -2250,12 +2250,14 @@ def test_photos_returns_service(pyicloud_service: PyiCloudService) -> None:
         patch.object(
             pyicloud_service,
             "get_webservice_url",
-            side_effect=[
-                "https://photos.example.com",
-                "https://upload.example.com",
-                "https://shared.example.com",
-                "https://photosupload.example.com",
-            ],
+            # Keyed rather than positional, so the assertion does not depend on
+            # the order the property happens to resolve the hosts in.
+            side_effect={
+                "ckdatabasews": "https://photos.example.com",
+                "uploadimagews": "https://upload.example.com",
+                "sharedstreams": "https://shared.example.com",
+                "photosupload": "https://photosupload.example.com",
+            }.__getitem__,
         ),
         patch(
             "pyicloud.base.PhotosService", return_value=mock_photos_service
@@ -2300,6 +2302,50 @@ def test_photos_passes_upload_hydration_settings(
 
         assert mock_photos_cls.call_args.kwargs["upload_hydration_timeout"] == 12.5
         assert mock_photos_cls.call_args.kwargs["upload_hydration_interval"] == 0.5
+
+
+@pytest.mark.parametrize("missing", ["uploadimagews", "photosupload", "both"])
+def test_photos_tolerates_missing_upload_webservices(
+    pyicloud_service: PyiCloudService,
+    missing: str,
+) -> None:
+    """Neither upload host may take the whole Photos service down.
+
+    Apple withdrew `uploadimagews` and may stop advertising it, and not every
+    account advertises `photosupload`. Losing either should leave uploads
+    unconfigured while reads keep working.
+    """
+    mock_photos_service = MagicMock()
+    absent = {"uploadimagews", "photosupload"} if missing == "both" else {missing}
+
+    def _webservice_url(key: str) -> str:
+        if key in absent:
+            raise PyiCloudServiceNotActivatedException(
+                f"Webservice not available: {key}"
+            )
+        return f"https://{key}.example.com"
+
+    with (
+        patch.object(
+            pyicloud_service, "get_webservice_url", side_effect=_webservice_url
+        ),
+        patch(
+            "pyicloud.base.PhotosService", return_value=mock_photos_service
+        ) as mock_photos_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
+    ):
+        pyicloud_service._photos = None
+        pyicloud_service.data = {"dsInfo": {"dsid": "12345"}}
+        result: PhotosService = pyicloud_service.photos
+
+        kwargs = mock_photos_cls.call_args.kwargs
+        assert kwargs["upload_url"] == (
+            None if "uploadimagews" in absent else "https://uploadimagews.example.com"
+        )
+        assert kwargs["photos_upload_url"] == (
+            None if "photosupload" in absent else "https://photosupload.example.com"
+        )
+        assert result == mock_photos_service
 
 
 def test_photos_tolerates_missing_photosupload_webservice(

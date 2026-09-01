@@ -1329,6 +1329,19 @@ class PyiCloudService:
         """Set the webservices map (used when hydrating from session probes)."""
         self._webservices = value
 
+    def _optional_webservice_url(self, ws_key: str) -> str | None:
+        """Return a webservice URL, or None when the account does not offer it.
+
+        Apple adds and withdraws hosts over time, so a service that can work
+        without a particular endpoint should degrade that feature rather than
+        fail to construct at all.
+        """
+
+        try:
+            return self.get_webservice_url(ws_key)
+        except PyiCloudServiceNotActivatedException:
+            return None
+
     def get_webservice_url(self, ws_key: str) -> str:
         """Get webservice URL, raise an exception if not exists."""
         if self._webservices is None or self._webservices.get(ws_key) is None:
@@ -1428,15 +1441,16 @@ class PyiCloudService:
 
         if not self._photos:
             service_root: str = self.get_webservice_url("ckdatabasews")
-            upload_url: str = self.get_webservice_url("uploadimagews")
             shared_streams_url: str = self.get_webservice_url("sharedstreams")
-            # Apple withdrew the single-POST uploadimagews endpoint; uploads now
-            # run against the photosupload host. Older accounts may not publish
-            # it, so uploads stay unconfigured rather than failing the service.
-            try:
-                photos_upload_url: str | None = self.get_webservice_url("photosupload")
-            except PyiCloudServiceNotActivatedException:
-                photos_upload_url = None
+            # Both upload hosts are optional. Apple withdrew the single-POST
+            # uploadimagews endpoint and may stop advertising it entirely, and
+            # not every account advertises photosupload. Neither should be able
+            # to take the whole Photos service down: without them uploads report
+            # as unconfigured while reads keep working.
+            upload_url: str | None = self._optional_webservice_url("uploadimagews")
+            photos_upload_url: str | None = self._optional_webservice_url(
+                "photosupload"
+            )
             self.params["dsid"] = self.data["dsInfo"]["dsid"]
 
             try:
