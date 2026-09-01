@@ -20,6 +20,7 @@ import click
 import pytest
 from typer.testing import CliRunner, Result
 
+from pyicloud.endpoints import WEBSERVICES
 from pyicloud.services.notes.models import Attachment as NoteAttachment
 from pyicloud.services.notes.models import ChangeEvent as NoteChangeEvent
 from pyicloud.services.notes.models import (
@@ -1418,7 +1419,7 @@ def test_root_help() -> None:
 def test_root_version_prints_installed_package_version() -> None:
     """The root --version flag should print the installed pyicloud version."""
 
-    with patch.object(cli_module, "_installed_version", return_value="9.9.9"):
+    with patch.object(cli_module, "installed_version", return_value="9.9.9"):
         result = _runner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
@@ -4266,3 +4267,127 @@ def test_main_returns_clean_error_for_user_abort(
     assert code == 1
     assert captured.out == ""
     assert message in captured.err
+
+
+def _advertised_webservices() -> dict[str, Any]:
+    """Return a map advertising every key the library needs."""
+
+    return {
+        entry.key: {
+            "url": f"https://p31-{entry.key}.icloud.com:443",
+            "status": "active",
+        }
+        for entry in WEBSERVICES
+    }
+
+
+def _unwrapped(result: Any) -> str:
+    """Return command output with rich's line wrapping collapsed.
+
+    Terminal width is not part of what these tests assert, and a sentence split
+    across two lines would otherwise fail on a narrower runner than this one.
+    """
+
+    return " ".join(_plain_output(result).split())
+
+
+def _doctor_api(webservices: dict[str, Any] | None = None) -> FakeAPI:
+    """Return an authenticated fake whose advertised map can be shaped per test."""
+
+    fake_api = FakeAPI()
+    fake_api.webservices = (
+        _advertised_webservices() if webservices is None else webservices
+    )
+    return fake_api
+
+
+def test_doctor_reports_a_healthy_account() -> None:
+    """A complete service map passes and says so in a quotable way."""
+
+    result = _invoke(_doctor_api(), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Environment" in text
+    assert "Session" in text
+    assert "Webservices" in text
+    assert "No problems found" in text
+    # The point of saying so is to send the next report to the right place.
+    assert "github.com/timlaing/pyicloud/issues" in text
+
+
+def test_doctor_names_the_services_a_withdrawn_key_takes_down() -> None:
+    """A missing key fails the run and reports the blast radius, not the key."""
+
+    advertised = _advertised_webservices()
+    del advertised["ckdatabasews"]
+
+    result = _invoke(_doctor_api(advertised), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 1
+    assert "MISSING" in text
+    assert "ckdatabasews" in text
+    for service in ("photos", "reminders", "notes", "invites"):
+        assert service in text
+    assert "pyicloud needs updating" in text
+
+
+def test_doctor_reports_a_malformed_unused_entry_without_failing() -> None:
+    """The `schoolwork: {}` shape a live account returns is shown, not fatal."""
+
+    advertised = _advertised_webservices()
+    advertised["schoolwork"] = {}
+
+    result = _invoke(_doctor_api(advertised), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    # Flagged where the key is read, and explained below it.
+    assert "schoolwork (no url)" in text
+    assert "get_webservice_url() would raise KeyError" in text
+    assert "No problems found" in text
+
+
+def test_doctor_json_output_is_machine_readable() -> None:
+    """JSON mode carries the verdict, the environment and every finding."""
+
+    advertised = _advertised_webservices()
+    del advertised["sharedstreams"]
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    assert payload["services_at_risk"] == ["photos"]
+    assert set(payload["environment"]) == {"pyicloud", "python", "platform"}
+    assert payload["session"]["authenticated"] is True
+    findings = {item["key"]: item for item in payload["webservices"]}
+    assert findings["sharedstreams"]["status"] == "missing"
+    assert findings["sharedstreams"]["is_problem"] is True
+    assert findings["account"]["status"] == "ok"
+
+
+def test_doctor_without_a_session_still_reports_what_it_can() -> None:
+    """Not being logged in is a diagnosis, so the command must not just abort."""
+
+    fake_api = _doctor_api()
+    fake_api.get_auth_status = MagicMock(
+        return_value={
+            "authenticated": False,
+            "trusted_session": False,
+            "requires_2fa": False,
+            "requires_2sa": False,
+        }
+    )
+
+    result = _invoke(fake_api, "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Environment" in text
+    assert "Authenticated" in text
+    assert "icloud auth login" in text
+    assert "report is incomplete" in text
