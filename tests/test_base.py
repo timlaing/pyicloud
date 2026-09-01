@@ -1376,7 +1376,13 @@ def test_request_reports_a_withdrawn_endpoint(
 
     Apple sent a JSON body when it withdrew the Photos upload endpoint, but
     nothing guarantees that, so the signal is taken from the status code.
+
+    Both bodies here are non-empty and carry an identifier, because
+    ``PyiCloudAPIResponseException`` appends ``response.text`` to the message
+    and an empty body would let that leak past the assertions below.
     """
+
+    dsid = "108580123"
 
     with (
         patch("requests.Session.request") as mock_request,
@@ -1386,13 +1392,15 @@ def test_request_reports_a_withdrawn_endpoint(
         mock_response = MagicMock()
         mock_response.status_code = 410
         mock_response.ok = False
-        mock_response.text = ""
         if json_body:
+            body = f'{{"errorReason": "Gone", "errorCode": 410, "dsid": "{dsid}"}}'
             mock_response.json.return_value = {"errorReason": "Gone", "errorCode": 410}
             mock_response.headers.get.return_value = "application/json"
         else:
+            body = f"<html><body>Gone (dsid {dsid})</body></html>"
             mock_response.json.side_effect = ValueError("not json")
             mock_response.headers.get.return_value = "text/html"
+        mock_response.text = body
         mock_request.return_value = mock_response
         pyicloud_session = PyiCloudSession(
             pyicloud_service_working, "", cookie_directory=""
@@ -1408,10 +1416,15 @@ def test_request_reports_a_withdrawn_endpoint(
     error = excinfo.value
     assert error.code == 410
     assert error.endpoint == "p31-uploadimagews.icloud.com:443/upload"
-    # The message is meant to be pasted into a bug report.
+    # The message is meant to be pasted into a bug report, so neither the URL
+    # nor the response body may contribute an identifier to it.
     assert "dsid" not in str(error)
-    assert "108580123" not in str(error)
+    assert dsid not in str(error)
+    assert body not in str(error)
     assert "github.com/timlaing/pyicloud/issues" in str(error)
+    # Withheld from the message, not discarded: the whole response, body
+    # included, is still attached for debugging.
+    assert error.response is mock_response
     # Existing handlers must keep catching it.
     assert isinstance(error, PyiCloudAPIResponseException)
 

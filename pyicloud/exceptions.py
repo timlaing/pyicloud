@@ -68,7 +68,8 @@ class PyiCloudEndpointGoneException(PyiCloudAPIResponseException):
     concluding the endpoint itself had gone.
 
     ``endpoint`` is a redacted host-and-path label safe to quote in a bug
-    report; the full URL is available on ``response`` when one was captured.
+    report; the full URL and the response body are available on ``response``
+    when one was captured.
     """
 
     def __init__(self, endpoint: str, response: Response | None = None) -> None:
@@ -80,8 +81,14 @@ class PyiCloudEndpointGoneException(PyiCloudAPIResponseException):
             "that your request was wrong. Please report it at "
             "https://github.com/timlaing/pyicloud/issues and quote this endpoint",
             HTTP_GONE,
-            response,
         )
+        # The response is deliberately withheld from the parent, which would
+        # append ``response.text`` to the message. This message exists to be
+        # pasted into a public issue, and Apple's error bodies can carry the
+        # dsid and session identifiers that ``endpoint`` was redacted to keep
+        # out of it. Attaching it here keeps the body reachable for debugging
+        # without folding it into quotable text.
+        self.response = response
 
 
 # Login
