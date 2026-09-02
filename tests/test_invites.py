@@ -1,5 +1,7 @@
 """Tests for the Invites service."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -16,7 +18,10 @@ from pyicloud.common.cloudkit import (
     CKLookupResponse,
     CKModifyResponse,
     CKQueryResponse,
+    CKZoneChangesZone,
+    CKZoneListResponse,
 )
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.services.invites import (
     AcceptanceStatus,
     Event,
@@ -29,7 +34,12 @@ from pyicloud.services.invites import (
     Rsvp,
     RsvpStatus,
 )
-from pyicloud.services.invites.client import InvitesApiError
+from pyicloud.services.invites.client import (
+    CloudKitInvitesClient,
+    InvitesApiError,
+    InvitesAuthError,
+    InvitesRateLimited,
+)
 from pyicloud.services.invites.codecs import (
     decode_integrations,
     decode_json_bytes,
@@ -183,6 +193,43 @@ class InvitesServiceTest(unittest.TestCase):
             load_invites_fixture("one_time_link_query_empty_response.json")
         )
 
+    @staticmethod
+    def _shared_zone_list() -> CKZoneListResponse:
+        """One zone shared with this account, as /zones/list returns it."""
+        return CKZoneListResponse.model_validate({
+            "zones": [
+                {
+                    "zoneID": {
+                        "zoneName": "SHARED-ZONE-FIXTURE",
+                        "ownerRecordName": "_shared-owner",
+                        "zoneType": "REGULAR_CUSTOM_ZONE",
+                    }
+                }
+            ]
+        })
+
+    @staticmethod
+    def _shared_zone_page(
+        records: list[Any] | None = None, *, more_coming: bool = False
+    ) -> CKZoneChangesZone:
+        """One page of a shared zone's changes."""
+        if records is None:
+            records = load_invites_fixture("events_query_response.json")["records"]
+        return CKZoneChangesZone.model_validate({
+            "zoneID": {
+                "zoneName": "SHARED-ZONE-FIXTURE",
+                "ownerRecordName": "_shared-owner",
+            },
+            "records": records,
+            "moreComing": more_coming,
+            "syncToken": "FIXTURE-SYNC-TOKEN",
+        })
+
+    @classmethod
+    def _shared_zone_changes(cls) -> list[CKZoneChangesZone]:
+        """A single-page shared zone, as iter_changes yields it."""
+        return [cls._shared_zone_page()]
+
     def test_events_returns_dtos_from_private_query(self) -> None:
         """events() returns DTOs populated from the private-scope query."""
         # `events()` queries both private and shared. We return the events from
@@ -247,17 +294,20 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertTrue(second.time.is_open_ended)
 
     def test_events_merges_private_and_shared_with_dedup(self) -> None:
-        """events() merges private and shared results and deduplicates them."""
-        # Same event appears in both scopes (defensive dedup). Both passes
-        # should yield distinct (scope, event_id) keys.
-        first_resp = self._events_query_response()
-        # Build a shared-scope response with overlapping records.
-        second_resp = self._events_query_response()
+        """events() merges private and shared results and deduplicates them.
+
+        The two scopes are read by different mechanisms: private is one
+        zone-wide query, while shared has to be enumerated zone by zone.
+        """
+        query_mock = MagicMock(return_value=self._events_query_response())
+        changes_mock = MagicMock(return_value=iter(self._shared_zone_changes()))
+        self._monkeypatch.setattr(self.service.raw, "query", query_mock)
         self._monkeypatch.setattr(
             self.service.raw,
-            "query",
-            MagicMock(side_effect=[first_resp, second_resp]),
+            "zones_list",
+            MagicMock(return_value=self._shared_zone_list()),
         )
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes_mock)
 
         events = self.service.events()
 
@@ -265,6 +315,215 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(len(events), 4)
         keys = {(e.scope, e.event_id) for e in events}
         self.assertEqual(len(keys), 4)
+
+    def test_shared_events_are_never_read_with_a_zone_wide_query(self) -> None:
+        """CloudKit rejects zone-wide queries against the shared database.
+
+        The previous implementation issued one anyway, which made events()
+        raise on every account. The old test could not catch that because it
+        mocked the query as succeeding, which the real API never does.
+        """
+        query_mock = MagicMock(return_value=self._events_query_response())
+        self._monkeypatch.setattr(self.service.raw, "query", query_mock)
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(return_value=self._shared_zone_list()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter(self._shared_zone_changes())),
+        )
+
+        self.service.events()
+
+        scopes_queried = [call.args[0] for call in query_mock.call_args_list]
+        self.assertEqual(scopes_queried, ["private"])
+        self.assertTrue(
+            all(call.kwargs.get("zone_wide") for call in query_mock.call_args_list)
+        )
+
+    def test_a_shared_zone_is_read_to_its_last_page(self) -> None:
+        """A zone with more behind it must not lose the later pages.
+
+        `changes()` returns one page. Taking only that page dropped events with
+        no sign anything was missing, and a live account with a single small
+        share could never surface it -- `moreComing` is simply false there.
+        """
+        first_records = load_invites_fixture("events_query_response.json")["records"]
+        second = dict(first_records[0])
+        second["recordName"] = "EventDetails:PAGE-TWO-EVENT"
+        pages = [
+            self._shared_zone_page(first_records, more_coming=True),
+            self._shared_zone_page([second]),
+        ]
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=CKQueryResponse.model_validate({"records": []})),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(return_value=self._shared_zone_list()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "iter_changes", MagicMock(return_value=iter(pages))
+        )
+
+        events = self.service.events()
+
+        # Two from the first page, one from the second.
+        self.assertEqual(len(events), 3)
+        self.assertIn("PAGE-TWO-EVENT", {event.event_id for event in events})
+
+    def test_one_unreadable_shared_zone_does_not_hide_the_others(self) -> None:
+        """A share we cannot read must not take down the whole listing."""
+        two_zones = CKZoneListResponse.model_validate({
+            "zones": [
+                {"zoneID": {"zoneName": "BROKEN-ZONE", "ownerRecordName": "_o"}},
+                {
+                    "zoneID": {
+                        "zoneName": "SHARED-ZONE-FIXTURE",
+                        "ownerRecordName": "_shared-owner",
+                    }
+                },
+            ]
+        })
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=CKQueryResponse.model_validate({"records": []})),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "zones_list", MagicMock(return_value=two_zones)
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(
+                side_effect=[
+                    InvitesApiError("boom"),
+                    iter(self._shared_zone_changes()),
+                ]
+            ),
+        )
+
+        events = self.service.events()
+
+        self.assertEqual(len(events), 2)
+        self.assertTrue(all(e.scope is EventScope.SHARED for e in events))
+
+    def test_a_shared_zone_is_addressed_with_its_owner(self) -> None:
+        """A shared zone is only addressable with its original owner.
+
+        Without ownerRecordName the lookup finds nothing, so event() raised
+        EventNotFound for a shared event that events() had just returned.
+        """
+        zones_mock = MagicMock(return_value=self._shared_zone_list())
+        self._monkeypatch.setattr(self.service.raw, "zones_list", zones_mock)
+
+        zone_id = self.service._zone_id_req("SHARED-ZONE-FIXTURE", EventScope.SHARED)
+
+        self.assertEqual(zone_id.zoneName, "SHARED-ZONE-FIXTURE")
+        self.assertEqual(zone_id.ownerRecordName, "_shared-owner")
+
+    def test_a_private_zone_needs_no_owner_and_no_extra_request(self) -> None:
+        """The private scope must not pay for a zone listing it does not need."""
+        zones_mock = MagicMock(return_value=self._shared_zone_list())
+        self._monkeypatch.setattr(self.service.raw, "zones_list", zones_mock)
+
+        zone_id = self.service._zone_id_req("EVENT-AAAA", EventScope.PRIVATE)
+
+        self.assertEqual(zone_id.zoneName, "EVENT-AAAA")
+        self.assertIsNone(zone_id.ownerRecordName)
+        zones_mock.assert_not_called()
+
+    def test_an_unknown_shared_zone_falls_back_to_no_owner(self) -> None:
+        """A zone we cannot resolve must not raise out of zone construction."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(side_effect=InvitesApiError("nope")),
+        )
+
+        zone_id = self.service._zone_id_req("MISSING-ZONE", EventScope.SHARED)
+
+        self.assertEqual(zone_id.zoneName, "MISSING-ZONE")
+        self.assertIsNone(zone_id.ownerRecordName)
+
+    def test_a_status_code_maps_the_same_as_a_string_or_an_int(self) -> None:
+        """`PyiCloudAPIResponseException.code` is typed `int | str | None`.
+
+        A string "401" compared against the int statuses would fall through to
+        a generic error, so an expired session would look like a server fault.
+        """
+        cases: list[tuple[object, type[Exception]]] = [
+            (401, InvitesAuthError),
+            ("401", InvitesAuthError),
+            (403, InvitesAuthError),
+            (429, InvitesRateLimited),
+            ("429", InvitesRateLimited),
+            (500, InvitesApiError),
+            ("not-a-number", InvitesApiError),
+            (None, InvitesApiError),
+        ]
+        for code, expected in cases:
+            with self.subTest(code=code), self.assertRaises(expected):
+                CloudKitInvitesClient._raise_invites_error(
+                    PyiCloudAPIResponseException("boom", code)  # type: ignore[arg-type]
+                )
+
+    def test_a_transport_error_reaches_callers_as_an_invites_error(self) -> None:
+        """The session raises before CloudKitHttp can map the status code.
+
+        PyiCloudSession raises PyiCloudAPIResponseException on a non-ok JSON
+        response, so CloudKitHttp.post() never sees the 4xx it is written to
+        translate. Without mapping it at the invites boundary, the service's
+        own `except InvitesError` guards silently do not fire -- which is how a
+        400 from the shared database escaped events() entirely.
+        """
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=self._events_query_response()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw._private,
+            "zones_list",
+            MagicMock(side_effect=PyiCloudAPIResponseException("Bad Request", 400)),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw._shared,
+            "zones_list",
+            MagicMock(side_effect=PyiCloudAPIResponseException("Bad Request", 400)),
+        )
+
+        with self.assertRaises(InvitesApiError):
+            self.service.raw.zones_list("shared")
+
+        # And the service degrades rather than propagating it.
+        events = self.service.events()
+        self.assertEqual(len(events), 2)
+
+    def test_a_failing_zone_list_yields_no_shared_events(self) -> None:
+        """The shared scope degrades to empty rather than raising."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=self._events_query_response()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(side_effect=InvitesApiError("nope")),
+        )
+
+        events = self.service.events()
+
+        self.assertEqual(len(events), 2)
+        self.assertTrue(all(e.scope is EventScope.PRIVATE for e in events))
 
     def test_event_full_lookup_includes_share_and_rsvps(self) -> None:
         """A full event lookup returns share and RSVP details."""

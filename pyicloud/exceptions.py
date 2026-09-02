@@ -4,6 +4,10 @@ from typing import Any
 
 from requests import Response
 
+# Apple answers a withdrawn endpoint with 410 rather than 404, which makes it an
+# unambiguous signal: the resource is permanently gone, not merely absent.
+HTTP_GONE: int = 410
+
 
 class PyiCloudException(Exception):
     """Generic iCloud exception."""
@@ -47,6 +51,44 @@ class PyiCloudAPIResponseException(PyiCloudException):
 
 class PyiCloudServiceNotActivatedException(PyiCloudAPIResponseException):
     """iCloud service not activated exception."""
+
+
+class PyiCloudEndpointGoneException(PyiCloudAPIResponseException):
+    """Raised when Apple reports an endpoint as permanently gone (HTTP 410).
+
+    Apple withdraws endpoints without notice, and has done so more than once.
+    A 410 means the endpoint this library calls no longer exists, so it signals
+    that pyicloud needs updating rather than that the caller's request,
+    credentials, or session were wrong.
+
+    Distinguishing it matters because the alternative is expensive: when the
+    Photos upload endpoint was withdrawn it surfaced as a generic response
+    error, and the reporter ruled out a stale session, an outdated client, a
+    missing PCS handshake, the wrong dsid, and the wrong partition before
+    concluding the endpoint itself had gone.
+
+    ``endpoint`` is a redacted host-and-path label safe to quote in a bug
+    report; the full URL and the response body are available on ``response``
+    when one was captured.
+    """
+
+    def __init__(self, endpoint: str, response: Response | None = None) -> None:
+        """Describe a withdrawn endpoint and point at the issue tracker."""
+        self.endpoint: str = endpoint
+        super().__init__(
+            f"Apple no longer serves {endpoint}. This endpoint appears to have "
+            "been withdrawn, which means pyicloud needs updating rather than "
+            "that your request was wrong. Please report it at "
+            "https://github.com/timlaing/pyicloud/issues and quote this endpoint",
+            HTTP_GONE,
+        )
+        # The response is deliberately withheld from the parent, which would
+        # append ``response.text`` to the message. This message exists to be
+        # pasted into a public issue, and Apple's error bodies can carry the
+        # dsid and session identifiers that ``endpoint`` was redacted to keep
+        # out of it. Attaching it here keeps the body reachable for debugging
+        # without folding it into quotable text.
+        self.response = response
 
 
 # Login
