@@ -949,6 +949,113 @@ def test_get_webservice_url_failure(pyicloud_service: PyiCloudService) -> None:
         pyicloud_service.get_webservice_url("invalid_key")
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        # The shape a live account actually returns for `schoolwork`.
+        pytest.param({}, id="empty-entry"),
+        pytest.param({"url": None}, id="null-url"),
+        pytest.param({"url": ""}, id="empty-url"),
+        pytest.param({"url": "   "}, id="blank-url"),
+        pytest.param({"status": "active"}, id="status-but-no-url"),
+    ],
+)
+def test_get_webservice_url_rejects_an_entry_without_a_url(
+    pyicloud_service: PyiCloudService, entry: dict[str, Any]
+) -> None:
+    """An advertised key with no usable url must not raise a bare KeyError.
+
+    Apple advertises `schoolwork: {}` on real accounts. Indexing ["url"] there
+    raised KeyError('url'), which is not a PyiCloudException, so callers could
+    not catch it alongside the not-activated case it is equivalent to.
+    """
+
+    pyicloud_service._webservices = {"schoolwork": entry}
+
+    with pytest.raises(PyiCloudServiceNotActivatedException) as excinfo:
+        pyicloud_service.get_webservice_url("schoolwork")
+
+    message = str(excinfo.value)
+    assert "schoolwork" in message
+    assert "without a usable url" in message
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param("https://p51-schoolwork.icloud.com", id="entry-is-a-string"),
+        pytest.param([], id="entry-is-a-list"),
+        pytest.param(42, id="entry-is-a-number"),
+        pytest.param(True, id="entry-is-a-bool"),
+    ],
+)
+def test_get_webservice_url_rejects_an_entry_that_is_not_a_mapping(
+    pyicloud_service: PyiCloudService, entry: Any
+) -> None:
+    """A malformed entry must not escape as an AttributeError.
+
+    The map is Apple's JSON and the `webservices` setter takes it unvalidated,
+    so the annotation is not a guarantee. `.get` on a non-mapping raised
+    AttributeError, which callers catching this library's own errors miss --
+    the same failure mode as the KeyError this exception replaced.
+    """
+
+    pyicloud_service._webservices = {"schoolwork": entry}
+
+    with pytest.raises(PyiCloudServiceNotActivatedException):
+        pyicloud_service.get_webservice_url("schoolwork")
+
+
+@pytest.mark.parametrize(
+    "webservices",
+    [
+        pytest.param("not-a-map", id="map-is-a-string"),
+        pytest.param(["drivews"], id="map-is-a-list"),
+        pytest.param(0, id="map-is-a-number"),
+    ],
+)
+def test_get_webservice_url_rejects_a_map_that_is_not_a_mapping(
+    pyicloud_service: PyiCloudService, webservices: Any
+) -> None:
+    """The same guard applies one level up, where the setter can also be fed."""
+
+    pyicloud_service._webservices = webservices
+
+    with pytest.raises(PyiCloudServiceNotActivatedException):
+        pyicloud_service.get_webservice_url("drivews")
+
+
+def test_get_webservice_url_distinguishes_absent_from_malformed(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Both raise the same type, but the message says which happened.
+
+    The distinction is upstream state worth quoting in a bug report: Apple not
+    advertising a key at all is a different event from advertising it broken.
+    """
+
+    pyicloud_service._webservices = {"schoolwork": {}}
+
+    with pytest.raises(PyiCloudServiceNotActivatedException) as malformed:
+        pyicloud_service.get_webservice_url("schoolwork")
+    with pytest.raises(PyiCloudServiceNotActivatedException) as absent:
+        pyicloud_service.get_webservice_url("never-advertised")
+
+    assert "without a usable url" in str(malformed.value)
+    assert "without a usable url" not in str(absent.value)
+
+
+def test_get_webservice_url_without_any_map(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Resolving before authentication reports the service as unavailable."""
+
+    pyicloud_service._webservices = None
+
+    with pytest.raises(PyiCloudServiceNotActivatedException):
+        pyicloud_service.get_webservice_url("drivews")
+
+
 def test_trust_session_success(pyicloud_service: PyiCloudService) -> None:
     """Test the trust_session method with a successful response."""
 
