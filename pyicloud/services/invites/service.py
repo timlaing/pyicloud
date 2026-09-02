@@ -33,6 +33,7 @@ from pyicloud.common.cloudkit import (
     CKRecord,
     CKWriteFields,
     CKWriteRecord,
+    CKZoneChangesZoneReq,
     CKZoneIDReq,
 )
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
@@ -356,15 +357,36 @@ class InvitesService(BaseService):
             return record_name[len(EVENT_DETAILS_RECORD_NAME_PREFIX) :]
         return record_name
 
-    @staticmethod
-    def _zone_id_req(event_id: str, _scope: EventScope) -> CKZoneIDReq:
-        # In the shared scope CloudKit needs the original owner record name,
-        # but we don't always have it here. Most call sites work with just
-        # zoneName + zoneType; expand if shared writes need ownerRecordName.
+    def _zone_id_req(self, event_id: str, scope: EventScope) -> CKZoneIDReq:
+        """Build the zone reference for an event.
+
+        A shared zone is only addressable with its original owner, so without
+        ownerRecordName a shared lookup finds nothing and the caller sees
+        EventNotFound for an event ``events()`` just returned. The owner comes
+        from the shared /zones/list entry whose zoneName is the event id.
+        """
+
+        owner = (
+            self._shared_zone_owner(event_id) if scope is EventScope.SHARED else None
+        )
         return CKZoneIDReq(
             zoneName=event_id,
             zoneType="REGULAR_CUSTOM_ZONE",
+            ownerRecordName=owner,
         )
+
+    def _shared_zone_owner(self, event_id: str) -> str | None:
+        """Return the owner of the shared zone holding ``event_id``, if any."""
+
+        try:
+            zones = self._raw.zones_list(self._scope_str(EventScope.SHARED)).zones or []
+        except InvitesError:
+            LOGGER.debug("invites.shared_zone_owner_failed", exc_info=True)
+            return None
+        for zone in zones:
+            if zone.zoneID.zoneName == event_id:
+                return zone.zoneID.ownerRecordName
+        return None
 
     @staticmethod
     def _records_of(
@@ -373,6 +395,9 @@ class InvitesService(BaseService):
         return [r for r in resp.records if isinstance(r, CKRecord)]
 
     def _iter_event_details(self, scope: EventScope) -> Iterable[CKRecord]:
+        if scope is EventScope.SHARED:
+            return self._shared_event_details()
+
         try:
             resp = self._raw.query(
                 self._scope_str(scope),
@@ -387,6 +412,50 @@ class InvitesService(BaseService):
             )
             return []
         return self._records_of(resp)
+
+    def _shared_event_details(self) -> list[CKRecord]:
+        """Enumerate shared events one zone at a time.
+
+        CloudKit refuses a zone-wide query against the shared database --
+        "SharedDB does not support Zone Wide queries" -- so the shared scope is
+        read by listing the zones shared with this account and taking the
+        records of each. A zone that fails is skipped rather than failing the
+        whole call, since one unreadable share should not hide the others.
+        """
+
+        scope_str = self._scope_str(EventScope.SHARED)
+        try:
+            zones = self._raw.zones_list(scope_str).zones or []
+        except InvitesError:
+            LOGGER.debug("invites.events.zones_list_failed", exc_info=True)
+            return []
+
+        wanted = InvitesRecordType.EventDetails.value
+        records: list[CKRecord] = []
+        for zone in zones:
+            try:
+                # Every page, not just the first: a zone with more behind it
+                # would otherwise drop events with no sign anything was lost.
+                pages = list(
+                    self._raw.iter_changes(
+                        scope_str,
+                        zone_req=CKZoneChangesZoneReq(zoneID=zone.zoneID),
+                    )
+                )
+            except InvitesError:
+                LOGGER.debug(
+                    "invites.events.zone_changes_failed zone=%s",
+                    zone.zoneID.zoneName,
+                    exc_info=True,
+                )
+                continue
+            records.extend(
+                record
+                for page in pages
+                for record in page.records
+                if isinstance(record, CKRecord) and record.recordType == wanted
+            )
+        return records
 
     def _fetch_event_full(self, event_id: str, scope: EventScope) -> Event | None:
         zone_id = self._zone_id_req(event_id, scope)

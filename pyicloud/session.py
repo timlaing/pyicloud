@@ -6,6 +6,7 @@ import os
 from os import path
 from re import match
 from typing import TYPE_CHECKING, Any, NoReturn, cast
+from urllib.parse import urlsplit
 
 import requests
 from requests.models import Response
@@ -22,10 +23,12 @@ from pyicloud.const import (
 )
 from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
+    HTTP_GONE,
     PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
+    PyiCloudEndpointGoneException,
     PyiCloudServiceNotActivatedException,
 )
 
@@ -53,6 +56,25 @@ NON_PERSISTED_SESSION_KEYS = frozenset({
     "topics_by_hash",
     "txnid",
 })
+
+
+def describe_endpoint(url: str | bytes) -> str:
+    """Return a host-and-path label for ``url``, safe to quote in a bug report.
+
+    Drops the query string, which carries the dsid and client identifiers, and
+    masks long numeric path segments, since Apple's content hosts put the dsid
+    in the path rather than the query.
+    """
+
+    text: str = url.decode("utf-8", "replace") if isinstance(url, bytes) else str(url)
+    parts = urlsplit(text)
+    segments: list[str] = [
+        "<id>" if segment.isdigit() and len(segment) >= 6 else segment
+        for segment in parts.path.split("/")
+    ]
+    host: str = parts.netloc.split("@")[-1]
+    route: str = "/".join(segments)
+    return f"{host}{route}" if host else route
 
 
 class PyiCloudSession(requests.Session):
@@ -310,6 +332,12 @@ class PyiCloudSession(requests.Session):
             self._save_session_data()
 
             status_code: int = int(response.status_code)
+
+            # Checked before the JSON/auth branching below, so a withdrawn
+            # endpoint is reported the same way whether or not Apple bothers to
+            # send a JSON body with it.
+            if status_code == HTTP_GONE:
+                raise PyiCloudEndpointGoneException(describe_endpoint(url), response)
 
             if not response.ok and (
                 self._is_json_response(response)
