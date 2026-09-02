@@ -434,9 +434,13 @@ class InvitesService(BaseService):
         records: list[CKRecord] = []
         for zone in zones:
             try:
-                resp = self._raw.changes(
-                    scope_str,
-                    zone_req=CKZoneChangesZoneReq(zoneID=zone.zoneID),
+                # Every page, not just the first: a zone with more behind it
+                # would otherwise drop events with no sign anything was lost.
+                pages = list(
+                    self._raw.iter_changes(
+                        scope_str,
+                        zone_req=CKZoneChangesZoneReq(zoneID=zone.zoneID),
+                    )
                 )
             except InvitesError:
                 LOGGER.debug(
@@ -447,8 +451,8 @@ class InvitesService(BaseService):
                 continue
             records.extend(
                 record
-                for changed in resp.zones
-                for record in changed.records
+                for page in pages
+                for record in page.records
                 if isinstance(record, CKRecord) and record.recordType == wanted
             )
         return records

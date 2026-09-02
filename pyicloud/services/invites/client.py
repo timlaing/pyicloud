@@ -22,7 +22,7 @@ client; see the Invites design doc.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 import logging
 from typing import Any, Literal, NoReturn, cast
 from urllib.parse import urlencode
@@ -34,6 +34,7 @@ from pyicloud.common.cloudkit import (
     CKQueryObject,
     CKQueryResponse,
     CKZoneChangesResponse,
+    CKZoneChangesZone,
     CKZoneChangesZoneReq,
     CKZoneIDReq,
     CKZoneListResponse,
@@ -51,6 +52,21 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = (10.0, 60.0)
 _UNAUTHORIZED_STATUSES = (401, 403)
 _RATE_LIMITED_STATUS = 429
+
+
+def _status_of(exc: PyiCloudAPIResponseException) -> int | None:
+    """Return the exception's status as an int, whichever form it arrived in.
+
+    ``PyiCloudAPIResponseException.code`` is typed ``int | str | None``, and a
+    string ``"401"`` compared against the int statuses below would silently
+    fall through to a generic error instead of an auth one.
+    """
+
+    try:
+        return int(exc.code) if exc.code is not None else None
+    except (TypeError, ValueError):
+        return None
+
 
 ScopeLiteral = Literal["private", "shared"]
 
@@ -148,9 +164,10 @@ class CloudKitInvitesClient:
             # response first, so the transport error arrives here untranslated
             # and callers catching InvitesError never see it. Map it the same
             # way the HTTP layer would have.
-            if exc.code in _UNAUTHORIZED_STATUSES:
+            status = _status_of(exc)
+            if status in _UNAUTHORIZED_STATUSES:
                 raise InvitesAuthError(str(exc)) from cause
-            if exc.code == _RATE_LIMITED_STATUS:
+            if status == _RATE_LIMITED_STATUS:
                 raise InvitesRateLimited(str(exc)) from cause
             raise InvitesApiError(str(exc)) from cause
         raise exc
@@ -165,6 +182,31 @@ class CloudKitInvitesClient:
         """
         try:
             return self._client_for(scope).zones_list()
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    def iter_changes(
+        self,
+        scope: ScopeLiteral,
+        *,
+        zone_req: CKZoneChangesZoneReq,
+        results_limit: int | None = None,
+    ) -> Iterator[CKZoneChangesZone]:
+        """Yield every page of a zone's changes, not only the first.
+
+        ``changes()`` returns one page. A zone with ``moreComing`` set has more
+        behind it, and taking only the first page silently drops records.
+        """
+        try:
+            yield from self._client_for(scope).iter_changes(
+                zone_req=zone_req,
+                results_limit=results_limit,
+            )
         except (
             CloudKitApiError,
             CloudKitAuthError,

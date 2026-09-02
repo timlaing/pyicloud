@@ -18,7 +18,7 @@ from pyicloud.common.cloudkit import (
     CKLookupResponse,
     CKModifyResponse,
     CKQueryResponse,
-    CKZoneChangesResponse,
+    CKZoneChangesZone,
     CKZoneListResponse,
 )
 from pyicloud.exceptions import PyiCloudAPIResponseException
@@ -34,7 +34,12 @@ from pyicloud.services.invites import (
     Rsvp,
     RsvpStatus,
 )
-from pyicloud.services.invites.client import InvitesApiError
+from pyicloud.services.invites.client import (
+    CloudKitInvitesClient,
+    InvitesApiError,
+    InvitesAuthError,
+    InvitesRateLimited,
+)
 from pyicloud.services.invites.codecs import (
     decode_integrations,
     decode_json_bytes,
@@ -204,21 +209,26 @@ class InvitesServiceTest(unittest.TestCase):
         })
 
     @staticmethod
-    def _shared_zone_changes() -> CKZoneChangesResponse:
-        """The shared zone's records, reusing the event fixture's records."""
-        records = load_invites_fixture("events_query_response.json")["records"]
-        return CKZoneChangesResponse.model_validate({
-            "zones": [
-                {
-                    "zoneID": {
-                        "zoneName": "SHARED-ZONE-FIXTURE",
-                        "ownerRecordName": "_shared-owner",
-                    },
-                    "records": records,
-                    "syncToken": "FIXTURE-SYNC-TOKEN",
-                }
-            ]
+    def _shared_zone_page(
+        records: list[Any] | None = None, *, more_coming: bool = False
+    ) -> CKZoneChangesZone:
+        """One page of a shared zone's changes."""
+        if records is None:
+            records = load_invites_fixture("events_query_response.json")["records"]
+        return CKZoneChangesZone.model_validate({
+            "zoneID": {
+                "zoneName": "SHARED-ZONE-FIXTURE",
+                "ownerRecordName": "_shared-owner",
+            },
+            "records": records,
+            "moreComing": more_coming,
+            "syncToken": "FIXTURE-SYNC-TOKEN",
         })
+
+    @classmethod
+    def _shared_zone_changes(cls) -> list[CKZoneChangesZone]:
+        """A single-page shared zone, as iter_changes yields it."""
+        return [cls._shared_zone_page()]
 
     def test_events_returns_dtos_from_private_query(self) -> None:
         """events() returns DTOs populated from the private-scope query."""
@@ -290,14 +300,14 @@ class InvitesServiceTest(unittest.TestCase):
         zone-wide query, while shared has to be enumerated zone by zone.
         """
         query_mock = MagicMock(return_value=self._events_query_response())
-        changes_mock = MagicMock(return_value=self._shared_zone_changes())
+        changes_mock = MagicMock(return_value=iter(self._shared_zone_changes()))
         self._monkeypatch.setattr(self.service.raw, "query", query_mock)
         self._monkeypatch.setattr(
             self.service.raw,
             "zones_list",
             MagicMock(return_value=self._shared_zone_list()),
         )
-        self._monkeypatch.setattr(self.service.raw, "changes", changes_mock)
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes_mock)
 
         events = self.service.events()
 
@@ -322,8 +332,8 @@ class InvitesServiceTest(unittest.TestCase):
         )
         self._monkeypatch.setattr(
             self.service.raw,
-            "changes",
-            MagicMock(return_value=self._shared_zone_changes()),
+            "iter_changes",
+            MagicMock(return_value=iter(self._shared_zone_changes())),
         )
 
         self.service.events()
@@ -333,6 +343,40 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertTrue(
             all(call.kwargs.get("zone_wide") for call in query_mock.call_args_list)
         )
+
+    def test_a_shared_zone_is_read_to_its_last_page(self) -> None:
+        """A zone with more behind it must not lose the later pages.
+
+        `changes()` returns one page. Taking only that page dropped events with
+        no sign anything was missing, and a live account with a single small
+        share could never surface it -- `moreComing` is simply false there.
+        """
+        first_records = load_invites_fixture("events_query_response.json")["records"]
+        second = dict(first_records[0])
+        second["recordName"] = "EventDetails:PAGE-TWO-EVENT"
+        pages = [
+            self._shared_zone_page(first_records, more_coming=True),
+            self._shared_zone_page([second]),
+        ]
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "query",
+            MagicMock(return_value=CKQueryResponse.model_validate({"records": []})),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "zones_list",
+            MagicMock(return_value=self._shared_zone_list()),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "iter_changes", MagicMock(return_value=iter(pages))
+        )
+
+        events = self.service.events()
+
+        # Two from the first page, one from the second.
+        self.assertEqual(len(events), 3)
+        self.assertIn("PAGE-TWO-EVENT", {event.event_id for event in events})
 
     def test_one_unreadable_shared_zone_does_not_hide_the_others(self) -> None:
         """A share we cannot read must not take down the whole listing."""
@@ -357,11 +401,11 @@ class InvitesServiceTest(unittest.TestCase):
         )
         self._monkeypatch.setattr(
             self.service.raw,
-            "changes",
+            "iter_changes",
             MagicMock(
                 side_effect=[
                     InvitesApiError("boom"),
-                    self._shared_zone_changes(),
+                    iter(self._shared_zone_changes()),
                 ]
             ),
         )
@@ -408,6 +452,28 @@ class InvitesServiceTest(unittest.TestCase):
 
         self.assertEqual(zone_id.zoneName, "MISSING-ZONE")
         self.assertIsNone(zone_id.ownerRecordName)
+
+    def test_a_status_code_maps_the_same_as_a_string_or_an_int(self) -> None:
+        """`PyiCloudAPIResponseException.code` is typed `int | str | None`.
+
+        A string "401" compared against the int statuses would fall through to
+        a generic error, so an expired session would look like a server fault.
+        """
+        cases: list[tuple[object, type[Exception]]] = [
+            (401, InvitesAuthError),
+            ("401", InvitesAuthError),
+            (403, InvitesAuthError),
+            (429, InvitesRateLimited),
+            ("429", InvitesRateLimited),
+            (500, InvitesApiError),
+            ("not-a-number", InvitesApiError),
+            (None, InvitesApiError),
+        ]
+        for code, expected in cases:
+            with self.subTest(code=code), self.assertRaises(expected):
+                CloudKitInvitesClient._raise_invites_error(
+                    PyiCloudAPIResponseException("boom", code)  # type: ignore[arg-type]
+                )
 
     def test_a_transport_error_reaches_callers_as_an_invites_error(self) -> None:
         """The session raises before CloudKitHttp can map the status code.
