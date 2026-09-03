@@ -1,12 +1,11 @@
 """Base service."""
 
-from abc import ABC
 from typing import Any
 
 from pyicloud.session import PyiCloudSession
 
 
-class BaseService(ABC):
+class BaseService:
     """The base iCloud service."""
 
     def __init__(

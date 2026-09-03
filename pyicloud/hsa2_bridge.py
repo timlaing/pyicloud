@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable, Mapping
+from contextlib import suppress
+from dataclasses import dataclass, field
 import hashlib
+from html.parser import HTMLParser
 import json
 import logging
 import os
@@ -11,12 +15,9 @@ import socket
 import ssl
 import struct
 import time
-import uuid
-from binascii import Error as BinasciiError
-from dataclasses import dataclass, field
-from html.parser import HTMLParser
-from typing import Any, Callable, Mapping, Optional, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import urlparse
+import uuid
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -75,16 +76,32 @@ class Hsa2BootContext:
     auth_factors: tuple[str, ...] = ()
     bridge_initiate_data: dict[str, Any] = field(default_factory=dict)
     phone_number_verification: dict[str, Any] = field(default_factory=dict)
-    source_app_id: Optional[str] = None
+    source_app_id: str | None = None
 
     @classmethod
-    def from_auth_options(cls, auth_options: Mapping[str, Any]) -> "Hsa2BootContext":
-        """Build a normalized boot context from Apple's auth-options payload."""
-        bridge_initiate_data = auth_options.get("bridgeInitiateData")
+    def from_auth_options(cls, auth_options: Mapping[str, Any]) -> Hsa2BootContext:
+        """Build a normalized boot context from Apple's auth-options payload.
+
+        Apple's JSON response may nest the boot data under ``direct.twoSV``
+        (the same shape as the HTML ``boot_args`` payload) or expose it at
+        the top level.  This method accepts both shapes and normalises them
+        so that callers always see the top-level keys.
+        """
+
+        direct = auth_options.get("direct")
+        direct_options: Mapping[str, Any] = auth_options
+        two_sv_options: Mapping[str, Any] = auth_options
+        if isinstance(direct, Mapping):
+            direct_options = direct
+            two_sv = direct.get("twoSV")
+            if isinstance(two_sv, Mapping):
+                two_sv_options = two_sv
+
+        bridge_initiate_data = two_sv_options.get("bridgeInitiateData")
         if not isinstance(bridge_initiate_data, dict):
             bridge_initiate_data = {}
 
-        phone_number_verification = auth_options.get("phoneNumberVerification")
+        phone_number_verification = two_sv_options.get("phoneNumberVerification")
         if not isinstance(phone_number_verification, dict):
             phone_number_verification = bridge_initiate_data.get(
                 "phoneNumberVerification"
@@ -92,17 +109,17 @@ class Hsa2BootContext:
         if not isinstance(phone_number_verification, dict):
             phone_number_verification = {}
 
-        auth_factors = auth_options.get("authFactors")
+        auth_factors = two_sv_options.get("authFactors")
         if not isinstance(auth_factors, list):
             auth_factors = []
 
-        source_app_id = auth_options.get("sourceAppId")
+        source_app_id = two_sv_options.get("sourceAppId")
         if source_app_id is not None:
             source_app_id = str(source_app_id)
 
         return cls(
-            auth_initial_route=str(auth_options.get("authInitialRoute") or ""),
-            has_trusted_devices=bool(auth_options.get("hasTrustedDevices")),
+            auth_initial_route=str(direct_options.get("authInitialRoute") or ""),
+            has_trusted_devices=bool(direct_options.get("hasTrustedDevices")),
             auth_factors=tuple(
                 factor for factor in auth_factors if isinstance(factor, str)
             ),
@@ -143,22 +160,22 @@ class _BridgePushPayloadModel(BaseModel):
     )
 
     # Apple's newer protocol sends flowid instead of echoing back sessionUUID
-    session_uuid: Optional[StrictStr] = Field(default=None, alias="sessionUUID")
-    flow_id: Optional[StrictStr] = Field(default=None, alias="flowid")
-    next_step: Optional[StrictStr | StrictInt] = Field(default=None, alias="nextStep")
-    rui_url_key: Optional[str] = Field(default=None, alias="ruiURLKey")
-    txnid: Optional[StrictStr] = None
-    salt: Optional[StrictStr] = None
-    mid: Optional[StrictStr] = None
-    idmsdata: Optional[StrictStr] = None
+    session_uuid: StrictStr | None = Field(default=None, alias="sessionUUID")
+    flow_id: StrictStr | None = Field(default=None, alias="flowid")
+    next_step: StrictStr | StrictInt | None = Field(default=None, alias="nextStep")
+    rui_url_key: str | None = Field(default=None, alias="ruiURLKey")
+    txnid: StrictStr | None = None
+    salt: StrictStr | None = None
+    mid: StrictStr | None = None
+    idmsdata: StrictStr | None = None
     akdata: Any = None
-    data: Optional[StrictStr] = None
-    encrypted_code: Optional[StrictStr] = Field(default=None, alias="encryptedCode")
-    error_code: Optional[StrictInt] = Field(default=None, alias="ec")
+    data: StrictStr | None = None
+    encrypted_code: StrictStr | None = Field(default=None, alias="encryptedCode")
+    error_code: StrictInt | None = Field(default=None, alias="ec")
 
     @field_validator("session_uuid", "flow_id")
     @classmethod
-    def _validate_session_uuid(cls, value: Optional[str]) -> Optional[str]:
+    def _validate_session_uuid(cls, value: str | None) -> str | None:
         """Reject blank bridge session identifiers."""
         if value is not None and not value.strip():
             raise ValueError("sessionUUID/flowid must not be blank")
@@ -173,9 +190,7 @@ class _BridgePushPayloadModel(BaseModel):
         "encrypted_code",
     )
     @classmethod
-    def _validate_optional_non_empty_strings(
-        cls, value: Optional[str]
-    ) -> Optional[str]:
+    def _validate_optional_non_empty_strings(cls, value: str | None) -> str | None:
         """Reject present-but-blank optional bridge string fields."""
         if value is not None and not value.strip():
             raise ValueError("Bridge payload strings must not be blank")
@@ -183,7 +198,7 @@ class _BridgePushPayloadModel(BaseModel):
 
     @field_validator("next_step")
     @classmethod
-    def _validate_next_step(cls, value: Optional[str | int]) -> Optional[str | int]:
+    def _validate_next_step(cls, value: str | int | None) -> str | int | None:
         """Reject blank next-step markers while allowing ints or strings."""
         if isinstance(value, str) and not value.strip():
             raise ValueError("nextStep must not be blank")
@@ -196,19 +211,19 @@ class BridgePushPayload:
 
     payload: dict[str, Any]
     session_uuid: str
-    next_step: Optional[str] = None
-    rui_url_key: Optional[str] = None
-    txnid: Optional[str] = None
-    salt: Optional[str] = None
-    mid: Optional[str] = None
-    idmsdata: Optional[str] = None
+    next_step: str | None = None
+    rui_url_key: str | None = None
+    txnid: str | None = None
+    salt: str | None = None
+    mid: str | None = None
+    idmsdata: str | None = None
     akdata: Any = None
-    data: Optional[str] = None
-    encrypted_code: Optional[str] = None
-    error_code: Optional[int] = None
+    data: str | None = None
+    encrypted_code: str | None = None
+    error_code: int | None = None
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "BridgePushPayload":
+    def from_payload(cls, payload: dict[str, Any]) -> BridgePushPayload:
         """Validate and normalize one decoded bridge push payload."""
         try:
             validated = _BridgePushPayloadModel.model_validate(payload)
@@ -249,21 +264,21 @@ class TrustedDeviceBridgeState:
     connection_path: str
     push_token: str
     session_uuid: str
-    websocket: Optional[_WebSocketLike]
+    websocket: _WebSocketLike | None
     topic: str
     topics_by_hash: dict[str, str]
-    source_app_id: Optional[str] = None
-    next_step: Optional[str] = None
-    rui_url_key: Optional[str] = None
+    source_app_id: str | None = None
+    next_step: str | None = None
+    rui_url_key: str | None = None
     push_payload: dict[str, Any] = field(default_factory=dict)
-    txnid: Optional[str] = None
-    salt: Optional[str] = None
-    mid: Optional[str] = None
-    idmsdata: Optional[str] = None
+    txnid: str | None = None
+    salt: str | None = None
+    mid: str | None = None
+    idmsdata: str | None = None
     akdata: Any = None
-    data: Optional[str] = None
-    encrypted_code: Optional[str] = None
-    error_code: Optional[int] = None
+    data: str | None = None
+    encrypted_code: str | None = None
+    error_code: int | None = None
 
     def apply_push_payload(self, push_payload: BridgePushPayload) -> None:
         """Persist the latest bridge push metadata in the live bridge session."""
@@ -296,7 +311,7 @@ class BridgeStepRequest:
     data: str
     push_token: str
     next_step: int
-    idmsdata: Optional[str] = None
+    idmsdata: str | None = None
     akdata: Any = None
 
     def as_json(self) -> dict[str, Any]:
@@ -339,7 +354,7 @@ class _ConnectionResponse:
 
     push_token_b64: str = ""
     status: int = 0
-    server_timestamp_seconds: Optional[int] = None
+    server_timestamp_seconds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -374,10 +389,10 @@ class _AcknowledgementMessage:
 class _ServerMessage:
     """One websocket frame decoded into its known top-level message variants."""
 
-    connection_response: Optional[_ConnectionResponse] = None
-    push_message: Optional[_PushMessage] = None
-    channel_subscription_response: Optional[_ChannelSubscriptionResponse] = None
-    push_acknowledgment: Optional[_AcknowledgementMessage] = None
+    connection_response: _ConnectionResponse | None = None
+    push_message: _PushMessage | None = None
+    channel_subscription_response: _ChannelSubscriptionResponse | None = None
+    push_acknowledgment: _AcknowledgementMessage | None = None
     field_numbers: tuple[int, ...] = ()
 
 
@@ -418,11 +433,11 @@ class _BootArgsHTMLParser(HTMLParser):
         """Return the collected boot_args JSON text."""
         return "".join(self._chunks).strip()
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """Start collecting data when the boot_args script tag is found."""
         if tag != "script" or self._found:
             return
-        attr_map = {key: value for key, value in attrs}
+        attr_map = dict(attrs)
         classes = (attr_map.get("class") or "").split()
         if "boot_args" in classes:
             self._collecting = True
@@ -518,7 +533,7 @@ def _read_varint(data: bytes, offset: int) -> tuple[int, int]:
         byte = data[offset]
         offset += 1
         value |= (byte & 0x7F) << shift
-        if not (byte & 0x80):
+        if not byte & 0x80:
             return value, offset
         shift += 7
         # Guard against malformed wire data rather than silently accepting an
@@ -555,6 +570,7 @@ def _decode_fields(data: bytes) -> dict[int, list[Any]]:
         key, offset = _read_varint(data, offset)
         field_number = key >> 3
         wire_type = key & 0x07
+        value: int | bytes
 
         if wire_type == 0:
             value, offset = _read_varint(data, offset)
@@ -683,16 +699,14 @@ def _encode_connection_message(
     public_key: bytes, nonce: bytes, signature: bytes
 ) -> bytes:
     """Encode the initial bridge websocket bootstrap message."""
-    connection_message = b"".join(
-        [
-            _encode_bytes_field(1, public_key),
-            _encode_bytes_field(2, nonce),
-            _encode_bytes_field(3, _encode_bridge_signature(signature)),
-            _encode_bytes_field(
-                5, _encode_uint32_field(1, NEW_CONNECTION_EXPIRATION_SECONDS)
-            ),
-        ]
-    )
+    connection_message = b"".join([
+        _encode_bytes_field(1, public_key),
+        _encode_bytes_field(2, nonce),
+        _encode_bytes_field(3, _encode_bridge_signature(signature)),
+        _encode_bytes_field(
+            5, _encode_uint32_field(1, NEW_CONNECTION_EXPIRATION_SECONDS)
+        ),
+    ])
     return _encode_bytes_field(1, connection_message)
 
 
@@ -714,18 +728,18 @@ def _encode_web_filter_message(allowed_topics: list[str]) -> bytes:
 
 def _encode_ack_message(topic: bytes, message_id: int) -> bytes:
     """Encode the acknowledgment frame for one delivered push message."""
-    ack_payload = b"".join(
-        [
-            _encode_bytes_field(1, topic),
-            _encode_uint32_field(2, message_id),
-        ]
-    )
+    ack_payload = b"".join([
+        _encode_bytes_field(1, topic),
+        _encode_uint32_field(2, message_id),
+    ])
     return _encode_bytes_field(2, ack_payload)
 
 
 def _topic_hash(topic: str) -> str:
     """Return Apple's websocket topic hash for a named APNS topic."""
-    return hashlib.sha1(topic.encode("utf-8")).hexdigest()
+    return hashlib.sha1(  # noqa: S4790 - APNS topic hash is protocol-mandated SHA-1
+        topic.encode("utf-8")
+    ).hexdigest()
 
 
 def _topic_name(topic_bytes: bytes, topics_by_hash: Mapping[str, str]) -> str:
@@ -733,10 +747,12 @@ def _topic_name(topic_bytes: bytes, topics_by_hash: Mapping[str, str]) -> str:
     return topics_by_hash.get(topic_bytes.hex(), topic_bytes.decode("utf-8", "ignore"))
 
 
-def _extract_json_payload(payload: bytes) -> dict[str, Any]:
+def _extract_json_payload(  # noqa: S3776
+    payload: bytes,
+) -> dict[str, Any]:
     """Extract the JSON object embedded in one bridge push payload."""
     try:
-        return json.loads(payload.decode("utf-8"))
+        return cast(dict[str, Any], json.loads(payload.decode("utf-8")))
     except (UnicodeDecodeError, json.JSONDecodeError):
         text = payload.decode("utf-8", "ignore")
 
@@ -762,7 +778,7 @@ def _extract_json_payload(payload: bytes) -> dict[str, Any]:
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(text[start : index + 1])
+                        return cast(dict[str, Any], json.loads(text[start : index + 1]))
                     except json.JSONDecodeError:
                         break
         start = text.find("{", start + 1)
@@ -776,7 +792,7 @@ def _b64_to_hex(value: str) -> str:
     """Decode base64 bridge data and return it as lowercase hex."""
     try:
         return base64.b64decode(value.encode("ascii"), validate=True).hex()
-    except (ValueError, BinasciiError) as exc:
+    except ValueError as exc:
         raise ValueError("Malformed base64-encoded bridge payload.") from exc
 
 
@@ -791,7 +807,7 @@ def _build_nonce(timestamp_ms: int) -> bytes:
 
 
 def _summarize_identifier(
-    value: Optional[str], *, prefix: int = 8, empty: str = "<none>"
+    value: str | None, *, prefix: int = 8, empty: str = "<none>"
 ) -> str:
     """Shorten sensitive identifiers before logging them at debug level."""
     if not value:
@@ -874,7 +890,7 @@ class _RawWebSocketClient:
             resource = f"{resource}?{parsed.query}"
 
         raw_socket = socket.create_connection((parsed.hostname, port), self._timeout)
-        context = ssl.create_default_context()
+        context = ssl.create_default_context()  # noqa: S4423 - default TLS 1.2+
         secure_socket = context.wrap_socket(raw_socket, server_hostname=parsed.hostname)
         secure_socket.settimeout(self._timeout)
 
@@ -907,7 +923,9 @@ class _RawWebSocketClient:
             headers[key.strip().lower()] = value.strip()
 
         expected_accept = base64.b64encode(
-            hashlib.sha1((websocket_key + WEBSOCKET_GUID).encode("ascii")).digest()
+            hashlib.sha1(  # noqa: S4790 - websocket accept key requires SHA-1
+                (websocket_key + WEBSOCKET_GUID).encode("ascii")
+            ).digest()
         ).decode("ascii")
         if headers.get("sec-websocket-accept") != expected_accept:
             raise PyiCloudTrustedDevicePromptException(
@@ -970,10 +988,10 @@ class _RawWebSocketClient:
         """Send one binary websocket message payload."""
         self._send_frame(OPCODE_BINARY, payload)
 
-    def read_message(self) -> bytes:
+    def read_message(self) -> bytes:  # noqa: S3776
         """Read one complete websocket message, handling control frames inline."""
         fragments: list[bytes] = []
-        opcode: Optional[int] = None
+        opcode: int | None = None
 
         while True:
             first_byte, second_byte = self._read_exact(2)
@@ -1023,10 +1041,8 @@ class _RawWebSocketClient:
         except OSError:
             pass
         finally:
-            try:
+            with suppress(OSError):
                 self._socket.close()
-            except OSError:
-                pass
 
 
 class TrustedDeviceBridgeBootstrapper:
@@ -1036,10 +1052,9 @@ class TrustedDeviceBridgeBootstrapper:
         self,
         *,
         timeout: float = WEBSOCKET_TIMEOUT_SECONDS,
-        websocket_factory: Optional[
-            Callable[[str, float, str, str], _WebSocketLike]
-        ] = None,
-        prover_factory: Optional[Callable[[], TrustedDeviceBridgeProver]] = None,
+        websocket_factory: Callable[[str, float, str, str], _WebSocketLike]
+        | None = None,
+        prover_factory: Callable[[], TrustedDeviceBridgeProver] | None = None,
     ) -> None:
         """Configure websocket and prover factories for bridge operations."""
         self.timeout = timeout
@@ -1055,7 +1070,9 @@ class TrustedDeviceBridgeBootstrapper:
         boot_context: Hsa2BootContext,
         user_agent: str,
     ) -> TrustedDeviceBridgeState:
-        """Bootstrap Apple's trusted-device bridge until the first prompt payload arrives."""
+        """Bootstrap Apple's trusted-device bridge until the first prompt
+        payload arrives.
+        """
         topic = _resolve_apns_topic(boot_context)
         websocket_host = _resolve_websocket_host(boot_context)
         origin = _derive_origin(auth_endpoint)
@@ -1064,15 +1081,16 @@ class TrustedDeviceBridgeBootstrapper:
         public_key, private_key = self._generate_keypair()
 
         LOGGER.debug(
-            "Bootstrapping trusted-device bridge: auth_endpoint=%s websocket_host=%s topic=%s source_app_id=%s",
+            "Bootstrapping trusted-device bridge: auth_endpoint=%s "
+            "websocket_host=%s topic=%s source_app_id=%s",
             auth_endpoint,
             websocket_host,
             topic,
             source_app_id,
         )
 
-        timestamp_ms: Optional[int] = None
-        last_error: Optional[Exception] = None
+        timestamp_ms: int | None = None
+        last_error: Exception | None = None
         for _ in range(2):
             nonce = _build_nonce(timestamp_ms or int(time.time() * 1000))
             signature = private_key.sign(nonce, ec.ECDSA(hashes.SHA256()))
@@ -1110,7 +1128,8 @@ class TrustedDeviceBridgeBootstrapper:
                     bridge_headers["X-Apple-App-Id"] = source_app_id
 
                 LOGGER.debug(
-                    "Posting trusted-device bridge step 0 with sessionUUID=%s ptknLen=%d",
+                    "Posting trusted-device bridge step 0 with "
+                    "sessionUUID=%s ptknLen=%d",
                     _summarize_identifier(session_uuid),
                     len(push_token_hex),
                 )
@@ -1136,7 +1155,8 @@ class TrustedDeviceBridgeBootstrapper:
                         "Trusted-device bridge returned a mismatched session UUID."
                     )
                 LOGGER.debug(
-                    "Received trusted-device bridge payload: sessionUUID=%s nextStep=%s ruiURLKey=%s",
+                    "Received trusted-device bridge payload: sessionUUID=%s "
+                    "nextStep=%s ruiURLKey=%s",
                     _summarize_identifier(push_payload.session_uuid),
                     push_payload.next_step,
                     push_payload.rui_url_key,
@@ -1157,10 +1177,11 @@ class TrustedDeviceBridgeBootstrapper:
                 timestamp_ms = exc.server_timestamp_ms
                 last_error = exc
                 LOGGER.debug(
-                    "Trusted-device bridge received INVALID_NONCE; retrying with server timestamp %s",
+                    "Trusted-device bridge received INVALID_NONCE; retrying "
+                    "with server timestamp %s",
                     timestamp_ms,
                 )
-            except (OSError, socket.timeout, ssl.SSLError) as exc:
+            except OSError as exc:
                 last_error = exc
                 LOGGER.debug(
                     "Trusted-device websocket transport error during bootstrap.",
@@ -1195,7 +1216,7 @@ class TrustedDeviceBridgeBootstrapper:
         """Generate the browser-style bridge session UUID string."""
         return f"{uuid.uuid4()}-{int(time.time())}"
 
-    def close(self, bridge_state: Optional[TrustedDeviceBridgeState]) -> None:
+    def close(self, bridge_state: TrustedDeviceBridgeState | None) -> None:
         """Close and detach the websocket associated with an active bridge session."""
 
         if bridge_state is None:
@@ -1246,7 +1267,8 @@ class TrustedDeviceBridgeBootstrapper:
 
         try:
             LOGGER.debug(
-                "Starting trusted-device bridge code verification: sessionUUID=%s nextStep=%s txnid=%s",
+                "Starting trusted-device bridge code verification: "
+                "sessionUUID=%s nextStep=%s txnid=%s",
                 _summarize_identifier(bridge_state.session_uuid),
                 bridge_state.next_step,
                 _summarize_identifier(bridge_state.txnid, prefix=12),
@@ -1287,7 +1309,7 @@ class TrustedDeviceBridgeBootstrapper:
                 bridge_message1_b64, bridge_message2_b64 = step4_data.split("_", 1)
                 bridge_message1_hex = _b64_to_hex(bridge_message1_b64)
                 bridge_message2_hex = _b64_to_hex(bridge_message2_b64)
-            except (ValueError, UnicodeDecodeError, BinasciiError) as exc:
+            except ValueError as exc:
                 raise PyiCloudTrustedDeviceVerificationException(
                     "Trusted-device bridge step 4 payload is malformed."
                 ) from exc
@@ -1306,7 +1328,8 @@ class TrustedDeviceBridgeBootstrapper:
                 prover.process_message2(bridge_message2_hex)
             except ValueError:
                 LOGGER.debug(
-                    "Trusted-device bridge prover rejected the step-4 confirmation for sessionUUID=%s",
+                    "Trusted-device bridge prover rejected the step-4 "
+                    "confirmation for sessionUUID=%s",
                     _summarize_identifier(bridge_state.session_uuid),
                 )
                 return False
@@ -1362,7 +1385,8 @@ class TrustedDeviceBridgeBootstrapper:
 
             completion_step = 6 if bridge_state.next_step in {"6", 6} else 4
             LOGGER.debug(
-                "Posting trusted-device bridge completion step %s with sessionUUID=%s verifyStatus=%s",
+                "Posting trusted-device bridge completion step %s with "
+                "sessionUUID=%s verifyStatus=%s",
                 completion_step,
                 _summarize_identifier(bridge_state.session_uuid),
                 verify_response.status_code,
@@ -1377,14 +1401,16 @@ class TrustedDeviceBridgeBootstrapper:
                 idmsdata=bridge_state.idmsdata,
                 akdata=bridge_state.akdata,
             )
-            return verification_succeeded
+            return cast(bool, verification_succeeded)
         except PyiCloudTrustedDevicePromptException as exc:
             raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge verification failed while waiting for the next bridge push."
+                "Trusted-device bridge verification failed while waiting "
+                "for the next bridge push."
             ) from exc
-        except (OSError, socket.timeout, ssl.SSLError) as exc:
+        except OSError as exc:
             raise PyiCloudTrustedDeviceVerificationException(
-                "Trusted-device bridge verification failed due to a websocket transport error."
+                "Trusted-device bridge verification failed due to a "
+                "websocket transport error."
             ) from exc
         finally:
             self.close(bridge_state)
@@ -1398,7 +1424,8 @@ class TrustedDeviceBridgeBootstrapper:
             connection_response = server_message.connection_response
             if connection_response is None:
                 LOGGER.debug(
-                    "Ignoring non-connection websocket frame while waiting for push token; fields=%s",
+                    "Ignoring non-connection websocket frame while waiting for push "
+                    "token; fields=%s",
                     server_message.field_numbers,
                 )
                 continue
@@ -1412,7 +1439,7 @@ class TrustedDeviceBridgeBootstrapper:
                         connection_response.push_token_b64.encode("ascii"),
                         validate=True,
                     )
-                except (ValueError, BinasciiError) as exc:
+                except ValueError as exc:
                     raise PyiCloudTrustedDevicePromptException(
                         "Malformed bridge push token."
                     ) from exc
@@ -1451,7 +1478,8 @@ class TrustedDeviceBridgeBootstrapper:
             if server_message.channel_subscription_response is not None:
                 channel_response = server_message.channel_subscription_response
                 LOGGER.debug(
-                    "Received channel subscription response during bridge bootstrap: messageId=%s status=%s retryIntervalSeconds=%s topics=%s",
+                    "Received channel subscription response during bridge bootstrap: "
+                    "messageId=%s status=%s retryIntervalSeconds=%s topics=%s",
                     channel_response.message_id,
                     channel_response.status,
                     channel_response.retry_interval_seconds,
@@ -1466,7 +1494,8 @@ class TrustedDeviceBridgeBootstrapper:
             if server_message.push_acknowledgment is not None:
                 push_ack = server_message.push_acknowledgment
                 LOGGER.debug(
-                    "Received bridge push acknowledgment during bootstrap: messageId=%s deliveryStatus=%s topic=%s",
+                    "Received bridge push acknowledgment during bootstrap: "
+                    "messageId=%s deliveryStatus=%s topic=%s",
                     push_ack.message_id,
                     push_ack.delivery_status,
                     _topic_name(push_ack.topic, topics_by_hash),
@@ -1475,7 +1504,8 @@ class TrustedDeviceBridgeBootstrapper:
             push_message = server_message.push_message
             if push_message is None:
                 LOGGER.debug(
-                    "Ignoring non-push websocket frame during trusted-device bootstrap; fields=%s",
+                    "Ignoring non-push websocket frame during trusted-device "
+                    "bootstrap; fields=%s",
                     server_message.field_numbers,
                 )
                 continue
@@ -1510,7 +1540,8 @@ class TrustedDeviceBridgeBootstrapper:
                 "Trusted-device bridge returned a mismatched session UUID."
             )
         LOGGER.debug(
-            "Decoded trusted-device bridge payload: sessionUUID=%s nextStep=%s txnid=%s ec=%s has_data=%s has_encryptedCode=%s",
+            "Decoded trusted-device bridge payload: sessionUUID=%s nextStep=%s "
+            "txnid=%s ec=%s has_data=%s has_encryptedCode=%s",
             _summarize_identifier(push_payload.session_uuid),
             push_payload.next_step,
             _summarize_identifier(push_payload.txnid, prefix=12),
@@ -1537,7 +1568,8 @@ class TrustedDeviceBridgeBootstrapper:
                 "Trusted-device bridge returned an unexpected post-step-2 payload."
             )
         LOGGER.debug(
-            "Received trusted-device bridge payload: sessionUUID=%s nextStep=%s txnid=%s",
+            "Received trusted-device bridge payload: sessionUUID=%s nextStep=%s "
+            "txnid=%s",
             _summarize_identifier(bridge_state.session_uuid),
             bridge_state.next_step,
             _summarize_identifier(bridge_state.txnid, prefix=12),
@@ -1562,7 +1594,8 @@ class TrustedDeviceBridgeBootstrapper:
                 "Trusted-device bridge returned an unexpected final payload."
             )
         LOGGER.debug(
-            "Received trusted-device bridge final payload: sessionUUID=%s nextStep=%s txnid=%s",
+            "Received trusted-device bridge final payload: sessionUUID=%s nextStep=%s "
+            "txnid=%s",
             _summarize_identifier(bridge_state.session_uuid),
             bridge_state.next_step,
             _summarize_identifier(bridge_state.txnid, prefix=12),
@@ -1585,7 +1618,7 @@ class TrustedDeviceBridgeBootstrapper:
         bridge_state: TrustedDeviceBridgeState,
         next_step: int,
         data: str,
-        idmsdata: Optional[str],
+        idmsdata: str | None,
         akdata: Any,
     ) -> dict[str, Any]:
         """Build the JSON payload for one bridge step POST."""
@@ -1607,7 +1640,7 @@ class TrustedDeviceBridgeBootstrapper:
         bridge_state: TrustedDeviceBridgeState,
         next_step: int,
         data: str,
-        idmsdata: Optional[str],
+        idmsdata: str | None,
         akdata: Any,
     ) -> Any:
         """POST one bridge step and enforce the small set of valid statuses."""

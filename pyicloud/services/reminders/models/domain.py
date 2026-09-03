@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import IntEnum
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import Field
 
@@ -17,22 +17,22 @@ class Reminder(MutableServiceModel):
     title: str
     desc: str = ""
     completed: bool = False
-    completed_date: Optional[datetime] = None
-    due_date: Optional[datetime] = None
-    start_date: Optional[datetime] = None
+    completed_date: datetime | None = None
+    due_date: datetime | None = None
+    start_date: datetime | None = None
     priority: int = 0
     flagged: bool = False
     all_day: bool = False
     deleted: bool = False
-    time_zone: Optional[str] = None
+    time_zone: str | None = None
     alarm_ids: list[str] = Field(default_factory=list)
     hashtag_ids: list[str] = Field(default_factory=list)
     attachment_ids: list[str] = Field(default_factory=list)
     recurrence_rule_ids: list[str] = Field(default_factory=list)
-    parent_reminder_id: Optional[str] = None
-    created: Optional[datetime] = None
-    modified: Optional[datetime] = None
-    record_change_tag: Optional[str] = None
+    parent_reminder_id: str | None = None
+    created: datetime | None = None
+    modified: datetime | None = None
+    record_change_tag: str | None = None
 
 
 class ReminderChangeEvent(FrozenServiceModel):
@@ -40,7 +40,7 @@ class ReminderChangeEvent(FrozenServiceModel):
 
     type: Literal["updated", "deleted"]
     reminder_id: str
-    reminder: Optional[Reminder] = None
+    reminder: Reminder | None = None
 
 
 class RemindersList(MutableServiceModel):
@@ -48,14 +48,15 @@ class RemindersList(MutableServiceModel):
 
     id: str
     title: str
-    color: Optional[str] = None
+    color: str | None = None
     count: int = 0
-    badge_emblem: Optional[str] = None
-    sorting_style: Optional[str] = None
+    badge_emblem: str | None = None
+    sorting_style: str | None = None
     is_group: bool = False
+    deleted: bool = False
     reminder_ids: list[str] = Field(default_factory=list)
-    guid: Optional[str] = None
-    record_change_tag: Optional[str] = None
+    guid: str | None = None
+    record_change_tag: str | None = None
 
 
 # --- Alarm records ---
@@ -68,7 +69,7 @@ class Alarm(MutableServiceModel):
     alarm_uid: str
     reminder_id: str
     trigger_id: str
-    record_change_tag: Optional[str] = None
+    record_change_tag: str | None = None
 
 
 class Proximity(IntEnum):
@@ -90,7 +91,7 @@ class LocationTrigger(MutableServiceModel):
     radius: float = Field(default=0.0, ge=0.0)
     proximity: Proximity = Proximity.ARRIVING
     location_uid: str = ""
-    record_change_tag: Optional[str] = None
+    record_change_tag: str | None = None
 
 
 # --- Attachment records ---
@@ -103,7 +104,7 @@ class URLAttachment(MutableServiceModel):
     reminder_id: str
     url: str = ""
     uti: str = "public.url"
-    record_change_tag: Optional[str] = None
+    record_change_tag: str | None = None
 
 
 class ImageAttachment(MutableServiceModel):
@@ -117,7 +118,7 @@ class ImageAttachment(MutableServiceModel):
     width: int = Field(default=0, ge=0)
     height: int = Field(default=0, ge=0)
     uti: str = "public.jpeg"
-    record_change_tag: Optional[str] = None
+    record_change_tag: str | None = None
 
 
 # --- Hashtag records ---
@@ -129,8 +130,8 @@ class Hashtag(MutableServiceModel):
     id: str
     name: str
     reminder_id: str
-    created: Optional[datetime] = None
-    record_change_tag: Optional[str] = None
+    created: datetime | None = None
+    record_change_tag: str | None = None
 
 
 # --- Recurrence rules ---
@@ -154,4 +155,4 @@ class RecurrenceRule(MutableServiceModel):
     interval: int = Field(default=1, ge=1)
     occurrence_count: int = Field(default=0, ge=0)  # 0 == infinite
     first_day_of_week: int = Field(default=0, ge=0, le=6)
-    record_change_tag: Optional[str] = None
+    record_change_tag: str | None = None

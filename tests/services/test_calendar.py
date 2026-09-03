@@ -2,6 +2,8 @@
 # pylint: disable=protected-access
 
 from datetime import datetime
+import os
+import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -62,8 +64,8 @@ def test_event_object_add_invitees() -> None:
         event = EventObject(pguid="calendar123")
         event.add_invitees(["test@example.com", "user@example.com"])
         assert len(event.invitees) == 2
-        assert f"{event.guid}:test@example.com" == event.invitees[0]
-        assert f"{event.guid}:user@example.com" == event.invitees[1]
+        assert event.invitees[0] == f"{event.guid}:test@example.com"
+        assert event.invitees[1] == f"{event.guid}:user@example.com"
 
 
 def test_event_object_dynamic_timezone() -> None:
@@ -167,7 +169,9 @@ def test_calendar_service_get_events() -> None:
         assert events[0]["title"] == "Test Event"
 
 
-def test_calendar_service_add_event() -> None:
+def test_calendar_service_add_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test CalendarService add_event method."""
     mock_session = MagicMock(spec=PyiCloudSession)
     mock_response = MagicMock(spec=Response)
@@ -177,13 +181,15 @@ def test_calendar_service_add_event() -> None:
         service = CalendarService(
             "https://example.com", mock_session, {"dsid": "12345"}
         )
-        service.get_ctag = MagicMock(return_value="etag123")
+        monkeypatch.setattr(service, "get_ctag", MagicMock(return_value="etag123"))
         event = EventObject(pguid="calendar123", title="New Event")
         response = service.add_event(event)
         assert response["status"] == "success"
 
 
-def test_calendar_service_remove_event() -> None:
+def test_calendar_service_remove_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test CalendarService remove_event method."""
     mock_session = MagicMock(spec=PyiCloudSession)
     mock_response = MagicMock(spec=Response)
@@ -193,7 +199,7 @@ def test_calendar_service_remove_event() -> None:
         service = CalendarService(
             "https://example.com", mock_session, {"dsid": "12345"}
         )
-        service.get_ctag = MagicMock(return_value="etag123")
+        monkeypatch.setattr(service, "get_ctag", MagicMock(return_value="etag123"))
 
         event = EventObject(pguid="calendar123", title="New Event")
         response = service.remove_event(event)
@@ -237,7 +243,7 @@ class _FixedDateTime(datetime):
     fixed: datetime = datetime(2025, 2, 10)
 
     @classmethod
-    def today(cls) -> "_FixedDateTime":  # type: ignore[override]
+    def today(cls) -> "_FixedDateTime":
         return cls.fromtimestamp(cls.fixed.timestamp())
 
 
@@ -366,15 +372,16 @@ def test_event_object_validation() -> None:
         assert "pguid cannot be empty" in str(excinfo.value)
 
         # Test invalid date range (start after end)
+        start_date = datetime(2023, 6, 15, 15, 0)
+        end_date = datetime(2023, 6, 15, 14, 0)  # Earlier than start
         with pytest.raises(ValueError) as excinfo:
             EventObject(
                 pguid="test-calendar",
-                start_date=datetime(2023, 6, 15, 15, 0),
-                end_date=datetime(2023, 6, 15, 14, 0),  # Earlier than start
+                start_date=start_date,
+                end_date=end_date,
             )
-        assert "start_date" in str(excinfo.value) and "must be before end_date" in str(
-            excinfo.value
-        )
+        assert "start_date" in str(excinfo.value)
+        assert "must be before end_date" in str(excinfo.value)
 
         # Test valid event creation
         event = EventObject(
@@ -513,7 +520,9 @@ def test_event_object_invitee_payload_structure() -> None:
         assert event_data["invitees"][1] == f"{event.guid}:user@example.com"
 
 
-def test_calendar_service_guid_bug_fix() -> None:
+def test_calendar_service_guid_bug_fix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Test that GUID vs Calendar GUID bug is fixed."""
     mock_session = MagicMock(spec=PyiCloudSession)
     mock_response = MagicMock(spec=Response)
@@ -526,13 +535,13 @@ def test_calendar_service_guid_bug_fix() -> None:
         )
 
         # Mock get_ctag to verify it's called with calendar GUID, not event GUID
-        def mock_get_ctag(guid):
+        def mock_get_ctag(guid: str) -> str:
             # This should be called with the calendar GUID (event.pguid)
             # NOT the event GUID (event.guid)
             assert guid == "calendar-guid-123"
             return "test-ctag"
 
-        service.get_ctag = mock_get_ctag
+        monkeypatch.setattr(service, "get_ctag", mock_get_ctag)
 
         # Create event with different event GUID and calendar GUID
         event = EventObject(pguid="calendar-guid-123", title="Test Event")
@@ -638,3 +647,130 @@ def test_apple_alarm_dataclass() -> None:
     assert alarm.messageType == AlarmDefaults.MESSAGE_TYPE
     assert alarm.isLocationBased == AlarmDefaults.IS_LOCATION_BASED
     assert alarm.measurement.minutes == 15
+
+
+def test_apple_date_format_round_trip() -> None:
+    """Apple's date array converts to a datetime and back."""
+    raw = [20260909, 2026, 9, 9, 10, 0, 600]
+
+    parsed = AppleDateFormat.from_list(raw)
+
+    assert parsed.to_datetime() == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
+    assert parsed.to_list() == ["20260909", 2026, 9, 9, 10, 0, 600]
+
+
+def test_event_dates_are_parsed_into_datetimes() -> None:
+    """Date fields are populated as datetimes, matching their annotations.
+
+    The API returns dates as a 7-element array, which used to be assigned to
+    the fields verbatim, so `EventObject.start_date` held a list despite being
+    declared as a `datetime`.
+    """
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {
+                "startDate": [20260909, 2026, 9, 9, 10, 0, 600],
+                "endDate": [20260909, 2026, 9, 9, 11, 0, 660],
+                "localStartDate": [20260909, 2026, 9, 9, 10, 0, 600],
+                "title": "Lunch",
+            },
+        )
+
+    # Apple sends naive wall-clock time; the zone lives on the event.
+    assert event.start_date == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
+    assert event.end_date == datetime(2026, 9, 9, 11, 0)  # noqa: DTZ001
+    assert event.local_start_date == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
+    assert event.title == "Lunch"
+
+
+def test_event_duration_matches_resolved_dates() -> None:
+    """Duration reflects the parsed dates, not the constructor defaults."""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {
+                "startDate": [20260909, 2026, 9, 9, 9, 30, 570],
+                "endDate": [20260909, 2026, 9, 9, 12, 45, 765],
+            },
+        )
+
+    # 09:30 -> 12:45 is 195 minutes, not the constructor's default of 60.
+    assert event.duration == 195
+
+
+def test_event_duration_left_alone_when_dates_unparsable() -> None:
+    """Duration is not recomputed when dates could not be parsed."""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {"startDate": ["nope"], "endDate": "also-nope"},
+        )
+
+    assert event.start_date == ["nope"]
+    assert event.end_date == "also-nope"
+    # Dates stayed unparsable, so the constructor-derived duration persists.
+    assert event.duration == 60
+
+
+def test_event_duration_is_wall_clock_across_dst() -> None:
+    """_refresh_duration yields the wall-clock delta across a DST transition.
+
+    Dates are naive wall-clock times, so the elapsed minutes must not be
+    derived via ``datetime.timestamp()``, which folds in the process timezone
+    and reports a shorter duration across a DST transition.
+    """
+    os.environ["TZ"] = "America/New_York"
+    time.tzset()
+    try:
+        with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+            service = CalendarService("https://example.com", MagicMock(), {})
+        event = EventObject(pguid="cal")
+        # 01:30 -> 03:30 straddles the 2026-03-08 spring-forward (02:00 -> 03:00).
+        event.start_date = datetime(2026, 3, 8, 1, 30)
+        event.end_date = datetime(2026, 3, 8, 3, 30)
+        service._refresh_duration(event)
+        # The wall-clock delta is 120 minutes; a timestamp()-based calculation
+        # would instead report only 60 in the America/New_York timezone.
+        assert event.duration == 120
+    finally:
+        os.environ.pop("TZ", None)
+        time.tzset()
+
+
+def test_event_dates_tolerate_unexpected_values() -> None:
+    """A malformed date is left alone rather than raising."""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {"startDate": ["nope"], "endDate": None},
+        )
+
+    assert event.start_date == ["nope"]
+    assert event.end_date is None
+
+
+def test_event_dates_tolerate_overflow_year() -> None:
+    """An absurdly large year raises OverflowError, which is tolerated."""
+    with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
+        service = CalendarService("https://example.com", MagicMock(), {})
+        event: EventObject = service.obj_from_dict(
+            EventObject(pguid="cal"),
+            {
+                "startDate": [
+                    20260909,
+                    10**1000,
+                    9,
+                    9,
+                    10,
+                    0,
+                    600,
+                ]
+            },
+        )
+
+    assert event.start_date == [20260909, 10**1000, 9, 9, 10, 0, 600]

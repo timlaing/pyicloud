@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import suppress
 import logging
-from typing import Callable, Dict, Iterable, Iterator, List, Literal, Optional, TypeVar
+from typing import Any, Literal, TypeVar, cast
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
+from requests import Response
+
+from pyicloud.session import PyiCloudSession
 
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
 from .models import (
@@ -40,7 +45,7 @@ _ResponseModelT = TypeVar(
     CKDatabaseChangesResponse,
 )
 CloudKitBoolParamStyle = Literal["python", "lower"]
-CloudKitDebugHook = Callable[[str, str, Dict, object], None]
+CloudKitDebugHook = Callable[[str, str, dict[str, Any], Response], None]
 
 _RATE_LIMITED = "HTTP 429: rate limited"
 
@@ -66,7 +71,7 @@ class CloudKitRateLimited(Exception):
 class CloudKitApiError(Exception):
     """Raised for transport, validation, or server-side CloudKit failures."""
 
-    def __init__(self, message: str, *, payload=None) -> None:
+    def __init__(self, message: str, *, payload: Any | None = None) -> None:
         super().__init__(message)
         self.payload = payload
 
@@ -79,15 +84,15 @@ class _CloudKitHTTP:
     def __init__(
         self,
         base_url: str,
-        session,
-        base_params: Dict[str, object],
+        session: PyiCloudSession,
+        base_params: dict[str, object],
         *,
         timeout: tuple[float, float] | None = None,
         bool_param_style: CloudKitBoolParamStyle = "python",
         redact_urls: bool = False,
         debug_hook: CloudKitDebugHook | None = None,
         handle_rate_limits: bool = True,
-    ):
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._session = session
         self._params = self._normalize_params(
@@ -98,13 +103,18 @@ class _CloudKitHTTP:
         self._debug_hook = debug_hook
         self._handle_rate_limits = handle_rate_limits
 
+    @property
+    def timeout(self) -> tuple[float, float]:
+        """Return the configured request timeout."""
+        return self._timeout
+
     @staticmethod
     def _normalize_params(
-        params: Dict[str, object],
+        params: dict[str, object],
         *,
         bool_param_style: CloudKitBoolParamStyle = "python",
-    ) -> Dict[str, str]:
-        out: Dict[str, str] = {}
+    ) -> dict[str, str]:
+        out: dict[str, str] = {}
         for key, value in params.items():
             if isinstance(value, bool) and bool_param_style == "lower":
                 out[key] = "true" if value else "false"
@@ -113,6 +123,7 @@ class _CloudKitHTTP:
         return out
 
     def build_url(self, path: str) -> str:
+        """Build a full request URL from a base path and query parameters."""
         q = urlencode(self._params)
         return f"{self._base_url}{path}" + (f"?{q}" if q else "")
 
@@ -121,7 +132,9 @@ class _CloudKitHTTP:
             return redact_cloudkit_url(url)
         return url
 
-    def _run_debug_hook(self, op: str, url: str, payload: Dict, response) -> None:
+    def _run_debug_hook(
+        self, op: str, url: str, payload: dict[str, Any], response: Response
+    ) -> None:
         if self._debug_hook is None:
             return
         try:
@@ -129,17 +142,23 @@ class _CloudKitHTTP:
         except Exception:
             LOGGER.debug("CloudKit debug hook failed for %s", op, exc_info=True)
 
-    def post(self, path: str, payload: Dict, *, headers: Dict | None = None) -> Dict:
+    def post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Send a CloudKit POST request and return the parsed JSON response."""
         url = self.build_url(path)
         op = path.strip("/")
         display_url = self._display_url(url) if self._redact_urls else path
         LOGGER.debug("CloudKit POST %s", display_url)
-        kwargs = {"json": payload, "timeout": self._timeout}
-        if headers is not None:
-            kwargs["headers"] = headers
         resp = self._session.post(
             url,
-            **kwargs,
+            json=payload,
+            timeout=self._timeout,
+            headers=headers,
         )
         code = getattr(resp, "status_code", 0)
         if not isinstance(code, int):
@@ -167,7 +186,7 @@ class _CloudKitHTTP:
             raise CloudKitApiError(f"HTTP {code}", payload=body)
 
         try:
-            return resp.json()
+            return cast(dict[str, Any], resp.json())
         except Exception as exc:
             self._run_debug_hook(op, url, payload, resp)
             raise CloudKitApiError(
@@ -176,6 +195,7 @@ class _CloudKitHTTP:
             ) from exc
 
     def get_bytes(self, url: str) -> bytes:
+        """Fetch an asset URL and return its contents as bytes."""
         LOGGER.debug("CloudKit asset GET <redacted>")
         resp = self._session.get(url, timeout=self._timeout)
         code = getattr(resp, "status_code", 0)
@@ -209,6 +229,7 @@ class _CloudKitHTTP:
         raise CloudKitApiError("Invalid asset response", payload=text)
 
     def get_stream(self, url: str, *, chunk_size: int = 65536) -> Iterator[bytes]:
+        """Stream an asset URL in chunks of the given size."""
         LOGGER.debug("CloudKit asset stream GET %s", self._display_url(url))
         resp = self._session.get(url, stream=True, timeout=self._timeout)
         try:
@@ -240,10 +261,8 @@ class _CloudKitHTTP:
         finally:
             close = getattr(resp, "close", None)
             if callable(close):
-                try:
+                with suppress(Exception):
                     close()
-                except Exception:
-                    pass
 
 
 class CloudKitContainerClient:
@@ -252,8 +271,8 @@ class CloudKitContainerClient:
     def __init__(
         self,
         base_url: str,
-        session,
-        base_params: Dict[str, object],
+        session: PyiCloudSession,
+        base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
         timeout: tuple[float, float] | None = None,
@@ -261,7 +280,7 @@ class CloudKitContainerClient:
         redact_urls: bool = False,
         debug_hook: CloudKitDebugHook | None = None,
         handle_rate_limits: bool = True,
-    ):
+    ) -> None:
         self._http = _CloudKitHTTP(
             base_url,
             session,
@@ -277,23 +296,39 @@ class CloudKitContainerClient:
     def _validate_response(
         self,
         model_cls: type[_ResponseModelT],
-        data: Dict,
+        data: dict[str, Any],
     ) -> _ResponseModelT:
         return model_cls.model_validate(
             data,
             extra=resolve_cloudkit_validation_extra(self._validation_extra),
         )
 
+    @property
+    def timeout(self) -> tuple[float, float]:
+        """Return the configured request timeout."""
+        return self._http.timeout
+
+    def raw_post(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """POST a raw request body to an arbitrary CloudKit endpoint path."""
+        return self._http.post(path, payload, headers=headers)
+
     def query(
         self,
         *,
         query: CKQueryObject,
-        zone_id: Optional[CKZoneIDReq] = None,
-        desired_keys: Optional[List[str]] = None,
-        results_limit: Optional[int] = None,
-        continuation: Optional[str] = None,
+        zone_id: CKZoneIDReq | None = None,
+        desired_keys: list[str] | None = None,
+        results_limit: int | None = None,
+        continuation: str | None = None,
         zone_wide: bool = False,
     ) -> CKQueryResponse:
+        """Run a CloudKit query and return the parsed response."""
         if zone_wide and zone_id is not None:
             raise ValueError("zone_id must be omitted when zone_wide=True")
         if not zone_wide and zone_id is None:
@@ -320,8 +355,9 @@ class CloudKitContainerClient:
         record_names: Iterable[str],
         *,
         zone_id: CKZoneIDReq,
-        desired_keys: Optional[List[str]] = None,
+        desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
+        """Look up records by name and return the parsed response."""
         payload = CKLookupRequest(
             records=[CKLookupDescriptor(recordName=str(name)) for name in record_names],
             zoneID=zone_id,
@@ -340,8 +376,9 @@ class CloudKitContainerClient:
         self,
         *,
         zone_req: CKZoneChangesZoneReq,
-        results_limit: Optional[int] = None,
+        results_limit: int | None = None,
     ) -> Iterator[CKZoneChangesZone]:
+        """Yield zone changes, following continuation markers until done."""
         req = CKZoneChangesRequest(
             zones=[zone_req],
             resultsLimit=results_limit,
@@ -368,8 +405,9 @@ class CloudKitContainerClient:
         self,
         *,
         zone_req: CKZoneChangesZoneReq,
-        results_limit: Optional[int] = None,
+        results_limit: int | None = None,
     ) -> CKZoneChangesResponse:
+        """Fetch zone changes and return the parsed response."""
         payload = CKZoneChangesRequest(
             zones=[zone_req],
             resultsLimit=results_limit,
@@ -386,10 +424,11 @@ class CloudKitContainerClient:
     def modify(
         self,
         *,
-        operations: List[CKModifyOperation],
+        operations: list[CKModifyOperation],
         zone_id: CKZoneIDReq,
-        atomic: Optional[bool] = None,
+        atomic: bool | None = None,
     ) -> CKModifyResponse:
+        """Send record modify operations and return the parsed response."""
         payload = CKModifyRequest(
             operations=operations,
             zoneID=zone_id,
@@ -405,6 +444,7 @@ class CloudKitContainerClient:
             ) from exc
 
     def zones_list(self) -> CKZoneListResponse:
+        """List the container's zones and return the parsed response."""
         data = self._http.post("/zones/list", {})
         try:
             return self._validate_response(CKZoneListResponse, data)
@@ -417,8 +457,9 @@ class CloudKitContainerClient:
     def database_changes(
         self,
         *,
-        sync_token: Optional[str] = None,
+        sync_token: str | None = None,
     ) -> CKDatabaseChangesResponse:
+        """Fetch database-level changes and return the parsed response."""
         payload = {}
         if sync_token:
             payload["syncToken"] = sync_token
@@ -432,6 +473,7 @@ class CloudKitContainerClient:
             ) from exc
 
     def download_asset_bytes(self, url: str) -> bytes:
+        """Download an asset from the given URL as bytes."""
         return self._http.get_bytes(url)
 
     def download_asset_stream(
@@ -440,6 +482,7 @@ class CloudKitContainerClient:
         *,
         chunk_size: int = 65536,
     ) -> Iterator[bytes]:
+        """Stream an asset from the given URL in chunks."""
         yield from self._http.get_stream(url, chunk_size=chunk_size)
 
     def query_sync_token(
@@ -449,6 +492,7 @@ class CloudKitContainerClient:
         zone_id: CKZoneIDReq,
         results_limit: int = 1,
     ) -> str | None:
+        """Run a query and return its sync token if present."""
         payload = CKQueryRequest(
             query=query,
             zoneID=zone_id,

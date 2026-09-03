@@ -1,7 +1,7 @@
 """File service."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from requests import Response
 
@@ -18,10 +18,10 @@ class UbiquityService(BaseService):
     ) -> None:
         super().__init__(service_root, session, params)
 
-        self._root: Optional["UbiquityNode"] = None
+        self._root: UbiquityNode | None = None
 
         try:
-            self.root
+            self._root = self.root
         except PyiCloudAPIResponseException as error:
             if error.code == 503:
                 raise PyiCloudServiceUnavailable(error.reason) from error
@@ -31,32 +31,32 @@ class UbiquityService(BaseService):
     def root(self) -> "UbiquityNode":
         """Gets the root node."""
         if not self._root:
-            self._root = self.get_node(0)
+            self._root = self.get_node("0")
         return self._root
 
-    def get_node_url(self, node_id, variant="item") -> str:
+    def get_node_url(self, node_id: str, variant: str = "item") -> str:
         """Returns a node URL."""
         return f"{self.service_root}/ws/{self.params['dsid']}/{variant}/{node_id}"
 
-    def get_node(self, node_id) -> "UbiquityNode":
+    def get_node(self, node_id: str) -> "UbiquityNode":
         """Returns a node."""
         response: Response = self.session.get(self.get_node_url(node_id))
         return UbiquityNode(self, response.json())
 
-    def get_children(self, node_id) -> list["UbiquityNode"]:
+    def get_children(self, node_id: str) -> list["UbiquityNode"]:
         """Returns a node children."""
         response: Response = self.session.get(self.get_node_url(node_id, "parent"))
         items: list[dict[str, str]] = response.json()["item_list"]
         return [UbiquityNode(self, item) for item in items]
 
-    def get_file(self, node_id, **kwargs) -> Response:
+    def get_file(self, node_id: str, **kwargs: Any) -> Response:
         """Returns a node file."""
         return self.session.get(self.get_node_url(node_id, "file"), **kwargs)
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr: str) -> Any:
         return getattr(self.root, attr)
 
-    def __getitem__(self, key) -> "UbiquityNode":
+    def __getitem__(self, key: str) -> "UbiquityNode":
         return self.root[key]
 
 
@@ -67,10 +67,10 @@ class UbiquityNode:
         self.data: dict[str, str] = data
         self.connection: UbiquityService = conn
 
-        self._children: Optional[list[UbiquityNode]] = None
+        self._children: list[UbiquityNode] | None = None
 
     @property
-    def item_id(self) -> Optional[str]:
+    def item_id(self) -> str | None:
         """Gets the node id."""
         return self.data.get("item_id")
 
@@ -85,7 +85,7 @@ class UbiquityNode:
         return self.data.get("type", "<unknown>")
 
     @property
-    def size(self) -> Optional[int]:
+    def size(self) -> int | None:
         """Gets the node size."""
         try:
             return int(self.data.get("size", "-1"))
@@ -97,14 +97,20 @@ class UbiquityNode:
         """Gets the node modified date."""
         return datetime.strptime(self.data.get("modified", ""), "%Y-%m-%dT%H:%M:%SZ")
 
-    def open(self, **kwargs) -> Response:
+    def open(self, **kwargs: Any) -> Response:
         """Returns the node file."""
-        return self.connection.get_file(self.item_id, **kwargs)
+        item_id = self.item_id
+        if item_id is None:
+            raise KeyError("Node has no item id")
+        return self.connection.get_file(item_id, **kwargs)
 
     def get_children(self) -> list["UbiquityNode"]:
         """Returns the node children."""
         if not self._children:
-            self._children = self.connection.get_children(self.item_id)
+            item_id = self.item_id
+            if item_id is None:
+                raise KeyError("Node has no item id")
+            self._children = self.connection.get_children(item_id)
         return self._children
 
     def dir(self) -> list[str]:

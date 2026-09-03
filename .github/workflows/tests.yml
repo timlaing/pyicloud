@@ -1,11 +1,15 @@
 name: Tests
 
 # yamllint disable-line rule:truthy
-on: [workflow_dispatch, push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 jobs:
   test:
@@ -26,30 +30,34 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+
       - name: Register Python problem matcher
         run: |
           echo "::add-matcher::.github/workflows/matchers/python.json"
       - name: Register pytest slow test problem matcher
         run: |
           echo "::add-matcher::.github/workflows/matchers/pytest-slow.json"
-      - name: Create Python virtual environment
+      - name: Install dependencies
         run: |
-          python -m venv venv
-          . venv/bin/activate
-          python --version
-          python3 -m pip install uv
-          uv pip install -U "pip>=25.2"
-          uv pip install -r requirements_all.txt
-      - name: Run pytest
-        timeout-minutes: 60
-        id: pytest-full
-        env:
-          PYTHONDONTWRITEBYTECODE: 1
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements_all.txt
+
+      - name: Run tests with coverage
         run: |
-          . venv/bin/activate
-          python --version
-          set -o pipefail
-          python3 -b -m pytest \
-            --cov="pyicloud" \
-            --cov-report=xml \
-            --junitxml=junit.xml -o junit_family=legacy
+          .venv/bin/python -m pytest \
+            --cov=pyicloud \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --timeout=30
+
+      - name: Upload coverage report
+        if: matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage.xml
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,12 @@
+bbpb
+mypy
+prek
+pylint
+pylint-strict-informational
+pytest
+pytest-asyncio
+pytest-cov
+pytest-socket
+pytest-timeout
+ruff
+types-requests

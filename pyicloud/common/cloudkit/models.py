@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import (
     Base64Bytes,
@@ -21,6 +21,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from typing_extensions import Self
 
 from .base import CKModel
 
@@ -38,7 +39,7 @@ SENTINEL_ZERO_MS: set[int] = {
 }
 
 
-def _from_millis_or_none(v):
+def _from_millis_or_none(v: int | float | str) -> datetime | None:
     # Accept int/float or signed numeric strings; be strict about milliseconds.
     if isinstance(v, (int, float)):
         iv = int(v)
@@ -81,25 +82,24 @@ MillisDateTime = Annotated[
 
 # Nullable variant used for wrappers that can legitimately carry "no timestamp"
 MillisDateTimeOrNone = Annotated[
-    Optional[datetime],
+    datetime | None,
     BeforeValidator(lambda v: None if v is None else _from_millis_or_none(v)),
     PlainSerializer(
         lambda v: None if v is None else _to_millis(v),
         return_type=int,
         when_used="json",
     ),
-    WithJsonSchema(
-        {
-            "type": ["integer", "null"],
-            "description": "milliseconds since Unix epoch or null sentinel",
-        }
-    ),
+    WithJsonSchema({
+        "type": ["integer", "null"],
+        "description": "milliseconds since Unix epoch or null sentinel",
+    }),
 ]
 
 
-# Some top-level properties (e.g., CKRecord.expirationTime) arrive as seconds-since-epoch
-# in this API. Be tolerant and also accept millisecond values if Apple changes shape.
-def _from_secs_or_millis(v):
+# Some top-level properties (e.g., CKRecord.expirationTime) arrive as
+# seconds-since-epoch in this API. Be tolerant and also accept millisecond
+# values if Apple changes shape.
+def _from_secs_or_millis(v: int | float | str) -> datetime | None:
     if isinstance(v, (int, float)):
         iv = int(v)
     elif isinstance(v, str):
@@ -142,8 +142,8 @@ class CKZoneID(CKModel):
     """Identifies a CloudKit zone by name, owner, and optional type."""
 
     zoneName: str
-    ownerRecordName: Optional[str] = None
-    zoneType: Optional[str] = None
+    ownerRecordName: str | None = None
+    zoneType: str | None = None
 
 
 class CKAuditInfo(CKModel):
@@ -152,8 +152,8 @@ class CKAuditInfo(CKModel):
     """
 
     timestamp: MillisDateTime
-    userRecordName: Optional[str] = None
-    deviceID: Optional[str] = None
+    userRecordName: str | None = None
+    deviceID: str | None = None
 
 
 class CKParent(CKModel):
@@ -165,18 +165,18 @@ class CKParent(CKModel):
 class CKStableUrl(CKModel):
     """Secure URL and access credentials for sharing a record."""
 
-    routingKey: Optional[str] = None
-    shortTokenHash: Optional[str] = None
-    protectedFullToken: Optional[str] = None
-    encryptedPublicSharingKey: Optional[str] = None
-    displayedHostname: Optional[str] = None
+    routingKey: str | None = None
+    shortTokenHash: str | None = None
+    protectedFullToken: str | None = None
+    encryptedPublicSharingKey: str | None = None
+    displayedHostname: str | None = None
 
 
 class CKChainProtectionInfo(CKModel):
     """End-to-end encryption chain protection metadata."""
 
-    bytes: Optional[Base64Bytes] = None  # base64 string as seen on wire
-    pcsChangeTag: Optional[str] = None
+    bytes: Base64Bytes | None = None  # base64 string as seen on wire
+    pcsChangeTag: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -192,30 +192,30 @@ class CKShare(CKModel):
     if they appear nested here in future payloads.
     """
 
-    recordName: Optional[str] = None
-    zoneID: Optional[CKZoneID] = None
+    recordName: str | None = None
+    zoneID: CKZoneID | None = None
 
 
 class CKNameComponents(CKModel):
     """User's name split into given and family names."""
 
-    givenName: Optional[str] = None
-    familyName: Optional[str] = None
+    givenName: str | None = None
+    familyName: str | None = None
 
 
 class CKLookupInfo(CKModel):
     """Contact information for user lookup (email or phone)."""
 
-    emailAddress: Optional[str] = None
-    phoneNumber: Optional[str] = None
+    emailAddress: str | None = None
+    phoneNumber: str | None = None
 
 
 class CKUserIdentity(CKModel):
     """Complete user identity with name and contact information."""
 
-    userRecordName: Optional[str] = None
-    nameComponents: Optional[CKNameComponents] = None
-    lookupInfo: Optional[CKLookupInfo] = None
+    userRecordName: str | None = None
+    nameComponents: CKNameComponents | None = None
+    lookupInfo: CKLookupInfo | None = None
 
 
 class CKParticipantProtectionInfo(CKChainProtectionInfo):
@@ -225,18 +225,18 @@ class CKParticipantProtectionInfo(CKChainProtectionInfo):
 class CKParticipant(CKModel):
     """Person sharing a record with permissions, status, and protection info."""
 
-    participantId: Optional[str] = None
-    userIdentity: Optional[CKUserIdentity] = None
-    type: Optional[str] = None
-    acceptanceStatus: Optional[str] = None
-    permission: Optional[str] = None
-    customRole: Optional[str] = None
-    isApprovedRequester: Optional[bool] = None
-    orgUser: Optional[bool] = None
-    publicKeyVersion: Optional[int] = None
-    outOfNetworkPrivateKey: Optional[str] = None
-    outOfNetworkKeyType: Optional[int] = None
-    protectionInfo: Optional[CKParticipantProtectionInfo] = None
+    participantId: str | None = None
+    userIdentity: CKUserIdentity | None = None
+    type: str | None = None
+    acceptanceStatus: str | None = None
+    permission: str | None = None
+    customRole: str | None = None
+    isApprovedRequester: bool | None = None
+    orgUser: bool | None = None
+    publicKeyVersion: int | None = None
+    outOfNetworkPrivateKey: str | None = None
+    outOfNetworkKeyType: int | None = None
+    protectionInfo: CKParticipantProtectionInfo | None = None
 
 
 class CKPCSInfo(CKChainProtectionInfo):
@@ -249,8 +249,8 @@ class CKReference(CKModel):
     """
 
     recordName: str
-    action: Optional[str] = None  # e.g., "VALIDATE"
-    zoneID: Optional[CKZoneID] = None
+    action: str | None = None  # e.g., "VALIDATE"
+    zoneID: CKZoneID | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +263,6 @@ class _CKFieldBase(CKModel):
 
     # Every field wrapper has a 'type' discriminator and a 'value'
     # Subclasses declare type: Literal[...] for the discriminator.
-    pass
 
 
 class CKTimestampField(_CKFieldBase):
@@ -293,14 +292,14 @@ class CKReferenceField(_CKFieldBase):
     """Reference to another CloudKit record."""
 
     type: Literal["REFERENCE"]
-    value: Optional[CKReference]
+    value: CKReference | None
 
 
 class CKReferenceListField(_CKFieldBase):
     """List of references to other CloudKit records."""
 
     type: Literal["REFERENCE_LIST"]
-    value: List[CKReference]
+    value: list[CKReference]
 
 
 # Occasionally CloudKit also uses STRING-typed wrappers at the `fields` level;
@@ -309,15 +308,15 @@ class CKStringField(_CKFieldBase):
     """String value field wrapper, optionally encrypted."""
 
     type: Literal["STRING"]
-    value: Optional[str]
-    isEncrypted: Optional[bool] = None  # seen on some STRING wrappers (lookup)
+    value: str | None
+    isEncrypted: bool | None = None  # seen on some STRING wrappers (lookup)
 
 
 class CKStringListField(_CKFieldBase):
     """List of string values field wrapper."""
 
     type: Literal["STRING_LIST"]
-    value: List[str]
+    value: list[str]
 
 
 # Asset thumbnails / tokens (e.g. FirstAttachmentThumbnail)
@@ -325,12 +324,12 @@ class CKAssetToken(CKModel):
     """Asset token with download URL, checksums, and wrapping key."""
 
     # Keep as str to preserve exact wire representation.
-    fileChecksum: Optional[str] = None
-    referenceChecksum: Optional[str] = None
-    wrappingKey: Optional[str] = None
-    downloadURL: Optional[str] = None
-    downloadedData: Optional[Base64Bytes] = None
-    size: Optional[int] = None
+    fileChecksum: str | None = None
+    referenceChecksum: str | None = None
+    wrappingKey: str | None = None
+    downloadURL: str | None = None
+    downloadedData: Base64Bytes | None = None
+    size: int | None = None
 
 
 class CKAssetIDField(_CKFieldBase):
@@ -354,7 +353,7 @@ class CKDoubleField(_CKFieldBase):
     type: Literal["DOUBLE"]
     value: float
     # AlarmTrigger latitude/longitude in Reminders can be encrypted doubles.
-    isEncrypted: Optional[bool] = None
+    isEncrypted: bool | None = None
 
 
 class CKBytesField(_CKFieldBase):
@@ -369,14 +368,14 @@ class CKDoubleListField(_CKFieldBase):
     """List of floating-point values field wrapper."""
 
     type: Literal["DOUBLE_LIST"]
-    value: List[float]
+    value: list[float]
 
 
 class CKInt64ListField(_CKFieldBase):
     """List of 64-bit integer values field wrapper."""
 
     type: Literal["INT64_LIST"]
-    value: List[int]
+    value: list[int]
 
 
 class CKAssetIDListField(_CKFieldBase):
@@ -384,7 +383,7 @@ class CKAssetIDListField(_CKFieldBase):
 
     # e.g., PreviewImages, PaperAssets (most cases)
     type: Literal["ASSETID_LIST"]
-    value: List[CKAssetToken]
+    value: list[CKAssetToken]
 
 
 class CKUnknownListField(_CKFieldBase):
@@ -392,7 +391,7 @@ class CKUnknownListField(_CKFieldBase):
 
     # Extremely rare: observed on some PaperAssets payloads as UNKNOWN_LIST.
     type: Literal["UNKNOWN_LIST"]
-    value: List[JsonValue]  # keep generic to be future-proof
+    value: list[JsonValue]  # keep generic to be future-proof
 
 
 class CKPassthroughField(_CKFieldBase):
@@ -403,25 +402,23 @@ class CKPassthroughField(_CKFieldBase):
 
 
 # One source of truth for known CloudKit field 'type' tags.
-KNOWN_TAGS: frozenset[str] = frozenset(
-    {
-        "TIMESTAMP",
-        "INT64",
-        "ENCRYPTED_BYTES",
-        "REFERENCE",
-        "REFERENCE_LIST",
-        "STRING",
-        "STRING_LIST",
-        "ASSETID",
-        "ASSET",
-        "DOUBLE",
-        "BYTES",
-        "DOUBLE_LIST",
-        "INT64_LIST",
-        "ASSETID_LIST",
-        "UNKNOWN_LIST",
-    }
-)
+KNOWN_TAGS: frozenset[str] = frozenset({
+    "TIMESTAMP",
+    "INT64",
+    "ENCRYPTED_BYTES",
+    "REFERENCE",
+    "REFERENCE_LIST",
+    "STRING",
+    "STRING_LIST",
+    "ASSETID",
+    "ASSET",
+    "DOUBLE",
+    "BYTES",
+    "DOUBLE_LIST",
+    "INT64_LIST",
+    "ASSETID_LIST",
+    "UNKNOWN_LIST",
+})
 
 
 # Discriminated union over all known field wrapper types we saw/anticipate.
@@ -483,21 +480,21 @@ class CKFieldOpen(RootModel[Union[KnownCKField, CKPassthroughField]]):
     """
 
     # v2 root models name the inner value "root"
-    root: Union[KnownCKField, CKPassthroughField]
+    root: KnownCKField | CKPassthroughField
 
     @property
-    def value(self):
+    def value(self) -> Any:
         """Retrieve the inner value from the field wrapper."""
         # unified way to read the inner 'value' without touching .root
         return getattr(self.root, "value", None)
 
     @property
-    def type_tag(self) -> Optional[str]:
+    def type_tag(self) -> str | None:
         """Retrieve the CloudKit type discriminator from the field wrapper."""
         # useful when inspecting unknown/passthrough fields
         return getattr(self.root, "type", None)
 
-    def unwrap(self):
+    def unwrap(self) -> Any:
         """Return the inner typed wrapper (e.g., CKTimestampField).
         Public escape hatch; prefer `.value` for most use-cases.
         """
@@ -505,7 +502,7 @@ class CKFieldOpen(RootModel[Union[KnownCKField, CKPassthroughField]]):
 
     @model_validator(mode="before")
     @classmethod
-    def _dispatch_before(cls, obj):
+    def _dispatch_before(cls, obj: Any) -> object:
         """
         Ensure nested contexts (e.g., values inside Dict[str, CKFieldOpen]) use the same
         discriminator-based dispatch as our explicit model_validate(...) call.
@@ -558,12 +555,12 @@ class CKFields(dict[str, CKFieldOpen]):
         except KeyError as e:
             raise AttributeError(name) from e
 
-    def __dir__(self):
+    def __dir__(self) -> list[str]:
         """List available field names for attribute access."""
         base = set(super().__dir__())
         return sorted(base | set(self.keys()))
 
-    def get_field(self, key: str):
+    def get_field(self, key: str) -> Any:
         """Retrieve the inner typed field wrapper for isinstance checks."""
         f = self.get(key)
         if f is None:
@@ -571,20 +568,22 @@ class CKFields(dict[str, CKFieldOpen]):
         # Use public API; avoid touching `.root` here.
         return f.unwrap() if hasattr(f, "unwrap") else f
 
-    def get_value(self, key: str):
+    def get_value(self, key: str) -> Any:
         """Retrieve the decoded value of a field by key."""
         f = self.get_field(key)
         return None if f is None else getattr(f, "value", None)
 
 
-def _coerce_field_mapping(v, mapping_cls):
+def _coerce_field_mapping(
+    v: object, mapping_cls: type[dict[str, CKFieldOpen]]
+) -> object:
     """Validate a raw field mapping into the requested CK field container."""
     if isinstance(v, mapping_cls):
         return v
     if isinstance(v, dict):
-        return mapping_cls(
-            {k: _CK_FIELD_OPEN_ADAPTER.validate_python(val) for k, val in v.items()}
-        )
+        return mapping_cls({
+            k: _CK_FIELD_OPEN_ADAPTER.validate_python(val) for k, val in v.items()
+        })
     return v
 
 
@@ -610,7 +609,7 @@ class CKRecord(CKModel):
 
     @field_validator("fields", mode="before")
     @classmethod
-    def _coerce_fields(cls, v):
+    def _coerce_fields(cls, v: object) -> object:
         """
         Ensure the mapping is validated item-by-item to CKFieldOpen
         and wrapped in CKFields to enable attribute access DX.
@@ -618,13 +617,13 @@ class CKRecord(CKModel):
         return _coerce_field_mapping(v, CKFields)
 
     @model_validator(mode="after")
-    def _validate_encrypted_fields(self):
+    def _validate_encrypted_fields(self) -> Self:
         """Validate encrypted-field wrappers against observed CloudKit shapes.
 
         Most `*Encrypted` fields use ENCRYPTED_BYTES, but shared CloudKit
         records can legitimately carry STRING wrappers with `isEncrypted=true`.
         """
-        for key, wrapper in self.fields.items():
+        for key, wrapper in self.fields.items():  # pylint: disable=no-member
             if not isinstance(key, str) or not key.endswith("Encrypted"):
                 continue
 
@@ -646,42 +645,42 @@ class CKRecord(CKModel):
         return self
 
     # Often present, often empty object
-    pluginFields: Dict[str, JsonValue] = Field(default_factory=dict)
+    pluginFields: dict[str, JsonValue] = Field(default_factory=dict)
 
     # Record metadata
-    recordChangeTag: Optional[str] = None
-    created: Optional[CKAuditInfo] = None
-    modified: Optional[CKAuditInfo] = None
-    deleted: Optional[bool] = None
+    recordChangeTag: str | None = None
+    created: CKAuditInfo | None = None
+    modified: CKAuditInfo | None = None
+    deleted: bool | None = None
 
-    zoneID: Optional[CKZoneID] = None
-    parent: Optional[CKParent] = None
+    zoneID: CKZoneID | None = None
+    parent: CKParent | None = None
 
     # Sharing/identity/exposure
-    displayedHostname: Optional[str] = None
-    stableUrl: Optional[CKStableUrl] = None
-    shortGUID: Optional[str] = None
+    displayedHostname: str | None = None
+    stableUrl: CKStableUrl | None = None
+    shortGUID: str | None = None
 
     # Share-surface (top-level shared metadata)
-    share: Optional[CKShare] = None
-    publicPermission: Optional[str] = None
-    participants: Optional[List[CKParticipant]] = None
-    requesters: Optional[List[CKParticipant]] = None
-    blocked: Optional[List[CKParticipant]] = None
-    denyAccessRequests: Optional[bool] = None
-    owner: Optional[CKParticipant] = None
-    currentUserParticipant: Optional[CKParticipant] = None
-    invitedPCS: Optional[CKPCSInfo] = None
-    selfAddedPCS: Optional[CKPCSInfo] = None
-    shortTokenHash: Optional[str] = None
+    share: CKShare | None = None
+    publicPermission: str | None = None
+    participants: list[CKParticipant] | None = None
+    requesters: list[CKParticipant] | None = None
+    blocked: list[CKParticipant] | None = None
+    denyAccessRequests: bool | None = None
+    owner: CKParticipant | None = None
+    currentUserParticipant: CKParticipant | None = None
+    invitedPCS: CKPCSInfo | None = None
+    selfAddedPCS: CKPCSInfo | None = None
+    shortTokenHash: str | None = None
 
     # End-to-end encryption metadata (optional)
-    chainProtectionInfo: Optional[CKChainProtectionInfo] = None
-    chainParentKey: Optional[str] = None
-    chainPrivateKey: Optional[str] = None
+    chainProtectionInfo: CKChainProtectionInfo | None = None
+    chainParentKey: str | None = None
+    chainPrivateKey: str | None = None
 
     # Observed on InlineAttachment records as numeric seconds since epoch
-    expirationTime: Optional[SecsOrMillisDateTime] = None
+    expirationTime: SecsOrMillisDateTime | None = None
 
 
 class CKWriteParent(CKModel):
@@ -692,8 +691,6 @@ class CKWriteParent(CKModel):
 
 class CKWriteFields(CKFields):
     """Field mapping specialized for CloudKit record modify requests."""
-
-    pass
 
 
 class CKWriteRecord(CKModel):
@@ -706,15 +703,15 @@ class CKWriteRecord(CKModel):
 
     recordName: str
     recordType: str
-    fields: CKWriteFields = Field(default_factory=CKWriteFields)
-    pluginFields: Dict[str, JsonValue] = Field(default_factory=dict)
-    recordChangeTag: Optional[str] = None
-    parent: Optional[CKWriteParent] = None
-    zoneID: Optional[CKZoneID] = None
+    fields: CKWriteFields | dict[str, Any] = Field(default_factory=CKWriteFields)
+    pluginFields: dict[str, JsonValue] = Field(default_factory=dict)
+    recordChangeTag: str | None = None
+    parent: CKWriteParent | None = None
+    zoneID: CKZoneID | None = None
 
     @field_validator("fields", mode="before")
     @classmethod
-    def _coerce_fields(cls, v):
+    def _coerce_fields(cls, v: object) -> object:
         """Convert raw field mapping into typed CKWriteFields container."""
         return _coerce_field_mapping(v, CKWriteFields)
 
@@ -729,8 +726,8 @@ class CKErrorItem(CKModel):
     """
 
     serverErrorCode: str
-    reason: Optional[str] = None
-    recordName: Optional[str] = None
+    reason: str | None = None
+    recordName: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -746,7 +743,7 @@ class CKTombstoneRecord(CKModel):
 
     recordName: str
     deleted: Literal[True]
-    zoneID: Optional[CKZoneID] = None
+    zoneID: CKZoneID | None = None
 
 
 class CKQueryResponse(CKModel):
@@ -756,13 +753,13 @@ class CKQueryResponse(CKModel):
     - continuationMarker: optional paging token (present if more results exist)
     """
 
-    records: List[Union[CKRecord, CKTombstoneRecord, CKErrorItem]] = Field(
+    records: list[CKRecord | CKTombstoneRecord | CKErrorItem] = Field(
         default_factory=list
     )
-    continuationMarker: Optional[str] = None
+    continuationMarker: str | None = None
     # When getCurrentSyncToken=true is passed, server also returns a top-level syncToken
     # Include it for strict validation; clients can ignore if not needed.
-    syncToken: Optional[str] = None
+    syncToken: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -789,8 +786,6 @@ class CKComparator(str, Enum):
 class _CKFilterValueBase(CKModel):
     """Base class for filter value wrappers with type discriminator."""
 
-    pass  # Subclasses declare type: Literal[...] for the discriminator.
-
 
 class CKFVString(_CKFilterValueBase):
     """String literal value in a query filter."""
@@ -810,7 +805,7 @@ class CKFVStringList(_CKFilterValueBase):
     """List of string values in a query filter."""
 
     type: Literal["STRING_LIST"]
-    value: List[str]
+    value: list[str]
 
 
 class CKFVReference(_CKFilterValueBase):
@@ -824,7 +819,7 @@ class CKFVReferenceList(_CKFilterValueBase):
     """List of record references in a query filter."""
 
     type: Literal["REFERENCE_LIST"]
-    value: List[CKReference]
+    value: list[CKReference]
 
 
 CKFilterValue = Annotated[
@@ -846,7 +841,7 @@ class CKQuerySortBy(CKModel):
     """
 
     fieldName: str
-    ascending: Optional[bool] = None
+    ascending: bool | None = None
 
 
 class CKQueryFilterBy(CKModel):
@@ -865,7 +860,7 @@ class CKQueryFilterBy(CKModel):
                       "type": "REFERENCE"}}
     """
 
-    comparator: Union[CKComparator, str]
+    comparator: CKComparator | str
     fieldName: str
     fieldValue: CKFilterValue
 
@@ -879,8 +874,8 @@ class CKQueryObject(CKModel):
     """
 
     recordType: str
-    filterBy: Optional[List[CKQueryFilterBy]] = None
-    sortBy: Optional[List[CKQuerySortBy]] = None
+    filterBy: list[CKQueryFilterBy] | None = None
+    sortBy: list[CKQuerySortBy] | None = None
 
 
 # Request side (only what you actually send on the wire)
@@ -888,8 +883,8 @@ class CKZoneIDReq(CKModel):
     """Zone identifier for requests (without redundant fields)."""
 
     zoneName: str
-    zoneType: Optional[str] = None
-    ownerRecordName: Optional[str] = None
+    zoneType: str | None = None
+    ownerRecordName: str | None = None
 
 
 class CKQueryRequest(CKModel):
@@ -902,13 +897,13 @@ class CKQueryRequest(CKModel):
     """
 
     query: CKQueryObject
-    zoneID: Optional[CKZoneIDReq] = None
-    desiredKeys: Optional[List[str]] = None  # can include duplicates; keep order
-    resultsLimit: Optional[int] = None
+    zoneID: CKZoneIDReq | None = None
+    desiredKeys: list[str] | None = None  # can include duplicates; keep order
+    resultsLimit: int | None = None
     # Observed as a base64-like string on the wire; keep as str for strictness
-    continuationMarker: Optional[str] = None
+    continuationMarker: str | None = None
     # When true, query runs across all zones in the database (Invites events).
-    zoneWide: Optional[bool] = None
+    zoneWide: bool | None = None
 
 
 class CKLookupDescriptor(CKModel):
@@ -925,17 +920,17 @@ class CKLookupDescriptor(CKModel):
 class CKLookupRequest(CKModel):
     """Payload for fetching specific records by their names."""
 
-    records: List[CKLookupDescriptor]
+    records: list[CKLookupDescriptor]
     zoneID: CKZoneIDReq
-    desiredKeys: Optional[List[str]] = None
+    desiredKeys: list[str] | None = None
 
 
 class CKLookupResponse(CKModel):
     """Response containing records fetched by lookup request."""
 
-    records: List[Union[CKRecord, CKTombstoneRecord, CKErrorItem]]
+    records: list[CKRecord | CKTombstoneRecord | CKErrorItem]
     # Server returns a top-level syncToken when getCurrentSyncToken=true
-    syncToken: Optional[str] = None
+    syncToken: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -952,14 +947,14 @@ class CKZoneListZone(CKModel):
     """
 
     zoneID: CKZoneID
-    syncToken: Optional[str] = None
-    deleted: Optional[bool] = None
+    syncToken: str | None = None
+    deleted: bool | None = None
 
 
 class CKZoneListResponse(CKModel):
     """Top-level envelope for /zones/list."""
 
-    zones: List[CKZoneListZone] = Field(default_factory=list)
+    zones: list[CKZoneListZone] = Field(default_factory=list)
 
 
 class CKDatabaseChangesZone(CKModel):
@@ -971,15 +966,15 @@ class CKDatabaseChangesZone(CKModel):
     """
 
     zoneID: CKZoneID
-    deleted: Optional[bool] = None
+    deleted: bool | None = None
 
 
 class CKDatabaseChangesResponse(CKModel):
     """Top-level envelope for /changes/database."""
 
-    zones: List[CKDatabaseChangesZone] = Field(default_factory=list)
-    moreComing: Optional[bool] = None
-    syncToken: Optional[str] = None
+    zones: list[CKDatabaseChangesZone] = Field(default_factory=list)
+    moreComing: bool | None = None
+    syncToken: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -996,10 +991,10 @@ class CKZoneChangesZone(CKModel):
       - moreComing is present but sometimes null (treat as Optional[bool])
     """
 
-    records: List[Union[CKRecord, CKTombstoneRecord, CKErrorItem]] = Field(
+    records: list[CKRecord | CKTombstoneRecord | CKErrorItem] = Field(
         default_factory=list
     )
-    moreComing: Optional[bool] = None
+    moreComing: bool | None = None
     syncToken: str
     zoneID: CKZoneID
 
@@ -1009,7 +1004,7 @@ class CKZoneChangesResponse(CKModel):
     Top-level envelope for /private/changes/zone (and /shared/changes/zone) responses.
     """
 
-    zones: List[CKZoneChangesZone] = Field(default_factory=list)
+    zones: list[CKZoneChangesZone] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -1022,26 +1017,28 @@ class CKZoneChangesZoneReq(CKModel):
     One zone request entry for /changes/zone.
 
     Observed keys:
-      - zoneID: includes zoneName (e.g., "Notes" or "Reminders"), sometimes zoneType and ownerRecordName (for shared)
-      - desiredKeys: list of field names to project (duplicates allowed, order preserved)
+      - zoneID: includes zoneName (e.g., "Notes" or "Reminders"), sometimes
+        zoneType and ownerRecordName (for shared)
+      - desiredKeys: list of field names to project (duplicates allowed, order
+        preserved)
       - desiredRecordTypes: list of record types to include
       - syncToken: optional paging token (base64-like string)
       - reverse: optional bool
     """
 
     zoneID: CKZoneID  # allow ownerRecordName/zoneType when present
-    desiredKeys: Optional[List[str]] = None
-    desiredRecordTypes: Optional[List[str]] = None
+    desiredKeys: list[str] | None = None
+    desiredRecordTypes: list[str] | None = None
     # Observed as a base64-like string on the wire; keep as str for strictness
-    syncToken: Optional[str] = None
-    reverse: Optional[bool] = None
+    syncToken: str | None = None
+    reverse: bool | None = None
 
 
 class CKZoneChangesRequest(CKModel):
     """Payload for fetching zone changes since a specific sync token."""
 
-    zones: List[CKZoneChangesZoneReq]
-    resultsLimit: Optional[int] = None
+    zones: list[CKZoneChangesZoneReq]
+    resultsLimit: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1067,15 +1064,15 @@ class CKModifyOperation(CKModel):
 class CKModifyRequest(CKModel):
     """Payload for modifying records in a zone."""
 
-    operations: List[CKModifyOperation]
+    operations: list[CKModifyOperation]
     zoneID: CKZoneIDReq
-    atomic: Optional[bool] = None
+    atomic: bool | None = None
 
 
 class CKModifyResponse(CKModel):
     """Response containing records after modification operations."""
 
-    records: List[Union[CKRecord, CKTombstoneRecord, CKErrorItem]] = Field(
+    records: list[CKRecord | CKTombstoneRecord | CKErrorItem] = Field(
         default_factory=list
     )
-    syncToken: Optional[str] = None
+    syncToken: str | None = None

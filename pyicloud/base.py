@@ -1,17 +1,17 @@
 """Library base file."""
 
 import base64
+from collections.abc import Mapping
+from dataclasses import dataclass
 import getpass
 import json
 import logging
-import time
-from dataclasses import dataclass
 from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
-from typing import Any, Dict, List, Mapping, Optional, cast
+import time
+from typing import Any, Optional, cast
 from uuid import uuid1
 
-import srp
 from fido2.client import DefaultClientDataCollector, Fido2Client
 from fido2.hid import CtapHidDevice
 from fido2.webauthn import (
@@ -23,6 +23,7 @@ from fido2.webauthn import (
 )
 from requests import HTTPError
 from requests.models import Response
+import srp
 
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
 from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT
@@ -46,7 +47,6 @@ from pyicloud.hsa2_bridge import (
 )
 from pyicloud.services import (
     AccountService,
-    AppleDevice,
     CalendarService,
     ContactsService,
     DriveService,
@@ -55,6 +55,9 @@ from pyicloud.services import (
     PhotosService,
     RemindersService,
     UbiquityService,
+)
+from pyicloud.services import (  # pylint: disable=useless-import-alias
+    AppleDevice as AppleDevice,
 )
 from pyicloud.services.invites import InvitesService
 from pyicloud.services.notes import NotesService
@@ -80,14 +83,18 @@ _HEADERS: dict[str, str] = {
 _AUTH_HEADERS_JSON: dict[str, str] = {
     "Accept": f"{CONTENT_TYPE_JSON}, text/javascript",
     "Content-Type": CONTENT_TYPE_JSON,
-    "X-Apple-OAuth-Client-Id": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
+    "X-Apple-OAuth-Client-Id": (
+        "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d"
+    ),
     "X-Apple-OAuth-Client-Type": "firstPartyAuth",
     "X-Apple-OAuth-Redirect-URI": "https://www.icloud.com",
     "X-Apple-OAuth-Require-Grant-Code": "true",
     "X-Apple-OAuth-Response-Mode": "web_message",
     "X-Apple-OAuth-Response-Type": "code",
     "X-Apple-OAuth-State": "",
-    "X-Apple-Widget-Key": "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d",
+    "X-Apple-Widget-Key": (
+        "d39ba9916b7251055b22c7f910e2ea796ee65e98b2ddecea8f5dde8d9d1a815d"
+    ),
     "X-Apple-FD-Client-Info": json.dumps(
         {
             "U": _HEADERS["User-Agent"],
@@ -106,7 +113,7 @@ _PARAMS: dict[str, str] = {
 }
 
 
-def resolve_cookie_directory(cookie_directory: Optional[str] = None) -> str:
+def resolve_cookie_directory(cookie_directory: str | None = None) -> str:
     """Resolve the directory used for persisted session and cookie data."""
 
     if cookie_directory:
@@ -121,12 +128,12 @@ class TrustedPhoneNumber:
     """Typed view of Apple's trusted-phone metadata."""
 
     device_id: int | str
-    non_fteu: Optional[bool] = None
-    push_mode: Optional[str] = None
+    non_fteu: bool | None = None
+    push_mode: str | None = None
 
     @classmethod
     def from_mapping(
-        cls, value: Optional[Mapping[str, Any]]
+        cls, value: Mapping[str, Any] | None
     ) -> Optional["TrustedPhoneNumber"]:
         """Return a typed phone record when Apple's payload includes one."""
 
@@ -163,13 +170,11 @@ class TrustedPhoneNumber:
 class PhoneNumberVerification:
     """Typed view of Apple's phone verification wrapper payload."""
 
-    trusted_phone_number: Optional[TrustedPhoneNumber] = None
+    trusted_phone_number: TrustedPhoneNumber | None = None
     trusted_phone_numbers: tuple[TrustedPhoneNumber, ...] = ()
 
     @classmethod
-    def from_mapping(
-        cls, value: Optional[Mapping[str, Any]]
-    ) -> "PhoneNumberVerification":
+    def from_mapping(cls, value: Mapping[str, Any] | None) -> "PhoneNumberVerification":
         """Return the parsed phone verification payload when Apple exposes one."""
 
         if not isinstance(value, Mapping):
@@ -192,7 +197,7 @@ class PhoneNumberVerification:
             trusted_phone_numbers=tuple(trusted_phone_numbers),
         )
 
-    def best_trusted_phone_number(self) -> Optional[TrustedPhoneNumber]:
+    def best_trusted_phone_number(self) -> TrustedPhoneNumber | None:
         """Return the first usable trusted phone number from Apple's payload."""
 
         if self.trusted_phone_number is not None:
@@ -223,13 +228,13 @@ class PyiCloudService:
         self._home_endpoint: str = f"https://www.icloud.com{icloud_china}"
         self._setup_endpoint: str = f"https://setup.icloud.com{icloud_china}/setup/ws/1"
 
-    def _setup_cookie_directory(self, cookie_directory: Optional[str] = None) -> str:
+    def _setup_cookie_directory(self, cookie_directory: str | None = None) -> str:
         """Set up the cookie directory for the service."""
         _cookie_directory = resolve_cookie_directory(cookie_directory)
         if not cookie_directory:
             topdir = path.dirname(_cookie_directory)
             makedirs(topdir, exist_ok=True)
-            chmod(topdir, 0o1777)
+            chmod(topdir, 0o1777)  # noqa: S2612
 
         old_umask = umask(0o077)
         try:
@@ -241,27 +246,30 @@ class PyiCloudService:
     def __init__(
         self,
         apple_id: str,
-        password: Optional[str] = None,
-        cookie_directory: Optional[str] = None,
+        password: str | None = None,
+        cookie_directory: str | None = None,
         verify: bool = True,
-        client_id: Optional[str] = None,
+        client_id: str | None = None,
         with_family: bool = True,
-        china_mainland: Optional[bool] = None,
+        china_mainland: bool | None = None,
         accept_terms: bool = False,
         refresh_interval: float | None = None,
+        family_poll_delay: float = 0.5,
+        family_poll_max_retries: int = 5,
         *,
         authenticate: bool = True,
-        cloudkit_validation_extra: Optional[CloudKitExtraMode] = None,
+        cloudkit_validation_extra: CloudKitExtraMode | None = None,
+        pause_2fa: bool = False,
     ) -> None:
         """Initialize a service session for one Apple ID account."""
         self._is_china_mainland: bool = (
-            environ.get("icloud_china", "0") == "1"
+            environ.get("ICLOUD_CHINA", "0") == "1"
             if china_mainland is None
             else china_mainland
         )
         self._setup_endpoints()
 
-        self._password_raw: Optional[str] = password
+        self._password_raw: str | None = password
 
         self._apple_id: str = apple_id
         self._accept_terms: bool = accept_terms
@@ -272,25 +280,25 @@ class PyiCloudService:
 
         self.data: dict[str, Any] = {}
         self._auth_data: dict[str, Any] = {}
-        self._hsa2_boot_context: Optional[Hsa2BootContext] = None
-        self._trusted_device_bridge_state: Optional[TrustedDeviceBridgeState] = None
+        self._hsa2_boot_context: Hsa2BootContext | None = None
+        self._trusted_device_bridge_state: TrustedDeviceBridgeState | None = None
         self._trusted_device_bridge = TrustedDeviceBridgeBootstrapper()
         self._two_factor_delivery_method: str = "unknown"
-        self._two_factor_delivery_notice: Optional[str] = None
+        self._two_factor_delivery_notice: str | None = None
 
         self.params: dict[str, Any] = {}
         self._client_id: str = client_id or str(uuid1()).lower()
         self._with_family: bool = with_family
+        self._family_poll_delay: float = family_poll_delay
+        self._family_poll_max_retries: int = family_poll_max_retries
         self._cloudkit_validation_extra = cloudkit_validation_extra
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
         _headers: dict[str, str] = _HEADERS.copy()
-        _headers.update(
-            {
-                "Origin": self._home_endpoint,
-                "Referer": f"{self._home_endpoint}/",
-            }
-        )
+        _headers.update({
+            "Origin": self._home_endpoint,
+            "Referer": f"{self._home_endpoint}/",
+        })
 
         self._session: PyiCloudSession = PyiCloudSession(
             self,
@@ -303,31 +311,31 @@ class PyiCloudService:
         self._client_id = self.session.data.get("client_id", self._client_id)
 
         _params: dict[str, str] = _PARAMS.copy()
-        _params.update(
-            {
-                "clientId": self._client_id,
-            }
-        )
+        _params.update({
+            "clientId": self._client_id,
+        })
         self.params = _params
 
-        self._webservices: Optional[dict[str, dict[str, Any]]] = None
+        self._webservices: dict[str, dict[str, Any]] | None = None
 
-        self._account: Optional[AccountService] = None
-        self._calendar: Optional[CalendarService] = None
-        self._contacts: Optional[ContactsService] = None
-        self._devices: Optional[FindMyiPhoneServiceManager] = None
-        self._drive: Optional[DriveService] = None
-        self._files: Optional[UbiquityService] = None
-        self._hidemyemail: Optional[HideMyEmailService] = None
-        self._photos: Optional[PhotosService] = None
-        self._reminders: Optional[RemindersService] = None
-        self._notes: Optional[NotesService] = None
-        self._invites: Optional[InvitesService] = None
+        self._account: AccountService | None = None
+        self._calendar: CalendarService | None = None
+        self._contacts: ContactsService | None = None
+        self._devices: FindMyiPhoneServiceManager | None = None
+        self._drive: DriveService | None = None
+        self._files: UbiquityService | None = None
+        self._hidemyemail: HideMyEmailService | None = None
+        self._photos: PhotosService | None = None
+        self._reminders: RemindersService | None = None
+        self._notes: NotesService | None = None
+        self._invites: InvitesService | None = None
 
         self._requires_mfa: bool = False
+        self._two_factor_code_requested: bool = False
+        self._pause_2fa: bool = pause_2fa
 
         if authenticate:
-            self.authenticate()
+            self.authenticate(pause_2fa=pause_2fa)
 
     @property
     def is_china_mainland(self) -> bool:
@@ -336,41 +344,29 @@ class PyiCloudService:
         return self._is_china_mainland
 
     def authenticate(
-        self, force_refresh: bool = False, service: Optional[str] = None
+        self,
+        force_refresh: bool = False,
+        service: str | None = None,
+        pause_2fa: bool | None = None,
     ) -> None:
         """
         Handles authentication, and persists cookies so that
         subsequent logins will not cause additional e-mails from Apple.
         """
 
-        login_successful = False
-        if self.session.data.get("session_token") and not force_refresh:
-            try:
-                self.data = self._validate_token()
-                login_successful = True
-            except PyiCloudAPIResponseException:
-                LOGGER.debug("Invalid authentication token, will log in from scratch.")
+        if pause_2fa is None:
+            pause_2fa = self._pause_2fa
 
-        if (
-            not login_successful
-            and service is not None
-            and self.data.get("apps")
-            and service in self.data["apps"]
-        ):
-            app: dict[str, Any] = self.data["apps"][service]
-            if "canLaunchWithOneFactor" in app and app["canLaunchWithOneFactor"]:
-                LOGGER.debug("Authenticating as %s for %s", self.account_name, service)
-                try:
-                    self._authenticate_with_credentials_service(service)
-                    login_successful = True
-                except PyiCloudFailedLoginException:
-                    LOGGER.debug(
-                        "Could not log into service. Attempting brand new login."
-                    )
+        login_successful = False
+        if self._try_reuse_cached_session(force_refresh, pause_2fa):
+            login_successful = True
+
+        if not login_successful and self._try_service_one_factor_login(service):
+            login_successful = True
 
         if not login_successful:
             try:
-                self._authenticate()
+                self._authenticate(pause_2fa=pause_2fa)
                 LOGGER.debug("Authentication completed successfully")
             except PyiCloud2FARequiredException:
                 self._requires_mfa = True
@@ -378,7 +374,45 @@ class PyiCloudService:
 
         self._update_state()
 
-    def _handle_accept_terms(self, login_data: dict) -> None:
+    def _try_reuse_cached_session(self, force_refresh: bool, pause_2fa: bool) -> bool:
+        """Validate and reuse a cached session token when it is allowed.
+
+        An intentionally untrusted (paused) session is only reused when the
+        caller explicitly opted into a paused 2FA flow; a trusted session is
+        always reusable so cookie/session persistence keeps working.
+        """
+        if not self.session.data.get("session_token") or force_refresh:
+            return False
+        try:
+            self.data = self._validate_token()
+        except PyiCloudAPIResponseException:
+            LOGGER.debug("Invalid authentication token, will log in from scratch.")
+            return False
+        if not self.is_trusted_session and not pause_2fa:
+            LOGGER.debug("Cached session is untrusted; requiring full authentication.")
+            return False
+        return True
+
+    def _try_service_one_factor_login(self, service: str | None) -> bool:
+        """Attempt a one-factor login for the requested service."""
+        if (
+            service is None
+            or not self.data.get("apps")
+            or service not in self.data["apps"]
+        ):
+            return False
+        app: dict[str, Any] = self.data["apps"][service]
+        if "canLaunchWithOneFactor" not in app or not app["canLaunchWithOneFactor"]:
+            return False
+        LOGGER.debug("Authenticating as %s for %s", self.account_name, service)
+        try:
+            self._authenticate_with_credentials_service(service)
+            return True
+        except PyiCloudFailedLoginException:
+            LOGGER.debug("Could not log into service. Attempting brand new login.")
+            return False
+
+    def _handle_accept_terms(self, login_data: dict[str, Any]) -> None:
         """Handle accepting updated terms of service."""
         if self.data.get("termsUpdateNeeded"):
             if not self._accept_terms:
@@ -445,6 +479,7 @@ class PyiCloudService:
         self._reminders = None
         self._invites = None
         self._requires_mfa = False
+        self._two_factor_code_requested = False
         self.params.pop("dsid", None)
 
     def _clear_trusted_device_bridge_state(self) -> None:
@@ -479,14 +514,12 @@ class PyiCloudService:
             self._clear_authenticated_state()
             return status
 
-        status.update(
-            {
-                "authenticated": True,
-                "trusted_session": self.is_trusted_session,
-                "requires_2fa": self.requires_2fa,
-                "requires_2sa": self.requires_2sa,
-            }
-        )
+        status.update({
+            "authenticated": True,
+            "trusted_session": self.is_trusted_session,
+            "requires_2fa": self.requires_2fa,
+            "requires_2sa": self.requires_2sa,
+        })
         return status
 
     def logout(
@@ -530,18 +563,25 @@ class PyiCloudService:
             "local_session_cleared": local_session_cleared,
         }
 
-    def _authenticate(self) -> None:
+    def _authenticate(self, pause_2fa: bool = False) -> None:
         """Authenticate with either the cached session token or fresh credentials."""
         LOGGER.debug("Authenticating as %s", self.account_name)
 
         try:
             self._authenticate_with_token()
         except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
-            self._srp_authentication()
-            self._authenticate_with_token()
+            paused_login_succeeded = self._srp_authentication(pause_2fa=pause_2fa)
+            if self._requires_mfa:
+                LOGGER.debug(
+                    "MFA is required; session-token authentication is deferred "
+                    "until the 2FA challenge is completed."
+                )
+                return
+            if not pause_2fa or not paused_login_succeeded:
+                self._authenticate_with_token(require_trust=not pause_2fa)
 
-    def _srp_authentication(self) -> None:
-        """SRP authentication."""
+    def _srp_authentication(self, pause_2fa: bool = False) -> bool:
+        """SRP authentication; returns True when a paused token login succeeded."""
         if self._password_raw is None:
             raise PyiCloudFailedLoginException("No password set")
 
@@ -580,7 +620,7 @@ class PyiCloudService:
                 "protocols": [protocol.value for protocol in SrpProtocolType],
             }
 
-            response: Response = self.session.post(
+            response = self.session.post(
                 f"{self._auth_endpoint}/signin/init",
                 json=data,
                 headers=self._get_auth_headers(),
@@ -617,6 +657,8 @@ class PyiCloudService:
             }
         if self.session.data.get("trust_token"):
             data["trustTokens"] = [self.session.data.get("trust_token")]
+        if pause_2fa:
+            data["pause2FA"] = True
 
         try:
             self.session.post(
@@ -628,14 +670,43 @@ class PyiCloudService:
                 headers=self._get_auth_headers(),
             )
         except PyiCloud2FARequiredException:
+            if (
+                pause_2fa
+                and self.session.data.get("session_token")
+                and self._login_with_paused_token()
+            ):
+                LOGGER.debug("Paused session-token login succeeded.")
+                return True
             LOGGER.debug("2FA required to complete authentication.")
+            self._requires_mfa = True
             self._auth_data = self._get_mfa_auth_options()
-            self._request_2fa_code()
+            try:
+                self.request_2fa_code()
+            except (
+                PyiCloudAPIResponseException,
+                PyiCloudNoTrustedNumberAvailable,
+            ) as error:
+                LOGGER.debug("Automatic 2FA code delivery failed: %s", error)
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
+        return False
 
-    def _authenticate_with_token(self) -> None:
+    def _login_with_paused_token(self) -> bool:
+        """Attempt an untrusted session-token login for a paused 2FA session."""
+        if not self.session.data.get("session_token"):
+            return False
+        LOGGER.debug(
+            "2FA required but pause2FA is enabled; attempting session-token login."
+        )
+        try:
+            self._authenticate_with_token(require_trust=False)
+        except (PyiCloudAPIResponseException, PyiCloudFailedLoginException):
+            LOGGER.debug("Paused session-token login failed; falling back to MFA flow.")
+            return False
+        return True
+
+    def _authenticate_with_token(self, require_trust: bool = True) -> None:
         """Authenticate using session token."""
         if not self.session.data.get("session_token"):
             raise PyiCloudFailedLoginException("No session token available")
@@ -657,8 +728,18 @@ class PyiCloudService:
 
             self._handle_accept_terms(login_data)
 
-            if not self.is_trusted_session:
+            if require_trust and not self.is_trusted_session:
                 raise PyiCloud2FARequiredException(self.account_name, resp)
+
+            # accountLogin returns a fresh webservices map, so derived state has
+            # to be refreshed here rather than only in authenticate(). Reached
+            # via trust_session() after 2FA, which otherwise leaves
+            # `_webservices` holding the reduced map from the pre-2FA login and
+            # makes get_webservice_url() raise for services that are present in
+            # `self.data`. Deliberately after the trust check, so the paths that
+            # raise keep deferring to authenticate()'s own _update_state() and
+            # this stays a no-op for them.
+            self._update_state()
 
             self._auth_data = {}
             self._hsa2_boot_context = None
@@ -668,7 +749,7 @@ class PyiCloudService:
             msg = "Invalid authentication token."
             raise PyiCloudFailedLoginException(msg, error) from error
 
-    def _authenticate_with_credentials_service(self, service: Optional[str]) -> None:
+    def _authenticate_with_credentials_service(self, service: str | None) -> None:
         """Authenticate to a specific service using credentials."""
         login_data: dict[str, Any] = {
             "appName": service,
@@ -704,18 +785,16 @@ class PyiCloudService:
             raise
 
     def _get_auth_headers(
-        self, overrides: Optional[dict[str, Any]] = None
+        self, overrides: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Build Apple auth headers for IDMS, bridge, and verification requests."""
         headers: dict[str, Any] = _AUTH_HEADERS_JSON.copy()
-        headers.update(
-            {
-                "Referer": self._idmsa_endpoint,
-                "X-Apple-OAuth-Redirect-URI": self._home_endpoint,
-                "X-Apple-OAuth-State": self._client_id,
-                "X-Apple-Frame-Id": self._client_id,
-            }
-        )
+        headers.update({
+            "Referer": self._idmsa_endpoint,
+            "X-Apple-OAuth-Redirect-URI": self._home_endpoint,
+            "X-Apple-OAuth-State": self._client_id,
+            "X-Apple-Frame-Id": self._client_id,
+        })
 
         if self.session.data.get("scnt"):
             headers["scnt"] = self.session.data["scnt"]
@@ -754,15 +833,16 @@ class PyiCloudService:
     @property
     def requires_2fa(self) -> bool:
         """Returns True if two-factor authentication is required."""
-        return (
-            self._is_mfa_required()
-            and self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
+        return self._is_mfa_required() and (
+            self.data.get("dsInfo", {}).get("hsaVersion", 0) == 2
+            or self._requires_mfa
+            or bool(self._auth_data)
         )
 
     @property
     def is_trusted_session(self) -> bool:
         """Returns True if the session is trusted."""
-        return self.data.get("hsaTrustedBrowser", False)
+        return cast(bool, self.data.get("hsaTrustedBrowser", False))
 
     @property
     def trusted_devices(self) -> list[dict[str, Any]]:
@@ -770,7 +850,7 @@ class PyiCloudService:
         request: Response = self.session.get(
             f"{self._setup_endpoint}/listDevices", params=self.params
         )
-        return request.json().get("devices")
+        return cast(list[dict[str, Any]], request.json().get("devices"))
 
     def send_verification_code(self, device: dict[str, Any]) -> bool:
         """Requests that a verification code is sent to the given device."""
@@ -779,7 +859,7 @@ class PyiCloudService:
             params=self.params,
             json=device,
         )
-        return request.json().get("success", False)
+        return cast(bool, request.json().get("success", False))
 
     def validate_verification_code(self, device: dict[str, Any], code: str) -> bool:
         """Verifies a verification code received on a trusted device."""
@@ -802,7 +882,7 @@ class PyiCloudService:
 
         return not self.requires_2sa
 
-    def _get_mfa_auth_options(self) -> Dict:
+    def _get_mfa_auth_options(self) -> dict[str, Any]:
         """Retrieve auth request options for assertion."""
         # Apple exposes the HSA2 bridge bootstrap in the HTML auth shell.
         # Requesting JSON here tends to collapse the response to the SMS-oriented shape.
@@ -828,53 +908,20 @@ class PyiCloudService:
         self._set_two_factor_delivery_state("unknown")
         return auth_options
 
-    def _request_2fa_code(self) -> None:
-        """Request a 2FA code delivery after SRP authentication requires MFA.
-
-        Apple does not automatically push a verification code for API-based
-        (non-browser) sessions after SRP. This method explicitly triggers the
-        push notification to trusted devices and falls back to SMS when available.
-        """
-        headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
-
-        try:
-            self.session.get(
-                f"{self._auth_endpoint}/verify/trusteddevice",
-                headers=headers,
-            )
-            LOGGER.debug("Requested 2FA code via trusted device push")
-        except Exception:  # noqa: BLE001
-            LOGGER.debug("Could not request 2FA device push; will try SMS fallback")
-
-        trusted_phone_number = self._trusted_phone_number()
-        if trusted_phone_number is not None:
-            try:
-                self.session.put(
-                    f"{self._auth_endpoint}/verify/phone",
-                    json={
-                        "phoneNumber": trusted_phone_number.as_phone_number_payload(),
-                        "mode": "sms",
-                    },
-                    headers=headers,
-                )
-                LOGGER.debug(
-                    "Requested 2FA code via SMS (phone id %s)",
-                    trusted_phone_number.device_id,
-                )
-            except Exception:  # noqa: BLE001
-                LOGGER.debug("Could not request 2FA SMS code")
-
     def _set_two_factor_delivery_state(
-        self, method: str, notice: Optional[str] = None
+        self, method: str, notice: str | None = None
     ) -> None:
         """Track the active MFA delivery route for the current auth challenge."""
 
         self._two_factor_delivery_method = method
         self._two_factor_delivery_notice = notice
+        if method == "unknown":
+            self._two_factor_code_requested = False
 
     def use_existing_trusted_device_code(self) -> None:
         """Validate the next 2FA code as one already shown on a trusted device."""
 
+        self._two_factor_code_requested = False
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("trusted_device")
 
@@ -906,7 +953,7 @@ class PyiCloudService:
             and self._trusted_phone_number() is not None
         )
 
-    def _request_sms_2fa_code(self, notice: Optional[str] = None) -> bool:
+    def _request_sms_2fa_code(self, notice: str | None = None) -> bool:
         """Trigger SMS delivery for the current HSA2 challenge."""
 
         trusted_phone_number = self._trusted_phone_number()
@@ -926,6 +973,7 @@ class PyiCloudService:
         )
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("sms", notice)
+        self._two_factor_code_requested = True
         return True
 
     @property
@@ -947,17 +995,17 @@ class PyiCloudService:
         return "unknown"
 
     @property
-    def two_factor_delivery_notice(self) -> Optional[str]:
+    def two_factor_delivery_notice(self) -> str | None:
         """Return an optional user-facing note about the active 2FA delivery path."""
 
         return self._two_factor_delivery_notice
 
     @property
-    def security_key_names(self) -> Optional[List[str]]:
+    def security_key_names(self) -> list[str] | None:
         """Security key names which can be used for the WebAuthn assertion."""
         return self._auth_data.get("keyNames")
 
-    def _submit_webauthn_assertion_response(self, data: Dict) -> None:
+    def _submit_webauthn_assertion_response(self, data: dict[str, Any]) -> None:
         """Submit the WebAuthn assertion response for authentication."""
         headers = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
 
@@ -971,7 +1019,7 @@ class PyiCloudService:
         phone_verification = self._auth_data.get("phoneNumberVerification")
         return PhoneNumberVerification.from_mapping(phone_verification)
 
-    def _trusted_phone_number(self) -> Optional[TrustedPhoneNumber]:
+    def _trusted_phone_number(self) -> TrustedPhoneNumber | None:
         """Return the best available trusted phone number description."""
 
         trusted_phone_number = TrustedPhoneNumber.from_mapping(
@@ -982,7 +1030,7 @@ class PyiCloudService:
 
         return self._phone_number_verification().best_trusted_phone_number()
 
-    def _two_factor_mode(self) -> Optional[str]:
+    def _two_factor_mode(self) -> str | None:
         """Return the current 2FA delivery mode reported by Apple."""
 
         mode = self._auth_data.get("mode")
@@ -1002,6 +1050,12 @@ class PyiCloudService:
             self._set_two_factor_delivery_state("security_key")
             return False
 
+        if self._two_factor_code_requested:
+            LOGGER.debug(
+                "2FA code delivery for the current challenge is already in flight."
+            )
+            return True
+
         self._clear_trusted_device_bridge_state()
 
         if self._supports_trusted_device_bridge():
@@ -1017,10 +1071,12 @@ class PyiCloudService:
                     ),
                 )
                 self._set_two_factor_delivery_state("trusted_device")
+                self._two_factor_code_requested = True
                 return True
             except PyiCloudTrustedDevicePromptException:
                 LOGGER.debug(
-                    "Trusted-device bridge bootstrap failed; falling back to SMS when available.",
+                    "Trusted-device bridge bootstrap failed; falling back to "
+                    "SMS when available.",
                     exc_info=True,
                 )
                 if self._can_request_sms_2fa_code():
@@ -1035,11 +1091,11 @@ class PyiCloudService:
         return False
 
     @property
-    def fido2_devices(self) -> List[CtapHidDevice]:
+    def fido2_devices(self) -> list[CtapHidDevice]:
         """List the available FIDO2 devices."""
         return list(CtapHidDevice.list_devices())
 
-    def confirm_security_key(self, device: Optional[CtapHidDevice] = None) -> None:
+    def confirm_security_key(self, device: CtapHidDevice | None = None) -> None:
         """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
         fsa: dict[str, Any] = self._auth_data.get("fsaChallenge", {})
         try:
@@ -1052,7 +1108,7 @@ class PyiCloudService:
             ) from error
 
         if not device:
-            devices: List[CtapHidDevice] = list(CtapHidDevice.list_devices())
+            devices: list[CtapHidDevice] = list(CtapHidDevice.list_devices())
 
             if not devices:
                 raise RuntimeError("No FIDO2 devices found")
@@ -1063,7 +1119,7 @@ class PyiCloudService:
             device,
             client_data_collector=DefaultClientDataCollector("https://apple.com"),
         )
-        credentials: List[PublicKeyCredentialDescriptor] = [
+        credentials: list[PublicKeyCredentialDescriptor] = [
             PublicKeyCredentialDescriptor(
                 id=b64url_decode(cred_id), type=PublicKeyCredentialType("public-key")
             )
@@ -1079,19 +1135,17 @@ class PyiCloudService:
             assertion_options
         ).get_response(0)
 
-        self._submit_webauthn_assertion_response(
-            {
-                "challenge": challenge,
-                "clientData": b64_encode(result.response.client_data),
-                "signatureData": b64_encode(result.response.signature),
-                "authenticatorData": b64_encode(result.response.authenticator_data),
-                "userHandle": b64_encode(result.response.user_handle)
-                if result.response.user_handle
-                else None,
-                "credentialID": b64_encode(result.raw_id),
-                "rpId": rp_id,
-            }
-        )
+        self._submit_webauthn_assertion_response({
+            "challenge": challenge,
+            "clientData": b64_encode(result.response.client_data),
+            "signatureData": b64_encode(result.response.signature),
+            "authenticatorData": b64_encode(result.response.authenticator_data),
+            "userHandle": b64_encode(result.response.user_handle)
+            if result.response.user_handle
+            else None,
+            "credentialID": b64_encode(result.raw_id),
+            "rpId": rp_id,
+        })
 
         self.trust_session()
 
@@ -1102,7 +1156,7 @@ class PyiCloudService:
             f"{self._setup_endpoint}/requestWebAccessState", params=self.params
         ).json()
 
-        return resp
+        return cast(dict[str, Any], resp)
 
     def _send_pcs_request(
         self, app_name: str, derived_from_user_action: bool
@@ -1110,14 +1164,17 @@ class PyiCloudService:
         """Send a request to the PCS endpoint to check the status of PCS access."""
         LOGGER.debug("Querying PCS status")
 
-        return self.session.post(
-            f"{self._setup_endpoint}/requestPCS",
-            json={
-                "appName": app_name,
-                "derivedFromUserAction": derived_from_user_action,
-            },
-            params=self.params,
-        ).json()
+        return cast(
+            dict[str, Any],
+            self.session.post(
+                f"{self._setup_endpoint}/requestPCS",
+                json={
+                    "appName": app_name,
+                    "derivedFromUserAction": derived_from_user_action,
+                },
+                params=self.params,
+            ).json(),
+        )
 
     def _request_pcs_for_service(self, app_name: str) -> None:
         """Request PCS access for a specific service."""
@@ -1130,11 +1187,11 @@ class PyiCloudService:
         if not _check_pcs_resp.get("isDeviceConsentedForPCS", True):
             LOGGER.debug("Requesting PCS consent")
 
-            resp = self.session.post(
+            consent_resp = self.session.post(
                 f"{self._setup_endpoint}/enableDeviceConsentForPCS", params=self.params
             ).json()
 
-            if not resp.get("isDeviceConsentNotificationSent"):
+            if not consent_resp.get("isDeviceConsentNotificationSent"):
                 raise PyiCloudAPIResponseException("Unable to request PCS access!")
 
         LOGGER.debug("Waiting for PCS consent")
@@ -1169,6 +1226,7 @@ class PyiCloudService:
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
+        self._two_factor_code_requested = False
         bridge_state = self._trusted_device_bridge_state
         try:
             if self.two_factor_delivery_method == "sms":
@@ -1225,9 +1283,9 @@ class PyiCloudService:
             "securityCode": {"code": code},
             "mode": trusted_phone_number.push_mode or "sms",
         }
-        headers: dict[str, Any] = self._get_auth_headers(
-            {"Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"}
-        )
+        headers: dict[str, Any] = self._get_auth_headers({
+            "Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"
+        })
 
         self.session.post(
             f"{self._auth_endpoint}/verify/phone/securitycode",
@@ -1253,14 +1311,45 @@ class PyiCloudService:
             LOGGER.error("Session trust failed.")
             return False
 
+    @property
+    def webservices(self) -> dict[str, dict[str, Any]] | None:
+        """Return the webservices map resolved during authentication."""
+        return self._webservices
+
+    @webservices.setter
+    def webservices(self, value: dict[str, dict[str, Any]]) -> None:
+        """Set the webservices map (used when hydrating from session probes)."""
+        self._webservices = value
+
     def get_webservice_url(self, ws_key: str) -> str:
         """Get webservice URL, raise an exception if not exists."""
-        if self._webservices is None or self._webservices.get(ws_key) is None:
+        # The map is Apple's JSON, and the `webservices` setter takes it
+        # unvalidated, so nothing guarantees either level is really a mapping.
+        # Checking rather than trusting the annotation keeps every shape
+        # arriving here as one library exception instead of an AttributeError.
+        webservices: Any = self._webservices
+        entry: Any = (
+            webservices.get(ws_key) if isinstance(webservices, Mapping) else None
+        )
+        if entry is None:
             raise PyiCloudServiceNotActivatedException(
                 f"Webservice not available: {ws_key}"
             )
 
-        return self._webservices[ws_key]["url"]
+        # Apple sometimes advertises a key with an empty entry -- `schoolwork:
+        # {}` is a live example. Indexing ["url"] there raised a bare
+        # KeyError('url'), which is not a PyiCloudException and names neither
+        # the service nor the reason, so callers could not handle it and users
+        # could not act on it. An entry without a usable url means the same
+        # thing to a caller as one that was never advertised.
+        url: Any = entry.get("url") if isinstance(entry, Mapping) else None
+        if not isinstance(url, str) or not url.strip():
+            raise PyiCloudServiceNotActivatedException(
+                f"Webservice not available: {ws_key} "
+                "(Apple advertised it without a usable url)"
+            )
+
+        return url
 
     @property
     def devices(self) -> FindMyiPhoneServiceManager:
@@ -1275,6 +1364,8 @@ class PyiCloudService:
                     params=self.params,
                     with_family=self._with_family,
                     refresh_interval=self._refresh_interval,
+                    family_poll_delay=self._family_poll_delay,
+                    family_poll_max_retries=self._family_poll_max_retries,
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(
@@ -1334,7 +1425,7 @@ class PyiCloudService:
                     params=self.params,
                 )
             except PyiCloudAPIResponseException as error:
-                if "Account migrated" == error.reason:
+                if error.reason == "Account migrated":
                     raise PyiCloudServiceUnavailable(
                         "Files service not available use `api.drive` instead"
                     ) from error

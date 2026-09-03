@@ -11,14 +11,17 @@ exports, but it is not the primary public API for the Notes service.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import logging
 import os
 import re
 import sys
-from typing import Any, List, Optional
+import time
+from typing import Any, Literal, cast
 
 # Ensure pyicloud can be imported when running from examples/ directly.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# pylint: disable=wrong-import-position
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -26,7 +29,16 @@ from rich.logging import RichHandler
 from pyicloud import PyiCloudService
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.exceptions import PyiCloudServiceUnavailable
-from pyicloud.services.notes.rendering.exporter import decode_and_parse_note
+from pyicloud.services.notes.models import NoteSummary
+from pyicloud.services.notes.rendering.debug_tools import (
+    annotate_note_runs_html,
+    dump_runs_text,
+    map_merged_runs,
+)
+from pyicloud.services.notes.rendering.exporter import (
+    NoteExporter,
+    decode_and_parse_note,
+)
 from pyicloud.services.notes.rendering.options import ExportConfig
 from pyicloud.utils import get_password
 
@@ -35,6 +47,7 @@ logger = logging.getLogger("notes.explore")
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     p = argparse.ArgumentParser(
         description="Developer utility for exploring and exporting iCloud Notes"
     )
@@ -96,34 +109,39 @@ def parse_args() -> argparse.Namespace:
         dest="dump_runs",
         action="store_true",
         default=False,
-        help="Dump attribute runs and write an annotated mapping under workspace/notes_runs",
+        help="Dump attribute runs and write an annotated mapping under "
+        "workspace/notes_runs",
     )
     p.add_argument(
         "--assets-dir",
         dest="assets_dir",
         default=os.path.join("exports", "assets"),
-        help="Directory to store downloaded assets in archival export mode (default: exports/assets)",
+        help="Directory to store downloaded assets in archival "
+        "export mode (default: exports/assets)",
     )
     p.add_argument(
         "--export-mode",
         dest="export_mode",
         choices=["archival", "lightweight"],
         default="archival",
-        help="Export intent: 'archival' downloads assets for stable, offline HTML (default); 'lightweight' skips downloads for quick previews",
+        help="Export intent: 'archival' downloads assets for stable, offline "
+        "HTML (default); 'lightweight' skips downloads for quick previews",
     )
     p.add_argument(
         "--notes-debug",
         dest="notes_debug",
         action="store_true",
         default=False,
-        help="Enable verbose Notes/export debug output (datasource, attachments, and rendering)",
+        help="Enable verbose Notes/export debug output "
+        "(datasource, attachments, and rendering)",
     )
     p.add_argument(
         "--preview-appearance",
         dest="preview_appearance",
         choices=["light", "dark"],
         default="light",
-        help="Select which preview appearance to prefer for image previews (light/dark)",
+        help="Select which preview appearance to prefer "
+        "for image previews (light/dark)",
     )
     p.add_argument(
         "--pdf-height",
@@ -135,7 +153,8 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def ensure_auth(api: PyiCloudService) -> None:
+def ensure_auth(api: PyiCloudService) -> None:  # noqa: S3776
+    """Ensure the iCloud session is authenticated, handling 2FA and 2SA."""
     if api.requires_2fa:
         fido2_devices = list(api.fido2_devices)
         if fido2_devices:
@@ -164,10 +183,10 @@ def ensure_auth(api: PyiCloudService) -> None:
             api.trust_session()
     elif api.requires_2sa:
         logger.info("Two-step authentication required.")
-        devices: List[dict[str, Any]] = api.trusted_devices
+        devices: list[dict[str, Any]] = api.trusted_devices
         if not devices:
             raise RuntimeError("No trusted devices available for 2SA")
-        for i, _device in enumerate(devices):
+        for i, _trusted in enumerate(devices):
             logger.info("  %d: Trusted device", i)
         sel = input("Select device index [0]: ").strip()
         try:
@@ -185,7 +204,8 @@ def ensure_auth(api: PyiCloudService) -> None:
             raise RuntimeError("Failed to verify code")
 
 
-def main() -> None:
+def main() -> None:  # noqa: S3776
+    """Explore, render, and export iCloud Notes per CLI arguments."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
@@ -200,8 +220,6 @@ def main() -> None:
     )
 
     args = parse_args()
-
-    import time
 
     t0 = time.perf_counter()
 
@@ -239,40 +257,40 @@ def main() -> None:
         phase("service: initializing NotesService")
         notes = api.notes
         phase("service: NotesService ready")
-    except PyiCloudServiceUnavailable as exc:
-        logger.error("Notes service not available: %s", exc)
+    except PyiCloudServiceUnavailable:
+        logger.exception("Notes service not available")
         return
 
     max_items = max(1, int(args.max_items))
     out_dir = args.output_dir
     try:
         os.makedirs(out_dir, exist_ok=True)
-    except Exception as exc:
-        logger.error("Failed to create output directory '%s': %s", out_dir, exc)
+    except Exception:
+        logger.exception("Failed to create output directory '%s'", out_dir)
         return
 
-    def _safe_name(s: Optional[str]) -> str:
+    def _safe_name(s: str | None) -> str:
         if not s:
             return "untitled"
         s = re.sub(r"\s+", " ", s).strip()
         s = re.sub(r"[^\w\- ]+", "-", s)
         return s[:60] or "untitled"
 
-    def _match_title(title: Optional[str]) -> bool:
+    def _match_title(title: str | None) -> bool:
         if not title:
             return False
         if args.title and title == args.title:
             return True
-        if args.title_contains and args.title_contains.lower() in title.lower():
-            return True
-        return False
+        return bool(
+            args.title_contains and args.title_contains.lower() in title.lower()
+        )
 
-    candidates = []
-    if args.title or args.title_contains:
+    def _collect_title_matches() -> list[NoteSummary]:
+        collected: list[NoteSummary] = []
         logger.info("[bold]\nSearching notes by title[/bold]")
         phase(
-            "selection: recents-first title search (exact='%s' contains='%s')"
-            % (args.title, args.title_contains)
+            "selection: recents-first title search "
+            f"(exact='{args.title}' contains='{args.title_contains}')"
         )
         try:
             window = max(500, max_items * 50)
@@ -280,33 +298,37 @@ def main() -> None:
             for note in notes.recents(limit=window):
                 if _match_title(note.title or ""):
                     if note.id not in seen:
-                        candidates.append(note)
+                        collected.append(note)
                         seen.add(note.id)
-                    if len(candidates) >= max_items:
+                    if len(collected) >= max_items:
                         break
             phase(
-                f"selection: recents matched {len(candidates)} candidate(s) in window={window}"
+                f"selection: recents matched {len(collected)} "
+                f"candidate(s) in window={window}"
             )
 
-            if len(candidates) < max_items:
+            if len(collected) < max_items:
                 phase("selection: fallback to full feed scan (iter_all)")
                 for note in notes.iter_all():
                     if _match_title(note.title or "") and note.id not in seen:
-                        candidates.append(note)
+                        collected.append(note)
                         seen.add(note.id)
-                        if len(candidates) >= max_items:
+                        if len(collected) >= max_items:
                             break
-                phase(f"selection: total matched {len(candidates)} candidate(s)")
+                phase(f"selection: total matched {len(collected)} candidate(s)")
 
             try:
-                from datetime import datetime, timezone
-
                 epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
-                candidates.sort(key=lambda x: x.modified_at or epoch, reverse=True)
+                collected.sort(key=lambda x: x.modified_at or epoch, reverse=True)
             except Exception:
                 pass
-        except Exception as exc:
-            logger.error("Title search failed, falling back to recents: %s", exc)
+        except Exception:
+            logger.exception("Title search failed, falling back to recents")
+        return collected
+
+    candidates: list[NoteSummary] = []
+    if args.title or args.title_contains:
+        candidates = _collect_title_matches()
 
     if not candidates:
         logger.info("[bold]\nMost Recent Notes (HTML)[/bold]")
@@ -343,12 +365,13 @@ def main() -> None:
             console.print("proto_note:")
             console.print(proto_note, end="\n\n")
 
-        from pyicloud.services.notes.rendering.exporter import NoteExporter
-
         phase(f"note[{idx}]: exporter init")
         config = ExportConfig(
             debug=bool(args.notes_debug),
-            export_mode=str(args.export_mode).strip().lower(),
+            export_mode=cast(
+                Literal["archival", "lightweight"],
+                str(args.export_mode).strip().lower(),
+            ),
             assets_dir=args.assets_dir or None,
             full_page=bool(args.full_page),
             preview_appearance=str(args.preview_appearance).strip().lower(),
@@ -375,12 +398,11 @@ def main() -> None:
 
         if args.dump_runs:
             try:
-                from pyicloud.services.notes.rendering.debug_tools import (
-                    annotate_note_runs_html,
-                    dump_runs_text,
-                    map_merged_runs,
-                )
-
+                if proto_note is None:
+                    console.print(
+                        "[red]Note could not be decoded; skipping runs dump[/red]"
+                    )
+                    continue
                 console.rule("attribute runs (utf16 mapping)")
                 console.print(dump_runs_text(proto_note))
 
@@ -390,19 +412,24 @@ def main() -> None:
                 for row in merged:
                     raw = str(row.get("text", ""))
                     pretty = (
-                        raw.replace("\n", "⏎\n")
+                        raw
+                        .replace("\n", "⏎\n")
                         .replace("\u2028", "⤶\n")
                         .replace("\x00", "␀")
                         .replace("\ufffc", "{OBJ}")
                     )
                     lines.append(
-                        f"[{row['index']:03d}] off={row['utf16_start']:<5} len={row['utf16_len']:<4} text=“{pretty}”"
+                        f"[{row['index']:03d}] off={row['utf16_start']:<5} "
+                        f"len={row['utf16_len']:<4} text=“{pretty}”"
                     )
                 console.print("\n".join(lines))
 
                 runs_dir = os.path.join("workspace", "notes_runs")
                 os.makedirs(runs_dir, exist_ok=True)
-                runs_name = f"{idx:02d}_{_safe_name(item.title)}_{(item.id or 'note')[:8]}_runs.html"
+                runs_name = (
+                    f"{idx:02d}_{_safe_name(item.title)}_"
+                    f"{(item.id or 'note')[:8]}_runs.html"
+                )
                 runs_path = os.path.join(runs_dir, runs_name)
                 with open(runs_path, "w", encoding="utf-8") as handle:
                     handle.write(annotate_note_runs_html(proto_note))
@@ -411,9 +438,7 @@ def main() -> None:
                 console.print(f"[red]Failed to dump runs:[/red] {exc}")
 
     try:
-        import time as _time
-
-        logger.info("[+%.3fs] completed", _time.perf_counter() - t0)
+        logger.info("[+%.3fs] completed", time.perf_counter() - t0)
     except Exception:
         logger.info("completed")
 

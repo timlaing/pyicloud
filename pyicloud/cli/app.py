@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as package_version
-
 import typer
 
 from pyicloud.cli.commands.account import app as account_app
@@ -12,12 +9,14 @@ from pyicloud.cli.commands.auth import app as auth_app
 from pyicloud.cli.commands.calendar import app as calendar_app
 from pyicloud.cli.commands.contacts import app as contacts_app
 from pyicloud.cli.commands.devices import app as devices_app
+from pyicloud.cli.commands.doctor import doctor
 from pyicloud.cli.commands.drive import app as drive_app
 from pyicloud.cli.commands.hidemyemail import app as hidemyemail_app
 from pyicloud.cli.commands.notes import app as notes_app
 from pyicloud.cli.commands.photos import app as photos_app
 from pyicloud.cli.commands.reminders import app as reminders_app
 from pyicloud.cli.context import CLIAbort
+from pyicloud.diagnostics import installed_version
 
 app = typer.Typer(
     help="Command line interface for pyicloud services.",
@@ -26,20 +25,11 @@ app = typer.Typer(
 )
 
 
-def _installed_version() -> str:
-    """Return the installed pyicloud package version."""
-
-    try:
-        return package_version("pyicloud")
-    except PackageNotFoundError:
-        return "unknown"
-
-
 def _version_callback(value: bool) -> None:
     """Print the installed pyicloud version and exit."""
 
     if value:
-        typer.echo(_installed_version())
+        typer.echo(installed_version())
         raise typer.Exit()
 
 
@@ -53,7 +43,7 @@ def _group_root(ctx: typer.Context) -> None:
 
 @app.callback()
 def root_callback(
-    version: bool = typer.Option(
+    version: bool = typer.Option(  # pylint: disable=unused-argument
         False,
         "--version",
         help="Show the installed pyicloud version and exit.",
@@ -95,6 +85,10 @@ app.add_typer(
 app.add_typer(
     notes_app, name="notes", invoke_without_command=True, callback=_group_root
 )
+
+# A leaf rather than a group: `icloud doctor` is what someone types when a
+# service stopped working, and it should run rather than print a group listing.
+app.command("doctor")(doctor)
 
 
 def main() -> int:

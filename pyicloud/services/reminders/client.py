@@ -5,7 +5,7 @@ Low-level CloudKit client for the Reminders container.
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, NoReturn, Optional
+from typing import NoReturn
 
 from pyicloud.common.cloudkit import (
     CKLookupResponse,
@@ -24,6 +24,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitContainerClient,
     CloudKitRateLimited,
 )
+from pyicloud.session import PyiCloudSession
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class RemindersAuthError(Exception):
 class RemindersApiError(Exception):
     """Catch-all API error."""
 
-    def __init__(self, message: str, payload: Optional[object] = None):
+    def __init__(self, message: str, payload: object | None = None):
         super().__init__(message)
         self.payload = payload
 
@@ -48,11 +49,11 @@ class CloudKitRemindersClient:
     def __init__(
         self,
         base_url: str,
-        session,
-        base_params: Dict[str, object],
+        session: PyiCloudSession,
+        base_params: dict[str, object],
         *,
         validation_extra: CloudKitExtraMode | None = None,
-    ):
+    ) -> None:
         self._client = CloudKitContainerClient(
             base_url,
             session,
@@ -74,11 +75,11 @@ class CloudKitRemindersClient:
             ) from cause
         if isinstance(exc, CloudKitApiError):
             raise RemindersApiError(str(exc), payload=exc.payload) from cause
-        raise
+        raise exc
 
     def lookup(
         self,
-        record_names: List[str],
+        record_names: list[str],
         zone_id: CKZoneIDReq,
     ) -> CKLookupResponse:
         """Fetch records by ID."""
@@ -92,10 +93,11 @@ class CloudKitRemindersClient:
         *,
         query: CKQueryObject,
         zone_id: CKZoneIDReq,
-        desired_keys: Optional[List[str]] = None,
-        results_limit: Optional[int] = None,
-        continuation: Optional[str] = None,
+        desired_keys: list[str] | None = None,
+        results_limit: int | None = None,
+        continuation: str | None = None,
     ) -> CKQueryResponse:
+        """Query records in the Reminders zone, returning the typed response."""
         try:
             return self._client.query(
                 query=query,
@@ -129,7 +131,7 @@ class CloudKitRemindersClient:
         self,
         *,
         zone_req: CKZoneChangesZoneReq,
-        results_limit: Optional[int] = None,
+        results_limit: int | None = None,
     ) -> CKZoneChangesResponse:
         """Fetch changes (sync) for a zone."""
         try:
@@ -143,9 +145,9 @@ class CloudKitRemindersClient:
     def modify(
         self,
         *,
-        operations: List[CKModifyOperation],
+        operations: list[CKModifyOperation],
         zone_id: CKZoneIDReq,
-        atomic: Optional[bool] = None,
+        atomic: bool | None = None,
     ) -> CKModifyResponse:
         """Modify (create/update/delete) records."""
         try:

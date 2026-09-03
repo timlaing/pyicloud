@@ -3,37 +3,39 @@
 from __future__ import annotations
 
 import base64
-import json
-import logging
-import plistlib
-import struct
-import zlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import json
+import logging
 from pathlib import Path
-from typing import Any
+import plistlib
+import struct
+from typing import Any, cast
 from xml.etree import ElementTree
+import zlib
 
 from .mappers import decode_encrypted_text, record_field_value
 
 LOGGER = logging.getLogger(__name__)
-RAW_EXTENSIONS = frozenset(
-    {
-        ".arw",
-        ".cr2",
-        ".cr3",
-        ".crw",
-        ".dng",
-        ".nef",
-        ".nrf",
-        ".nrw",
-        ".orf",
-        ".pef",
-        ".raf",
-        ".rw2",
-    }
-)
+RAW_EXTENSIONS = frozenset({
+    ".arw",
+    ".cr2",
+    ".cr3",
+    ".crw",
+    ".dng",
+    ".nef",
+    ".nrf",
+    ".nrw",
+    ".orf",
+    ".pef",
+    ".raf",
+    ".rw2",
+})
 PYICLOUD_XMP_TOOLKIT = "pyicloud photos-cloudkit"
+RDF_DESCRIPTION = "rdf:Description"
+RDF_ABOUT = "rdf:about"
+# Canonical IPTC XMP namespace URI (not a network endpoint).
+IPTC_EXT_NS = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"  # noqa: S5332
 
 
 @dataclass(slots=True)
@@ -80,9 +82,14 @@ def apply_align_raw_policy(resources: dict[str, Any], policy: str) -> dict[str, 
 
     original_is_raw = resource_is_raw(original)
     alternative_is_raw = resource_is_raw(alternative)
-    if policy == "original" and alternative_is_raw and not original_is_raw:
-        aligned["original"], aligned["alternative"] = alternative, original
-    elif policy == "alternative" and original_is_raw and not alternative_is_raw:
+    if (
+        policy == "original"
+        and alternative_is_raw
+        and not original_is_raw
+        or policy == "alternative"
+        and original_is_raw
+        and not alternative_is_raw
+    ):
         aligned["original"], aligned["alternative"] = alternative, original
     return aligned
 
@@ -282,7 +289,7 @@ def _can_overwrite_xmp_sidecar(path: Path) -> bool:
     return isinstance(toolkit, str) and toolkit.startswith(PYICLOUD_XMP_TOOLKIT)
 
 
-def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:
+def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:  # noqa: S3776
     xml_doc = ElementTree.Element(
         "x:xmpmeta",
         {"xmlns:x": "adobe:ns:meta/", "x:xmptk": metadata.toolkit},
@@ -294,44 +301,44 @@ def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:
     )
 
     description_dc = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:dc": "http://purl.org/dc/elements/1.1/",
         },
     )
     description_exif = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:exif": "http://ns.adobe.com/exif/1.0/",
         },
     )
     description_iptc = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
-            "xmlns:Iptc4xmpExt": "http://iptc.org/std/Iptc4xmpExt/2008-02-29/",
+            RDF_ABOUT: "",
+            "xmlns:Iptc4xmpExt": IPTC_EXT_NS,
         },
     )
     description_photoshop = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:photoshop": "http://ns.adobe.com/photoshop/1.0/",
         },
     )
     description_tiff = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:tiff": "http://ns.adobe.com/tiff/1.0/",
         },
     )
     description_xmp = ElementTree.Element(
-        "rdf:Description",
+        RDF_DESCRIPTION,
         {
-            "rdf:about": "",
+            RDF_ABOUT: "",
             "xmlns:xmp": "http://ns.adobe.com/xap/1.0/",
         },
     )
@@ -552,7 +559,12 @@ def _parse_tiff_ifd(
         field_type = _read_uint16(exif_payload, entry_offset + 2, fmt)
         item_count = _read_uint32(exif_payload, entry_offset + 4, fmt)
         value_offset = _read_uint32(exif_payload, entry_offset + 8, fmt)
-        if None in {tag, field_type, item_count, value_offset}:
+        if (
+            tag is None
+            or field_type is None
+            or item_count is None
+            or value_offset is None
+        ):
             return None
         entries[int(tag)] = (int(field_type), int(item_count), int(value_offset))
         entry_offset += 12
@@ -578,7 +590,7 @@ def _read_ascii_tag(
 
 
 def _read_long_tag(
-    exif_payload: bytes, ifd: dict[int, tuple[int, int, int]], tag: int
+    _exif_payload: bytes, ifd: dict[int, tuple[int, int, int]], tag: int
 ) -> int | None:
     entry = ifd.get(tag)
     if entry is None:
@@ -592,10 +604,10 @@ def _read_long_tag(
 def _read_uint16(data: bytes, offset: int, fmt: bytes) -> int | None:
     if offset + 2 > len(data):
         return None
-    return struct.unpack(f"{fmt.decode()}H", data[offset : offset + 2])[0]
+    return cast(int, struct.unpack(f"{fmt.decode()}H", data[offset : offset + 2])[0])
 
 
 def _read_uint32(data: bytes, offset: int, fmt: bytes) -> int | None:
     if offset + 4 > len(data):
         return None
-    return struct.unpack(f"{fmt.decode()}I", data[offset : offset + 4])[0]
+    return cast(int, struct.unpack(f"{fmt.decode()}I", data[offset : offset + 4])[0])

@@ -28,6 +28,6 @@ from pyicloud.utils import camelcase_to_underscore
         ("IDTest", "i_d_test"),
     ],
 )
-def test_camelcase_to_underscore(camel_str, expected):
+def test_camelcase_to_underscore(camel_str: str, expected: str) -> None:
     """Test the camelcase_to_underscore function."""
     assert camelcase_to_underscore(camel_str) == expected

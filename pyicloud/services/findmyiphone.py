@@ -1,11 +1,12 @@
 """Find my iPhone service."""
 
+from collections.abc import Callable, Iterator
+from datetime import datetime, timedelta
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
 from types import MappingProxyType
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, cast
 
 from requests import Response
 
@@ -19,11 +20,13 @@ from pyicloud.session import PyiCloudSession
 
 _FMIP_CLIENT_CONTEXT_TIMEZONE: str = "US/Pacific"
 _LOGGER: logging.Logger = logging.getLogger(__name__)
-_MAX_REFRESH_RETRIES: int = 5
 
 
 def _monitor_thread(
-    interval: float, func: Callable, stop_event: threading.Event, locate: bool = False
+    interval: float,
+    func: Callable[[bool], None],
+    stop_event: threading.Event,
+    locate: bool = False,
 ) -> None:
     """Thread function to monitor the FindMyiPhoneServiceManager."""
     next_event: datetime = datetime.now() + timedelta(seconds=interval)
@@ -49,8 +52,10 @@ class FindMyiPhoneServiceManager(BaseService):
         token_endpoint: str,
         session: PyiCloudSession,
         params: dict[str, Any],
-        with_family=False,
+        with_family: bool = False,
         refresh_interval: float | None = None,
+        family_poll_delay: float = 0.5,
+        family_poll_max_retries: int = 5,
     ) -> None:
         """Initialize the FindMyiPhoneServiceManager."""
         super().__init__(service_root, session, params)
@@ -58,6 +63,20 @@ class FindMyiPhoneServiceManager(BaseService):
         self._refresh_interval: float = (
             refresh_interval if refresh_interval is not None else 5.0 * 60.0
         )
+        if isinstance(family_poll_delay, bool) or not isinstance(
+            family_poll_delay, (int, float)
+        ):
+            raise ValueError("family_poll_delay must be a non-negative number")
+        if family_poll_delay < 0:
+            raise ValueError("family_poll_delay must be a non-negative number")
+        if isinstance(family_poll_max_retries, bool) or not isinstance(
+            family_poll_max_retries, int
+        ):
+            raise ValueError("family_poll_max_retries must be a non-negative integer")
+        if family_poll_max_retries < 0:
+            raise ValueError("family_poll_max_retries must be a non-negative integer")
+        self._family_poll_delay: float = family_poll_delay
+        self._family_poll_max_retries: int = family_poll_max_retries
 
         fmip_endpoint: str = f"{service_root}/fmipservice/client/web"
         self._fmip_init_url: str = f"{fmip_endpoint}/initClient"
@@ -72,7 +91,7 @@ class FindMyiPhoneServiceManager(BaseService):
         self._devices_names: list[str] = []
         self._server_ctx: dict[str, Any] | None = None
         self._user_info: dict[str, Any] | None = None
-        self._monitor: Optional[threading.Thread] = None
+        self._monitor: threading.Thread | None = None
         self.stop_event: threading.Event = threading.Event()
 
         self._refresh_client_with_reauth(locate=True)
@@ -108,14 +127,14 @@ class FindMyiPhoneServiceManager(BaseService):
         # Some members (e.g. Macs with location sharing disabled) remain permanently
         # LOADING and will never resolve. Track which members are LOADING between
         # retries and stop as soon as there is no progress, rather than always
-        # exhausting _MAX_REFRESH_RETRIES for stuck members.
+        # exhausting family_poll_max_retries for stuck members.
         retries: int = 0
         prev_loading_keys: set[str] = set()
         while (
             self._with_family
             and self._user_info
             and self._user_info.get("hasMembers", False)
-            and retries < _MAX_REFRESH_RETRIES
+            and retries < self._family_poll_max_retries
         ):
             loading_keys = {
                 k
@@ -129,9 +148,10 @@ class FindMyiPhoneServiceManager(BaseService):
                     "No progress on LOADING family members after retry %d, stopping",
                     retries,
                 )
-                break  # no change since last retry — give up on permanently stuck members
+                break  # no change since last retry — give up on permanently
+                # stuck members
             prev_loading_keys = loading_keys
-            time.sleep(0.1)
+            time.sleep(self._family_poll_delay)
             self._refresh_client(locate=locate)
             retries += 1
 
@@ -176,12 +196,10 @@ class FindMyiPhoneServiceManager(BaseService):
             req_json["serverContext"] = self._server_ctx
             if locate:
                 req_json["isUpdatingAllLocations"] = True
-                req_json["clientContext"].update(
-                    {
-                        "shouldLocate": True,
-                        "selectedDevice": "all",
-                    }
-                )
+                req_json["clientContext"].update({
+                    "shouldLocate": True,
+                    "selectedDevice": "all",
+                })
 
         req: Response = self.session.post(
             url=self._fmip_refresh_url if self._server_ctx else self._fmip_init_url,
@@ -264,7 +282,7 @@ class FindMyiPhoneServiceManager(BaseService):
         return MappingProxyType(self._devices)
 
     @property
-    def user_info(self) -> Optional[MappingProxyType[str, Any]]:
+    def user_info(self) -> MappingProxyType[str, Any] | None:
         """Returns the user info."""
         return MappingProxyType(self._user_info) if self._user_info else None
 
@@ -299,18 +317,18 @@ class AppleDevice:
         """Gets the session."""
         return self._manager.session
 
-    def update(self, data) -> None:
+    def update(self, data: dict[str, Any]) -> None:
         """Updates the device data."""
         self._content = data
 
     @property
-    def location(self) -> Optional[dict[str, Any]]:
+    def location(self) -> dict[str, Any] | None:
         """Updates the device location."""
         if self.location_available is False:
             return None
-        return self._content["location"]
+        return cast(dict[str, Any], self._content["location"])
 
-    def status(self, additional: Optional[list[str]] = None) -> dict[str, Any]:
+    def status(self, additional: list[str] | None = None) -> dict[str, Any]:
         """Returns status information for device.
 
         This returns only a subset of possible properties.
@@ -329,7 +347,7 @@ class AppleDevice:
             properties[field] = self._content.get(field)
         return properties
 
-    def play_sound(self, subject="Find My iPhone Alert") -> None:
+    def play_sound(self, subject: str = "Find My iPhone Alert") -> None:
         """Send a request to the device to play a sound.
 
         It's possible to pass a custom message by changing the `subject`.
@@ -346,11 +364,11 @@ class AppleDevice:
 
     def display_message(
         self,
-        subject="Find My iPhone Alert",
-        message="This is a note",
-        sounds=False,
-        vibrate=False,
-        strobe=False,
+        subject: str = "Find My iPhone Alert",
+        message: str = "This is a note",
+        sounds: bool = False,
+        vibrate: bool = False,
+        strobe: bool = False,
     ) -> None:
         """Send a request to the device to a display a message.
 
@@ -411,7 +429,7 @@ class AppleDevice:
         data = self.session.post(url=self._erase_token_url, json=data).json()
         if "tokens" not in data or "mmeFMIPWebEraseDeviceToken" not in data["tokens"]:
             raise PyiCloudServiceUnavailable("Find My iPhone erase token not available")
-        return data["tokens"]["mmeFMIPWebEraseDeviceToken"]
+        return cast(str, data["tokens"]["mmeFMIPWebEraseDeviceToken"])
 
     def erase_device(
         self,
@@ -439,14 +457,14 @@ class AppleDevice:
 
         return self._content
 
-    def __getitem__(self, key) -> Any:
+    def __getitem__(self, key: str) -> Any:
         """Gets an attribute of the device data."""
         if not self._manager.is_alive:
             self._manager.refresh()
 
         return self._content[key]
 
-    def __getattr__(self, attr) -> Any:
+    def __getattr__(self, attr: str) -> Any:
         """Gets an attribute of the device data."""
         if not self._manager.is_alive:
             self._manager.refresh()
@@ -460,42 +478,42 @@ class AppleDevice:
     @property
     def name(self) -> str:
         """Gets the device name."""
-        return self.data.get("name", "")
+        return cast(str, self.data.get("name", ""))
 
     @property
     def model(self) -> str:
         """Gets the device model."""
-        return self.data.get("deviceModel", "")
+        return cast(str, self.data.get("deviceModel", ""))
 
     @property
     def model_name(self) -> str:
         """Gets the device model name."""
-        return self.data.get("deviceDisplayName", "")
+        return cast(str, self.data.get("deviceDisplayName", ""))
 
     @property
     def device_type(self) -> str:
         """Gets the device type."""
-        return self.data.get("deviceClass", "")
+        return cast(str, self.data.get("deviceClass", ""))
 
     @property
     def lost_mode_available(self) -> bool:
         """Indicates if lost mode is available for the device."""
-        return self.data.get("lostModeCapable", False)
+        return cast(bool, self.data.get("lostModeCapable", False))
 
     @property
     def messaging_available(self) -> bool:
         """Indicates if messaging is available for the device."""
-        return self.data.get("features", {}).get("MSG", False)
+        return cast(bool, self.data.get("features", {}).get("MSG", False))
 
     @property
     def sound_available(self) -> bool:
         """Indicates if sound is available for the device."""
-        return self.data.get("features", {}).get("SND", False)
+        return cast(bool, self.data.get("features", {}).get("SND", False))
 
     @property
     def erase_available(self) -> bool:
         """Indicates if erase is available for the device."""
-        return self.data.get("features", {}).get("WIP", False)
+        return cast(bool, self.data.get("features", {}).get("WIP", False))
 
     @property
     def location_available(self) -> bool:

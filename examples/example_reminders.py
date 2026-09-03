@@ -13,7 +13,8 @@ Validated API surface:
 - add_location_trigger(...)
 - create_hashtag(...) / delete_hashtag(...)
 - create_url_attachment(...) / update_attachment(...) / delete_attachment(...)
-- create_recurrence_rule(...) / update_recurrence_rule(...) / delete_recurrence_rule(...)
+- create_recurrence_rule(...) / update_recurrence_rule(...) /
+  delete_recurrence_rule(...)
 - alarms_for(reminder)
 - tags_for(reminder)
 - attachments_for(reminder)
@@ -30,14 +31,15 @@ Notes:
 from __future__ import annotations
 
 import argparse
-import os
-import sys
-import traceback
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from getpass import getpass
+import os
+import sys
 from time import monotonic, sleep
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence
+import traceback
+from typing import Any, cast
 
 from pyicloud import PyiCloudService
 from pyicloud.services.reminders.models.domain import (
@@ -55,10 +57,13 @@ PRIORITY_LOW = 9
 
 @dataclass
 class ValidationTracker:
+    """Track validation check counts and failure messages."""
+
     checks: int = 0
     failures: list[str] = field(default_factory=list)
 
     def expect(self, condition: bool, label: str, detail: str = "") -> None:
+        """Record a validation check and print a PASS or FAIL line."""
         self.checks += 1
         if condition:
             print(f"  [PASS] {label}")
@@ -71,17 +76,24 @@ class ValidationTracker:
 
 @dataclass
 class RunState:
-    created: Dict[str, Reminder] = field(default_factory=dict)
+    """Track reminders created and deleted during validation."""
+
+    created: dict[str, Reminder] = field(default_factory=dict)
     deleted_ids: set[str] = field(default_factory=set)
 
 
+EXAMPLE_REMINDER_URL = "https://example.org/reminders"
+
+
 def banner(title: str) -> None:
+    """Print a full-width section banner."""
     print(f"\n{'=' * 78}")
     print(title)
     print(f"{'=' * 78}")
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     now = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -141,7 +153,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_credentials(args: argparse.Namespace) -> tuple[str, Optional[str]]:
+def resolve_credentials(args: argparse.Namespace) -> tuple[str, str | None]:
+    """Resolve Apple ID credentials from arguments or interactive prompts."""
     username = args.username or input("Apple ID: ").strip()
     if not username:
         raise ValueError("Apple ID username is required.")
@@ -182,7 +195,8 @@ def _raw_token(value: str) -> str:
     return value.split("/", 1)[1]
 
 
-def authenticate(args: argparse.Namespace) -> PyiCloudService:
+def authenticate(args: argparse.Namespace) -> PyiCloudService:  # noqa: S3776
+    """Authenticate with iCloud, handling 2FA and 2SA flows."""
     username, password = resolve_credentials(args)
     print("Authenticating with iCloud...")
     api = PyiCloudService(apple_id=username, password=password)
@@ -217,7 +231,7 @@ def authenticate(args: argparse.Namespace) -> PyiCloudService:
             raise RuntimeError("2SA required but no trusted devices were returned.")
 
         print("Trusted devices:")
-        for index, _device in enumerate(devices):
+        for index, _trusted in enumerate(devices):
             print(f"  {index}: Trusted device")
 
         selected_index = _prompt_selection(
@@ -236,6 +250,7 @@ def authenticate(args: argparse.Namespace) -> PyiCloudService:
 
 
 def pick_target_list(lists: Iterable[RemindersList], list_name: str) -> RemindersList:
+    """Select the account reminders list matching list_name."""
     all_lists = list(lists)
     if not all_lists:
         raise RuntimeError("No reminders lists found in iCloud account.")
@@ -256,8 +271,9 @@ def pick_target_list(lists: Iterable[RemindersList], list_name: str) -> Reminder
 
 
 def approximately_same_time(
-    left: Optional[datetime], right: Optional[datetime], tolerance_seconds: int = 1
+    left: datetime | None, right: datetime | None, tolerance_seconds: int = 1
 ) -> bool:
+    """Compare two datetimes as UTC-aware within a tolerance window."""
     if left is None or right is None:
         return left is right
 
@@ -271,10 +287,11 @@ def approximately_same_time(
 
 def wait_until(
     description: str,
-    predicate,
+    predicate: Callable[[], bool],
     timeout_seconds: float,
     poll_interval: float,
 ) -> bool:
+    """Poll the predicate until it succeeds or the timeout elapses."""
     deadline = monotonic() + timeout_seconds
     while monotonic() < deadline:
         if predicate():
@@ -285,6 +302,7 @@ def wait_until(
 
 
 def cleanup_generated(api: PyiCloudService, state: RunState) -> None:
+    """Soft-delete every reminder created during validation."""
     banner("Cleanup")
     for case_name, reminder in state.created.items():
         if reminder.id in state.deleted_ids:
@@ -305,11 +323,12 @@ def cleanup_generated(api: PyiCloudService, state: RunState) -> None:
             print(f"  [WARN] Failed deleting {case_name} ({reminder.id}): {exc}")
 
 
-def main() -> int:
+def main() -> int:  # noqa: S3776
+    """Run the complete reminders service validation suite."""
     args = parse_args()
     tracker = ValidationTracker()
     state = RunState()
-    api: Optional[PyiCloudService] = None
+    api: PyiCloudService | None = None
 
     try:
         api = authenticate(args)
@@ -344,12 +363,12 @@ def main() -> int:
             *,
             desc: str,
             completed: bool = False,
-            due_date: Optional[datetime] = None,
+            due_date: datetime | None = None,
             priority: int = PRIORITY_NONE,
             flagged: bool = False,
             all_day: bool = False,
-            time_zone_name: Optional[str] = None,
-            parent_reminder_id: Optional[str] = None,
+            time_zone_name: str | None = None,
+            parent_reminder_id: str | None = None,
         ) -> Reminder:
             title = f"{args.prefix} | {suffix}"
             reminder = reminders_api.create(
@@ -374,17 +393,17 @@ def main() -> int:
             case_name: str,
             reminder_id: str,
             *,
-            expected_title: Optional[str] = None,
-            expected_desc: Optional[str] = None,
-            expected_completed: Optional[bool] = None,
-            expected_due_date: Optional[datetime] = None,
-            expected_priority: Optional[int] = None,
-            expected_flagged: Optional[bool] = None,
-            expected_all_day: Optional[bool] = None,
-            expected_time_zone: Optional[str] = None,
-            expected_parent_reminder_id: Optional[str] = None,
+            expected_title: str | None = None,
+            expected_desc: str | None = None,
+            expected_completed: bool | None = None,
+            expected_due_date: datetime | None = None,
+            expected_priority: int | None = None,
+            expected_flagged: bool | None = None,
+            expected_all_day: bool | None = None,
+            expected_time_zone: str | None = None,
+            expected_parent_reminder_id: str | None = None,
         ) -> Reminder:
-            matched: dict[str, Optional[Reminder]] = {"reminder": None}
+            matched: dict[str, Reminder | None] = {"reminder": None}
 
             def _matches_expectations(fresh: Reminder) -> bool:
                 if expected_title is not None and fresh.title != expected_title:
@@ -415,12 +434,10 @@ def main() -> int:
                     and fresh.time_zone != expected_time_zone
                 ):
                     return False
-                if (
+                return not (
                     expected_parent_reminder_id is not None
                     and fresh.parent_reminder_id != expected_parent_reminder_id
-                ):
-                    return False
-                return True
+                )
 
             def _poll_round_trip() -> bool:
                 try:
@@ -517,8 +534,8 @@ def main() -> int:
             predicate: Callable[[Reminder], bool],
             *,
             allow_missing: bool = False,
-        ) -> tuple[Optional[Reminder], bool]:
-            matched: dict[str, Optional[Reminder] | bool] = {
+        ) -> tuple[Reminder | None, bool]:
+            matched: dict[str, Reminder | None | bool] = {
                 "reminder": None,
                 "missing": False,
             }
@@ -543,7 +560,7 @@ def main() -> int:
                 args.consistency_timeout,
                 args.poll_interval,
             )
-            return matched["reminder"], bool(matched["missing"])
+            return cast(Reminder | None, matched["reminder"]), bool(matched["missing"])
 
         def wait_for_linked_id(
             description: str,
@@ -612,9 +629,9 @@ def main() -> int:
         due_aware = (datetime.now(tz=timezone.utc) + timedelta(days=1)).replace(
             hour=9, minute=0, second=0, microsecond=0
         )
-        due_naive = (datetime.utcnow() + timedelta(days=2)).replace(
-            hour=11, minute=15, second=0, microsecond=0
-        )
+        due_naive = (
+            datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=2)
+        ).replace(hour=11, minute=15, second=0, microsecond=0)
         due_naive_expected = due_naive.replace(tzinfo=timezone.utc)
         all_day_due = (datetime.now(tz=timezone.utc) + timedelta(days=3)).replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -1041,7 +1058,7 @@ def main() -> int:
         if fetched_attachment is not None:
             reminders_api.update_attachment(
                 fetched_attachment,
-                url="https://example.org/reminders",
+                url=EXAMPLE_REMINDER_URL,
             )
             linked_fresh, updated_attachments = wait_for_relationship_rows(
                 "updated URL attachment to round-trip",
@@ -1049,14 +1066,14 @@ def main() -> int:
                 reminders_api.attachments_for,
                 lambda rows: any(
                     att.id == fetched_attachment.id
-                    and getattr(att, "url", None) == "https://example.org/reminders"
+                    and getattr(att, "url", None) == EXAMPLE_REMINDER_URL
                     for att in rows
                 ),
             )
             tracker.expect(
                 any(
                     att.id == fetched_attachment.id
-                    and getattr(att, "url", None) == "https://example.org/reminders"
+                    and getattr(att, "url", None) == EXAMPLE_REMINDER_URL
                     for att in updated_attachments
                 ),
                 "update_attachment() updates URL attachment",
@@ -1139,9 +1156,9 @@ def main() -> int:
 
         visible_in_list = wait_until(
             "created reminders to appear in reminders(list_id=...) output",
-            lambda: expected_created_ids.issubset(
-                {r.id for r in reminders_api.reminders(list_id=target_list.id)}
-            ),
+            lambda: expected_created_ids.issubset({
+                r.id for r in reminders_api.reminders(list_id=target_list.id)
+            }),
             timeout_seconds=args.consistency_timeout,
             poll_interval=args.poll_interval,
         )
@@ -1152,9 +1169,9 @@ def main() -> int:
 
         visible_globally = wait_until(
             "created reminders to appear in reminders() output",
-            lambda: expected_created_ids.issubset(
-                {r.id for r in reminders_api.reminders()}
-            ),
+            lambda: expected_created_ids.issubset({
+                r.id for r in reminders_api.reminders()
+            }),
             timeout_seconds=args.consistency_timeout,
             poll_interval=args.poll_interval,
         )
@@ -1200,7 +1217,8 @@ def main() -> int:
 
         tracker.expect(
             len(compound_all.reminders) >= len(compound_open.reminders),
-            "include_completed=True returns at least as many reminders as include_completed=False",
+            "include_completed=True returns at least as many reminders as "
+            "include_completed=False",
             f"false={len(compound_open.reminders)}, true={len(compound_all.reminders)}",
         )
 
@@ -1318,13 +1336,15 @@ def main() -> int:
 
         banner("Coverage Notes")
         print(
-            "Validated snapshot/read/write capabilities in current service implementation:"
+            "Validated snapshot/read/write capabilities in "
+            "current service implementation:"
         )
         print("  - CRUD for reminders (create/get/update/delete)")
         print("  - Alarm triggers (Location ARRIVING/LEAVING)")
         print("  - Hashtag create/delete")
         print(
-            "    update_hashtag() is not live-validated because Hashtag.Name is read-only"
+            "    update_hashtag() is not live-validated because "
+            "Hashtag.Name is read-only"
         )
         print("  - URL attachment create/update/delete")
         print("  - Recurrence rule create/update/delete")

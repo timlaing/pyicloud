@@ -79,3 +79,7 @@ fetch_devices_*.py
 *.jpg
 /test*.py
 devcontainer-lock.json
+.env
+.opencode
+.mypy_cache
+node_modules

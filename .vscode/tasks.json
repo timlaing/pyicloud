@@ -1,5 +1,4 @@
 {
-  "version": "2.0.0",
   "tasks": [
     {
       "label": "Install requirements",
@@ -21,5 +20,6 @@
       "problemMatcher": [],
       "dependsOn": "Install requirements"
     }
-  ]
+  ],
+  "version": "2.0.0"
 }

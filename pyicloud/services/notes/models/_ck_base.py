@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import os
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+_ExtraMode = Literal["allow", "forbid", "ignore"]
 
-def _env_extra_mode(default: str = "forbid") -> str:
+
+def _env_extra_mode(default: _ExtraMode = "forbid") -> _ExtraMode:
     """
     Determine the extra-mode from environment vars.
 
@@ -21,8 +24,13 @@ def _env_extra_mode(default: str = "forbid") -> str:
         .lower()
     )
 
-    if raw in {"allow", "forbid", "ignore"}:
-        return raw
+    modes: dict[str, _ExtraMode] = {
+        "allow": "allow",
+        "forbid": "forbid",
+        "ignore": "ignore",
+    }
+    if raw in modes:
+        return modes[raw]
 
     # convenience switches people naturally try
     if raw in {"1", "true", "yes", "on", "strict"}:

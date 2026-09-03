@@ -1,5 +1,10 @@
 #!/usr/bin/zsh
-set -ex
+set -e
+set -o pipefail
+
+if [ -n "${PYICLOUD_TRACE:-}" ]; then
+  set -x
+fi
 
 cd "$(dirname "$0")/.."
 
@@ -10,9 +15,10 @@ if [ ! -n "$VIRTUAL_ENV" ]; then
 fi
 
 echo "Installing development dependencies..."
-
 uv pip install \
   -e . \
   -r requirements_all.txt \
   --upgrade \
   --config-settings editable_mode=compat
+
+npm install

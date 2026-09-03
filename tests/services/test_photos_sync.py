@@ -1,14 +1,16 @@
 """Tests for the Photos sync engine and state backend."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import base64
-import struct
-import tempfile
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Optional
+import struct
+import tempfile
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -48,10 +50,11 @@ MINIMAL_JPEG = base64.b64decode(
 )
 
 
-class DummyAlbumContainer(list):
+class DummyAlbumContainer(list["DummyAlbum"]):
     """Album container fixture for sync tests."""
 
-    def find(self, name: Optional[str]):
+    def find(self, name: str | None) -> DummyAlbum | None:
+        """Return the album matching the given name, or None."""
         if name is None:
             return None
         for album in self:
@@ -63,13 +66,14 @@ class DummyAlbumContainer(list):
 class DummyAlbum:
     """Album fixture for sync tests."""
 
-    def __init__(self, name: str, assets: list["DummyAsset"]) -> None:
+    def __init__(self, name: str, assets: list[DummyAsset]) -> None:
         self.name = name
         self.fullname = f"/{name}"
         self._assets = assets
 
     @property
-    def photos(self):
+    def photos(self) -> Iterator[DummyAsset]:
+        """Yield this album's assets."""
         return iter(self._assets)
 
 
@@ -82,9 +86,11 @@ class DummyLibrary:
         self._cursor = cursor
 
     def sync_cursor(self) -> str:
+        """Return the library's sync cursor."""
         return self._cursor
 
-    def recently_added(self):
+    def recently_added(self) -> DummyAlbum:
+        """Return every photo in the library."""
         return self.all
 
 
@@ -98,6 +104,7 @@ class DummyService:
         self._cursor = cursor
 
     def sync_cursor(self) -> str:
+        """Return the service's sync cursor."""
         return self._cursor
 
 
@@ -112,11 +119,11 @@ class DummyAsset:
         item_type: str = "image",
         is_live_photo: bool = False,
         added_days_ago: int = 0,
-        asset_date: Optional[datetime] = None,
-        added_date: Optional[datetime] = None,
-        resources: Optional[dict[str, PhotoResource]] = None,
-        asset_record: Optional[dict] = None,
-        payloads: Optional[dict[str, bytes]] = None,
+        asset_date: datetime | None = None,
+        added_date: datetime | None = None,
+        resources: dict[str, PhotoResource] | None = None,
+        asset_record: dict[str, Any] | None = None,
+        payloads: dict[str, bytes] | None = None,
     ) -> None:
         self.id = asset_id
         self.filename = filename
@@ -127,8 +134,10 @@ class DummyAsset:
             resolved_asset_date = datetime.now(timezone.utc) - timedelta(
                 days=added_days_ago
             )
-        self.asset_date = resolved_asset_date
-        self.added_date = added_date if added_date is not None else resolved_asset_date
+        self.asset_date: datetime | None = resolved_asset_date
+        self.added_date: datetime | None = (
+            added_date if added_date is not None else resolved_asset_date
+        )
         self.downloaded_versions: list[str] = []
         self.deleted = False
         self._asset_record = asset_record or {"fields": {"assetDate": {"value": 0}}}
@@ -144,12 +153,14 @@ class DummyAsset:
             )
         }
 
-    def download(self, version: str = "original", **kwargs) -> bytes:
+    def download(self, version: str = "original", **kwargs: Any) -> bytes:
+        """Record the download and return the requested version's payload."""
         _ = kwargs
         self.downloaded_versions.append(version)
         return self._payloads.get(version, f"{self.id}:{version}".encode())
 
     def delete(self) -> bool:
+        """Mark the asset as deleted and confirm success."""
         self.deleted = True
         return True
 
@@ -163,7 +174,7 @@ def test_sqlite_photo_sync_state_round_trip() -> None:
         with SQLitePhotoSyncState(db_path) as state:
             state.set_sync_cursor("cursor-1")
             state.upsert_resource(
-                resource=SimpleNamespace(
+                resource=SyncedPhotoResource(
                     asset_id="asset-1",
                     resource_key="original",
                     relative_path="2026/04/photo.jpg",
@@ -481,7 +492,7 @@ def test_run_photo_sync_auto_delete_continues_when_unlink_fails() -> None:
 
         original_unlink = Path.unlink
 
-        def flaky_unlink(path_obj: Path, *args, **kwargs) -> None:
+        def flaky_unlink(path_obj: Path, *args: Any, **kwargs: Any) -> None:
             if path_obj.name == "old-1.jpg":
                 raise OSError("locked")
             return original_unlink(path_obj, *args, **kwargs)
@@ -584,22 +595,22 @@ def test_run_photo_sync_rejects_remote_delete_with_until_found() -> None:
         cursor="cursor-until-delete",
     )
 
+    options = PhotoSyncOptions(
+        directory=Path("/tmp/unused"),
+        keep_icloud_recent_days=0,
+        until_found=1,
+    )
+
     with pytest.raises(
         PhotosServiceException,
         match="--keep-icloud-recent-days cannot be combined with --until-found",
     ):
-        run_photo_sync(
-            service,
-            PhotoSyncOptions(
-                directory=Path("/tmp/unused"),
-                keep_icloud_recent_days=0,
-                until_found=1,
-            ),
-        )
+        run_photo_sync(service, options)
 
 
 def test_run_photo_sync_live_photos_respect_video_flags() -> None:
-    """Live photo sync should fetch both resources unless video downloads are skipped."""
+    """Live photo sync should fetch both resources unless video
+    downloads are skipped."""
 
     live_asset = DummyAsset(
         "asset-live",
@@ -948,7 +959,7 @@ def test_apply_local_metadata_skips_mutations_for_preview_modes() -> None:
         ):
             sync_module._apply_local_metadata(
                 asset=asset,
-                resource=asset.resources["original"],
+                _resource=asset.resources["original"],
                 resource_key="original",
                 target_path=Path("/tmp/photo.jpg"),
                 options=options,

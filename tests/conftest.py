@@ -3,6 +3,7 @@
 # pylint: disable=protected-access
 # pylint: disable=redefined-outer-name
 
+from collections.abc import Iterator
 import os
 import secrets
 from typing import Any
@@ -44,18 +45,22 @@ def normalize_path(path: Any) -> str:
         return str(path)
 
 
-@pytest.fixture(autouse=True, scope="function")
-def mock_file_open_write_fixture():
+@pytest.fixture(autouse=True)
+def mock_file_open_write_fixture() -> Any:
     """Mock the open function to prevent file system access."""
     # Dictionary to store written data
     written_data: dict[str, Any] = {}
 
-    def mock_file_open(filepath: str, mode="r", **_):
+    def mock_file_open(
+        filepath: str,
+        mode: str = "r",
+        **_: Any,
+    ) -> Any:
         """Mock file open function."""
 
         if "w" in mode or "a" in mode:
             # Writing or appending mode
-            def mock_write(content):
+            def mock_write(content: str) -> None:
                 if filepath not in written_data:
                     written_data[filepath] = ""
                 if "a" in mode:  # Append mode
@@ -76,12 +81,12 @@ def mock_file_open_write_fixture():
     return mock_file_open
 
 
-@pytest.fixture(autouse=True, scope="function")
-def mock_mkdir():
+@pytest.fixture(autouse=True)
+def mock_mkdir() -> Iterator[Any]:
     """Mock the mkdir function to prevent file system access."""
     mkdir = os.mkdir
 
-    def my_mkdir(path, *args, **kwargs):
+    def my_mkdir(path: Any, *args: Any, **kwargs: Any) -> None:
         normalized = normalize_path(path)
         if "python-test-results" not in normalized:
             raise FileSystemAccessError(
@@ -93,12 +98,12 @@ def mock_mkdir():
         yield mkdir_mock
 
 
-@pytest.fixture(autouse=True, scope="function")
-def mock_makedirs():
+@pytest.fixture(autouse=True)
+def mock_makedirs() -> Iterator[Any]:
     """Mock the makedirs function to prevent file system access."""
     mkdirs = os.makedirs
 
-    def my_makedirs(path, *args, **kwargs):
+    def my_makedirs(path: Any, *args: Any, **kwargs: Any) -> None:
         normalized = normalize_path(path)
         if "python-test-results" not in normalized:
             raise FileSystemAccessError(
@@ -110,12 +115,12 @@ def mock_makedirs():
         yield mkdir_mock
 
 
-@pytest.fixture(autouse=True, scope="function")
-def mock_chmod():
+@pytest.fixture(autouse=True)
+def mock_chmod() -> Iterator[Any]:
     """Mock the chmod function to prevent file system access."""
     chmod = os.chmod
 
-    def my_chmod(path, *args, **kwargs):
+    def my_chmod(path: Any, *args: Any, **kwargs: Any) -> None:
         normalized = normalize_path(path)
         if "python-test-results" not in normalized:
             raise FileSystemAccessError(
@@ -128,11 +133,11 @@ def mock_chmod():
 
 
 @pytest.fixture(autouse=True, scope="session")
-def mock_open_fixture():
+def mock_open_fixture() -> Iterator[Any]:
     """Mock the open function to prevent file system access."""
     builtins_open = open
 
-    def my_open(path, *args, **kwargs):
+    def my_open(path: Any, *args: Any, **kwargs: Any) -> Any:
         normalized = normalize_path(path)
         if "python-test-results" not in normalized:
             raise FileSystemAccessError(
@@ -145,11 +150,11 @@ def mock_open_fixture():
 
 
 @pytest.fixture(autouse=True, scope="session")
-def mock_os_open_fixture():
+def mock_os_open_fixture() -> Iterator[Any]:
     """Mock the open function to prevent file system access."""
     builtins_open = os.open
 
-    def my_open(path, *args, **kwargs):
+    def my_open(path: Any, *args: Any, **kwargs: Any) -> Any:
         normalized = normalize_path(path)
         if "python-test-results" not in normalized:
             raise FileSystemAccessError(
@@ -179,10 +184,23 @@ def pyicloud_service() -> PyiCloudService:
 
 
 @pytest.fixture
-def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudService:
+def pyicloud_service_working(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> PyiCloudService:
     """Set the service to a working state."""
     pyicloud_service.data = LOGIN_WORKING
     pyicloud_service._webservices = LOGIN_WORKING["webservices"]
+    monkeypatch.setattr(
+        pyicloud_service,
+        "_check_pcs_consent",
+        MagicMock(
+            return_value={
+                "isICDRSDisabled": False,
+                "isDeviceConsentedForPCS": True,
+            }
+        ),
+    )
     with patch(BUILTINS_OPEN, new_callable=mock_open):
         pyicloud_service._session = PyiCloudSessionMock(
             pyicloud_service,
@@ -190,13 +208,6 @@ def pyicloud_service_working(pyicloud_service: PyiCloudService) -> PyiCloudServi
             cookie_directory="",
         )
         pyicloud_service.session._data = {"session_token": "valid_token"}
-        check_pcs_consent = MagicMock(
-            return_value={
-                "isICDRSDisabled": False,
-                "isDeviceConsentedForPCS": True,
-            }
-        )
-        pyicloud_service._check_pcs_consent = check_pcs_consent
 
     return pyicloud_service
 
@@ -259,7 +270,7 @@ def mock_photo_library(mock_photos_service: MagicMock) -> BasePhotoLibrary:
 
 
 @pytest.fixture
-def mock_photo_album(mock_photos_service) -> BasePhotoAlbum:
+def mock_photo_album(mock_photos_service: MagicMock) -> BasePhotoAlbum:
     """Returns a mock BasePhotoAlbum subclass for testing."""
 
     class MyPhotoAlbum(BasePhotoAlbum):
@@ -315,7 +326,7 @@ def mock_service_with_cookies(
 
 
 @pytest.fixture(autouse=True, scope="session")
-def mock_thread():
+def mock_thread() -> Iterator[Any]:
     """Mock threading.Thread to prevent actual thread creation during tests."""
     with patch("threading.Thread") as mock_thread_class:
         yield mock_thread_class

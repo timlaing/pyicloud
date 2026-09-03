@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
+
+from pyicloud.base import PyiCloudService
+from pyicloud.services.account import AccountService
 
 MAX_NOTES_SEARCH_WINDOW = 5_000
 
 
-def normalize_account_summary(api, account) -> dict[str, Any]:
+def normalize_account_summary(
+    api: PyiCloudService, account: AccountService
+) -> dict[str, Any]:
     """Normalize account summary data."""
 
     storage = account.storage
@@ -161,10 +166,7 @@ def normalize_photo_library(key: str, library: Any) -> dict[str, Any]:
     """Normalize a photo library."""
 
     zone_id = getattr(library, "zone_id", None)
-    if isinstance(zone_id, dict):
-        zone_name = zone_id.get("zoneName")
-    else:
-        zone_name = None
+    zone_name = zone_id.get("zoneName") if isinstance(zone_id, dict) else None
     return {
         "key": key,
         "scope": getattr(library, "scope", None),
@@ -192,15 +194,13 @@ def normalize_photo_details(item: Any) -> dict[str, Any]:
     """Normalize a detailed photo asset payload."""
 
     payload = normalize_photo(item)
-    payload.update(
-        {
-            "asset_date": getattr(item, "asset_date", None),
-            "added_date": getattr(item, "added_date", None),
-            "dimensions": getattr(item, "dimensions", None),
-            "is_live_photo": getattr(item, "is_live_photo", None),
-            "versions": getattr(item, "versions", None),
-        }
-    )
+    payload.update({
+        "asset_date": getattr(item, "asset_date", None),
+        "added_date": getattr(item, "added_date", None),
+        "dimensions": getattr(item, "dimensions", None),
+        "is_live_photo": getattr(item, "is_live_photo", None),
+        "versions": getattr(item, "versions", None),
+    })
     return payload
 
 
@@ -291,7 +291,7 @@ def select_recent_notes(
         probe_limit = min(probe_limit * 2, max_probe)
 
 
-def search_notes_by_title(
+def search_notes_by_title(  # noqa: S3776
     notes_service: Any,
     *,
     title: str | None = None,
@@ -313,9 +313,7 @@ def search_notes_by_title(
             return False
         if exact and note_title == exact:
             return True
-        if contains and contains in note_title.lower():
-            return True
-        return False
+        return bool(contains and contains in note_title.lower())
 
     def dedupe_key(item: Any) -> Any:
         return getattr(item, "id", None) or id(item)
@@ -354,8 +352,8 @@ def search_notes_by_title(
         if modified_at is None:
             return epoch
         if modified_at.tzinfo is None:
-            return modified_at.replace(tzinfo=timezone.utc)
-        return modified_at
+            return cast(datetime, modified_at.replace(tzinfo=timezone.utc))
+        return cast(datetime, modified_at)
 
     candidates.sort(key=sort_key, reverse=True)
     return candidates[:limit]

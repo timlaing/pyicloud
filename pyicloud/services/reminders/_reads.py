@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 import logging
-from typing import Any, Callable, Dict, Iterable, List, Optional, TypeVar
+from typing import Any, Literal, TypeVar, cast
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -35,7 +36,7 @@ from .models import (
     RemindersList,
 )
 
-TRelated = TypeVar("TRelated")
+TRelated = TypeVar("TRelated")  # pylint: disable=invalid-name
 
 
 class RemindersReadAPI:
@@ -54,10 +55,10 @@ class RemindersReadAPI:
     def _iter_zone_change_pages(
         self,
         *,
-        desired_record_types: Optional[List[str]],
-        desired_keys: Optional[List[str]] = None,
-        sync_token: Optional[str] = None,
-        reverse: Optional[bool] = None,
+        desired_record_types: list[str] | None,
+        desired_keys: list[str] | None = None,
+        sync_token: str | None = None,
+        reverse: bool | None = None,
     ) -> Iterable[CKZoneChangesZone]:
         """Yield paged /changes/zone results, advancing the zone sync token."""
         next_sync_token = sync_token
@@ -91,15 +92,11 @@ class RemindersReadAPI:
                     continue
                 yield self._mapper.record_to_list(rec)
 
-    def reminders(self, list_id: Optional[str] = None) -> Iterable[Reminder]:
+    def reminders(self, list_id: str | None = None) -> Iterable[Reminder]:
         """Fetch reminders as a full snapshot, optionally filtered by list."""
-        reminder_map: Dict[str, Reminder] = {}
+        reminder_map: dict[str, Reminder] = {}
 
-        list_ids: List[str]
-        if list_id:
-            list_ids = [list_id]
-        else:
-            list_ids = [lst.id for lst in self.lists()]
+        list_ids: list[str] = [list_id] if list_id else [lst.id for lst in self.lists()]
 
         for lid in list_ids:
             batch = self.list_reminders(
@@ -110,16 +107,15 @@ class RemindersReadAPI:
             for reminder in batch.reminders:
                 reminder_map[reminder.id] = reminder
 
-        for reminder in reminder_map.values():
-            yield reminder
+        yield from reminder_map.values()
 
     def sync_cursor(self) -> str:
         """Return the latest usable sync token for the Reminders zone."""
         query_token = self._get_raw().current_sync_token(zone_id=_REMINDERS_ZONE_REQ)
         if query_token:
-            return query_token
+            return cast(str, query_token)
 
-        sync_token: Optional[str] = None
+        sync_token: str | None = None
         for zone in self._iter_zone_change_pages(
             desired_record_types=[],
             desired_keys=[],
@@ -132,8 +128,8 @@ class RemindersReadAPI:
 
         raise RemindersApiError("Unable to obtain sync token for Reminders zone")
 
-    def iter_changes(
-        self, *, since: Optional[str] = None
+    def iter_changes(  # noqa: S3776
+        self, *, since: str | None = None
     ) -> Iterable[ReminderChangeEvent]:
         """Iterate reminder changes since an optional sync token."""
         for zone in self._iter_zone_change_pages(
@@ -147,7 +143,9 @@ class RemindersReadAPI:
                         continue
 
                     reminder = self._mapper.record_to_reminder(rec)
-                    evt_type = "deleted" if reminder.deleted else "updated"
+                    evt_type: Literal["updated", "deleted"] = (
+                        "deleted" if reminder.deleted else "updated"
+                    )
                     yield ReminderChangeEvent(
                         type=evt_type,
                         reminder_id=reminder.id,
@@ -199,12 +197,12 @@ class RemindersReadAPI:
     def _lookup_related_records(
         self,
         *,
-        raw_ids: List[str],
+        raw_ids: list[str],
         prefix: str,
         record_type: str,
-        mapper: Callable[[CKRecord], Optional[TRelated]],
+        mapper: Callable[[CKRecord], TRelated | None],
         operation_name: str,
-    ) -> List[TRelated]:
+    ) -> list[TRelated]:
         """Fetch and map linked child records while preserving lookup order."""
         if not raw_ids:
             return []
@@ -215,7 +213,7 @@ class RemindersReadAPI:
         )
         _assert_read_success(resp.records, operation_name)
 
-        mapped_records: List[TRelated] = []
+        mapped_records: list[TRelated] = []
         for rec in resp.records:
             if not isinstance(rec, CKRecord) or rec.recordType != record_type:
                 continue
@@ -226,11 +224,11 @@ class RemindersReadAPI:
 
     @staticmethod
     def _scope_related_records(
-        records: Dict[str, TRelated],
+        records: dict[str, TRelated],
         *,
-        relation_getter: Callable[[TRelated], Optional[str]],
+        relation_getter: Callable[[TRelated], str | None],
         allowed_ids: set[str],
-    ) -> Dict[str, TRelated]:
+    ) -> dict[str, TRelated]:
         """Filter a related-record map down to rows linked to allowed parent IDs."""
         return {
             record_id: record
@@ -242,12 +240,12 @@ class RemindersReadAPI:
         self,
         rec: CKRecord,
         *,
-        reminders_map: Dict[str, Reminder],
-        alarms: Dict[str, Alarm],
-        triggers: Dict[str, LocationTrigger],
-        attachments: Dict[str, Attachment],
-        hashtags: Dict[str, Hashtag],
-        recurrence_rules: Dict[str, RecurrenceRule],
+        reminders_map: dict[str, Reminder],
+        alarms: dict[str, Alarm],
+        triggers: dict[str, LocationTrigger],
+        attachments: dict[str, Attachment],
+        hashtags: dict[str, Hashtag],
+        recurrence_rules: dict[str, RecurrenceRule],
     ) -> None:
         """Route one compound reminderList record into its typed collection."""
         record_type = rec.recordType
@@ -316,14 +314,14 @@ class RemindersReadAPI:
             ],
         )
 
-        reminders_map: Dict[str, Reminder] = {}
-        alarms: Dict[str, Alarm] = {}
-        triggers: Dict[str, LocationTrigger] = {}
-        attachments: Dict[str, Attachment] = {}
-        hashtags: Dict[str, Hashtag] = {}
-        recurrence_rules: Dict[str, RecurrenceRule] = {}
+        reminders_map: dict[str, Reminder] = {}
+        alarms: dict[str, Alarm] = {}
+        triggers: dict[str, LocationTrigger] = {}
+        attachments: dict[str, Attachment] = {}
+        hashtags: dict[str, Hashtag] = {}
+        recurrence_rules: dict[str, RecurrenceRule] = {}
 
-        continuation: Optional[str] = None
+        continuation: str | None = None
         while True:
             resp = self._get_raw().query(
                 query=query,
@@ -394,7 +392,7 @@ class RemindersReadAPI:
             recurrence_rules=scoped_recurrence_rules,
         )
 
-    def alarms_for(self, reminder: Reminder) -> List[AlarmWithTrigger]:
+    def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:  # noqa: S3776
         """Fetch alarms + triggers for a reminder via lookup."""
         if not reminder.alarm_ids:
             return []
@@ -442,7 +440,7 @@ class RemindersReadAPI:
             for alarm in alarms
         ]
 
-    def tags_for(self, reminder: Reminder) -> List[Hashtag]:
+    def tags_for(self, reminder: Reminder) -> list[Hashtag]:
         """Fetch hashtags for a reminder via lookup."""
         return self._lookup_related_records(
             raw_ids=reminder.hashtag_ids,
@@ -452,7 +450,7 @@ class RemindersReadAPI:
             operation_name="Lookup hashtags",
         )
 
-    def attachments_for(self, reminder: Reminder) -> List[Attachment]:
+    def attachments_for(self, reminder: Reminder) -> list[Attachment]:
         """Fetch attachments for a reminder via lookup."""
         return self._lookup_related_records(
             raw_ids=reminder.attachment_ids,
@@ -462,7 +460,7 @@ class RemindersReadAPI:
             operation_name="Lookup attachments",
         )
 
-    def recurrence_rules_for(self, reminder: Reminder) -> List[RecurrenceRule]:
+    def recurrence_rules_for(self, reminder: Reminder) -> list[RecurrenceRule]:
         """Fetch recurrence rules for a reminder via lookup."""
         return self._lookup_related_records(
             raw_ids=reminder.recurrence_rule_ids,
