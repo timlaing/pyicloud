@@ -95,7 +95,7 @@ jobs:
             -Dsonar.sources=pyicloud
             -Dsonar.tests=tests
             -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
-            -Dsonar.python.version=3.14
+            -Dsonar.python.version=3.10
             -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
             -Dsonar.qualitygate.wait=true
 
