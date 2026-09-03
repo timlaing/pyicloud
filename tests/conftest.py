@@ -237,7 +237,13 @@ def contacts_service(mock_session: MagicMock) -> ContactsService:
 
 @pytest.fixture
 def mock_photos_service() -> MagicMock:
-    """Fixture for mocking PhotosService."""
+    """Fixture for mocking PhotosService.
+
+    The session is a ``MagicMock``, which ``_can_use_typed_cloudkit`` treats as
+    mock-like, so libraries built on this fixture take the untyped request path
+    rather than the typed CloudKit client. Tests that need the typed path pass a
+    plain object as the session instead.
+    """
     service = MagicMock()
     service.service_endpoint = EXAMPLE_DOMAIN
     service.params = {"dsid": "12345"}

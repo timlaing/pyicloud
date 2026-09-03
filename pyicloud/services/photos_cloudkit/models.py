@@ -159,3 +159,129 @@ class PhotosUploadResponse(CKModel):
     records: list[CKRecord] = Field(default_factory=list)
     errors: list[PhotosUploadError] = Field(default_factory=list)
     isDuplicate: bool | None = None
+
+
+# Apple reports an already-present file as a 409 on the putAsset result rather
+# than with the old endpoint's isDuplicate flag.
+DUPLICATE_STATUS = 409
+
+# uploadStatus answers 200 for an unrecognised job id, marking the entry with
+# this code rather than omitting it.
+UNKNOWN_JOB_ERROR_CODE = 404
+
+
+class PhotosCreateUploadUrlRequest(CKModel):
+    """Request body for ``/photosupload/createUploadUrl``.
+
+    ``assets`` maps a client-generated UUID to the byte size of the file that
+    will be sent for it, so Apple can reserve a correctly sized upload slot.
+    """
+
+    zoneName: str
+    assets: dict[str, int]
+
+
+class PhotosCreateUploadUrlResponse(CKModel):
+    """Reserved upload URLs keyed by the client UUIDs that requested them."""
+
+    uploadUrls: dict[str, str] = Field(default_factory=dict)
+
+
+class PhotosSingleFileUpload(CKModel):
+    """Receipt returned by the content host once the bytes are stored.
+
+    The whole object is echoed back verbatim as ``singleFileUploadRequest``
+    when the asset is registered, so it is modelled permissively.
+    """
+
+    referenceChecksum: str | None = None
+    size: int | None = None
+    fileChecksum: str | None = None
+    wrappingKey: str | None = None
+    receipt: str | None = None
+
+
+class PhotosSingleFileUploadResponse(CKModel):
+    """Envelope wrapping the single-file upload receipt."""
+
+    singleFile: PhotosSingleFileUpload
+
+
+class PhotosPutAssetFile(CKModel):
+    """One file entry in a ``/photosupload/putAsset`` request.
+
+    ``lastModDate`` is epoch milliseconds and ``timeZoneOffset`` is minutes,
+    matching what the web client sends.
+    """
+
+    fileName: str
+    lastModDate: int
+    timeZoneOffset: int
+    singleFileUploadRequest: PhotosSingleFileUpload
+
+
+class PhotosPutAssetRequest(CKModel):
+    """Request body for ``/photosupload/putAsset``."""
+
+    zoneName: str
+    files: list[PhotosPutAssetFile]
+    localTimeZoneId: str
+    importGroup: str
+
+
+class PhotosUploadStatusRequest(CKModel):
+    """Request body for ``/photosupload/uploadStatus``."""
+
+    uploadJobIds: list[str]
+
+
+class PhotosUploadStatus(CKModel):
+    """Per-job entry returned by ``/photosupload/uploadStatus``.
+
+    A job Apple is still ingesting reports ``progress``; one it does not
+    recognise reports ``errorCode`` 404 instead of being omitted from the
+    response.
+    """
+
+    progress: int | None = None
+    errorCode: int | None = None
+
+    @property
+    def is_unknown(self) -> bool:
+        """Return whether Apple has no record of this upload job."""
+
+        return self.errorCode == UNKNOWN_JOB_ERROR_CODE
+
+
+class PhotosPutAssetStatus(CKModel):
+    """Per-file status block returned inside a ``putAsset`` result.
+
+    ``isRetryable`` is omitted on duplicate (409) responses, which carry an
+    ``errorMessage`` instead.
+    """
+
+    status: int | None = None
+    isRetryable: bool | None = None
+    errorMessage: str | None = None
+
+
+class PhotosPutAssetResult(CKModel):
+    """One registered asset returned by ``/photosupload/putAsset``.
+
+    ``cplMaster`` and ``cplAsset`` are the record names the old
+    ``uploadimagews`` endpoint only exposed via a follow-up lookup. They are
+    supplied for duplicates too, so a re-upload can resolve to the asset that
+    already exists. ``uploadJobId`` is absent in that case, since no new
+    ingest job is created.
+    """
+
+    uploadJobId: str | None = None
+    cplMaster: str | None = None
+    cplAsset: str | None = None
+    response: PhotosPutAssetStatus | None = None
+
+    @property
+    def is_duplicate(self) -> bool:
+        """Return whether Apple rejected this file as already present."""
+
+        return bool(self.response and self.response.status == DUPLICATE_STATUS)

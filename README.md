@@ -1051,7 +1051,8 @@ To upload a photo use the `upload` method. You can upload directly through an
 album object, or use the top-level `api.photos.upload(...)` helper to target
 the root library or a named album. Uploads to a specific album will also appear
 automatically in your `All Photos` library. Each form returns the uploaded
-PhotoAsset for further information.
+PhotoAsset for further information, or `None` if iCloud has not finished
+indexing it in time (see the note below).
 
 ```python
 api.photos.upload(file_path)
@@ -1072,7 +1073,35 @@ api.photos.albums["Screenshots"].upload(file_path)
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jdQ> my_test_image.jpg
 ```
 
-Note: Only limited media types are accepted. Unsupported types (e.g., PNG) will return a TYPE_UNSUPPORTED error.
+Note: Only limited media types are accepted; iCloud's own web uploader declares
+`.jpeg`, `.jpg`, and `image/jpeg`. An unsupported file is rejected with HTTP 415
+and raises a `PyiCloudAPIResponseException` naming the status.
+
+Uploads run against Apple's `photosupload` webservice, which replaced the
+withdrawn `uploadimagews` endpoint. The host is read from the account's
+webservice list at login; on the rare account that does not publish it, uploads
+raise "Photos uploads are not configured" while every other Photos feature keeps
+working.
+
+Registering an upload and being able to read it back are separate steps: iCloud
+indexes a new asset a few seconds after it is stored, so `upload()` retries the
+lookup until the asset is available before returning it. Against a live account
+this took 14-20 seconds. Uploading a file iCloud already holds returns the
+**existing** asset rather than raising, and resolves immediately.
+
+If indexing has not finished within the 60-second budget, `upload()` returns
+`None`. The file is stored in iCloud regardless and appears once indexing
+completes, so treat `None` as "uploaded, not yet readable" rather than as a
+failure. Both the budget and the retry interval are configurable:
+
+```python
+api = PyiCloudService(
+    "jappleseed@apple.com",
+    "password",
+    upload_hydration_timeout=120.0,  # optional, default 60
+    upload_hydration_interval=5.0,  # optional, default 2
+)
+```
 
 To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool indicating success.
 

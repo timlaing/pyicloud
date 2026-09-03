@@ -37,7 +37,11 @@ from pyicloud.services.calendar import CalendarService
 from pyicloud.services.contacts import ContactsService
 from pyicloud.services.hidemyemail import HideMyEmailService
 from pyicloud.services.notes import NotesService
-from pyicloud.services.photos import PhotosService
+from pyicloud.services.photos import (
+    UPLOAD_HYDRATION_INTERVAL,
+    UPLOAD_HYDRATION_TIMEOUT,
+    PhotosService,
+)
 from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
 from pyicloud.session import PyiCloudSession, describe_endpoint
@@ -2490,11 +2494,14 @@ def test_photos_returns_service(pyicloud_service: PyiCloudService) -> None:
         patch.object(
             pyicloud_service,
             "get_webservice_url",
-            side_effect=[
-                "https://photos.example.com",
-                "https://upload.example.com",
-                "https://shared.example.com",
-            ],
+            # Keyed rather than positional, so the assertion does not depend on
+            # the order the property happens to resolve the hosts in.
+            side_effect={
+                "ckdatabasews": "https://photos.example.com",
+                "uploadimagews": "https://upload.example.com",
+                "sharedstreams": "https://shared.example.com",
+                "photosupload": "https://photosupload.example.com",
+            }.__getitem__,
         ),
         patch(
             "pyicloud.base.PhotosService", return_value=mock_photos_service
@@ -2510,8 +2517,113 @@ def test_photos_returns_service(pyicloud_service: PyiCloudService) -> None:
             params=pyicloud_service.params,
             upload_url="https://upload.example.com",
             shared_streams_url="https://shared.example.com",
+            photos_upload_url="https://photosupload.example.com",
+            upload_hydration_timeout=UPLOAD_HYDRATION_TIMEOUT,
+            upload_hydration_interval=UPLOAD_HYDRATION_INTERVAL,
         )
         assert pyicloud_service.params["dsid"] == "12345"
+        assert result == mock_photos_service
+
+
+def test_photos_passes_upload_hydration_settings(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Upload hydration timings are configurable from PyiCloudService."""
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            side_effect=lambda key: f"https://{key}.example.com",
+        ),
+        patch("pyicloud.base.PhotosService") as mock_photos_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
+    ):
+        pyicloud_service._photos = None
+        pyicloud_service._upload_hydration_timeout = 12.5
+        pyicloud_service._upload_hydration_interval = 0.5
+        pyicloud_service.data = {"dsInfo": {"dsid": "12345"}}
+        _ = pyicloud_service.photos
+
+        assert mock_photos_cls.call_args.kwargs["upload_hydration_timeout"] == 12.5
+        assert mock_photos_cls.call_args.kwargs["upload_hydration_interval"] == 0.5
+
+
+@pytest.mark.parametrize(
+    "missing", ["uploadimagews", "photosupload", "sharedstreams", "both"]
+)
+def test_photos_tolerates_missing_optional_webservices(
+    pyicloud_service: PyiCloudService,
+    missing: str,
+) -> None:
+    """No single-feature host may take the whole Photos service down.
+
+    Apple withdrew `uploadimagews` and may stop advertising it, not every
+    account advertises `photosupload`, and `sharedstreams` powers only the
+    legacy shared-stream albums. Losing any of them should disable that feature
+    while the rest of the service keeps working.
+    """
+    mock_photos_service = MagicMock()
+    optional = {"uploadimagews", "photosupload", "sharedstreams"}
+    absent = optional if missing == "both" else {missing}
+
+    def _webservice_url(key: str) -> str:
+        if key in absent:
+            raise PyiCloudServiceNotActivatedException(
+                f"Webservice not available: {key}"
+            )
+        return f"https://{key}.example.com"
+
+    with (
+        patch.object(
+            pyicloud_service, "get_webservice_url", side_effect=_webservice_url
+        ),
+        patch(
+            "pyicloud.base.PhotosService", return_value=mock_photos_service
+        ) as mock_photos_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
+    ):
+        pyicloud_service._photos = None
+        pyicloud_service.data = {"dsInfo": {"dsid": "12345"}}
+        result: PhotosService = pyicloud_service.photos
+
+        kwargs = mock_photos_cls.call_args.kwargs
+        assert kwargs["upload_url"] == (
+            None if "uploadimagews" in absent else "https://uploadimagews.example.com"
+        )
+        assert kwargs["photos_upload_url"] == (
+            None if "photosupload" in absent else "https://photosupload.example.com"
+        )
+        assert kwargs["shared_streams_url"] == (
+            None if "sharedstreams" in absent else "https://sharedstreams.example.com"
+        )
+        assert result == mock_photos_service
+
+
+def test_photos_tolerates_missing_photosupload_webservice(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Accounts without a photosupload host still get a usable Photos service."""
+    mock_photos_service = MagicMock()
+
+    def _webservice_url(key: str) -> str:
+        if key == "photosupload":
+            raise PyiCloudServiceNotActivatedException("Webservice not available")
+        return f"https://{key}.example.com"
+
+    with (
+        patch.object(
+            pyicloud_service, "get_webservice_url", side_effect=_webservice_url
+        ),
+        patch(
+            "pyicloud.base.PhotosService", return_value=mock_photos_service
+        ) as mock_photos_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
+    ):
+        pyicloud_service._photos = None
+        pyicloud_service.data = {"dsInfo": {"dsid": "12345"}}
+        result: PhotosService = pyicloud_service.photos
+
+        assert mock_photos_cls.call_args.kwargs["photos_upload_url"] is None
         assert result == mock_photos_service
 
 
@@ -2538,6 +2650,7 @@ def test_photos_raises_on_api_exception(
                 "https://photos.example.com",
                 "https://upload.example.com",
                 "https://shared.example.com",
+                "https://photosupload.example.com",
             ],
         ),
         patch(

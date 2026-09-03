@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pyicloud.services.photos_cloudkit import (
     PRIMARY_ZONE,
+    UPLOAD_HYDRATION_INTERVAL,
+    UPLOAD_HYDRATION_TIMEOUT,
     AlbumContainer,
     AlbumTypeEnum,
     BasePhotoAlbum,
@@ -68,6 +70,8 @@ __all__ = [
     "PhotosService",
     "PhotosServiceException",
     "PRIMARY_ZONE",
+    "UPLOAD_HYDRATION_INTERVAL",
+    "UPLOAD_HYDRATION_TIMEOUT",
     "SQLitePhotoSyncState",
     "SharedPhotoStreamAlbum",
     "SmartAlbumEnum",

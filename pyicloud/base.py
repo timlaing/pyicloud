@@ -62,6 +62,10 @@ from pyicloud.services import (  # pylint: disable=useless-import-alias
 )
 from pyicloud.services.invites import InvitesService
 from pyicloud.services.notes import NotesService
+from pyicloud.services.photos import (
+    UPLOAD_HYDRATION_INTERVAL,
+    UPLOAD_HYDRATION_TIMEOUT,
+)
 from pyicloud.session import PyiCloudSession
 from pyicloud.srp_password import SrpPassword, SrpProtocolType
 from pyicloud.utils import (
@@ -261,6 +265,8 @@ class PyiCloudService:
         authenticate: bool = True,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
         pause_2fa: bool = False,
+        upload_hydration_timeout: float = UPLOAD_HYDRATION_TIMEOUT,
+        upload_hydration_interval: float = UPLOAD_HYDRATION_INTERVAL,
     ) -> None:
         """Initialize a service session for one Apple ID account."""
         self._is_china_mainland: bool = (
@@ -275,6 +281,8 @@ class PyiCloudService:
         self._apple_id: str = apple_id
         self._accept_terms: bool = accept_terms
         self._refresh_interval: float | None = refresh_interval
+        self._upload_hydration_timeout: float = upload_hydration_timeout
+        self._upload_hydration_interval: float = upload_hydration_interval
 
         if self._password_raw is None and authenticate:
             self._password_raw = get_password_from_keyring(apple_id)
@@ -1325,6 +1333,19 @@ class PyiCloudService:
         """Set the webservices map (used when hydrating from session probes)."""
         self._webservices = value
 
+    def _optional_webservice_url(self, ws_key: str) -> str | None:
+        """Return a webservice URL, or None when the account does not offer it.
+
+        Apple adds and withdraws hosts over time, so a service that can work
+        without a particular endpoint should degrade that feature rather than
+        fail to construct at all.
+        """
+
+        try:
+            return self.get_webservice_url(ws_key)
+        except PyiCloudServiceNotActivatedException:
+            return None
+
     def get_webservice_url(self, ws_key: str) -> str:
         """Get webservice URL, raise an exception if not exists."""
         # The map is Apple's JSON, and the `webservices` setter takes it
@@ -1445,8 +1466,18 @@ class PyiCloudService:
 
         if not self._photos:
             service_root: str = self.get_webservice_url("ckdatabasews")
-            upload_url: str = self.get_webservice_url("uploadimagews")
-            shared_streams_url: str = self.get_webservice_url("sharedstreams")
+            # Only ckdatabasews is load-bearing here. The upload hosts and the
+            # legacy shared-streams host each power one feature, so a missing
+            # one disables that feature rather than the whole service: Apple has
+            # already withdrawn what uploadimagews points at and may stop
+            # advertising it, and not every account advertises the others.
+            shared_streams_url: str | None = self._optional_webservice_url(
+                "sharedstreams"
+            )
+            upload_url: str | None = self._optional_webservice_url("uploadimagews")
+            photos_upload_url: str | None = self._optional_webservice_url(
+                "photosupload"
+            )
             self.params["dsid"] = self.data["dsInfo"]["dsid"]
 
             try:
@@ -1456,6 +1487,9 @@ class PyiCloudService:
                     params=self.params,
                     upload_url=upload_url,
                     shared_streams_url=shared_streams_url,
+                    photos_upload_url=photos_upload_url,
+                    upload_hydration_timeout=self._upload_hydration_timeout,
+                    upload_hydration_interval=self._upload_hydration_interval,
                 )
             except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
