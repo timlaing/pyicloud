@@ -2706,7 +2706,7 @@ def test_reminders_requests_pcs_for_service(
     """Test reminders property requests PCS so encrypted fields are readable.
 
     Without the PCS service key, CloudKit returns TitleDocument/NotesDocument
-    as undecryptable bytes and every title decodes to "Error Decoding Title".
+    as unreadable bytes and every title decodes to "Error Decoding Title".
     """
     with (
         patch.object(
