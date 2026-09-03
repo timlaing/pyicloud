@@ -71,6 +71,14 @@ WEBSERVICES: tuple[Webservice, ...] = (
         description="Find My iPhone device list and location.",
     ),
     Webservice(
+        key="photosupload",
+        powers=("photos",),
+        description=(
+            "CloudKit-backed Photos upload host used by the replacement flow: "
+            "createUploadUrl, putAsset, and uploadStatus."
+        ),
+    ),
+    Webservice(
         key="premiummailsettings",
         powers=("hidemyemail",),
         description="Hide My Email address generation and management.",
