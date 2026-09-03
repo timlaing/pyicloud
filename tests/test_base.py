@@ -17,6 +17,7 @@ import requests
 from requests import HTTPError, Response
 
 from pyicloud import PyiCloudService
+import pyicloud.base
 from pyicloud.const import AppleAuthError
 from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
@@ -26,6 +27,7 @@ from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
+    PyiCloudPCSTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
     PyiCloudTrustedDevicePromptException,
@@ -1922,6 +1924,43 @@ def test_request_pcs_for_service_raises_on_unknown_message(
         patch("pyicloud.base.LOGGER", mock_logger),
     ):
         pyicloud_service._request_pcs_for_service("photos")
+    mock_logger.error.assert_called()
+
+
+def test_request_pcs_for_service_raises_when_retries_exhausted(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test _request_pcs_for_service raises after PCS retries are exhausted."""
+    monkeypatch.setattr(
+        pyicloud_service,
+        "_check_pcs_consent",
+        MagicMock(
+            return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": True}
+        ),
+    )
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.params = {}
+    retryable_response: dict[str, str] = {
+        "status": "error",
+        "message": "Requested the device to upload cookies.",
+    }
+    monkeypatch.setattr(
+        pyicloud_service,
+        "_send_pcs_request",
+        MagicMock(return_value=retryable_response),
+    )
+    max_retries: int = pyicloud.base.PCS_MAX_RETRIES
+    mock_logger = MagicMock()
+
+    with (
+        pytest.raises(
+            PyiCloudPCSTimeoutException, match="Unable to request PCS access!"
+        ),
+        patch("time.sleep"),
+        patch("pyicloud.base.LOGGER", mock_logger),
+    ):
+        pyicloud_service._request_pcs_for_service("photos")
+    assert cast(Any, pyicloud_service._send_pcs_request).call_count == max_retries
     mock_logger.error.assert_called()
 
 
