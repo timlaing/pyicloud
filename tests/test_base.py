@@ -17,6 +17,7 @@ import requests
 from requests import HTTPError, Response
 
 from pyicloud import PyiCloudService
+import pyicloud.base
 from pyicloud.const import AppleAuthError
 from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
@@ -26,6 +27,7 @@ from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
+    PyiCloudPCSTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
     PyiCloudTrustedDevicePromptException,
@@ -1929,6 +1931,43 @@ def test_request_pcs_for_service_raises_on_unknown_message(
     mock_logger.error.assert_called()
 
 
+def test_request_pcs_for_service_raises_when_retries_exhausted(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test _request_pcs_for_service raises after PCS retries are exhausted."""
+    monkeypatch.setattr(
+        pyicloud_service,
+        "_check_pcs_consent",
+        MagicMock(
+            return_value={"isICDRSDisabled": True, "isDeviceConsentedForPCS": True}
+        ),
+    )
+    pyicloud_service._session = MagicMock()
+    pyicloud_service.params = {}
+    retryable_response: dict[str, str] = {
+        "status": "error",
+        "message": "Requested the device to upload cookies.",
+    }
+    monkeypatch.setattr(
+        pyicloud_service,
+        "_send_pcs_request",
+        MagicMock(return_value=retryable_response),
+    )
+    max_retries: int = pyicloud.base.PCS_MAX_RETRIES
+    mock_logger = MagicMock()
+
+    with (
+        pytest.raises(
+            PyiCloudPCSTimeoutException, match="Unable to request PCS access!"
+        ),
+        patch("time.sleep"),
+        patch("pyicloud.base.LOGGER", mock_logger),
+    ):
+        pyicloud_service._request_pcs_for_service("photos")
+    assert cast(Any, pyicloud_service._send_pcs_request).call_count == max_retries
+    mock_logger.error.assert_called()
+
+
 def test_handle_accept_terms_no_terms_update_needed(
     pyicloud_service: PyiCloudService,
 ) -> None:
@@ -2761,6 +2800,7 @@ def test_reminders_returns_service(
             "pyicloud.base.RemindersService",
             return_value=mock_reminders_service,
         ) as mock_reminders_cls,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._reminders = None
         result: RemindersService = pyicloud_service.reminders
@@ -2773,14 +2813,40 @@ def test_reminders_returns_service(
         assert result == mock_reminders_service
 
 
+def test_reminders_requests_pcs_for_service(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Test reminders property requests PCS so encrypted fields are readable.
+
+    Without the PCS service key, CloudKit returns TitleDocument/NotesDocument
+    as unreadable bytes and every title decodes to "Error Decoding Title".
+    """
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://reminders.example.com",
+        ),
+        patch("pyicloud.base.RemindersService", return_value=MagicMock()),
+        patch.object(
+            pyicloud_service,
+            "_request_pcs_for_service",
+        ) as mock_request_pcs,
+    ):
+        pyicloud_service._reminders = None
+        _: RemindersService = pyicloud_service.reminders
+        mock_request_pcs.assert_called_once_with("reminders")
+
+
 def test_reminders_returns_cached_instance(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Test reminders property returns cached instance if already set."""
     mock_reminders_service = MagicMock()
     pyicloud_service._reminders = mock_reminders_service
-    result: RemindersService = pyicloud_service.reminders
-    assert result == mock_reminders_service
+    with patch.object(pyicloud_service, "_request_pcs_for_service"):
+        result: RemindersService = pyicloud_service.reminders
+        assert result == mock_reminders_service
 
 
 def test_reminders_raises_on_api_exception(
@@ -2797,6 +2863,7 @@ def test_reminders_raises_on_api_exception(
             "pyicloud.base.RemindersService",
             side_effect=PyiCloudAPIResponseException("error"),
         ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._reminders = None
         with pytest.raises(
@@ -2810,10 +2877,13 @@ def test_reminders_raises_on_not_activated_exception(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Reminders wraps missing ckdatabasews activation as service unavailable."""
-    with patch.object(
-        pyicloud_service,
-        "get_webservice_url",
-        side_effect=PyiCloudServiceNotActivatedException("error"),
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            side_effect=PyiCloudServiceNotActivatedException("error"),
+        ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._reminders = None
         with pytest.raises(
@@ -2834,6 +2904,7 @@ def test_notes_returns_new_notes_service_instance(
             return_value="https://notes.example.com",
         ),
         patch("pyicloud.base.NotesService") as mock_notes_service,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         mock_notes_instance = MagicMock(spec=NotesService)
         mock_notes_service.return_value = mock_notes_instance
@@ -2849,12 +2920,37 @@ def test_notes_returns_new_notes_service_instance(
         assert result == mock_notes_instance
 
 
+def test_notes_requests_pcs_for_service(pyicloud_service: PyiCloudService) -> None:
+    """Test notes property requests PCS so encrypted fields decode.
+
+    Without the PCS service key, CloudKit returns note and folder titles as
+    still-encrypted bytes. Note the appName is "notes3"; "notes" is rejected
+    by the server with "Unknown app requested".
+    """
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://notes.example.com",
+        ),
+        patch("pyicloud.base.NotesService"),
+        patch.object(
+            pyicloud_service,
+            "_request_pcs_for_service",
+        ) as mock_request_pcs,
+    ):
+        pyicloud_service._notes = None
+        _: NotesService = pyicloud_service.notes
+        mock_request_pcs.assert_called_once_with("notes3")
+
+
 def test_notes_returns_cached_instance(pyicloud_service: PyiCloudService) -> None:
     """Test notes property returns cached instance if already set."""
     mock_notes_service = MagicMock()
     pyicloud_service._notes = mock_notes_service
-    result: NotesService = pyicloud_service.notes
-    assert result == mock_notes_service
+    with patch.object(pyicloud_service, "_request_pcs_for_service"):
+        result: NotesService = pyicloud_service.notes
+        assert result == mock_notes_service
 
 
 def test_notes_raises_on_api_exception(pyicloud_service: PyiCloudService) -> None:
@@ -2869,6 +2965,7 @@ def test_notes_raises_on_api_exception(pyicloud_service: PyiCloudService) -> Non
             "pyicloud.base.NotesService",
             side_effect=PyiCloudAPIResponseException("error"),
         ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._notes = None
         with pytest.raises(
@@ -2882,10 +2979,13 @@ def test_notes_raises_on_not_activated_exception(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Notes wraps missing ckdatabasews activation as service unavailable."""
-    with patch.object(
-        pyicloud_service,
-        "get_webservice_url",
-        side_effect=PyiCloudServiceNotActivatedException("error"),
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            side_effect=PyiCloudServiceNotActivatedException("error"),
+        ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._notes = None
         with pytest.raises(

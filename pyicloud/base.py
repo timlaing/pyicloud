@@ -34,6 +34,7 @@ from pyicloud.exceptions import (
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
+    PyiCloudPCSTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
     PyiCloudTrustedDevicePromptException,
@@ -1232,6 +1233,9 @@ class PyiCloudService:
                 LOGGER.error("Unknown PCS state: %s", resp["message"])
                 raise PyiCloudAPIResponseException("Unable to request PCS access!")
 
+        LOGGER.error("PCS retries exhausted: %s", resp["message"])
+        raise PyiCloudPCSTimeoutException("Unable to request PCS access!")
+
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
         self._two_factor_code_requested = False
@@ -1526,6 +1530,8 @@ class PyiCloudService:
     @property
     def reminders(self) -> RemindersService:
         """Gets the 'Reminders' service."""
+        self._request_pcs_for_service("reminders")
+
         if not self._reminders:
             try:
                 service_root: str = self.get_webservice_url("ckdatabasews")
@@ -1563,6 +1569,10 @@ class PyiCloudService:
     @property
     def notes(self) -> NotesService:
         """Gets the 'Notes' service."""
+        # The PCS appName for Notes is "notes3"; "notes" is rejected by the
+        # server with "Unknown app requested".
+        self._request_pcs_for_service("notes3")
+
         if not self._notes:
             try:
                 service_root: str = self.get_webservice_url("ckdatabasews")

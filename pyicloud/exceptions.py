@@ -53,6 +53,10 @@ class PyiCloudServiceNotActivatedException(PyiCloudAPIResponseException):
     """iCloud service not activated exception."""
 
 
+class PyiCloudPCSTimeoutException(PyiCloudAPIResponseException):
+    """Raised when PCS access could not be granted after all retries."""
+
+
 class PyiCloudEndpointGoneException(PyiCloudAPIResponseException):
     """Raised when Apple reports an endpoint as permanently gone (HTTP 410).
 
