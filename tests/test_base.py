@@ -2721,6 +2721,7 @@ def test_notes_returns_new_notes_service_instance(
             return_value="https://notes.example.com",
         ),
         patch("pyicloud.base.NotesService") as mock_notes_service,
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         mock_notes_instance = MagicMock(spec=NotesService)
         mock_notes_service.return_value = mock_notes_instance
@@ -2736,12 +2737,37 @@ def test_notes_returns_new_notes_service_instance(
         assert result == mock_notes_instance
 
 
+def test_notes_requests_pcs_for_service(pyicloud_service: PyiCloudService) -> None:
+    """Test notes property requests PCS so encrypted fields decode.
+
+    Without the PCS service key, CloudKit returns note and folder titles as
+    still-encrypted bytes. Note the appName is "notes3"; "notes" is rejected
+    by the server with "Unknown app requested".
+    """
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            return_value="https://notes.example.com",
+        ),
+        patch("pyicloud.base.NotesService"),
+        patch.object(
+            pyicloud_service,
+            "_request_pcs_for_service",
+        ) as mock_request_pcs,
+    ):
+        pyicloud_service._notes = None
+        _: NotesService = pyicloud_service.notes
+        mock_request_pcs.assert_called_once_with("notes3")
+
+
 def test_notes_returns_cached_instance(pyicloud_service: PyiCloudService) -> None:
     """Test notes property returns cached instance if already set."""
     mock_notes_service = MagicMock()
     pyicloud_service._notes = mock_notes_service
-    result: NotesService = pyicloud_service.notes
-    assert result == mock_notes_service
+    with patch.object(pyicloud_service, "_request_pcs_for_service"):
+        result: NotesService = pyicloud_service.notes
+        assert result == mock_notes_service
 
 
 def test_notes_raises_on_api_exception(pyicloud_service: PyiCloudService) -> None:
@@ -2756,6 +2782,7 @@ def test_notes_raises_on_api_exception(pyicloud_service: PyiCloudService) -> Non
             "pyicloud.base.NotesService",
             side_effect=PyiCloudAPIResponseException("error"),
         ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._notes = None
         with pytest.raises(
@@ -2769,10 +2796,13 @@ def test_notes_raises_on_not_activated_exception(
     pyicloud_service: PyiCloudService,
 ) -> None:
     """Notes wraps missing ckdatabasews activation as service unavailable."""
-    with patch.object(
-        pyicloud_service,
-        "get_webservice_url",
-        side_effect=PyiCloudServiceNotActivatedException("error"),
+    with (
+        patch.object(
+            pyicloud_service,
+            "get_webservice_url",
+            side_effect=PyiCloudServiceNotActivatedException("error"),
+        ),
+        patch.object(pyicloud_service, "_request_pcs_for_service"),
     ):
         pyicloud_service._notes = None
         with pytest.raises(
