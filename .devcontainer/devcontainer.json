@@ -1,11 +1,41 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
-  "name": "PyiCloud Dev",
-  "image": "mcr.microsoft.com/devcontainers/python:3-3-trixie",
   "containerEnv": {
     "WORKSPACE_DIRECTORY": "${containerWorkspaceFolder}",
     "DEVCONTAINER": "1"
+  },
+  // Configure tool-specific properties.
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "coderabbit.coderabbit-vscode",
+        "donjayamanne.git-extension-pack",
+        "donjayamanne.python-extension-pack",
+        "esbenp.prettier-vscode",
+        "foxundermoon.shell-format",
+        "github.vscode-github-actions",
+        "ms-python.pylint",
+        "ms-python.python",
+        "redhat.vscode-yaml",
+        "ryanluker.vscode-coverage-gutters",
+        "streetsidesoftware.code-spell-checker",
+        "SonarSource.sonarlint-vscode",
+        "sst-dev.opencode"
+      ],
+      "settings": {
+        "sonarlint.ls.javaHome": "/usr/local/sdkman/candidates/java/current",
+        "editor.tabSize": 4,
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/usr/bin/zsh",
+            "args": ["-l"]
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
   },
   // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
   // Features to add to the dev container. More info: https://containers.dev/features.
@@ -26,50 +56,14 @@
     "ghcr.io/devcontainers/features/docker-in-docker:4": {
       "moby": false
     },
-    "ghcr.io/dhoeric/features/act": {}
+    "ghcr.io/dhoeric/features/act": {},
+    "ghcr.io/devcontainers-extra/features/uv": {}
   },
+  "image": "mcr.microsoft.com/devcontainers/python:3-3-trixie",
+  "name": "PyiCloud Dev",
   // Use 'forwardPorts' to make a list of ports inside the container available locally.
   // "forwardPorts": [],
   // Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && scripts/setup.sh",
-  "postStartCommand": "scripts/startup.sh",
-  // Configure tool-specific properties.
-  "customizations": {
-    "vscode": {
-      "extensions": [
-        "donjayamanne.python-extension-pack",
-        "shyykoserhiy.git-autoconfig",
-        "ms-python.vscode-pylance",
-        "redhat.vscode-yaml",
-        "esbenp.prettier-vscode",
-        "ms-python.pylint",
-        "ms-python.isort",
-        "ms-python.python",
-        "ryanluker.vscode-coverage-gutters",
-        "donjayamanne.git-extension-pack",
-        "github.vscode-github-actions",
-        "elagil.pre-commit-helper",
-        "sonarsource.sonarlint-vscode",
-        "charliermarsh.ruff",
-        "ms-azuretools.vscode-docker",
-        "coderabbit.coderabbit-vscode",
-        "foxundermoon.shell-format",
-        "SanjulaGanepola.github-local-actions"
-      ],
-      "settings": {
-        "sonarlint.ls.javaHome": "/usr/local/sdkman/candidates/java/current",
-        "editor.tabSize": 4,
-        "terminal.integrated.profiles.linux": {
-          "zsh": {
-            "path": "/usr/bin/zsh",
-            "args": ["-l"]
-          }
-        },
-        "terminal.integrated.defaultProfile.linux": "zsh"
-      }
-    }
-  },
-  "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
-  ]
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && PYICLOUD_INSTALL_DEV_TOOLS=1 scripts/setup.sh",
+  "postStartCommand": "scripts/startup.sh"
 }

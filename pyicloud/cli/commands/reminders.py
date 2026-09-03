@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
-from typing import Callable, TypeVar
+from functools import partial
+from typing import Any, TypeVar, cast
 
-import typer
 from pydantic import ValidationError
+import typer
 
-from pyicloud.cli.context import CLIAbort, get_state, parse_datetime, service_call
+from pyicloud.base import PyiCloudService
+from pyicloud.cli.context import (
+    CLIAbort,
+    CLIState,
+    get_state,
+    parse_datetime,
+    service_call,
+)
 from pyicloud.cli.normalize import normalize_sync_cursor
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
@@ -27,11 +36,12 @@ from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthE
 from pyicloud.services.reminders.models import (
     AlarmWithTrigger,
     ImageAttachment,
+    Proximity,
     RecurrenceFrequency,
     Reminder,
     URLAttachment,
 )
-from pyicloud.services.reminders.service import Attachment, Proximity
+from pyicloud.services.reminders.service import Attachment
 
 app = typer.Typer(help="Inspect and mutate Reminders.")
 alarm_app = typer.Typer(help="Work with reminder alarms.")
@@ -40,7 +50,7 @@ hashtag_app = typer.Typer(help="Work with reminder hashtags.")
 recurrence_app = typer.Typer(help="Work with reminder recurrence rules.")
 
 REMINDERS = "Reminders"
-TRelated = TypeVar("TRelated")
+TRelated = TypeVar("TRelated")  # pylint: disable=invalid-name
 
 _REMINDER_ID_HELP = "Reminder id."
 _COMPLETED_OPTION_PARAM = "--completed/--not-completed"
@@ -122,18 +132,16 @@ def _id_matches(record_id: str, query: str) -> bool:
         return False
     if record_id == normalized:
         return True
-    if "/" in record_id and record_id.split("/", 1)[1] == normalized:
-        return True
-    return False
+    return "/" in record_id and record_id.split("/", 1)[1] == normalized
 
 
-def _reminders_service(api):
+def _reminders_service(api: PyiCloudService) -> Any:
     """Return the Reminders service with reauthentication handling."""
 
     return service_call(REMINDERS, lambda: api.reminders, account_name=api.account_name)
 
 
-def _reminders_call(api, fn):
+def _reminders_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
     """Wrap reminder calls with reminder-specific user-facing errors."""
 
     try:
@@ -147,21 +155,22 @@ def _reminders_call(api, fn):
         raise CLIAbort(str(err)) from err
 
 
-def _resolve_reminder(api, reminder_id: str) -> Reminder:
+def _resolve_reminder(api: PyiCloudService, reminder_id: str) -> Reminder:
     """Return one reminder by id."""
 
     reminders = _reminders_service(api)
-    return _reminders_call(api, lambda: reminders.get(reminder_id))
+    return cast(Reminder, _reminders_call(api, lambda: reminders.get(reminder_id)))
 
 
 def _list_reminder_rows(
-    api,
+    api: PyiCloudService,
     *,
     list_id: str | None = None,
     include_completed: bool,
     limit: int,
 ) -> list[Reminder]:
-    """Return reminder rows using compound snapshots to preserve completion filtering."""
+    """Return reminder rows using compound snapshots to preserve
+    completion filtering."""
 
     reminders = _reminders_service(api)
     results_limit = max(limit, 200)
@@ -174,15 +183,16 @@ def _list_reminder_rows(
                 results_limit=results_limit,
             ),
         )
-        return snapshot.reminders[:limit]
+        return cast(list[Reminder], snapshot.reminders[:limit])
 
     rows: list[Reminder] = []
     seen_ids: set[str] = set()
     for reminder_list in _reminders_call(api, lambda: list(reminders.lists())):
         snapshot = _reminders_call(
             api,
-            lambda lid=reminder_list.id: reminders.list_reminders(
-                list_id=lid,
+            partial(
+                reminders.list_reminders,
+                list_id=reminder_list.id,
                 include_completed=include_completed,
                 results_limit=results_limit,
             ),
@@ -198,7 +208,7 @@ def _list_reminder_rows(
 
 
 def _resolve_related_record(
-    api,
+    api: PyiCloudService,
     reminder_id: str,
     query: str,
     *,
@@ -242,7 +252,7 @@ def _frequency_label(frequency: RecurrenceFrequency | None) -> str | None:
     return frequency.name.lower()
 
 
-def _sync_cursor_payload(state, cursor: str) -> None:
+def _sync_cursor_payload(state: CLIState, cursor: str) -> None:
     """Render a sync cursor in JSON or text mode."""
 
     if state.json_output:
@@ -408,7 +418,7 @@ def reminders_get(
 
 @app.command("create")
 def reminders_create(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     list_id: str = typer.Option(..., "--list-id", help="Target list id."),
     title: str = typer.Option(..., "--title", help="Reminder title."),
     desc: str = typer.Option("", "--desc", help="Reminder description."),
@@ -480,8 +490,8 @@ def reminders_create(
 
 
 @app.command("update")
-def reminders_update(
-    ctx: typer.Context,
+def reminders_update(  # noqa: S3776
+    ctx: typer.Context,  # noqa: S107
     reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     title: str | None = typer.Option(None, "--title", help="Reminder title."),
     desc: str | None = typer.Option(None, "--desc", help="Reminder description."),
@@ -844,7 +854,7 @@ def reminders_sync_cursor(
     state = get_state(ctx)
     api = state.get_api()
     reminders = _reminders_service(api)
-    cursor = _reminders_call(api, lambda: reminders.sync_cursor())
+    cursor = _reminders_call(api, reminders.sync_cursor)
     _sync_cursor_payload(state, cursor)
 
 
@@ -908,7 +918,7 @@ def reminders_alarm_list(
 
 @alarm_app.command("add-location")
 def reminders_alarm_add_location(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     title: str = typer.Option(..., "--title", help="Location title."),
     address: str = typer.Option(..., "--address", help="Location address."),
@@ -1074,7 +1084,7 @@ def reminders_hashtag_update(
         reminder_id,
         hashtag_id,
         label="hashtag",
-        fetch_rows=lambda reminder: reminders.tags_for(reminder),
+        fetch_rows=reminders.tags_for,
     )
     _reminders_call(api, lambda: reminders.update_hashtag(hashtag, name))
     hashtag.name = name
@@ -1117,7 +1127,7 @@ def reminders_hashtag_delete(
         reminder_id,
         hashtag_id,
         label="hashtag",
-        fetch_rows=lambda row: reminders.tags_for(row),
+        fetch_rows=reminders.tags_for,
     )
     _reminders_call(api, lambda: reminders.delete_hashtag(reminder, hashtag))
     payload = {"reminder_id": reminder.id, "hashtag_id": hashtag.id, "deleted": True}
@@ -1220,7 +1230,7 @@ def reminders_attachment_create_url(
 
 @attachment_app.command("update")
 def reminders_attachment_update(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     attachment_id: str = typer.Argument(..., help="Attachment id."),
     url: str | None = typer.Option(None, "--url", help="Updated attachment URL."),
@@ -1279,7 +1289,7 @@ def reminders_attachment_update(
         reminder_id,
         attachment_id,
         label="attachment",
-        fetch_rows=lambda reminder: reminders.attachments_for(reminder),
+        fetch_rows=reminders.attachments_for,
     )
     _reminders_call(
         api,
@@ -1344,7 +1354,7 @@ def reminders_attachment_delete(
         reminder_id,
         attachment_id,
         label="attachment",
-        fetch_rows=lambda row: reminders.attachments_for(row),
+        fetch_rows=reminders.attachments_for,
     )
     _reminders_call(api, lambda: reminders.delete_attachment(reminder, attachment))
     payload = {
@@ -1473,7 +1483,7 @@ def reminders_recurrence_create(
 
 @recurrence_app.command("update")
 def reminders_recurrence_update(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     reminder_id: str = typer.Argument(..., help=_REMINDER_ID_HELP),
     rule_id: str = typer.Argument(..., help="Recurrence rule id."),
     frequency: RecurrenceFrequencyChoice | None = typer.Option(
@@ -1534,7 +1544,7 @@ def reminders_recurrence_update(
         reminder_id,
         rule_id,
         label="recurrence rule",
-        fetch_rows=lambda reminder: reminders.recurrence_rules_for(reminder),
+        fetch_rows=reminders.recurrence_rules_for,
     )
     _reminders_call(
         api,
@@ -1595,7 +1605,7 @@ def reminders_recurrence_delete(
         reminder_id,
         rule_id,
         label="recurrence rule",
-        fetch_rows=lambda row: reminders.recurrence_rules_for(row),
+        fetch_rows=reminders.recurrence_rules_for,
     )
     _reminders_call(
         api,

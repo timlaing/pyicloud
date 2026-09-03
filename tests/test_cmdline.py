@@ -1,21 +1,26 @@
 """Tests for the Typer-based pyicloud CLI."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import nullcontext, suppress
+from datetime import datetime, timezone
 import importlib
 import json
-import tempfile
-from contextlib import nullcontext
-from datetime import datetime, timezone
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 
 import click
-from typer.testing import CliRunner
+import pytest
+from typer.testing import CliRunner, Result
 
+from pyicloud.endpoints import WEBSERVICES
 from pyicloud.services.notes.models import Attachment as NoteAttachment
 from pyicloud.services.notes.models import ChangeEvent as NoteChangeEvent
 from pyicloud.services.notes.models import (
@@ -24,6 +29,12 @@ from pyicloud.services.notes.models import (
     NoteSummary,
 )
 from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
+from pyicloud.services.photos import (
+    PhotoSyncOptions,
+    PhotoSyncResult,
+    run_photo_sync,
+    watch_photo_sync,
+)
 from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
 from pyicloud.services.reminders.models import (
     Alarm,
@@ -54,6 +65,8 @@ TEST_ROOT = Path(tempfile.mkdtemp(prefix="test_cmdline-", dir=TEST_BASE))
 class FakeDevice:
     """Find My device fixture."""
 
+    # pylint: disable=invalid-name
+    # Attribute names mirror the Find My API wire field names verbatim.
     def __init__(self) -> None:
         self.id = "device-1"
         self.name = "Example iPhone"
@@ -73,28 +86,36 @@ class FakeDevice:
             "batteryStatus": self.batteryStatus,
             "location": self.location,
         }
-        self.sound_subject: Optional[str] = None
+        self.sound_subject: str | None = None
         self.messages: list[dict[str, Any]] = []
-        self.lost_mode: Optional[dict[str, str]] = None
-        self.erase_message: Optional[str] = None
+        self.lost_mode: dict[str, str] | None = None
+        self.erase_message: str | None = None
 
     def play_sound(self, subject: str = "Find My iPhone Alert") -> None:
+        """Record the played sound subject."""
         self.sound_subject = subject
 
     def display_message(self, subject: str, message: str, sounds: bool) -> None:
+        """Record a displayed lock message."""
         self.messages.append({"subject": subject, "message": message, "sounds": sounds})
 
     def lost_device(self, number: str, text: str, newpasscode: str) -> None:
+        """Record lost-mode activation details."""
         self.lost_mode = {"number": number, "text": text, "newpasscode": newpasscode}
 
     def erase_device(self, message: str) -> None:
+        """Record the erase message."""
         self.erase_message = message
 
 
 class FakeDriveResponse:
     """Download response fixture."""
 
-    def iter_content(self, chunk_size: int = 8192):  # pragma: no cover - trivial
+    def iter_content(  # pylint: disable=unused-argument
+        self,
+        chunk_size: int = 8192,  # pragma: no cover - trivial
+    ) -> Iterator[bytes]:
+        """Yield the fake download body."""
         yield b"hello"
 
 
@@ -106,9 +127,9 @@ class FakeDriveNode:
         name: str,
         *,
         node_type: str = "folder",
-        size: Optional[int] = None,
-        modified: Optional[datetime] = None,
-        children: Optional[list["FakeDriveNode"]] = None,
+        size: int | None = None,
+        modified: datetime | None = None,
+        children: list[FakeDriveNode] | None = None,
     ) -> None:
         self.name = name
         self.type = node_type
@@ -117,23 +138,30 @@ class FakeDriveNode:
         self._children = children or []
         self.data = {"name": name, "type": node_type, "size": size}
 
-    def get_children(self) -> list["FakeDriveNode"]:
+    def get_children(self) -> list[FakeDriveNode]:
+        """Return the node's children."""
         return list(self._children)
 
-    def __getitem__(self, key: str) -> "FakeDriveNode":
+    def __getitem__(self, key: str) -> FakeDriveNode:
+        """Return a child node by name."""
         for child in self._children:
             if child.name == key:
                 return child
         raise KeyError(key)
 
-    def open(self, **kwargs) -> FakeDriveResponse:  # pragma: no cover - trivial
+    def open(  # pylint: disable=unused-argument
+        self,
+        **kwargs: Any,  # pragma: no cover - trivial
+    ) -> FakeDriveResponse:
+        """Return a fake download response."""
         return FakeDriveResponse()
 
 
-class FakeAlbumContainer(list):
+class FakeAlbumContainer(list["FakePhotoAlbum"]):
     """Photo album container fixture."""
 
-    def find(self, name: Optional[str]):
+    def find(self, name: str | None) -> FakePhotoAlbum | None:
+        """Find an album by name, or None when not found."""
         if name is None:
             return None
         for album in self:
@@ -182,9 +210,11 @@ class FakePhoto:
         }
 
     def download(self, version: str = "original") -> bytes:
+        """Return fake asset bytes for the given version."""
         return f"{self.id}:{version}".encode()
 
     def delete(self) -> bool:
+        """Report a successful delete."""
         return True
 
 
@@ -197,7 +227,8 @@ class FakePhotoAlbum:
         self._photos = photos
 
     @property
-    def photos(self):
+    def photos(self) -> Iterator[FakePhoto]:
+        """Return an iterator over the album's photos."""
         return iter(self._photos)
 
     def __len__(self) -> int:
@@ -220,9 +251,9 @@ class FakePhotoLibrary:
         scope: str,
         zone_name: str | None,
         sync_cursor: str,
-        all_album: Optional[FakePhotoAlbum] = None,
-        albums: Optional[FakeAlbumContainer] = None,
-        changes: Optional[list[Any]] = None,
+        all_album: FakePhotoAlbum | None = None,
+        albums: FakeAlbumContainer | None = None,
+        changes: list[Any] | None = None,
     ) -> None:
         self.key = key
         self.scope = scope
@@ -235,12 +266,15 @@ class FakePhotoLibrary:
         self._changes = changes or []
 
     def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
         return self._sync_cursor
 
-    def recently_added(self):
+    def recently_added(self) -> FakePhotoAlbum | None:
+        """Return the album of recently added photos."""
         return self.all
 
-    def iter_changes(self, *, since: Optional[str] = None):
+    def iter_changes(self, *, since: str | None = None) -> Iterator[Any]:
+        """Return an iterator over the recorded changes."""
         _ = since
         return iter(self._changes)
 
@@ -266,9 +300,10 @@ class FakePhotosService:
         )
         self.albums = FakeAlbumContainer([photo_album])
         self.all = photo_album
-        self.shared_streams = FakeAlbumContainer(
-            [shared_stream_album, shared_stream_album2]
-        )
+        self.shared_streams = FakeAlbumContainer([
+            shared_stream_album,
+            shared_stream_album2,
+        ])
         root_changes = [
             SimpleNamespace(
                 kind="updated",
@@ -309,31 +344,36 @@ class FakePhotosService:
                 zone_name="SharedSync-TESTZONE",
                 sync_cursor="photo-sync-shared-library",
                 all_album=shared_library_album,
-                albums=FakeAlbumContainer(
-                    [shared_library_album, shared_favorites_album]
-                ),
+                albums=FakeAlbumContainer([
+                    shared_library_album,
+                    shared_favorites_album,
+                ]),
                 changes=shared_changes,
             ),
         }
         self._changes = root_changes
 
-    def iter_changes(self, *, since: Optional[str] = None):
+    def iter_changes(self, *, since: str | None = None) -> Iterator[Any]:
+        """Return an iterator over the recorded changes."""
         _ = since
         return iter(self._changes)
 
     def sync_cursor(self) -> str:
+        """Return the root library's sync cursor."""
         return self.libraries["root"].sync_cursor()
 
-    def sync(self, options):
-        from pyicloud.services.photos import run_photo_sync
-
+    def sync(self, options: PhotoSyncOptions) -> PhotoSyncResult:
+        """Run a photo sync against this fixture."""
         return run_photo_sync(self, options)
 
     def watch(
-        self, options, *, interval_seconds: int, iterations: Optional[int] = None
-    ):
-        from pyicloud.services.photos import watch_photo_sync
-
+        self,
+        options: PhotoSyncOptions,
+        *,
+        interval_seconds: int,
+        iterations: int | None = None,
+    ) -> Iterator[PhotoSyncResult]:
+        """Run a photo watch loop against this fixture."""
         return watch_photo_sync(
             self,
             options,
@@ -355,32 +395,38 @@ class FakeHideMyEmail:
             }
         ]
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[dict[str, str]]:
         return iter(self.aliases)
 
     def generate(self) -> str:
+        """Return a generated alias address."""
         return "generated@privaterelay.appleid.com"
 
     def reserve(
         self, email: str, label: str, note: str = "Generated"
     ) -> dict[str, Any]:
+        """Return a newly reserved alias."""
         return {"anonymousId": "alias-2", "hme": email, "label": label, "note": note}
 
     def update_metadata(
-        self, anonymous_id: str, label: str, note: Optional[str]
+        self, anonymous_id: str, label: str, note: str | None
     ) -> dict[str, Any]:
+        """Return updated alias metadata for the given id."""
         payload: dict[str, Any] = {"anonymousId": anonymous_id, "label": label}
         if note is not None:
             payload["note"] = note
         return payload
 
     def deactivate(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a deactivated alias payload."""
         return {"anonymousId": anonymous_id, "active": False}
 
     def reactivate(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a reactivated alias payload."""
         return {"anonymousId": anonymous_id, "active": True}
 
     def delete(self, anonymous_id: str) -> dict[str, Any]:
+        """Return a deleted alias payload."""
         return {"anonymousId": anonymous_id, "deleted": True}
 
 
@@ -514,25 +560,30 @@ class FakeNotes:
 
     @staticmethod
     def _matches_id(note_id: str, query: str) -> bool:
-        return note_id == query or note_id.split("/", 1)[-1] == query
+        return query in (note_id, note_id.split("/", 1)[-1])
 
-    def recents(self, *, limit: int = 50):
+    def recents(self, *, limit: int = 50) -> list[NoteSummary]:
+        """Return the recent note rows up to the given limit."""
         self.recent_requests.append(limit)
         return list(self.recent_rows[:limit])
 
-    def folders(self):
+    def folders(self) -> list[NoteFolder]:
+        """Return the available note folders."""
         return list(self.folder_rows)
 
-    def in_folder(self, folder_id: str, limit: int | None = None):
+    def in_folder(self, folder_id: str, limit: int | None = None) -> list[NoteSummary]:
+        """Return note rows belonging to the given folder."""
         self.folder_requests.append((folder_id, limit))
         rows = [row for row in self.all_rows if row.folder_id == folder_id]
         return list(rows[:limit] if limit is not None else rows)
 
-    def iter_all(self, *, since: Optional[str] = None):
+    def iter_all(self, *, since: str | None = None) -> Iterator[NoteSummary]:
+        """Return an iterator over all note rows."""
         self.iter_all_requests.append(since)
         return iter(self.all_rows)
 
-    def get(self, note_id: str, *, with_attachments: bool = False):
+    def get(self, note_id: str, *, with_attachments: bool = False) -> Note:
+        """Return the note with the given id, or raise when missing."""
         if self._matches_id("Note/LOCKED", note_id):
             raise NoteLockedError(f"Note is locked: {note_id}")
         for candidate_id, note in self.notes.items():
@@ -542,23 +593,29 @@ class FakeNotes:
         raise NoteNotFound(f"Note not found: {note_id}")
 
     def render_note(self, note_id: str, **kwargs: Any) -> str:
+        """Return rendered HTML for the given note."""
         note = self.get(note_id, with_attachments=False)
         self.render_calls.append({"note_id": note.id, **kwargs})
         return note.html or f"<p>{note.id}</p>"
 
     def export_note(self, note_id: str, output_dir: str, **kwargs: Any) -> str:
+        """Return the export path for the given note."""
         note = self.get(note_id, with_attachments=False)
         path = Path(output_dir) / f"{note.id.split('/', 1)[-1].lower()}.html"
-        self.export_calls.append(
-            {"note_id": note.id, "output_dir": output_dir, **kwargs}
-        )
+        self.export_calls.append({
+            "note_id": note.id,
+            "output_dir": output_dir,
+            **kwargs,
+        })
         return str(path)
 
-    def iter_changes(self, *, since: Optional[str] = None):
+    def iter_changes(self, *, since: str | None = None) -> Iterator[NoteChangeEvent]:
+        """Return an iterator over the recorded note changes."""
         self.change_requests.append(since)
         return iter(self.change_rows)
 
     def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
         return self.cursor
 
 
@@ -679,7 +736,7 @@ class FakeReminders:
 
     @staticmethod
     def _matches_id(record_id: str, query: str) -> bool:
-        return record_id == query or record_id.split("/", 1)[-1] == query
+        return query in (record_id, record_id.split("/", 1)[-1])
 
     def _find_reminder(self, reminder_id: str) -> Reminder:
         for candidate_id, reminder in self.reminder_rows.items():
@@ -687,7 +744,8 @@ class FakeReminders:
                 return reminder
         raise LookupError(f"Reminder not found: {reminder_id}")
 
-    def lists(self):
+    def lists(self) -> list[RemindersList]:
+        """Return the reminder lists with their counts refreshed."""
         for row in self.list_rows.values():
             row.count = sum(
                 1
@@ -696,7 +754,8 @@ class FakeReminders:
             )
         return list(self.list_rows.values())
 
-    def reminders(self, list_id: Optional[str] = None):
+    def reminders(self, list_id: str | None = None) -> list[Reminder]:
+        """Return non-deleted reminders, optionally filtered by list."""
         rows = [
             reminder
             for reminder in self.reminder_rows.values()
@@ -710,14 +769,13 @@ class FakeReminders:
         include_completed: bool = False,
         results_limit: int = 200,
     ) -> ListRemindersResult:
+        """Return a snapshot of reminders for the given list."""
         normalized = list_id if list_id.startswith("List/") else f"List/{list_id}"
-        self.snapshot_requests.append(
-            {
-                "list_id": normalized,
-                "include_completed": include_completed,
-                "results_limit": results_limit,
-            }
-        )
+        self.snapshot_requests.append({
+            "list_id": normalized,
+            "include_completed": include_completed,
+            "results_limit": results_limit,
+        })
         reminders = [
             reminder
             for reminder in self.reminder_rows.values()
@@ -760,6 +818,7 @@ class FakeReminders:
         )
 
     def get(self, reminder_id: str) -> Reminder:
+        """Return the reminder with the given id, or raise when missing."""
         return self._find_reminder(reminder_id)
 
     def create(
@@ -768,13 +827,14 @@ class FakeReminders:
         title: str,
         desc: str = "",
         completed: bool = False,
-        due_date: Optional[datetime] = None,
+        due_date: datetime | None = None,
         priority: int = 0,
         flagged: bool = False,
         all_day: bool = False,
-        time_zone: Optional[str] = None,
-        parent_reminder_id: Optional[str] = None,
+        time_zone: str | None = None,
+        parent_reminder_id: str | None = None,
     ) -> Reminder:
+        """Create and store a new reminder, returning it."""
         next_id = f"Reminder/CREATED-{len(self.reminder_rows) + 1}"
         reminder = Reminder(
             id=next_id,
@@ -795,9 +855,11 @@ class FakeReminders:
         return reminder
 
     def update(self, reminder: Reminder) -> None:
+        """Store the updated reminder."""
         self.reminder_rows[reminder.id] = reminder
 
     def delete(self, reminder: Reminder) -> None:
+        """Mark the given reminder as deleted."""
         reminder.deleted = True
         self.reminder_rows[reminder.id] = reminder
 
@@ -811,6 +873,7 @@ class FakeReminders:
         radius: float = 100.0,
         proximity: Proximity = Proximity.ARRIVING,
     ) -> tuple[Alarm, LocationTrigger]:
+        """Add and return a location trigger alarm."""
         index = len(self.alarm_rows) + 1
         alarm = Alarm(
             id=f"Alarm/{index}",
@@ -835,6 +898,7 @@ class FakeReminders:
         return alarm, trigger
 
     def create_hashtag(self, reminder: Reminder, name: str) -> Hashtag:
+        """Create and attach a hashtag, returning it."""
         hashtag = Hashtag(
             id=f"Hashtag/{name.upper()}",
             name=name,
@@ -846,9 +910,11 @@ class FakeReminders:
         return hashtag
 
     def update_hashtag(self, hashtag: Hashtag, name: str) -> None:
+        """Rename the given hashtag."""
         hashtag.name = name
 
     def delete_hashtag(self, reminder: Reminder, hashtag: Hashtag) -> None:
+        """Remove the hashtag from the reminder."""
         reminder.hashtag_ids = [
             row_id for row_id in reminder.hashtag_ids if row_id != hashtag.id
         ]
@@ -857,6 +923,7 @@ class FakeReminders:
     def create_url_attachment(
         self, reminder: Reminder, url: str, uti: str = "public.url"
     ) -> URLAttachment:
+        """Create and attach a URL attachment, returning it."""
         attachment = URLAttachment(
             id=f"Attachment/{len(self.attachment_rows) + 1}",
             reminder_id=reminder.id,
@@ -867,23 +934,25 @@ class FakeReminders:
         reminder.attachment_ids.append(attachment.id)
         return attachment
 
-    def update_attachment(
+    def update_attachment(  # pylint: disable=unused-argument
         self,
         attachment: URLAttachment,
         *,
-        url: Optional[str] = None,
-        uti: Optional[str] = None,
-        filename: Optional[str] = None,
-        file_size: Optional[int] = None,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
+        url: str | None = None,
+        uti: str | None = None,
+        filename: str | None = None,
+        file_size: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
     ) -> None:
+        """Update the attachment's url and uti if provided."""
         if url is not None:
             attachment.url = url
         if uti is not None:
             attachment.uti = uti
 
     def delete_attachment(self, reminder: Reminder, attachment: URLAttachment) -> None:
+        """Remove the attachment from the reminder."""
         reminder.attachment_ids = [
             row_id for row_id in reminder.attachment_ids if row_id != attachment.id
         ]
@@ -898,6 +967,7 @@ class FakeReminders:
         occurrence_count: int = 0,
         first_day_of_week: int = 0,
     ) -> RecurrenceRule:
+        """Create and attach a recurrence rule, returning it."""
         rule = RecurrenceRule(
             id=f"Recurrence/{len(self.recurrence_rows) + 1}",
             reminder_id=reminder.id,
@@ -914,11 +984,12 @@ class FakeReminders:
         self,
         recurrence_rule: RecurrenceRule,
         *,
-        frequency: Optional[RecurrenceFrequency] = None,
-        interval: Optional[int] = None,
-        occurrence_count: Optional[int] = None,
-        first_day_of_week: Optional[int] = None,
+        frequency: RecurrenceFrequency | None = None,
+        interval: int | None = None,
+        occurrence_count: int | None = None,
+        first_day_of_week: int | None = None,
     ) -> None:
+        """Update the recurrence rule's fields if provided."""
         if frequency is not None:
             recurrence_rule.frequency = frequency
         if interval is not None:
@@ -931,6 +1002,7 @@ class FakeReminders:
     def delete_recurrence_rule(
         self, reminder: Reminder, recurrence_rule: RecurrenceRule
     ) -> None:
+        """Remove the recurrence rule from the reminder."""
         reminder.recurrence_rule_ids = [
             row_id
             for row_id in reminder.recurrence_rule_ids
@@ -939,6 +1011,7 @@ class FakeReminders:
         self.recurrence_rows.pop(recurrence_rule.id, None)
 
     def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
+        """Return alarms with triggers for the given reminder."""
         rows = []
         for alarm_id in reminder.alarm_ids:
             alarm = self.alarm_rows[alarm_id]
@@ -951,6 +1024,7 @@ class FakeReminders:
         return rows
 
     def tags_for(self, reminder: Reminder) -> list[Hashtag]:
+        """Return the hashtags attached to the given reminder."""
         return [
             self.hashtag_rows[row_id]
             for row_id in reminder.hashtag_ids
@@ -958,6 +1032,7 @@ class FakeReminders:
         ]
 
     def attachments_for(self, reminder: Reminder) -> list[URLAttachment]:
+        """Return the attachments attached to the given reminder."""
         return [
             self.attachment_rows[row_id]
             for row_id in reminder.attachment_ids
@@ -965,41 +1040,54 @@ class FakeReminders:
         ]
 
     def recurrence_rules_for(self, reminder: Reminder) -> list[RecurrenceRule]:
+        """Return the recurrence rules for the given reminder."""
         return [
             self.recurrence_rows[row_id]
             for row_id in reminder.recurrence_rule_ids
             if row_id in self.recurrence_rows
         ]
 
-    def iter_changes(self, *, since: Optional[str] = None):
+    def iter_changes(
+        self, *, since: str | None = None
+    ) -> Iterator[ReminderChangeEvent]:
+        """Return an iterator over the recorded reminder changes."""
         self.change_requests.append(since)
-        return iter(
-            [
-                ReminderChangeEvent(
-                    type="updated",
-                    reminder_id="Reminder/A",
-                    reminder=self.reminder_rows["Reminder/A"],
-                ),
-                ReminderChangeEvent(
-                    type="deleted",
-                    reminder_id="Reminder/Z",
-                    reminder=None,
-                ),
-            ]
-        )
+        return iter([
+            ReminderChangeEvent(
+                type="updated",
+                reminder_id="Reminder/A",
+                reminder=self.reminder_rows["Reminder/A"],
+            ),
+            ReminderChangeEvent(
+                type="deleted",
+                reminder_id="Reminder/Z",
+                reminder=None,
+            ),
+        ])
 
     def sync_cursor(self) -> str:
+        """Return the current sync cursor."""
         return self.cursor
 
 
 class FakeAPI:
     """Authenticated API fixture."""
 
+    @property
+    def webservices(self) -> Any:
+        """Return the webservices map."""
+        return self._webservices
+
+    @webservices.setter
+    def webservices(self, value: Any) -> None:
+        """Set the webservices map."""
+        self._webservices = value
+
     def __init__(
         self,
         *,
         username: str = "user@example.com",
-        session_dir: Optional[Path] = None,
+        session_dir: Path | None = None,
         china_mainland: bool = False,
     ) -> None:
         self.requires_2fa = False
@@ -1009,7 +1097,7 @@ class FakeAPI:
         self.fido2_devices: list[dict[str, Any]] = []
         self.trusted_devices: list[dict[str, Any]] = []
         self.two_factor_delivery_method = "unknown"
-        self.two_factor_delivery_notice = None
+        self.two_factor_delivery_notice: str | None = None
         self.request_2fa_code = MagicMock(return_value=False)
         self.use_existing_trusted_device_code = MagicMock(
             side_effect=lambda: setattr(
@@ -1040,7 +1128,7 @@ class FakeAPI:
         )
         self.data: dict[str, Any] = {}
         self.params: dict[str, Any] = {}
-        self._webservices: Any = None
+        self._webservices = None
         self.logout = MagicMock(side_effect=self._logout)
         self.devices = [FakeDevice()]
         self.account = SimpleNamespace(
@@ -1135,10 +1223,8 @@ class FakeAPI:
     ) -> dict[str, Any]:
         if clear_local_session:
             for path in (self.session.session_path, self.session.cookiejar_path):
-                try:
+                with suppress(FileNotFoundError):
                     Path(path).unlink()
-                except FileNotFoundError:
-                    pass
             self.get_auth_status.return_value = {
                 "authenticated": False,
                 "trusted_session": False,
@@ -1176,7 +1262,7 @@ def _remember_local_account(
     has_session_file: bool = False,
     has_cookiejar_file: bool = False,
     china_mainland: bool | None = None,
-    keyring_passwords: Optional[set[str]] = None,
+    keyring_passwords: set[str] | None = None,
 ) -> FakeAPI:
     fake_api = FakeAPI(
         username=username,
@@ -1203,20 +1289,20 @@ def _remember_local_account(
 def _invoke(
     fake_api: FakeAPI,
     *args: str,
-    username: Optional[str] = "user@example.com",
-    password: Optional[str] = None,
-    interactive: Optional[bool] = None,
-    session_dir: Optional[Path] = None,
-    china_mainland: Optional[bool] = None,
-    accept_terms: Optional[bool] = None,
-    with_family: Optional[bool] = None,
-    output_format: Optional[str] = None,
-    log_level: Optional[str] = None,
-    http_proxy: Optional[str] = None,
-    https_proxy: Optional[str] = None,
+    username: str | None = "user@example.com",
+    password: str | None = None,
+    interactive: bool | None = None,
+    session_dir: Path | None = None,
+    china_mainland: bool | None = None,
+    accept_terms: bool | None = None,
+    with_family: bool | None = None,
+    output_format: str | None = None,
+    log_level: str | None = None,
+    http_proxy: str | None = None,
+    https_proxy: str | None = None,
     no_verify_ssl: bool = False,
-    keyring_passwords: Optional[set[str]] = None,
-):
+    keyring_passwords: set[str] | None = None,
+) -> Result:
     runner = _runner()
     session_dir = session_dir or _unique_session_dir("invoke")
     cli_args = list(args)
@@ -1279,8 +1365,8 @@ def _invoke_with_cli_args(
     fake_api: FakeAPI,
     cli_args: list[str],
     *,
-    keyring_passwords: Optional[set[str]] = None,
-):
+    keyring_passwords: set[str] | None = None,
+) -> Result:
     runner = _runner()
     with (
         patch.object(context_module, "PyiCloudService", return_value=fake_api),
@@ -1333,7 +1419,7 @@ def test_root_help() -> None:
 def test_root_version_prints_installed_package_version() -> None:
     """The root --version flag should print the installed pyicloud version."""
 
-    with patch.object(cli_module, "_installed_version", return_value="9.9.9"):
+    with patch.object(cli_module, "installed_version", return_value="9.9.9"):
         result = _runner().invoke(app, ["--version"])
 
     assert result.exit_code == 0
@@ -1722,6 +1808,7 @@ def test_no_local_accounts_require_username() -> None:
             app, ["account", "summary", "--session-dir", str(session_dir)]
         )
     assert result.exit_code != 0
+    assert result.exception is not None
     assert (
         result.exception.args[0]
         == "You are not logged into any iCloud accounts. To log in, run: "
@@ -1745,24 +1832,24 @@ def test_auth_keyring_delete() -> None:
         patch.object(
             context_module.utils, "delete_password_in_keyring"
         ) as delete_password,
-    ):
-        with patch.object(
+        patch.object(
             context_module.utils,
             "password_exists_in_keyring",
             side_effect=lambda candidate: not delete_password.called,
-        ):
-            result = _runner().invoke(
-                app,
-                [
-                    "auth",
-                    "keyring",
-                    "delete",
-                    "--username",
-                    "user@example.com",
-                    "--session-dir",
-                    str(session_dir),
-                ],
-            )
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "keyring",
+                "delete",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
     assert result.exit_code == 0
     delete_password.assert_called_once_with("user@example.com")
     assert "Deleted stored password from keyring." in result.stdout
@@ -1778,6 +1865,7 @@ def test_auth_keyring_delete_requires_explicit_username() -> None:
     )
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert (
         result.exception.args[0]
         == "The --username option is required for auth keyring delete."
@@ -1843,7 +1931,9 @@ def test_auth_status_without_username_ignores_keyring_only_accounts() -> None:
 
 
 def test_auth_status_explicit_username_marks_missing_storage_inline() -> None:
-    """Text auth status should inline missing storage markers instead of extra boolean rows."""
+    """Text auth status should inline missing storage markers instead of extra
+    boolean rows.
+    """
 
     session_dir = _unique_session_dir("status-missing-storage")
     fake_api = _remember_local_account(
@@ -1971,12 +2061,14 @@ def test_single_known_account_supports_implicit_local_context() -> None:
     assert devices_result.exit_code == 0
     assert logout_result.exit_code == 0
     assert post_logout_account_result.exit_code != 0
+    assert post_logout_account_result.exception is not None
     assert (
         post_logout_account_result.exception.args[0]
         == "You are not logged into any iCloud accounts. To log in, run: "
         "icloud auth login --username <apple-id>"
     )
     assert post_logout_explicit_result.exit_code != 0
+    assert post_logout_explicit_result.exception is not None
     assert (
         post_logout_explicit_result.exception.args[0]
         == "You are not logged into iCloud for solo@example.com. Run: "
@@ -2160,6 +2252,7 @@ def test_multiple_local_accounts_require_explicit_username_for_auth_login() -> N
         )
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert "Multiple local accounts were found" in result.exception.args[0]
     assert "alpha@example.com" in result.exception.args[0]
     assert "beta@example.com" in result.exception.args[0]
@@ -2207,6 +2300,7 @@ def test_multiple_active_sessions_require_explicit_username() -> None:
         )
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert "Multiple logged-in iCloud accounts were found" in result.exception.args[0]
     assert "alpha@example.com" in result.exception.args[0]
     assert "beta@example.com" in result.exception.args[0]
@@ -2264,7 +2358,9 @@ def test_authenticated_commands_update_account_index() -> None:
 
 
 def test_account_index_prunes_stale_entries_but_keeps_keyring_backed_accounts() -> None:
-    """Local account discovery should prune stale entries and retain keyring-backed ones."""
+    """Local account discovery should prune stale entries and retain keyring-backed
+    ones.
+    """
 
     session_dir = _unique_session_dir("index-prune")
     stale_api = _remember_local_account(
@@ -2390,9 +2486,11 @@ def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() ->
 
 
 def test_auth_logout_variants_and_remote_failure() -> None:
-    """Auth logout should map semantic flags to Apple's payload and keep keyring intact."""
+    """Auth logout should map semantic flags to Apple's payload and keep keyring
+    intact.
+    """
 
-    def invoke_logout(*args: str, failing_api: Optional[FakeAPI] = None):
+    def invoke_logout(*args: str, failing_api: FakeAPI | None = None) -> Result:
         session_dir = _unique_session_dir("auth-logout")
         _remember_local_account(
             session_dir,
@@ -2561,7 +2659,9 @@ def test_trusted_device_2fa_flow_reports_device_prompt() -> None:
 
 
 def test_code_prompt_aborts_when_request_2fa_code_requires_security_key() -> None:
-    """Auth login should not enter the numeric 2FA prompt loop for key-only challenges."""
+    """Auth login should not enter the numeric 2FA prompt loop for key-only
+    challenges.
+    """
 
     fake_api = FakeAPI()
     fake_api.requires_2fa = True
@@ -2570,6 +2670,7 @@ def test_code_prompt_aborts_when_request_2fa_code_requires_security_key() -> Non
     result = _invoke(fake_api, "auth", "login", interactive=True)
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert result.exception.args[0] == (
         "This 2FA challenge requires a security key. Connect one and retry."
     )
@@ -2623,6 +2724,7 @@ def test_sms_2fa_aborts_after_three_invalid_codes() -> None:
         result = _invoke(fake_api, "auth", "login", interactive=True)
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert result.exception.args[0] == "Failed to verify the 2FA code."
     assert "Invalid 2FA code. 2 attempt(s) remaining." in result.stdout
     assert "Invalid 2FA code. 1 attempt(s) remaining." in result.stdout
@@ -2688,6 +2790,7 @@ def test_trusted_device_2fa_request_failure_aborts() -> None:
     result = _invoke(fake_api, "auth", "login", interactive=True)
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert result.exception.args[0] == (
         "Failed to request the 2FA trusted-device prompt."
     )
@@ -2715,6 +2818,7 @@ def test_trusted_device_2fa_verification_failure_aborts() -> None:
         result = _invoke(fake_api, "auth", "login", interactive=True)
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert result.exception.args[0] == ("Failed to verify the 2FA trusted-device code.")
 
 
@@ -2904,38 +3008,44 @@ def test_notes_commands_report_errors() -> None:
 
     search_result = _invoke(fake_api, "notes", "search")
     assert search_result.exit_code != 0
+    assert search_result.exception is not None
     assert search_result.exception.args[0] == (
         "Pass --title or --title-contains to search notes."
     )
 
     missing_result = _invoke(fake_api, "notes", "get", "Note/MISSING")
     assert missing_result.exit_code != 0
+    assert missing_result.exception is not None
     assert missing_result.exception.args[0] == "Note not found: Note/MISSING"
 
     locked_result = _invoke(fake_api, "notes", "get", "Note/LOCKED")
     assert locked_result.exit_code != 0
+    assert locked_result.exception is not None
     assert locked_result.exception.args[0] == "Note is locked: Note/LOCKED"
 
 
 def test_notes_commands_report_reauthentication_and_unavailability() -> None:
     """Notes commands should wrap service reauth and service-unavailable failures."""
 
-    class ReauthNotes:
+    class ReauthNotes(FakeNotes):
         """Mock Notes service that raises reauth exception."""
 
-        def recents(self, *, limit: int = 50):
+        def recents(self, *, limit: int = 50) -> list[NoteSummary]:
+            """Raise the reauth exception."""
             raise context_module.PyiCloudFailedLoginException("No password set")
 
-    class UnavailableNotes:
+    class UnavailableNotes(FakeNotes):
         """Mock Notes service that raises unavailable exception."""
 
         def sync_cursor(self) -> str:
+            """Raise the unavailable exception."""
             raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 
     fake_api = FakeAPI()
     fake_api.notes = ReauthNotes()
     reauth_result = _invoke(fake_api, "notes", "recent")
     assert reauth_result.exit_code != 0
+    assert reauth_result.exception is not None
     assert reauth_result.exception.args[0] == (
         "Notes requires re-authentication for user@example.com. "
         "Run: icloud auth login --username user@example.com"
@@ -2945,6 +3055,7 @@ def test_notes_commands_report_reauthentication_and_unavailability() -> None:
     fake_api.notes = UnavailableNotes()
     unavailable_result = _invoke(fake_api, "notes", "sync-cursor")
     assert unavailable_result.exit_code != 0
+    assert unavailable_result.exception is not None
     assert unavailable_result.exception.args[0] == (
         "Notes service unavailable: temporarily unavailable"
     )
@@ -3109,6 +3220,7 @@ def test_photos_cloudkit_read_commands_reject_legacy_shared_stream_library() -> 
     )
     for result in (list_result, get_result, download_result, changes_result):
         assert result.exit_code != 0
+        assert result.exception is not None
         assert result.exception.args[0] == expected
 
 
@@ -3144,11 +3256,14 @@ def test_photos_read_commands_reject_unsupported_shared_library_album_filters() 
 
     for result in (list_result, get_result):
         assert result.exit_code != 0
+        assert result.exception is not None
         assert result.exception.args[0] == expected
 
 
 def test_photos_sync_command_downloads_and_short_circuits() -> None:
-    """Photos sync should materialize files, persist state, and short-circuit on rerun."""
+    """Photos sync should materialize files, persist state, and short-circuit on
+    rerun.
+    """
 
     fake_api = FakeAPI()
     output_dir = TEST_ROOT / "photos-sync-output"
@@ -3257,6 +3372,7 @@ def test_photos_sync_style_commands_reject_legacy_shared_stream_library() -> Non
 
     for result in (sync_cursor_result, sync_result, watch_result):
         assert result.exit_code != 0
+        assert result.exception is not None
         assert result.exception.args[0] == expected
 
 
@@ -3338,6 +3454,7 @@ def test_photos_sync_command_rejects_unsupported_shared_library_album_filters() 
     )
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert result.exception.args[0] == (
         "Shared Library 'shared:SharedSync-TESTZONE' currently supports album "
         "filters only for Library, Favorites. Album 'Screenshots' is not "
@@ -3506,6 +3623,7 @@ def test_photos_sync_cursor_missing_library() -> None:
     result = _invoke(fake_api, "photos", "sync-cursor", "--library", "missing")
 
     assert result.exit_code != 0
+    assert result.exception is not None
     assert result.exception.args[0] == "No photo library matched 'missing'."
 
 
@@ -3641,8 +3759,10 @@ def test_drive_missing_paths_report_cli_abort() -> None:
     )
 
     assert list_result.exit_code != 0
+    assert list_result.exception is not None
     assert list_result.exception.args[0] == "Path not found: /missing"
     assert download_result.exit_code != 0
+    assert download_result.exception is not None
     assert download_result.exception.args[0] == "Path not found: /missing"
 
 
@@ -3791,8 +3911,11 @@ def test_reminders_core_commands() -> None:
     assert fake_api.reminders.reminder_rows[created_id].deleted is True
 
 
+@pytest.mark.timeout(10)
 def test_reminders_subgroup_commands() -> None:
-    """Reminder subgroup commands should expose alarm, hashtag, attachment, and recurrence flows."""
+    """Reminder subgroup commands should expose alarm, hashtag, attachment, and
+    recurrence flows.
+    """
 
     fake_api = FakeAPI()
 
@@ -4014,10 +4137,12 @@ def test_reminders_commands_report_errors() -> None:
 
     missing_result = _invoke(fake_api, "reminders", "get", "Reminder/MISSING")
     assert missing_result.exit_code != 0
+    assert missing_result.exception is not None
     assert missing_result.exception.args[0] == "Reminder not found: Reminder/MISSING"
 
     update_result = _invoke(fake_api, "reminders", "update", "Reminder/A")
     assert update_result.exit_code != 0
+    assert update_result.exception is not None
     assert update_result.exception.args[0] == "No reminder updates were requested."
 
     hashtag_result = _invoke(
@@ -4029,6 +4154,7 @@ def test_reminders_commands_report_errors() -> None:
         "missing",
     )
     assert hashtag_result.exit_code != 0
+    assert hashtag_result.exception is not None
     assert hashtag_result.exception.args[0] == (
         "No hashtag matched 'missing' for reminder Reminder/A."
     )
@@ -4042,6 +4168,7 @@ def test_reminders_commands_report_errors() -> None:
         "LINK",
     )
     assert attachment_result.exit_code != 0
+    assert attachment_result.exception is not None
     assert attachment_result.exception.args[0] == (
         "No attachment updates were requested."
     )
@@ -4055,54 +4182,64 @@ def test_reminders_commands_report_errors() -> None:
         "WEEKLY",
     )
     assert recurrence_result.exit_code != 0
+    assert recurrence_result.exception is not None
     assert recurrence_result.exception.args[0] == (
         "No recurrence updates were requested."
     )
 
-    class ApiErrorReminders:
+    class ApiErrorReminders(FakeReminders):
         """Mock Reminders service that raises API error exception."""
 
         def sync_cursor(self) -> str:
+            """Raise the API error exception."""
             raise RemindersApiError("sync failed")
 
-    class AuthErrorReminders:
+    class AuthErrorReminders(FakeReminders):
         """Mock Reminders service that raises auth error exception."""
 
         def sync_cursor(self) -> str:
+            """Raise the auth error exception."""
             raise RemindersAuthError("token expired")
 
     fake_api = FakeAPI()
     fake_api.reminders = ApiErrorReminders()
     api_error_result = _invoke(fake_api, "reminders", "sync-cursor")
     assert api_error_result.exit_code != 0
+    assert api_error_result.exception is not None
     assert api_error_result.exception.args[0] == "sync failed"
 
     fake_api = FakeAPI()
     fake_api.reminders = AuthErrorReminders()
     auth_error_result = _invoke(fake_api, "reminders", "sync-cursor")
     assert auth_error_result.exit_code != 0
+    assert auth_error_result.exception is not None
     assert auth_error_result.exception.args[0] == "token expired"
 
 
 def test_reminders_commands_report_reauthentication_and_unavailability() -> None:
-    """Reminders commands should wrap service reauth and service-unavailable failures."""
+    """Reminders commands should wrap service reauth and service-unavailable
+    failures.
+    """
 
-    class ReauthReminders:
+    class ReauthReminders(FakeReminders):
         """Mock Reminders service that raises reauth exception."""
 
-        def lists(self):
+        def lists(self) -> list[RemindersList]:
+            """Raise the reauth exception."""
             raise context_module.PyiCloudFailedLoginException("No password set")
 
-    class UnavailableReminders:
+    class UnavailableReminders(FakeReminders):
         """Mock Reminders service that raises unavailable exception."""
 
         def sync_cursor(self) -> str:
+            """Raise the unavailable exception."""
             raise context_module.PyiCloudServiceUnavailable("temporarily unavailable")
 
     fake_api = FakeAPI()
     fake_api.reminders = ReauthReminders()
     reauth_result = _invoke(fake_api, "reminders", "lists")
     assert reauth_result.exit_code != 0
+    assert reauth_result.exception is not None
     assert reauth_result.exception.args[0] == (
         "Reminders requires re-authentication for user@example.com. "
         "Run: icloud auth login --username user@example.com"
@@ -4112,12 +4249,15 @@ def test_reminders_commands_report_reauthentication_and_unavailability() -> None
     fake_api.reminders = UnavailableReminders()
     unavailable_result = _invoke(fake_api, "reminders", "sync-cursor")
     assert unavailable_result.exit_code != 0
+    assert unavailable_result.exception is not None
     assert unavailable_result.exception.args[0] == (
         "Reminders service unavailable: temporarily unavailable"
     )
 
 
-def test_main_returns_clean_error_for_user_abort(capsys) -> None:
+def test_main_returns_clean_error_for_user_abort(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """The entrypoint should not emit a traceback for expected CLI errors."""
 
     message = "No local accounts were found; pass --username to bootstrap one."
@@ -4127,3 +4267,157 @@ def test_main_returns_clean_error_for_user_abort(capsys) -> None:
     assert code == 1
     assert captured.out == ""
     assert message in captured.err
+
+
+def _advertised_webservices() -> dict[str, Any]:
+    """Return a map advertising every key the library needs."""
+
+    return {
+        entry.key: {
+            "url": f"https://p31-{entry.key}.icloud.com:443",
+            "status": "active",
+        }
+        for entry in WEBSERVICES
+    }
+
+
+def _unwrapped(result: Any) -> str:
+    """Return command output with rich's line wrapping collapsed.
+
+    Terminal width is not part of what these tests assert, and a sentence split
+    across two lines would otherwise fail on a narrower runner than this one.
+    """
+
+    return " ".join(_plain_output(result).split())
+
+
+def _doctor_api(webservices: dict[str, Any] | None = None) -> FakeAPI:
+    """Return an authenticated fake whose advertised map can be shaped per test."""
+
+    fake_api = FakeAPI()
+    fake_api.webservices = (
+        _advertised_webservices() if webservices is None else webservices
+    )
+    return fake_api
+
+
+def test_doctor_reports_a_healthy_account() -> None:
+    """A complete service map passes and says so in a quotable way."""
+
+    result = _invoke(_doctor_api(), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Environment" in text
+    assert "Session" in text
+    assert "Webservices" in text
+    assert "No problems found" in text
+    # The point of saying so is to send the next report to the right place.
+    assert "github.com/timlaing/pyicloud/issues" in text
+
+
+def test_doctor_names_the_services_a_withdrawn_key_takes_down() -> None:
+    """A missing key fails the run and reports the blast radius, not the key."""
+
+    advertised = _advertised_webservices()
+    del advertised["ckdatabasews"]
+
+    result = _invoke(_doctor_api(advertised), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 1
+    assert "MISSING" in text
+    assert "ckdatabasews" in text
+    for service in ("photos", "reminders", "notes", "invites"):
+        assert service in text
+    assert "pyicloud needs updating" in text
+
+
+def test_doctor_reports_a_malformed_unused_entry_without_failing() -> None:
+    """The `schoolwork: {}` shape a live account returns is shown, not fatal."""
+
+    advertised = _advertised_webservices()
+    advertised["schoolwork"] = {}
+
+    result = _invoke(_doctor_api(advertised), "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    # Flagged where the key is read, and explained below it.
+    assert "schoolwork (no url)" in text
+    assert "Advertised without a usable url, so it cannot be resolved" in text
+    assert "No problems found" in text
+
+
+def test_doctor_emits_no_findings_when_the_session_reports_unauthenticated() -> None:
+    """The findings and the verdict must not contradict each other.
+
+    get_api() can return while a later status read says the session is not
+    authenticated, and reporting a service map as OK under a verdict that says
+    the map could not be checked is worse than reporting nothing.
+    """
+
+    fake_api = _doctor_api()
+    # Authenticated for the two reads get_api() makes, then not for the one
+    # the report itself takes.
+    authed = {
+        "authenticated": True,
+        "trusted_session": True,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    fake_api.get_auth_status = MagicMock(
+        side_effect=[authed, authed, {**authed, "authenticated": False}]
+    )
+
+    result = _invoke(fake_api, "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["session"]["authenticated"] is False
+    assert payload["webservices"] == []
+    assert payload["ok"] is False
+
+
+def test_doctor_json_output_is_machine_readable() -> None:
+    """JSON mode carries the verdict, the environment and every finding."""
+
+    advertised = _advertised_webservices()
+    del advertised["sharedstreams"]
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    assert payload["services_at_risk"] == ["photos"]
+    assert set(payload["environment"]) == {"pyicloud", "python", "platform"}
+    assert payload["session"]["authenticated"] is True
+    findings = {item["key"]: item for item in payload["webservices"]}
+    assert findings["sharedstreams"]["status"] == "missing"
+    assert findings["sharedstreams"]["is_problem"] is True
+    assert findings["account"]["status"] == "ok"
+
+
+def test_doctor_without_a_session_still_reports_what_it_can() -> None:
+    """Not being logged in is a diagnosis, so the command must not just abort."""
+
+    fake_api = _doctor_api()
+    fake_api.get_auth_status = MagicMock(
+        return_value={
+            "authenticated": False,
+            "trusted_session": False,
+            "requires_2fa": False,
+            "requires_2sa": False,
+        }
+    )
+
+    result = _invoke(fake_api, "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Environment" in text
+    assert "Authenticated" in text
+    assert "icloud auth login" in text
+    assert "report is incomplete" in text

@@ -4,14 +4,14 @@ import argparse
 import importlib.util
 import os
 import sys
+from types import ModuleType, SimpleNamespace
 import unittest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 CLI_PATH = os.path.join(os.path.dirname(__file__), "..", "examples", "notes_cli.py")
 
 
-def _load_notes_cli():
+def _load_notes_cli() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "pyicloud_examples_notes_cli", CLI_PATH
     )
@@ -25,23 +25,27 @@ def _load_notes_cli():
 class TestNotesCli(unittest.TestCase):
     """Tests for the notes CLI example script."""
 
-    def _output_dir(self, name):
+    def _output_dir(self, name: str) -> str:
         path = os.path.join("/tmp/python-test-results", "notes-cli", name)
         os.makedirs(path, exist_ok=True)
         return path
 
-    def test_parse_args_rejects_removed_download_assets_flag(self):
+    def test_parse_args_rejects_removed_download_assets_flag(self) -> None:
+        """The removed --download-assets flag should be rejected at parse time."""
         module = _load_notes_cli()
 
-        with patch.object(
-            sys,
-            "argv",
-            ["notes_cli.py", "--username", "user@example.com", "--download-assets"],
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["notes_cli.py", "--username", "user@example.com", "--download-assets"],
+            ),
+            self.assertRaises(SystemExit),
         ):
-            with self.assertRaises(SystemExit):
-                module.parse_args()
+            module.parse_args()
 
-    def test_main_requests_titleencrypted_and_maps_export_config(self):
+    def test_main_requests_titleencrypted_and_maps_export_config(self) -> None:
+        """Main should request TitleEncrypted records and map export options."""
         module = _load_notes_cli()
         dummy_ckrecord = type("DummyCKRecord", (), {})
         note_record = dummy_ckrecord()
@@ -91,8 +95,9 @@ class TestNotesCli(unittest.TestCase):
             patch.object(module, "decode_and_parse_note", return_value=MagicMock()),
             patch.object(module, "console", MagicMock()),
             patch.object(module, "CKRecord", dummy_ckrecord),
-            patch(
-                "pyicloud.services.notes.rendering.exporter.NoteExporter",
+            patch.object(
+                module,
+                "NoteExporter",
                 return_value=exporter,
             ) as mock_exporter_cls,
         ):
@@ -111,18 +116,22 @@ class TestNotesCli(unittest.TestCase):
         self.assertEqual(config.preview_appearance, "dark")
         self.assertEqual(config.pdf_object_height, 777)
 
-    def test_parse_args_rejects_removed_password_flag(self):
+    def test_parse_args_rejects_removed_password_flag(self) -> None:
+        """The removed --password flag should be rejected at parse time."""
         module = _load_notes_cli()
 
-        with patch.object(
-            sys,
-            "argv",
-            ["notes_cli.py", "--username", "user@example.com", "--password", "pw"],
+        with (
+            patch.object(
+                sys,
+                "argv",
+                ["notes_cli.py", "--username", "user@example.com", "--password", "pw"],
+            ),
+            self.assertRaises(SystemExit),
         ):
-            with self.assertRaises(SystemExit):
-                module.parse_args()
+            module.parse_args()
 
-    def test_main_suppresses_note_dumps_without_debug_flags(self):
+    def test_main_suppresses_note_dumps_without_debug_flags(self) -> None:
+        """Main should avoid dumping raw note data when debug flags are off."""
         module = _load_notes_cli()
         dummy_ckrecord = type("DummyCKRecord", (), {})
         note_record = dummy_ckrecord()
@@ -169,8 +178,9 @@ class TestNotesCli(unittest.TestCase):
             patch.object(module, "decode_and_parse_note", return_value=MagicMock()),
             patch.object(module, "console", console),
             patch.object(module, "CKRecord", dummy_ckrecord),
-            patch(
-                "pyicloud.services.notes.rendering.exporter.NoteExporter",
+            patch.object(
+                module,
+                "NoteExporter",
                 return_value=exporter,
             ),
         ):
@@ -180,7 +190,10 @@ class TestNotesCli(unittest.TestCase):
         printed = [call.args[0] for call in console.print.call_args_list if call.args]
         self.assertNotIn("proto_note:", printed)
 
-    def test_ensure_auth_uses_security_key_when_fido2_devices_are_available(self):
+    def test_ensure_auth_uses_security_key_when_fido2_devices_are_available(
+        self,
+    ) -> None:
+        """Auth should prefer the FIDO2 security key flow over a 2FA code."""
         module = _load_notes_cli()
         api = MagicMock()
         devices = [object(), object()]

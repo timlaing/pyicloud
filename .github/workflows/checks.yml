@@ -1,0 +1,25 @@
+name: Check
+
+"on":
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  editable:
+    runs-on: ubuntu-latest
+    name: Editable PR
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run the check
+        run: python3 -m scripts.check.edits

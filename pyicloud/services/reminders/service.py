@@ -11,10 +11,14 @@ Public API:
   - RemindersService.create(...)
   - RemindersService.update(reminder) -> None
   - RemindersService.delete(reminder) -> None
-  - RemindersService.add_location_trigger(reminder, ...) -> tuple[Alarm, LocationTrigger]
-  - RemindersService.create_hashtag(...) / update_hashtag(...) / delete_hashtag(...)
-  - RemindersService.create_url_attachment(...) / update_attachment(...) / delete_attachment(...)
-  - RemindersService.create_recurrence_rule(...) / update_recurrence_rule(...) / delete_recurrence_rule(...)
+  - RemindersService.add_location_trigger(reminder, ...) ->
+    tuple[Alarm, LocationTrigger]
+  - RemindersService.create_hashtag(...) / update_hashtag(...) /
+    delete_hashtag(...)
+  - RemindersService.create_url_attachment(...) / update_attachment(...) /
+    delete_attachment(...)
+  - RemindersService.create_recurrence_rule(...) / update_recurrence_rule(...) /
+    delete_recurrence_rule(...)
   - RemindersService.alarms_for(reminder) -> list[AlarmWithTrigger]
   - RemindersService.tags_for(reminder) -> list[Hashtag]
   - RemindersService.attachments_for(reminder) -> list[Attachment]
@@ -27,9 +31,10 @@ directly.
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Union
+import logging
+from typing import Any, Union
 
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
@@ -81,7 +86,7 @@ class RemindersService(BaseService):
         self,
         service_root: str,
         session: Any,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         *,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
     ):
@@ -120,7 +125,7 @@ class RemindersService(BaseService):
 
     def reminders(
         self,
-        list_id: Optional[str] = None,
+        list_id: str | None = None,
     ) -> Iterable[Reminder]:
         """
         Yield reminders across all lists or for a specific list.
@@ -129,13 +134,9 @@ class RemindersService(BaseService):
             list_id: Optional list identifier. When provided, only reminders in
                 that list are returned.
         """
-        reminder_map: Dict[str, Reminder] = {}
+        reminder_map: dict[str, Reminder] = {}
 
-        list_ids: List[str]
-        if list_id:
-            list_ids = [list_id]
-        else:
-            list_ids = [lst.id for lst in self.lists()]
+        list_ids: list[str] = [list_id] if list_id else [lst.id for lst in self.lists()]
 
         for lid in list_ids:
             batch = self.list_reminders(
@@ -146,8 +147,7 @@ class RemindersService(BaseService):
             for reminder in batch.reminders:
                 reminder_map[reminder.id] = reminder
 
-        for reminder in reminder_map.values():
-            yield reminder
+        yield from reminder_map.values()
 
     def sync_cursor(self) -> str:
         """
@@ -161,7 +161,7 @@ class RemindersService(BaseService):
     def iter_changes(
         self,
         *,
-        since: Optional[str] = None,
+        since: str | None = None,
     ) -> Iterable[ReminderChangeEvent]:
         """
         Yield reminder change events since an optional sync token.
@@ -187,12 +187,12 @@ class RemindersService(BaseService):
         title: str,
         desc: str = "",
         completed: bool = False,
-        due_date: Optional[datetime] = None,
+        due_date: datetime | None = None,
         priority: int = 0,
         flagged: bool = False,
         all_day: bool = False,
-        time_zone: Optional[str] = None,
-        parent_reminder_id: Optional[str] = None,
+        time_zone: str | None = None,
+        parent_reminder_id: str | None = None,
     ) -> Reminder:
         """
         Create a reminder and return the hydrated ``Reminder`` model.
@@ -297,12 +297,12 @@ class RemindersService(BaseService):
         self,
         attachment: Attachment,
         *,
-        url: Optional[str] = None,
-        uti: Optional[str] = None,
-        filename: Optional[str] = None,
-        file_size: Optional[int] = None,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
+        url: str | None = None,
+        uti: str | None = None,
+        filename: str | None = None,
+        file_size: int | None = None,
+        width: int | None = None,
+        height: int | None = None,
     ) -> None:
         """
         Update a reminder attachment in place.
@@ -350,10 +350,10 @@ class RemindersService(BaseService):
         self,
         recurrence_rule: RecurrenceRule,
         *,
-        frequency: Optional[RecurrenceFrequency] = None,
-        interval: Optional[int] = None,
-        occurrence_count: Optional[int] = None,
-        first_day_of_week: Optional[int] = None,
+        frequency: RecurrenceFrequency | None = None,
+        interval: int | None = None,
+        occurrence_count: int | None = None,
+        first_day_of_week: int | None = None,
     ) -> None:
         """Update fields on an existing recurrence rule."""
         self._writes.update_recurrence_rule(
@@ -390,19 +390,19 @@ class RemindersService(BaseService):
             results_limit=results_limit,
         )
 
-    def alarms_for(self, reminder: Reminder) -> List[AlarmWithTrigger]:
+    def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
         """Return alarm rows, including attached location triggers, for ``reminder``."""
         return self._reads.alarms_for(reminder)
 
-    def tags_for(self, reminder: Reminder) -> List[Hashtag]:
+    def tags_for(self, reminder: Reminder) -> list[Hashtag]:
         """Return hashtags currently attached to ``reminder``."""
         return self._reads.tags_for(reminder)
 
-    def attachments_for(self, reminder: Reminder) -> List[Attachment]:
+    def attachments_for(self, reminder: Reminder) -> list[Attachment]:
         """Return attachments currently attached to ``reminder``."""
         return self._reads.attachments_for(reminder)
 
-    def recurrence_rules_for(self, reminder: Reminder) -> List[RecurrenceRule]:
+    def recurrence_rules_for(self, reminder: Reminder) -> list[RecurrenceRule]:
         """Return recurrence rules currently attached to ``reminder``."""
         return self._reads.recurrence_rules_for(reminder)
 
@@ -425,10 +425,10 @@ class RemindersService(BaseService):
     def _record_to_alarm(self, rec: CKRecord) -> Alarm:
         return self._mapper.record_to_alarm(rec)
 
-    def _record_to_alarm_trigger(self, rec: CKRecord) -> Optional[LocationTrigger]:
+    def _record_to_alarm_trigger(self, rec: CKRecord) -> LocationTrigger | None:
         return self._mapper.record_to_alarm_trigger(rec)
 
-    def _record_to_attachment(self, rec: CKRecord) -> Optional[Attachment]:
+    def _record_to_attachment(self, rec: CKRecord) -> Attachment | None:
         return self._mapper.record_to_attachment(rec)
 
     def _record_to_hashtag(self, rec: CKRecord) -> Hashtag:

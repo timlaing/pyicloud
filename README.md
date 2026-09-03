@@ -47,7 +47,8 @@ Authentication without using a saved password is as simple as passing your usern
 
 ```python
 from pyicloud import PyiCloudService
-api = PyiCloudService('jappleseed@apple.com', 'password')
+
+api = PyiCloudService("jappleseed@apple.com", "password")
 ```
 
 In the event that the username/password combination is invalid, a
@@ -58,7 +59,8 @@ should pass `china_mainland=True` to the `PyiCloudService` class:
 
 ```python
 from pyicloud import PyiCloudService
-api = PyiCloudService('jappleseed@apple.com', 'password', china_mainland=True)
+
+api = PyiCloudService("jappleseed@apple.com", "password", china_mainland=True)
 ```
 
 If you plan to use this as a daemon or long-running service to keep the
@@ -69,18 +71,63 @@ connection alive with Apple, a refresh interval can be configured
 from pyicloud import PyiCloudService
 
 api = PyiCloudService(
-    'jappleseed@apple.com',
-    'password',
+    "jappleseed@apple.com",
+    "password",
     refresh_interval=60,  # 1 minute refresh
 )
 api.devices
 ```
 
+When `with_family=True`, Find My polls Apple's backend while family
+members' devices finish loading (`deviceFetchStatus` is `"LOADING"`). By
+default it polls every `0.5s` up to `5` times before giving up; both can be
+tuned via `family_poll_delay` and `family_poll_max_retries`:
+
+```python
+from pyicloud import PyiCloudService
+
+api = PyiCloudService(
+    "jappleseed@apple.com",
+    "password",
+    with_family=True,
+    family_poll_delay=1.0,  # seconds between polls (default: 0.5)
+    family_poll_max_retries=10,  # max polls (default: 5)
+)
+api.devices
+```
+
+### Minimal authentication for Find My (`pause_2fa`)
+
+Some services (notably Find My) can be used without completing two-factor
+authentication (2FA). To allow a Find My-only workflow on an account that has
+2FA enabled, pass `pause_2fa=True` to the constructor. Authentication proceeds
+with an _untrusted_ session, so 2FA is not prompted and code delivery is
+deferred:
+
+```python
+from pyicloud import PyiCloudService
+
+api = PyiCloudService("jappleseed@apple.com", "password", pause_2fa=True)
+print(api.iphone.location)
+```
+
+**Security implications:** with `pause_2fa=True` the resulting session is **not
+trusted** by Apple, and only a limited set of 2FA-gated operations is
+available. It is intended for lightweight/headless usage (e.g. locating a
+device) where completing interactive 2FA each run is undesirable. Any operation
+that requires a trusted session — such as full 2FA-protected account access —
+will still need the normal 2FA flow (`request_2fa_code()` /
+`validate_2fa_code()`). In particular, a cached _untrusted_ session is only
+reused when the current call also enables `pause_2fa`; it is rejected on the
+default (trusted) flow to avoid silently bypassing 2FA.
+
 ## Command-Line Interface
 
 The `icloud` command line interface is organized around top-level
 subcommands such as `auth`, `account`, `devices`, `calendar`,
-`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, and `reminders`.
+`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, and `reminders`,
+plus a standalone `doctor` command described under
+[Diagnostics](#diagnostics).
 
 Command options belong on the final command that uses them. For example:
 
@@ -105,7 +152,7 @@ to provide a password when interacting with the command-line tool or
 instantiating the `PyiCloudService` class for that username.
 
 ```python
-api = PyiCloudService('jappleseed@apple.com')
+api = PyiCloudService("jappleseed@apple.com")
 ```
 
 CLI examples:
@@ -234,9 +281,7 @@ if api.requires_2fa:
     else:
         print("Two-factor authentication required.")
         api.request_2fa_code()
-        code = input(
-            "Enter the code you received of one of your approved devices: "
-        )
+        code = input("Enter the code you received of one of your approved devices: ")
         result = api.validate_2fa_code(code)
         print("Code validation result: %s" % result)
 
@@ -260,21 +305,75 @@ elif api.requires_2sa:
     devices = api.trusted_devices
     for i, device in enumerate(devices):
         print(
-            "  %s: %s" % (i, device.get('deviceName',
-            "SMS to %s" % device.get('phoneNumber')))
+            "  %s: %s"
+            % (i, device.get("deviceName", "SMS to %s" % device.get("phoneNumber")))
         )
 
-    device = click.prompt('Which device would you like to use?', default=0)
+    device = click.prompt("Which device would you like to use?", default=0)
     device = devices[device]
     if not api.send_verification_code(device):
         print("Failed to send verification code")
         sys.exit(1)
 
-    code = click.prompt('Please enter validation code')
+    code = click.prompt("Please enter validation code")
     if not api.validate_verification_code(device, code):
         print("Failed to verify verification code")
         sys.exit(1)
 ```
+
+## Diagnostics
+
+Apple changes the service map it advertises without notice: hosts move
+between partitions, keys stop being advertised, and endpoints get
+withdrawn. When that happens the failure usually surfaces deep inside a
+service call, which makes it hard to tell an Apple-side change apart from
+a stale session or a wrong argument.
+
+`icloud doctor` answers that question directly:
+
+```console
+icloud doctor
+icloud doctor --username jappleseed@apple.com
+icloud doctor --format json
+```
+
+```text
+         Environment
+┌──────────┬────────────────┐
+│ pyicloud │ 2.6.5          │
+│ Python   │ 3.13.1         │
+│ Platform │ darwin (arm64) │
+└──────────┴────────────────┘
+
+                       Webservices
+┌────────┬──────────────┬─────────────────────────┬──────────────────┐
+│ Status │ Key          │ Used by                 │ Host             │
+├────────┼──────────────┼─────────────────────────┼──────────────────┤
+│ ok     │ ckdatabasews │ photos, reminders,      │ p51-ckdatabasews │
+│        │              │ notes, invites          │ .icloud.com:443  │
+│ ok     │ drivews      │ drive                   │ p51-drivews...   │
+└────────┴──────────────┴─────────────────────────┴──────────────────┘
+
+No problems found. Apple is advertising every service this version of
+pyicloud needs.
+```
+
+The command is strictly read-only: it inspects the local install, the
+stored session, and the service map Apple returned at login. It never
+writes to the account.
+
+It reports what it can even when there is no usable session, because
+"you are not logged in" is itself one of the answers.
+
+Exit codes are meant for scripting:
+
+- `0`: Apple is advertising every service this version of pyicloud needs.
+- `1`: something the library depends on is missing or unusable, **or**
+  there was no session, so the checks that matter could not run.
+
+Services Apple advertises that pyicloud does not wrap are listed as
+context rather than as problems, and `--format json` returns the whole
+report, including every finding, for use in bug reports and scripts.
 
 ## Account
 
@@ -343,7 +442,7 @@ ID:
 ```pycon
 >>> api.devices[0]
 <AppleDevice(iPhone 4S: Johnny Appleseed's iPhone)>
->>> api.devices['i9vbKRGIcLYqJnXMd1b257kUWnoyEBcEh6yM+IfmiMLh7BmOpALS+w==']
+>>> api.devices["i9vbKRGIcLYqJnXMd1b257kUWnoyEBcEh6yM+IfmiMLh7BmOpALS+w=="]
 <AppleDevice(iPhone 4S: Johnny Appleseed's iPhone)>
 ```
 
@@ -410,8 +509,8 @@ it\'s not overridden the custom message of \"This iPhone has been lost.
 Please call me.\" is used.
 
 ```python
-phone_number = '555-373-383'
-message = 'Thief! Return my phone immediately.'
+phone_number = "555-373-383"
+message = "Thief! Return my phone immediately."
 api.iphone.lost_device(phone_number, message)
 ```
 
@@ -420,7 +519,7 @@ api.iphone.lost_device(phone_number, message)
 Erase Device functionality, forces the device to be erased when next connected to a network. It allows the person who picks up the phone to see a custom message which the device will display, if it\'s not overridden the custom message of \"This iPhone has been lost. Please call me.\" is used.
 
 ```python
-message = 'Thief! Return my phone immediately.'
+message = "Thief! Return my phone immediately."
 api.iphone.erase_device(message)
 ```
 
@@ -525,7 +624,7 @@ event = EventObject(
     start_date=datetime.now() + timedelta(hours=2),
     end_date=datetime.now() + timedelta(hours=3),
     location="Conference Room A",
-    all_day=False
+    all_day=False,
 )
 
 # Add invitees (they'll receive email notifications)
@@ -533,7 +632,7 @@ event.add_invitees(["colleague1@company.com", "colleague2@company.com"])
 
 # Add alarms
 event.add_alarm_before(minutes=15)  # 15 minutes before
-event.add_alarm_before(days=1)      # 1 day before
+event.add_alarm_before(days=1)  # 1 day before
 
 # Add the event to the calendar
 calendar_service.add_event(event)
@@ -547,7 +646,7 @@ event = EventObject(
     pguid=calendar_guid,
     title="Doctor Appointment",
     start_date=datetime(2024, 1, 15, 14, 0),
-    end_date=datetime(2024, 1, 15, 15, 0)
+    end_date=datetime(2024, 1, 15, 15, 0),
 )
 
 # Add a 30-minute warning alarm
@@ -571,9 +670,7 @@ _Get next week's events:_
 
 ```python
 next_week_events = calendar_service.get_events(
-    from_dt=datetime.today() + timedelta(days=7),
-    period="week",
-    as_objs=True
+    from_dt=datetime.today() + timedelta(days=7), period="week", as_objs=True
 )
 ```
 
@@ -590,7 +687,7 @@ property:
 
 ```pycon
 >>> for c in api.contacts.all:
-...     print(c.get('firstName'), c.get('phones'))
+...     print(c.get("firstName"), c.get("phones"))
 John [{'field': '+1 555-55-5555-5', 'label': 'MOBILE'}]
 ```
 
@@ -636,21 +733,21 @@ You can access children and their children\'s children using the
 filename as an index:
 
 ```pycon
->>> api.files['com~apple~Notes']
+>>> api.files["com~apple~Notes"]
 <Folder: 'com~apple~Notes'>
->>> api.files['com~apple~Notes'].type
+>>> api.files["com~apple~Notes"].type
 'folder'
->>> api.files['com~apple~Notes'].dir()
+>>> api.files["com~apple~Notes"].dir()
 ['Documents']
->>> api.files['com~apple~Notes']['Documents'].dir()
+>>> api.files["com~apple~Notes"]["Documents"].dir()
 ['Some Document']
->>> api.files['com~apple~Notes']['Documents']['Some Document'].name
+>>> api.files["com~apple~Notes"]["Documents"]["Some Document"].name
 'Some Document'
->>> api.files['com~apple~Notes']['Documents']['Some Document'].modified
+>>> api.files["com~apple~Notes"]["Documents"]["Some Document"].modified
 datetime.datetime(2012, 9, 13, 2, 26, 17)
->>> api.files['com~apple~Notes']['Documents']['Some Document'].size
+>>> api.files["com~apple~Notes"]["Documents"]["Some Document"].size
 1308134
->>> api.files['com~apple~Notes']['Documents']['Some Document'].type
+>>> api.files["com~apple~Notes"]["Documents"]["Some Document"].type
 'file'
 ```
 
@@ -658,7 +755,7 @@ And when you have a file that you\'d like to download, the `open` method
 will return a response object from which you can read the `content`.
 
 ```pycon
->>> api.files['com~apple~Notes']['Documents']['Some Document'].open().content
+>>> api.files["com~apple~Notes"]["Documents"]["Some Document"].open().content
 'Hello, these are the file contents'
 ```
 
@@ -670,9 +767,11 @@ request using [requests](https://github.com/kennethreitz/requests).
 For example, if you know that the file you\'re opening has JSON content:
 
 ```pycon
->>> api.files['com~apple~Notes']['Documents']['information.json'].open().json()
+>>> api.files["com~apple~Notes"]["Documents"]["information.json"].open().json()
 {'How much we love you': 'lots'}
->>> api.files['com~apple~Notes']['Documents']['information.json'].open().json()['How much we love you']
+>>> api.files["com~apple~Notes"]["Documents"]["information.json"].open().json()[
+...     "How much we love you"
+... ]
 'lots'
 ```
 
@@ -681,7 +780,7 @@ use the `stream` keyword argument, and read directly from the raw
 response object:
 
 ```pycon
->>> download = api.files['com~apple~Notes']['Documents']['big_file.zip'].open(stream=True)
+>>> download = api.files["com~apple~Notes"]["Documents"]["big_file.zip"].open(stream=True)
 >>> with open('downloaded_file.zip', 'wb') as opened_file:
         opened_file.write(download.raw.read())
 ```
@@ -695,10 +794,10 @@ one described in the previous section, except that it is rooted at
 ```pycon
 >>> api.drive.dir()
 ['Holiday Photos', 'Work Files']
->>> api.drive['Holiday Photos']['2013']['Sicily'].dir()
+>>> api.drive["Holiday Photos"]["2013"]["Sicily"].dir()
 ['DSC08116.JPG', 'DSC08117.JPG']
 
->>> drive_file = api.drive['Holiday Photos']['2013']['Sicily']['DSC08116.JPG']
+>>> drive_file = api.drive["Holiday Photos"]["2013"]["Sicily"]["DSC08116.JPG"]
 >>> drive_file.name
 'DSC08116.JPG'
 >>> drive_file.date_modified
@@ -714,8 +813,9 @@ the file\'s contents:
 
 ```python
 from shutil import copyfileobj
+
 with drive_file.open(stream=True) as response:
-    with open(drive_file.name, 'wb') as file_out:
+    with open(drive_file.name, "wb") as file_out:
         copyfileobj(response.raw, file_out)
 ```
 
@@ -723,17 +823,17 @@ To interact with files and directions the `mkdir`, `rename` and `delete`
 functions are available for a file or folder:
 
 ```python
-api.drive['Holiday Photos'].mkdir('2020')
-api.drive['Holiday Photos']['2020'].rename('2020_copy')
-api.drive['Holiday Photos']['2020_copy'].delete()
+api.drive["Holiday Photos"].mkdir("2020")
+api.drive["Holiday Photos"]["2020"].rename("2020_copy")
+api.drive["Holiday Photos"]["2020_copy"].delete()
 ```
 
 The `upload` method can be used to send a file-like object to the iCloud
 Drive:
 
 ```python
-with open('Vacation.jpeg', 'rb') as file_in:
-    api.drive['Holiday Photos'].upload(file_in)
+with open("Vacation.jpeg", "rb") as file_in:
+    api.drive["Holiday Photos"].upload(file_in)
 ```
 
 It is strongly suggested to open file handles as binary rather than text
@@ -742,11 +842,11 @@ to prevent decoding errors further down the line.
 You can also interact with files in the `trash`:
 
 ```pycon
->>> delete_output = api.drive['Holiday Photos']['2013']['Sicily']['DSC08116.JPG'].delete()
+>>> delete_output = api.drive["Holiday Photos"]["2013"]["Sicily"]["DSC08116.JPG"].delete()
 >>> api.drive.trash.dir()
 ['DSC08116.JPG']
 
->>> delete_output = api.drive['Holiday Photos']['2013']['Sicily']['DSC08117.JPG'].delete()
+>>> delete_output = api.drive["Holiday Photos"]["2013"]["Sicily"]["DSC08117.JPG"].delete()
 >>> api.drive.refresh_trash()
 >>> api.drive.trash.dir()
 ['DSC08116.JPG', 'DSC08117.JPG']
@@ -755,17 +855,17 @@ You can also interact with files in the `trash`:
 You can interact with the `trash` similar to a standard directory, with some restrictions. In addition, files in the `trash` can be recovered back to their original location, or deleted forever:
 
 ```pycon
->>> api.drive['Holiday Photos']['2013']['Sicily'].dir()
+>>> api.drive["Holiday Photos"]["2013"]["Sicily"].dir()
 []
 
->>> recover_output = api.drive.trash['DSC08116.JPG'].recover()
->>> api.drive['Holiday Photos']['2013']['Sicily'].dir()
+>>> recover_output = api.drive.trash["DSC08116.JPG"].recover()
+>>> api.drive["Holiday Photos"]["2013"]["Sicily"].dir()
 ['DSC08116.JPG']
 
 >>> api.drive.trash.dir()
 ['DSC08117.JPG']
 
->>> purge_output = api.drive.trash['DSC08117.JPG'].delete_forever()
+>>> purge_output = api.drive.trash["DSC08117.JPG"].delete_forever()
 >>> api.drive.refresh_trash()
 >>> api.drive.trash.dir()
 []
@@ -889,16 +989,16 @@ Unlike `icloudpd`, authentication and session management stay under
 Individual albums are available through the `albums` property:
 
 ```pycon
->>> api.photos.albums['Screenshots']
+>>> api.photos.albums["Screenshots"]
 <PhotoAlbum: 'Screenshots'>
 ```
 
 To delete an individual album, call the `delete` method.
 
 ```pycon
->>> api.photos.albums['MyAlbum']
+>>> api.photos.albums["MyAlbum"]
 <PhotoAlbum: 'MyAlbum'>
->>> api.photos.albums['MyAlbum'].delete()
+>>> api.photos.albums["MyAlbum"].delete()
 True
 ```
 
@@ -926,8 +1026,8 @@ photos are returned first. All other albums are sorted by
 To download a photo, use the `download` method, which will return a raw stream:
 
 ```python
-photo = next(iter(api.photos.albums['Screenshots']), None)
-with open(photo.filename, 'wb') as opened_file:
+photo = next(iter(api.photos.albums["Screenshots"]), None)
+with open(photo.filename, "wb") as opened_file:
     opened_file.write(photo.download())
 ```
 
@@ -943,8 +1043,8 @@ To download a specific version of the photo asset, pass the version to
 `download()`:
 
 ```python
-with open(photo.versions['thumb']['filename'], 'wb') as thumb_file:
-    thumb_file.write(photo.download('thumb'))
+with open(photo.versions["thumb"]["filename"], "wb") as thumb_file:
+    thumb_file.write(photo.download("thumb"))
 ```
 
 To upload a photo use the `upload` method. You can upload directly through an
@@ -963,7 +1063,7 @@ api.photos.albums["Screenshots"].upload(file_path)
 ```
 
 ```pycon
->>> album = api.photos.albums['Screenshots']
+>>> album = api.photos.albums["Screenshots"]
 >>> album
 <PhotoAlbum: 'Screenshots'>
 >>> album.upload("./my_test_image.jpg")
@@ -977,7 +1077,7 @@ Note: Only limited media types are accepted. Unsupported types (e.g., PNG) will 
 To delete a photo, use the `delete` method on the PhotoAsset. It returns a bool indicating success.
 
 ```pycon
->>> photo = api.photos.albums['Screenshots'][0]
+>>> photo = api.photos.albums["Screenshots"][0]
 >>> photo
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
 >>> photo.delete()
@@ -988,14 +1088,14 @@ To add an existing photo to an album, use the `add_photo` method, which will lin
 It returns a bool indicating success.
 
 ```python
-api.photos.albums['Screenshots'].add_photo(photo_asset)
+api.photos.albums["Screenshots"].add_photo(photo_asset)
 ```
 
 ```pycon
->>> photo = api.photos.albums['Screenshots'][0]
+>>> photo = api.photos.albums["Screenshots"][0]
 >>> photo
 <PhotoAsset: id=AVbLPCGkp798nTb9KZozCXtO7jds> IMG_6045.JPG
->>> my_album = api.photos.albums['MyAlbum']
+>>> my_album = api.photos.albums["MyAlbum"]
 >>> my_album
 <PhotoAlbum: 'MyAlbum'>
 >>> my_album.add_photo(photo)
@@ -1045,9 +1145,7 @@ print(f"Alias details: {alias_details}")
 
 # Update the alias metadata (label and note)
 updated = api.hidemyemail.update_metadata(
-    anonymous_id,
-    "Online Shopping",
-    "Used for e-commerce websites"
+    anonymous_id, "Online Shopping", "Used for e-commerce websites"
 )
 print(f"Updated alias: {updated}")
 
@@ -1556,6 +1654,100 @@ Important CLI flags:
 `--download-assets` is no longer supported in the example CLI. Use
 `--export-mode` to choose between archival and lightweight export behavior.
 
+## Invites
+
+Apple Invites events, read and RSVP. Events you created live in your private
+library; events other people shared with you arrive in the shared one, and both
+are returned together.
+
+_List every event you can see:_
+
+```python
+api = PyiCloudService("jappleseed@apple.com", "password")
+
+for event in api.invites.events():
+    print(event.scope.value, event.event_id, event.title)
+```
+
+`scope` is `EventScope.PRIVATE` for events you own and `EventScope.SHARED` for
+events shared with you. The listing is a summary: `share` and `rsvps` are not
+populated. Use `event()` for a full view.
+
+_Fetch one event with its share and responses:_
+
+```python
+event = api.invites.event("EVENT-UUID")
+
+print(event.title, event.host_display_name)
+print(event.time.start, event.time.end, event.time.is_all_day)
+print(event.place.title, event.place.city)
+
+for rsvp in api.invites.rsvps(event):
+    print(rsvp.name, rsvp.status.name, rsvp.num_additional_adults)
+```
+
+`event()` looks in your private events first, then the shared ones, and raises
+`EventNotFound` if neither has it.
+
+### Responding to an invitation
+
+```python
+from pyicloud.services.invites import RsvpStatus
+
+event = api.invites.event("EVENT-UUID")
+
+api.invites.rsvp(
+    event,
+    RsvpStatus.GOING,
+    name="Jane Appleseed",
+    message="Looking forward to it",
+    plus_one_adults=1,
+)
+```
+
+`RsvpStatus` is `NO_RESPONSE`, `NOT_GOING`, `MAYBE` or `GOING`. Calling `rsvp()`
+again updates your existing response rather than adding another. Choosing
+`NOT_GOING` clears the plus-one counts, matching what the iCloud web interface
+does.
+
+### Joining an event from an invite link
+
+An invite link looks like `https://www.icloud.com/invites/008ABCDEFGHIJ`. The
+trailing part is the short guid.
+
+```python
+preview = api.invites.resolve("008ABCDEFGHIJ")
+print(preview.owner_given_name, preview.participant_status)
+
+event = api.invites.accept("008ABCDEFGHIJ")
+print(event.scope.value)  # shared
+```
+
+On `ResolvedShare`, `participant_status`, `participant_type` and
+`participant_permission` are plain strings as Apple returns them, not the
+enums used elsewhere in this service.
+
+`resolve()` only looks; `accept()` joins the event, after which it appears in
+`events()` with the shared scope.
+
+### Errors
+
+Every call raises a subclass of `InvitesError`: `InvitesAuthError` when the
+session needs renewing, `InvitesRateLimited` when Apple asks you to slow down,
+and `InvitesApiError` for everything else. `event()` raises `EventNotFound` for
+an unknown event id.
+
 ## Examples
 
 If you want to see some code samples, see the [examples](examples.py).
+
+## Contributing
+
+Contributions are welcome! Please read the
+**[Contributing guide](CONTRIBUTING.md)**, the
+**[Code of Conduct](CODE_OF_CONDUCT.md)**, and the
+**[Terms of Use](TERMS_OF_USE.md)** before getting started.
+
+To report a security vulnerability, use
+**[private vulnerability reporting](https://github.com/timlaing/pyicloud/security/advisories)**
+rather than opening a public issue (see **[SECURITY.md](SECURITY.md)**).

@@ -1,11 +1,12 @@
 """Pyicloud Session handling"""
 
+from json import JSONDecodeError, dump, load
 import logging
 import os
-from json import JSONDecodeError, dump, load
 from os import path
 from re import match
-from typing import TYPE_CHECKING, Any, NoReturn, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
+from urllib.parse import urlsplit
 
 import requests
 from requests.models import Response
@@ -22,10 +23,12 @@ from pyicloud.const import (
 )
 from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.exceptions import (
+    HTTP_GONE,
     PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
+    PyiCloudEndpointGoneException,
     PyiCloudServiceNotActivatedException,
 )
 
@@ -33,28 +36,45 @@ if TYPE_CHECKING:
     from pyicloud.base import PyiCloudService
 
 
-NON_PERSISTED_SESSION_KEYS = frozenset(
-    {
-        "akdata",
-        "connection_path",
-        "data",
-        "encryptedCode",
-        "encrypted_code",
-        "idmsdata",
-        "mid",
-        "nextStep",
-        "next_step",
-        "ptkn",
-        "push_token",
-        "salt",
-        "sessionUUID",
-        "session_uuid",
-        "source_app_id",
-        "topic",
-        "topics_by_hash",
-        "txnid",
-    }
-)
+NON_PERSISTED_SESSION_KEYS = frozenset({
+    "akdata",
+    "connection_path",
+    "data",
+    "encryptedCode",
+    "encrypted_code",
+    "idmsdata",
+    "mid",
+    "nextStep",
+    "next_step",
+    "ptkn",
+    "push_token",
+    "salt",
+    "sessionUUID",
+    "session_uuid",
+    "source_app_id",
+    "topic",
+    "topics_by_hash",
+    "txnid",
+})
+
+
+def describe_endpoint(url: str | bytes) -> str:
+    """Return a host-and-path label for ``url``, safe to quote in a bug report.
+
+    Drops the query string, which carries the dsid and client identifiers, and
+    masks long numeric path segments, since Apple's content hosts put the dsid
+    in the path rather than the query.
+    """
+
+    text: str = url.decode("utf-8", "replace") if isinstance(url, bytes) else str(url)
+    parts = urlsplit(text)
+    segments: list[str] = [
+        "<id>" if segment.isdigit() and len(segment) >= 6 else segment
+        for segment in parts.path.split("/")
+    ]
+    host: str = parts.netloc.split("@")[-1]
+    route: str = "/".join(segments)
+    return f"{host}{route}" if host else route
 
 
 class PyiCloudSession(requests.Session):
@@ -66,7 +86,7 @@ class PyiCloudSession(requests.Session):
         client_id: str,
         cookie_directory: str,
         verify: bool = False,
-        headers: Optional[dict[str, str]] = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         """Initialize the persisted requests session used by the service."""
         super().__init__()
@@ -104,14 +124,15 @@ class PyiCloudSession(requests.Session):
                 cast(PyiCloudCookieJar, self.cookies).load()
             except (OSError, ValueError) as exc:
                 self._logger.warning(
-                    "Failed to load cookie jar %s: %s; starting without persisted cookies",
+                    "Failed to load cookie jar %s: %s; starting without persisted "
+                    "cookies",
                     self.cookiejar_path,
                     exc,
                 )
                 cast(PyiCloudCookieJar, self.cookies).clear()
 
         self._logger.debug("Using session file %s", self.session_path)
-        self._data: dict[str, Any] = {}
+        self._data = {}
         try:
             with open(self.session_path, encoding="utf-8") as session_f:
                 self._data = load(session_f)
@@ -185,27 +206,27 @@ class PyiCloudSession(requests.Session):
 
     def request(
         self,
-        method,
-        url,
-        params=None,
-        data=None,
-        headers=None,
-        cookies=None,
-        files=None,
-        auth=None,
-        timeout=None,
-        allow_redirects=True,
-        proxies=None,
-        hooks=None,
-        stream=None,
-        verify=None,
-        cert=None,
-        json=None,
+        method: str | bytes,
+        url: str | bytes,
+        params: Any = None,
+        data: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        files: Any = None,
+        auth: Any = None,
+        timeout: Any = None,
+        allow_redirects: bool = True,
+        proxies: Any = None,
+        hooks: Any = None,
+        stream: Any = None,
+        verify: Any = None,
+        cert: Any = None,
+        json: Any = None,
     ) -> Response:
         """Dispatch a request through the normalized session request pipeline."""
         return self._request(
-            method,
-            url,
+            cast(str, method),
+            cast(str, url),
             params=params,
             data=data,
             headers=headers,
@@ -223,23 +244,23 @@ class PyiCloudSession(requests.Session):
         )
 
     def request_raw(
-        self,
-        method,
-        url,
-        params=None,
-        data=None,
-        headers=None,
-        cookies=None,
-        files=None,
-        auth=None,
-        timeout=None,
-        allow_redirects=True,
-        proxies=None,
-        hooks=None,
-        stream=None,
-        verify=None,
-        cert=None,
-        json=None,
+        self,  # noqa: S107
+        method: str,
+        url: str,
+        params: Any = None,
+        data: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        files: Any = None,
+        auth: Any = None,
+        timeout: Any = None,
+        allow_redirects: bool = True,
+        proxies: Any = None,
+        hooks: Any = None,
+        stream: Any = None,
+        verify: Any = None,
+        cert: Any = None,
+        json: Any = None,
     ) -> Response:
         """Dispatch a request without response-status normalization."""
 
@@ -264,9 +285,9 @@ class PyiCloudSession(requests.Session):
 
     def _request_raw(
         self,
-        method,
-        url,
-        **kwargs,
+        method: str,
+        url: str,
+        **kwargs: Any,
     ) -> Response:
         """Perform a request and persist cookies/session data without raising."""
 
@@ -289,9 +310,9 @@ class PyiCloudSession(requests.Session):
 
     def _request(
         self,
-        method,
-        url,
-        **kwargs,
+        method: str,
+        url: str,
+        **kwargs: Any,
     ) -> Response:
         """Request method."""
         self.logger.debug(
@@ -312,6 +333,12 @@ class PyiCloudSession(requests.Session):
 
             status_code: int = int(response.status_code)
 
+            # Checked before the JSON/auth branching below, so a withdrawn
+            # endpoint is reported the same way whether or not Apple bothers to
+            # send a JSON body with it.
+            if status_code == HTTP_GONE:
+                raise PyiCloudEndpointGoneException(describe_endpoint(url), response)
+
             if not response.ok and (
                 self._is_json_response(response)
                 or status_code
@@ -320,7 +347,7 @@ class PyiCloudSession(requests.Session):
                     AppleAuthError.FIND_MY_REAUTH_REQUIRED,
                     AppleAuthError.LOGIN_TOKEN_EXPIRED,
                     AppleAuthError.GENERAL_AUTH_ERROR,
-                ],
+                ]
             ):
                 return self._handle_request_error(
                     status_code=status_code,
@@ -340,7 +367,9 @@ class PyiCloudSession(requests.Session):
 
     @staticmethod
     def _raise_request_exception(err: requests.exceptions.RequestException) -> NoReturn:
-        """Normalize low-level requests failures into the session's public error type."""
+        """Normalize low-level requests failures into the session's public error
+        type.
+        """
 
         if isinstance(err, requests.HTTPError) and err.response is not None:
             raise PyiCloudAPIResponseException(
@@ -355,15 +384,15 @@ class PyiCloudSession(requests.Session):
         response: Response,
     ) -> Response:
         """Handle request error."""
-        if (
-            status_code == AppleAuthError.TWO_FACTOR_REQUIRED
-            and self._is_json_response(response)
-            and (response.json().get("authType") == "hsa2")
+        if status_code == AppleAuthError.TWO_FACTOR_REQUIRED and self._is_json_response(
+            response
         ):
-            raise PyiCloud2FARequiredException(
-                apple_id=self.service.account_name,
-                response=response,
-            )
+            auth_type: str | None = self._auth_type_from_hsa2_body(response)
+            if auth_type == "hsa2":
+                raise PyiCloud2FARequiredException(
+                    apple_id=self.service.account_name,
+                    response=response,
+                )
 
         if status_code == AppleAuthError.FIND_MY_REAUTH_REQUIRED:
             raise PyiCloudAuthRequiredException(
@@ -373,15 +402,35 @@ class PyiCloudSession(requests.Session):
 
         self._raise_error(response, status_code, response.reason)
 
+    def _auth_type_from_hsa2_body(self, response: Response) -> str | None:
+        """Return the HSA2 authentication type from a challenge body, if any.
+
+        Apple uses ``authType`` on some endpoints and ``authenticationType`` on
+        the SMS securitycode challenge responses. JSON parsing is best-effort so
+        an empty, invalid, or non-object body falls through to the generic error
+        path rather than masking it.
+        """
+        try:
+            data = response.json()
+        except ValueError:
+            return None
+        if not isinstance(data, dict):
+            return None
+        if data.get("authType") == "hsa2":
+            return "hsa2"
+        if data.get("authenticationType") == "hsa2":
+            return "hsa2"
+        return None
+
     def _decode_json_response(self, response: Response) -> None:
         """Decode JSON response."""
         if len(response.content) == 0:
             return
 
         try:
-            data: Union[list[dict[str, Any]], dict[str, Any]] = response.json()
+            data: list[dict[str, Any]] | dict[str, Any] = response.json()
             if isinstance(data, dict):
-                reason: Optional[str] = data.get("errorMessage")
+                reason: str | None = data.get("errorMessage")
                 reason = reason or data.get("reason")
                 reason = reason or data.get("errorReason")
                 reason = reason or data.get("error")
@@ -389,18 +438,19 @@ class PyiCloudSession(requests.Session):
                     reason = "Unknown reason"
 
                 if reason:
-                    code: Optional[Union[int, str]] = data.get("errorCode")
+                    code: int | str | None = data.get("errorCode")
                     code = code or data.get("serverErrorCode")
                     self._raise_error(response, code, reason)
 
         except JSONDecodeError:
             self.logger.debug(
-                "Failed to parse response body as JSON despite JSON mimetype; status=%s",
+                "Failed to parse response body as JSON despite JSON mimetype; "
+                "status=%s",
                 getattr(response, "status_code", "unknown"),
             )
 
     def _raise_error(
-        self, response: Response, code: Optional[Union[int, str]], reason: str
+        self, response: Response, code: int | str | None, reason: str
     ) -> NoReturn:
         """Raise the session's public exception for a parsed iCloud error payload."""
         if (

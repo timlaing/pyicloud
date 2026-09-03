@@ -1,7 +1,7 @@
 """Tests for the Hide My Email service."""
 # pylint: disable=protected-access
 
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock
 
 from requests import Response
@@ -17,7 +17,7 @@ def test_generate(
     mock_response.json.return_value = {"result": {"hme": "alias@example.com"}}
     mock_session.post.return_value = mock_response
 
-    result: Optional[str] = hidemyemail_service.generate()
+    result: str | None = hidemyemail_service.generate()
     assert result == "alias@example.com"
     mock_session.post.assert_called_once_with(
         "https://example.com/v1/hme/generate", params={"dsid": "12345"}

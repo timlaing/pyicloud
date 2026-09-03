@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum
 from itertools import islice
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import typer
 
-from pyicloud.cli.context import CLIAbort, get_state, service_call
+from pyicloud.base import PyiCloudService
+from pyicloud.cli.context import CLIAbort, CLIState, get_state, service_call
 from pyicloud.cli.normalize import (
     normalize_sync_cursor,
     search_notes_by_title,
@@ -53,13 +55,13 @@ class ExportMode(str, Enum):
     LIGHTWEIGHT = "lightweight"
 
 
-def _notes_service(api):
+def _notes_service(api: PyiCloudService) -> Any:
     """Return the Notes service with reauthentication handling."""
 
     return service_call(NOTES, lambda: api.notes, account_name=api.account_name)
 
 
-def _notes_call(api, fn):
+def _notes_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
     """Wrap Notes service calls with note-specific user-facing errors."""
 
     try:
@@ -68,7 +70,7 @@ def _notes_call(api, fn):
         raise CLIAbort(str(err)) from err
 
 
-def _print_note_rows(state, title: str, rows) -> None:
+def _print_note_rows(state: CLIState, title: str, rows: list[Any]) -> None:
     """Render note summary rows in text mode."""
 
     state.console.print(
@@ -177,9 +179,9 @@ def notes_folders(
 @app.command("list")
 def notes_list(
     ctx: typer.Context,
-    folder_id: Optional[str] = typer.Option(None, "--folder-id", help=_FOLDER_ID_HELP),
+    folder_id: str | None = typer.Option(None, "--folder-id", help=_FOLDER_ID_HELP),
     all_notes: bool = typer.Option(False, "--all", help="Iterate all notes."),
-    since: Optional[str] = typer.Option(
+    since: str | None = typer.Option(
         None,
         "--since",
         help="Incremental sync cursor for --all.",
@@ -397,7 +399,7 @@ def notes_render(
 
 @app.command("export")
 def notes_export(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
     output_dir: Path = typer.Option(..., "--output-dir", help="Destination directory."),
     export_mode: ExportMode = typer.Option(
@@ -540,7 +542,7 @@ def notes_sync_cursor(
     state = get_state(ctx)
     api = state.get_api()
     notes = _notes_service(api)
-    cursor = _notes_call(api, lambda: notes.sync_cursor())
+    cursor = _notes_call(api, notes.sync_cursor)
     if state.json_output:
         state.write_json(normalize_sync_cursor(cursor))
         return
