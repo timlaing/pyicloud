@@ -34,6 +34,7 @@ from pyicloud.exceptions import (
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
+    PyiCloudPCSTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
     PyiCloudTrustedDevicePromptException,
@@ -1223,6 +1224,9 @@ class PyiCloudService:
             else:
                 LOGGER.error("Unknown PCS state: %s", resp["message"])
                 raise PyiCloudAPIResponseException("Unable to request PCS access!")
+
+        LOGGER.error("PCS retries exhausted: %s", resp["message"])
+        raise PyiCloudPCSTimeoutException("Unable to request PCS access!")
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""
