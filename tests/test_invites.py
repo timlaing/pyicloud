@@ -525,20 +525,26 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertTrue(all(e.scope is EventScope.PRIVATE for e in events))
 
     def test_event_full_lookup_includes_share_and_rsvps(self) -> None:
-        """A full event lookup returns share and RSVP details."""
-        # Service tries private first; lookup returns event + share, RSVP
-        # query returns one RSVP, OTL query returns empty.
+        """A full event lookup returns share and RSVP details.
+
+        RSVPs come from the zone's changes feed, like `rsvps()`; the one-time
+        link records still come from a query.
+        """
         self._monkeypatch.setattr(
             self.service.raw,
             "lookup",
             MagicMock(return_value=self._event_lookup_response()),
         )
+        rsvp_page = self._rsvp_zone_page(
+            load_invites_fixture("rsvp_query_response.json")["records"]
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "iter_changes", MagicMock(return_value=iter([rsvp_page]))
+        )
         self._monkeypatch.setattr(
             self.service.raw,
             "query",
-            MagicMock(
-                side_effect=[self._rsvp_query_response(), self._otl_empty_response()]
-            ),
+            MagicMock(return_value=self._otl_empty_response()),
         )
 
         event = self.service.event("EVENT-FIXTURE-AAAA")
