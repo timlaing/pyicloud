@@ -54,6 +54,29 @@ _UNAUTHORIZED_STATUSES = (401, 403)
 _RATE_LIMITED_STATUS = 429
 
 
+def _retry_after_of(exc: PyiCloudAPIResponseException) -> float | None:
+    """Return the ``Retry-After`` Apple sent with a rate limit, if any.
+
+    The session attaches the response to the exception, so the header survives
+    the trip. Dropping it would leave callers backing off on a guess when Apple
+    has told them exactly how long to wait.
+    """
+
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    try:
+        header = response.headers.get("Retry-After")
+    except AttributeError:
+        return None
+    if not header:
+        return None
+    try:
+        return float(header)
+    except (TypeError, ValueError):
+        return None
+
+
 def _status_of(exc: PyiCloudAPIResponseException) -> int | None:
     """Return the exception's status as an int, whichever form it arrived in.
 
@@ -168,7 +191,9 @@ class CloudKitInvitesClient:
             if status in _UNAUTHORIZED_STATUSES:
                 raise InvitesAuthError(str(exc)) from cause
             if status == _RATE_LIMITED_STATUS:
-                raise InvitesRateLimited(str(exc)) from cause
+                raise InvitesRateLimited(
+                    str(exc), retry_after=_retry_after_of(exc)
+                ) from cause
             raise InvitesApiError(str(exc)) from cause
         raise exc
 
@@ -340,7 +365,13 @@ class CloudKitInvitesClient:
             url = f"{url}?{urlencode(params)}"
         LOGGER.debug("CloudKit Invites POST %s", path)
 
-        resp = self._session.post(url, json=payload, timeout=self._timeout)
+        try:
+            resp = self._session.post(url, json=payload, timeout=self._timeout)
+        except PyiCloudAPIResponseException as exc:
+            # Same trap as the scoped wrappers above: PyiCloudSession raises on
+            # a non-ok JSON response, so every status check below is dead code
+            # for a 4xx. Map it the way those checks would have.
+            self._raise_invites_error(exc)
         code = getattr(resp, "status_code", 0)
         if not isinstance(code, int):
             code = 200
