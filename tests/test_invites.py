@@ -525,20 +525,26 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertTrue(all(e.scope is EventScope.PRIVATE for e in events))
 
     def test_event_full_lookup_includes_share_and_rsvps(self) -> None:
-        """A full event lookup returns share and RSVP details."""
-        # Service tries private first; lookup returns event + share, RSVP
-        # query returns one RSVP, OTL query returns empty.
+        """A full event lookup returns share and RSVP details.
+
+        RSVPs come from the zone's changes feed, like `rsvps()`; the one-time
+        link records still come from a query.
+        """
         self._monkeypatch.setattr(
             self.service.raw,
             "lookup",
             MagicMock(return_value=self._event_lookup_response()),
         )
+        rsvp_page = self._rsvp_zone_page(
+            load_invites_fixture("rsvp_query_response.json")["records"]
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "iter_changes", MagicMock(return_value=iter([rsvp_page]))
+        )
         self._monkeypatch.setattr(
             self.service.raw,
             "query",
-            MagicMock(
-                side_effect=[self._rsvp_query_response(), self._otl_empty_response()]
-            ),
+            MagicMock(return_value=self._otl_empty_response()),
         )
 
         event = self.service.event("EVENT-FIXTURE-AAAA")
@@ -607,9 +613,17 @@ class InvitesServiceTest(unittest.TestCase):
             self.service.event("NO-SUCH-EVENT")
 
     def test_rsvps_returns_dtos(self) -> None:
-        """rsvps() returns DTOs scoped to the event's private sub-client."""
-        query_mock = MagicMock(return_value=self._rsvp_query_response())
-        self._monkeypatch.setattr(self.service.raw, "query", query_mock)
+        """rsvps() converts the zone's RSVP records into DTOs.
+
+        The fixture is the query response this method used to make; its records
+        are the same shape a zone-changes page returns, so it still describes
+        what Apple sends back.
+        """
+        page = self._rsvp_zone_page(
+            load_invites_fixture("rsvp_query_response.json")["records"]
+        )
+        changes = MagicMock(return_value=iter([page]))
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes)
         owner_event = Event(
             event_id="EVENT-FIXTURE-AAAA",
             scope=EventScope.PRIVATE,
@@ -624,10 +638,83 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(rsvp.status, RsvpStatus.GOING)
         self.assertEqual(rsvp.participant_id, "PARTICIPANT-FIXTURE-GUEST")
         self.assertEqual(rsvp.num_additional_adults, 1)
-        # rsvps() uses the event's scope to pick the right sub-client
-        query_mock.assert_called_once()
-        call = query_mock.call_args
-        self.assertEqual(call.args[0], "private")
+        # The event's scope still picks the sub-client.
+        self.assertEqual(changes.call_args.args[0], "private")
+
+    def _rsvp_zone_page(
+        self,
+        records: list[Any] | None = None,
+        *,
+        extra_types: bool = False,
+        more_coming: bool = False,
+    ) -> CKZoneChangesZone:
+        """One page of a zone's changes, holding an RSVP record."""
+        if records is None:
+            records = [
+                {
+                    "recordName": "P1.rsvp",
+                    "recordType": "RSVP",
+                    "fields": {"name": {"type": "STRING", "value": "Dana"}},
+                }
+            ]
+        if extra_types:
+            # A real zone returns the event and the share alongside the RSVPs.
+            records = [
+                *records,
+                {"recordName": "EventDetails:E", "recordType": "EventDetails"},
+                {"recordName": "cloudkit.zoneshare", "recordType": "cloudkit.share"},
+            ]
+        return CKZoneChangesZone.model_validate({
+            "zoneID": {"zoneName": "EVENT-FIXTURE-AAAA"},
+            "records": records,
+            "moreComing": more_coming,
+            "syncToken": "TOKEN",
+        })
+
+    def test_rsvps_are_read_through_zone_changes_not_a_query(self) -> None:
+        """An event's own zone rejects `records/query`.
+
+        The previous implementation queried the zone, which worked only for
+        events shared with you and returned 400 for every event you host.
+        """
+        query = MagicMock()
+        changes = MagicMock(return_value=iter([self._rsvp_zone_page()]))
+        self._monkeypatch.setattr(self.service.raw, "query", query)
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes)
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual(len(rsvps), 1)
+        query.assert_not_called()
+        zone_req = changes.call_args.kwargs["zone_req"]
+        self.assertEqual(zone_req.zoneID.zoneName, "EVENT-FIXTURE-AAAA")
+        self.assertEqual(zone_req.desiredRecordTypes, ["RSVP"])
+
+    def test_rsvps_ignores_the_other_records_a_zone_returns(self) -> None:
+        """A zone holds its event and share too; only RSVPs are wanted.
+
+        `desiredRecordTypes` is a request rather than a guarantee, so the
+        filter has to stand on its own.
+        """
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([self._rsvp_zone_page(extra_types=True)])),
+        )
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+
+        self.assertEqual(len(self.service.rsvps(event)), 1)
+
+    def test_rsvps_reads_every_page(self) -> None:
+        """A zone with more behind it must not lose the later responses."""
+        pages = [self._rsvp_zone_page(more_coming=True), self._rsvp_zone_page()]
+        self._monkeypatch.setattr(
+            self.service.raw, "iter_changes", MagicMock(return_value=iter(pages))
+        )
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.SHARED)
+
+        self.assertEqual(len(self.service.rsvps(event)), 2)
 
     def test_resolve_returns_resolved_share(self) -> None:
         """resolve() returns the resolved share details."""
