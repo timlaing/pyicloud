@@ -16,6 +16,7 @@ from pyicloud.session import PyiCloudSession
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
 from .models import (
     CKDatabaseChangesResponse,
+    CKErrorItem,
     CKLookupDescriptor,
     CKLookupRequest,
     CKLookupResponse,
@@ -265,6 +266,34 @@ class _CloudKitHTTP:
                     close()
 
 
+def _raise_for_record_errors(response: CKModifyResponse) -> None:
+    """Raise when CloudKit reported a per-record failure inside a 200 response.
+
+    CloudKit answers ``200`` for a modify whose records were rejected, and puts
+    the reason in the record entry. Callers looking for their record by name
+    find a ``CKErrorItem`` instead, and every one of them silently skipped it:
+    a rejected write surfaced as a missing record, or as nothing at all.
+
+    Raising here means the reason Apple gave -- "Attempt to save encrypted data
+    in non encrypted field type", say -- reaches the caller instead of being
+    replaced by a guess about the response shape.
+    """
+
+    errors = [record for record in response.records if isinstance(record, CKErrorItem)]
+    if not errors:
+        return
+
+    detail = "; ".join(
+        f"{error.recordName or '<unnamed>'}: {error.serverErrorCode}"
+        + (f" ({error.reason})" if error.reason else "")
+        for error in errors
+    )
+    raise CloudKitApiError(
+        f"CloudKit rejected {len(errors)} record(s) -- {detail}",
+        payload=response.model_dump(mode="json", exclude_none=True),
+    )
+
+
 class CloudKitContainerClient:
     """Typed CloudKit client for a single container/environment/scope."""
 
@@ -436,12 +465,14 @@ class CloudKitContainerClient:
         ).model_dump(mode="json", exclude_none=True)
         data = self._http.post("/records/modify", payload)
         try:
-            return self._validate_response(CKModifyResponse, data)
+            response = self._validate_response(CKModifyResponse, data)
         except ValidationError as exc:
             raise CloudKitApiError(
                 "Modify response validation failed",
                 payload=data,
             ) from exc
+        _raise_for_record_errors(response)
+        return response
 
     def zones_list(self) -> CKZoneListResponse:
         """List the container's zones and return the parsed response."""
