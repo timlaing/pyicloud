@@ -60,6 +60,17 @@ def load_invites_fixture(name: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _written_field(fields: Any, name: str) -> dict[str, Any]:
+    """Return one written field as a plain dict.
+
+    CKWriteRecord parses its fields into models, so a test asserting the wire
+    shape has to come back out through model_dump rather than indexing.
+    """
+
+    value = dict(fields)[name]
+    return value if isinstance(value, dict) else value.model_dump(exclude_none=True)
+
+
 class CodecsTest(unittest.TestCase):
     """Tests for invite codecs."""
 
@@ -452,6 +463,120 @@ class InvitesServiceTest(unittest.TestCase):
 
         self.assertEqual(zone_id.zoneName, "MISSING-ZONE")
         self.assertIsNone(zone_id.ownerRecordName)
+
+    def _hosted_event(self) -> Event:
+        """An event with the change tag a write needs."""
+        return Event(
+            event_id="EVENT-FIXTURE-AAAA",
+            scope=EventScope.PRIVATE,
+            record_change_tag="TAG-1",
+            title="Test event",
+        )
+
+    def _modify_echo(self, fields: dict[str, Any]) -> CKModifyResponse:
+        """A modify response echoing the written record, as Apple returns one."""
+        return CKModifyResponse.model_validate({
+            "records": [
+                {
+                    "recordName": "EventDetails:EVENT-FIXTURE-AAAA",
+                    "recordType": "EventDetails",
+                    "recordChangeTag": "TAG-2",
+                    "fields": fields,
+                }
+            ]
+        })
+
+    def test_cancelling_writes_an_unencrypted_int_flag(self) -> None:
+        """`isCancelled` is INT64 and not encrypted on a live record.
+
+        Apple accepts the wrong encryption flag without complaint, so this is
+        pinned rather than left to the RSVP writer's convention, which encrypts
+        everything.
+        """
+        modify = MagicMock(
+            return_value=self._modify_echo({
+                "isCancelled": {"type": "INT64", "value": 1}
+            })
+        )
+        self._monkeypatch.setattr(self.service.raw, "modify", modify)
+
+        result = self.service.cancel(self._hosted_event())
+
+        written = modify.call_args.kwargs["operations"][0].record
+        self.assertEqual(written.recordType, "EventDetails")
+        self.assertEqual(written.recordName, "EventDetails:EVENT-FIXTURE-AAAA")
+        self.assertEqual(written.recordChangeTag, "TAG-1")
+        field = _written_field(written.fields, "isCancelled")
+        self.assertEqual(field["type"], "INT64")
+        self.assertEqual(field["value"], 1)
+        self.assertIsNone(field.get("isEncrypted"))
+        self.assertTrue(result.is_cancelled)
+
+    def test_publishing_writes_an_encrypted_int_flag(self) -> None:
+        """`isPublished` is encrypted where `isCancelled` is not."""
+        modify = MagicMock(
+            return_value=self._modify_echo({
+                "isPublished": {"type": "INT64", "value": 1, "isEncrypted": True}
+            })
+        )
+        self._monkeypatch.setattr(self.service.raw, "modify", modify)
+
+        self.service.publish(self._hosted_event())
+
+        written = modify.call_args.kwargs["operations"][0].record.fields
+        self.assertIs(_written_field(written, "isPublished")["isEncrypted"], True)
+
+    def test_a_flag_can_be_cleared_as_well_as_set(self) -> None:
+        """Symmetric booleans, so an accidental cancel is recoverable."""
+        modify = MagicMock(
+            return_value=self._modify_echo({
+                "isCancelled": {"type": "INT64", "value": 0}
+            })
+        )
+        self._monkeypatch.setattr(self.service.raw, "modify", modify)
+
+        result = self.service.cancel(self._hosted_event(), cancelled=False)
+
+        written = modify.call_args.kwargs["operations"][0].record.fields
+        self.assertEqual(_written_field(written, "isCancelled")["value"], 0)
+        self.assertFalse(result.is_cancelled)
+
+    def test_the_write_returns_the_new_change_tag(self) -> None:
+        """Callers need it to chain a second write without re-fetching."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "modify",
+            MagicMock(
+                return_value=self._modify_echo({
+                    "isCancelled": {"type": "INT64", "value": 1}
+                })
+            ),
+        )
+
+        result = self.service.cancel(self._hosted_event())
+
+        self.assertEqual(result.record_change_tag, "TAG-2")
+
+    def test_writing_without_a_change_tag_is_refused_locally(self) -> None:
+        """A listing does not carry one, and CloudKit would reject the write."""
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+        modify = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "modify", modify)
+
+        with self.assertRaises(InvitesApiError):
+            self.service.cancel(event)
+        modify.assert_not_called()
+
+    def test_a_modify_response_without_the_record_is_an_error(self) -> None:
+        """A 200 that does not echo the record back is not a success."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "modify",
+            MagicMock(return_value=CKModifyResponse.model_validate({"records": []})),
+        )
+
+        with self.assertRaises(InvitesApiError):
+            self.service.cancel(self._hosted_event())
 
     def test_a_status_code_maps_the_same_as_a_string_or_an_int(self) -> None:
         """`PyiCloudAPIResponseException.code` is typed `int | str | None`.

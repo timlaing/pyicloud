@@ -76,6 +76,16 @@ from .models.dto import (
 
 LOGGER = logging.getLogger(__name__)
 
+#: Whether Apple stores each EventDetails flag encrypted. Read off a live
+#: record rather than assumed: they are not uniform -- `isPublished` is
+#: encrypted where `isCancelled` is not -- and sending the wrong one back is
+#: accepted without complaint.
+_ENCRYPTED_EVENT_FLAGS: dict[EventDetailsField, bool] = {
+    EventDetailsField.IS_CANCELLED: False,
+    EventDetailsField.IS_PUBLISHED: True,
+    EventDetailsField.BLOCK_NEW_RSVPS: False,
+}
+
 
 class EventNotFound(InvitesError):
     """Raised when a requested event ID is not present in any scope."""
@@ -293,9 +303,84 @@ class InvitesService(BaseService):
         )
         return self._rsvp_from_modify_response(response, record_name)
 
+    def cancel(self, event: Event, *, cancelled: bool = True) -> Event:
+        """Cancel an event, or reinstate one that was cancelled.
+
+        Only the host can do this; Apple rejects the write for a guest.
+        """
+
+        return self._set_event_flag(event, EventDetailsField.IS_CANCELLED, cancelled)
+
+    def publish(self, event: Event, *, published: bool = True) -> Event:
+        """Publish an event, or return it to a draft state."""
+
+        return self._set_event_flag(event, EventDetailsField.IS_PUBLISHED, published)
+
     # ------------------------------------------------------------------
     # Internal: write helpers
     # ------------------------------------------------------------------
+
+    def _set_event_flag(
+        self, event: Event, field: EventDetailsField, value: bool
+    ) -> Event:
+        """Write one boolean flag on an event's ``EventDetails`` record.
+
+        Apple stores these as INT64 rather than a boolean type, and -- read off
+        a live record rather than assumed -- does not encrypt them uniformly:
+        ``isPublished`` is encrypted where ``isCancelled`` is not. Sending the
+        wrong one back is accepted silently, so the encryption travels with the
+        field rather than being applied to all of them alike.
+        """
+
+        if not event.record_change_tag:
+            raise InvitesApiError(
+                f"Event {event.event_id!r} has no record change tag; fetch it "
+                "via InvitesService.event(...) before writing to it."
+            )
+
+        payload: dict[str, Any] = {"type": "INT64", "value": int(value)}
+        if _ENCRYPTED_EVENT_FLAGS.get(field, False):
+            payload["isEncrypted"] = True
+
+        record_name = f"{EVENT_DETAILS_RECORD_NAME_PREFIX}{event.event_id}"
+        op = CKModifyOperation(
+            operationType="update",
+            record=CKWriteRecord(
+                recordName=record_name,
+                recordType=InvitesRecordType.EventDetails.value,
+                recordChangeTag=event.record_change_tag,
+                fields=cast(CKWriteFields, {field.value: payload}),
+            ),
+        )
+        response: CKModifyResponse = self._raw.modify(
+            self._scope_str(event.scope),
+            operations=[op],
+            zone_id=self._zone_id_req(event.event_id, event.scope),
+            atomic=True,
+        )
+        return self._event_from_modify_response(response, record_name, event.scope)
+
+    def _event_from_modify_response(
+        self, response: CKModifyResponse, record_name: str, scope: EventScope
+    ) -> Event:
+        """Pick the event record out of a modify response and convert it.
+
+        The result carries the new ``record_change_tag``, so a caller can chain
+        writes. Its ``share`` and ``rsvps`` are unset, as in ``events()`` --
+        the modify response returns the EventDetails record alone.
+        """
+
+        for record in response.records:
+            if (
+                isinstance(record, CKRecord)
+                and record.recordName == record_name
+                and record.recordType == InvitesRecordType.EventDetails.value
+            ):
+                return self._event_from_record(record, scope=scope)
+        raise InvitesApiError(
+            f"Modify response did not return {record_name!r}",
+            payload=response.model_dump(mode="json"),
+        )
 
     @staticmethod
     def _current_participant_id(event: Event) -> str:
