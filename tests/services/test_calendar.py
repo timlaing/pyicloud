@@ -2,7 +2,6 @@
 # pylint: disable=protected-access
 
 from datetime import datetime
-import os
 import time
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -725,7 +724,6 @@ def test_event_duration_is_wall_clock_across_dst(
     derived via ``datetime.timestamp()``, which folds in the process timezone
     and reports a shorter duration across a DST transition.
     """
-    original_tz = os.environ.get("TZ")
     monkeypatch.setenv("TZ", "America/New_York")
     time.tzset()
     try:
@@ -740,10 +738,7 @@ def test_event_duration_is_wall_clock_across_dst(
         # would instead report only 60 in the America/New_York timezone.
         assert event.duration == 120
     finally:
-        if original_tz is None:
-            monkeypatch.delenv("TZ", raising=False)
-        else:
-            monkeypatch.setenv("TZ", original_tz)
+        monkeypatch.undo()
         time.tzset()
 
 
