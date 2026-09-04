@@ -19,6 +19,7 @@ from pyicloud.common.cloudkit import (
     CKModifyResponse,
     CKQueryResponse,
     CKZoneChangesZone,
+    CKZoneIDReq,
     CKZoneListResponse,
 )
 from pyicloud.exceptions import PyiCloudAPIResponseException
@@ -38,12 +39,20 @@ from pyicloud.services.invites.client import (
     CloudKitInvitesClient,
     InvitesApiError,
     InvitesAuthError,
+    InvitesEntitlementError,
+    InvitesError,
     InvitesRateLimited,
 )
 from pyicloud.services.invites.codecs import (
     decode_integrations,
     decode_json_bytes,
     encode_json_bytes,
+)
+from pyicloud.services.invites.entitlement import (
+    CREATE_EVENT_FEATURE,
+    GATEWAY_BASE_URL,
+    FeatureAccess,
+    parse_feature_access,
 )
 from pyicloud.services.invites.service import EventNotFound
 
@@ -949,6 +958,338 @@ class RsvpWriteTest(unittest.TestCase):
 
         # Validation must run before any wire call.
         modify_mock.assert_not_called()
+
+
+def _cancellable_event(scope: EventScope = EventScope.PRIVATE) -> Event:
+    """Build an Event carrying the change tag a write needs."""
+    return Event(
+        event_id="EVENT-FIXTURE-AAAA",
+        scope=scope,
+        time=EventTime(start=datetime(2026, 1, 15, tzinfo=timezone.utc)),
+        record_change_tag="fixtureA1",
+    )
+
+
+class CancelTest(unittest.TestCase):
+    """Tests for cancelling and reinstating an event."""
+
+    def setUp(self) -> None:
+        self.service = InvitesService(
+            service_root="https://example.com",
+            session=MagicMock(),
+            params={},
+        )
+        self.modify_response = CKModifyResponse.model_validate(
+            load_invites_fixture("event_cancel_modify_response.json")
+        )
+        self.service._feature_access = FeatureAccess(
+            feature_key=CREATE_EVENT_FEATURE,
+            can_use=True,
+            access_token="token-fixture",
+            cache_till=datetime(2099, 1, 1, tzinfo=timezone.utc),
+        )
+
+    @pytest.fixture(autouse=True)
+    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Expose pytest's monkeypatch fixture to unittest-style tests."""
+        self._monkeypatch = monkeypatch
+
+    def _patch_wire(self, share_tag: str | None = "shareFixtureA1") -> MagicMock:
+        """Stub the modify call and the share change-tag lookup."""
+        modify_mock = MagicMock(return_value=self.modify_response)
+        self._monkeypatch.setattr(self.service.raw, "modify", modify_mock)
+        self._monkeypatch.setattr(
+            self.service, "_share_change_tag", lambda *_: share_tag
+        )
+        return modify_mock
+
+    def test_cancel_sets_the_flag_on_event_and_share(self) -> None:
+        """cancel() writes isCancelled to the event and its share at once."""
+        modify_mock = self._patch_wire()
+
+        result = self.service.cancel(_cancellable_event())
+
+        self.assertTrue(result.is_cancelled)
+        self.assertEqual(result.record_change_tag, "fixtureA2")
+
+        call = modify_mock.call_args
+        self.assertEqual(call.args[0], "private")
+        self.assertIs(call.kwargs["atomic"], True)
+        ops = call.kwargs["operations"]
+        self.assertEqual(
+            [(op.record.recordName, op.record.recordType) for op in ops],
+            [
+                ("EventDetails:EVENT-FIXTURE-AAAA", "EventDetails"),
+                ("cloudkit.zoneshare", "cloudkit.share"),
+            ],
+        )
+        for op in ops:
+            self.assertEqual(op.operationType, "update")
+            field = op.record.fields.get("isCancelled")
+            self.assertIsNotNone(field)
+            assert field is not None
+            self.assertEqual(field.value, 1)
+        self.assertEqual(ops[0].record.recordChangeTag, "fixtureA1")
+        self.assertEqual(ops[1].record.recordChangeTag, "shareFixtureA1")
+
+    def test_cancel_false_reinstates_the_event(self) -> None:
+        """cancel(cancelled=False) writes a zero rather than skipping."""
+        modify_mock = self._patch_wire()
+
+        self.service.cancel(_cancellable_event(), cancelled=False)
+
+        for op in modify_mock.call_args.kwargs["operations"]:
+            field = op.record.fields.get("isCancelled")
+            assert field is not None
+            self.assertEqual(field.value, 0)
+
+    def test_cancel_sends_the_entitlement_token_as_a_hint(self) -> None:
+        """The event write carries the token Apple demands, and only there."""
+        modify_mock = self._patch_wire()
+
+        self.service.cancel(_cancellable_event())
+
+        ops = modify_mock.call_args.kwargs["operations"]
+        hint = ops[0].record.fields.get("hint")
+        self.assertIsNotNone(hint)
+        assert hint is not None
+        self.assertEqual(
+            json.loads(str(hint.value)),
+            {"subscriptionAccessToken": "token-fixture"},
+        )
+        # The share record is not gated on the token and must not carry it.
+        self.assertNotIn("hint", ops[1].record.fields)
+
+    def test_cancel_writes_the_event_when_the_share_is_unreadable(self) -> None:
+        """An unreadable share still lets the event itself be cancelled."""
+        modify_mock = self._patch_wire(share_tag=None)
+
+        self.service.cancel(_cancellable_event())
+
+        ops = modify_mock.call_args.kwargs["operations"]
+        self.assertEqual(len(ops), 1)
+        self.assertEqual(ops[0].record.recordType, "EventDetails")
+
+    def test_cancel_uses_the_shared_scope_for_a_shared_event(self) -> None:
+        """A shared event is written through the shared database."""
+        modify_mock = self._patch_wire()
+        self._monkeypatch.setattr(
+            self.service, "_shared_zone_owner", lambda _: "_FAKE_OWNER"
+        )
+
+        self.service.cancel(_cancellable_event(scope=EventScope.SHARED))
+
+        self.assertEqual(modify_mock.call_args.args[0], "shared")
+
+    def test_cancel_rejects_an_event_without_a_change_tag(self) -> None:
+        """An event carrying no change tag is refused before any wire call."""
+        modify_mock = self._patch_wire()
+        event = _cancellable_event()
+        event = event.model_copy(update={"record_change_tag": None})
+
+        with self.assertRaises(InvitesApiError):
+            self.service.cancel(event)
+
+        modify_mock.assert_not_called()
+
+    def test_cancel_raises_when_the_event_is_missing_from_the_response(self) -> None:
+        """A response without the event record is an error, not a silent pass."""
+        self._patch_wire()
+        empty = CKModifyResponse.model_validate({"records": []})
+        self._monkeypatch.setattr(
+            self.service.raw, "modify", MagicMock(return_value=empty)
+        )
+
+        with self.assertRaises(InvitesApiError):
+            self.service.cancel(_cancellable_event())
+
+    def test_share_change_tag_reads_the_tag_off_the_share_record(self) -> None:
+        """The share's own change tag comes back from the zone lookup."""
+        lookup = CKLookupResponse.model_validate(
+            load_invites_fixture("event_lookup_response.json")
+        )
+        self._monkeypatch.setattr(
+            self.service.raw, "lookup", MagicMock(return_value=lookup)
+        )
+
+        tag = self.service._share_change_tag(
+            "private", CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+        )
+
+        self.assertEqual(tag, "shareA1")
+
+    def test_share_change_tag_is_none_when_the_lookup_fails(self) -> None:
+        """A failed share lookup degrades to None instead of propagating."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(side_effect=InvitesApiError("nope")),
+        )
+
+        tag = self.service._share_change_tag(
+            "private", CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+        )
+
+        self.assertIsNone(tag)
+
+
+class FeatureAccessRequestTest(unittest.TestCase):
+    """Tests for the raw entitlement-gateway call."""
+
+    def _client(self, session: MagicMock) -> CloudKitInvitesClient:
+        return CloudKitInvitesClient(
+            "https://example.com/database/1/container/env",
+            session,
+            {"dsid": "12345"},
+        )
+
+    def test_feature_access_asks_the_gateway_for_one_feature(self) -> None:
+        """The account's own gateway URL is called with the feature header."""
+        session = MagicMock()
+        session.get.return_value.json.return_value = [
+            {
+                "featureKey": CREATE_EVENT_FEATURE,
+                "canUse": True,
+                "accessToken": "token-fixture",
+                "cacheTill": "2100-01-01T00:00:00Z",
+            }
+        ]
+
+        access = self._client(session).feature_access(CREATE_EVENT_FEATURE)
+
+        self.assertEqual(access.access_token, "token-fixture")
+        url = session.get.call_args.args[0]
+        self.assertEqual(
+            url,
+            f"{GATEWAY_BASE_URL}/accounts/12345/subscriptions/features",
+        )
+        self.assertEqual(
+            session.get.call_args.kwargs["headers"],
+            {"x-apple-softwarecapabilityflags": CREATE_EVENT_FEATURE},
+        )
+
+    def test_feature_access_wraps_a_non_json_reply(self) -> None:
+        """An HTML error page from the gateway surfaces as an Invites error."""
+        session = MagicMock()
+        session.get.return_value.json.side_effect = ValueError("not json")
+
+        with self.assertRaises(InvitesApiError):
+            self._client(session).feature_access(CREATE_EVENT_FEATURE)
+
+    def test_feature_access_translates_transport_errors(self) -> None:
+        """A transport failure is reported as an Invites error, not a raw one."""
+        session = MagicMock()
+        session.get.side_effect = PyiCloudAPIResponseException("boom", code="500")
+
+        with self.assertRaises(InvitesError):
+            self._client(session).feature_access(CREATE_EVENT_FEATURE)
+
+
+class EntitlementTokenTest(unittest.TestCase):
+    """Tests for fetching and caching the event-editing entitlement."""
+
+    def setUp(self) -> None:
+        self.service = InvitesService(
+            service_root="https://example.com",
+            session=MagicMock(),
+            params={},
+        )
+
+    @pytest.fixture(autouse=True)
+    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Expose pytest's monkeypatch fixture to unittest-style tests."""
+        self._monkeypatch = monkeypatch
+
+    def _stub_gateway(self, access: FeatureAccess) -> MagicMock:
+        fetch = MagicMock(return_value=access)
+        self._monkeypatch.setattr(self.service.raw, "feature_access", fetch)
+        return fetch
+
+    def test_token_is_fetched_once_while_it_stays_valid(self) -> None:
+        """A live grant is reused instead of fetched again on every write."""
+        fetch = self._stub_gateway(
+            FeatureAccess(
+                feature_key=CREATE_EVENT_FEATURE,
+                can_use=True,
+                access_token="token-fixture",
+                cache_till=datetime(2099, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+
+        self.assertEqual(self.service._entitlement_token(), "token-fixture")
+        self.assertEqual(self.service._entitlement_token(), "token-fixture")
+
+        fetch.assert_called_once_with(CREATE_EVENT_FEATURE)
+
+    def test_expired_token_is_fetched_again(self) -> None:
+        """A grant past its cacheTill is replaced rather than reused."""
+        fetch = self._stub_gateway(
+            FeatureAccess(
+                feature_key=CREATE_EVENT_FEATURE,
+                can_use=True,
+                access_token="token-fixture",
+                cache_till=datetime(2000, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+
+        self.service._entitlement_token()
+        self.service._entitlement_token()
+
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_account_without_the_feature_raises_before_writing(self) -> None:
+        """An account Apple will not let edit events fails with its own error."""
+        self._stub_gateway(
+            FeatureAccess(feature_key=CREATE_EVENT_FEATURE, can_use=False)
+        )
+
+        with self.assertRaises(InvitesEntitlementError):
+            self.service._entitlement_token()
+
+    def test_feature_access_reads_the_gateway_payload(self) -> None:
+        """The gateway's list payload is parsed into the matching feature."""
+        access = parse_feature_access(
+            [
+                {"featureKey": "apps.rsvp.other", "canUse": False},
+                {
+                    "featureKey": CREATE_EVENT_FEATURE,
+                    "canUse": True,
+                    "accessToken": "token-fixture",
+                    "cacheTill": "2100-01-01T00:00:00Z",
+                },
+            ],
+            CREATE_EVENT_FEATURE,
+        )
+
+        self.assertTrue(access.can_use)
+        self.assertEqual(access.access_token, "token-fixture")
+        self.assertEqual(access.cache_till, datetime(2100, 1, 1, tzinfo=timezone.utc))
+        self.assertTrue(access.usable_at(datetime(2026, 1, 1, tzinfo=timezone.utc)))
+
+    def test_feature_access_defaults_to_unusable_when_absent(self) -> None:
+        """A payload without the feature is treated as no entitlement."""
+        access = parse_feature_access([], CREATE_EVENT_FEATURE)
+
+        self.assertFalse(access.can_use)
+        self.assertIsNone(access.access_token)
+
+    def test_feature_access_survives_an_unparsable_cache_till(self) -> None:
+        """A grant Apple dates oddly is kept, but never treated as cached."""
+        access = parse_feature_access(
+            [
+                {
+                    "featureKey": CREATE_EVENT_FEATURE,
+                    "canUse": True,
+                    "accessToken": "token-fixture",
+                    "cacheTill": 4102444800000,
+                }
+            ],
+            CREATE_EVENT_FEATURE,
+        )
+
+        self.assertTrue(access.can_use)
+        self.assertIsNone(access.cache_till)
+        self.assertFalse(access.usable_at(datetime(2026, 1, 1, tzinfo=timezone.utc)))
 
 
 if __name__ == "__main__":
