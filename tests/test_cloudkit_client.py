@@ -7,7 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pyicloud.common.cloudkit import CKQueryObject, CKZoneIDReq
+from pyicloud.common.cloudkit import (
+    CKModifyOperation,
+    CKQueryObject,
+    CKWriteRecord,
+    CKZoneIDReq,
+)
 from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
     CloudKitContainerClient,
@@ -176,3 +181,81 @@ def test_cloudkit_client_download_asset_stream_closes_on_error() -> None:
         list(client.download_asset_stream("https://example.com/asset"))
 
     response.close.assert_called_once()
+
+
+def _modify_op() -> CKModifyOperation:
+    """One trivial update operation, enough to send a modify."""
+
+    return CKModifyOperation(
+        operationType="update",
+        record=CKWriteRecord(recordName="R1", recordType="Thing"),
+    )
+
+
+def test_a_rejected_record_raises_with_apples_reason() -> None:
+    """CloudKit reports write failures per record, inside a 200 response.
+
+    Every caller looked for its record by name, found a CKErrorItem instead of
+    a CKRecord, and skipped it -- so a rejected write surfaced as a missing
+    record or as nothing at all. The reason Apple gave has to reach the caller.
+    """
+
+    session = MagicMock()
+    session.post.return_value = _json_response({
+        "records": [
+            {
+                "recordName": "EventDetails:E1",
+                "serverErrorCode": "BAD_REQUEST",
+                "reason": "Attempt to save encrypted data in non encrypted field type",
+            }
+        ]
+    })
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+
+    with pytest.raises(CloudKitApiError) as exc_info:
+        client.modify(operations=[_modify_op()], zone_id=CKZoneIDReq(zoneName="Z"))
+
+    message = str(exc_info.value)
+    assert "BAD_REQUEST" in message
+    assert "encrypted data in non encrypted field type" in message
+    assert "EventDetails:E1" in message
+
+
+def test_every_rejected_record_is_named() -> None:
+    """A batch that fails in more than one way should say so once."""
+
+    session = MagicMock()
+    session.post.return_value = _json_response({
+        "records": [
+            {"recordName": "A", "serverErrorCode": "BAD_REQUEST", "reason": "bad"},
+            {"recordName": "B", "serverErrorCode": "CONFLICT"},
+        ]
+    })
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+
+    with pytest.raises(CloudKitApiError) as exc_info:
+        client.modify(operations=[_modify_op()], zone_id=CKZoneIDReq(zoneName="Z"))
+
+    message = str(exc_info.value)
+    assert "2 record(s)" in message
+    assert "A: BAD_REQUEST (bad)" in message
+    assert "B: CONFLICT" in message
+
+
+def test_a_successful_modify_still_returns_its_records() -> None:
+    """The guard must not disturb the path that already worked."""
+
+    session = MagicMock()
+    session.post.return_value = _json_response({
+        "records": [
+            {"recordName": "R1", "recordType": "Thing", "recordChangeTag": "TAG"}
+        ]
+    })
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+
+    response = client.modify(
+        operations=[_modify_op()], zone_id=CKZoneIDReq(zoneName="Z")
+    )
+
+    assert len(response.records) == 1
+    assert response.records[0].recordName == "R1"
