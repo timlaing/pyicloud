@@ -357,3 +357,72 @@ def search_notes_by_title(  # noqa: S3776
 
     candidates.sort(key=sort_key, reverse=True)
     return candidates[:limit]
+
+
+def normalize_invite_event(event: Any) -> dict[str, Any]:
+    """Normalize one Invites event for listing."""
+
+    time = getattr(event, "time", None)
+    place = getattr(event, "place", None)
+    return {
+        "event_id": event.event_id,
+        "scope": event.scope.value,
+        "title": event.title,
+        "host_display_name": event.host_display_name,
+        "starts_at": getattr(time, "start", None),
+        "ends_at": getattr(time, "end", None),
+        "is_all_day": getattr(time, "is_all_day", None),
+        "location": getattr(place, "title", None),
+        "is_cancelled": event.is_cancelled,
+    }
+
+
+def normalize_invite_event_details(event: Any) -> dict[str, Any]:
+    """Normalize one Invites event with its share, for a single-event view."""
+
+    share = getattr(event, "share", None)
+    place = getattr(event, "place", None)
+    payload = normalize_invite_event(event)
+    payload.update({
+        "notes": event.notes,
+        "is_published": event.is_published,
+        "is_private": event.is_private,
+        "block_new_rsvps": event.block_new_rsvps,
+        "max_attendees": event.max_attendees,
+        "city": getattr(place, "city", None),
+        "share_short_guid": getattr(share, "short_guid", None),
+        "share_url": getattr(share, "url", None),
+        "participant_count": len(getattr(share, "participants", ()) or ()),
+    })
+    return payload
+
+
+def normalize_invite_rsvp(rsvp: Any) -> dict[str, Any]:
+    """Normalize one Invites RSVP."""
+
+    return {
+        "participant_id": rsvp.participant_id,
+        "name": rsvp.name,
+        "status": rsvp.status.name,
+        "message": rsvp.message,
+        "additional_adults": rsvp.num_additional_adults,
+        "additional_kids": rsvp.num_additional_kids,
+    }
+
+
+def normalize_invite_share(share: Any) -> dict[str, Any]:
+    """Normalize a resolved invite link.
+
+    ``participant_status`` and friends are plain strings from Apple here,
+    unlike the enums used elsewhere in the Invites service.
+    """
+
+    return {
+        "short_guid": share.short_guid,
+        "event_id": share.event_id,
+        "owner_given_name": share.owner_given_name,
+        "owner_family_name": share.owner_family_name,
+        "participant_status": share.participant_status,
+        "participant_type": share.participant_type,
+        "participant_permission": share.participant_permission,
+    }

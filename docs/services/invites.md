@@ -76,6 +76,26 @@ enums used elsewhere in this service.
 `resolve()` only looks; `accept()` joins the event, after which it appears in
 `events()` with the shared scope.
 
+## Command line
+
+```console
+icloud invites list
+icloud invites show 1F9D5936
+icloud invites rsvps 1F9D5936
+icloud invites resolve 008ABCDEFGHIJ
+```
+
+`list` shows events you host and events shared with you, with start times
+rendered in each event's own timezone (UTC when the event carries none).
+`show` and `rsvps` take a full event id or any unambiguous prefix of one,
+since the listing truncates ids to fit the terminal. `resolve` previews an
+invite link — or just its trailing id — without joining it.
+
+Every command is read-only, and each accepts `--format json`. Responding to an
+invitation and joining one from a link are available on the service
+(`api.invites.rsvp()` and `api.invites.accept()`) but not yet on the command
+line.
+
 ## Errors
 
 Every call raises a subclass of `InvitesError`: `InvitesAuthError` when the
