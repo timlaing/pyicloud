@@ -10,7 +10,7 @@ It is strictly read-only. Nothing here writes to the account.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlparse
 
 import typer
@@ -31,10 +31,15 @@ from pyicloud.cli.options import (
 )
 from pyicloud.cli.output import console_kv_table, console_table
 from pyicloud.diagnostics import (
+    SERVICE_PROBES,
+    ProbeResult,
+    ProbeStatus,
     WebserviceFinding,
     WebserviceStatus,
     diagnose_webservices,
     environment,
+    probe_failures,
+    probe_services,
     services_at_risk,
     webservice_problems,
 )
@@ -47,6 +52,28 @@ STATUS_LABELS: dict[WebserviceStatus, str] = {
     WebserviceStatus.MALFORMED: "MALFORMED",
     WebserviceStatus.UNUSED: "unused",
 }
+
+PROBE_LABELS: dict[ProbeStatus, str] = {
+    ProbeStatus.OK: "ok",
+    ProbeStatus.UNAVAILABLE: "unavailable",
+    ProbeStatus.AUTH: "auth",
+    ProbeStatus.GONE: "GONE",
+    ProbeStatus.ERROR: "ERROR",
+    ProbeStatus.SKIPPED: "skipped",
+}
+
+ProbeOption = Annotated[
+    bool,
+    typer.Option(
+        "--probe",
+        help=(
+            "Additionally call each service once with a read-only request. "
+            "Catches an endpoint that has been withdrawn behind a host Apple "
+            "still advertises, at the cost of one request per service."
+        ),
+        rich_help_panel="Output & Diagnostics",
+    ),
+]
 
 
 def _session_report(state: CLIState) -> tuple[dict[str, Any], PyiCloudService | None]:
@@ -107,6 +134,18 @@ def _finding_payload(finding: WebserviceFinding) -> dict[str, Any]:
         "url": finding.url,
         "detail": finding.detail,
         "is_problem": finding.is_problem,
+    }
+
+
+def _probe_payload(result: ProbeResult) -> dict[str, Any]:
+    """Render one probe result as JSON-friendly data."""
+
+    return {
+        "service": result.service,
+        "status": result.status.value,
+        "detail": result.detail,
+        "elapsed_ms": result.elapsed_ms,
+        "is_failure": result.is_failure,
     }
 
 
@@ -217,10 +256,45 @@ def _print_webservices(
             state.console.print(f"  {finding.key}: {finding.detail}")
 
 
+def _print_probes(state: CLIState, results: tuple[ProbeResult, ...]) -> None:
+    """Render the probe section."""
+
+    state.console.print(
+        console_table(
+            "Service probes",
+            ["Status", "Service", "Read", "ms"],
+            [
+                (
+                    PROBE_LABELS[result.status],
+                    result.service,
+                    _probe_description(result.service),
+                    result.elapsed_ms or "",
+                )
+                for result in results
+            ],
+        )
+    )
+
+    noteworthy = [result for result in results if result.detail]
+    if noteworthy:
+        state.console.print("\nProbe notes:")
+        for result in noteworthy:
+            state.console.print(f"  {result.service}: {result.detail}")
+
+
+def _probe_description(service: str) -> str:
+    """Return what the probe for a service actually did."""
+
+    return next(
+        (probe.describe for probe in SERVICE_PROBES if probe.service == service), ""
+    )
+
+
 def _print_verdict(
     state: CLIState,
     findings: tuple[WebserviceFinding, ...],
     session: dict[str, Any],
+    probes: tuple[ProbeResult, ...],
 ) -> None:
     """Render the closing line, which is the part that tells the user what to do."""
 
@@ -234,18 +308,32 @@ def _print_verdict(
         return
 
     problems = webservice_problems(findings)
-    if not problems:
+    failed_probes = probe_failures(probes)
+
+    if not problems and not failed_probes:
+        # The wording has to stay honest about what was actually checked: with
+        # no probes, a healthy map is weaker evidence than it sounds.
+        checked = (
+            "Apple is advertising every service this version of pyicloud "
+            "needs, and each one answered."
+            if probes
+            else "Apple is advertising every service this version of pyicloud "
+            "needs. Nothing was called; add --probe to test the endpoints "
+            "themselves."
+        )
         state.console.print(
-            "\nNo problems found. Apple is advertising every service this "
-            "version of pyicloud needs.\nIf something is still failing, the "
-            f"cause is not in the service map — please report it at "
-            f"{ISSUE_TRACKER} and include this output."
+            f"\nNo problems found. {checked}\nIf something is still failing, "
+            f"please report it at {ISSUE_TRACKER} and include this output."
         )
         return
 
-    at_risk = ", ".join(services_at_risk(findings)) or "none"
+    at_risk = sorted({
+        *services_at_risk(findings),
+        *(result.service for result in failed_probes),
+    })
+    count = len(problems) + len(failed_probes)
     state.console.print(
-        f"\n{len(problems)} problem(s) found, affecting: {at_risk}.\n"
+        f"\n{count} problem(s) found, affecting: {', '.join(at_risk) or 'none'}.\n"
         "This is Apple's side rather than your configuration, which usually "
         f"means pyicloud needs updating — please report it at {ISSUE_TRACKER} "
         "and include this output."
@@ -258,15 +346,19 @@ def doctor(  # noqa: PLR0913
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
     https_proxy: HttpsProxyOption = None,
+    probe: ProbeOption = False,
     no_verify_ssl: NoVerifySslOption = False,
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Check the local install, the session, and Apple's advertised services.
 
-    Read-only: nothing here modifies the account. Exits non-zero when a problem
-    is found, and also when there is no session, since the checks that matter
-    could not be run at all.
+    Read-only: nothing here modifies the account. With --probe it additionally
+    calls each service once, which is the only way to catch an endpoint that
+    has been withdrawn behind a host Apple still advertises.
+
+    Exits non-zero when a problem is found, and also when there is no session,
+    since the checks that matter could not be run at all.
     """
 
     store_command_options(
@@ -294,10 +386,18 @@ def doctor(  # noqa: PLR0913
         else ()
     )
     problems = webservice_problems(findings)
+    # Gated on the session too, for the same reason the findings are: calling
+    # every service with a session that reports unauthenticated would produce
+    # a page of failures that say nothing about the library.
+    probes = (
+        probe_services(api, findings)
+        if (probe and api is not None and authenticated)
+        else ()
+    )
     # Not being logged in is not a defect, but it does mean nothing was
     # verified -- reporting that as success would mislead anything scripting
     # against the exit code.
-    ok = bool(session["authenticated"]) and not problems
+    ok = authenticated and not problems and not probe_failures(probes)
 
     if state.json_output:
         state.write_json({
@@ -305,6 +405,7 @@ def doctor(  # noqa: PLR0913
             "environment": env,
             "session": session,
             "webservices": [_finding_payload(finding) for finding in findings],
+            "probes": [_probe_payload(result) for result in probes],
             "services_at_risk": list(services_at_risk(findings)),
         })
     else:
@@ -314,7 +415,10 @@ def doctor(  # noqa: PLR0913
         if findings:
             state.console.print()
             _print_webservices(state, findings)
-        _print_verdict(state, findings, session)
+        if probes:
+            state.console.print()
+            _print_probes(state, probes)
+        _print_verdict(state, findings, session, probes)
 
     if not ok:
         raise typer.Exit(code=1)

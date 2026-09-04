@@ -375,6 +375,41 @@ Services Apple advertises that pyicloud does not wrap are listed as
 context rather than as problems, and `--format json` returns the whole
 report, including every finding, for use in bug reports and scripts.
 
+### Probing the services (`--probe`)
+
+The service map only shows what Apple _advertises_. A host can be
+advertised and reachable while the endpoint behind it has been withdrawn,
+which is what happened to the Photos upload endpoint. `--probe` catches
+that by additionally calling each service once with a read-only request:
+
+```console
+icloud doctor --probe
+```
+
+```text
+                             Service probes
+┌─────────────┬─────────────┬────────────────────────────────────┬──────┐
+│ Status      │ Service     │ Read                               │ ms   │
+├─────────────┼─────────────┼────────────────────────────────────┼──────┤
+│ ok          │ account     │ reads storage usage                │ 537  │
+│ ok          │ devices     │ refreshes Find My without locating │ 633  │
+│ unavailable │ files       │ reads the Ubiquity root            │ 83   │
+│ ok          │ reminders   │ reads the reminders sync cursor    │ 336  │
+└─────────────┴─────────────┴────────────────────────────────────┴──────┘
+```
+
+It is opt-in because it makes one real request per service — roughly ten
+seconds in total. Every probe is a GET or the service's own documented
+refresh; none of them writes, and Find My is refreshed without asking your
+devices to report their location.
+
+Two outcomes are shown but do not fail the run, because neither is a
+pyicloud defect: `unavailable` means Apple reports the service as
+unavailable for your account (a Ubiquity library migrated to iCloud Drive,
+for example), and `auth` means the session needs re-authenticating.
+A service whose webservice key was already reported missing is marked
+`skipped` rather than called.
+
 ## Account
 
 You can access information about your iCloud account using the `account` property:

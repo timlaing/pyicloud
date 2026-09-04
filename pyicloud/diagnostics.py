@@ -15,19 +15,35 @@ it reads a map that authentication has already fetched.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 import platform
 import sys
-from typing import Any
+import time
+from typing import TYPE_CHECKING, Any
 
 from pyicloud.endpoints import WEBSERVICES, services_using
+from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
+    PyiCloudFailedLoginException,
+    PyiCloudServiceUnavailable,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance only
+    from pyicloud.base import PyiCloudService
 
 ACTIVE_STATUS = "active"
 UNKNOWN_VERSION = "unknown"
+
+# Apple answers a withdrawn endpoint with 410 rather than 404, which makes it an
+# unambiguous signal that the library needs updating. Kept local because #334
+# adds the same constant to pyicloud.exceptions; this can defer to it once that
+# merges, and until then the check works on `main` unchanged.
+GONE_STATUS = 410
 
 
 def installed_version() -> str:
@@ -239,3 +255,186 @@ def services_at_risk(
     for finding in webservice_problems(findings):
         at_risk.update(services_using(finding.key))
     return tuple(sorted(at_risk))
+
+
+class ProbeStatus(str, Enum):
+    """The verdict for one service after actually calling it."""
+
+    OK = "ok"
+    UNAVAILABLE = "unavailable"
+    AUTH = "auth"
+    GONE = "gone"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
+#: Probe outcomes that mean the service did not answer as expected.
+PROBE_FAILURES: frozenset[ProbeStatus] = frozenset({
+    ProbeStatus.GONE,
+    ProbeStatus.ERROR,
+})
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeResult:
+    """What one service did when the cheapest available read was made against it."""
+
+    service: str
+    status: ProbeStatus
+    detail: str
+    elapsed_ms: int
+
+    @property
+    def is_failure(self) -> bool:
+        """Return whether this outcome means something is actually broken.
+
+        ``UNAVAILABLE`` and ``AUTH`` are deliberately excluded. A service Apple
+        reports as unavailable for this account -- a migrated Ubiquity library,
+        say -- is account state, and a service asking for re-authentication is
+        the user's session, not a defect. Both are worth showing and neither
+        should fail the run.
+        """
+
+        return self.status in PROBE_FAILURES
+
+
+@dataclass(frozen=True, slots=True)
+class ServiceProbe:
+    """The cheapest read that proves one service answers.
+
+    ``describe`` is shown to the user, because a probe makes a real request and
+    they are entitled to know which one before opting in.
+    """
+
+    service: str
+    describe: str
+    call: Callable[[PyiCloudService], object]
+
+
+def _probe_devices(api: PyiCloudService) -> object:
+    """Refresh Find My without asking the devices to report their location.
+
+    Iterating or counting the manager refreshes with ``locate=True``, which
+    pings the user's hardware. A diagnostic must not do that.
+    """
+
+    api.devices.refresh(locate=False)
+    return "refreshed"
+
+
+#: One read per service property named in the inventory. Each is a GET or the
+#: service's own documented refresh; none of them writes.
+SERVICE_PROBES: tuple[ServiceProbe, ...] = (
+    ServiceProbe("account", "reads storage usage", lambda api: api.account.storage),
+    ServiceProbe(
+        "calendar", "lists calendars", lambda api: api.calendar.get_calendars()
+    ),
+    ServiceProbe(
+        "contacts", "refreshes the contact list", lambda api: api.contacts.all
+    ),
+    ServiceProbe("devices", "refreshes Find My without locating", _probe_devices),
+    ServiceProbe("drive", "reads the Drive root", lambda api: api.drive.root.name),
+    ServiceProbe("files", "reads the Ubiquity root", lambda api: api.files.root),
+    ServiceProbe(
+        "hidemyemail",
+        "counts Hide My Email addresses",
+        lambda api: len(api.hidemyemail),
+    ),
+    ServiceProbe("invites", "lists invite events", lambda api: api.invites.events()),
+    # sync_cursor() rather than a listing for the two zone-backed services: it
+    # is a single token fetch and proves the same reachability. Listing
+    # reminders took 28s against a real account, which is not a diagnostic.
+    ServiceProbe(
+        "notes", "reads the notes sync cursor", lambda api: api.notes.sync_cursor()
+    ),
+    ServiceProbe(
+        "photos", "resolves photo libraries", lambda api: api.photos.libraries
+    ),
+    ServiceProbe(
+        "reminders",
+        "reads the reminders sync cursor",
+        lambda api: api.reminders.sync_cursor(),
+    ),
+)
+
+PROBED_SERVICES: frozenset[str] = frozenset(probe.service for probe in SERVICE_PROBES)
+
+
+def _classify(error: Exception) -> tuple[ProbeStatus, str]:
+    """Map an exception from a probe onto a verdict the user can act on."""
+
+    if isinstance(error, PyiCloudServiceUnavailable):
+        return ProbeStatus.UNAVAILABLE, f"Apple reports this unavailable: {error}"
+    if isinstance(error, PyiCloudFailedLoginException | PyiCloudAuthRequiredException):
+        return ProbeStatus.AUTH, "Needs re-authentication; run `icloud auth login`."
+    if isinstance(error, PyiCloudAPIResponseException) and error.code == GONE_STATUS:
+        return (
+            ProbeStatus.GONE,
+            "Apple no longer serves this endpoint (410); pyicloud needs updating.",
+        )
+    return ProbeStatus.ERROR, f"{type(error).__name__}: {error}"
+
+
+def _blocked_services(findings: tuple[WebserviceFinding, ...]) -> frozenset[str]:
+    """Return services whose webservice key is already known to be unusable.
+
+    Calling these would only restate what the service map already said, in a
+    slower and less specific way.
+    """
+
+    blocked: set[str] = set()
+    for finding in findings:
+        if finding.is_problem:
+            blocked.update(finding.powers)
+    return frozenset(blocked)
+
+
+def probe_services(
+    api: PyiCloudService,
+    findings: tuple[WebserviceFinding, ...] = (),
+) -> tuple[ProbeResult, ...]:
+    """Call each service's cheapest read and report what happened.
+
+    This is the layer the service map cannot cover: a host can be advertised
+    and reachable while the endpoint behind it has been withdrawn. It makes one
+    real request per service, which is why the CLI keeps it behind a flag.
+    """
+
+    blocked = _blocked_services(findings)
+    results: list[ProbeResult] = []
+
+    for probe in SERVICE_PROBES:
+        if probe.service in blocked:
+            results.append(
+                ProbeResult(
+                    service=probe.service,
+                    status=ProbeStatus.SKIPPED,
+                    detail="Its webservice key is already reported above.",
+                    elapsed_ms=0,
+                )
+            )
+            continue
+
+        started = time.monotonic()
+        try:
+            probe.call(api)
+        except Exception as error:  # noqa: BLE001 - a probe must survive anything
+            status, detail = _classify(error)
+        else:
+            status, detail = ProbeStatus.OK, ""
+        results.append(
+            ProbeResult(
+                service=probe.service,
+                status=status,
+                detail=detail,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+            )
+        )
+
+    return tuple(results)
+
+
+def probe_failures(results: tuple[ProbeResult, ...]) -> tuple[ProbeResult, ...]:
+    """Return only the probe outcomes that mean something is broken."""
+
+    return tuple(result for result in results if result.is_failure)
