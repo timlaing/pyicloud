@@ -48,6 +48,20 @@ def test_making_directories_is_blocked_outside_the_sanctioned_path() -> None:
         os.makedirs("/tmp/pyicloud-should-not-exist/nested")  # noqa: PTH103
 
 
+def test_os_open_is_blocked_outside_the_sanctioned_path() -> None:
+    """`os.open` is guarded separately from `builtins.open`."""
+
+    with pytest.raises(FileSystemAccessError):
+        os.open("/etc/hosts", os.O_RDONLY)
+
+
+def test_chmod_is_blocked_outside_the_sanctioned_path() -> None:
+    """The fifth guarded entry point, and the easiest to forget."""
+
+    with pytest.raises(FileSystemAccessError):
+        os.chmod("/etc/hosts", 0o644)  # noqa: PTH101
+
+
 def test_the_sanctioned_path_is_an_escape_hatch_not_a_loophole() -> None:
     """`python-test-results` paths are permitted, by design.
 
