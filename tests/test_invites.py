@@ -483,6 +483,40 @@ class InvitesServiceTest(unittest.TestCase):
             with self.subTest(code=code), self.assertRaises(expected):
                 self.service.raw.resolve(["008FIXTURE"])
 
+    def test_a_rate_limit_keeps_the_retry_after_apple_sent(self) -> None:
+        """Apple says how long to wait; dropping it makes callers guess.
+
+        The header survives on the exception's response, so the mapping has to
+        read it rather than raise a bare InvitesRateLimited.
+        """
+        response = MagicMock()
+        response.headers = {"Retry-After": "42"}
+        session = MagicMock()
+        session.post.side_effect = PyiCloudAPIResponseException(
+            "slow down", 429, response
+        )
+        self._monkeypatch.setattr(self.service.raw, "_session", session)
+
+        with self.assertRaises(InvitesRateLimited) as caught:
+            self.service.raw.resolve(["008FIXTURE"])
+
+        self.assertEqual(caught.exception.retry_after, 42.0)
+
+    def test_a_rate_limit_without_a_retry_after_is_still_mapped(self) -> None:
+        """A missing or unreadable header must not break the mapping."""
+        for headers in ({}, {"Retry-After": "soon"}):
+            session = MagicMock()
+            response = MagicMock()
+            response.headers = headers
+            session.post.side_effect = PyiCloudAPIResponseException(
+                "slow down", 429, response
+            )
+            self._monkeypatch.setattr(self.service.raw, "_session", session)
+            with self.subTest(headers=headers):
+                with self.assertRaises(InvitesRateLimited) as caught:
+                    self.service.raw.resolve(["008FIXTURE"])
+                self.assertIsNone(caught.exception.retry_after)
+
     def test_a_status_code_maps_the_same_as_a_string_or_an_int(self) -> None:
         """`PyiCloudAPIResponseException.code` is typed `int | str | None`.
 
