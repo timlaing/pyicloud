@@ -647,7 +647,7 @@ class FakeInvites:
                 is_published=True,
             ),
             Event(
-                event_id="AAAA1111-0000-0000-0000-000000000002",
+                event_id="AAAA2222-0000-0000-0000-000000000002",
                 scope=EventScope.SHARED,
                 title="Birthday",
                 host_display_name="Sam Appleseed",
@@ -691,7 +691,7 @@ class FakeInvites:
         """Return a preview of a share."""
         return ResolvedShare(
             short_guid=short_guid,
-            event_id="AAAA1111-0000-0000-0000-000000000002",
+            event_id="AAAA2222-0000-0000-0000-000000000002",
             owner_given_name="Sam",
             owner_family_name="Appleseed",
             participant_status="INVITED",
@@ -4574,28 +4574,49 @@ def test_invites_list_shows_the_compact_time_and_the_id() -> None:
     assert "AAAA1111" in text
 
 
-def test_invites_show_accepts_an_id_prefix() -> None:
-    """Listing truncates ids, so a prefix has to be enough to act on."""
+def test_invites_show_accepts_a_short_id_prefix() -> None:
+    """Listing truncates ids, so a few characters have to be enough to act on.
 
-    result = _invoke(
-        FakeAPI(), "invites", "show", "AAAA1111-0000-0000-0000-000000000002"
-    )
-    prefixed = _invoke(
-        FakeAPI(), "invites", "show", "aaaa1111-0000-0000-0000-000000000002"
-    )
+    This is the whole reason prefix matching exists: the id column is cut to
+    fit the terminal, so requiring all 36 characters would make it decorative.
+    """
+
+    result = _invoke(FakeAPI(), "invites", "show", "AAAA2")
+    text = _unwrapped(result)
 
     assert result.exit_code == 0
-    assert prefixed.exit_code == 0
-    text = _plain_output(prefixed)
     assert "Birthday" in text
     assert "Sam Appleseed" in text
     assert "The Park" in text
 
 
+def test_invites_show_matches_an_id_case_insensitively() -> None:
+    """Ids render upper-case but nobody types them that way."""
+
+    upper = _invoke(FakeAPI(), "invites", "show", "AAAA2222")
+    lower = _invoke(FakeAPI(), "invites", "show", "aaaa2222")
+
+    assert upper.exit_code == 0
+    assert lower.exit_code == 0
+    assert _unwrapped(upper) == _unwrapped(lower)
+
+
+def test_invites_show_accepts_a_full_id() -> None:
+    """A complete id is still an unambiguous prefix of itself."""
+
+    result = _invoke(
+        FakeAPI(), "invites", "show", "AAAA2222-0000-0000-0000-000000000002"
+    )
+
+    assert result.exit_code == 0
+    assert "Birthday" in _unwrapped(result)
+
+
 def test_invites_show_rejects_an_ambiguous_prefix() -> None:
     """A prefix matching two events names both rather than guessing."""
 
-    result = _invoke(FakeAPI(), "invites", "show", "AAAA1111")
+    # Both ids start "AAAA"; only the fifth character tells them apart.
+    result = _invoke(FakeAPI(), "invites", "show", "AAAA")
 
     assert result.exit_code != 0
     message = str(result.exception)
@@ -4617,7 +4638,7 @@ def test_invites_rsvps_lists_responses() -> None:
     """Responses render with status and guest counts."""
 
     result = _invoke(
-        FakeAPI(), "invites", "rsvps", "AAAA1111-0000-0000-0000-000000000002"
+        FakeAPI(), "invites", "rsvps", "AAAA2222-0000-0000-0000-000000000002"
     )
     text = _unwrapped(result)
 
