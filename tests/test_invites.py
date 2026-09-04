@@ -474,6 +474,27 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(data, b"\xff\xd8\xff\xe0jpeg")
         download.assert_called_once_with("https://cvws.icloud-content.com/asset")
 
+    def test_a_non_https_rsvp_image_url_is_refused(self) -> None:
+        """The download uses the authenticated session.
+
+        A non-HTTPS target would put iCloud credentials on the wire in the
+        clear, so the scheme is checked before the request the same way
+        PhotosUploader guards the upload URL Apple echoes back to it.
+        """
+        download = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        for url in ("http://cvws.icloud-content.com/a", "ftp://example.com/a"):
+            rsvp = Rsvp(
+                record_name="RSVP/x",
+                participant_id="PX",
+                status=RsvpStatus.GOING,
+                image_download_url=url,
+            )
+            with self.subTest(url=url), self.assertRaises(InvitesApiError):
+                self.service.rsvp_image(rsvp)
+        download.assert_not_called()
+
     def test_an_rsvp_without_an_image_downloads_nothing(self) -> None:
         """Most responses carry only a monogram, so this is the common case."""
         rsvp = Rsvp(record_name="RSVP/2", participant_id="P2", status=RsvpStatus.MAYBE)

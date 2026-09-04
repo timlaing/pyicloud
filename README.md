@@ -1727,12 +1727,17 @@ A guest can attach a photo to their response. `rsvp_image()` returns it, or
 from pathlib import Path
 
 event = api.invites.event("EVENT-UUID")
+folder = Path("rsvp-images")
+folder.mkdir(exist_ok=True)
 
-for rsvp in api.invites.rsvps(event):
+for index, rsvp in enumerate(api.invites.rsvps(event)):
     image = api.invites.rsvp_image(rsvp)
     if image is not None:
-        Path(f"{rsvp.name}.jpg").write_bytes(image)
+        (folder / f"{index}.jpg").write_bytes(image)
 ```
+
+`rsvp.name` is supplied by the guest, so it is not safe as a filename — a
+value containing `/` or `..` would write outside the folder you intended.
 
 This works for events shared with you as well as your own: the asset URL
 Apple returns is absolute and carries its own token.

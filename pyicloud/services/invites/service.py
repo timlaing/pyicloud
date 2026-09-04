@@ -23,6 +23,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 import logging
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from pyicloud.common.cloudkit import (
     CKLookupResponse,
@@ -176,9 +177,18 @@ class InvitesService(BaseService):
         downloads the same way as one in your own.
         """
 
-        if not rsvp.image_download_url:
+        url = rsvp.image_download_url
+        if not url:
             return None
-        return self._raw.download_asset_bytes(rsvp.image_download_url)
+        # The download uses the authenticated session, so an attacker-supplied
+        # scheme would put iCloud credentials on the wire in the clear. Guarded
+        # the same way PhotosUploader.send_stream guards the upload URL Apple
+        # echoes back to it.
+        if urlparse(url).scheme != "https":
+            raise InvitesApiError(
+                f"RSVP image URL is not HTTPS; refusing to fetch it: {url!r}"
+            )
+        return self._raw.download_asset_bytes(url)
 
     def resolve(self, short_guid: str) -> ResolvedShare:
         """Preview a share without joining it."""
