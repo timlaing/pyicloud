@@ -77,6 +77,7 @@ from pyicloud.utils import (
 LOGGER: logging.Logger = logging.getLogger(__name__)
 PCS_SLEEP_TIME: int = 5
 PCS_MAX_RETRIES: int = 10
+PCS_ACCESS_ERROR: str = "Unable to request PCS access!"
 
 _HEADERS: dict[str, str] = {
     "User-Agent": (
@@ -1201,7 +1202,7 @@ class PyiCloudService:
             ).json()
 
             if not consent_resp.get("isDeviceConsentNotificationSent"):
-                raise PyiCloudAPIResponseException("Unable to request PCS access!")
+                raise PyiCloudAPIResponseException(PCS_ACCESS_ERROR)
 
         LOGGER.debug("Waiting for PCS consent")
         for _ in range(PCS_MAX_RETRIES):
@@ -1231,10 +1232,10 @@ class PyiCloudService:
                 time.sleep(PCS_SLEEP_TIME)
             else:
                 LOGGER.error("Unknown PCS state: %s", resp["message"])
-                raise PyiCloudAPIResponseException("Unable to request PCS access!")
+                raise PyiCloudAPIResponseException(PCS_ACCESS_ERROR)
 
         LOGGER.error("PCS retries exhausted: %s", resp["message"])
-        raise PyiCloudPCSTimeoutException("Unable to request PCS access!")
+        raise PyiCloudPCSTimeoutException(PCS_ACCESS_ERROR)
 
     def validate_2fa_code(self, code: str) -> bool:
         """Verifies a verification code received via Apple's 2FA system (HSA2)."""

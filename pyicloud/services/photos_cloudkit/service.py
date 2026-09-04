@@ -597,7 +597,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
-            raw_records = list(response.get("records", []))
+            raw_records: list[Any] = response.get("records", [])
             while "continuationMarker" in response:
                 payload = _query_request_payload(
                     query=query,
@@ -612,7 +612,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 response = request.json()
                 raw_records.extend(response.get("records", []))
             raw_nested_records = []
-            for record in list(raw_records):
+            for record in raw_records:
                 album_type = record.get("fields", {}).get("albumType", {}).get("value")
                 if album_type == AlbumTypeEnum.FOLDER.value:
                     raw_nested_records.extend(
@@ -1119,13 +1119,10 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
                 json=self._get_photo_payload(photo_id),
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            for photo in self._process_photo_list_response(http_response.json()):
-                if photo.id == photo_id:
-                    return photo
-            for photo in self.photos:
-                if photo.id == photo_id:
-                    return photo
-            raise KeyError(f"Photo does not exist: {photo_id}")
+            return self._photo_by_id(
+                self._process_photo_list_response(http_response.json()),
+                photo_id,
+            )
         client = cast(PhotosCloudKitClient, self._client)
         response = client.query(
             query=query,
@@ -1135,7 +1132,21 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         self._library.current_sync_token = (
             response.syncToken or self._library.current_sync_token
         )
-        for photo in self._process_photo_list_response(response.records):
+        return self._photo_by_id(
+            self._process_photo_list_response(response.records),
+            photo_id,
+        )
+
+    def _photo_by_id(
+        self,
+        candidates: Iterable[PhotoAsset],
+        photo_id: str,
+    ) -> PhotoAsset:
+        """Return the matching photo from a query result, else from the full list.
+
+        Raises ``KeyError`` when the photo cannot be found in either source.
+        """
+        for photo in candidates:
             if photo.id == photo_id:
                 return photo
         for photo in self.photos:
@@ -2327,78 +2338,90 @@ class PhotosService(BaseService):
             if self._shared_library is not None:
                 libraries["shared"] = self._shared_library
             if _can_use_typed_cloudkit(self.session):
-                private_zones = self._private_client.zones_list()
-                for zone in private_zones.zones:
-                    if zone.deleted:
-                        continue
-                    zone_dict = zone.zoneID.model_dump(exclude_none=True)
-                    zone_name = zone.zoneID.zoneName
-                    if zone_name == PRIMARY_ZONE["zoneName"]:
-                        self._root_library.current_sync_token = zone.syncToken
-                        continue
-                    key = zone_name
-                    scope = "private"
-                    if _is_shared_library_zone_name(zone_name):
-                        key = f"shared:{zone_name}"
-                        scope = "shared-library"
-                    libraries[key] = PhotoLibrary(
-                        self,
-                        zone_id=zone_dict,
-                        client=self._private_client,
-                        upload_hydration_timeout=self._upload_hydration_timeout,
-                        upload_hydration_interval=self._upload_hydration_interval,
-                        scope=scope,
-                    )
-                try:
-                    shared_zones = self._shared_client.zones_list()
-                    for zone in shared_zones.zones:
-                        if zone.deleted:
-                            continue
-                        zone_dict = zone.zoneID.model_dump(exclude_none=True)
-                        zone_name = zone.zoneID.zoneName
-                        key = f"shared:{zone_name}"
-                        if key in libraries:
-                            continue
-                        libraries[key] = PhotoLibrary(
-                            self,
-                            zone_id=zone_dict,
-                            client=self._shared_client,
-                            upload_hydration_timeout=self._upload_hydration_timeout,
-                            upload_hydration_interval=self._upload_hydration_interval,
-                            scope="shared-library",
-                        )
-                except (CloudKitApiError, PyiCloudException):  # pylint: disable=broad-exception-caught
-                    LOGGER.debug(
-                        "Shared CloudKit photos zones unavailable", exc_info=True
-                    )
+                self._discover_typed_zones(libraries)
             else:
-                response = self.session.post(
-                    f"{self.service_endpoint}/zones/list?{urlencode(self.params)}",
-                    json={},
-                    headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-                ).json()
-                for zone in response.get("zones", []):
-                    if zone.get("deleted"):
-                        continue
-                    zone_id = zone.get("zoneID", {})
-                    zone_name = zone_id.get("zoneName")
-                    if zone_name == PRIMARY_ZONE["zoneName"]:
-                        self._root_library.current_sync_token = zone.get("syncToken")
-                        continue
-                    key = zone_name
-                    scope = "private"
-                    if _is_shared_library_zone_name(zone_name):
-                        key = f"shared:{zone_name}"
-                        scope = "shared-library"
-                    libraries[key] = PhotoLibrary(
-                        self,
-                        zone_id=zone_id,
-                        upload_hydration_timeout=self._upload_hydration_timeout,
-                        upload_hydration_interval=self._upload_hydration_interval,
-                        scope=scope,
-                    )
+                self._discover_legacy_zones(libraries)
             self._libraries = libraries
         return self._libraries
+
+    def _discover_typed_zones(
+        self,
+        libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary],
+    ) -> None:
+        """Discover additional private/shared zones via the typed CloudKit client."""
+        private_zones = self._private_client.zones_list()
+        for zone in private_zones.zones:
+            if zone.deleted:
+                continue
+            zone_dict = zone.zoneID.model_dump(exclude_none=True)
+            zone_name = zone.zoneID.zoneName
+            if zone_name == PRIMARY_ZONE["zoneName"]:
+                self._root_library.current_sync_token = zone.syncToken
+                continue
+            key = zone_name
+            scope = "private"
+            if _is_shared_library_zone_name(zone_name):
+                key = f"shared:{zone_name}"
+                scope = "shared-library"
+            libraries[key] = PhotoLibrary(
+                self,
+                zone_id=zone_dict,
+                client=self._private_client,
+                upload_hydration_timeout=self._upload_hydration_timeout,
+                upload_hydration_interval=self._upload_hydration_interval,
+                scope=scope,
+            )
+        try:
+            shared_zones = self._shared_client.zones_list()
+            for zone in shared_zones.zones:
+                if zone.deleted:
+                    continue
+                zone_dict = zone.zoneID.model_dump(exclude_none=True)
+                zone_name = zone.zoneID.zoneName
+                key = f"shared:{zone_name}"
+                if key in libraries:
+                    continue
+                libraries[key] = PhotoLibrary(
+                    self,
+                    zone_id=zone_dict,
+                    client=self._shared_client,
+                    upload_hydration_timeout=self._upload_hydration_timeout,
+                    upload_hydration_interval=self._upload_hydration_interval,
+                    scope="shared-library",
+                )
+        except (CloudKitApiError, PyiCloudException):  # pylint: disable=broad-exception-caught
+            LOGGER.debug("Shared CloudKit photos zones unavailable", exc_info=True)
+
+    def _discover_legacy_zones(
+        self,
+        libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary],
+    ) -> None:
+        """Discover additional zones via the legacy REST zones/list endpoint."""
+        response = self.session.post(
+            f"{self.service_endpoint}/zones/list?{urlencode(self.params)}",
+            json={},
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+        ).json()
+        for zone in response.get("zones", []):
+            if zone.get("deleted"):
+                continue
+            zone_id = zone.get("zoneID", {})
+            zone_name = zone_id.get("zoneName")
+            if zone_name == PRIMARY_ZONE["zoneName"]:
+                self._root_library.current_sync_token = zone.get("syncToken")
+                continue
+            key = zone_name
+            scope = "private"
+            if _is_shared_library_zone_name(zone_name):
+                key = f"shared:{zone_name}"
+                scope = "shared-library"
+            libraries[key] = PhotoLibrary(
+                self,
+                zone_id=zone_id,
+                upload_hydration_timeout=self._upload_hydration_timeout,
+                upload_hydration_interval=self._upload_hydration_interval,
+                scope=scope,
+            )
 
     @property
     def all(self) -> PhotoAlbum:

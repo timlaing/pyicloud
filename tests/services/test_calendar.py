@@ -2,7 +2,6 @@
 # pylint: disable=protected-access
 
 from datetime import datetime
-import os
 import time
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -247,13 +246,13 @@ class _FixedDateTime(datetime):
         return cls.fromtimestamp(cls.fixed.timestamp())
 
 
-def test_default_params_feb_non_leap() -> None:
+def test_default_params_feb_non_leap(monkeypatch: pytest.MonkeyPatch) -> None:
     """default_params should compute Feb (non-leap) as 1..28."""
     mock_session = MagicMock(spec=PyiCloudSession)
     service = _service_with_mocks(mock_session)
 
     # Freeze 'today' to 2025-02-10 (non-leap year)
-    _FixedDateTime.fixed = datetime(2025, 2, 10)
+    monkeypatch.setattr(_FixedDateTime, "fixed", datetime(2025, 2, 10))
     with (
         patch("pyicloud.services.calendar.datetime", _FixedDateTime),
         patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"),
@@ -263,13 +262,13 @@ def test_default_params_feb_non_leap() -> None:
         assert params["endDate"] == "2025-02-28"
 
 
-def test_default_params_feb_leap() -> None:
+def test_default_params_feb_leap(monkeypatch: pytest.MonkeyPatch) -> None:
     """default_params should compute Feb (leap year) as 1..29."""
     mock_session = MagicMock(spec=PyiCloudSession)
     service = _service_with_mocks(mock_session)
 
     # Freeze 'today' to 2028-02-10 (leap year)
-    _FixedDateTime.fixed = datetime(2028, 2, 10)
+    monkeypatch.setattr(_FixedDateTime, "fixed", datetime(2028, 2, 10))
     with (
         patch("pyicloud.services.calendar.datetime", _FixedDateTime),
         patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"),
@@ -716,14 +715,16 @@ def test_event_duration_left_alone_when_dates_unparsable() -> None:
     assert event.duration == 60
 
 
-def test_event_duration_is_wall_clock_across_dst() -> None:
+def test_event_duration_is_wall_clock_across_dst(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """_refresh_duration yields the wall-clock delta across a DST transition.
 
     Dates are naive wall-clock times, so the elapsed minutes must not be
     derived via ``datetime.timestamp()``, which folds in the process timezone
     and reports a shorter duration across a DST transition.
     """
-    os.environ["TZ"] = "America/New_York"
+    monkeypatch.setenv("TZ", "America/New_York")
     time.tzset()
     try:
         with patch("pyicloud.services.calendar.get_localzone_name", return_value="UTC"):
@@ -737,7 +738,7 @@ def test_event_duration_is_wall_clock_across_dst() -> None:
         # would instead report only 60 in the America/New_York timezone.
         assert event.duration == 120
     finally:
-        os.environ.pop("TZ", None)
+        monkeypatch.undo()
         time.tzset()
 
 

@@ -470,10 +470,9 @@ class InvitesServiceTest(unittest.TestCase):
             (None, InvitesApiError),
         ]
         for code, expected in cases:
+            error = PyiCloudAPIResponseException("boom", code)  # type: ignore[arg-type]
             with self.subTest(code=code), self.assertRaises(expected):
-                CloudKitInvitesClient._raise_invites_error(
-                    PyiCloudAPIResponseException("boom", code)  # type: ignore[arg-type]
-                )
+                CloudKitInvitesClient._raise_invites_error(error)
 
     def test_a_transport_error_reaches_callers_as_an_invites_error(self) -> None:
         """The session raises before CloudKitHttp can map the status code.

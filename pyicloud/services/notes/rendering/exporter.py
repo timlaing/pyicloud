@@ -33,7 +33,7 @@ LOGGER = logging.getLogger(__name__)
 
 def _is_http_url(url: str) -> bool:
     """Return True for absolute ``http``/``https`` asset URLs."""
-    return url.startswith("http://") or url.startswith("https://")
+    return url.startswith(("http://", "https://"))
 
 
 def decode_and_parse_note(record: CKRecord) -> pb.Note | None:
