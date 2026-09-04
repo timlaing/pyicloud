@@ -12,6 +12,7 @@ from pyicloud.cli.commands.devices import app as devices_app
 from pyicloud.cli.commands.doctor import doctor
 from pyicloud.cli.commands.drive import app as drive_app
 from pyicloud.cli.commands.hidemyemail import app as hidemyemail_app
+from pyicloud.cli.commands.invites import app as invites_app
 from pyicloud.cli.commands.notes import app as notes_app
 from pyicloud.cli.commands.photos import app as photos_app
 from pyicloud.cli.commands.reminders import app as reminders_app
@@ -84,6 +85,9 @@ app.add_typer(
 )
 app.add_typer(
     notes_app, name="notes", invoke_without_command=True, callback=_group_root
+)
+app.add_typer(
+    invites_app, name="invites", invoke_without_command=True, callback=_group_root
 )
 
 # A leaf rather than a group: `icloud doctor` is what someone types when a

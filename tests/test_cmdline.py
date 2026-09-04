@@ -21,6 +21,18 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from pyicloud.endpoints import WEBSERVICES
+from pyicloud.exceptions import PyiCloudServiceUnavailable
+from pyicloud.services.invites import (
+    Event,
+    EventNotFound,
+    EventPlace,
+    EventScope,
+    EventShare,
+    EventTime,
+    ResolvedShare,
+    Rsvp,
+    RsvpStatus,
+)
 from pyicloud.services.notes.models import Attachment as NoteAttachment
 from pyicloud.services.notes.models import ChangeEvent as NoteChangeEvent
 from pyicloud.services.notes.models import (
@@ -53,6 +65,7 @@ from pyicloud.services.reminders.models import (
 
 account_index_module = importlib.import_module("pyicloud.cli.account_index")
 cli_module = importlib.import_module("pyicloud.cli.app")
+invites_module = importlib.import_module("pyicloud.cli.commands.invites")
 context_module = importlib.import_module("pyicloud.cli.context")
 output_module = importlib.import_module("pyicloud.cli.output")
 app = cli_module.app
@@ -617,6 +630,75 @@ class FakeNotes:
     def sync_cursor(self) -> str:
         """Return the current sync cursor."""
         return self.cursor
+
+
+class FakeInvites:
+    """Invites service fixture."""
+
+    def __init__(self) -> None:
+        self._events = [
+            Event(
+                event_id="AAAA1111-0000-0000-0000-000000000001",
+                scope=EventScope.PRIVATE,
+                title="Standup",
+                time=EventTime(start=datetime(2026, 5, 1, 9, 0, tzinfo=timezone.utc)),
+                place=EventPlace(title="Room 2", city="Dublin"),
+                is_cancelled=False,
+                is_published=True,
+            ),
+            Event(
+                event_id="AAAA1111-0000-0000-0000-000000000002",
+                scope=EventScope.SHARED,
+                title="Birthday",
+                host_display_name="Sam Appleseed",
+                time=EventTime(
+                    start=datetime(2026, 6, 2, tzinfo=timezone.utc), is_all_day=True
+                ),
+                place=EventPlace(title="The Park", city="Cork"),
+                share=EventShare(short_guid="008FIXTURE", public_permission="READ"),
+                is_cancelled=False,
+                is_published=True,
+            ),
+        ]
+
+    def events(self) -> list[Event]:
+        """Return both fixture events."""
+        return list(self._events)
+
+    def event(self, event_id: str) -> Event:
+        """Return one fixture event by exact id."""
+        for event in self._events:
+            if event.event_id == event_id:
+                return event
+        raise EventNotFound(f"Event not found: {event_id!r}")
+
+    def rsvps(self, event: Event) -> list[Rsvp]:
+        """Return one response for any event."""
+        assert event is not None
+        return [
+            Rsvp(
+                record_name="RSVP/1",
+                participant_id="P1",
+                name="Dana Appleseed",
+                status=RsvpStatus.GOING,
+                message="See you there",
+                num_additional_adults=1,
+                num_additional_kids=0,
+            )
+        ]
+
+    def resolve(self, short_guid: str) -> ResolvedShare:
+        """Return a preview of a share."""
+        return ResolvedShare(
+            short_guid=short_guid,
+            event_id="AAAA1111-0000-0000-0000-000000000002",
+            owner_given_name="Sam",
+            owner_family_name="Appleseed",
+            participant_status="INVITED",
+            participant_type="USER",
+            participant_permission="READ_WRITE",
+            share=EventShare(short_guid=short_guid, public_permission="READ"),
+        )
 
 
 class FakeReminders:
@@ -1213,6 +1295,7 @@ class FakeAPI:
         self.hidemyemail = FakeHideMyEmail()
         self.notes = FakeNotes()
         self.reminders = FakeReminders()
+        self.invites = FakeInvites()
 
     def _logout(
         self,
@@ -1239,6 +1322,23 @@ class FakeAPI:
             "remote_logout_confirmed": True,
             "local_session_cleared": clear_local_session,
         }
+
+
+class UnavailableInvitesAPI(FakeAPI):
+    """An account where the Invites service cannot be constructed.
+
+    base.py raises PyiCloudServiceUnavailable from the property itself, not
+    from a method on the service, so the failure has to be provoked there.
+    """
+
+    @property
+    def invites(self) -> FakeInvites:
+        """Fail the way base.py does when the webservice is missing."""
+        raise PyiCloudServiceUnavailable("Invites service not available")
+
+    @invites.setter
+    def invites(self, value: FakeInvites) -> None:
+        """Absorb the assignment FakeAPI makes in its own constructor."""
 
 
 def _runner() -> CliRunner:
@@ -4284,11 +4384,14 @@ def _advertised_webservices() -> dict[str, Any]:
 def _unwrapped(result: Any) -> str:
     """Return command output with rich's line wrapping collapsed.
 
-    Terminal width is not part of what these tests assert, and a sentence split
-    across two lines would otherwise fail on a narrower runner than this one.
+    Terminal width is not part of what these tests assert. A cell that wraps
+    puts the table's own border characters between the fragments, so those go
+    first and the remaining whitespace is then collapsed.
     """
 
-    return " ".join(_plain_output(result).split())
+    text = _plain_output(result)
+    stripped = "".join(" " if "\u2500" <= ch <= "\u257f" else ch for ch in text)
+    return " ".join(stripped.split())
 
 
 def _doctor_api(webservices: dict[str, Any] | None = None) -> FakeAPI:
@@ -4421,3 +4524,169 @@ def test_doctor_without_a_session_still_reports_what_it_can() -> None:
     assert "Authenticated" in text
     assert "icloud auth login" in text
     assert "report is incomplete" in text
+
+
+def test_invites_list_shows_both_scopes() -> None:
+    """Listing covers events you host and events shared with you."""
+
+    result = _invoke(FakeAPI(), "invites", "list")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "private" in text
+    assert "shared" in text
+    assert "Standup" in text
+    assert "Sam Appleseed" in text
+
+
+def test_invites_start_times_are_rendered_compactly() -> None:
+    """A full ISO timestamp wraps a row onto three lines and hides the id.
+
+    The id column is only worth showing if enough of it survives to pass to
+    the next command, so the start time is rendered to the minute. Checked on
+    the formatter rather than the table, because a wrapped cell's fragments
+    land in different columns and cannot be reassembled from the output.
+    """
+
+    fmt = invites_module._format_when
+
+    assert (
+        fmt({"starts_at": datetime(2026, 5, 1, 9, 0, tzinfo=timezone.utc)})
+        == "2026-05-01 09:00"
+    )
+    assert (
+        fmt({
+            "starts_at": datetime(2026, 6, 2, tzinfo=timezone.utc),
+            "is_all_day": True,
+        })
+        == "2026-06-02 (all day)"
+    )
+    assert fmt({"starts_at": None}) == ""
+
+
+def test_invites_list_shows_the_compact_time_and_the_id() -> None:
+    """The rendered row carries both, which is the point of the formatting."""
+
+    text = _unwrapped(_invoke(FakeAPI(), "invites", "list"))
+
+    assert "2026-05-01 09:00" in text
+    assert "09:00:00+00:00" not in text
+    assert "AAAA1111" in text
+
+
+def test_invites_show_accepts_an_id_prefix() -> None:
+    """Listing truncates ids, so a prefix has to be enough to act on."""
+
+    result = _invoke(
+        FakeAPI(), "invites", "show", "AAAA1111-0000-0000-0000-000000000002"
+    )
+    prefixed = _invoke(
+        FakeAPI(), "invites", "show", "aaaa1111-0000-0000-0000-000000000002"
+    )
+
+    assert result.exit_code == 0
+    assert prefixed.exit_code == 0
+    text = _plain_output(prefixed)
+    assert "Birthday" in text
+    assert "Sam Appleseed" in text
+    assert "The Park" in text
+
+
+def test_invites_show_rejects_an_ambiguous_prefix() -> None:
+    """A prefix matching two events names both rather than guessing."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "AAAA1111")
+
+    assert result.exit_code != 0
+    message = str(result.exception)
+    assert "matches more than one event" in message
+    assert "000000000001" in message
+    assert "000000000002" in message
+
+
+def test_invites_show_rejects_an_unknown_prefix() -> None:
+    """An id that matches nothing points at the command that lists them."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "ZZZZ")
+
+    assert result.exit_code != 0
+    assert "icloud invites list" in str(result.exception)
+
+
+def test_invites_rsvps_lists_responses() -> None:
+    """Responses render with status and guest counts."""
+
+    result = _invoke(
+        FakeAPI(), "invites", "rsvps", "AAAA1111-0000-0000-0000-000000000002"
+    )
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Dana Appleseed" in text
+    assert "GOING" in text
+    assert "See you there" in text
+
+
+def test_invites_resolve_previews_a_link() -> None:
+    """Resolving shows who is inviting you without joining."""
+
+    result = _invoke(FakeAPI(), "invites", "resolve", "008FIXTURE")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Sam Appleseed" in text
+    assert "INVITED" in text
+
+
+def test_invites_json_output() -> None:
+    """JSON mode carries the fields the tables show."""
+
+    result = _invoke(FakeAPI(), "invites", "list", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert {event["scope"] for event in payload} == {"private", "shared"}
+    shared = next(e for e in payload if e["scope"] == "shared")
+    assert shared["title"] == "Birthday"
+    assert shared["is_all_day"] is True
+    assert shared["location"] == "The Park"
+
+
+def test_invites_reports_an_unavailable_service_without_a_traceback() -> None:
+    """The service is built by a property, so the call has to be deferred.
+
+    `api.invites` can raise PyiCloudServiceUnavailable while constructing the
+    service. Passing `api.invites.events` to service_call instead of a lambda
+    would evaluate the property outside the guard and let that escape as a
+    traceback, which is why the lambda there is not redundant.
+    """
+
+    result = _invoke(UnavailableInvitesAPI(), "invites", "list")
+
+    assert result.exit_code != 0
+    assert "Invites service unavailable" in str(result.exception)
+
+
+def test_invites_resolve_accepts_a_whole_invite_link() -> None:
+    """People copy the link, not the trailing segment out of it."""
+
+    from_link = _invoke(
+        FakeAPI(),
+        "invites",
+        "resolve",
+        "https://www.icloud.com/invites/008FIXTURE",
+    )
+    from_guid = _invoke(FakeAPI(), "invites", "resolve", "008FIXTURE")
+
+    assert from_link.exit_code == 0
+    assert from_guid.exit_code == 0
+    assert _unwrapped(from_link) == _unwrapped(from_guid)
+
+
+def test_invites_resolve_rejects_an_empty_id_without_calling_apple() -> None:
+    """An empty id should cost a message, not a round trip and a 400."""
+
+    result = _invoke(FakeAPI(), "invites", "resolve", "   ")
+
+    assert result.exit_code != 0
+    assert "No invite id given" in str(result.exception)
