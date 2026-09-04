@@ -164,6 +164,22 @@ class InvitesService(BaseService):
         )
         return [self._rsvp_from_record(r) for r in self._records_of(resp)]
 
+    def rsvp_image(self, rsvp: Rsvp) -> bytes | None:
+        """Return the image a guest attached to their RSVP.
+
+        ``None`` when they attached none, which is the common case: the field
+        is optional and most responses carry only a monogram.
+
+        The download goes through the private container's HTTP wrapper, which
+        only supplies the session and timeouts -- the asset URL Apple returns
+        is absolute and carries its own token, so an RSVP in a shared event
+        downloads the same way as one in your own.
+        """
+
+        if not rsvp.image_download_url:
+            return None
+        return self._raw.download_asset_bytes(rsvp.image_download_url)
+
     def resolve(self, short_guid: str) -> ResolvedShare:
         """Preview a share without joining it."""
         data = self._raw.resolve([short_guid])

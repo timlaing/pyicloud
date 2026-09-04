@@ -1718,6 +1718,25 @@ for rsvp in api.invites.rsvps(event):
 `event()` looks in your private events first, then the shared ones, and raises
 `EventNotFound` if neither has it.
 
+### Guest photos
+
+A guest can attach a photo to their response. `rsvp_image()` returns it, or
+`None` when they attached none — most responses carry only a monogram.
+
+```python
+from pathlib import Path
+
+event = api.invites.event("EVENT-UUID")
+
+for rsvp in api.invites.rsvps(event):
+    image = api.invites.rsvp_image(rsvp)
+    if image is not None:
+        Path(f"{rsvp.name}.jpg").write_bytes(image)
+```
+
+This works for events shared with you as well as your own: the asset URL
+Apple returns is absolute and carries its own token.
+
 ### Responding to an invitation
 
 ```python
