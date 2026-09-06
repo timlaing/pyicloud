@@ -1320,6 +1320,9 @@ class PyiCloudService:
                 self._validate_trusted_device_code(code)
         except PyiCloudTrustedDeviceVerificationException:
             raise
+        except PyiCloudConnectionException:
+            # Never seen by Apple, so it says nothing about the code.
+            raise
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             # Wrong verification code
             LOGGER.error("Code verification failed.")
@@ -1408,6 +1411,9 @@ class PyiCloudService:
             self._authenticate_with_token()
             LOGGER.debug("Session trust successful.")
             return True
+        except PyiCloudConnectionException:
+            # Apple never answered, so the session was not refused.
+            raise
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             LOGGER.error("Session trust failed.")
             return False

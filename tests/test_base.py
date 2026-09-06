@@ -3733,6 +3733,39 @@ def test_authenticate_with_token_still_reports_rejected_token(
         pyicloud_service._authenticate_with_token()
 
 
+def test_validate_2fa_code_does_not_blame_the_code_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not come back as a wrong verification code."""
+    monkeypatch.setattr(
+        pyicloud_service,
+        "_validate_trusted_device_code",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+    monkeypatch.setattr(
+        type(pyicloud_service),
+        "two_factor_delivery_method",
+        property(lambda _self: "trusted_device"),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service.validate_2fa_code("123456")
+
+
+def test_trust_session_does_not_report_refusal_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not come back as a refused session trust."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "get",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service.trust_session()
+
+
 def test_connection_exception_is_still_an_api_response_exception() -> None:
     """Existing handlers must keep catching it."""
     error = PyiCloudConnectionException("Request failed to iCloud")
