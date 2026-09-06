@@ -211,8 +211,13 @@ saved and reopened; it lasts for the one command that created it. Its cookies go
 to a temporary directory, so running this never disturbs a session you already
 have.
 
-`icloud devices erase` does not accept `--one-factor`. A remote wipe is the one
-irreversible action in the group, and it should cost a full session:
+`list`, `show`, `sound`, `message`, `lost-mode` and `export` all accept the
+option. Note that `lost-mode` locks the device and can set a new passcode, so it
+is worth the same care on a password-only sign-in as it is on a full one.
+
+`icloud devices erase` is the exception and does not accept `--one-factor`. A
+remote wipe is the one irreversible action in the group, and it should cost a
+full session:
 
 ```console
 icloud auth login --username jappleseed@apple.com

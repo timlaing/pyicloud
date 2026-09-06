@@ -1827,12 +1827,12 @@ def test_devices_erase_never_takes_the_one_factor_path() -> None:
         ),
         patch.object(context_module.CLIState, "get_one_factor_api", one_factor),
     ):
-        _runner().invoke(
+        result = _runner().invoke(
             app,
             [
                 "devices",
                 "erase",
-                "Fake Device",
+                "Example iPhone",
                 "--force",
                 "--username",
                 "user@example.com",
@@ -1841,6 +1841,10 @@ def test_devices_erase_never_takes_the_one_factor_path() -> None:
             ],
         )
 
+    # The erase has to actually run, or "it did not take the one-factor path"
+    # is satisfied by aborting before reaching any path at all.
+    assert result.exit_code == 0
+    assert fake_api.devices[0].erase_message is not None
     one_factor.assert_not_called()
 
 
