@@ -23,6 +23,11 @@ PASSWORD_OPTION_HELP = (
 CHINA_MAINLAND_OPTION_HELP = "Use China mainland Apple web service endpoints."
 INTERACTIVE_OPTION_HELP = "Enable or disable interactive prompts."
 ACCEPT_TERMS_OPTION_HELP = "Automatically accept pending Apple iCloud web terms."
+ONE_FACTOR_OPTION_HELP = (
+    "Sign in with the password alone and skip the two-factor prompt. Apple "
+    "allows this for Find My only, so the resulting session serves "
+    "`icloud devices` and nothing else."
+)
 WITH_FAMILY_OPTION_HELP = "Include family devices in Find My device listings."
 SESSION_DIR_OPTION_HELP = "Directory to store session and cookie files."
 HTTP_PROXY_OPTION_HELP = "HTTP proxy URL for requests."
@@ -79,6 +84,14 @@ AcceptTermsOption = Annotated[
     typer.Option(
         "--accept-terms",
         help=ACCEPT_TERMS_OPTION_HELP,
+        rich_help_panel=AUTHENTICATION_PANEL,
+    ),
+]
+OneFactorOption = Annotated[
+    bool,
+    typer.Option(
+        "--one-factor",
+        help=ONE_FACTOR_OPTION_HELP,
         rich_help_panel=AUTHENTICATION_PANEL,
     ),
 ]
@@ -142,6 +155,7 @@ def store_command_options(
     china_mainland: bool | None = None,
     interactive: bool = True,
     accept_terms: bool = False,
+    one_factor: bool = False,
     with_family: bool = False,
     session_dir: str | None = None,
     http_proxy: str | None = None,
@@ -158,6 +172,7 @@ def store_command_options(
         "china_mainland": china_mainland,
         "interactive": interactive,
         "accept_terms": accept_terms,
+        "one_factor": one_factor,
         "with_family": with_family,
         "session_dir": session_dir,
         "http_proxy": http_proxy,

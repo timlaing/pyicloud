@@ -162,6 +162,7 @@ icloud auth status
 icloud auth login --username jappleseed@apple.com
 icloud auth login --username jappleseed@apple.com --china-mainland
 icloud auth login --username jappleseed@apple.com --accept-terms
+icloud auth login --username jappleseed@apple.com --one-factor
 icloud account summary
 icloud account summary --format json
 icloud devices list --locate
@@ -188,6 +189,31 @@ icloud auth logout --keep-trusted --all-sessions
 icloud auth logout --remove-keyring
 icloud auth keyring delete --username jappleseed@apple.com
 ```
+
+### Signing in for Find My only
+
+Apple lets one service through with the password alone: Find My. Of the apps it
+advertises for an account, `find` is the only one flagged
+`canLaunchWithOneFactor`, so locating a device or playing a sound needs no
+two-factor code -- the same reason `icloud.com/find` works in a private window
+after just a password.
+
+```console
+icloud auth login --username jappleseed@apple.com --one-factor
+icloud devices list
+```
+
+The session this creates is deliberately untrusted, and **only `icloud devices`
+will work with it**. Every other command still needs a full session:
+
+```console
+icloud auth login --username jappleseed@apple.com
+```
+
+`icloud auth status` reports which kind you have, under `Trusted Session`.
+
+If your trust token is still valid, `--one-factor` costs you nothing: the login
+comes back fully trusted and the flag changes nothing.
 
 If you would like to delete a password stored in your system keyring,
 use the dedicated keyring subcommand:

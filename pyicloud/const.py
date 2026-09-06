@@ -23,6 +23,13 @@ HEADER_DATA: dict[str, str] = {
 ACCOUNT_NAME = "accountName"
 
 
+#: Find My's key in the ``apps`` map Apple returns from /validate. It is *not*
+#: ``findme``, which is this service's key in the ``webservices`` map -- the two
+#: maps name the same service differently, and a one-factor login looked up
+#: under the wrong key fails silently as "not one-factor capable".
+FIND_MY_APP_KEY = "find"
+
+
 ERROR_ACCESS_DENIED = "ACCESS_DENIED"
 ERROR_ZONE_NOT_FOUND = "ZONE_NOT_FOUND"
 ERROR_AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED"

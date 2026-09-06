@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from requests import Response
 
+from pyicloud.const import FIND_MY_APP_KEY
 from pyicloud.exceptions import (
     PyiCloudAuthRequiredException,
     PyiCloudNoDevicesException,
@@ -111,7 +112,14 @@ class FindMyiPhoneServiceManager(BaseService):
 
             _LOGGER.debug("Re-authenticating session")
             self._server_ctx = None
-            self.session.service.authenticate(force_refresh=True)
+            # Name the service so Apple's one-factor grant applies: Find My is
+            # the only app flagged ``canLaunchWithOneFactor``, so this recovers
+            # a 450 with the password alone instead of escalating to a 2FA
+            # challenge the user never asked for. Accounts or sessions that do
+            # not qualify fall through to the full login as before.
+            self.session.service.authenticate(
+                force_refresh=True, service=FIND_MY_APP_KEY
+            )
             self._refresh_client_with_reauth(locate=locate, retry=True)
             return
 

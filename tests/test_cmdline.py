@@ -1632,6 +1632,219 @@ def test_auth_login_accepts_command_local_username() -> None:
     assert "leaf@example.com" in result.stdout
 
 
+def test_auth_login_one_factor_requests_a_paused_2fa_session() -> None:
+    """--one-factor asks the library for a password-only login."""
+
+    session_dir = _unique_session_dir("one-factor-pause")
+    fake_api = FakeAPI(session_dir=session_dir)
+    fake_api.requires_2fa = True
+    fake_api.is_trusted_session = False
+    captured: dict[str, Any] = {}
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        captured.update(kwargs)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--one-factor",
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert captured["pause_2fa"] is True
+    # The 2FA challenge must not run: there is no code to ask for.
+    fake_api.validate_2fa_code.assert_not_called()
+    fake_api.request_2fa_code.assert_not_called()
+
+
+def test_auth_login_one_factor_warns_that_only_find_my_works() -> None:
+    """An untrusted one-factor session tells the user what it cannot do."""
+
+    session_dir = _unique_session_dir("one-factor-warn")
+    fake_api = FakeAPI(session_dir=session_dir)
+    fake_api.requires_2fa = True
+    fake_api.is_trusted_session = False
+
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--one-factor",
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code == 0
+    output = _plain_output(result)
+    assert "devices" in output
+    assert "two-factor" in output
+
+
+def test_auth_login_one_factor_stays_quiet_when_the_session_is_trusted() -> None:
+    """A trust token that still works costs the user nothing, so say nothing."""
+
+    session_dir = _unique_session_dir("one-factor-trusted")
+    fake_api = FakeAPI(session_dir=session_dir)
+    fake_api.is_trusted_session = True
+
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--one-factor",
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "only" not in _plain_output(result).lower()
+
+
+def test_auth_login_without_one_factor_still_runs_the_2fa_challenge() -> None:
+    """The default login is unchanged: a 2FA-required account is challenged."""
+
+    session_dir = _unique_session_dir("one-factor-default")
+    fake_api = FakeAPI(session_dir=session_dir)
+    fake_api.requires_2fa = True
+    fake_api.is_trusted_session = False
+    captured: dict[str, Any] = {}
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        captured.update(kwargs)
+        return fake_api
+
+    handle_2fa = MagicMock()
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(context_module.CLIState, "_handle_2fa", handle_2fa),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert captured["pause_2fa"] is False
+    handle_2fa.assert_called_once()
+
+
+def test_auth_login_one_factor_skips_the_2fa_handler_entirely() -> None:
+    """--one-factor must not reach the 2FA handler even when Apple wants one."""
+
+    session_dir = _unique_session_dir("one-factor-skips")
+    fake_api = FakeAPI(session_dir=session_dir)
+    fake_api.requires_2fa = True
+    fake_api.is_trusted_session = False
+
+    handle_2fa = MagicMock()
+    handle_2sa = MagicMock()
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=False
+        ),
+        patch.object(context_module.CLIState, "_handle_2fa", handle_2fa),
+        patch.object(context_module.CLIState, "_handle_2sa", handle_2sa),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--one-factor",
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code == 0
+    handle_2fa.assert_not_called()
+    handle_2sa.assert_not_called()
+
+
 def test_leaf_session_dir_option_is_used_for_service_commands() -> None:
     """Leaf --session-dir should be honored by service commands."""
 
@@ -2108,6 +2321,7 @@ def test_get_api_uses_keyring_password_for_session_backed_service_commands() -> 
         china_mainland=None,
         interactive=False,
         accept_terms=False,
+        one_factor=False,
         with_family=False,
         session_dir=str(session_dir),
         http_proxy=None,
@@ -2180,6 +2394,7 @@ def test_get_api_hydrates_session_backed_service_commands_from_probe_state() -> 
         china_mainland=None,
         interactive=False,
         accept_terms=False,
+        one_factor=False,
         with_family=False,
         session_dir=str(session_dir),
         http_proxy=None,

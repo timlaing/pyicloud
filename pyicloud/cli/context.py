@@ -74,6 +74,7 @@ class CLICommandOptions:
     china_mainland: bool | None = None
     interactive: bool = True
     accept_terms: bool = False
+    one_factor: bool = False
     with_family: bool = False
     session_dir: str | None = None
     http_proxy: str | None = None
@@ -94,6 +95,7 @@ class CLIState:
         china_mainland: bool | None,
         interactive: bool,
         accept_terms: bool,
+        one_factor: bool,
         with_family: bool,
         session_dir: str | None,
         http_proxy: str | None,
@@ -108,6 +110,7 @@ class CLIState:
         self.china_mainland = china_mainland
         self.interactive = interactive
         self.accept_terms = accept_terms
+        self.one_factor = one_factor
         self.with_family = with_family
         self.session_dir = session_dir
         self.http_proxy = http_proxy
@@ -133,6 +136,7 @@ class CLIState:
             china_mainland=options.china_mainland,
             interactive=options.interactive,
             accept_terms=options.accept_terms,
+            one_factor=options.one_factor,
             with_family=options.with_family,
             session_dir=options.session_dir,
             http_proxy=options.http_proxy,
@@ -429,6 +433,20 @@ class CLIState:
         if not api.validate_verification_code(device, code):
             raise CLIAbort("Failed to verify the 2SA code.")
 
+    def _warn_one_factor_session(self, api: PyiCloudService) -> None:
+        """Tell the user what a one-factor session can and cannot do."""
+
+        if api.is_trusted_session:
+            # A still-valid trust token means the session came back fully
+            # trusted; --one-factor cost the user nothing and limits nothing.
+            return
+        self.err_console.print(
+            "[yellow]Signed in without two-factor authentication.[/yellow] "
+            "Apple grants this to Find My only, so `icloud devices` will work "
+            "and every other command will ask you to authenticate again. "
+            "Run `icloud auth login` without --one-factor for a full session."
+        )
+
     def get_login_api(self) -> PyiCloudService:
         """Return a PyiCloudService, bootstrapping login if needed."""
 
@@ -450,6 +468,7 @@ class CLIState:
                 cookie_directory=self.session_dir,
                 accept_terms=self.accept_terms,
                 with_family=self.with_family,
+                pause_2fa=self.one_factor,
             )
         except PyiCloudFailedLoginException as err:
             if password_source == "keyring" and utils.password_exists_in_keyring(
@@ -466,7 +485,12 @@ class CLIState:
         ):
             utils.store_password_in_keyring(username, password)
 
-        if api.requires_2fa:
+        if self.one_factor:
+            # Apple grants a password-only session to Find My alone, so there is
+            # no code to ask for. Anything else will fail until the user logs in
+            # again without --one-factor.
+            self._warn_one_factor_session(api)
+        elif api.requires_2fa:
             self._handle_2fa(api)
         elif api.requires_2sa:
             self._handle_2sa(api)
