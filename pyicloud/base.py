@@ -38,6 +38,7 @@ from pyicloud.exceptions import (
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
+    PyiCloudConnectionException,
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
@@ -647,6 +648,9 @@ class PyiCloudService:
                 headers=self._get_auth_headers(),
             )
             response.raise_for_status()
+        except PyiCloudConnectionException:
+            # Not a credentials problem; let it through as itself.
+            raise
         except (
             PyiCloudAPIResponseException,
             HTTPError,
@@ -708,6 +712,9 @@ class PyiCloudService:
                 PyiCloudNoTrustedNumberAvailable,
             ) as error:
                 LOGGER.debug("Automatic 2FA code delivery failed: %s", error)
+        except PyiCloudConnectionException:
+            # Not a credentials problem; let it through as itself.
+            raise
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
@@ -768,6 +775,9 @@ class PyiCloudService:
             self._hsa2_boot_context = None
             self._clear_trusted_device_bridge_state()
             self._set_two_factor_delivery_state("unknown")
+        except PyiCloudConnectionException:
+            # Not a credentials problem; let it through as itself.
+            raise
         except (PyiCloudAPIResponseException, HTTPError) as error:
             msg = "Invalid authentication token."
             raise PyiCloudFailedLoginException(msg, error) from error
@@ -786,6 +796,9 @@ class PyiCloudService:
             self._handle_accept_terms(login_data)
 
             self.data = self._validate_token()
+        except PyiCloudConnectionException:
+            # Not a credentials problem; let it through as itself.
+            raise
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg, error) from error

@@ -26,6 +26,7 @@ from pyicloud.exceptions import (
     PyiCloudAcceptTermsException,
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
+    PyiCloudConnectionException,
     PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
     PyiCloudPCSTimeoutException,
@@ -3686,6 +3687,59 @@ def test_authenticate_with_token_require_trust_true_raises_for_paused_session(
 
     with pytest.raises(PyiCloud2FARequiredException):
         pyicloud_service._authenticate_with_token(require_trust=True)
+
+
+def test_authenticate_with_token_keeps_connection_failure_distinct(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not be reported as a failed login.
+
+    Callers act on the difference: a rejected password is fixed by asking the
+    user to log in again, an outage by retrying later.
+    """
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+    pyicloud_service.session._data = {
+        "session_token": "a-token",
+        "account_country": "USA",
+        "trust_token": "",
+    }
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service._authenticate_with_token()
+
+
+def test_authenticate_with_token_still_reports_rejected_token(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An answer from iCloud rejecting the token is still a failed login."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(
+            side_effect=PyiCloudAPIResponseException("Authentication required", 421)
+        ),
+    )
+    pyicloud_service.session._data = {
+        "session_token": "a-token",
+        "account_country": "USA",
+        "trust_token": "",
+    }
+
+    with pytest.raises(PyiCloudFailedLoginException):
+        pyicloud_service._authenticate_with_token()
+
+
+def test_connection_exception_is_still_an_api_response_exception() -> None:
+    """Existing handlers must keep catching it."""
+    error = PyiCloudConnectionException("Request failed to iCloud")
+
+    assert isinstance(error, PyiCloudAPIResponseException)
+    # No response came back, so there is no status to report.
+    assert error.code is None
 
 
 def test_srp_authentication_pause_2fa_includes_pause2fa_flag(

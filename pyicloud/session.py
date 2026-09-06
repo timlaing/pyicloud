@@ -30,6 +30,7 @@ from pyicloud.exceptions import (
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
+    PyiCloudConnectionException,
     PyiCloudEndpointGoneException,
     PyiCloudServiceNotActivatedException,
 )
@@ -390,7 +391,9 @@ class PyiCloudSession(requests.Session):
                 reason=err.response.text,
                 code=err.response.status_code,
             ) from err
-        raise PyiCloudAPIResponseException("Request failed to iCloud") from err
+        # No response came back at all, so this is a connection error rather
+        # than anything iCloud said about the request.
+        raise PyiCloudConnectionException("Request failed to iCloud") from err
 
     def _handle_request_error(
         self,
