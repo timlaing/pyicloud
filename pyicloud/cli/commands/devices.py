@@ -15,6 +15,7 @@ from pyicloud.cli.options import (
     HttpsProxyOption,
     LogLevelOption,
     NoVerifySslOption,
+    OneFactorOption,
     OutputFormatOption,
     SessionDirOption,
     UsernameOption,
@@ -48,6 +49,7 @@ def devices_list(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    one_factor: OneFactorOption = False,
 ) -> None:
     """List Find My devices."""
 
@@ -61,9 +63,10 @@ def devices_list(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        one_factor=one_factor,
     )
     state = get_state(ctx)
-    api = state.get_api()
+    api = state.get_one_factor_api() if one_factor else state.get_api()
     payload = [
         normalize_device_summary(device, locate=locate)
         for device in service_call(
@@ -110,6 +113,7 @@ def devices_show(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    one_factor: OneFactorOption = False,
 ) -> None:
     """Show detailed information for one device."""
 
@@ -123,9 +127,10 @@ def devices_show(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        one_factor=one_factor,
     )
     state = get_state(ctx)
-    api = state.get_api()
+    api = state.get_one_factor_api() if one_factor else state.get_api()
     idevice = resolve_device(api, device)
     payload = idevice.data if raw else normalize_device_details(idevice, locate=locate)
     if state.json_output:
@@ -163,6 +168,7 @@ def devices_sound(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    one_factor: OneFactorOption = False,
 ) -> None:
     """Play a sound on a device."""
 
@@ -176,9 +182,10 @@ def devices_sound(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        one_factor=one_factor,
     )
     state = get_state(ctx)
-    api = state.get_api()
+    api = state.get_one_factor_api() if one_factor else state.get_api()
     idevice = resolve_device(api, device)
     service_call(
         FIND_MY,
@@ -207,6 +214,7 @@ def devices_message(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    one_factor: OneFactorOption = False,
 ) -> None:
     """Display a message on a device."""
 
@@ -220,9 +228,10 @@ def devices_message(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        one_factor=one_factor,
     )
     state = get_state(ctx)
-    api = state.get_api()
+    api = state.get_one_factor_api() if one_factor else state.get_api()
     idevice = resolve_device(api, device)
     service_call(
         FIND_MY,
@@ -262,6 +271,7 @@ def devices_lost_mode(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    one_factor: OneFactorOption = False,
 ) -> None:
     """Enable lost mode for a device."""
 
@@ -275,9 +285,10 @@ def devices_lost_mode(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        one_factor=one_factor,
     )
     state = get_state(ctx)
-    api = state.get_api()
+    api = state.get_one_factor_api() if one_factor else state.get_api()
     idevice = resolve_device(api, device, require_unique=True)
     service_call(
         FIND_MY,
@@ -330,6 +341,8 @@ def devices_erase(
         with_family=with_family,
     )
     state = get_state(ctx)
+    # No --one-factor here on purpose: a remote wipe is the one irreversible
+    # thing in this group, and it should cost a full session.
     api = state.get_api()
     idevice = resolve_device(api, device, require_unique=True)
     if not force and not typer.confirm(
@@ -372,6 +385,7 @@ def devices_export(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    one_factor: OneFactorOption = False,
 ) -> None:
     """Export a device snapshot to JSON."""
 
@@ -385,9 +399,10 @@ def devices_export(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        one_factor=one_factor,
     )
     state = get_state(ctx)
-    api = state.get_api()
+    api = state.get_one_factor_api() if one_factor else state.get_api()
     idevice = resolve_device(api, device)
     if raw and normalized:
         raise typer.BadParameter("Choose either --raw or --normalized, not both.")

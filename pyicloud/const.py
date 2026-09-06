@@ -23,10 +23,11 @@ HEADER_DATA: dict[str, str] = {
 ACCOUNT_NAME = "accountName"
 
 
-#: Find My's key in the ``apps`` map Apple returns from /validate. It is *not*
-#: ``findme``, which is this service's key in the ``webservices`` map -- the two
-#: maps name the same service differently, and a one-factor login looked up
-#: under the wrong key fails silently as "not one-factor capable".
+#: Find My's key in the ``apps`` map Apple returns from /validate, and the only
+#: app there flagged ``canLaunchWithOneFactor``. It is *not* ``findme``, which
+#: is this service's key in the ``webservices`` map -- the two maps name the
+#: same service differently, so a lookup under the wrong key finds nothing and
+#: reads as "not eligible".
 FIND_MY_APP_KEY = "find"
 
 

@@ -162,7 +162,7 @@ icloud auth status
 icloud auth login --username jappleseed@apple.com
 icloud auth login --username jappleseed@apple.com --china-mainland
 icloud auth login --username jappleseed@apple.com --accept-terms
-icloud auth login --username jappleseed@apple.com --one-factor
+icloud devices list --one-factor
 icloud account summary
 icloud account summary --format json
 icloud devices list --locate
@@ -190,30 +190,36 @@ icloud auth logout --remove-keyring
 icloud auth keyring delete --username jappleseed@apple.com
 ```
 
-### Signing in for Find My only
+### Find My without a two-factor code
 
-Apple lets one service through with the password alone: Find My. Of the apps it
+Apple lets one service through on the password alone: Find My. Of the apps it
 advertises for an account, `find` is the only one flagged
-`canLaunchWithOneFactor`, so locating a device or playing a sound needs no
-two-factor code -- the same reason `icloud.com/find` works in a private window
-after just a password.
+`canLaunchWithOneFactor` -- the same reason `icloud.com/find` works in a private
+window after just a password.
 
 ```console
-icloud auth login --username jappleseed@apple.com --one-factor
-icloud devices list
+icloud devices list --one-factor
+icloud devices sound "Example iPhone" --one-factor
 ```
 
-The session this creates is deliberately untrusted, and **only `icloud devices`
-will work with it**. Every other command still needs a full session:
+The password comes from your keyring, or is prompted for.
+
+It is an option on the `devices` commands rather than a way to log in, because
+Apple issues no `X-APPLE-WEBAUTH-TOKEN` for a session that skipped the 2FA
+challenge and answers `/validate` on one with a `421`. Such a session cannot be
+saved and reopened; it lasts for the one command that created it. Its cookies go
+to a temporary directory, so running this never disturbs a session you already
+have.
+
+`icloud devices erase` does not accept `--one-factor`. A remote wipe is the one
+irreversible action in the group, and it should cost a full session:
 
 ```console
 icloud auth login --username jappleseed@apple.com
 ```
 
-`icloud auth status` reports which kind you have, under `Trusted Session`.
-
-If your trust token is still valid, `--one-factor` costs you nothing: the login
-comes back fully trusted and the flag changes nothing.
+Everything outside Find My needs that full session too -- on a password-only
+sign-in, `icloud account` answers `401` and `icloud drive` answers `421`.
 
 If you would like to delete a password stored in your system keyring,
 use the dedicated keyring subcommand:

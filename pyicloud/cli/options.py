@@ -24,9 +24,10 @@ CHINA_MAINLAND_OPTION_HELP = "Use China mainland Apple web service endpoints."
 INTERACTIVE_OPTION_HELP = "Enable or disable interactive prompts."
 ACCEPT_TERMS_OPTION_HELP = "Automatically accept pending Apple iCloud web terms."
 ONE_FACTOR_OPTION_HELP = (
-    "Sign in with the password alone and skip the two-factor prompt. Apple "
-    "allows this for Find My only, so the resulting session serves "
-    "`icloud devices` and nothing else."
+    "Run this command with a password-only sign-in, skipping the two-factor "
+    "prompt. Apple grants that to Find My alone, and the session it creates "
+    "cannot be saved, so it lasts for this one command and no session is "
+    "written to disk."
 )
 WITH_FAMILY_OPTION_HELP = "Include family devices in Find My device listings."
 SESSION_DIR_OPTION_HELP = "Directory to store session and cookie files."

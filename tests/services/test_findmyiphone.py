@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, PropertyMock, call, patch
 import pytest
 
 from pyicloud import PyiCloudService
-from pyicloud.const import FIND_MY_APP_KEY
 from pyicloud.exceptions import (
     PyiCloudAuthRequiredException,
     PyiCloudNoDevicesException,
@@ -579,9 +578,7 @@ def test_refresh_client_with_reauth_auth_required(
         patch.object(manager, "_with_family", False),
     ):
         manager._refresh_client_with_reauth(locate=True)
-        mock_authenticate.assert_called_once_with(
-            force_refresh=True, service=FIND_MY_APP_KEY
-        )
+        mock_authenticate.assert_called_once_with(force_refresh=True)
         assert mock_refresh.call_count == 2
         mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
 
@@ -610,9 +607,7 @@ def test_refresh_client_with_reauth_failed(
     ):
         with pytest.raises(PyiCloudAuthRequiredException):
             manager._refresh_client_with_reauth(locate=True)
-        mock_authenticate.assert_called_once_with(
-            force_refresh=True, service=FIND_MY_APP_KEY
-        )
+        mock_authenticate.assert_called_once_with(force_refresh=True)
         assert mock_refresh.call_count == 2
         mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
 
@@ -1017,72 +1012,3 @@ def test_monitor_thread_multiple_intervals() -> None:
         # Should call func twice
         assert mock_func.call_count == 2
         mock_func.assert_has_calls([call(True), call(True)])
-
-
-def test_find_my_reauth_uses_the_apps_key_not_the_webservices_key() -> None:
-    """The one-factor lookup needs 'find'; 'findme' would silently not match.
-
-    Apple names this service 'find' in the /validate ``apps`` map and 'findme'
-    in the ``webservices`` map. ``_try_service_one_factor_login`` looks in the
-    former, so passing the latter falls through to a full 2FA login instead.
-    """
-
-    assert FIND_MY_APP_KEY == "find"
-    assert FIND_MY_APP_KEY != "findme"
-
-
-def test_reauth_falls_back_to_full_login_when_apple_denies_one_factor(
-    pyicloud_service_working: PyiCloudService,
-) -> None:
-    """An account without the one-factor grant still re-authenticates fully."""
-
-    api = pyicloud_service_working
-    api.data = {"apps": {FIND_MY_APP_KEY: {"canLaunchWithOneFactor": False}}}
-
-    with (
-        patch.object(api, "_try_reuse_cached_session", return_value=False),
-        patch.object(api, "_authenticate_with_credentials_service") as one_factor,
-        patch.object(api, "_authenticate") as full_login,
-    ):
-        api.authenticate(force_refresh=True, service=FIND_MY_APP_KEY)
-
-    one_factor.assert_not_called()
-    full_login.assert_called_once()
-
-
-def test_reauth_uses_one_factor_when_apple_grants_it(
-    pyicloud_service_working: PyiCloudService,
-) -> None:
-    """The one-factor grant short-circuits the full login."""
-
-    api = pyicloud_service_working
-    api.data = {"apps": {FIND_MY_APP_KEY: {"canLaunchWithOneFactor": True}}}
-
-    with (
-        patch.object(api, "_try_reuse_cached_session", return_value=False),
-        patch.object(api, "_authenticate_with_credentials_service") as one_factor,
-        patch.object(api, "_authenticate") as full_login,
-    ):
-        api.authenticate(force_refresh=True, service=FIND_MY_APP_KEY)
-
-    one_factor.assert_called_once_with(FIND_MY_APP_KEY)
-    full_login.assert_not_called()
-
-
-def test_reauth_with_the_webservices_key_misses_the_one_factor_grant(
-    pyicloud_service_working: PyiCloudService,
-) -> None:
-    """Guard the trap: 'findme' does not match the grant keyed under 'find'."""
-
-    api = pyicloud_service_working
-    api.data = {"apps": {FIND_MY_APP_KEY: {"canLaunchWithOneFactor": True}}}
-
-    with (
-        patch.object(api, "_try_reuse_cached_session", return_value=False),
-        patch.object(api, "_authenticate_with_credentials_service") as one_factor,
-        patch.object(api, "_authenticate") as full_login,
-    ):
-        api.authenticate(force_refresh=True, service="findme")
-
-    one_factor.assert_not_called()
-    full_login.assert_called_once()

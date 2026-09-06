@@ -1632,13 +1632,16 @@ def test_auth_login_accepts_command_local_username() -> None:
     assert "leaf@example.com" in result.stdout
 
 
-def test_auth_login_one_factor_requests_a_paused_2fa_session() -> None:
-    """--one-factor asks the library for a password-only login."""
+_FAKE_ONE_FACTOR_DIR = "/tmp/pyicloud-one-factor-fake"
 
-    session_dir = _unique_session_dir("one-factor-pause")
+
+def test_devices_one_factor_uses_a_paused_password_only_login() -> None:
+    """--one-factor signs in with the password and skips the 2FA challenge."""
+
+    session_dir = _unique_session_dir("one-factor-paused")
     fake_api = FakeAPI(session_dir=session_dir)
-    fake_api.requires_2fa = True
     fake_api.is_trusted_session = False
+    fake_api.data = {"apps": {"find": {"canLaunchWithOneFactor": True}}}
     captured: dict[str, Any] = {}
 
     def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
@@ -1651,118 +1654,41 @@ def test_auth_login_one_factor_requests_a_paused_2fa_session() -> None:
         patch.object(
             context_module, "configurable_ssl_verification", return_value=nullcontext()
         ),
-        patch.object(context_module, "confirm", return_value=False),
         patch.object(
-            context_module.utils, "password_exists_in_keyring", return_value=False
+            context_module.utils, "get_password_from_keyring", return_value="secret"
+        ),
+        # The real one makes a directory, which the filesystem guard forbids.
+        patch.object(
+            context_module,
+            "TemporaryDirectory",
+            lambda **_: nullcontext(_FAKE_ONE_FACTOR_DIR),
         ),
     ):
         result = _runner().invoke(
             app,
             [
-                "auth",
-                "login",
+                "devices",
+                "list",
                 "--username",
                 "user@example.com",
-                "--password",
-                "secret",
-                "--session-dir",
-                str(session_dir),
                 "--one-factor",
-                "--non-interactive",
             ],
         )
 
     assert result.exit_code == 0
     assert captured["pause_2fa"] is True
-    # The 2FA challenge must not run: there is no code to ask for.
-    fake_api.validate_2fa_code.assert_not_called()
-    fake_api.request_2fa_code.assert_not_called()
 
 
-def test_auth_login_one_factor_warns_that_only_find_my_works() -> None:
-    """An untrusted one-factor session tells the user what it cannot do."""
+def test_devices_one_factor_never_writes_over_the_stored_session() -> None:
+    """The paused login is isolated: it must not touch the real cookie jar.
 
-    session_dir = _unique_session_dir("one-factor-warn")
+    Persisting it there would replace a working trusted session with one only
+    Find My accepts, so the cookies go to a throwaway directory instead.
+    """
+
+    session_dir = _unique_session_dir("one-factor-isolated")
     fake_api = FakeAPI(session_dir=session_dir)
-    fake_api.requires_2fa = True
-    fake_api.is_trusted_session = False
-
-    with (
-        patch.object(context_module, "PyiCloudService", return_value=fake_api),
-        patch.object(
-            context_module, "configurable_ssl_verification", return_value=nullcontext()
-        ),
-        patch.object(context_module, "confirm", return_value=False),
-        patch.object(
-            context_module.utils, "password_exists_in_keyring", return_value=False
-        ),
-    ):
-        result = _runner().invoke(
-            app,
-            [
-                "auth",
-                "login",
-                "--username",
-                "user@example.com",
-                "--password",
-                "secret",
-                "--session-dir",
-                str(session_dir),
-                "--one-factor",
-                "--non-interactive",
-            ],
-        )
-
-    assert result.exit_code == 0
-    output = _plain_output(result)
-    assert "devices" in output
-    assert "two-factor" in output
-
-
-def test_auth_login_one_factor_stays_quiet_when_the_session_is_trusted() -> None:
-    """A trust token that still works costs the user nothing, so say nothing."""
-
-    session_dir = _unique_session_dir("one-factor-trusted")
-    fake_api = FakeAPI(session_dir=session_dir)
-    fake_api.is_trusted_session = True
-
-    with (
-        patch.object(context_module, "PyiCloudService", return_value=fake_api),
-        patch.object(
-            context_module, "configurable_ssl_verification", return_value=nullcontext()
-        ),
-        patch.object(context_module, "confirm", return_value=False),
-        patch.object(
-            context_module.utils, "password_exists_in_keyring", return_value=False
-        ),
-    ):
-        result = _runner().invoke(
-            app,
-            [
-                "auth",
-                "login",
-                "--username",
-                "user@example.com",
-                "--password",
-                "secret",
-                "--session-dir",
-                str(session_dir),
-                "--one-factor",
-                "--non-interactive",
-            ],
-        )
-
-    assert result.exit_code == 0
-    assert "only" not in _plain_output(result).lower()
-
-
-def test_auth_login_without_one_factor_still_runs_the_2fa_challenge() -> None:
-    """The default login is unchanged: a 2FA-required account is challenged."""
-
-    session_dir = _unique_session_dir("one-factor-default")
-    fake_api = FakeAPI(session_dir=session_dir)
-    fake_api.requires_2fa = True
-    fake_api.is_trusted_session = False
+    fake_api.data = {"apps": {"find": {"canLaunchWithOneFactor": True}}}
     captured: dict[str, Any] = {}
 
     def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
@@ -1770,79 +1696,161 @@ def test_auth_login_without_one_factor_still_runs_the_2fa_challenge() -> None:
         captured.update(kwargs)
         return fake_api
 
-    handle_2fa = MagicMock()
     with (
         patch.object(context_module, "PyiCloudService", side_effect=fake_service),
         patch.object(
             context_module, "configurable_ssl_verification", return_value=nullcontext()
         ),
-        patch.object(context_module, "confirm", return_value=False),
         patch.object(
-            context_module.utils, "password_exists_in_keyring", return_value=False
+            context_module.utils, "get_password_from_keyring", return_value="secret"
         ),
-        patch.object(context_module.CLIState, "_handle_2fa", handle_2fa),
+        # The real one makes a directory, which the filesystem guard forbids.
+        patch.object(
+            context_module,
+            "TemporaryDirectory",
+            lambda **_: nullcontext(_FAKE_ONE_FACTOR_DIR),
+        ),
     ):
         result = _runner().invoke(
             app,
             [
-                "auth",
-                "login",
+                "devices",
+                "list",
                 "--username",
                 "user@example.com",
-                "--password",
-                "secret",
                 "--session-dir",
                 str(session_dir),
-                "--non-interactive",
+                "--one-factor",
             ],
         )
 
     assert result.exit_code == 0
-    assert captured["pause_2fa"] is False
-    handle_2fa.assert_called_once()
+    cookie_dir = captured["cookie_directory"]
+    assert cookie_dir != str(session_dir)
+    assert "one-factor" in cookie_dir
 
 
-def test_auth_login_one_factor_skips_the_2fa_handler_entirely() -> None:
-    """--one-factor must not reach the 2FA handler even when Apple wants one."""
+def test_devices_one_factor_refuses_an_account_apple_will_not_grant() -> None:
+    """An account without the grant is told so, before any Find My request."""
 
-    session_dir = _unique_session_dir("one-factor-skips")
+    session_dir = _unique_session_dir("one-factor-ineligible")
     fake_api = FakeAPI(session_dir=session_dir)
-    fake_api.requires_2fa = True
-    fake_api.is_trusted_session = False
+    # Apple advertises Find My but withholds the one-factor grant.
+    fake_api.data = {"apps": {"find": {}}}
 
-    handle_2fa = MagicMock()
-    handle_2sa = MagicMock()
     with (
         patch.object(context_module, "PyiCloudService", return_value=fake_api),
         patch.object(
             context_module, "configurable_ssl_verification", return_value=nullcontext()
         ),
-        patch.object(context_module, "confirm", return_value=False),
         patch.object(
-            context_module.utils, "password_exists_in_keyring", return_value=False
+            context_module.utils, "get_password_from_keyring", return_value="secret"
         ),
-        patch.object(context_module.CLIState, "_handle_2fa", handle_2fa),
-        patch.object(context_module.CLIState, "_handle_2sa", handle_2sa),
+        # The real one makes a directory, which the filesystem guard forbids.
+        patch.object(
+            context_module,
+            "TemporaryDirectory",
+            lambda **_: nullcontext(_FAKE_ONE_FACTOR_DIR),
+        ),
     ):
         result = _runner().invoke(
             app,
             [
-                "auth",
-                "login",
+                "devices",
+                "list",
                 "--username",
                 "user@example.com",
-                "--password",
-                "secret",
+                "--one-factor",
+            ],
+        )
+
+    assert result.exit_code != 0
+    assert "password-only" in str(result.exception)
+
+
+def test_devices_without_one_factor_uses_the_stored_session() -> None:
+    """The default path is unchanged and does not log in again."""
+
+    session_dir = _unique_session_dir("one-factor-default-path")
+    _remember_local_account(session_dir, "user@example.com", has_session_file=True)
+    fake_api = FakeAPI(session_dir=session_dir)
+    captured: dict[str, Any] = {}
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        captured.update(kwargs)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
                 "--session-dir",
                 str(session_dir),
-                "--one-factor",
-                "--non-interactive",
             ],
         )
 
     assert result.exit_code == 0
-    handle_2fa.assert_not_called()
-    handle_2sa.assert_not_called()
+    assert "pause_2fa" not in captured
+
+
+def test_devices_erase_has_no_one_factor_escape_hatch() -> None:
+    """A remote wipe is irreversible, so it always costs a full session."""
+
+    result = _runner().invoke(app, ["devices", "erase", "--help"])
+
+    assert result.exit_code == 0
+    assert "--one-factor" not in _plain_output(result)
+
+
+def test_devices_erase_never_takes_the_one_factor_path() -> None:
+    """Hiding the flag is not enough: erase must not reach that code at all."""
+
+    session_dir = _unique_session_dir("erase-full-session")
+    _remember_local_account(session_dir, "user@example.com", has_session_file=True)
+    fake_api = FakeAPI(session_dir=session_dir)
+    one_factor = MagicMock()
+
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module.CLIState, "get_one_factor_api", one_factor),
+    ):
+        _runner().invoke(
+            app,
+            [
+                "devices",
+                "erase",
+                "Fake Device",
+                "--force",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+
+    one_factor.assert_not_called()
+
+
+def test_auth_login_has_no_one_factor_flag() -> None:
+    """A paused session cannot be persisted, so login must not offer it."""
+
+    result = _runner().invoke(app, ["auth", "login", "--help"])
+
+    assert result.exit_code == 0
+    assert "--one-factor" not in _plain_output(result)
 
 
 def test_leaf_session_dir_option_is_used_for_service_commands() -> None:
