@@ -2460,6 +2460,11 @@ def test_auth_login_non_interactive_explicit_password_skips_keyring() -> None:
             "password_exists_in_keyring",
             side_effect=AssertionError("Keyring must not be accessed"),
         ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=AssertionError("Keyring must not be accessed"),
+        ),
         patch.object(context_module, "load_accounts", return_value={}),
         patch.object(context_module.CLIState, "remember_account"),
         patch.object(context_module.Path, "exists", return_value=False),

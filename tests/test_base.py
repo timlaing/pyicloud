@@ -671,6 +671,35 @@ def test_get_mfa_auth_options_falls_back_to_json_for_security_key(
     )
 
 
+def test_get_mfa_auth_options_falls_back_to_json_for_security_key_names(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Security-key challenges should fetch JSON when names are absent."""
+
+    html_response = MagicMock()
+    html_response.json.return_value = {
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        }
+    }
+    json_response = MagicMock()
+    json_response.json.return_value = {"keyNames": ["Security Key"]}
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["keyNames"] == ["Security Key"]
+    assert mock_session.get.call_count == 2
+    assert (
+        mock_session.get.call_args_list[1].kwargs["headers"]["Accept"]
+        == "application/json"
+    )
+
+
 def test_get_mfa_auth_options_parses_nested_json_boot_context(
     pyicloud_service: PyiCloudService,
 ) -> None:

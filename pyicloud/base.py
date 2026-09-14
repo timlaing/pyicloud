@@ -923,8 +923,12 @@ class PyiCloudService:
         self._set_two_factor_delivery_state("unknown")
 
         fsa_challenge = auth_options.get("fsaChallenge")
-        if not isinstance(fsa_challenge, dict) or not all(
-            fsa_challenge.get(key) for key in ("challenge", "keyHandles", "rpId")
+        if (
+            not isinstance(fsa_challenge, dict)
+            or not all(
+                fsa_challenge.get(key) for key in ("challenge", "keyHandles", "rpId")
+            )
+            or not auth_options.get("keyNames")
         ):
             # Security-key accounts expose WebAuthn options only in the JSON response.
             try:
