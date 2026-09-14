@@ -921,6 +921,22 @@ class PyiCloudService:
         self._hsa2_boot_context = boot_context
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("unknown")
+
+        fsa_challenge = auth_options.get("fsaChallenge")
+        if not isinstance(fsa_challenge, dict) or not all(
+            fsa_challenge.get(key) for key in ("challenge", "keyHandles", "rpId")
+        ):
+            # Security-key accounts expose WebAuthn options only in the JSON response.
+            try:
+                json_response = self.session.get(
+                    self._auth_endpoint,
+                    headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+                ).json()
+            except (PyiCloudAPIResponseException, TypeError, ValueError):
+                json_response = None
+            if isinstance(json_response, dict):
+                auth_options.update(json_response)
+
         return auth_options
 
     def _set_two_factor_delivery_state(

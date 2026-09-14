@@ -82,11 +82,19 @@ def _auth_status_rows(payload: dict[str, object]) -> list[tuple[str, object]]:
 
 
 def _auth_payload(
-    state: CLIState, api: PyiCloudService, status: dict[str, object]
+    state: CLIState,
+    api: PyiCloudService,
+    status: dict[str, object],
+    *,
+    has_keyring_password: bool | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "account_name": api.account_name,
-        "has_keyring_password": state.has_keyring_password(api.account_name),
+        "has_keyring_password": (
+            state.has_keyring_password(api.account_name)
+            if has_keyring_password is None
+            else has_keyring_password
+        ),
         **state.auth_storage_info(api),
         **status,
     }
@@ -234,6 +242,11 @@ def auth_login(
             "requires_2fa": api.requires_2fa,
             "requires_2sa": api.requires_2sa,
         },
+        has_keyring_password=(
+            False
+            if not state.interactive and state.login_password_source == "explicit"
+            else None
+        ),
     )
     if state.json_output:
         state.write_json(payload)

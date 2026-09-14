@@ -2442,6 +2442,43 @@ def test_auth_login_non_interactive_requires_credentials() -> None:
     )
 
 
+def test_auth_login_non_interactive_explicit_password_skips_keyring() -> None:
+    """Explicit non-interactive logins must not access the local keyring."""
+
+    session_dir = _unique_session_dir("non-interactive-explicit-password")
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module,
+            "PyiCloudService",
+            return_value=FakeAPI(session_dir=session_dir),
+        ),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=AssertionError("Keyring must not be accessed"),
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code == 0
+
+
 def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() -> None:
     """Explicit bad passwords should not delete a previously stored keyring password."""
 
