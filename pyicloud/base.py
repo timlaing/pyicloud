@@ -591,7 +591,11 @@ class PyiCloudService:
             self._authenticate_with_token()
         except PyiCloudAccountLockedException:
             raise
-        except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
+        except (
+            PyiCloudFailedLoginException,
+            PyiCloud2FARequiredException,
+            PyiCloudAuthRequiredException,
+        ):
             paused_login_succeeded = self._srp_authentication(pause_2fa=pause_2fa)
             if self._requires_mfa:
                 LOGGER.debug(
