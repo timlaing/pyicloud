@@ -403,7 +403,10 @@ class PyiCloudService:
             return False
         try:
             self.data = self._validate_token()
-        except PyiCloudAPIResponseException:
+        except (
+            PyiCloudAPIResponseException,
+            PyiCloudAuthRequiredException,
+        ):
             LOGGER.debug("Invalid authentication token, will log in from scratch.")
             return False
         if not self.is_trusted_session and not pause_2fa:
