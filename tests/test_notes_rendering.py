@@ -6,8 +6,10 @@
 # pylint: disable=invalid-name,unused-argument
 
 import base64
+import importlib
 import json
 import os
+import sys
 import tempfile
 from types import SimpleNamespace
 from typing import Any, NamedTuple, cast
@@ -624,3 +626,17 @@ class TestNoteExporter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestExporterWithoutRich(unittest.TestCase):
+    """The exporter sits on the core import path, so it must not need rich."""
+
+    def test_import_without_rich(self) -> None:
+        """Importing the exporter works when the cli extra is not installed."""
+        name = "pyicloud.services.notes.rendering.exporter"
+        with patch.dict(sys.modules):
+            for mod in [m for m in sys.modules if m == name or m.startswith("rich")]:
+                del sys.modules[mod]
+            sys.modules["rich"] = None  # type: ignore[assignment]
+            module = importlib.import_module(name)
+        self.assertTrue(hasattr(module, "NoteExporter"))

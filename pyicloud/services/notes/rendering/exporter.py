@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import suppress
+from functools import cache
 import logging
 import os
 import re
-
-from rich.console import Console
+from typing import TYPE_CHECKING
 
 from pyicloud.common.cloudkit import CKLookupResponse, CKRecord
 
@@ -26,7 +26,17 @@ from .ck_datasource import CloudKitNoteDataSource
 from .options import ExportConfig
 from .renderer import NoteRenderer, render_note_fragment, render_note_page
 
-console = Console()
+if TYPE_CHECKING:
+    from rich.console import Console
+
+
+@cache
+def _console() -> Console:
+    """Return a rich console; rich ships only with the ``cli`` extra."""
+    from rich.console import Console  # pylint: disable=import-outside-toplevel
+
+    return Console()
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -99,8 +109,8 @@ def _hydrate_attachment_records(
     debug = bool(getattr(config, "debug", False))
     for rec_idx, rec in enumerate(resp.records):
         if debug:
-            console.rule(f"rec_idx {rec_idx}")
-            console.print(rec)
+            _console().rule(f"rec_idx {rec_idx}")
+            _console().print(rec)
         if isinstance(rec, CKRecord):
             ds.add_attachment_record(rec)
             # Capture Media reference to follow for full-fidelity images
@@ -128,8 +138,8 @@ def _follow_media_references(
         mresp = ck_client.lookup(list(media_map.keys()))
         if bool(getattr(config, "debug", False)):
             try:
-                console.rule("media lookup response")
-                console.print(mresp)
+                _console().rule("media lookup response")
+                _console().print(mresp)
                 LOGGER.info("attachment media resp:\n%s", mresp)
             except Exception:
                 pass
