@@ -640,3 +640,21 @@ class TestExporterWithoutRich(unittest.TestCase):
             sys.modules["rich"] = None  # type: ignore[assignment]
             module = importlib.import_module(name)
         self.assertTrue(hasattr(module, "NoteExporter"))
+
+    def test_debug_without_rich_keeps_records(self) -> None:
+        """Debug output is skipped, not fatal, when rich is missing."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from pyicloud.services.notes.rendering import exporter
+
+        ds = MagicMock()
+        rec = MagicMock(spec=CKRecord)
+        rec.fields = MagicMock()
+        rec.fields.get_field.return_value = None
+        resp = SimpleNamespace(records=[rec])
+        exporter._console.cache_clear()
+        with patch.dict(sys.modules, {"rich": None, "rich.console": None}):
+            exporter._hydrate_attachment_records(
+                ds, cast(Any, resp), cast(Any, SimpleNamespace(debug=True))
+            )
+        exporter._console.cache_clear()
+        ds.add_attachment_record.assert_called_once_with(rec)

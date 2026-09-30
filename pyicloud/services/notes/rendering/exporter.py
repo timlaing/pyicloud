@@ -109,8 +109,9 @@ def _hydrate_attachment_records(
     debug = bool(getattr(config, "debug", False))
     for rec_idx, rec in enumerate(resp.records):
         if debug:
-            _console().rule(f"rec_idx {rec_idx}")
-            _console().print(rec)
+            with suppress(ModuleNotFoundError):
+                _console().rule(f"rec_idx {rec_idx}")
+                _console().print(rec)
         if isinstance(rec, CKRecord):
             ds.add_attachment_record(rec)
             # Capture Media reference to follow for full-fidelity images
