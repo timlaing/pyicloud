@@ -379,6 +379,90 @@ def test_validate_2fa_code_keeps_legacy_endpoint_for_bridge_w_subtype(
     pyicloud_service._trusted_device_bridge.close.assert_called_once_with(bridge_state)
 
 
+def _security_code_conflict(body: Any) -> PyiCloudAPIResponseException:
+    """Build the 409 error the session raises for a trusted-device verify call."""
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.TWO_FACTOR_REQUIRED
+    if isinstance(body, Exception):
+        response.json.side_effect = body
+    else:
+        response.json.return_value = body
+    return PyiCloudAPIResponseException(
+        "Authentication required for Account.",
+        AppleAuthError.TWO_FACTOR_REQUIRED,
+        response,
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            {"securityCode": {"code": "123456", "valid": True}}, True, id="valid"
+        ),
+        pytest.param({"securityCode": {"valid": False}}, False, id="invalid"),
+        pytest.param({"securityCode": "nope"}, False, id="malformed-security-code"),
+        pytest.param({}, False, id="missing-security-code"),
+        pytest.param([], False, id="non-object-body"),
+        pytest.param(ValueError("bad json"), False, id="undecodable-body"),
+    ],
+)
+def test_validate_2fa_code_legacy_409_uses_security_code_verdict(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    body: Any,
+    expected: bool,
+) -> None:
+    """Apple answers `_W` legacy verification with 409 even when the code is valid.
+
+    The body's ``securityCode.valid`` flag decides whether to continue to trust.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = MagicMock(
+        uses_legacy_trusted_device_verifier=True
+    )
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+    cast(Any, pyicloud_service.session).post.side_effect = _security_code_conflict(body)
+
+    assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+    pyicloud_service._trusted_device_bridge.validate_code.assert_not_called()
+
+
+def test_validate_2fa_code_legacy_non_409_error_is_invalid_code(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Non-409 verify failures should still report an invalid code."""
+
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = None
+    response = MagicMock(spec=Response)
+    response.status_code = 400
+    response.json.return_value = {"securityCode": {"valid": True}}
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {}
+    cast(Any, pyicloud_service.session).post.side_effect = PyiCloudAPIResponseException(
+        "Bad request", 400, response
+    )
+
+    assert pyicloud_service.validate_2fa_code("123456") is False
+
+
 def test_validate_2fa_code_bridge_verification_exception_propagates(
     pyicloud_service: PyiCloudService,
 ) -> None:
