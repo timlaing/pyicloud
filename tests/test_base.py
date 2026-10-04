@@ -444,6 +444,58 @@ def test_validate_2fa_code_legacy_409_uses_security_code_verdict(
     pyicloud_service._trusted_device_bridge.validate_code.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("valid", "expected"),
+    [pytest.param(True, True, id="valid"), pytest.param(False, False, id="invalid")],
+)
+def test_validate_2fa_code_legacy_hsa2_409_through_session(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    valid: bool,
+    expected: bool,
+) -> None:
+    """A real HSA2 409 body is classified by the session as 2FA-required.
+
+    The ``securityCode.valid`` verdict must still decide the outcome rather than
+    the session's PyiCloud2FARequiredException escaping validate_2fa_code.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = MagicMock(
+        uses_legacy_trusted_device_verifier=True
+    )
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.TWO_FACTOR_REQUIRED
+    response.ok = False
+    response.reason = "Conflict"
+    response.headers = {"Content-Type": "application/json"}
+    response.json.return_value = {
+        "securityCode": {"code": "123456", "valid": valid},
+        "authenticationType": "hsa2",
+    }
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch("builtins.open", new_callable=mock_open),
+        patch("http.cookiejar.LWPCookieJar.save"),
+    ):
+        pyicloud_service._session = PyiCloudSession(
+            pyicloud_service, "", cookie_directory=""
+        )
+        assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+
+
 def test_validate_2fa_code_legacy_non_409_error_is_invalid_code(
     pyicloud_service: PyiCloudService,
 ) -> None:

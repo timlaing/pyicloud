@@ -1266,7 +1266,7 @@ class PyiCloudService:
                 self._validate_trusted_device_code(code)
         except PyiCloudTrustedDeviceVerificationException:
             raise
-        except PyiCloudAPIResponseException:
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             # Wrong verification code
             LOGGER.error("Code verification failed.")
             return False
@@ -1290,9 +1290,10 @@ class PyiCloudService:
                 json=data,
                 headers=headers,
             )
-        except PyiCloudAPIResponseException as error:
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException) as error:
             # For `_W` bridge challenges Apple accepts the code but still answers
-            # 409; the body's `securityCode.valid` flag is the real verdict.
+            # 409; the body's `securityCode.valid` flag is the real verdict. The
+            # session raises an HSA2 409 as PyiCloud2FARequiredException.
             if not self._is_accepted_security_code_conflict(error.response):
                 raise
             LOGGER.debug(
