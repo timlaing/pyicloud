@@ -26,7 +26,12 @@ from requests.models import Response
 import srp
 
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
-from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT
+from pyicloud.const import (
+    ACCOUNT_NAME,
+    CONTENT_TYPE_JSON,
+    CONTENT_TYPE_TEXT,
+    AppleAuthError,
+)
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloudAcceptTermsException,
@@ -1261,7 +1266,7 @@ class PyiCloudService:
                 self._validate_trusted_device_code(code)
         except PyiCloudTrustedDeviceVerificationException:
             raise
-        except PyiCloudAPIResponseException:
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             # Wrong verification code
             LOGGER.error("Code verification failed.")
             return False
@@ -1279,11 +1284,40 @@ class PyiCloudService:
 
         data: dict[str, Any] = {"securityCode": {"code": code}}
         headers: dict[str, Any] = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
-        self.session.post(
-            f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
-            json=data,
-            headers=headers,
-        )
+        try:
+            self.session.post(
+                f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
+                json=data,
+                headers=headers,
+            )
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException) as error:
+            # For `_W` bridge challenges Apple accepts the code but still answers
+            # 409; the body's `securityCode.valid` flag is the real verdict. The
+            # session raises an HSA2 409 as PyiCloud2FARequiredException.
+            if not self._is_accepted_security_code_conflict(error.response):
+                raise
+            LOGGER.debug(
+                "Apple accepted the trusted-device code with a 409 response; "
+                "continuing to session trust."
+            )
+
+    @staticmethod
+    def _is_accepted_security_code_conflict(response: Response | None) -> bool:
+        """Return whether a 409 verify response reports the code as valid."""
+
+        if (
+            response is None
+            or response.status_code != AppleAuthError.TWO_FACTOR_REQUIRED
+        ):
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        if not isinstance(body, dict):
+            return False
+        security_code = body.get("securityCode")
+        return isinstance(security_code, dict) and security_code.get("valid") is True
 
     def _validate_sms_code(self, code: str) -> None:
         """Verifies a verification code received via Apple's SMS system."""
