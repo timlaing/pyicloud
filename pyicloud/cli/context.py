@@ -231,8 +231,13 @@ class CLIState:
         *,
         select: bool = True,
         keyring_has: Callable[[str], bool] | None = None,
+        prune: bool = True,
     ) -> None:
-        """Persist an account entry for later local discovery."""
+        """Persist an account entry for later local discovery.
+
+        ``prune=False`` keeps neighbor pruning disabled for callers that must not
+        read the keyring, because pruning cannot confirm keyring-only accounts.
+        """
 
         remember_account(
             self.session_root,
@@ -240,10 +245,19 @@ class CLIState:
             session_path=api.session.session_path,
             cookiejar_path=api.session.cookiejar_path,
             china_mainland=api.is_china_mainland,
-            keyring_has=keyring_has or self.has_keyring_password,
+            keyring_has=(
+                self.has_keyring_password if keyring_has is None else keyring_has
+            ),
+            prune=prune,
         )
         if select:
             self._resolved_username = api.account_name
+
+    @property
+    def skips_keyring_for_login(self) -> bool:
+        """Report whether this login must avoid reading the local keyring."""
+
+        return not self.interactive and self.login_password_source == "explicit"
 
     def _resolve_username(self) -> str:
         """Resolve the Apple ID to use for the current CLI command."""
@@ -480,14 +494,7 @@ class CLIState:
 
         self.login_password_source = password_source
         self._api = api
-        self.remember_account(
-            api,
-            keyring_has=(
-                (lambda _username: False)
-                if not self.interactive and password_source == "explicit"
-                else self.has_keyring_password
-            ),
-        )
+        self.remember_account(api, prune=not self.skips_keyring_for_login)
         return api
 
     def get_api(self) -> PyiCloudService:

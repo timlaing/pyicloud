@@ -36,6 +36,7 @@ from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
@@ -931,15 +932,28 @@ class PyiCloudService:
             or not auth_options.get("keyNames")
         ):
             # Security-key accounts expose WebAuthn options only in the JSON response.
+            # The HTML shell advertises nothing that distinguishes them from SMS-only
+            # accounts, so probe the JSON shape once per authentication and treat any
+            # failure as "no security key offered".
             try:
                 json_response = self.session.get(
                     self._auth_endpoint,
                     headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
                 ).json()
-            except (PyiCloudAPIResponseException, TypeError, ValueError):
+            except (
+                PyiCloudAPIResponseException,
+                PyiCloud2FARequiredException,
+                PyiCloudAuthRequiredException,
+                TypeError,
+                ValueError,
+            ):
                 json_response = None
             if isinstance(json_response, dict):
-                auth_options.update(json_response)
+                # Copy only the WebAuthn fields: the JSON shape is SMS-oriented and an
+                # unbounded merge would drop the HSA2 bridge data parsed above.
+                for webauthn_key in ("fsaChallenge", "keyNames"):
+                    if webauthn_key in json_response:
+                        auth_options[webauthn_key] = json_response[webauthn_key]
 
         return auth_options
 

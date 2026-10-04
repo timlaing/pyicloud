@@ -700,6 +700,86 @@ def test_get_mfa_auth_options_falls_back_to_json_for_security_key_names(
     )
 
 
+def test_get_mfa_auth_options_json_fallback_keeps_hsa2_boot_data(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """The SMS-shaped JSON response must not overwrite HSA2 bridge data."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {
+"direct": {
+              "authInitialRoute": "auth/bridge/step",
+              "hasTrustedDevices": true,
+              "twoSV": {
+                "authFactors": ["web_piggybacking", "sms"],
+                "bridgeInitiateData": {
+                  "phoneNumberVerification": {
+                    "trustedPhoneNumber": {"number": "****21"}
+                  }
+                }
+              }
+            }
+        }
+      </script>
+    </html>
+    """
+    json_response = MagicMock()
+    json_response.json.return_value = {
+        "authType": "auth",
+        "hasTrustedDevices": False,
+        "trustedPhoneNumber": None,
+        "keyNames": ["Security Key"],
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        },
+    }
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["keyNames"] == ["Security Key"]
+    assert auth_options["fsaChallenge"]["rpId"] == "apple.com"
+    assert auth_options["authInitialRoute"] == "auth/bridge/step"
+    assert auth_options["hasTrustedDevices"] is True
+    assert auth_options["trustedPhoneNumber"] == {"number": "****21"}
+
+
+def test_get_mfa_auth_options_json_fallback_survives_pending_hsa2_challenge(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A pending-challenge response on the JSON probe must not abort login."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {"direct": {"authInitialRoute": "auth/bridge/step"}}
+      </script>
+    </html>
+    """
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [
+        html_response,
+        PyiCloud2FARequiredException("test@example.com", MagicMock()),
+    ]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["authInitialRoute"] == "auth/bridge/step"
+    assert "keyNames" not in auth_options
+    assert "fsaChallenge" not in auth_options
+
+
 def test_get_mfa_auth_options_parses_nested_json_boot_context(
     pyicloud_service: PyiCloudService,
 ) -> None:

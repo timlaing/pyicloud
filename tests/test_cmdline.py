@@ -2385,6 +2385,39 @@ def test_account_index_prunes_stale_entries_but_keeps_keyring_backed_accounts() 
     assert kept_api.session.session_path.endswith("keptexamplecom.session")
 
 
+def test_account_index_remember_without_pruning_keeps_neighbors() -> None:
+    """Keyring-free logins must upsert without dropping neighbor accounts."""
+
+    session_dir = _unique_session_dir("index-no-prune")
+    _remember_local_account(
+        session_dir,
+        "kept@example.com",
+        keyring_passwords={"kept@example.com"},
+    )
+    new_api = FakeAPI(username="new@example.com", session_dir=session_dir)
+    keyring_calls: list[str] = []
+
+    def _forbidden_keyring(candidate: str) -> bool:
+        keyring_calls.append(candidate)
+        return False
+
+    account_index_module.remember_account(
+        session_dir,
+        username=new_api.account_name,
+        session_path=new_api.session.session_path,
+        cookiejar_path=new_api.session.cookiejar_path,
+        china_mainland=False,
+        keyring_has=_forbidden_keyring,
+        prune=False,
+    )
+
+    assert not keyring_calls
+    assert list(account_index_module.load_accounts(session_dir)) == [
+        "kept@example.com",
+        "new@example.com",
+    ]
+
+
 def test_account_index_save_is_atomic() -> None:
     """Account index writes should use an atomic replace into accounts.json."""
 
@@ -2446,6 +2479,56 @@ def test_auth_login_non_interactive_explicit_password_skips_keyring() -> None:
     """Explicit non-interactive logins must not access the local keyring."""
 
     session_dir = Path("/virtual/non-interactive-explicit-password")
+    remember_account = MagicMock()
+    with (
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module,
+            "PyiCloudService",
+            return_value=FakeAPI(session_dir=session_dir),
+        ),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=AssertionError("Keyring must not be accessed"),
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=AssertionError("Keyring must not be accessed"),
+        ),
+        patch.object(context_module, "load_accounts", return_value={}),
+        patch.object(context_module.CLIState, "remember_account", remember_account),
+        patch.object(context_module.Path, "exists", return_value=False),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "auth",
+                "login",
+                "--username",
+                "user@example.com",
+                "--password",
+                "secret",
+                "--session-dir",
+                str(session_dir),
+                "--non-interactive",
+            ],
+        )
+
+    assert result.exit_code == 0
+    # Pruning consults the keyring for neighbouring accounts, so it must be off.
+    assert remember_account.call_args.kwargs["prune"] is False
+
+
+def test_auth_login_non_interactive_explicit_password_reports_keyring_as_unknown() -> (
+    None
+):
+    """Keyring state must be reported as unknown rather than as a missing password."""
+
+    session_dir = Path("/virtual/non-interactive-explicit-json")
     with (
         patch.object(
             context_module, "configurable_ssl_verification", return_value=nullcontext()
@@ -2481,10 +2564,13 @@ def test_auth_login_non_interactive_explicit_password_skips_keyring() -> None:
                 "--session-dir",
                 str(session_dir),
                 "--non-interactive",
+                "--format",
+                "json",
             ],
         )
 
     assert result.exit_code == 0
+    assert json.loads(result.stdout)["has_keyring_password"] is None
 
 
 def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() -> None:
