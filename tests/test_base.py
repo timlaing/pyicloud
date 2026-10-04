@@ -486,6 +486,7 @@ def test_validate_2fa_code_legacy_hsa2_409_through_session(
     with (
         patch("requests.Session.request", return_value=response),
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
         patch("http.cookiejar.LWPCookieJar.save"),
     ):
         pyicloud_service._session = PyiCloudSession(
