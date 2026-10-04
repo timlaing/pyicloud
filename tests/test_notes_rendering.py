@@ -6,8 +6,10 @@
 # pylint: disable=invalid-name,unused-argument
 
 import base64
+import importlib
 import json
 import os
+import sys
 import tempfile
 from types import SimpleNamespace
 from typing import Any, NamedTuple, cast
@@ -624,3 +626,92 @@ class TestNoteExporter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestExporterWithoutRich(unittest.TestCase):
+    """The exporter sits on the core import path, so it must not need rich."""
+
+    def test_import_without_rich(self) -> None:
+        """Importing the exporter works when the cli extra is not installed."""
+        name = "pyicloud.services.notes.rendering.exporter"
+        with patch.dict(sys.modules):
+            for mod in [m for m in sys.modules if m == name or m.startswith("rich")]:
+                del sys.modules[mod]
+            sys.modules["rich"] = None  # type: ignore[assignment]
+            sys.modules["rich.console"] = None  # type: ignore[assignment]
+            module = importlib.import_module(name)
+        self.assertTrue(hasattr(module, "NoteExporter"))
+        self.assertIsNone(module.console)
+
+    def test_debug_without_rich_keeps_records(self) -> None:
+        """Debug output is skipped, not fatal, when rich is missing."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from pyicloud.services.notes.rendering import exporter
+
+        ds = MagicMock()
+        rec = MagicMock(spec=CKRecord)
+        rec.fields = MagicMock()
+        rec.fields.get_field.return_value = None
+        resp = SimpleNamespace(records=[rec])
+        with patch.object(exporter, "console", None):
+            exporter._hydrate_attachment_records(
+                ds, cast(Any, resp), cast(Any, SimpleNamespace(debug=True))
+            )
+        ds.add_attachment_record.assert_called_once_with(rec)
+
+    def test_debug_uses_shared_console(self) -> None:
+        """Debug output goes through the shared console when rich is available."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from pyicloud.services.notes.rendering import exporter
+
+        ds = MagicMock()
+        rec = MagicMock(spec=CKRecord)
+        rec.fields = MagicMock()
+        rec.fields.get_field.return_value = None
+        resp = SimpleNamespace(records=[rec])
+        console = MagicMock()
+        with patch.object(exporter, "console", console):
+            exporter._hydrate_attachment_records(
+                ds, cast(Any, resp), cast(Any, SimpleNamespace(debug=True))
+            )
+        console.rule.assert_called_once_with("rec_idx 0")
+        console.print.assert_called_once_with(rec)
+
+    def test_media_debug_logs_without_rich(self) -> None:
+        """The media lookup debug log is emitted even when rich is missing."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from pyicloud.services.notes.rendering import exporter
+
+        client = MagicMock()
+        mresp = SimpleNamespace(records=[])
+        client.lookup.return_value = mresp
+        with (
+            patch.object(exporter, "console", None),
+            self.assertLogs(exporter.LOGGER, level="INFO") as logs,
+        ):
+            exporter._follow_media_references(
+                client,
+                MagicMock(),
+                {"media-1": "attachment-1"},
+                cast(Any, SimpleNamespace(debug=True)),
+            )
+        self.assertTrue(any("attachment media resp" in line for line in logs.output))
+
+    def test_media_debug_uses_shared_console(self) -> None:
+        """The media lookup debug branch prints through the shared console."""
+        # pylint: disable=import-outside-toplevel,protected-access
+        from pyicloud.services.notes.rendering import exporter
+
+        client = MagicMock()
+        mresp = SimpleNamespace(records=[])
+        client.lookup.return_value = mresp
+        console = MagicMock()
+        with patch.object(exporter, "console", console):
+            exporter._follow_media_references(
+                client,
+                MagicMock(),
+                {"media-1": "attachment-1"},
+                cast(Any, SimpleNamespace(debug=True)),
+            )
+        console.rule.assert_called_once_with("media lookup response")
+        console.print.assert_called_once_with(mresp)
