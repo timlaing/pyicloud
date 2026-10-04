@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import suppress
-from functools import cache
 import logging
 import os
 import re
@@ -30,13 +29,20 @@ if TYPE_CHECKING:
     from rich.console import Console
 
 
-@cache
-def _console() -> Console:
-    """Return a rich console; rich ships only with the ``cli`` extra."""
-    from rich.console import Console  # pylint: disable=import-outside-toplevel
+def _console() -> Console | None:
+    """Return the shared rich console, or ``None`` when rich is unavailable.
 
+    rich only ships with the ``cli`` extra while this module sits on the core
+    import path, so a missing rich degrades debug output instead of failing.
+    """
+    try:
+        from rich.console import Console  # pylint: disable=import-outside-toplevel
+    except ImportError:
+        return None
     return Console()
 
+
+console: Console | None = _console()
 
 LOGGER = logging.getLogger(__name__)
 
@@ -108,10 +114,9 @@ def _hydrate_attachment_records(
     media_map: dict[str, str] = {}
     debug = bool(getattr(config, "debug", False))
     for rec_idx, rec in enumerate(resp.records):
-        if debug:
-            with suppress(ModuleNotFoundError):
-                _console().rule(f"rec_idx {rec_idx}")
-                _console().print(rec)
+        if debug and console is not None:
+            console.rule(f"rec_idx {rec_idx}")
+            console.print(rec)
         if isinstance(rec, CKRecord):
             ds.add_attachment_record(rec)
             # Capture Media reference to follow for full-fidelity images
@@ -138,12 +143,10 @@ def _follow_media_references(
     try:
         mresp = ck_client.lookup(list(media_map.keys()))
         if bool(getattr(config, "debug", False)):
-            try:
-                _console().rule("media lookup response")
-                _console().print(mresp)
-                LOGGER.info("attachment media resp:\n%s", mresp)
-            except Exception:
-                pass
+            LOGGER.info("attachment media resp:\n%s", mresp)
+            if console is not None:
+                console.rule("media lookup response")
+                console.print(mresp)
         for mrec in mresp.records:
             if not isinstance(mrec, CKRecord):
                 continue
