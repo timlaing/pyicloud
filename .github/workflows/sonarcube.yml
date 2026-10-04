@@ -23,6 +23,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha }}
+          # workflow_run runs with the base repository's GITHUB_TOKEN, secrets and
+          # runner, so actions/checkout v7 refuses fork PR code by default and the
+          # scan failed for every fork PR. The untrusted surface is bounded below:
+          # scanner config is deleted, the token is not persisted, and the coverage
+          # artifact is size-limited and screened before it is parsed.
+          allow-unsafe-pr-checkout: true
 
       - name: Require SonarQube credentials
         if: env.SONAR_TOKEN == ''
@@ -44,6 +50,15 @@ jobs:
         run: |
           set -euo pipefail
           test -f .coverage/coverage.xml || { echo "Coverage report missing"; exit 1; }
+          # For fork PRs this artifact is uploaded by the triggering run, so it is
+          # untrusted input. Reject entity declarations before parsing: xml.etree
+          # does not resolve external entities but is still exposed to entity
+          # expansion. A plain DOCTYPE is left alone, because the Cobertura
+          # writers have historically emitted one.
+          if grep -qi '<!ENTITY' .coverage/coverage.xml; then
+            echo "Coverage report contains an entity declaration"; exit 1
+          fi
+          test "$(wc -c < .coverage/coverage.xml)" -lt 10000000 || { echo "Coverage report too large"; exit 1; }
           python3 -c "import sys, xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" .coverage/coverage.xml
 
       - name: Validate run metadata
