@@ -34,6 +34,7 @@ from pyicloud.common.cloudkit import (
     CKWriteFields,
     CKWriteRecord,
     CKZoneChangesZoneReq,
+    CKZoneID,
     CKZoneIDReq,
 )
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
@@ -156,13 +157,39 @@ class InvitesService(BaseService):
 
     def rsvps(self, event: Event) -> list[Rsvp]:
         """Return the list of RSVPs in an event's zone."""
-        zone_id = self._zone_id_req(event.event_id, event.scope)
-        resp = self._raw.query(
-            self._scope_str(event.scope),
-            query=CKQueryObject(recordType=InvitesRecordType.Rsvp.value),
-            zone_id=zone_id,
+
+        return [
+            self._rsvp_from_record(record)
+            for record in self._rsvp_records(
+                self._scope_str(event.scope),
+                self._zone_id_req(event.event_id, event.scope),
+            )
+        ]
+
+    def _rsvp_records(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq
+    ) -> list[CKRecord]:
+        """Read a zone's RSVP records through its changes feed.
+
+        Not by querying it: an event's own zone rejects ``records/query`` with
+        "syncToken operations supported only in SyncZone", so the query this
+        replaces worked only for events shared with you.
+
+        ``desiredRecordTypes`` asks Apple for the RSVP records alone; the
+        filter is kept because that projection is a request, not a guarantee.
+        """
+
+        wanted = InvitesRecordType.Rsvp.value
+        zone_req = CKZoneChangesZoneReq(
+            zoneID=CKZoneID(**zone_id.model_dump(exclude_none=True)),
+            desiredRecordTypes=[wanted],
         )
-        return [self._rsvp_from_record(r) for r in self._records_of(resp)]
+        return [
+            record
+            for page in self._raw.iter_changes(scope_str, zone_req=zone_req)
+            for record in page.records
+            if isinstance(record, CKRecord) and record.recordType == wanted
+        ]
 
     def resolve(self, short_guid: str) -> ResolvedShare:
         """Preview a share without joining it."""
@@ -492,17 +519,13 @@ class InvitesService(BaseService):
 
         rsvps: tuple[Rsvp, ...] = ()
         try:
-            rsvp_resp = self._raw.query(
-                scope_str,
-                query=CKQueryObject(recordType=InvitesRecordType.Rsvp.value),
-                zone_id=zone_id,
-            )
             rsvps = tuple(
-                self._rsvp_from_record(r) for r in self._records_of(rsvp_resp)
+                self._rsvp_from_record(record)
+                for record in self._rsvp_records(scope_str, zone_id)
             )
         except InvitesError:
             LOGGER.debug(
-                "invites.event.rsvp_query_failed event_id=%s",
+                "invites.event.rsvp_read_failed event_id=%s",
                 event_id,
                 exc_info=True,
             )
