@@ -125,7 +125,8 @@ default (trusted) flow to avoid silently bypassing 2FA.
 
 The `icloud` command line interface is organized around top-level
 subcommands such as `auth`, `account`, `devices`, `calendar`,
-`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, and `reminders`,
+`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, `reminders`, and
+`invites`,
 plus a standalone `doctor` command described under
 [Diagnostics](#diagnostics).
 
@@ -1758,6 +1759,25 @@ enums used elsewhere in this service.
 
 `resolve()` only looks; `accept()` joins the event, after which it appears in
 `events()` with the shared scope.
+
+### Command line
+
+```console
+icloud invites list
+icloud invites show 1F9D5936
+icloud invites rsvps 1F9D5936
+icloud invites resolve 008ABCDEFGHIJ
+```
+
+`list` shows events you host and events shared with you. `show` and `rsvps`
+take a full event id or any unambiguous prefix of one, since the listing
+truncates ids to fit the terminal. `resolve` previews an invite link without
+joining it.
+
+Every command is read-only, and each accepts `--format json`. Responding to an
+invitation and joining one from a link are available on the service
+(`api.invites.rsvp()` and `api.invites.accept()`) but not yet on the command
+line.
 
 ### Errors
 
