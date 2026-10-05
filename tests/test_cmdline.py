@@ -2682,8 +2682,11 @@ def test_connection_failure_cli_handlers_preserve_keyring_and_offer_retry() -> N
     assert "Could not reach iCloud" in login_message
     assert "Bad username or password" not in login_message
 
+    # Build outside pytest.raises: MagicMock(side_effect=...) fires on
+    # construction, which would leave two invocations able to raise.
+    service_fn = MagicMock(side_effect=error)
     with pytest.raises(context_module.CLIAbort) as service_excinfo:
-        context_module.service_call("Find My", MagicMock(side_effect=error))
+        context_module.service_call("Find My", service_fn)
 
     service_message = str(service_excinfo.value)
     assert service_message.startswith("Find My could not reach iCloud")
