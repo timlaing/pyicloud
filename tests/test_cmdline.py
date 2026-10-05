@@ -2708,12 +2708,14 @@ def test_2fa_code_request_failure_does_not_swallow_connection_error() -> None:
     )
 
     with (
-        patch.object(typer, "prompt", side_effect=AssertionError("must not prompt")),
+        patch.object(typer, "prompt") as prompt,
         pytest.raises(context_module.CLIAbort) as excinfo,
     ):
         state._handle_2fa(api)
 
     assert str(excinfo.value) == context_module.CONNECTION_FAILURE_MESSAGE
+    # The outage must abort the flow, not fall through to asking for a code.
+    prompt.assert_not_called()
     api.use_existing_trusted_device_code.assert_not_called()
 
 
