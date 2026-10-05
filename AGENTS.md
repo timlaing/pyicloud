@@ -26,7 +26,8 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 ## Test gotchas (important)
 
 - `pyproject.toml` `[tool.pytest.ini_options]` adds `--disable-socket --allow-unix-socket --timeout=2` via `addopts`. **Tests must not make network calls** and must complete fast.
-- `tests/conftest.py` installs autouse fixtures that **block filesystem access**: `open`, `os.open`, `os.mkdir`, `os.makedirs`, `os.chmod` all raise unless the path contains `"python-test-results"`. New tests must mock any file I/O.
+- `tests/conftest.py` installs autouse fixtures that **block most filesystem access**: `open`, `os.open`, `os.mkdir`, `os.makedirs`, `os.chmod` all raise `FileSystemAccessError` unless the path contains `"python-test-results"` — that path is the sanctioned escape hatch, not a loophole, and `tests/test_cmdline.py` uses it for session directories.
+- The guard has two deliberate gaps. `pathlib` reads such as `Path.read_text()` use `io.open`, not the patched `builtins.open`, so they are never intercepted; and the `open` guards are session-scoped, so module-level code runs before they install. Loading a JSON fixture at import time relies on both, and seven test modules do. Mock file I/O outside those cases.
 
 ## Generated protobuf
 

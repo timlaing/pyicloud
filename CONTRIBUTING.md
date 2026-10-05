@@ -76,8 +76,17 @@ Important test constraints:
 
 - Tests **must not make network calls** and must complete fast. `pyproject.toml`
   adds `--disable-socket --allow-unix-socket --timeout=2` via `addopts`.
-- `tests/conftest.py` installs autouse fixtures that **block filesystem access**.
-  New tests must mock any file I/O.
+- `tests/conftest.py` installs autouse fixtures that **block most filesystem
+  access**. `open`, `os.open`, `os.mkdir`, `os.makedirs` and `os.chmod` raise
+  `FileSystemAccessError` unless the path contains `python-test-results`, which
+  is the sanctioned location for a test that genuinely needs a temporary file
+  or directory.
+- Two things the guard does not cover, both used deliberately across the suite:
+  `pathlib` reads such as `Path.read_text()` go through `io.open` rather than
+  the patched `builtins.open`, and module-level code runs before the
+  session-scoped fixtures install. Loading a JSON fixture at import time relies
+  on both and is the established pattern.
+- Mock file I/O that falls outside those two cases.
 - Add fixtures under `tests/const/` (HTTP-response fixtures) or `tests/fixtures/`.
 
 ## Coverage
