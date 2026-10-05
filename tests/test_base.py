@@ -26,6 +26,7 @@ from pyicloud.exceptions import (
     PyiCloudAcceptTermsException,
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
+    PyiCloudConnectionException,
     PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
     PyiCloudPCSTimeoutException,
@@ -3540,6 +3541,82 @@ def test_srp_authentication_routes_2fa_delivery_through_request_2fa_code(
         assert pyicloud_service._requires_mfa is True
 
 
+def test_srp_authentication_does_not_blame_credentials_for_an_outage(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """An unreachable iCloud during SRP init must not become a failed login.
+
+    Rewriting an outage as a rejected password would send the user to
+    re-authenticate when only a retry can help.
+    """
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        # signin/init is the first POST, so it is where the outage shows up.
+        mock_session.post.side_effect = PyiCloudConnectionException(
+            "Request failed to iCloud"
+        )
+
+        with pytest.raises(PyiCloudConnectionException):
+            pyicloud_service._srp_authentication()
+
+
+def test_srp_completion_does_not_blame_credentials_for_an_outage(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """An unreachable iCloud during SRP completion must not become a failed login."""
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        # signin/init succeeds, then the outage hits signin/complete.
+        mock_session.post.side_effect = [
+            init_response,
+            PyiCloudConnectionException("Request failed to iCloud"),
+        ]
+
+        with pytest.raises(PyiCloudConnectionException):
+            pyicloud_service._srp_authentication()
+
+
 def test_authenticate_skips_token_auth_after_srp_2fa_required(
     pyicloud_service: PyiCloudService,
 ) -> None:
@@ -3686,6 +3763,141 @@ def test_authenticate_with_token_require_trust_true_raises_for_paused_session(
 
     with pytest.raises(PyiCloud2FARequiredException):
         pyicloud_service._authenticate_with_token(require_trust=True)
+
+
+def test_authenticate_with_token_keeps_connection_failure_distinct(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not be reported as a failed login.
+
+    Callers act on the difference: a rejected password is fixed by asking the
+    user to log in again, an outage by retrying later.
+    """
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+    pyicloud_service.session._data = {
+        "session_token": "a-token",
+        "account_country": "USA",
+        "trust_token": "",
+    }
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service._authenticate_with_token()
+
+
+def test_credentials_service_login_does_not_blame_password_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud during setup login must not become a failed login."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service._authenticate_with_credentials_service(None)
+
+
+def test_authenticate_with_token_still_reports_rejected_token(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An answer from iCloud rejecting the token is still a failed login."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(
+            side_effect=PyiCloudAPIResponseException("Authentication required", 421)
+        ),
+    )
+    pyicloud_service.session._data = {
+        "session_token": "a-token",
+        "account_country": "USA",
+        "trust_token": "",
+    }
+
+    with pytest.raises(PyiCloudFailedLoginException):
+        pyicloud_service._authenticate_with_token()
+
+
+def test_validate_2fa_code_does_not_blame_the_code_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not come back as a wrong verification code."""
+    monkeypatch.setattr(
+        pyicloud_service,
+        "_validate_trusted_device_code",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+    monkeypatch.setattr(
+        type(pyicloud_service),
+        "two_factor_delivery_method",
+        property(lambda _self: "trusted_device"),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service.validate_2fa_code("123456")
+
+
+def test_trust_session_does_not_report_refusal_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not come back as a refused session trust."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "get",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service.trust_session()
+
+
+def test_connection_exception_is_still_an_api_response_exception() -> None:
+    """Existing handlers must keep catching it."""
+    error = PyiCloudConnectionException("Request failed to iCloud")
+
+    assert isinstance(error, PyiCloudAPIResponseException)
+    # No response came back, so there is no status to report.
+    assert error.code is None
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ConnectionError("connection refused"),
+        requests.exceptions.ConnectTimeout("connect timed out"),
+        requests.exceptions.ReadTimeout("read timed out"),
+    ],
+)
+def test_unreachable_icloud_raises_connection_exception(
+    error: requests.exceptions.RequestException,
+) -> None:
+    """A refused, unresolvable or unresponsive iCloud is a connection failure."""
+    with pytest.raises(PyiCloudConnectionException):
+        PyiCloudSession._raise_request_exception(error)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ChunkedEncodingError("response truncated"),
+        requests.exceptions.TooManyRedirects("redirect loop"),
+        requests.exceptions.InvalidURL("bad url"),
+        requests.exceptions.MissingSchema("no scheme"),
+    ],
+)
+def test_request_faults_are_not_reported_as_connection_failures(
+    error: requests.exceptions.RequestException,
+) -> None:
+    """A malformed request is the caller's fault, not an unreachable iCloud."""
+    with pytest.raises(PyiCloudAPIResponseException) as excinfo:
+        PyiCloudSession._raise_request_exception(error)
+
+    assert not isinstance(excinfo.value, PyiCloudConnectionException)
 
 
 def test_srp_authentication_pause_2fa_includes_pause2fa_flag(

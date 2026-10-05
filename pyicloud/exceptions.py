@@ -57,6 +57,26 @@ class PyiCloudPCSTimeoutException(PyiCloudAPIResponseException):
     """Raised when PCS access could not be granted after all retries."""
 
 
+class PyiCloudConnectionException(PyiCloudAPIResponseException):
+    """Raised when iCloud could not be reached at all.
+
+    A connection error, DNS failure or timeout says nothing about whether the
+    caller's credentials or session are still good, only that no answer came
+    back. Callers need to tell the two apart because the remedies are opposite:
+    a rejected password is fixed by asking the user to log in again, while an
+    unreachable service is fixed by waiting and retrying.
+
+    Distinguishing it matters most during authentication, where every transport
+    failure used to be reported as a failed login. A consumer acting on that
+    asks the user to re-enter working credentials in the middle of an outage,
+    and, if it stops polling until they do, stays down long after iCloud has
+    come back.
+
+    Subclasses the generic response error so existing handlers keep catching
+    it, and carries no ``code`` because no HTTP response was received.
+    """
+
+
 class PyiCloudEndpointGoneException(PyiCloudAPIResponseException):
     """Raised when Apple reports an endpoint as permanently gone (HTTP 410).
 

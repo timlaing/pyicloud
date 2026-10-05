@@ -21,6 +21,7 @@ from pyicloud.exceptions import (
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
+    PyiCloudConnectionException,
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudServiceUnavailable,
@@ -40,6 +41,12 @@ from .account_index import (
 from .output import OutputFormat, write_json
 
 COMMAND_OPTIONS_META_KEY = "command_options"
+
+# An outage is not a verdict on anything, so the remedy is to retry rather than
+# to re-authenticate. Reused wherever a connection failure can surface.
+CONNECTION_FAILURE_MESSAGE = (
+    "Could not reach iCloud. Check your network connection and try again."
+)
 
 
 class CLIAbort(RuntimeError):
@@ -365,6 +372,8 @@ class CLIState:
                 api.confirm_security_key(fido2_devices[selected_index])
             except PyiCloudAccountLockedException:
                 raise
+            except PyiCloudConnectionException as exc:
+                raise CLIAbort(CONNECTION_FAILURE_MESSAGE) from exc
             except Exception as exc:  # pragma: no cover - live auth path
                 raise CLIAbort("Security key verification failed.") from exc
         else:
@@ -400,6 +409,10 @@ class CLIState:
                 raise CLIAbort(
                     "Failed to request the 2FA trusted-device prompt."
                 ) from exc
+            except PyiCloudConnectionException as exc:
+                # Reachable before the generic handler below, which would
+                # otherwise report an outage as a failed code request.
+                raise CLIAbort(CONNECTION_FAILURE_MESSAGE) from exc
             except PyiCloudAPIResponseException:
                 self.console.print(
                     "Failed to request the 2FA SMS code. "
@@ -477,6 +490,10 @@ class CLIState:
             )
         except PyiCloudAccountLockedException as err:
             raise CLIAbort(f"{err}. Unlock it before trying again.") from err
+        except PyiCloudConnectionException as err:
+            raise CLIAbort(
+                f"Could not reach iCloud: {err}. Check your connection and try again."
+            ) from err
         except PyiCloudFailedLoginException as err:
             if password_source == "keyring" and utils.password_exists_in_keyring(
                 username
@@ -663,6 +680,11 @@ def service_call(
         return fn()
     except PyiCloudAccountLockedException as err:
         raise CLIAbort(f"{err}. Unlock it before trying again.") from err
+    except PyiCloudConnectionException as err:
+        # Checked before the generic re-authentication hint below: an outage is
+        # not a verdict on the session, so telling the user to log in again
+        # would be wrong.
+        raise CLIAbort(f"{label} could not reach iCloud. {err}") from err
     except PyiCloudServiceUnavailable as err:
         raise CLIAbort(f"{label} service unavailable: {err}") from err
     except (PyiCloudAuthRequiredException, PyiCloudFailedLoginException) as err:

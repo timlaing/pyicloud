@@ -18,6 +18,7 @@ from uuid import uuid4
 
 import click
 import pytest
+import typer
 from typer.testing import CliRunner, Result
 
 from pyicloud.endpoints import WEBSERVICES
@@ -2651,6 +2652,76 @@ def test_account_lock_cli_handlers_preserve_stored_keyring_secret() -> None:
     assert str(service_excinfo.value) == message
 
 
+def test_connection_failure_cli_handlers_preserve_keyring_and_offer_retry() -> None:
+    """An unreachable iCloud must not be reported as a login failure."""
+    error = context_module.PyiCloudConnectionException("Request failed to iCloud")
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            china_mainland=False,
+            interactive=False,
+        )
+    )
+
+    with (
+        patch.object(state, "_password_for_login", return_value=("secret", "keyring")),
+        patch.object(context_module, "PyiCloudService", side_effect=error),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+        pytest.raises(context_module.CLIAbort) as login_excinfo,
+    ):
+        state.get_login_api()
+
+    # An outage is not a verdict on the stored password, so it must survive.
+    delete_password.assert_not_called()
+    login_message = str(login_excinfo.value)
+    assert "Could not reach iCloud" in login_message
+    assert "Bad username or password" not in login_message
+
+    # Build outside pytest.raises: MagicMock(side_effect=...) fires on
+    # construction, which would leave two invocations able to raise.
+    service_fn = MagicMock(side_effect=error)
+    with pytest.raises(context_module.CLIAbort) as service_excinfo:
+        context_module.service_call("Find My", service_fn)
+
+    service_message = str(service_excinfo.value)
+    assert service_message.startswith("Find My could not reach iCloud")
+    # Pointing at `auth login` would be wrong advice during an outage.
+    assert "requires re-authentication" not in service_message
+
+
+def test_2fa_code_request_failure_does_not_swallow_connection_error() -> None:
+    """An outage during the 2FA prompt must abort, not fall through to a code."""
+    error = context_module.PyiCloudConnectionException("Request failed to iCloud")
+    api = MagicMock(
+        fido2_devices=[],
+        request_2fa_code=MagicMock(side_effect=error),
+        use_existing_trusted_device_code=MagicMock(),
+    )
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            china_mainland=False,
+            interactive=True,
+        )
+    )
+
+    with (
+        patch.object(typer, "prompt") as prompt,
+        pytest.raises(context_module.CLIAbort) as excinfo,
+    ):
+        state._handle_2fa(api)
+
+    assert str(excinfo.value) == context_module.CONNECTION_FAILURE_MESSAGE
+    # The outage must abort the flow, not fall through to asking for a code.
+    prompt.assert_not_called()
+    api.use_existing_trusted_device_code.assert_not_called()
+
+
 def test_auth_logout_variants_and_remote_failure() -> None:
     """Auth logout should map semantic flags to Apple's payload and keep keyring
     intact.
@@ -2786,6 +2857,22 @@ def test_security_key_account_lock_is_not_rewritten() -> None:
         state._handle_2fa(fake_api)
 
     assert excinfo.value is error
+    fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
+
+
+def test_security_key_connection_failure_aborts_instead_of_swallowing() -> None:
+    """An outage during security-key verification should abort, not fall through."""
+    error = context_module.PyiCloudConnectionException("Request failed to iCloud")
+    fake_api = MagicMock()
+    fake_api.fido2_devices = [{"id": "sk-1"}]
+    fake_api.confirm_security_key.side_effect = error
+    state = context_module.CLIState.from_options(context_module.CLICommandOptions())
+
+    with pytest.raises(context_module.CLIAbort) as excinfo:
+        state._handle_2fa(fake_api)
+
+    # The generic handler would otherwise report a failed security key.
+    assert str(excinfo.value) == context_module.CONNECTION_FAILURE_MESSAGE
     fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
 
 
@@ -4449,6 +4536,10 @@ def test_reminders_commands_report_reauthentication_and_unavailability() -> None
             context_module.PyiCloudAccountLockedException("-20209", MagicMock()),
             "Apple Account is locked for security reasons. "
             "Unlock it before trying again.",
+        ),
+        (
+            context_module.PyiCloudConnectionException("Request failed to iCloud"),
+            context_module.CONNECTION_FAILURE_MESSAGE,
         ),
     ],
 )
