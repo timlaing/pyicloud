@@ -2860,6 +2860,22 @@ def test_security_key_account_lock_is_not_rewritten() -> None:
     fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
 
 
+def test_security_key_connection_failure_aborts_instead_of_swallowing() -> None:
+    """An outage during security-key verification should abort, not fall through."""
+    error = context_module.PyiCloudConnectionException("Request failed to iCloud")
+    fake_api = MagicMock()
+    fake_api.fido2_devices = [{"id": "sk-1"}]
+    fake_api.confirm_security_key.side_effect = error
+    state = context_module.CLIState.from_options(context_module.CLICommandOptions())
+
+    with pytest.raises(context_module.CLIAbort) as excinfo:
+        state._handle_2fa(fake_api)
+
+    # The generic handler would otherwise report a failed security key.
+    assert str(excinfo.value) == context_module.CONNECTION_FAILURE_MESSAGE
+    fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
+
+
 def test_trusted_device_2sa_flow() -> None:
     """Auth login should send and validate a 2SA verification code."""
 

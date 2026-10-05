@@ -3541,6 +3541,82 @@ def test_srp_authentication_routes_2fa_delivery_through_request_2fa_code(
         assert pyicloud_service._requires_mfa is True
 
 
+def test_srp_authentication_does_not_blame_credentials_for_an_outage(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """An unreachable iCloud during SRP init must not become a failed login.
+
+    Rewriting an outage as a rejected password would send the user to
+    re-authenticate when only a retry can help.
+    """
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        # signin/init is the first POST, so it is where the outage shows up.
+        mock_session.post.side_effect = PyiCloudConnectionException(
+            "Request failed to iCloud"
+        )
+
+        with pytest.raises(PyiCloudConnectionException):
+            pyicloud_service._srp_authentication()
+
+
+def test_srp_completion_does_not_blame_credentials_for_an_outage(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """An unreachable iCloud during SRP completion must not become a failed login."""
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        # signin/init succeeds, then the outage hits signin/complete.
+        mock_session.post.side_effect = [
+            init_response,
+            PyiCloudConnectionException("Request failed to iCloud"),
+        ]
+
+        with pytest.raises(PyiCloudConnectionException):
+            pyicloud_service._srp_authentication()
+
+
 def test_authenticate_skips_token_auth_after_srp_2fa_required(
     pyicloud_service: PyiCloudService,
 ) -> None:
@@ -3710,6 +3786,20 @@ def test_authenticate_with_token_keeps_connection_failure_distinct(
 
     with pytest.raises(PyiCloudConnectionException):
         pyicloud_service._authenticate_with_token()
+
+
+def test_credentials_service_login_does_not_blame_password_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud during setup login must not become a failed login."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service._authenticate_with_credentials_service(None)
 
 
 def test_authenticate_with_token_still_reports_rejected_token(
