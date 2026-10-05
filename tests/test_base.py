@@ -2072,6 +2072,37 @@ def test_request_account_locked(
     assert "session-identifier" not in str(error)
 
 
+def test_request_forbidden_without_lock_keeps_body_reason(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """A non-JSON 403 that is not a lock still reports the response body."""
+    response = MagicMock()
+    response.status_code = AppleAuthError.FORBIDDEN
+    response.ok = False
+    response.reason = "Forbidden"
+    response.headers = {"Content-Type": "text/html"}
+    response.json.side_effect = ValueError("not json")
+    response.text = "<html>Access denied</html>"
+    response.raise_for_status.side_effect = HTTPError(response=response)
+
+    with patch.object(PyiCloudSession, "_load_session_data"):
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch.object(pyicloud_session, "_save_session_data"),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_session.request(
+            "POST", "https://idmsa.apple.com/appleauth/auth/signin/complete"
+        )
+
+    assert str(excinfo.value) == "<html>Access denied</html> (403)"
+    assert excinfo.value.response is None
+
+
 def test_account_locked_bypasses_authentication_fallbacks(
     pyicloud_service: PyiCloudService,
 ) -> None:

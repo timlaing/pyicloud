@@ -341,11 +341,22 @@ class PyiCloudSession(requests.Session):
             if status_code == HTTP_GONE:
                 raise PyiCloudEndpointGoneException(describe_endpoint(url), response)
 
+            # Account locks are reported as a 403 with a JSON body, but the
+            # mimetype is not dependable, so the lock check runs on non-JSON
+            # 403s too. It must stay out of the dispatcher below: that path
+            # reports the HTTP reason instead of the response body, which would
+            # change the error surfaced for every other non-JSON 403.
+            if (
+                not response.ok
+                and status_code == AppleAuthError.FORBIDDEN
+                and not self._is_json_response(response)
+            ):
+                self._raise_if_account_locked(response)
+
             if not response.ok and (
                 self._is_json_response(response)
                 or status_code
                 in [
-                    AppleAuthError.FORBIDDEN,
                     AppleAuthError.TWO_FACTOR_REQUIRED,
                     AppleAuthError.FIND_MY_REAUTH_REQUIRED,
                     AppleAuthError.LOGIN_TOKEN_EXPIRED,
