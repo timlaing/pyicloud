@@ -14,8 +14,7 @@ from contextlib import suppress
 import logging
 import os
 import re
-
-from rich.console import Console
+from typing import TYPE_CHECKING
 
 from pyicloud.common.cloudkit import CKLookupResponse, CKRecord
 
@@ -26,7 +25,24 @@ from .ck_datasource import CloudKitNoteDataSource
 from .options import ExportConfig
 from .renderer import NoteRenderer, render_note_fragment, render_note_page
 
-console = Console()
+if TYPE_CHECKING:
+    from rich.console import Console
+
+
+def _console() -> Console | None:
+    """Return the shared rich console, or ``None`` when rich is unavailable.
+
+    rich only ships with the ``cli`` extra while this module sits on the core
+    import path, so a missing rich degrades debug output instead of failing.
+    """
+    try:
+        from rich.console import Console  # pylint: disable=import-outside-toplevel
+    except ImportError:
+        return None
+    return Console()
+
+
+console: Console | None = _console()
 
 LOGGER = logging.getLogger(__name__)
 
@@ -98,7 +114,7 @@ def _hydrate_attachment_records(
     media_map: dict[str, str] = {}
     debug = bool(getattr(config, "debug", False))
     for rec_idx, rec in enumerate(resp.records):
-        if debug:
+        if debug and console is not None:
             console.rule(f"rec_idx {rec_idx}")
             console.print(rec)
         if isinstance(rec, CKRecord):
@@ -127,12 +143,10 @@ def _follow_media_references(
     try:
         mresp = ck_client.lookup(list(media_map.keys()))
         if bool(getattr(config, "debug", False)):
-            try:
+            LOGGER.info("attachment media resp:\n%s", mresp)
+            if console is not None:
                 console.rule("media lookup response")
                 console.print(mresp)
-                LOGGER.info("attachment media resp:\n%s", mresp)
-            except Exception:
-                pass
         for mrec in mresp.records:
             if not isinstance(mrec, CKRecord):
                 continue

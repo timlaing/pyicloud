@@ -122,6 +122,7 @@ class CLIState:
         self._api: PyiCloudService | None = None
         self._probe_api: PyiCloudService | None = None
         self._resolved_username: str | None = self.username or None
+        self.login_password_source: str | None = None
         self._logging_configured = False
 
     @classmethod
@@ -225,8 +226,19 @@ class CLIState:
             return None
         return entry.get("china_mainland")
 
-    def remember_account(self, api: PyiCloudService, *, select: bool = True) -> None:
-        """Persist an account entry for later local discovery."""
+    def remember_account(
+        self,
+        api: PyiCloudService,
+        *,
+        select: bool = True,
+        keyring_has: Callable[[str], bool] | None = None,
+        prune: bool = True,
+    ) -> None:
+        """Persist an account entry for later local discovery.
+
+        ``prune=False`` keeps neighbor pruning disabled for callers that must not
+        read the keyring, because pruning cannot confirm keyring-only accounts.
+        """
 
         remember_account(
             self.session_root,
@@ -234,10 +246,19 @@ class CLIState:
             session_path=api.session.session_path,
             cookiejar_path=api.session.cookiejar_path,
             china_mainland=api.is_china_mainland,
-            keyring_has=self.has_keyring_password,
+            keyring_has=(
+                self.has_keyring_password if keyring_has is None else keyring_has
+            ),
+            prune=prune,
         )
         if select:
             self._resolved_username = api.account_name
+
+    @property
+    def skips_keyring_for_login(self) -> bool:
+        """Report whether this login must avoid reading the local keyring."""
+
+        return not self.interactive and self.login_password_source == "explicit"
 
     def _resolve_username(self) -> str:
         """Resolve the Apple ID to use for the current CLI command."""
@@ -465,8 +486,8 @@ class CLIState:
             raise CLIAbort(f"Bad username or password for {username}") from err
 
         if (
-            not utils.password_exists_in_keyring(username)
-            and self.interactive
+            self.interactive
+            and not utils.password_exists_in_keyring(username)
             and confirm("Save password in keyring?")
         ):
             utils.store_password_in_keyring(username, password)
@@ -476,8 +497,9 @@ class CLIState:
         elif api.requires_2sa:
             self._handle_2sa(api)
 
+        self.login_password_source = password_source
         self._api = api
-        self.remember_account(api)
+        self.remember_account(api, prune=not self.skips_keyring_for_login)
         return api
 
     def get_api(self) -> PyiCloudService:

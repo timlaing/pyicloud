@@ -26,12 +26,18 @@ from requests.models import Response
 import srp
 
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
-from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT
+from pyicloud.const import (
+    ACCOUNT_NAME,
+    CONTENT_TYPE_JSON,
+    CONTENT_TYPE_TEXT,
+    AppleAuthError,
+)
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
@@ -923,6 +929,39 @@ class PyiCloudService:
         self._hsa2_boot_context = boot_context
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("unknown")
+
+        fsa_challenge = auth_options.get("fsaChallenge")
+        if (
+            not isinstance(fsa_challenge, dict)
+            or not all(
+                fsa_challenge.get(key) for key in ("challenge", "keyHandles", "rpId")
+            )
+            or not auth_options.get("keyNames")
+        ):
+            # Security-key accounts expose WebAuthn options only in the JSON response.
+            # The HTML shell advertises nothing that distinguishes them from SMS-only
+            # accounts, so probe the JSON shape once per authentication and treat any
+            # failure as "no security key offered".
+            try:
+                json_response = self.session.get(
+                    self._auth_endpoint,
+                    headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+                ).json()
+            except (
+                PyiCloudAPIResponseException,
+                PyiCloud2FARequiredException,
+                PyiCloudAuthRequiredException,
+                TypeError,
+                ValueError,
+            ):
+                json_response = None
+            if isinstance(json_response, dict):
+                # Copy only the WebAuthn fields: the JSON shape is SMS-oriented and an
+                # unbounded merge would drop the HSA2 bridge data parsed above.
+                for webauthn_key in ("fsaChallenge", "keyNames"):
+                    if webauthn_key in json_response:
+                        auth_options[webauthn_key] = json_response[webauthn_key]
+
         return auth_options
 
     def _set_two_factor_delivery_state(
@@ -1268,7 +1307,7 @@ class PyiCloudService:
                 self._validate_trusted_device_code(code)
         except PyiCloudTrustedDeviceVerificationException:
             raise
-        except PyiCloudAPIResponseException:
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             # Wrong verification code
             LOGGER.error("Code verification failed.")
             return False
@@ -1286,11 +1325,40 @@ class PyiCloudService:
 
         data: dict[str, Any] = {"securityCode": {"code": code}}
         headers: dict[str, Any] = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
-        self.session.post(
-            f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
-            json=data,
-            headers=headers,
-        )
+        try:
+            self.session.post(
+                f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
+                json=data,
+                headers=headers,
+            )
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException) as error:
+            # For `_W` bridge challenges Apple accepts the code but still answers
+            # 409; the body's `securityCode.valid` flag is the real verdict. The
+            # session raises an HSA2 409 as PyiCloud2FARequiredException.
+            if not self._is_accepted_security_code_conflict(error.response):
+                raise
+            LOGGER.debug(
+                "Apple accepted the trusted-device code with a 409 response; "
+                "continuing to session trust."
+            )
+
+    @staticmethod
+    def _is_accepted_security_code_conflict(response: Response | None) -> bool:
+        """Return whether a 409 verify response reports the code as valid."""
+
+        if (
+            response is None
+            or response.status_code != AppleAuthError.TWO_FACTOR_REQUIRED
+        ):
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        if not isinstance(body, dict):
+            return False
+        security_code = body.get("securityCode")
+        return isinstance(security_code, dict) and security_code.get("valid") is True
 
     def _validate_sms_code(self, code: str) -> None:
         """Verifies a verification code received via Apple's SMS system."""

@@ -380,6 +380,143 @@ def test_validate_2fa_code_keeps_legacy_endpoint_for_bridge_w_subtype(
     pyicloud_service._trusted_device_bridge.close.assert_called_once_with(bridge_state)
 
 
+def _security_code_conflict(body: Any) -> PyiCloudAPIResponseException:
+    """Build the 409 error the session raises for a trusted-device verify call."""
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.TWO_FACTOR_REQUIRED
+    if isinstance(body, Exception):
+        response.json.side_effect = body
+    else:
+        response.json.return_value = body
+    return PyiCloudAPIResponseException(
+        "Authentication required for Account.",
+        AppleAuthError.TWO_FACTOR_REQUIRED,
+        response,
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            {"securityCode": {"code": "123456", "valid": True}}, True, id="valid"
+        ),
+        pytest.param({"securityCode": {"valid": False}}, False, id="invalid"),
+        pytest.param({"securityCode": "nope"}, False, id="malformed-security-code"),
+        pytest.param({}, False, id="missing-security-code"),
+        pytest.param([], False, id="non-object-body"),
+        pytest.param(ValueError("bad json"), False, id="undecodable-body"),
+    ],
+)
+def test_validate_2fa_code_legacy_409_uses_security_code_verdict(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    body: Any,
+    expected: bool,
+) -> None:
+    """Apple answers `_W` legacy verification with 409 even when the code is valid.
+
+    The body's ``securityCode.valid`` flag decides whether to continue to trust.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = MagicMock(
+        uses_legacy_trusted_device_verifier=True
+    )
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+    cast(Any, pyicloud_service.session).post.side_effect = _security_code_conflict(body)
+
+    assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+    pyicloud_service._trusted_device_bridge.validate_code.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("valid", "expected"),
+    [pytest.param(True, True, id="valid"), pytest.param(False, False, id="invalid")],
+)
+def test_validate_2fa_code_legacy_hsa2_409_through_session(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    valid: bool,
+    expected: bool,
+) -> None:
+    """A real HSA2 409 body is classified by the session as 2FA-required.
+
+    The ``securityCode.valid`` verdict must still decide the outcome rather than
+    the session's PyiCloud2FARequiredException escaping validate_2fa_code.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = MagicMock(
+        uses_legacy_trusted_device_verifier=True
+    )
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.TWO_FACTOR_REQUIRED
+    response.ok = False
+    response.reason = "Conflict"
+    response.headers = {"Content-Type": "application/json"}
+    response.json.return_value = {
+        "securityCode": {"code": "123456", "valid": valid},
+        "authenticationType": "hsa2",
+    }
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
+        patch("http.cookiejar.LWPCookieJar.save"),
+    ):
+        pyicloud_service._session = PyiCloudSession(
+            pyicloud_service, "", cookie_directory=""
+        )
+        assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+
+
+def test_validate_2fa_code_legacy_non_409_error_is_invalid_code(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Non-409 verify failures should still report an invalid code."""
+
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = None
+    response = MagicMock(spec=Response)
+    response.status_code = 400
+    response.json.return_value = {"securityCode": {"valid": True}}
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {}
+    cast(Any, pyicloud_service.session).post.side_effect = PyiCloudAPIResponseException(
+        "Bad request", 400, response
+    )
+
+    assert pyicloud_service.validate_2fa_code("123456") is False
+
+
 def test_validate_2fa_code_bridge_verification_exception_propagates(
     pyicloud_service: PyiCloudService,
 ) -> None:
@@ -479,7 +616,7 @@ def test_get_mfa_auth_options_parses_hsa2_boot_html(
 
     auth_options = pyicloud_service._get_mfa_auth_options()
 
-    _, kwargs = cast(Any, pyicloud_service.session).get.call_args
+    _, kwargs = cast(Any, pyicloud_service.session).get.call_args_list[0]
     assert kwargs["headers"]["Accept"] == "text/html"
     assert auth_options["authInitialRoute"] == "auth/bridge/step"
     assert auth_options["hasTrustedDevices"] is True
@@ -494,6 +631,154 @@ def test_get_mfa_auth_options_parses_hsa2_boot_html(
         "auth/bridge/step"
     )
     assert pyicloud_service._hsa2_boot_context.has_trusted_devices is True
+
+
+def test_get_mfa_auth_options_falls_back_to_json_for_security_key(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Security-key challenges should use JSON when the HTML shell omits WebAuthn."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {"direct": {"authInitialRoute": "auth/bridge/step"}}
+      </script>
+    </html>
+    """
+    json_response = MagicMock()
+    json_response.json.return_value = {
+        "keyNames": ["Security Key"],
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        },
+    }
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["keyNames"] == ["Security Key"]
+    assert auth_options["fsaChallenge"]["challenge"] == "challenge"
+    assert mock_session.get.call_count == 2
+    assert mock_session.get.call_args_list[0].kwargs["headers"]["Accept"] == "text/html"
+    assert (
+        mock_session.get.call_args_list[1].kwargs["headers"]["Accept"]
+        == "application/json"
+    )
+
+
+def test_get_mfa_auth_options_falls_back_to_json_for_security_key_names(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Security-key challenges should fetch JSON when names are absent."""
+
+    html_response = MagicMock()
+    html_response.json.return_value = {
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        }
+    }
+    json_response = MagicMock()
+    json_response.json.return_value = {"keyNames": ["Security Key"]}
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["keyNames"] == ["Security Key"]
+    assert mock_session.get.call_count == 2
+    assert (
+        mock_session.get.call_args_list[1].kwargs["headers"]["Accept"]
+        == "application/json"
+    )
+
+
+def test_get_mfa_auth_options_json_fallback_keeps_hsa2_boot_data(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """The SMS-shaped JSON response must not overwrite HSA2 bridge data."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {
+"direct": {
+              "authInitialRoute": "auth/bridge/step",
+              "hasTrustedDevices": true,
+              "twoSV": {
+                "authFactors": ["web_piggybacking", "sms"],
+                "bridgeInitiateData": {
+                  "phoneNumberVerification": {
+                    "trustedPhoneNumber": {"number": "****21"}
+                  }
+                }
+              }
+            }
+        }
+      </script>
+    </html>
+    """
+    json_response = MagicMock()
+    json_response.json.return_value = {
+        "authType": "auth",
+        "hasTrustedDevices": False,
+        "trustedPhoneNumber": None,
+        "keyNames": ["Security Key"],
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        },
+    }
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["keyNames"] == ["Security Key"]
+    assert auth_options["fsaChallenge"]["rpId"] == "apple.com"
+    assert auth_options["authInitialRoute"] == "auth/bridge/step"
+    assert auth_options["hasTrustedDevices"] is True
+    assert auth_options["trustedPhoneNumber"] == {"number": "****21"}
+
+
+def test_get_mfa_auth_options_json_fallback_survives_pending_hsa2_challenge(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A pending-challenge response on the JSON probe must not abort login."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {"direct": {"authInitialRoute": "auth/bridge/step"}}
+      </script>
+    </html>
+    """
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [
+        html_response,
+        PyiCloud2FARequiredException("test@example.com", MagicMock()),
+    ]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["authInitialRoute"] == "auth/bridge/step"
+    assert "keyNames" not in auth_options
+    assert "fsaChallenge" not in auth_options
 
 
 def test_get_mfa_auth_options_parses_nested_json_boot_context(
