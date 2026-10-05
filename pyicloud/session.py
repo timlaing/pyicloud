@@ -391,9 +391,16 @@ class PyiCloudSession(requests.Session):
                 reason=err.response.text,
                 code=err.response.status_code,
             ) from err
-        # No response came back at all, so this is a connection error rather
-        # than anything iCloud said about the request.
-        raise PyiCloudConnectionException("Request failed to iCloud") from err
+        if isinstance(
+            err,
+            (requests.exceptions.ConnectionError, requests.exceptions.Timeout),
+        ):
+            # Nothing came back at all, so this says nothing about the request
+            # itself. Only these two mean "iCloud could not be reached"; the
+            # rest (truncated bodies, bad URLs, redirect loops) are request
+            # faults and keep the generic contract.
+            raise PyiCloudConnectionException("Request failed to iCloud") from err
+        raise PyiCloudAPIResponseException("Request failed to iCloud") from err
 
     def _handle_request_error(
         self,

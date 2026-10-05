@@ -3775,6 +3775,41 @@ def test_connection_exception_is_still_an_api_response_exception() -> None:
     assert error.code is None
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ConnectionError("connection refused"),
+        requests.exceptions.ConnectTimeout("connect timed out"),
+        requests.exceptions.ReadTimeout("read timed out"),
+    ],
+)
+def test_unreachable_icloud_raises_connection_exception(
+    error: requests.exceptions.RequestException,
+) -> None:
+    """A refused, unresolvable or unresponsive iCloud is a connection failure."""
+    with pytest.raises(PyiCloudConnectionException):
+        PyiCloudSession._raise_request_exception(error)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ChunkedEncodingError("response truncated"),
+        requests.exceptions.TooManyRedirects("redirect loop"),
+        requests.exceptions.InvalidURL("bad url"),
+        requests.exceptions.MissingSchema("no scheme"),
+    ],
+)
+def test_request_faults_are_not_reported_as_connection_failures(
+    error: requests.exceptions.RequestException,
+) -> None:
+    """A malformed request is the caller's fault, not an unreachable iCloud."""
+    with pytest.raises(PyiCloudAPIResponseException) as excinfo:
+        PyiCloudSession._raise_request_exception(error)
+
+    assert not isinstance(excinfo.value, PyiCloudConnectionException)
+
+
 def test_srp_authentication_pause_2fa_includes_pause2fa_flag(
     pyicloud_service: PyiCloudService,
 ) -> None:
