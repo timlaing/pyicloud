@@ -1759,12 +1759,38 @@ enums used elsewhere in this service.
 `resolve()` only looks; `accept()` joins the event, after which it appears in
 `events()` with the shared scope.
 
+### Cancelling an event you host
+
+```python
+event = api.invites.event("EVENT-UUID")
+
+cancelled = api.invites.cancel(event)
+print(cancelled.is_cancelled)  # True
+
+# Changed your mind:
+api.invites.cancel(cancelled, cancelled=False)
+```
+
+Guests see the cancellation, so pass an event you really do host. The call
+works in both directions, so a cancellation is recoverable.
+
+Pass an `event` that carries a current record change tag -- one from `event()`
+or from a previous `cancel()`, as above. Apple rejects a stale one with an
+opaque `502`.
+
+Cancelling is the only event flag this library can write. Apple stores
+`isPublished`, `isPrivate` and `title` as PCS-encrypted fields, and writing
+those needs encryption support pyicloud does not have yet, so publishing an
+event or renaming it still has to happen in the Invites app.
+
 ### Errors
 
 Every call raises a subclass of `InvitesError`: `InvitesAuthError` when the
 session needs renewing, `InvitesRateLimited` when Apple asks you to slow down,
 and `InvitesApiError` for everything else. `event()` raises `EventNotFound` for
-an unknown event id.
+an unknown event id, and `cancel()` raises `InvitesEntitlementError` when the
+account is not entitled to edit events -- Apple gates them behind an iCloud
+subscription feature.
 
 ## Examples
 

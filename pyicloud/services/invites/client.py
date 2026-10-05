@@ -47,6 +47,11 @@ from pyicloud.common.cloudkit.client import (
     CloudKitRateLimited,
 )
 from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.services.invites.entitlement import (
+    GATEWAY_BASE_URL,
+    FeatureAccess,
+    parse_feature_access,
+)
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = (10.0, 60.0)
@@ -88,6 +93,15 @@ class InvitesRateLimited(InvitesError):
     def __init__(self, message: str, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after
+
+
+class InvitesEntitlementError(InvitesError):
+    """The account may not perform this write.
+
+    Apple gates event edits behind a subscription feature and answers an
+    unproven write with ``502 INTERNAL_ERROR``, which says nothing useful. This
+    is raised before the request instead.
+    """
 
 
 class InvitesApiError(InvitesError):
@@ -173,6 +187,31 @@ class CloudKitInvitesClient:
         raise exc
 
     # ----- Records-in-zones scoped wrappers ----------------------------------
+
+    def feature_access(self, feature: str) -> FeatureAccess:
+        """Ask Apple whether this account may use ``feature``, and for a token.
+
+        Not a CloudKit call: the gateway lives outside the container and is not
+        in the advertised webservices map, so it is reached directly.
+        """
+
+        dsid = self._base_params.get("dsid")
+        url = f"{GATEWAY_BASE_URL}/accounts/{dsid}/subscriptions/features"
+        try:
+            response = self._session.get(
+                url,
+                params=self._base_params,
+                headers={"x-apple-softwarecapabilityflags": feature},
+                timeout=self._timeout,
+            )
+            payload = response.json()
+        except PyiCloudAPIResponseException as exc:
+            self._raise_invites_error(exc)
+        except ValueError as exc:
+            raise InvitesApiError(
+                "Entitlement gateway returned a non-JSON response"
+            ) from exc
+        return parse_feature_access(payload, feature)
 
     def zones_list(self, scope: ScopeLiteral) -> CKZoneListResponse:
         """List the zones in the given scope.

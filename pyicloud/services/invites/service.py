@@ -12,15 +12,17 @@ Read (Phase 1):
 
 Write (Phase 2):
   - ``InvitesService.rsvp(event, status, ...)`` -> ``Rsvp``
+  - ``InvitesService.cancel(event, ...)`` -> ``Event``
 
-Write operations on ``EventDetails`` (create event, publish, cancel, invite
-via link) arrive in later phases per the design doc.
+Creating events, publishing them, and inviting via link arrive in later
+phases per the design doc.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
+import json
 import logging
 from typing import Any, cast
 
@@ -49,10 +51,12 @@ from ._constants import (
 from .client import (
     CloudKitInvitesClient,
     InvitesApiError,
+    InvitesEntitlementError,
     InvitesError,
     ScopeLiteral,
 )
 from .codecs import decode_integrations, decode_json_bytes
+from .entitlement import CREATE_EVENT_FEATURE, FeatureAccess
 from .models.constants import (
     EventDetailsField,
     InvitesRecordType,
@@ -113,6 +117,7 @@ class InvitesService(BaseService):
             base_params,
             validation_extra=cloudkit_validation_extra,
         )
+        self._feature_access: FeatureAccess | None = None
 
     @property
     def raw(self) -> CloudKitInvitesClient:
@@ -293,9 +298,161 @@ class InvitesService(BaseService):
         )
         return self._rsvp_from_modify_response(response, record_name)
 
+    def cancel(self, event: Event, *, cancelled: bool = True) -> Event:
+        """Cancel an event you host, or reinstate one you cancelled.
+
+        Apple accepts both directions, so this is a symmetric switch rather
+        than a one-way verb -- an accidental cancel is recoverable.
+
+        ``event`` must carry a current record change tag, so pass one from
+        ``event()`` or from a previous write rather than reusing a stale
+        object: Apple rejects a stale tag with an opaque ``502``.
+        """
+
+        return self._set_event_flag(event, EventDetailsField.IS_CANCELLED, cancelled)
+
     # ------------------------------------------------------------------
     # Internal: write helpers
     # ------------------------------------------------------------------
+
+    def _entitlement_token(self) -> str:
+        """Return a token proving this account may edit events.
+
+        Cached until shortly before Apple's own ``cacheTill``: the grant lasts
+        a week, and fetching one per write would add a round trip for nothing.
+        """
+
+        now = datetime.now(timezone.utc)
+        cached = self._feature_access
+        if cached is not None and cached.usable_at(now):
+            return cast(str, cached.access_token)
+
+        access = self._raw.feature_access(CREATE_EVENT_FEATURE)
+        if not access.can_use or not access.access_token:
+            raise InvitesEntitlementError(
+                "This account cannot edit events. Apple gates them behind a "
+                f"subscription feature ({CREATE_EVENT_FEATURE}) and reports "
+                "it as unavailable here."
+            )
+        self._feature_access = access
+        return access.access_token
+
+    def _set_event_flag(
+        self, event: Event, field: EventDetailsField, value: bool
+    ) -> Event:
+        """Set one boolean flag on an event, and on its share.
+
+        Two operations in one atomic modify, because the share record keeps its
+        own copies of these flags and does **not** follow the event: cancelling
+        only the event leaves the share reading as live to guests.
+
+        The ``hint`` field carries the entitlement token. Without it Apple
+        answers ``502 INTERNAL_ERROR`` with no explanation at all.
+
+        Only flags the schema stores unencrypted can go through here, and a
+        read says which those are: a field Apple sends back with
+        ``isEncrypted: true`` is PCS-protected, and writing it needs a
+        ciphertext this library cannot produce. ``isCancelled`` carries no such
+        marker and takes a plain ``INT64``. ``isPublished`` does carry it, and
+        Apple answers ``BAD_REQUEST -- expected type ENCRYPTED_NUMBER_INT64``
+        to every unencrypted encoding, so publishing waits on PCS support.
+        """
+
+        if not event.record_change_tag:
+            raise InvitesApiError(
+                f"Event {event.event_id!r} has no record change tag; fetch it "
+                "via InvitesService.event(...) before writing to it."
+            )
+
+        hint = json.dumps({"subscriptionAccessToken": self._entitlement_token()})
+        flag: dict[str, Any] = {"type": "INT64", "value": int(value)}
+        scope_str = self._scope_str(event.scope)
+        zone_id = self._zone_id_req(event.event_id, event.scope)
+
+        operations = [
+            CKModifyOperation(
+                operationType="update",
+                record=CKWriteRecord(
+                    recordName=(f"{EVENT_DETAILS_RECORD_NAME_PREFIX}{event.event_id}"),
+                    recordType=InvitesRecordType.EventDetails.value,
+                    recordChangeTag=event.record_change_tag,
+                    fields=cast(
+                        CKWriteFields,
+                        {
+                            field.value: flag,
+                            EventDetailsField.HINT.value: {
+                                "type": "STRING",
+                                "value": hint,
+                            },
+                        },
+                    ),
+                ),
+            )
+        ]
+
+        share_tag = self._share_change_tag(scope_str, zone_id)
+        if share_tag is not None:
+            operations.append(
+                CKModifyOperation(
+                    operationType="update",
+                    record=CKWriteRecord(
+                        recordName=SHARE_RECORD_NAME,
+                        recordType=InvitesRecordType.Share.value,
+                        recordChangeTag=share_tag,
+                        fields=cast(CKWriteFields, {field.value: flag}),
+                    ),
+                )
+            )
+
+        response: CKModifyResponse = self._raw.modify(
+            scope_str, operations=operations, zone_id=zone_id, atomic=True
+        )
+        return self._event_from_modify_response(
+            response,
+            f"{EVENT_DETAILS_RECORD_NAME_PREFIX}{event.event_id}",
+            event.scope,
+        )
+
+    def _share_change_tag(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq
+    ) -> str | None:
+        """Return the share record's own change tag, or None if unreadable.
+
+        ``EventShare`` does not carry it and an update needs it, so read it
+        back from the same lookup ``event()`` already uses. A zone whose share
+        cannot be read still gets its event updated rather than nothing.
+        """
+
+        try:
+            resp = self._raw.lookup(scope_str, [SHARE_RECORD_NAME], zone_id=zone_id)
+        except InvitesError:
+            LOGGER.debug("invites.share_change_tag_failed", exc_info=True)
+            return None
+        for record in self._records_of(resp):
+            if record.recordName == SHARE_RECORD_NAME:
+                return record.recordChangeTag
+        return None
+
+    def _event_from_modify_response(
+        self, response: CKModifyResponse, record_name: str, scope: EventScope
+    ) -> Event:
+        """Pick the event record out of a modify response and convert it.
+
+        Carries the new change tag so writes can be chained. ``share`` and
+        ``rsvps`` are unset, as in ``events()``.
+        """
+
+        for record in response.records:
+            if (
+                isinstance(record, CKRecord)
+                and record.recordName == record_name
+                and record.recordType == InvitesRecordType.EventDetails.value
+            ):
+                return self._event_from_record(record, scope=scope)
+        raise InvitesApiError(
+            f"Modify response did not return {record_name!r}",
+            payload=response.model_dump(mode="json"),
+        )
 
     @staticmethod
     def _current_participant_id(event: Event) -> str:
