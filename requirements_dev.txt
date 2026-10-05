@@ -4,7 +4,7 @@ prek
 # pylint 4.1.x (astroid 4.3.x) misreports concrete methods as abstract, which
 # fails the lint gate on untouched files such as tests/conftest.py. Raise the
 # ceiling once the upstream inference bug is fixed.
-pylint>=4.0.8,<4.1
+pylint>=4.0.8,<4.2
 pylint-strict-informational
 pytest
 pytest-asyncio
