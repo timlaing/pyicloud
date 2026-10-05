@@ -36,6 +36,7 @@ from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloudAcceptTermsException,
     PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
@@ -921,6 +922,39 @@ class PyiCloudService:
         self._hsa2_boot_context = boot_context
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("unknown")
+
+        fsa_challenge = auth_options.get("fsaChallenge")
+        if (
+            not isinstance(fsa_challenge, dict)
+            or not all(
+                fsa_challenge.get(key) for key in ("challenge", "keyHandles", "rpId")
+            )
+            or not auth_options.get("keyNames")
+        ):
+            # Security-key accounts expose WebAuthn options only in the JSON response.
+            # The HTML shell advertises nothing that distinguishes them from SMS-only
+            # accounts, so probe the JSON shape once per authentication and treat any
+            # failure as "no security key offered".
+            try:
+                json_response = self.session.get(
+                    self._auth_endpoint,
+                    headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+                ).json()
+            except (
+                PyiCloudAPIResponseException,
+                PyiCloud2FARequiredException,
+                PyiCloudAuthRequiredException,
+                TypeError,
+                ValueError,
+            ):
+                json_response = None
+            if isinstance(json_response, dict):
+                # Copy only the WebAuthn fields: the JSON shape is SMS-oriented and an
+                # unbounded merge would drop the HSA2 bridge data parsed above.
+                for webauthn_key in ("fsaChallenge", "keyNames"):
+                    if webauthn_key in json_response:
+                        auth_options[webauthn_key] = json_response[webauthn_key]
+
         return auth_options
 
     def _set_two_factor_delivery_state(

@@ -176,16 +176,28 @@ def remember_account(
     session_path: str,
     cookiejar_path: str,
     china_mainland: bool | None,
-    keyring_has: Callable[[str], bool],
+    keyring_has: Callable[[str], bool] | None = None,
+    prune: bool = True,
 ) -> AccountIndexEntry:
-    """Upsert one account entry and prune any stale neighbors."""
+    """Upsert one account entry and prune any stale neighbors.
+
+    Pruning consults the keyring through ``keyring_has`` to decide whether
+    keyring-only accounts are still discoverable, so callers that must not read
+    the keyring pass ``prune=False`` and keep every existing entry.
+    """
 
     with _locked_index(session_root) as index_path:
-        accounts = {
-            username_: entry
-            for username_, entry in _load_accounts_from_path(index_path).items()
-            if _is_discoverable(entry, keyring_has)
-        }
+        stored = _load_accounts_from_path(index_path)
+        pruner = keyring_has if prune else None
+        accounts = (
+            {
+                username_: entry
+                for username_, entry in stored.items()
+                if _is_discoverable(entry, pruner)
+            }
+            if pruner is not None
+            else dict(stored)
+        )
         previous = accounts.get(username)
         entry: AccountIndexEntry = {
             "username": username,
