@@ -2516,61 +2516,14 @@ def test_auth_login_non_interactive_explicit_password_skips_keyring() -> None:
                 "--session-dir",
                 str(session_dir),
                 "--non-interactive",
-            ],
-        )
-
-    assert result.exit_code == 0
-    # Pruning consults the keyring for neighbouring accounts, so it must be off.
-    assert remember_account.call_args.kwargs["prune"] is False
-
-
-def test_auth_login_non_interactive_explicit_password_reports_keyring_as_unknown() -> (
-    None
-):
-    """Keyring state must be reported as unknown rather than as a missing password."""
-
-    session_dir = Path("/virtual/non-interactive-explicit-json")
-    with (
-        patch.object(
-            context_module, "configurable_ssl_verification", return_value=nullcontext()
-        ),
-        patch.object(
-            context_module,
-            "PyiCloudService",
-            return_value=FakeAPI(session_dir=session_dir),
-        ),
-        patch.object(
-            context_module.utils,
-            "password_exists_in_keyring",
-            side_effect=AssertionError("Keyring must not be accessed"),
-        ),
-        patch.object(
-            context_module.utils,
-            "get_password_from_keyring",
-            side_effect=AssertionError("Keyring must not be accessed"),
-        ),
-        patch.object(context_module, "load_accounts", return_value={}),
-        patch.object(context_module.CLIState, "remember_account"),
-        patch.object(context_module.Path, "exists", return_value=False),
-    ):
-        result = _runner().invoke(
-            app,
-            [
-                "auth",
-                "login",
-                "--username",
-                "user@example.com",
-                "--password",
-                "secret",
-                "--session-dir",
-                str(session_dir),
-                "--non-interactive",
                 "--format",
                 "json",
             ],
         )
 
     assert result.exit_code == 0
+    # Pruning consults the keyring for neighbouring accounts, so it must be off.
+    assert remember_account.call_args.kwargs["prune"] is False
     assert json.loads(result.stdout)["has_keyring_password"] is None
 
 
