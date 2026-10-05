@@ -18,6 +18,7 @@ import typer
 from pyicloud import PyiCloudService, utils
 from pyicloud.base import resolve_cookie_directory
 from pyicloud.exceptions import (
+    PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
     PyiCloudFailedLoginException,
@@ -362,6 +363,8 @@ class CLIState:
             self.console.print("Touch the selected security key to continue.")
             try:
                 api.confirm_security_key(fido2_devices[selected_index])
+            except PyiCloudAccountLockedException:
+                raise
             except Exception as exc:  # pragma: no cover - live auth path
                 raise CLIAbort("Security key verification failed.") from exc
         else:
@@ -472,6 +475,8 @@ class CLIState:
                 accept_terms=self.accept_terms,
                 with_family=self.with_family,
             )
+        except PyiCloudAccountLockedException as err:
+            raise CLIAbort(f"{err}. Unlock it before trying again.") from err
         except PyiCloudFailedLoginException as err:
             if password_source == "keyring" and utils.password_exists_in_keyring(
                 username
@@ -656,6 +661,8 @@ def service_call(
 
     try:
         return fn()
+    except PyiCloudAccountLockedException as err:
+        raise CLIAbort(f"{err}. Unlock it before trying again.") from err
     except PyiCloudServiceUnavailable as err:
         raise CLIAbort(f"{label} service unavailable: {err}") from err
     except (PyiCloudAuthRequiredException, PyiCloudFailedLoginException) as err:

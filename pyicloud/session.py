@@ -16,6 +16,7 @@ from pyicloud.const import (
     CONTENT_TYPE_JSON,
     CONTENT_TYPE_TEXT_JSON,
     ERROR_ACCESS_DENIED,
+    ERROR_ACCOUNT_LOCKED,
     ERROR_AUTHENTICATION_FAILED,
     ERROR_ZONE_NOT_FOUND,
     HEADER_DATA,
@@ -26,6 +27,7 @@ from pyicloud.exceptions import (
     HTTP_GONE,
     PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
+    PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
     PyiCloudEndpointGoneException,
@@ -339,6 +341,18 @@ class PyiCloudSession(requests.Session):
             if status_code == HTTP_GONE:
                 raise PyiCloudEndpointGoneException(describe_endpoint(url), response)
 
+            # Account locks are reported as a 403 with a JSON body, but the
+            # mimetype is not dependable, so the lock check runs on non-JSON
+            # 403s too. It must stay out of the dispatcher below: that path
+            # reports the HTTP reason instead of the response body, which would
+            # change the error surfaced for every other non-JSON 403.
+            if (
+                not response.ok
+                and status_code == AppleAuthError.FORBIDDEN
+                and not self._is_json_response(response)
+            ):
+                self._raise_if_account_locked(response)
+
             if not response.ok and (
                 self._is_json_response(response)
                 or status_code
@@ -384,6 +398,8 @@ class PyiCloudSession(requests.Session):
         response: Response,
     ) -> Response:
         """Handle request error."""
+        self._raise_if_account_locked(response)
+
         if status_code == AppleAuthError.TWO_FACTOR_REQUIRED and self._is_json_response(
             response
         ):
@@ -401,6 +417,24 @@ class PyiCloudSession(requests.Session):
             )
 
         self._raise_error(response, status_code, response.reason)
+
+    def _raise_if_account_locked(self, response: Response) -> None:
+        """Raise when an Apple service error reports a locked account."""
+        try:
+            data = response.json()
+        except (TypeError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
+        service_errors = data.get("serviceErrors")
+        if not isinstance(service_errors, list):
+            return
+        for service_error in service_errors:
+            if not isinstance(service_error, dict):
+                continue
+            code = service_error.get("code")
+            if code is not None and str(code) == str(ERROR_ACCOUNT_LOCKED):
+                raise PyiCloudAccountLockedException(code, response)
 
     def _auth_type_from_hsa2_body(self, response: Response) -> str | None:
         """Return the HSA2 authentication type from a challenge body, if any.

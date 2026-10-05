@@ -2616,6 +2616,41 @@ def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() ->
     delete_password.assert_not_called()
 
 
+def test_account_lock_cli_handlers_preserve_stored_keyring_secret() -> None:
+    """CLI account-lock handlers should preserve credentials and give guidance."""
+    error = context_module.PyiCloudAccountLockedException("-20209", MagicMock())
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            china_mainland=False,
+            interactive=False,
+        )
+    )
+
+    with (
+        patch.object(state, "_password_for_login", return_value=("secret", "keyring")),
+        patch.object(context_module, "PyiCloudService", side_effect=error),
+        patch.object(
+            context_module.utils, "password_exists_in_keyring", return_value=True
+        ),
+        patch.object(
+            context_module.utils, "delete_password_in_keyring"
+        ) as delete_password,
+        pytest.raises(context_module.CLIAbort) as login_excinfo,
+    ):
+        state.get_login_api()
+
+    delete_password.assert_not_called()
+    with pytest.raises(context_module.CLIAbort) as service_excinfo:
+        context_module.service_call("Find My", MagicMock(side_effect=error))
+
+    message = (
+        "Apple Account is locked for security reasons. Unlock it before trying again."
+    )
+    assert str(login_excinfo.value) == message
+    assert str(service_excinfo.value) == message
+
+
 def test_auth_logout_variants_and_remote_failure() -> None:
     """Auth logout should map semantic flags to Apple's payload and keep keyring
     intact.
@@ -2736,6 +2771,21 @@ def test_security_key_flow() -> None:
     fake_api.fido2_devices = [{"id": "sk-1"}]
     result = _invoke(fake_api, "auth", "login")
     assert result.exit_code == 0
+    fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
+
+
+def test_security_key_account_lock_is_not_rewritten() -> None:
+    """Security-key handling should preserve the account-lock state."""
+    error = context_module.PyiCloudAccountLockedException("-20209", MagicMock())
+    fake_api = MagicMock()
+    fake_api.fido2_devices = [{"id": "sk-1"}]
+    fake_api.confirm_security_key.side_effect = error
+    state = context_module.CLIState.from_options(context_module.CLICommandOptions())
+
+    with pytest.raises(context_module.PyiCloudAccountLockedException) as excinfo:
+        state._handle_2fa(fake_api)
+
+    assert excinfo.value is error
     fake_api.confirm_security_key.assert_called_once_with({"id": "sk-1"})
 
 
@@ -4386,18 +4436,35 @@ def test_reminders_commands_report_reauthentication_and_unavailability() -> None
     )
 
 
-def test_main_returns_clean_error_for_user_abort(
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (
+            context_module.CLIAbort(
+                "No local accounts were found; pass --username to bootstrap one."
+            ),
+            "No local accounts were found; pass --username to bootstrap one.",
+        ),
+        (
+            context_module.PyiCloudAccountLockedException("-20209", MagicMock()),
+            "Apple Account is locked for security reasons. "
+            "Unlock it before trying again.",
+        ),
+    ],
+)
+def test_main_returns_clean_error_for_expected_cli_error(
     capsys: pytest.CaptureFixture[str],
+    error: Exception,
+    message: str,
 ) -> None:
     """The entrypoint should not emit a traceback for expected CLI errors."""
 
-    message = "No local accounts were found; pass --username to bootstrap one."
-    with patch.object(cli_module, "app", side_effect=context_module.CLIAbort(message)):
+    with patch.object(cli_module, "app", side_effect=error):
         code = cli_module.main()
     captured = capsys.readouterr()
     assert code == 1
     assert captured.out == ""
-    assert message in captured.err
+    assert captured.err == f"{message}\n"
 
 
 def _advertised_webservices() -> dict[str, Any]:

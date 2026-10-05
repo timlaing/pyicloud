@@ -24,6 +24,7 @@ from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
     PyiCloudAcceptTermsException,
+    PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
@@ -2021,6 +2022,125 @@ def test_handle_request_error_two_factor_json_decode_error(
             status_code=AppleAuthError.TWO_FACTOR_REQUIRED,
             response=response,
         )
+
+
+@pytest.mark.parametrize("code", [-20209, "-20209"])
+@pytest.mark.parametrize(
+    "content_type", ["application/json;charset=UTF-8", "text/plain"]
+)
+def test_request_account_locked(
+    pyicloud_service_working: PyiCloudService,
+    code: int | str,
+    content_type: str,
+) -> None:
+    """A nested Apple service error identifies a lock through the request path."""
+    response = MagicMock()
+    response.status_code = AppleAuthError.FORBIDDEN
+    response.ok = False
+    response.reason = "Forbidden"
+    response.headers = {"Content-Type": content_type}
+    response.json.return_value = {
+        "serviceErrors": [
+            {
+                "code": code,
+                "message": "This Apple Account has been locked for security reasons.",
+                "private": "session-identifier",
+            }
+        ]
+    }
+    response.text = "response containing session-identifier"
+    response.raise_for_status.side_effect = HTTPError(response=response)
+
+    with patch.object(PyiCloudSession, "_load_session_data"):
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch.object(pyicloud_session, "_save_session_data"),
+        pytest.raises(PyiCloudAccountLockedException) as excinfo,
+    ):
+        pyicloud_session.request(
+            "POST", "https://idmsa.apple.com/appleauth/auth/signin/complete"
+        )
+
+    error = excinfo.value
+    assert error.code == code
+    assert error.response is response
+    assert isinstance(error, PyiCloudFailedLoginException)
+    assert "session-identifier" not in str(error)
+
+
+def test_request_forbidden_without_lock_keeps_body_reason(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """A non-JSON 403 that is not a lock still reports the response body."""
+    response = MagicMock()
+    response.status_code = AppleAuthError.FORBIDDEN
+    response.ok = False
+    response.reason = "Forbidden"
+    response.headers = {"Content-Type": "text/html"}
+    response.json.side_effect = ValueError("not json")
+    response.text = "<html>Access denied</html>"
+    response.raise_for_status.side_effect = HTTPError(response=response)
+
+    with patch.object(PyiCloudSession, "_load_session_data"):
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch.object(pyicloud_session, "_save_session_data"),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_session.request(
+            "POST", "https://idmsa.apple.com/appleauth/auth/signin/complete"
+        )
+
+    assert str(excinfo.value) == "<html>Access denied</html> (403)"
+    assert excinfo.value.response is None
+
+
+def test_account_locked_bypasses_authentication_fallbacks(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """An account lock is not retried as an ordinary failed login."""
+    error = PyiCloudAccountLockedException("-20209", MagicMock())
+    pyicloud_service.data = {"apps": {"find": {"canLaunchWithOneFactor": True}}}
+
+    with patch.object(
+        pyicloud_service,
+        "_authenticate_with_credentials_service",
+        side_effect=error,
+    ) as authenticate_with_credentials:
+        with pytest.raises(PyiCloudAccountLockedException):
+            pyicloud_service._try_service_one_factor_login("find")
+        authenticate_with_credentials.assert_called_once_with("find")
+
+    with (
+        patch.object(
+            pyicloud_service,
+            "_authenticate_with_token",
+            side_effect=error,
+        ) as authenticate_with_token,
+        patch.object(pyicloud_service, "_srp_authentication") as srp_authentication,
+    ):
+        with pytest.raises(PyiCloudAccountLockedException):
+            pyicloud_service._authenticate()
+        authenticate_with_token.assert_called_once_with()
+        srp_authentication.assert_not_called()
+
+    pyicloud_service.session.data["session_token"] = "token"
+    with patch.object(
+        pyicloud_service,
+        "_authenticate_with_token",
+        side_effect=error,
+    ) as authenticate_with_paused_token:
+        with pytest.raises(PyiCloudAccountLockedException):
+            pyicloud_service._login_with_paused_token()
+        authenticate_with_paused_token.assert_called_once_with(require_trust=False)
 
 
 def test_request_pcs_for_service_icdrs_not_disabled(

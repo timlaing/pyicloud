@@ -17,6 +17,7 @@ from pyicloud.cli.commands.photos import app as photos_app
 from pyicloud.cli.commands.reminders import app as reminders_app
 from pyicloud.cli.context import CLIAbort
 from pyicloud.diagnostics import installed_version
+from pyicloud.exceptions import PyiCloudAccountLockedException
 
 app = typer.Typer(
     help="Command line interface for pyicloud services.",
@@ -96,6 +97,9 @@ def main() -> int:
 
     try:
         app()
+    except PyiCloudAccountLockedException as err:
+        typer.echo(f"{err}. Unlock it before trying again.", err=True)
+        return 1
     except CLIAbort as err:
         typer.echo(str(err), err=True)
         return 1

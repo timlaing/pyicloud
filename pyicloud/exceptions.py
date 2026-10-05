@@ -113,6 +113,27 @@ class PyiCloudFailedLoginException(PyiCloudException):
         super().__init__(message, *args)
 
 
+# Keep the recovery URL whole so its query parameters are unambiguous.
+# pylint: disable=line-too-long
+class PyiCloudAccountLockedException(PyiCloudFailedLoginException):
+    """Apple rejected authentication because the account is locked.
+
+    The iCloud sign-in flow directs locked accounts to this unlock URL. Apple
+    determines the required verification steps. Replace
+    ``{url_encoded_apple_account}`` with the URL-encoded Apple Account:
+    ``https://iforgot.apple.com/password/verify/appleid?returnUrl=https%3A%2F%2Fwww.icloud.com%2F&prs_account_nm={url_encoded_apple_account}&unlock=true``.
+    """
+
+    def __init__(self, code: int | str, response: Response) -> None:
+        """Keep the service error and response available without logging its body."""
+        self.code: int | str = code
+        super().__init__("Apple Account is locked for security reasons")
+        self.response = response
+
+
+# pylint: enable=line-too-long
+
+
 class PyiCloudAcceptTermsException(PyiCloudException):
     """iCloud accept terms exception."""
 
