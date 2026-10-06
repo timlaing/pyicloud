@@ -1,6 +1,7 @@
 ---
 name: Report a bug with pyiCloud
 about: Report an issue
+labels: bug
 ---
 
 <!-- READ THIS FIRST:
