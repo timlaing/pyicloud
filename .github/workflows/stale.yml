@@ -13,10 +13,13 @@ on:
   # Allow maintainers to test/run the workflow manually
   workflow_dispatch:
 
-# Only what actions/stale actually uses: it labels and closes issues, and
-# records the reason on PRs. There is no checkout, so the token gets no
-# contents access. Anything else would fail #370's check that the workflow
-# holds only the permissions it requires.
+# Only what actions/stale actually uses. issues: write lets the action label
+# and close issues, with close-issue-reason above describing that issue
+# lifecycle. pull-requests: write lets it clear a stale label from a pull
+# request when activity resumes, which still runs even though PR staling is
+# disabled below. There is no checkout, so the token needs no contents
+# access; anything more would fail #370's check that this workflow holds
+# only the permissions it requires.
 permissions:
   issues: write
   pull-requests: write
