@@ -1,9 +1,13 @@
 name: "Auto label issues"
 
-# Adds the triage label to every newly opened or reopened issue, regardless of
-# whether it came from a form, a direct URL, the API or the CLI. Type labels
-# are assigned by the issue templates themselves (labels: in the template front
-# matter), so no heuristic keyword matching is involved here.
+# Adds needs-triage to every newly opened or reopened issue, regardless of
+# whether it came from a template, a direct URL, the API or the CLI.
+#
+# This deliberately does no classification: it applies one label to everything
+# and matches no keywords. Issues raised from the current Markdown templates
+# still carry no type label, because those templates have no `labels:` front
+# matter; adding it is tracked separately in the issue-template migration
+# (docs/repo-config-plan-2026-10-06.md, section 6).
 #
 # Ported from a sibling repository.
 
