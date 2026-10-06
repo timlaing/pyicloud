@@ -1,6 +1,7 @@
 ---
 name: Need help with pyiCloud
 about: Need help
+labels: support
 ---
 
 <!-- READ THIS FIRST:

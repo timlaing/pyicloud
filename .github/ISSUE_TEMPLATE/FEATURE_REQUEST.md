@@ -1,6 +1,7 @@
 ---
 name: Request a feature to pyiCloud
 about: Request a feature
+labels: enhancement
 ---
 
 <!-- READ THIS FIRST:

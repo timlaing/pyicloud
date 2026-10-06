@@ -3,10 +3,11 @@ name: "Auto label issues"
 # Adds needs-triage to every newly opened or reopened issue, regardless of
 # whether it came from a template, a direct URL, the API or the CLI.
 #
-# This deliberately does no classification: it applies one label to everything
-# and matches no keywords. Issues raised from the current Markdown templates
-# still carry no type label, because those templates have no `labels:` front
-# matter; adding those is scoped to a separate pull request.
+# This deliberately does no classification: it applies one lifecycle label and
+# matches no keywords. The issue *type* comes from the templates' own
+# `labels:` front matter (bug / enhancement / support), which is deterministic
+# because the reporter picked it. Type and triage state are therefore separate
+# concerns, and neither depends on guessing from issue text.
 #
 # Ported from a sibling repository.
 
@@ -15,8 +16,9 @@ on:
   issues:
     types: [opened, reopened]
 
+# gh issue edit touches nothing but issue labels, so this is the only
+# permission the job needs. There is no checkout, so no contents access.
 permissions:
-  contents: read
   issues: write
 
 jobs:
