@@ -6,8 +6,7 @@ name: "Auto label issues"
 # This deliberately does no classification: it applies one label to everything
 # and matches no keywords. Issues raised from the current Markdown templates
 # still carry no type label, because those templates have no `labels:` front
-# matter; adding it is tracked separately in the issue-template migration
-# (docs/repo-config-plan-2026-10-06.md, section 6).
+# matter; adding those is scoped to a separate pull request.
 #
 # Ported from a sibling repository.
 

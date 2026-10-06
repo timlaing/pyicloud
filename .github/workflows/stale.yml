@@ -1,8 +1,8 @@
 name: Close stale issues
 
 # Ported from a sibling repository, which runs the same configuration.
-# The exempt label set (pinned, security, roadmap) and the `stale` label itself
-# already exist in this repository — see docs/repo-config-plan-2026-10-06.md.
+# The `stale` label and the exemptions below (pinned, security, roadmap) all
+# already exist in this repository.
 
 # yamllint disable-line rule:truthy
 on:
@@ -17,7 +17,6 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
-  actions: write
 
 jobs:
   stale:
