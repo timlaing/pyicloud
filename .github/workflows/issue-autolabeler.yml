@@ -1,0 +1,30 @@
+name: "Auto label issues"
+
+# Adds the triage label to every newly opened or reopened issue, regardless of
+# whether it came from a form, a direct URL, the API or the CLI. Type labels
+# are assigned by the issue templates themselves (labels: in the template front
+# matter), so no heuristic keyword matching is involved here.
+#
+# Ported from a sibling repository.
+
+# yamllint disable-line rule:truthy
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  auto_label:
+    name: Add triage label
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Add triage label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: gh issue edit "$ISSUE_NUMBER" --add-label "needs-triage"
