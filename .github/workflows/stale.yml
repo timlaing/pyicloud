@@ -13,8 +13,11 @@ on:
   # Allow maintainers to test/run the workflow manually
   workflow_dispatch:
 
+# Only what actions/stale actually uses: it labels and closes issues, and
+# records the reason on PRs. There is no checkout, so the token gets no
+# contents access. Anything else would fail #370's check that the workflow
+# holds only the permissions it requires.
 permissions:
-  contents: read
   issues: write
   pull-requests: write
 
