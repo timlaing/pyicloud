@@ -152,7 +152,7 @@ avoid introducing issues that must be suppressed; prefer fixing them in code.
 - `tests.yml`: matrix across Python 3.10–3.14, creates a `venv`, installs
   `requirements_all.txt` via uv, then runs pytest with coverage (`--cov-report=xml`) and
   junit output.
-- `sonarcube.yml`: generates a coverage artifact on push to `main`, then runs the
+- `sonar.yml`: generates a coverage artifact on push to `main`, then runs the
   SonarQube Cloud scan; also handles PRs (`pull_request_target`, fork/bot path).
 - `checks.yml`: runs `python3 -m scripts.check.edits` (editable-install sanity check).
 - If you change/remove/add a dependency, keep `requirements_all.txt` and the prek
