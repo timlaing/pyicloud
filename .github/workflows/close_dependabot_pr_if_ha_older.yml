@@ -1,5 +1,13 @@
 name: Close Dependabot PR if HA older
 
+# Kept deliberately in this library repo, even though it is HA-integration
+# shaped and neither sibling carries it: Home Assistant core pins
+# `pyicloud==2.6.5` in its requirements_all.txt, so a Dependabot bump past
+# HA's pin would put the pinned HA environment out of step with the version
+# HA actually installs against. The guard is cheap and precise — it only
+# closes PRs whose target version is newer than HA's `==` pin (see the
+# comparison step below).
+#
 # yamllint disable-line rule:truthy
 on:
   pull_request_target:
