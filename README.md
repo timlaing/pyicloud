@@ -23,8 +23,6 @@
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=bugs)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 
-
-
 PyiCloud is a module which allows pythonistas to interact with iCloud
 webservices. It's powered by the fantastic
 [requests](https://github.com/kennethreitz/requests) HTTP library.
