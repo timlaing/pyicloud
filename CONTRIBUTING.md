@@ -139,9 +139,11 @@ The version is derived from git tags via **setuptools-scm**. Never hand-edit a
 
 Use the GitHub issue templates:
 
-- Bugs → [`.github/ISSUE_TEMPLATE/BUG.md`](.github/ISSUE_TEMPLATE/BUG.md)
-- Feature requests → [`.github/ISSUE_TEMPLATE/FEATURE_REQUEST.md`](.github/ISSUE_TEMPLATE/FEATURE_REQUEST.md)
-- Support → [`.github/ISSUE_TEMPLATE/SUPPORT.md`](.github/ISSUE_TEMPLATE/SUPPORT.md)
+- Bugs → [`.github/ISSUE_TEMPLATE/bug.yml`](.github/ISSUE_TEMPLATE/bug.yml)
+- Feature requests → [`.github/ISSUE_TEMPLATE/feature_request.yml`](.github/ISSUE_TEMPLATE/feature_request.yml)
+
+Blank issues are disabled. Questions and help requests belong in
+[GitHub Discussions](https://github.com/timlaing/pyicloud/discussions).
 
 For security vulnerabilities, please follow the guidance in
 [`SECURITY.md`](SECURITY.md) and **do not** open a public issue.

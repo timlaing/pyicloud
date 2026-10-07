@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a bug with pyiCloud
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Before opening an issue,
+        please search the
+        [existing issues](https://github.com/timlaing/pyicloud/issues?q=is%3Aissue)
+        and check that you are running the
+        [latest release](https://github.com/timlaing/pyicloud/releases).
+  - type: textarea
+    attributes:
+      label: The problem
+      description: Describe the issue you are experiencing. Tell us what you were trying to do and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Environment
+      description: Provide details about the versions you are using, which helps us to reproduce and find the issue quickly.
+      value: |
+        - pyiCloud release with the issue (`pip show pyicloud`):
+        - Last working pyiCloud release (if known):
+        - Service causing this issue:
+        - Python version (`python -V`):
+        - Operating environment (project deps/Docker/Windows/etc.):
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Traceback / error logs
+      description: Paste any trace or error logs you came across.
+      render: shell
+  - type: checkboxes
+    attributes:
+      label: Checklist
+      options:
+        - label: I have read the README and searched the existing issues.
+          required: true
+        - label: I have searched the pyiCloud code at the version I am using.
+          required: true
+        - label: I have checked the latest release to see whether the issue is already fixed.
+          required: true
+        - label: This issue contains a single problem report only.
+          required: true
+  - type: textarea
+    attributes:
+      label: Additional information
+      description: Anything else that might help, such as configuration samples or reproduction notes.

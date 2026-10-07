@@ -1,0 +1,42 @@
+name: Feature request
+description: Request a feature for pyiCloud
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature. Please search the
+        [existing issues](https://github.com/timlaing/pyicloud/issues?q=is%3Aissue)
+        first to see whether it has already been requested or discussed.
+  - type: textarea
+    attributes:
+      label: The request
+      description: Describe the feature you would like, what you are trying to do, and why you cannot do it today.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Environment
+      description: Help us understand the setup this would be used in.
+      value: |
+        - pyiCloud version (`pip show pyicloud`):
+        - Python version (`python -V`):
+        - Operating environment (project deps/Docker/Windows/etc.):
+      render: markdown
+    validations:
+      required: true
+  - type: checkboxes
+    attributes:
+      label: Checklist
+      options:
+        - label: I have read the README and searched the existing issues.
+          required: true
+        - label: I have searched the pyiCloud code at the version I am using.
+          required: true
+        - label: This issue contains a single feature request only.
+          required: true
+  - type: textarea
+    attributes:
+      label: Additional information
+      description: Anything else that might help, such as mock-ups, usage examples or references.
