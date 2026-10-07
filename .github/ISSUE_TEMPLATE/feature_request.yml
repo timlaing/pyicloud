@@ -19,7 +19,7 @@ body:
     attributes:
       label: Environment
       description: Help us understand the setup this would be used in.
-      value: |
+      placeholder: |
         - pyiCloud version (`pip show pyicloud`):
         - Python version (`python -V`):
         - Operating environment (project deps/Docker/Windows/etc.):

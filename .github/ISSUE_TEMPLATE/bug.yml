@@ -21,7 +21,7 @@ body:
     attributes:
       label: Environment
       description: Provide details about the versions you are using, which helps us to reproduce and find the issue quickly.
-      value: |
+      placeholder: |
         - pyiCloud release with the issue (`pip show pyicloud`):
         - Last working pyiCloud release (if known):
         - Service causing this issue:
