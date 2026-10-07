@@ -49,6 +49,10 @@ CloudKitDebugHook = Callable[[str, str, dict[str, Any], Response], None]
 
 _RATE_LIMITED = "HTTP 429: rate limited"
 
+# Zone-level error codes that mean "try again later" rather than a real failure.
+_RETRYABLE_ZONE_ERRORS = frozenset({"THROTTLED", "TRY_AGAIN_LATER", "ZONE_BUSY"})
+_AUTH_ZONE_ERRORS = frozenset({"AUTHENTICATION_FAILED", "AUTHENTICATION_REQUIRED"})
+
 
 def redact_cloudkit_url(url: str) -> str:
     """Return a CloudKit URL without query parameters or fragments."""
@@ -265,6 +269,38 @@ class _CloudKitHTTP:
                     close()
 
 
+def _raise_for_zone_errors(data: Any) -> None:
+    """Raise if any zone in a /changes/zone response failed.
+
+    CloudKit answers HTTP 200 even when a zone could not be fetched, and puts a
+    "Zone Record Fetch Error Dictionary" (serverErrorCode, reason, and
+    sometimes retryAfter) in place of that zone's results. It has no syncToken
+    or records, so validating it as a zone fails with an opaque error.
+    """
+    zones = data.get("zones") if isinstance(data, dict) else None
+    if not isinstance(zones, list):
+        return
+
+    for zone in zones:
+        if not isinstance(zone, dict) or "serverErrorCode" not in zone:
+            continue
+
+        code = zone["serverErrorCode"]
+        message = f"Zone changes failed: {code}"
+        if reason := zone.get("reason"):
+            message = f"{message} ({reason})"
+
+        if code in _RETRYABLE_ZONE_ERRORS:
+            retry_after = None
+            if (raw_retry_after := zone.get("retryAfter")) is not None:
+                with suppress(TypeError, ValueError):
+                    retry_after = float(raw_retry_after)
+            raise CloudKitRateLimited(message, retry_after=retry_after)
+        if code in _AUTH_ZONE_ERRORS:
+            raise CloudKitAuthError(message)
+        raise CloudKitApiError(message, payload=data)
+
+
 class CloudKitContainerClient:
     """Typed CloudKit client for a single container/environment/scope."""
 
@@ -386,6 +422,7 @@ class CloudKitContainerClient:
         while True:
             payload = req.model_dump(mode="json", exclude_none=True)
             data = self._http.post("/changes/zone", payload)
+            _raise_for_zone_errors(data)
             try:
                 envelope = self._validate_response(CKZoneChangesResponse, data)
             except ValidationError as exc:
@@ -413,6 +450,7 @@ class CloudKitContainerClient:
             resultsLimit=results_limit,
         ).model_dump(mode="json", exclude_none=True)
         data = self._http.post("/changes/zone", payload)
+        _raise_for_zone_errors(data)
         try:
             return self._validate_response(CKZoneChangesResponse, data)
         except ValidationError as exc:

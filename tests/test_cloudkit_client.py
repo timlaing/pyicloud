@@ -7,9 +7,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pyicloud.common.cloudkit import CKQueryObject, CKZoneIDReq
+from pyicloud.common.cloudkit import (
+    CKQueryObject,
+    CKZoneChangesZoneReq,
+    CKZoneID,
+    CKZoneIDReq,
+)
 from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
+    CloudKitAuthError,
     CloudKitContainerClient,
     CloudKitRateLimited,
     redact_cloudkit_url,
@@ -135,6 +141,78 @@ def test_cloudkit_client_raises_rate_limited_with_retry_after() -> None:
         client.query(query=query, zone_id=zone_id)
 
     assert exc_info.value.retry_after == 2.5
+
+
+def _zone_error_client(zone_error: dict[str, Any]) -> CloudKitContainerClient:
+    session = MagicMock()
+    session.post.return_value = _json_response({
+        "zones": [{"zoneID": {"zoneName": "Reminders"}, **zone_error}]
+    })
+    return CloudKitContainerClient("https://example.com/database", session, {})
+
+
+_ZONE_REQ = CKZoneChangesZoneReq(zoneID=CKZoneID(zoneName="Reminders"))
+
+
+@pytest.mark.parametrize("code", ["THROTTLED", "TRY_AGAIN_LATER", "ZONE_BUSY"])
+def test_cloudkit_client_changes_zone_error_retryable(code: str) -> None:
+    """A retryable zone-level error raises rate limited, not a validation error."""
+    client = _zone_error_client({
+        "serverErrorCode": code,
+        "reason": "busy",
+        "retryAfter": 3,
+    })
+
+    with pytest.raises(CloudKitRateLimited) as exc_info:
+        client.changes(zone_req=_ZONE_REQ)
+
+    assert str(exc_info.value) == f"Zone changes failed: {code} (busy)"
+    assert exc_info.value.retry_after == 3.0
+
+
+def test_cloudkit_client_changes_zone_error_without_retry_after() -> None:
+    """A retryable zone-level error without retryAfter leaves it unset."""
+    client = _zone_error_client({"serverErrorCode": "THROTTLED"})
+
+    with pytest.raises(CloudKitRateLimited) as exc_info:
+        client.changes(zone_req=_ZONE_REQ)
+
+    assert str(exc_info.value) == "Zone changes failed: THROTTLED"
+    assert exc_info.value.retry_after is None
+
+
+def test_cloudkit_client_changes_zone_error_auth() -> None:
+    """An authentication zone-level error raises an auth error."""
+    client = _zone_error_client({"serverErrorCode": "AUTHENTICATION_REQUIRED"})
+
+    with pytest.raises(CloudKitAuthError):
+        client.changes(zone_req=_ZONE_REQ)
+
+
+def test_cloudkit_client_changes_zone_error_other() -> None:
+    """Any other zone-level error raises an API error carrying the payload."""
+    client = _zone_error_client({
+        "serverErrorCode": "ZONE_NOT_FOUND",
+        "reason": "zone does not exist",
+    })
+
+    with pytest.raises(CloudKitApiError) as exc_info:
+        client.changes(zone_req=_ZONE_REQ)
+
+    assert str(exc_info.value) == (
+        "Zone changes failed: ZONE_NOT_FOUND (zone does not exist)"
+    )
+    payload = exc_info.value.payload
+    assert payload is not None
+    assert payload["zones"][0]["serverErrorCode"] == "ZONE_NOT_FOUND"
+
+
+def test_cloudkit_client_iter_changes_zone_error() -> None:
+    """Paged zone changes raise on a zone-level error too."""
+    client = _zone_error_client({"serverErrorCode": "TRY_AGAIN_LATER"})
+
+    with pytest.raises(CloudKitRateLimited):
+        list(client.iter_changes(zone_req=_ZONE_REQ))
 
 
 def test_cloudkit_client_download_asset_bytes() -> None:
