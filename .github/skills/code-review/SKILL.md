@@ -51,7 +51,7 @@ with Apple iCloud web services.
 
 ## 3. Type Safety & Typing
 
-- Python `>=3.10` (target `py310`, mypy reads `python_version = "3.14"`, runs strict).
+- Python `>=3.10` (target `py310`, mypy runs with `python_version = "3.10"`, strict).
   Prefer modern union syntax (`X | None`) unless `UP007` is suppressed project-wide.
 - Mypy runs in **strict mode** (`[tool.mypy] strict = true`, `warn_return_any = true`,
   `check_untyped_defs = true`, `show_error_codes = true`). Type-check with `mypy .`.

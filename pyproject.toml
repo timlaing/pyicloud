@@ -123,7 +123,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["custom_components"]
+known-first-party = ["pyicloud", "tests"]
 force-sort-within-sections=true
 
 [tool.ruff.lint.flake8-bugbear]
@@ -132,7 +132,7 @@ extend-immutable-calls = ["typer.Argument", "typer.Option"]
 
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.10"
 explicit_package_bases = true
 warn_return_any = true
 warn_unused_configs = true
