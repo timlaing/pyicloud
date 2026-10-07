@@ -2477,7 +2477,8 @@ def test_auth_login_non_interactive_requires_credentials() -> None:
 
 
 def test_auth_login_non_interactive_explicit_password_skips_keyring() -> None:
-    """Explicit non-interactive logins must not access the local keyring."""
+    """Explicit non-interactive logins must not access the local keyring and
+    must report the keyring state as unknown in JSON output."""
 
     session_dir = Path("/virtual/non-interactive-explicit-password")
     remember_account = MagicMock()
