@@ -43,9 +43,8 @@ with Apple iCloud web services.
   never from `pyicloud.base` across services.
 - `pyicloud/__init__.py` is the canonical public surface; services expose their public API
   via their package `__init__.py` (read defaults rather than internal modules).
-- `[tool.ruff.lint.isort] known-first-party = ["custom_components"]` in `pyproject.toml` is a
-  stale leftover from another project — treat `pyicloud` as the first-party package when
-  reviewing import ordering, and never add new `custom_components` imports.
+- `[tool.ruff.lint.isort] known-first-party = ["pyicloud", "tests"]` in `pyproject.toml` marks
+  both packages as first-party for import ordering; never add new `custom_components` imports.
 - Pydantic v2 (`pydantic>=2.13.4,<3`) is used for DTOs; protobuf (`protobuf>=6.32.0,<8`)
   for the notes/reminders wire format. Match the import style of the surrounding service.
 
