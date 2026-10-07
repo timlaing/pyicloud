@@ -1,21 +1,30 @@
 # PyiCloud
 
 ![Build Status](https://github.com/timlaing/pyicloud/actions/workflows/tests.yml/badge.svg)
+(https://github.com/timlaing/pyicloud/actions/workflows/tests.yml)
+[![GitHub stars](https://img.shields.io/github/stars/timlaing/pyicloud.svg)](https://github.com/timlaing/pyicloud/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/timlaing/pyicloud.svg)](https://github.com/timlaing/pyicloud/issues)
+[![GitHub license](https://img.shields.io/github/license/timlaing/pyicloud.svg)](LICENSE)
+
 [![Library version](https://img.shields.io/pypi/v/pyicloud)](https://pypi.org/project/pyicloud)
 [![Supported versions](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Ftimlaing%2Fpyicloud%2Fmain%2Fpyproject.toml)](https://pypi.org/project/pyicloud)
 [![Downloads](https://pepy.tech/badge/pyicloud)](https://pypi.org/project/pyicloud)
-[![Formatted with Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://pypi.python.org/pypi/ruff)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
-[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=bugs)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
-[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
-[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+[![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=coverage)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
-[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=bugs)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
+
+
 
 PyiCloud is a module which allows pythonistas to interact with iCloud
 webservices. It's powered by the fantastic
