@@ -49,6 +49,7 @@ jobs:
           .venv/bin/python -m pytest \
             --cov=pyicloud \
             --cov-branch \
+            --cov-fail-under=75 \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
             --timeout=30
