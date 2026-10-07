@@ -15,7 +15,8 @@ import sys
 WORKFLOW_DIR = Path(".github/workflows")
 
 USES_PATTERN = re.compile(
-    r"uses:\s*(?P<action>[\w.\-]+(?:/[\w.\-]+)+)@(?P<ref>[\w.\-/]+)"
+    r"^[^#]*['\"]?uses['\"]?\s*:\s*"
+    r"(?P<action>[\w.\-]+(?:/[\w.\-]+)+)@(?P<ref>[\w.\-+/]+)"
 )
 
 SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
