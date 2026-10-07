@@ -30,9 +30,13 @@ autolabeler:
   - label: "bugfix"
     branch:
       - '/bugfix\/.+/'
+  - label: "fix"
+    branch:
+      - '/fix\/.+/'
   - label: "feature"
     branch:
       - '/feature\/.+/'
+      - '/feat\/.+/'
   - label: "dependencies"
     branch:
       - '/dependabot\/.+/'
