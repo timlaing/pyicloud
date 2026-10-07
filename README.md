@@ -1,7 +1,6 @@
 # PyiCloud
 
-![Build Status](https://github.com/timlaing/pyicloud/actions/workflows/tests.yml/badge.svg)
-(https://github.com/timlaing/pyicloud/actions/workflows/tests.yml)
+[![Build Status](https://github.com/timlaing/pyicloud/actions/workflows/tests.yml/badge.svg)](https://github.com/timlaing/pyicloud/actions/workflows/tests.yml)
 [![GitHub stars](https://img.shields.io/github/stars/timlaing/pyicloud.svg)](https://github.com/timlaing/pyicloud/stargazers)
 [![GitHub issues](https://img.shields.io/github/issues/timlaing/pyicloud.svg)](https://github.com/timlaing/pyicloud/issues)
 [![GitHub license](https://img.shields.io/github/license/timlaing/pyicloud.svg)](LICENSE)
