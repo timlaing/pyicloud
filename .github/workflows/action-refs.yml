@@ -1,0 +1,22 @@
+name: Action references
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  action-refs:
+    name: action-refs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check action references
+        run: python3 scripts/check_action_refs.py .github/workflows
