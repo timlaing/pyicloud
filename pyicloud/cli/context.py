@@ -238,7 +238,6 @@ class CLIState:
         api: PyiCloudService,
         *,
         select: bool = True,
-        keyring_has: Callable[[str], bool] | None = None,
         prune: bool = True,
     ) -> None:
         """Persist an account entry for later local discovery.
@@ -253,9 +252,7 @@ class CLIState:
             session_path=api.session.session_path,
             cookiejar_path=api.session.cookiejar_path,
             china_mainland=api.is_china_mainland,
-            keyring_has=(
-                self.has_keyring_password if keyring_has is None else keyring_has
-            ),
+            keyring_has=self.has_keyring_password,
             prune=prune,
         )
         if select:
