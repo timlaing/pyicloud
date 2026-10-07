@@ -32,7 +32,7 @@ autolabeler:
       - '/bugfix\/.+/'
   - label: "fix"
     branch:
-      - '/fix\/.+/'
+      - '/^fix\/.+/'
   - label: "feature"
     branch:
       - '/feature\/.+/'
