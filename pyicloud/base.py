@@ -270,6 +270,7 @@ class PyiCloudService:
         refresh_interval: float | None = None,
         family_poll_delay: float = 0.5,
         family_poll_max_retries: int = 5,
+        monitor_locate: bool = False,
         *,
         authenticate: bool = True,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
@@ -309,6 +310,7 @@ class PyiCloudService:
         self._with_family: bool = with_family
         self._family_poll_delay: float = family_poll_delay
         self._family_poll_max_retries: int = family_poll_max_retries
+        self._monitor_locate: bool = monitor_locate
         self._cloudkit_validation_extra = cloudkit_validation_extra
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
@@ -1504,6 +1506,7 @@ class PyiCloudService:
                     refresh_interval=self._refresh_interval,
                     family_poll_delay=self._family_poll_delay,
                     family_poll_max_retries=self._family_poll_max_retries,
+                    monitor_locate=self._monitor_locate,
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(
