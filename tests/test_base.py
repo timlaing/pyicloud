@@ -533,6 +533,110 @@ def test_validate_2fa_code_legacy_hsa2_409_through_session(
     assert trust_session.called is expected
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            {"securityCode": {"code": "123456", "valid": True}}, True, id="valid"
+        ),
+        pytest.param({"securityCode": {"valid": False}}, False, id="invalid"),
+        pytest.param({"securityCode": "nope"}, False, id="malformed-security-code"),
+        pytest.param({}, False, id="missing-security-code"),
+        pytest.param([], False, id="non-object-body"),
+        pytest.param(ValueError("bad json"), False, id="undecodable-body"),
+    ],
+)
+def test_validate_2fa_code_sms_409_uses_security_code_verdict(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    body: Any,
+    expected: bool,
+) -> None:
+    """Apple answers SMS verification with 409 even when the code is valid.
+
+    The ``securityCode.valid`` verdict decides whether to continue to trust
+    rather than reporting an invalid code.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._auth_data = {
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {"id": 3, "nonFTEU": False, "pushMode": "sms"}
+        }
+    }
+    pyicloud_service._two_factor_delivery_method = "sms"
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+    cast(Any, pyicloud_service.session).post.side_effect = _security_code_conflict(body)
+
+    assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+
+
+@pytest.mark.parametrize(
+    ("valid", "expected"),
+    [pytest.param(True, True, id="valid"), pytest.param(False, False, id="invalid")],
+)
+def test_validate_2fa_code_sms_hsa2_409_through_session(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    valid: bool,
+    expected: bool,
+) -> None:
+    """A real HSA2 409 SMS body is classified by the session as 2FA-required.
+
+    The ``securityCode.valid`` verdict must still decide the outcome rather
+    than the session's PyiCloud2FARequiredException escaping validate_2fa_code.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._auth_data = {
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {"id": 3, "nonFTEU": False, "pushMode": "sms"}
+        }
+    }
+    pyicloud_service._two_factor_delivery_method = "sms"
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.TWO_FACTOR_REQUIRED
+    response.ok = False
+    response.reason = "Conflict"
+    response.headers = {"Content-Type": "application/json"}
+    response.json.return_value = {
+        "securityCode": {"code": "123456", "valid": valid},
+        "authenticationType": "hsa2",
+    }
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
+        patch("http.cookiejar.LWPCookieJar.save"),
+    ):
+        pyicloud_service._session = PyiCloudSession(
+            pyicloud_service, "", cookie_directory=""
+        )
+        assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+
+
 def test_validate_2fa_code_legacy_non_409_error_is_invalid_code(
     pyicloud_service: PyiCloudService,
 ) -> None:
