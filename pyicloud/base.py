@@ -1398,11 +1398,22 @@ class PyiCloudService:
             "Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"
         })
 
-        self.session.post(
-            f"{self._auth_endpoint}/verify/phone/securitycode",
-            json=data,
-            headers=headers,
-        )
+        try:
+            self.session.post(
+                f"{self._auth_endpoint}/verify/phone/securitycode",
+                json=data,
+                headers=headers,
+            )
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException) as error:
+            # Apple accepts the SMS code but still answers 409; the body's
+            # `securityCode.valid` flag is the real verdict. The session raises
+            # an HSA2 409 as PyiCloud2FARequiredException.
+            if not self._is_accepted_security_code_conflict(error.response):
+                raise
+            LOGGER.debug(
+                "Apple accepted the SMS code with a 409 response; "
+                "continuing to session trust."
+            )
 
     def trust_session(self) -> bool:
         """Request session trust to avoid user log in going forward."""
