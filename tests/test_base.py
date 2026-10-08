@@ -26,6 +26,7 @@ from pyicloud.exceptions import (
     PyiCloudAcceptTermsException,
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
     PyiCloudConnectionException,
     PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
@@ -204,6 +205,39 @@ def test_authenticate_with_missing_token(
         assert mock_get_response.call_count == 1
         assert mock_post_response.call_count == 2
         assert mock_authenticate_with_token.call_count == 2
+
+
+def test_authenticate_retries_srp_when_cached_session_requires_reauth(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A rejected cached session should fall back to the password flow."""
+    reauth_required = PyiCloudAuthRequiredException("test@example.com", MagicMock())
+
+    with (
+        patch.object(
+            pyicloud_service,
+            "_authenticate_with_token",
+            side_effect=[reauth_required, None],
+        ) as mock_authenticate_with_token,
+        patch.object(
+            pyicloud_service, "_srp_authentication"
+        ) as mock_srp_authentication,
+    ):
+        pyicloud_service._authenticate()
+
+    mock_srp_authentication.assert_called_once_with(pause_2fa=False)
+    assert mock_authenticate_with_token.call_count == 2
+
+
+def test_cached_session_reauth_is_treated_as_cache_miss(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A cached session requiring reauth should fall back to fresh login."""
+    pyicloud_service.session._data = {"session_token": "cached-token"}
+    reauth_required = PyiCloudAuthRequiredException("test@example.com", MagicMock())
+
+    with patch.object(pyicloud_service, "_validate_token", side_effect=reauth_required):
+        assert pyicloud_service._try_reuse_cached_session(False, False) is False
 
 
 def test_get_auth_status_without_session_token(
