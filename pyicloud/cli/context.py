@@ -83,6 +83,7 @@ class CLICommandOptions:
     interactive: bool = True
     accept_terms: bool = False
     with_family: bool = False
+    refresh_interval: float | None = None
     session_dir: str | None = None
     http_proxy: str | None = None
     https_proxy: str | None = None
@@ -103,6 +104,7 @@ class CLIState:
         interactive: bool,
         accept_terms: bool,
         with_family: bool,
+        refresh_interval: float | None,
         session_dir: str | None,
         http_proxy: str | None,
         https_proxy: str | None,
@@ -117,6 +119,7 @@ class CLIState:
         self.interactive = interactive
         self.accept_terms = accept_terms
         self.with_family = with_family
+        self.refresh_interval = refresh_interval
         self.session_dir = session_dir
         self.http_proxy = http_proxy
         self.https_proxy = https_proxy
@@ -143,6 +146,7 @@ class CLIState:
             interactive=options.interactive,
             accept_terms=options.accept_terms,
             with_family=options.with_family,
+            refresh_interval=options.refresh_interval,
             session_dir=options.session_dir,
             http_proxy=options.http_proxy,
             https_proxy=options.https_proxy,
@@ -484,6 +488,8 @@ class CLIState:
                 cookie_directory=self.session_dir,
                 accept_terms=self.accept_terms,
                 with_family=self.with_family,
+                monitor_locate=True,
+                refresh_interval=self.refresh_interval,
             )
         except PyiCloudAccountLockedException as err:
             raise CLIAbort(f"{err}. Unlock it before trying again.") from err
@@ -570,6 +576,8 @@ class CLIState:
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
+            monitor_locate=True,
+            refresh_interval=self.refresh_interval,
             authenticate=False,
         )
 
@@ -584,6 +592,8 @@ class CLIState:
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
+            monitor_locate=True,
+            refresh_interval=self.refresh_interval,
             authenticate=False,
         )
 

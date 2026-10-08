@@ -109,6 +109,18 @@ class FakeDevice:
         self.erase_message = message
 
 
+class FakeDevices(list[FakeDevice]):
+    """List of fake devices that records refresh() calls."""
+
+    def __init__(self, devices: list[FakeDevice]) -> None:
+        super().__init__(devices)
+        self.refresh_calls: list[bool] = []
+
+    def refresh(self, *, locate: bool = True) -> None:
+        """Record one periodic Find My refresh."""
+        self.refresh_calls.append(locate)
+
+
 class FakeDriveResponse:
     """Download response fixture."""
 
@@ -1131,7 +1143,7 @@ class FakeAPI:
         self.params: dict[str, Any] = {}
         self._webservices = None
         self.logout = MagicMock(side_effect=self._logout)
-        self.devices = [FakeDevice()]
+        self.devices = FakeDevices([FakeDevice()])
         self.account = SimpleNamespace(
             devices=[
                 {
@@ -1297,6 +1309,7 @@ def _invoke(
     china_mainland: bool | None = None,
     accept_terms: bool | None = None,
     with_family: bool | None = None,
+    refresh_interval: float | None = None,
     output_format: str | None = None,
     log_level: str | None = None,
     http_proxy: str | None = None,
@@ -1336,6 +1349,8 @@ def _invoke(
         cli_args.append("--no-verify-ssl")
     if supports_devices and with_family:
         cli_args.append("--with-family")
+    if supports_devices and refresh_interval is not None:
+        cli_args.extend(["--refresh-interval", str(refresh_interval)])
     if output_format is not None:
         cli_args.extend(["--format", output_format])
     if log_level is not None:
@@ -1532,6 +1547,220 @@ def test_devices_help_scopes_device_options() -> None:
 
     assert result.exit_code == 0
     assert "--with-family" in text
+    assert "--refresh-interval" in text
+
+
+def test_devices_refresh_interval_reaches_service_with_locating_monitor() -> None:
+    """Devices commands should pass --refresh-interval and enable locating refreshes."""
+
+    session_dir = _unique_session_dir("devices-refresh-interval")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(context_module, "confirm", return_value=False),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "user@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            side_effect=lambda candidate: (
+                "stored-secret" if candidate == "user@example.com" else None
+            ),
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "90",
+                "--iterations",
+                "1",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert constructor_calls
+    for kwargs in constructor_calls:
+        assert kwargs["monitor_locate"] is True
+        assert kwargs["refresh_interval"] == 90.0
+
+
+def test_devices_list_watch_mode_repeats_until_iterations() -> None:
+    """devices list --refresh-interval should watch until --iterations runs."""
+
+    session_dir = _unique_session_dir("devices-watch")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    with patch("pyicloud.cli.commands.devices.time.sleep") as sleep:
+        result = _invoke_with_cli_args(
+            fake_api,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "60",
+                "--iterations",
+                "2",
+            ],
+        )
+
+    assert result.exit_code == 0
+    sleep.assert_called_once_with(60.0)
+    assert fake_api.devices.refresh_calls == [True, True]
+    output = _plain_output(result)
+    assert "Waiting 60s before device listing run 2 of 2" in output
+    assert output.count("Devices") == 2
+
+
+def test_devices_list_watch_mode_emits_bounded_json_runs() -> None:
+    """Bounded JSON watch should emit one listing payload per run."""
+
+    session_dir = _unique_session_dir("devices-watch-json")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    with patch("pyicloud.cli.commands.devices.time.sleep") as sleep:
+        result = _invoke_with_cli_args(
+            fake_api,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "60",
+                "--iterations",
+                "2",
+                "--format",
+                "json",
+            ],
+        )
+
+    assert result.exit_code == 0
+    sleep.assert_called_once_with(60.0)
+    payload = json.loads(result.stdout)
+    assert len(payload) == 2
+    assert payload[0][0]["id"] == "device-1"
+
+
+def test_devices_list_watch_json_stream_disables_markup() -> None:
+    """Unbounded JSON watch should stream device names without markup."""
+
+    session_dir = _unique_session_dir("devices-watch-json-stream")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    fake_api.devices[0].name = "[bold]Example[/bold] iPhone"
+    with patch(
+        "pyicloud.cli.commands.devices.time.sleep",
+        side_effect=KeyboardInterrupt,
+    ):
+        result = _invoke_with_cli_args(
+            fake_api,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "60",
+                "--format",
+                "json",
+            ],
+        )
+
+    assert result.exit_code == 130
+    payload = json.loads(result.stdout)
+    assert payload[0]["name"] == "[bold]Example[/bold] iPhone"
+
+
+def test_devices_list_watch_mode_exits_cleanly_on_interrupt() -> None:
+    """Watch mode should exit 130 when interrupted between runs."""
+
+    session_dir = _unique_session_dir("devices-watch-interrupt")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    with patch(
+        "pyicloud.cli.commands.devices.time.sleep",
+        side_effect=KeyboardInterrupt,
+    ):
+        result = _invoke_with_cli_args(
+            fake_api,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+                "--refresh-interval",
+                "60",
+                "--iterations",
+                "3",
+            ],
+        )
+
+    assert result.exit_code == 130
+    assert "Waiting 60s before device listing run 2 of 3" in _plain_output(result)
+
+
+def test_devices_list_iterations_requires_refresh_interval() -> None:
+    """--iterations should be rejected without --refresh-interval."""
+
+    result = _runner().invoke(app, ["devices", "list", "--iterations", "2"])
+
+    assert result.exit_code == 2
+    assert "The --iterations option requires --refresh-interval." in _plain_output(
+        result
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("0", "must be a positive finite number of seconds"),
+        ("-5", "must be a positive finite number of seconds"),
+        ("nan", "must be a positive finite number of seconds"),
+        ("inf", "must be a positive finite number of seconds"),
+        ("1e13", "is too large"),
+        ("0.5", "must be at least 1s"),
+    ],
+)
+def test_devices_refresh_interval_rejects_invalid_values(
+    value: str, message: str
+) -> None:
+    """--refresh-interval should reject unusable values at parse time."""
+
+    with patch.object(context_module, "PyiCloudService") as build_api:
+        result = _runner().invoke(
+            app, ["devices", "list", f"--refresh-interval={value}"]
+        )
+
+    assert result.exit_code == 2
+    # The rich error panel wraps long messages; unwrap box borders before matching.
+    error_text = " ".join(_plain_output(result).replace("│", " ").split())
+    assert message in error_text
+    build_api.assert_not_called()
 
 
 def test_account_summary_command() -> None:
@@ -2110,6 +2339,7 @@ def test_get_api_uses_keyring_password_for_session_backed_service_commands() -> 
         interactive=False,
         accept_terms=False,
         with_family=False,
+        refresh_interval=None,
         session_dir=str(session_dir),
         http_proxy=None,
         https_proxy=None,
@@ -2138,9 +2368,11 @@ def test_get_api_uses_keyring_password_for_session_backed_service_commands() -> 
     assert constructor_calls[0]["apple_id"] == "solo@example.com"
     assert constructor_calls[0]["password"] is None
     assert constructor_calls[0]["authenticate"] is False
+    assert constructor_calls[0]["monitor_locate"] is True
     assert constructor_calls[1]["apple_id"] == "solo@example.com"
     assert constructor_calls[1]["password"] == "stored-secret"
     assert constructor_calls[1]["authenticate"] is False
+    assert constructor_calls[1]["monitor_locate"] is True
     probe_api.get_auth_status.assert_called_once_with()
     service_api.get_auth_status.assert_called_once_with()
 
@@ -2182,6 +2414,7 @@ def test_get_api_hydrates_session_backed_service_commands_from_probe_state() -> 
         interactive=False,
         accept_terms=False,
         with_family=False,
+        refresh_interval=None,
         session_dir=str(session_dir),
         http_proxy=None,
         https_proxy=None,

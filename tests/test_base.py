@@ -172,6 +172,32 @@ def test_constructor_accepts_keyword_only_cloudkit_validation_extra() -> None:
         assert service._cloudkit_validation_extra == "ignore"
 
 
+def test_constructor_stores_monitor_locate_for_findmyiphone() -> None:
+    """monitor_locate defaults to a passive monitor and honors overrides."""
+    with (
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
+        patch("builtins.open", new_callable=mock_open),
+    ):
+        mock_authenticate.return_value = None
+        mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
+
+        default_service = PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            authenticate=False,
+        )
+        locating_service = PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            authenticate=False,
+            monitor_locate=True,
+        )
+
+    assert default_service._monitor_locate is False
+    assert locating_service._monitor_locate is True
+
+
 def test_authenticate_with_missing_token(
     pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
 ) -> None:

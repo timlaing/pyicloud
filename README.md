@@ -84,6 +84,33 @@ api = PyiCloudService(
 api.devices
 ```
 
+The background monitor refreshes device data each interval, but — when
+using pyicloud as a library — it does **not** actively locate devices
+(`shouldLocate`) by default; keeping GPS fresh is the caller's
+responsibility via `refresh(locate=True)` (or on the CLI, see below). To
+make the monitor actively locate devices on every refresh instead, pass
+`monitor_locate=True`; note this costs some device battery:
+
+```python
+from pyicloud import PyiCloudService
+
+api = PyiCloudService(
+    "jappleseed@apple.com",
+    "password",
+    monitor_locate=True,  # each monitor refresh actively locates devices
+)
+```
+
+When run through the `icloud` CLI, locating refreshes are always enabled
+and the interval is configurable. On `devices list`, the interval also
+turns the command into a watch loop that re-locates and re-lists at that
+cadence until interrupted; pass `--iterations` to stop after a fixed
+number of runs:
+
+```shell
+icloud devices list --locate --refresh-interval 60  # watch every 60s
+```
+
 When `with_family=True`, Find My polls Apple's backend while family
 members' devices finish loading (`deviceFetchStatus` is `"LOADING"`). By
 default it polls every `0.5s` up to `5` times before giving up; both can be
