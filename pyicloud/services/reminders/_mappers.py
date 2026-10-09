@@ -14,11 +14,13 @@ from ._protocol import (
     _decode_attachment_url,
     _decode_cloudkit_text_value,
     _decode_crdt_document,
+    _decode_nsdatecomponents,
     _ref_name,
 )
 from .client import RemindersApiError
 from .models import (
     Alarm,
+    DateTrigger,
     Hashtag,
     ImageAttachment,
     LocationTrigger,
@@ -43,6 +45,7 @@ class RemindersRecordMapper:
     ) -> None:
         self._get_raw = get_raw
         self._logger = logger
+        self._warned_trigger_types: set[str] = set()
 
     @staticmethod
     def _parse_reminder_ids_payload(payload_text: str, source: str) -> list[str]:
@@ -245,8 +248,10 @@ class RemindersRecordMapper:
             record_change_tag=rec.recordChangeTag,
         )
 
-    def record_to_alarm_trigger(self, rec: CKRecord) -> LocationTrigger | None:
-        """Map a CloudKit alarm trigger record to a ``LocationTrigger``."""
+    def record_to_alarm_trigger(
+        self, rec: CKRecord
+    ) -> LocationTrigger | DateTrigger | None:
+        """Map a CloudKit alarm trigger record to a typed trigger model."""
         fields = rec.fields
         trigger_type = fields.get_value("Type") or ""
         alarm_id = _ref_name(fields, "Alarm")
@@ -276,11 +281,25 @@ class RemindersRecordMapper:
                 record_change_tag=rec.recordChangeTag,
             )
 
-        self._logger.warning(
-            "Unsupported AlarmTrigger type '%s' on %s",
-            trigger_type,
-            rec.recordName,
-        )
+        if trigger_type == "Date":
+            return DateTrigger(
+                id=rec.recordName,
+                alarm_id=alarm_id,
+                date_components=_decode_nsdatecomponents(
+                    fields.get_value("DateComponentsData")
+                ),
+                record_change_tag=rec.recordChangeTag,
+            )
+
+        # Log each unsupported type once so repeated reads of the same record
+        # do not flood the logs with the same diagnostic.
+        if trigger_type not in self._warned_trigger_types:
+            self._warned_trigger_types.add(trigger_type)
+            self._logger.warning(
+                "Unsupported AlarmTrigger type '%s' (first seen on %s)",
+                trigger_type,
+                rec.recordName,
+            )
         return None
 
     def record_to_attachment(self, rec: CKRecord) -> Attachment | None:

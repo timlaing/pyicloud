@@ -94,6 +94,43 @@ class LocationTrigger(MutableServiceModel):
     record_change_tag: str | None = None
 
 
+class DateComponents(FrozenServiceModel):
+    """Decoded ``NSDateComponents`` carried by a date alarm trigger.
+
+    Apple serialises the trigger as an ``NSKeyedArchiver`` archive of an
+    ``NSDateComponents`` instance (the CloudKit ``DateComponentsData`` field).
+    Every component is optional: an alarm can specify a full timestamp, a
+    time-of-day only, or a date without a time.
+    """
+
+    era: int | None = None
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+    hour: int | None = None
+    minute: int | None = None
+    second: int | None = None
+    nanosecond: int | None = None
+    weekday: int | None = None
+    weekday_ordinal: int | None = None
+    week_of_month: int | None = None
+    week_of_year: int | None = None
+    year_for_week_of_year: int | None = None
+    quarter: int | None = None
+    leap_month: bool | None = None
+    repeated_day: bool | None = None
+    time_zone: str | None = None
+
+
+class DateTrigger(MutableServiceModel):
+    """Date-based (temporal) alarm trigger."""
+
+    id: str
+    alarm_id: str
+    date_components: DateComponents | None = None
+    record_change_tag: str | None = None
+
+
 # --- Attachment records ---
 
 

@@ -1,0 +1,161 @@
+{
+  "records": [
+    {
+      "recordName": "Reminder/REM-DATE",
+      "recordType": "Reminder",
+      "recordChangeTag": "reminder-date-change-tag",
+      "fields": {
+        "TitleDocument": {
+          "type": "ENCRYPTED_BYTES",
+          "value": "eJzjYBCS4GAQYJASEhJwy6woKS1KVQhKzc3MS0ktAgBBdwbW"
+        },
+        "NotesDocument": {
+          "type": "ENCRYPTED_BYTES",
+          "value": "eJzjYBAS5WAQYJDiF+J1y6woKS1KVcjLL0ktBgAuaAXA"
+        },
+        "List": {
+          "type": "REFERENCE",
+          "value": {
+            "recordName": "List/LIST-DATE",
+            "action": "VALIDATE"
+          }
+        },
+        "Completed": {
+          "type": "INT64",
+          "value": 0
+        },
+        "Priority": {
+          "type": "INT64",
+          "value": 0
+        },
+        "Flagged": {
+          "type": "INT64",
+          "value": 0
+        },
+        "AllDay": {
+          "type": "INT64",
+          "value": 0
+        },
+        "Deleted": {
+          "type": "INT64",
+          "value": 0
+        },
+        "AlarmIDs": {
+          "type": "STRING_LIST",
+          "value": ["ALARM-DATE", "ALARM-LOC"]
+        }
+      }
+    },
+    {
+      "recordName": "Alarm/ALARM-DATE",
+      "recordType": "Alarm",
+      "fields": {
+        "AlarmUID": {
+          "type": "STRING",
+          "value": "ALARM-DATE"
+        },
+        "Reminder": {
+          "type": "REFERENCE",
+          "value": {
+            "recordName": "Reminder/REM-DATE",
+            "action": "VALIDATE"
+          }
+        },
+        "TriggerID": {
+          "type": "STRING",
+          "value": "TRIG-DATE"
+        }
+      }
+    },
+    {
+      "recordName": "AlarmTrigger/TRIG-DATE",
+      "recordType": "AlarmTrigger",
+      "recordChangeTag": "trigger-date-change-tag",
+      "fields": {
+        "Type": {
+          "type": "STRING",
+          "value": "Date"
+        },
+        "Alarm": {
+          "type": "REFERENCE",
+          "value": {
+            "recordName": "Alarm/ALARM-DATE",
+            "action": "VALIDATE"
+          }
+        },
+        "DateComponentsData": {
+          "type": "BYTES",
+          "value": "YnBsaXN0MDDUAQIDBAUGKCtZJGFyY2hpdmVyWCRvYmplY3RzVCR0b3BYJHZlcnNpb25fEA9OU0tleWVkQXJjaGl2ZXKlBwgbHyVVJG51bGzaCQoLDA0ODxAREhMUFBUWFxgVGRpWJGNsYXNzVk5TLmRheVdOUy5ob3VyXE5TLmxlYXBNb250aFlOUy5taW51dGVYTlMubW9udGheTlMucmVwZWF0ZWREYXlZTlMuc2Vjb25kW05TLnRpbWV6b25lV05TLnllYXKABBAJEAAQHhAKCIACEQfq0gkcHR5XTlMubmFtZYADXxATQW1lcmljYS9Mb3NfQW5nZWxlc9IgISIjWCRjbGFzc2VzWiRjbGFzc25hbWWiIyRaTlNUaW1lWm9uZVhOU09iamVjdNIgISYnoickXxAQTlNEYXRlQ29tcG9uZW50c9EpKlRyb290gAESAAGGoAAIABEAGwAkACkAMgBEAEoAUABlAGwAcwB7AIgAkgCbAKoAtADAAMgAygDMAM4A0ADSANMA1QDYAN0A5QDnAP0BAgELARYBGQEkAS0BMgE1AUgBSwFQAVIAAAAAAAACAQAAAAAAAAAsAAAAAAAAAAAAAAAAAAABVw=="
+        }
+      }
+    },
+    {
+      "recordName": "Alarm/ALARM-LOC",
+      "recordType": "Alarm",
+      "fields": {
+        "AlarmUID": {
+          "type": "STRING",
+          "value": "ALARM-LOC"
+        },
+        "Reminder": {
+          "type": "REFERENCE",
+          "value": {
+            "recordName": "Reminder/REM-DATE",
+            "action": "VALIDATE"
+          }
+        },
+        "TriggerID": {
+          "type": "STRING",
+          "value": "TRIG-LOC"
+        }
+      }
+    },
+    {
+      "recordName": "AlarmTrigger/TRIG-LOC",
+      "recordType": "AlarmTrigger",
+      "recordChangeTag": "trigger-loc-change-tag",
+      "fields": {
+        "Type": {
+          "type": "STRING",
+          "value": "Location"
+        },
+        "Alarm": {
+          "type": "REFERENCE",
+          "value": {
+            "recordName": "Alarm/ALARM-LOC",
+            "action": "VALIDATE"
+          }
+        },
+        "Title": {
+          "type": "STRING",
+          "value": "Office"
+        },
+        "Address": {
+          "type": "STRING",
+          "value": "1 Infinite Loop, Cupertino"
+        },
+        "Latitude": {
+          "type": "DOUBLE",
+          "value": 37.3318
+        },
+        "Longitude": {
+          "type": "DOUBLE",
+          "value": -122.0312
+        },
+        "Radius": {
+          "type": "DOUBLE",
+          "value": 150.0
+        },
+        "Proximity": {
+          "type": "INT64",
+          "value": 1
+        },
+        "LocationUID": {
+          "type": "STRING",
+          "value": "LOC-OFFICE"
+        }
+      }
+    }
+  ],
+  "syncToken": "reminders-query-alarm-date-trigger-sync-token"
+}

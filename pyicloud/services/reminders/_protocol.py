@@ -6,14 +6,19 @@ import base64
 import gzip
 import json as _json
 import logging
+import plistlib
 import time
 from typing import cast
 from urllib.parse import urlparse
 import uuid
+from xml.parsers.expat import ExpatError
 import zlib
+
+from pydantic import ValidationError
 
 from pyicloud.common.cloudkit.models import CKFields
 
+from .models import DateComponents
 from .protobuf import reminders_pb2, versioned_document_pb2
 
 LOGGER = logging.getLogger(__name__)
@@ -102,6 +107,91 @@ def _decode_cloudkit_text_value(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return str(value)
+
+
+# NSKeyedArchiver keys used to encode an NSDateComponents instance.
+_NSDATE_COMPONENT_FIELDS: dict[str, str] = {
+    "NS.era": "era",
+    "NS.year": "year",
+    "NS.month": "month",
+    "NS.day": "day",
+    "NS.hour": "hour",
+    "NS.minute": "minute",
+    "NS.second": "second",
+    "NS.nanosecond": "nanosecond",
+    "NS.weekday": "weekday",
+    "NS.weekdayOrdinal": "weekday_ordinal",
+    "NS.weekOfMonth": "week_of_month",
+    "NS.weekOfYear": "week_of_year",
+    "NS.yearForWeekOfYear": "year_for_week_of_year",
+    "NS.quarter": "quarter",
+    "NS.leapMonth": "leap_month",
+    "NS.repeatedDay": "repeated_day",
+}
+
+
+def _archive_object(value: object, objects: list[object]) -> object:
+    """Resolve an ``NSKeyedArchiver`` object reference (a ``plistlib.UID``)."""
+    if isinstance(value, plistlib.UID):
+        index = value.data
+        if 0 <= index < len(objects):
+            return objects[index]
+        return None
+    return value
+
+
+def _decode_nsdatecomponents(value: object) -> DateComponents | None:
+    """Decode the archived ``NSDateComponents`` in a ``DateComponentsData`` field.
+
+    Reminders stores a date alarm trigger as an ``NSKeyedArchiver`` binary
+    plist wrapping an ``NSDateComponents`` instance. The archive carries the
+    date/time components and the rule's time zone, so callers can reconstruct
+    when the alarm fires. Returns ``None`` when the payload is missing or is
+    not a recognisable ``NSKeyedArchiver`` archive.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = base64.b64decode(value, validate=False)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(value, (bytes, bytearray)):
+        return None
+
+    try:
+        plist = plistlib.loads(bytes(value))
+    except (ValueError, TypeError, ExpatError):
+        return None
+    if not isinstance(plist, dict) or plist.get("$archiver") != "NSKeyedArchiver":
+        return None
+
+    objects = plist.get("$objects")
+    top = plist.get("$top")
+    if not isinstance(objects, list) or not isinstance(top, dict):
+        return None
+
+    root = _archive_object(top.get("root"), objects)
+    if not isinstance(root, dict):
+        return None
+
+    decoded: dict[str, object] = {}
+    for archive_key, field_name in _NSDATE_COMPONENT_FIELDS.items():
+        if archive_key in root:
+            decoded[field_name] = root[archive_key]
+
+    time_zone = _archive_object(root.get("NS.timezone"), objects)
+    if isinstance(time_zone, dict):
+        tz_name = _archive_object(time_zone.get("NS.name"), objects)
+        if isinstance(tz_name, str):
+            decoded["time_zone"] = tz_name
+
+    if not decoded:
+        return None
+    try:
+        return DateComponents.model_validate(decoded)
+    except ValidationError:
+        return None
 
 
 def _decode_crdt_document(  # noqa: S3776

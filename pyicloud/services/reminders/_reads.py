@@ -27,6 +27,7 @@ from .client import RemindersApiError
 from .models import (
     Alarm,
     AlarmWithTrigger,
+    DateTrigger,
     Hashtag,
     ListRemindersResult,
     LocationTrigger,
@@ -242,7 +243,7 @@ class RemindersReadAPI:
         *,
         reminders_map: dict[str, Reminder],
         alarms: dict[str, Alarm],
-        triggers: dict[str, LocationTrigger],
+        triggers: dict[str, LocationTrigger | DateTrigger],
         attachments: dict[str, Attachment],
         hashtags: dict[str, Hashtag],
         recurrence_rules: dict[str, RecurrenceRule],
@@ -316,7 +317,7 @@ class RemindersReadAPI:
 
         reminders_map: dict[str, Reminder] = {}
         alarms: dict[str, Alarm] = {}
-        triggers: dict[str, LocationTrigger] = {}
+        triggers: dict[str, LocationTrigger | DateTrigger] = {}
         attachments: dict[str, Attachment] = {}
         hashtags: dict[str, Hashtag] = {}
         recurrence_rules: dict[str, RecurrenceRule] = {}
