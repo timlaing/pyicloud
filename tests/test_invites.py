@@ -453,6 +453,74 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(zone_id.zoneName, "MISSING-ZONE")
         self.assertIsNone(zone_id.ownerRecordName)
 
+    def test_an_rsvp_image_is_downloaded_from_its_url(self) -> None:
+        """The bytes come back through the service, not via `raw`.
+
+        `Rsvp.image_download_url` was populated and the client could fetch it,
+        but nothing connected the two, so callers had to reach past the service
+        to get a guest's photo.
+        """
+        rsvp = Rsvp(
+            record_name="RSVP/1",
+            participant_id="P1",
+            status=RsvpStatus.GOING,
+            image_download_url="https://cvws.icloud-content.com/asset",
+        )
+        download = MagicMock(return_value=b"\xff\xd8\xff\xe0jpeg")
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        data = self.service.rsvp_image(rsvp)
+
+        self.assertEqual(data, b"\xff\xd8\xff\xe0jpeg")
+        download.assert_called_once_with("https://cvws.icloud-content.com/asset")
+
+    def test_a_non_https_rsvp_image_url_is_refused(self) -> None:
+        """The download uses the authenticated session.
+
+        A non-HTTPS target would put iCloud credentials on the wire in the
+        clear, so the scheme is checked before the request the same way
+        PhotosUploader guards the upload URL Apple echoes back to it.
+        """
+        download = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        for url in ("http://cvws.icloud-content.com/a", "ftp://example.com/a"):
+            rsvp = Rsvp(
+                record_name="RSVP/x",
+                participant_id="PX",
+                status=RsvpStatus.GOING,
+                image_download_url=url,
+            )
+            with self.subTest(url=url), self.assertRaises(InvitesApiError):
+                self.service.rsvp_image(rsvp)
+        download.assert_not_called()
+
+    def test_an_rsvp_without_an_image_downloads_nothing(self) -> None:
+        """Most responses carry only a monogram, so this is the common case."""
+        rsvp = Rsvp(record_name="RSVP/2", participant_id="P2", status=RsvpStatus.MAYBE)
+        download = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        self.assertIsNone(self.service.rsvp_image(rsvp))
+        download.assert_not_called()
+
+    def test_a_failed_rsvp_image_download_raises_an_invites_error(self) -> None:
+        """Callers catching InvitesError should not have to catch anything else."""
+        rsvp = Rsvp(
+            record_name="RSVP/3",
+            participant_id="P3",
+            status=RsvpStatus.GOING,
+            image_download_url="https://cvws.icloud-content.com/gone",
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "download_asset_bytes",
+            MagicMock(side_effect=InvitesApiError("gone")),
+        )
+
+        with self.assertRaises(InvitesApiError):
+            self.service.rsvp_image(rsvp)
+
     def test_a_status_code_maps_the_same_as_a_string_or_an_int(self) -> None:
         """`PyiCloudAPIResponseException.code` is typed `int | str | None`.
 
