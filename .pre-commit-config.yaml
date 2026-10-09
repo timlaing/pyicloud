@@ -163,7 +163,7 @@ repos:
           - "--cov=pyicloud"
           - "--cov-branch"
           - "--cov-report=term-missing"
-          - "--cov-fail-under=80"
+          - "--cov-fail-under=90"
         language: python
         stages: [manual]
         pass_filenames: false
