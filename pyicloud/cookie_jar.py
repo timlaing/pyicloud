@@ -1,7 +1,6 @@
 """Cookie jar with persistence support."""
 
 from collections.abc import Iterator
-from contextlib import suppress
 from http.cookiejar import Cookie, LWPCookieJar
 
 from requests.cookies import RequestsCookieJar
@@ -55,20 +54,9 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
             ignore_discard=ignore_discard,
             ignore_expires=ignore_expires,
         )
-        # Clear any FMIP cookie regardless of domain/path to avoid stale auth.
-        # Copy to list first to avoid dict mutation during iteration
-        try:
-            cookies_to_clear: list[Cookie] = [
-                cookie
-                for cookie in self.copy()
-                if cookie.name == _FMIP_AUTH_COOKIE_NAME
-            ]
-            for cookie in cookies_to_clear:
-                with suppress(KeyError):
-                    self.clear(domain=cookie.domain, path=cookie.path, name=cookie.name)
-        except RuntimeError:
-            # If we still hit a race, silently skip this load
-            pass
+        # Account validation and Find My use distinct credentials. Removing
+        # the Find My cookie here breaks reuse even when account validation
+        # succeeds; retain it until the service itself rejects it.
 
     def save(
         self,
