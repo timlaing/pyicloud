@@ -33,6 +33,9 @@ class Reminder(MutableServiceModel):
     created: datetime | None = None
     modified: datetime | None = None
     record_change_tag: str | None = None
+    # A failed read is not editable empty text. Preserve affected field names
+    # so update can refuse before re-encoding either document.
+    undecodable_text_fields: tuple[str, ...] = ()
 
 
 class ReminderChangeEvent(FrozenServiceModel):
