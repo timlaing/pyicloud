@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
+import plistlib
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 import zlib
@@ -57,6 +58,7 @@ from pyicloud.services.reminders.client import (
 from pyicloud.services.reminders.models import (
     Alarm,
     AlarmWithTrigger,
+    DateTrigger,
     Hashtag,
     ImageAttachment,
     ListRemindersResult,
@@ -85,6 +87,23 @@ def load_reminders_fixture(name: str) -> dict[str, Any]:
         dict[str, Any],
         json.loads((REMINDERS_FIXTURE_DIR / name).read_text(encoding="utf-8")),
     )
+
+
+DATE_TRIGGER_FIXTURE = "reminders_query_alarm_date_trigger_response.json"
+
+
+def _fixture_records(name: str) -> dict[str, dict[str, Any]]:
+    """Index a Reminders query fixture by record name."""
+    return {
+        cast(str, record["recordName"]): cast(dict[str, Any], record)
+        for record in load_reminders_fixture(name)["records"]
+    }
+
+
+def _date_components_data() -> str:
+    """Return the archived NSDateComponents blob from the date trigger fixture."""
+    trigger = _fixture_records(DATE_TRIGGER_FIXTURE)["AlarmTrigger/TRIG-DATE"]
+    return cast(str, trigger["fields"]["DateComponentsData"]["value"])
 
 
 # ---------------------------------------------------------------------------
@@ -1022,6 +1041,155 @@ class TestRecordToAlarmTrigger:
         assert isinstance(t, LocationTrigger)
         assert t.proximity == Proximity.LEAVING
 
+    def test_date_trigger(self, service: RemindersService) -> None:
+        """A Date trigger is parsed with decoded components and its alarm link."""
+        rec = _ck_record(
+            "AlarmTrigger",
+            "AlarmTrigger/TRIG-DATE",
+            {
+                "Type": {"type": "STRING", "value": "Date"},
+                "DateComponentsData": {
+                    "type": "BYTES",
+                    "value": _date_components_data(),
+                },
+                "Alarm": {
+                    "type": "REFERENCE",
+                    "value": {"recordName": "Alarm/ALARM-DATE", "action": "VALIDATE"},
+                },
+            },
+        )
+        t = service._record_to_alarm_trigger(rec)
+
+        assert isinstance(t, DateTrigger)
+        assert t.id == "AlarmTrigger/TRIG-DATE"
+        assert t.alarm_id == "Alarm/ALARM-DATE"
+        assert t.date_components is not None
+        assert t.date_components.year == 2026
+        assert t.date_components.month == 10
+        assert t.date_components.day == 9
+        assert t.date_components.hour == 9
+        assert t.date_components.minute == 30
+        assert t.date_components.second == 0
+        assert t.date_components.time_zone == "America/Los_Angeles"
+
+    def test_date_trigger_without_components(self, service: RemindersService) -> None:
+        """A Date trigger without a components blob is still retained."""
+        rec = _ck_record(
+            "AlarmTrigger",
+            "AlarmTrigger/TRIG-DATE-EMPTY",
+            {
+                "Type": {"type": "STRING", "value": "Date"},
+                "Alarm": {
+                    "type": "REFERENCE",
+                    "value": {"recordName": "Alarm/ALARM-DATE"},
+                },
+            },
+        )
+        t = service._record_to_alarm_trigger(rec)
+
+        assert isinstance(t, DateTrigger)
+        assert t.date_components is None
+        assert t.alarm_id == "Alarm/ALARM-DATE"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param(b"not-an-archive", id="binary-garbage"),
+            pytest.param(b"<?xml version='1.0'?><plist><dict>", id="truncated-xml"),
+        ],
+    )
+    def test_date_trigger_with_malformed_components(
+        self, service: RemindersService, payload: bytes
+    ) -> None:
+        """An undecodable components blob yields a trigger without components."""
+        rec = _ck_record(
+            "AlarmTrigger",
+            "AlarmTrigger/TRIG-DATE-BAD",
+            {
+                "Type": {"type": "STRING", "value": "Date"},
+                "DateComponentsData": {
+                    "type": "BYTES",
+                    "value": base64.b64encode(payload).decode("ascii"),
+                },
+                "Alarm": {
+                    "type": "REFERENCE",
+                    "value": {"recordName": "Alarm/ALARM-DATE"},
+                },
+            },
+        )
+        t = service._record_to_alarm_trigger(rec)
+
+        assert isinstance(t, DateTrigger)
+        assert t.date_components is None
+
+    def test_date_trigger_with_invalid_components(
+        self, service: RemindersService
+    ) -> None:
+        """A parseable archive with an invalid component is retained safely."""
+        archive = {
+            "$version": 100000,
+            "$archiver": "NSKeyedArchiver",
+            "$top": {"root": plistlib.UID(1)},
+            "$objects": [
+                "$null",
+                {
+                    "$class": plistlib.UID(2),
+                    "NS.year": "not-an-int",
+                },
+                {
+                    "$classname": "NSDateComponents",
+                    "$classes": ["NSDateComponents", "NSObject"],
+                },
+            ],
+        }
+        rec = _ck_record(
+            "AlarmTrigger",
+            "AlarmTrigger/TRIG-DATE-INVALID",
+            {
+                "Type": {"type": "STRING", "value": "Date"},
+                "DateComponentsData": {
+                    "type": "BYTES",
+                    "value": base64.b64encode(
+                        plistlib.dumps(archive, fmt=plistlib.PlistFormat.FMT_BINARY)
+                    ).decode("ascii"),
+                },
+                "Alarm": {
+                    "type": "REFERENCE",
+                    "value": {"recordName": "Alarm/ALARM-DATE"},
+                },
+            },
+        )
+        t = service._record_to_alarm_trigger(rec)
+
+        assert isinstance(t, DateTrigger)
+        assert t.date_components is None
+
+    def test_date_trigger_does_not_warn(
+        self, service: RemindersService, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Reading a Date trigger never logs an unsupported-type warning."""
+        rec = _ck_record(
+            "AlarmTrigger",
+            "AlarmTrigger/TRIG-DATE",
+            {
+                "Type": {"type": "STRING", "value": "Date"},
+                "DateComponentsData": {
+                    "type": "BYTES",
+                    "value": _date_components_data(),
+                },
+                "Alarm": {
+                    "type": "REFERENCE",
+                    "value": {"recordName": "Alarm/ALARM-DATE"},
+                },
+            },
+        )
+
+        with caplog.at_level(logging.WARNING):
+            service._record_to_alarm_trigger(rec)
+            service._record_to_alarm_trigger(rec)
+
+        assert "Unsupported AlarmTrigger" not in caplog.text
+
     def test_vehicle_trigger_is_ignored(self, service: RemindersService) -> None:
         """Vehicle triggers are ignored."""
         rec = _ck_record(
@@ -1052,6 +1220,34 @@ class TestRecordToAlarmTrigger:
             },
         )
         assert service._record_to_alarm_trigger(rec) is None
+
+    def test_unknown_type_warns_once(
+        self, service: RemindersService, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unsupported type is logged once across repeated reads."""
+        rec = _ck_record(
+            "AlarmTrigger",
+            "AlarmTrigger/TRIG-005",
+            {
+                "Type": {"type": "STRING", "value": "FutureTriggerType"},
+                "Alarm": {
+                    "type": "REFERENCE",
+                    "value": {"recordName": "Alarm/ALARM-005"},
+                },
+            },
+        )
+
+        with caplog.at_level(logging.WARNING):
+            service._record_to_alarm_trigger(rec)
+            service._record_to_alarm_trigger(rec)
+            service._record_to_alarm_trigger(rec)
+
+        warnings = [
+            record
+            for record in caplog.records
+            if "Unsupported AlarmTrigger" in record.getMessage()
+        ]
+        assert len(warnings) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -2688,6 +2884,51 @@ class TestReminderReadPaths:
         assert reminder.list_id == self.LIST_A
         assert reminder.due_date is not None
 
+    def test_list_reminders_maps_fixture_date_and_location_triggers(self) -> None:
+        """A compound snapshot retains date and location triggers with fields."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.query.return_value = CKQueryResponse.model_validate(
+            load_reminders_fixture(DATE_TRIGGER_FIXTURE)
+        )
+
+        result = svc.list_reminders(list_id="List/LIST-DATE", include_completed=True)
+
+        assert isinstance(result, ListRemindersResult)
+        assert set(result.alarms.keys()) == {"Alarm/ALARM-DATE", "Alarm/ALARM-LOC"}
+        assert set(result.triggers.keys()) == {
+            "AlarmTrigger/TRIG-DATE",
+            "AlarmTrigger/TRIG-LOC",
+        }
+
+        date_trigger = result.triggers["AlarmTrigger/TRIG-DATE"]
+        assert isinstance(date_trigger, DateTrigger)
+        assert date_trigger.alarm_id == "Alarm/ALARM-DATE"
+        assert date_trigger.date_components is not None
+        assert date_trigger.date_components.year == 2026
+        assert date_trigger.date_components.hour == 9
+        assert date_trigger.date_components.time_zone == "America/Los_Angeles"
+
+        location_trigger = result.triggers["AlarmTrigger/TRIG-LOC"]
+        assert isinstance(location_trigger, LocationTrigger)
+        assert location_trigger.alarm_id == "Alarm/ALARM-LOC"
+
+    def test_list_reminders_repeated_reads_do_not_warn(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Repeated compound reads of known trigger types stay silent."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.query.return_value = CKQueryResponse.model_validate(
+            load_reminders_fixture(DATE_TRIGGER_FIXTURE)
+        )
+
+        with caplog.at_level(logging.WARNING):
+            svc.list_reminders(list_id="List/LIST-DATE", include_completed=True)
+            svc.list_reminders(list_id="List/LIST-DATE", include_completed=True)
+
+        assert "Unsupported AlarmTrigger" not in caplog.text
+
     def test_list_reminders_paginates_query_results(self) -> None:
         """Query results are paginated via continuation markers."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
@@ -2968,6 +3209,37 @@ class TestReminderReadPaths:
         assert svc._raw.lookup.call_args_list[1].kwargs["record_names"] == [
             "AlarmTrigger/TRIG-1"
         ]
+
+    def test_alarms_for_returns_date_trigger(self) -> None:
+        """alarms_for() returns a typed DateTrigger with its decoded fields."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        records = _fixture_records(DATE_TRIGGER_FIXTURE)
+        svc._raw.lookup.side_effect = [
+            MagicMock(records=[CKRecord.model_validate(records["Alarm/ALARM-DATE"])]),
+            MagicMock(
+                records=[CKRecord.model_validate(records["AlarmTrigger/TRIG-DATE"])]
+            ),
+        ]
+
+        reminder = Reminder(
+            id="Reminder/REM-DATE",
+            list_id="List/LIST-DATE",
+            title="A",
+            alarm_ids=["ALARM-DATE"],
+        )
+
+        out = svc.alarms_for(reminder)
+
+        assert len(out) == 1
+        trigger = out[0].trigger
+        assert isinstance(trigger, DateTrigger)
+        assert trigger.id == "AlarmTrigger/TRIG-DATE"
+        assert trigger.alarm_id == "Alarm/ALARM-DATE"
+        assert trigger.date_components is not None
+        assert trigger.date_components.day == 9
+        assert trigger.date_components.minute == 30
+        assert trigger.date_components.time_zone == "America/Los_Angeles"
 
     def test_alarms_for_raises_on_alarm_lookup_error_item(self) -> None:
         """alarms_for() raises on an alarm lookup error item."""

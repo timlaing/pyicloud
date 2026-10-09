@@ -170,6 +170,8 @@
     "nonb",
     "norecursedirs",
     "nosetests",
+    "nsdate",
+    "nsdatecomponents",
     "objs",
     "opencode",
     "overgeneral",
