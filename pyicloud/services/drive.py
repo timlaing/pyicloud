@@ -8,6 +8,7 @@ import os
 from re import Match, search
 import time
 from typing import IO, Any, cast
+from urllib.parse import quote
 import uuid
 
 from requests import Response
@@ -74,13 +75,23 @@ class DriveService(BaseService):
         return cast(dict[str, Any], request.json()[0])
 
     def get_file(
-        self, file_id: str, zone: str = CLOUD_DOCS_ZONE, **kwargs: Any
+        self,
+        file_id: str,
+        zone: str = CLOUD_DOCS_ZONE,
+        *,
+        owner_record_name: str | None = None,
+        **kwargs: Any,
     ) -> Response:
         """Returns iCloud Drive file."""
         file_params: dict[str, Any] = dict(self.params)
         file_params.update({"document_id": file_id})
+        # Shared-folder documents live in the owner's zone. The caller's dsid
+        # alone addresses a different document namespace and can return 404.
+        path = f"/ws/{zone}/download/by_id"
+        if owner_record_name:
+            path += "/" + quote(owner_record_name, safe="")
         response: Response = self.session.get(
-            self._document_root + f"/ws/{zone}/download/by_id",
+            self._document_root + path,
             params=file_params,
         )
         self._raise_if_error(response)
@@ -487,6 +498,20 @@ class DriveNode:
         """Gets the node last open date (in UTC)."""
         return _date_to_utc(self.data.get("lastOpenTime"))  # Folder does not have date
 
+    @property
+    def owner_record_name(self) -> str | None:
+        """Address an indirectly shared document only when its owner is known."""
+        node_type = str(self.data.get("drivewsid") or "").split("::", 1)[0]
+        if node_type not in {"FILE_IN_SHARED_FOLDER", "FOLDER_IN_SHARED_FOLDER"}:
+            return None
+        if not (self.data.get("share") or self.data.get("shareID")):
+            return None
+        owner = self.data.get("owner")
+        if not isinstance(owner, dict):
+            return None
+        name = owner.get("ownerRecordName")
+        return name if isinstance(name, str) and name else None
+
     def open(self, **kwargs: Any) -> Response:
         """Gets the node file."""
         # iCloud returns 400 Bad Request for 0-byte files
@@ -494,6 +519,9 @@ class DriveNode:
             response = Response()
             response.raw = io.BytesIO()
             return response
+        owner = self.owner_record_name
+        if owner is not None:
+            kwargs.setdefault("owner_record_name", owner)
         return self.connection.get_file(
             self.data["docwsid"], zone=self.data["zone"], **kwargs
         )
