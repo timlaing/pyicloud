@@ -182,6 +182,8 @@ generated-members = [
     "String",
     "Document",
     "Version",
+    "Note",
+    "MergeableDataObjectRow",
 ]
 
 [tool.pylint."messages control"]
@@ -228,6 +230,11 @@ omit = [
     "examples.py",
     "conftest.py",
     "fetch_devices_error.py",
+    # Generated protobuf modules and their hand-maintained descriptors are not
+    # meaningful coverage targets (see AGENTS.md); exclude them like mypy and
+    # pylint already do.
+    "*/protobuf/*_pb2.py",
+    "*/protobuf/typedef.py",
     "tests/**",
     "test*.py",
 ]
