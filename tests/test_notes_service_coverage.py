@@ -202,39 +202,34 @@ class NotesListingCoverageTest(NotesServiceSetupMixin, unittest.TestCase):
         self.assertEqual([row.id for row in rows], ["Note/1"])
         self.assertIsNotNone(service._raw.changes.call_args)
 
-    def test_folders_yields_folders_with_optional_subfolder_flag(self) -> None:
-        """folders yields NoteFolder entries including the subfolder flag."""
+    def test_folders_yields_folders_with_parent_relationships(self) -> None:
+        """Folder relationships survive page boundaries and deleted records."""
         service = self._service()
-        service._raw.query.side_effect = [
-            CKQueryResponse(
-                records=[
-                    _note_record(
-                        "Folder/1",
-                        title="Inbox",
-                        record_type="SearchIndexes",
-                        fields={"HasSubfolder": {"type": "INT64", "value": 1}},
-                    ),
-                    CKTombstoneRecord(recordName="Folder/GONE", deleted=True),
-                ],
-                continuationMarker="more",
+        service._raw.changes.return_value = [
+            _zone(
+                _note_record("Folder/1", title="Inbox", record_type="Folder"),
+                CKTombstoneRecord(recordName="Folder/GONE", deleted=True),
             ),
-            CKQueryResponse(
-                records=[
-                    _note_record(
-                        "Folder/2",
-                        title="Archive",
-                        record_type="SearchIndexes",
-                    )
-                ]
+            _zone(
+                _note_record(
+                    "Folder/2",
+                    title="Archive",
+                    record_type="Folder",
+                    fields={
+                        "ParentFolder": {
+                            "type": "REFERENCE",
+                            "value": {"recordName": "Folder/1"},
+                        }
+                    },
+                )
             ),
         ]
-
         folders = list(service.folders())
-
         self.assertEqual([f.id for f in folders], ["Folder/1", "Folder/2"])
         self.assertEqual(folders[0].name, "Inbox")
         self.assertTrue(folders[0].has_subfolders)
-        self.assertIsNone(folders[1].has_subfolders)
+        self.assertFalse(folders[1].has_subfolders)
+        self.assertEqual(folders[1].parent_id, "Folder/1")
         self.assertEqual(service._folder_name_cache["Folder/1"], "Inbox")
 
     def test_in_folder_filters_and_uppercases_folder_match(self) -> None:
