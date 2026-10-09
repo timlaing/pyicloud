@@ -108,7 +108,10 @@ class AppleDateFormat:
         if is_start:
             minutes_calc = dt.hour * 60 + dt.minute
         else:
-            minutes_calc = (24 - dt.hour) * 60 + (60 - dt.minute)
+            # End tuples count minutes remaining until midnight, with midnight
+            # represented as zero. Adding 60 - minute would add a full hour.
+            elapsed = dt.hour * 60 + dt.minute
+            minutes_calc = (1440 - elapsed) % 1440
 
         return cls(
             date_string=dt.strftime(DateFormats.APPLE_DATE),
