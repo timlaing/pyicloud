@@ -1072,6 +1072,11 @@ property:
 ['medium', 'original', 'thumb']
 ```
 
+Modern CloudKit asset downloads decode HTTP content encodings and verify
+positive resource sizes. A body with a different size raises
+`PhotosServiceException`; absent and zero sizes remain unchecked. Download
+responses are closed on both success and failure.
+
 To download a specific version of the photo asset, pass the version to
 `download()`:
 

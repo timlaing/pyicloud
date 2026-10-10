@@ -3886,8 +3886,12 @@ def test_photo_asset_properties_and_methods() -> None:
     assert versions["original"]["filename"] == filename
     assert versions["original"]["url"] == "http://example.com/photo.jpg"
     assert versions["thumb"]["url"] == "http://example.com/thumb.jpg"
-    # Test download returns the mocked response
-    assert asset.download(version="original") == b"response"
+    # The decoded transfer must match the resource's declared size.
+    mock_service.session.get.return_value.iter_content.return_value = iter([
+        b"x" * 123456
+    ])
+    assert asset.download(version="original") == b"x" * 123456
+    mock_service.session.get.return_value.close.assert_called_once()
     # Test download with invalid version returns None
     assert asset.download(version="nonexistent") is None
     # Test delete returns a mocked response

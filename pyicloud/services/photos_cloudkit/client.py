@@ -130,6 +130,10 @@ class PhotosCloudKitClient:
         """Download the raw bytes of a CloudKit asset at ``url``."""
         return self._client.download_asset_bytes(url)
 
+    def download_asset_stream(self, url: str) -> Iterator[bytes]:
+        """Stream decoded asset bytes through the common CloudKit transport."""
+        yield from self._client.download_asset_stream(url)
+
     def batch_count(self, *, container_id: str, zone_id: dict[str, str]) -> int:
         """
         Query the Hyperion index count used by Photos albums.
