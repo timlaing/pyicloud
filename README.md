@@ -1072,6 +1072,11 @@ property:
 ['medium', 'original', 'thumb']
 ```
 
+XMP capture dates apply Apple's `timeZoneOffset` to both decoded timestamps
+and epoch values. `PhotoXmpMetadata.create_date_offset_known` distinguishes a
+known UTC offset from a missing or invalid offset. Unknown offsets preserve
+the instant and are written as `-0000` in the sidecar.
+
 To download a specific version of the photo asset, pass the version to
 `download()`:
 
