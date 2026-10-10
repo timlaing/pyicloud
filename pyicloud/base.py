@@ -10,6 +10,7 @@ from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
 import time
 from typing import Any, Optional, cast
+from urllib.parse import urlparse
 from uuid import uuid1
 
 from fido2.client import DefaultClientDataCollector, Fido2Client
@@ -1489,6 +1490,15 @@ class PyiCloudService:
                 "(Apple advertised it without a usable url)"
             )
 
+        try:
+            endpoint = urlparse(url)
+            secure = endpoint.scheme.lower() == "https" and bool(endpoint.hostname)
+        except ValueError:
+            secure = False
+        if not secure:
+            raise PyiCloudServiceNotActivatedException(
+                f"Webservice not available: {ws_key} (expected an HTTPS endpoint)"
+            )
         return url
 
     @property
