@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import logging
+import math
 from pathlib import Path
 import plistlib
 import struct
@@ -56,6 +57,7 @@ class PhotoXmpMetadata:
     gps_timestamp: datetime | None = None
     create_date: datetime | None = None
     rating: int | None = None
+    create_date_offset_known: bool = True
 
 
 def resource_is_raw(resource: Any) -> bool:
@@ -160,7 +162,7 @@ def build_xmp_metadata(asset_record: Any) -> PhotoXmpMetadata | None:
     orientation = _extract_orientation(asset_record)
     keywords = _extract_keywords(asset_record)
     location = _extract_location(asset_record)
-    create_date = _extract_create_date(asset_record)
+    create_date, offset_known = _extract_create_date_and_offset(asset_record)
     rating = _extract_rating(asset_record)
     asset_subtype = record_field_value(asset_record, "assetSubtypeV2")
     make = "Screenshot" if asset_subtype == 3 else None
@@ -180,6 +182,7 @@ def build_xmp_metadata(asset_record: Any) -> PhotoXmpMetadata | None:
         gps_speed=location.get("speed"),
         gps_timestamp=location.get("timestamp"),
         create_date=create_date,
+        create_date_offset_known=offset_known,
         rating=rating,
     )
 
@@ -251,17 +254,53 @@ def _extract_location(asset_record: Any) -> dict[str, Any]:
 
 
 def _extract_create_date(asset_record: Any) -> datetime | None:
+    return _extract_create_date_and_offset(asset_record)[0]
+
+
+def _extract_create_date_and_offset(
+    asset_record: Any,
+) -> tuple[datetime | None, bool]:
+    """The capture instant, and whether it carries the capture's own offset.
+
+    UNKNOWN IS NOT ZERO. An absent or unusable `timeZoneOffset` used to read
+    as 0, dating the asset in UTC as though that were its zone (upstream 2.7.0
+    does the same). The instant does not depend on the offset, so it is kept
+    as an aware datetime; the offset being unknown is the second value.
+
+    A typed `TIMESTAMP` arrives as an aware UTC datetime and was returned as
+    it stood, discarding an offset Apple DID send; it now adopts it too.
+    """
     asset_date = record_field_value(asset_record, "assetDate")
+    offset = _capture_utc_offset(asset_record)
     if isinstance(asset_date, datetime):
-        return asset_date
-    if not isinstance(asset_date, (int, float)):
-        return None
-    offset = record_field_value(asset_record, "timeZoneOffset")
-    offset_seconds = int(offset) if isinstance(offset, (int, float)) else 0
-    return datetime.fromtimestamp(
-        asset_date / 1000.0,
-        tz=timezone(timedelta(seconds=offset_seconds)),
+        if asset_date.tzinfo is None:
+            # A naive value names no instant; converting it would be a guess.
+            return asset_date, False
+        if offset is None:
+            return asset_date, False
+        return asset_date.astimezone(offset), True
+    if isinstance(asset_date, bool) or not isinstance(asset_date, (int, float)):
+        return None, False
+    return (
+        datetime.fromtimestamp(
+            asset_date / 1000.0, tz=offset if offset is not None else timezone.utc
+        ),
+        offset is not None,
     )
+
+
+def _capture_utc_offset(asset_record: Any) -> timezone | None:
+    """`timeZoneOffset` (seconds east of UTC) as a zone, or None if unusable.
+
+    A bool, a string, a non-finite number or one a day or more from UTC is
+    not an offset; `timezone()` raises a bare ValueError for the last two.
+    """
+    offset = record_field_value(asset_record, "timeZoneOffset")
+    if isinstance(offset, bool) or not isinstance(offset, (int, float)):
+        return None
+    if abs(offset) >= 86_400 or not math.isfinite(offset):
+        return None
+    return timezone(timedelta(seconds=int(offset)))
 
 
 def _extract_rating(asset_record: Any) -> int | None:
@@ -390,6 +429,13 @@ def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:  # noqa:
 
     if metadata.create_date is not None:
         timestamp = metadata.create_date.strftime("%Y-%m-%dT%H:%M:%S%z")
+        if not metadata.create_date_offset_known and metadata.create_date.tzinfo:
+            timestamp = (
+                metadata.create_date.astimezone(timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%S"
+                )
+                + "-0000"
+            )
         ElementTree.SubElement(description_xmp, "xmp:CreateDate").text = timestamp
         ElementTree.SubElement(
             description_photoshop,
