@@ -170,6 +170,7 @@ class RemindersRecordMapper:
         if modified is None and rec.modified is not None:
             modified = rec.modified.timestamp
 
+        undecodable_text_fields: list[str] = []
         title_doc = fields.get_value("TitleDocument")
         title = "Untitled"
         if title_doc:
@@ -185,7 +186,8 @@ class RemindersRecordMapper:
                     rec.recordName,
                     exc,
                 )
-                title = "Error Decoding Title"
+                title = ""
+                undecodable_text_fields.append("TitleDocument")
 
         notes_doc = fields.get_value("NotesDocument")
         desc = ""
@@ -202,12 +204,14 @@ class RemindersRecordMapper:
                     rec.recordName,
                     exc,
                 )
+                undecodable_text_fields.append("NotesDocument")
 
         return Reminder(
             id=rec.recordName,
             list_id=_ref_name(fields, "List"),
             title=title,
             desc=desc,
+            undecodable_text_fields=tuple(undecodable_text_fields),
             due_date=fields.get_value("DueDate"),
             start_date=fields.get_value("StartDate"),
             completed=bool(fields.get_value("Completed")),

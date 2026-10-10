@@ -626,10 +626,10 @@ class TestRecordToReminder:
         assert r.hashtag_ids == ["hashtag-1"]
         assert r.attachment_ids == ["attach-1"]
 
-    def test_reminder_malformed_title_document_uses_placeholder(
+    def test_reminder_malformed_title_document_marks_failed_decode(
         self, service: RemindersService
     ) -> None:
-        """A malformed title document falls back to a placeholder title."""
+        """A malformed title document marks the reminder as unsafe to update."""
         rec = _ck_record(
             "Reminder",
             "REM-BAD-TITLE",
@@ -647,7 +647,8 @@ class TestRecordToReminder:
 
         reminder = service._record_to_reminder(rec)
 
-        assert reminder.title == "Error Decoding Title"
+        assert reminder.title == ""
+        assert reminder.undecodable_text_fields == ("TitleDocument",)
 
     def test_reminder_falls_back_to_record_audit_timestamps(
         self, service: RemindersService

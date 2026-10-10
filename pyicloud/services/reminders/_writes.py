@@ -21,6 +21,7 @@ from pyicloud.common.cloudkit import (
 from ._constants import _REMINDERS_ZONE_REQ
 from ._mappers import Attachment, RemindersRecordMapper
 from ._protocol import (
+    CRDTDecodeError,
     _as_raw_id,
     _as_record_name,
     _encode_cloudkit_text_field,
@@ -465,7 +466,13 @@ class RemindersWriteAPI:
         return self._lookup_created_reminder(record_name)
 
     def update(self, reminder: Reminder) -> None:
-        """Update an existing reminder."""
+        """Update an existing reminder, refusing unreadable text documents."""
+        if reminder.undecodable_text_fields:
+            # Both documents are re-encoded on every update. Even a flag-only
+            # edit would overwrite an unreadable server value with a placeholder.
+            raise CRDTDecodeError(
+                "Reminder text could not be decoded; refusing to overwrite it"
+            )
         reminder_record_name = self._reminder_record_name(reminder.id)
         title_doc = _encode_crdt_document(reminder.title)
         notes_doc = _encode_crdt_document(reminder.desc or "")
