@@ -167,8 +167,9 @@ class TestCloudKitRemindersClientErrors:
 
     def test_unrelated_exception_passes_through(self) -> None:
         """Errors outside the CloudKit hierarchy are re-raised unchanged."""
+        error = ValueError("boom")
         with pytest.raises(ValueError, match="boom"):
-            CloudKitRemindersClient._raise_reminders_error(ValueError("boom"))
+            CloudKitRemindersClient._raise_reminders_error(error)
 
     def test_query_success_and_api_error(self) -> None:
         """query() returns the response and wraps CloudKit API failures."""

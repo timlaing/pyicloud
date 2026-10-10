@@ -131,8 +131,9 @@ class RawClientCoverageTest(unittest.TestCase):
         """``_client_for`` maps both scopes and rejects unknown ones."""
         self.assertIs(self.client._client_for("private"), self.private)
         self.assertIs(self.client._client_for("shared"), self.shared)
+        public = cast(Any, "public")
         with self.assertRaises(ValueError):
-            self.client._client_for(cast(Any, "public"))
+            self.client._client_for(public)
 
     def test_zones_list_passes_through_both_scopes(self) -> None:
         """zones_list returns the selected scope's response untouched."""
@@ -260,8 +261,9 @@ class RawClientCoverageTest(unittest.TestCase):
 
     def test_raise_invites_error_reraises_unknown_exceptions(self) -> None:
         """Exceptions matching no branch are re-raised untouched."""
+        error = RuntimeError("boom")
         with self.assertRaises(RuntimeError):
-            CloudKitInvitesClient._raise_invites_error(RuntimeError("boom"))
+            CloudKitInvitesClient._raise_invites_error(error)
 
     def test_download_asset_bytes_proxies_and_translates(self) -> None:
         """download_asset_bytes proxies the private client and maps errors."""
@@ -716,7 +718,8 @@ class ServiceCoverageTest(unittest.TestCase):
 
         event = self.service._fetch_event_full("EVENT-FIXTURE-AAAA", EventScope.PRIVATE)
 
-        assert event is not None and event.share is not None
+        assert event is not None
+        assert event.share is not None
         self.assertEqual(len(event.share.one_time_links), 2)
         otl = event.share.one_time_links[0]
         self.assertEqual(otl.participant_id, "PARTICIPANT-OTL")

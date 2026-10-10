@@ -121,18 +121,18 @@ def test_watch_photo_sync_rejects_invalid_bounds() -> None:
     service = _service()
     options = PhotoSyncOptions(directory=TEST_BASE / "unused-watch")
 
+    invalid_interval = watch_photo_sync(service, options, interval_seconds=0)
     with pytest.raises(PhotosServiceException, match="at least 1 second"):
-        next(watch_photo_sync(service, options, interval_seconds=0))
+        next(invalid_interval)
 
+    invalid_iterations = watch_photo_sync(
+        service,
+        options,
+        interval_seconds=1,
+        iterations=0,
+    )
     with pytest.raises(PhotosServiceException, match="iterations must be at least 1"):
-        next(
-            watch_photo_sync(
-                service,
-                options,
-                interval_seconds=1,
-                iterations=0,
-            )
-        )
+        next(invalid_iterations)
 
 
 def test_run_photo_sync_rejects_invalid_options() -> None:
@@ -141,54 +141,50 @@ def test_run_photo_sync_rejects_invalid_options() -> None:
     service = _service()
     directory = TEST_BASE / "unused-validation"
 
+    bad_size = PhotoSyncOptions(directory=directory, size="small")
     with pytest.raises(PhotosServiceException, match="Unsupported photo size"):
-        run_photo_sync(service, PhotoSyncOptions(directory=directory, size="small"))
+        run_photo_sync(service, bad_size)
 
+    bad_live_size = PhotoSyncOptions(directory=directory, live_photo_size="small")
     with pytest.raises(PhotosServiceException, match="Unsupported live photo size"):
-        run_photo_sync(
-            service,
-            PhotoSyncOptions(directory=directory, live_photo_size="small"),
-        )
+        run_photo_sync(service, bad_live_size)
 
+    bad_align = PhotoSyncOptions(directory=directory, align_raw="rotate")
     with pytest.raises(PhotosServiceException, match="Unsupported RAW alignment"):
-        run_photo_sync(
-            service,
-            PhotoSyncOptions(directory=directory, align_raw="rotate"),
-        )
+        run_photo_sync(service, bad_align)
 
+    bad_auto_delete = PhotoSyncOptions(
+        directory=directory,
+        auto_delete=True,
+        until_found=1,
+    )
     with pytest.raises(PhotosServiceException, match="cannot be combined with"):
-        run_photo_sync(
-            service,
-            PhotoSyncOptions(
-                directory=directory,
-                auto_delete=True,
-                until_found=1,
-            ),
-        )
+        run_photo_sync(service, bad_auto_delete)
 
+    bad_keep_recent = PhotoSyncOptions(
+        directory=directory,
+        keep_icloud_recent_days=0,
+        until_found=1,
+    )
     with pytest.raises(PhotosServiceException, match="cannot be combined with"):
-        run_photo_sync(
-            service,
-            PhotoSyncOptions(
-                directory=directory,
-                keep_icloud_recent_days=0,
-                until_found=1,
-            ),
-        )
+        run_photo_sync(service, bad_keep_recent)
 
+    until_found_zero = PhotoSyncOptions(directory=directory, until_found=0)
     with pytest.raises(PhotosServiceException, match="until-found must be at least 1"):
-        run_photo_sync(service, PhotoSyncOptions(directory=directory, until_found=0))
+        run_photo_sync(service, until_found_zero)
 
+    recent_zero = PhotoSyncOptions(directory=directory, recent=0)
     with pytest.raises(PhotosServiceException, match="recent must be at least 1"):
-        run_photo_sync(service, PhotoSyncOptions(directory=directory, recent=0))
+        run_photo_sync(service, recent_zero)
 
+    keep_recent_negative = PhotoSyncOptions(
+        directory=directory,
+        keep_icloud_recent_days=-1,
+    )
     with pytest.raises(
         PhotosServiceException, match="keep-icloud-recent-days must be at least 0"
     ):
-        run_photo_sync(
-            service,
-            PhotoSyncOptions(directory=directory, keep_icloud_recent_days=-1),
-        )
+        run_photo_sync(service, keep_recent_negative)
 
 
 def test_run_photo_sync_skips_assets_without_resources() -> None:
@@ -368,14 +364,17 @@ def test_resolve_library_errors() -> None:
 
         libraries: dict[str, Any] = {"shared": SimpleNamespace(scope="shared-stream")}
 
+    non_dict_service = NonDictService()
     with pytest.raises(PhotosServiceException, match="does not expose syncable"):
-        _resolve_library(NonDictService(), "root")
+        _resolve_library(non_dict_service, "root")
 
+    empty_service = EmptyService()
     with pytest.raises(PhotosServiceException, match="No photo library matched"):
-        _resolve_library(EmptyService(), "root")
+        _resolve_library(empty_service, "root")
 
+    shared_service = SharedService()
     with pytest.raises(PhotosServiceException):
-        _resolve_library(SharedService(), "shared")
+        _resolve_library(shared_service, "shared")
 
 
 def test_sync_cursor_falls_back_to_service_then_none() -> None:
@@ -592,9 +591,11 @@ def test_iter_sync_assets_rejects_container_without_find() -> None:
         scope = "private"
 
     options = PhotoSyncOptions(directory=TEST_BASE, albums=("Vacation",))
+    library = Library()
 
+    assets = _iter_sync_assets(object(), library, options)
     with pytest.raises(PhotosServiceException, match="does not support album-based"):
-        list(_iter_sync_assets(object(), Library(), options))
+        list(assets)
 
 
 class BareLibrary:
@@ -610,9 +611,11 @@ def test_iter_sync_assets_requires_an_album_container() -> None:
     """A missing album container should raise a helpful error."""
 
     options = PhotoSyncOptions(directory=TEST_BASE, albums=("Holidays",))
+    library = BareLibrary()
 
+    assets = _iter_sync_assets(object(), library, options)
     with pytest.raises(PhotosServiceException, match="does not support album-based"):
-        list(_iter_sync_assets(object(), BareLibrary(), options))
+        list(assets)
 
 
 def test_iter_sync_assets_shared_library_missing_album() -> None:
@@ -633,9 +636,11 @@ def test_iter_sync_assets_shared_library_missing_album() -> None:
         scope = "shared-library"
 
     options = PhotoSyncOptions(directory=TEST_BASE, albums=("Missing",))
+    library = SharedLibrary()
 
+    assets = _iter_sync_assets(object(), library, options)
     with pytest.raises(PhotosServiceException):
-        list(_iter_sync_assets(object(), SharedLibrary(), options))
+        list(assets)
 
 
 def test_iter_sync_assets_private_library_missing_album() -> None:
@@ -656,9 +661,11 @@ def test_iter_sync_assets_private_library_missing_album() -> None:
         scope = "private"
 
     options = PhotoSyncOptions(directory=TEST_BASE, albums=("Missing",))
+    library = PrivateLibrary()
 
+    assets = _iter_sync_assets(object(), library, options)
     with pytest.raises(PhotosServiceException, match="No album named"):
-        list(_iter_sync_assets(object(), PrivateLibrary(), options))
+        list(assets)
 
 
 def test_iter_sync_assets_dedupes_album_assets() -> None:
@@ -694,14 +701,10 @@ def test_iter_sync_assets_dedupes_album_assets() -> None:
 def test_iter_sync_assets_requires_default_feed() -> None:
     """A library without any usable feed should raise a clear error."""
 
+    options = PhotoSyncOptions(directory=TEST_BASE)
+    assets = _iter_sync_assets(object(), BareLibrary(), options)
     with pytest.raises(PhotosServiceException, match="default asset feed"):
-        list(
-            _iter_sync_assets(
-                object(),
-                BareLibrary(),
-                PhotoSyncOptions(directory=TEST_BASE),
-            )
-        )
+        list(assets)
 
 
 def test_iter_sync_assets_dedupes_default_feed() -> None:

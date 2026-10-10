@@ -492,8 +492,9 @@ def test_resolve_websocket_host_variants() -> None:
     env_ctx = Hsa2BootContext(bridge_initiate_data={"apnsEnvironment": "prod"})
     assert bridge._resolve_websocket_host(env_ctx) == "websocket.push.apple.com"
 
+    empty_ctx = Hsa2BootContext()
     with pytest.raises(PyiCloudTrustedDevicePromptException, match="websocket host"):
-        bridge._resolve_websocket_host(Hsa2BootContext())
+        bridge._resolve_websocket_host(empty_ctx)
 
 
 def test_resolve_apns_topic_variants() -> None:
@@ -501,8 +502,9 @@ def test_resolve_apns_topic_variants() -> None:
 
     ok = Hsa2BootContext(bridge_initiate_data={"apnsTopic": "t"})
     assert bridge._resolve_apns_topic(ok) == "t"
+    empty_ctx = Hsa2BootContext()
     with pytest.raises(PyiCloudTrustedDevicePromptException, match="APNS topic"):
-        bridge._resolve_apns_topic(Hsa2BootContext())
+        bridge._resolve_apns_topic(empty_ctx)
 
 
 def test_derive_origin_variants() -> None:
@@ -897,8 +899,9 @@ def test_wait_for_push_token_timeout() -> None:
     """An expired deadline raises before reading."""
 
     bootstrapper = TrustedDeviceBridgeBootstrapper(timeout=-1.0)
+    empty_ws = _WS([])
     with pytest.raises(PyiCloudTrustedDevicePromptException, match="Timed out"):
-        bootstrapper._wait_for_push_token(_WS([]))
+        bootstrapper._wait_for_push_token(empty_ws)
 
 
 def test_wait_for_bridge_push_handles_control_frames() -> None:
@@ -922,8 +925,9 @@ def test_wait_for_bridge_push_channel_failure() -> None:
     """A failed channel subscription raises."""
 
     ws = _WS([_channel_frame("t", status=5)])
+    bootstrapper = TrustedDeviceBridgeBootstrapper()
     with pytest.raises(PyiCloudTrustedDevicePromptException, match="subscription"):
-        TrustedDeviceBridgeBootstrapper()._wait_for_bridge_push(ws, "t", {})
+        bootstrapper._wait_for_bridge_push(ws, "t", {})
 
 
 def test_wait_for_bridge_push_skips_other_topics() -> None:
@@ -943,10 +947,10 @@ def test_wait_for_bridge_push_skips_other_topics() -> None:
 def test_wait_for_bridge_push_timeout() -> None:
     """An empty queue with an expired deadline raises."""
 
+    bootstrapper = TrustedDeviceBridgeBootstrapper(timeout=-1.0)
+    empty_ws = _WS([])
     with pytest.raises(PyiCloudTrustedDevicePromptException, match="Timed out"):
-        TrustedDeviceBridgeBootstrapper(timeout=-1.0)._wait_for_bridge_push(
-            _WS([]), "expected", {}
-        )
+        bootstrapper._wait_for_bridge_push(empty_ws, "expected", {})
 
 
 def test_apply_bridge_push_rejects_mismatch_and_errors() -> None:
@@ -961,16 +965,13 @@ def test_apply_bridge_push_rejects_mismatch_and_errors() -> None:
         topics_by_hash={},
     )
     bootstrapper = TrustedDeviceBridgeBootstrapper()
+    mismatched = bridge.BridgePushPayload.from_payload({"sessionUUID": "other"})
     with pytest.raises(PyiCloudTrustedDeviceVerificationException, match="mismatched"):
-        bootstrapper._apply_bridge_push(
-            state,
-            bridge.BridgePushPayload.from_payload({"sessionUUID": "other"}),
-        )
+        bootstrapper._apply_bridge_push(state, mismatched)
+
+    error_push = bridge.BridgePushPayload.from_payload({"sessionUUID": "s", "ec": 3})
     with pytest.raises(PyiCloudTrustedDeviceVerificationException, match="error push"):
-        bootstrapper._apply_bridge_push(
-            state,
-            bridge.BridgePushPayload.from_payload({"sessionUUID": "s", "ec": 3}),
-        )
+        bootstrapper._apply_bridge_push(state, error_push)
 
 
 def test_apply_expected_step4_push_variants() -> None:
@@ -985,15 +986,13 @@ def test_apply_expected_step4_push_variants() -> None:
         topics_by_hash={},
     )
     bootstrapper = TrustedDeviceBridgeBootstrapper()
+    step3 = bridge.BridgePushPayload.from_payload({
+        "sessionUUID": "s",
+        "nextStep": "3",
+        "data": "d",
+    })
     with pytest.raises(PyiCloudTrustedDeviceVerificationException, match="post-step-2"):
-        bootstrapper._apply_expected_step4_push(
-            state,
-            bridge.BridgePushPayload.from_payload({
-                "sessionUUID": "s",
-                "nextStep": "3",
-                "data": "d",
-            }),
-        )
+        bootstrapper._apply_expected_step4_push(state, step3)
 
     bootstrapper._apply_expected_step4_push(
         state,
@@ -1017,16 +1016,14 @@ def test_apply_final_bridge_push_variants() -> None:
         topics_by_hash={},
     )
     bootstrapper = TrustedDeviceBridgeBootstrapper()
+    missing_code = bridge.BridgePushPayload.from_payload({
+        "sessionUUID": "s",
+        "nextStep": "5",
+    })
     with pytest.raises(
         PyiCloudTrustedDeviceVerificationException, match="final payload"
     ):
-        bootstrapper._apply_final_bridge_push(
-            state,
-            bridge.BridgePushPayload.from_payload({
-                "sessionUUID": "s",
-                "nextStep": "5",
-            }),
-        )
+        bootstrapper._apply_final_bridge_push(state, missing_code)
 
     bootstrapper._apply_final_bridge_push(
         state,
@@ -1164,14 +1161,16 @@ def test_start_transport_error(monkeypatch: pytest.MonkeyPatch) -> None:
     bootstrapper = _bootstrapper(ws)
     _patch_keypair(monkeypatch, bootstrapper)
 
+    session = MagicMock()
+    boot_context = _boot_context()
     with pytest.raises(
         PyiCloudTrustedDevicePromptException, match="Failed to bootstrap"
     ):
         bootstrapper.start(
-            session=MagicMock(),
+            session=session,
             auth_endpoint="https://e/auth",
             headers={},
-            boot_context=_boot_context(),
+            boot_context=boot_context,
             user_agent="ua",
         )
     assert ws.closed is True
@@ -1199,9 +1198,10 @@ def test_validate_code_guards() -> None:
         topic="t",
         topics_by_hash={},
     )
+    session = MagicMock()
     with pytest.raises(PyiCloudTrustedDeviceVerificationException, match="not active"):
         bootstrapper.validate_code(
-            session=MagicMock(),
+            session=session,
             auth_endpoint="https://e",
             headers={},
             bridge_state=inactive,
@@ -1221,10 +1221,11 @@ def test_validate_code_legacy_and_not_ready() -> None:
         "topic": "t",
         "topics_by_hash": {},
     }
+    session = MagicMock()
     legacy = TrustedDeviceBridgeState(**{**base, "txnid": "x_W"})
     with pytest.raises(PyiCloudTrustedDeviceVerificationException, match="Legacy"):
         bootstrapper.validate_code(
-            session=MagicMock(),
+            session=session,
             auth_endpoint="https://e",
             headers={},
             bridge_state=legacy,
@@ -1234,7 +1235,7 @@ def test_validate_code_legacy_and_not_ready() -> None:
     not_ready = TrustedDeviceBridgeState(**{**base, "next_step": "9"})
     with pytest.raises(PyiCloudTrustedDeviceVerificationException, match="not ready"):
         bootstrapper.validate_code(
-            session=MagicMock(),
+            session=session,
             auth_endpoint="https://e",
             headers={},
             bridge_state=not_ready,
@@ -1244,7 +1245,7 @@ def test_validate_code_legacy_and_not_ready() -> None:
     no_salt = TrustedDeviceBridgeState(**{**base, "next_step": "2"})
     with pytest.raises(PyiCloudTrustedDeviceVerificationException, match="salt"):
         bootstrapper.validate_code(
-            session=MagicMock(),
+            session=session,
             auth_endpoint="https://e",
             headers={},
             bridge_state=no_salt,
@@ -1264,9 +1265,10 @@ def test_validate_code_inactive_and_prover_rejection() -> None:
         topic="t",
         topics_by_hash={},
     )
+    session = MagicMock()
     with pytest.raises(PyiCloudTrustedDeviceVerificationException, match="not active"):
         bootstrapper.validate_code(
-            session=MagicMock(),
+            session=session,
             auth_endpoint="https://e",
             headers={},
             bridge_state=inactive,
@@ -1530,8 +1532,9 @@ def test_prover_roundtrip_and_decrypt_guards() -> None:
     assert prover.is_verified() is True
     assert prover.get_key()
 
+    unverified_prover = TrustedDeviceBridgeProver()
     with pytest.raises(ValueError, match="verifier key"):
-        TrustedDeviceBridgeProver().decrypt_message("AA==")
+        unverified_prover.decrypt_message("AA==")
 
 
 def test_prover_point_helpers() -> None:

@@ -556,8 +556,9 @@ def test_sync_cursor_typed_missing_token() -> None:
 
     client = MagicMock()
     client.zones_list.return_value = SimpleNamespace(zones=[])
+    library = _raw_library(client=client, session=object())
     with pytest.raises(PhotosServiceException):
-        _raw_library(client=client, session=object()).sync_cursor()
+        library.sync_cursor()
 
 
 def test_sync_cursor_legacy_match_and_missing() -> None:
@@ -574,8 +575,9 @@ def test_sync_cursor_legacy_match_and_missing() -> None:
 
     empty_session = MagicMock()
     empty_session.post.return_value.json.return_value = {"zones": []}
+    library = _raw_library(client=None, session=empty_session)
     with pytest.raises(PhotosServiceException):
-        _raw_library(client=None, session=empty_session).sync_cursor()
+        library.sync_cursor()
 
 
 def test_iter_changes_skips_non_records() -> None:

@@ -263,8 +263,9 @@ def test_album_container_append() -> None:
 
 def test_base_photo_library_get_albums_is_abstract() -> None:
     """Test base photo library get albums is abstract."""
+    library = _ConcreteLibrary()
     with pytest.raises(NotImplementedError):
-        BasePhotoLibrary._get_albums(_ConcreteLibrary())
+        BasePhotoLibrary._get_albums(library)
 
 
 def test_base_photo_library_parse_asset_response_branches() -> None:

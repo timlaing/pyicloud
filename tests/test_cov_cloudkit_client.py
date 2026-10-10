@@ -296,19 +296,18 @@ def test_iter_changes_stops_when_no_zones() -> None:
 def test_query_zone_wide_with_zone_id_raises() -> None:
     """zone_wide queries reject an explicit zone_id."""
     client = CloudKitContainerClient("https://example.com/database", MagicMock(), {})
+    query = CKQueryObject(recordType="SearchIndexes")
+    zone_id = CKZoneIDReq(zoneName="Notes")
     with pytest.raises(ValueError, match="zone_id must be omitted"):
-        client.query(
-            query=CKQueryObject(recordType="SearchIndexes"),
-            zone_id=CKZoneIDReq(zoneName="Notes"),
-            zone_wide=True,
-        )
+        client.query(query=query, zone_id=zone_id, zone_wide=True)
 
 
 def test_query_requires_zone_id_unless_zone_wide() -> None:
     """Scoped queries require a zone_id."""
     client = CloudKitContainerClient("https://example.com/database", MagicMock(), {})
+    query = CKQueryObject(recordType="SearchIndexes")
     with pytest.raises(ValueError, match="zone_id is required"):
-        client.query(query=CKQueryObject(recordType="SearchIndexes"))
+        client.query(query=query)
 
 
 def test_query_validation_error_raises_api_error() -> None:
@@ -316,11 +315,10 @@ def test_query_validation_error_raises_api_error() -> None:
     session = MagicMock()
     session.post.return_value = _json_response({"records": "not-a-list"})
     client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="SearchIndexes")
+    zone_id = CKZoneIDReq(zoneName="Notes")
     with pytest.raises(CloudKitApiError, match="Query response validation failed"):
-        client.query(
-            query=CKQueryObject(recordType="SearchIndexes"),
-            zone_id=CKZoneIDReq(zoneName="Notes"),
-        )
+        client.query(query=query, zone_id=zone_id)
 
 
 def test_modify_success() -> None:
@@ -353,8 +351,9 @@ def test_modify_validation_error_raises_api_error() -> None:
         operationType="create",
         record=CKWriteRecord(recordName="rec-1", recordType="Test"),
     )
+    zone_id = CKZoneIDReq(zoneName="Notes")
     with pytest.raises(CloudKitApiError, match="Modify response validation failed"):
-        client.modify(operations=[operation], zone_id=CKZoneIDReq(zoneName="Notes"))
+        client.modify(operations=[operation], zone_id=zone_id)
 
 
 def test_database_changes_without_sync_token() -> None:
@@ -386,10 +385,9 @@ def test_query_sync_token_validation_error_raises_api_error() -> None:
     session = MagicMock()
     session.post.return_value = _json_response({"records": "nope"})
     client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="SearchIndexes")
+    zone_id = CKZoneIDReq(zoneName="Notes")
     with pytest.raises(
         CloudKitApiError, match="Sync token query response validation failed"
     ):
-        client.query_sync_token(
-            query=CKQueryObject(recordType="SearchIndexes"),
-            zone_id=CKZoneIDReq(zoneName="Notes"),
-        )
+        client.query_sync_token(query=query, zone_id=zone_id)

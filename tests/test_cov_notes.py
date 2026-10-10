@@ -560,7 +560,7 @@ class RendererHelperCoverageTest(unittest.TestCase):
         self.assertIn("serif", _css_font_stack("TimesLike"))
         self.assertIn("cursive", _css_font_stack("ChalkboardHand"))
         self.assertIn("sans-serif", _css_font_stack("AvenirNext"))
-        self.assertTrue('"' in _css_font_stack("Bob's Font"))
+        self.assertIn('"', _css_font_stack("Bob's Font"))
 
 
 class StyleSigCoverageTest(unittest.TestCase):
@@ -996,33 +996,23 @@ class CloudKitNotesClientCoverageTest(unittest.TestCase):
 
     def test_raise_notes_error_translations(self) -> None:
         """Each backend error class maps to its notes counterpart."""
-        try:
-            CloudKitNotesClient._raise_notes_error(CloudKitAuthError("a"))
-        except NotesAuthError:
-            pass
-        else:  # pragma: no cover - defensive
-            self.fail("expected NotesAuthError")
+        auth_error = CloudKitAuthError("a")
+        with self.assertRaises(NotesAuthError):
+            CloudKitNotesClient._raise_notes_error(auth_error)
 
-        try:
-            CloudKitNotesClient._raise_notes_error(
-                CloudKitRateLimited("r", retry_after=1.5)
-            )
-        except NotesRateLimited as exc:
-            self.assertEqual(exc.retry_after, 1.5)
-        else:  # pragma: no cover - defensive
-            self.fail("expected NotesRateLimited")
+        rate_limited = CloudKitRateLimited("r", retry_after=1.5)
+        with self.assertRaises(NotesRateLimited) as rate_ctx:
+            CloudKitNotesClient._raise_notes_error(rate_limited)
+        self.assertEqual(rate_ctx.exception.retry_after, 1.5)
 
-        try:
-            CloudKitNotesClient._raise_notes_error(
-                CloudKitApiError("api", payload={"err": 1})
-            )
-        except NotesApiError as exc:
-            self.assertEqual(exc.payload, {"err": 1})
-        else:  # pragma: no cover - defensive
-            self.fail("expected NotesApiError")
+        api_error = CloudKitApiError("api", payload={"err": 1})
+        with self.assertRaises(NotesApiError) as api_ctx:
+            CloudKitNotesClient._raise_notes_error(api_error)
+        self.assertEqual(api_ctx.exception.payload, {"err": 1})
 
+        plain_error = ValueError("plain")
         with self.assertRaises(ValueError):
-            CloudKitNotesClient._raise_notes_error(ValueError("plain"))
+            CloudKitNotesClient._raise_notes_error(plain_error)
 
     def test_query_success(self) -> None:
         """A successful backend query returns the typed response."""
@@ -1042,11 +1032,10 @@ class CloudKitNotesClientCoverageTest(unittest.TestCase):
         client, inner = self._client()
         inner.query.side_effect = self._api_error_with_cause()
 
+        query = CKQueryObject(recordType="SearchIndexes")
+        zone_id = CKZoneIDReq(zoneName="Notes")
         with self.assertRaises(NotesApiError) as ctx:
-            client.query(
-                query=CKQueryObject(recordType="SearchIndexes"),
-                zone_id=CKZoneIDReq(zoneName="Notes"),
-            )
+            client.query(query=query, zone_id=zone_id)
 
         self.assertEqual(ctx.exception.payload, {"x": 1})
 
@@ -1054,27 +1043,24 @@ class CloudKitNotesClientCoverageTest(unittest.TestCase):
         """Query errors translate auth, rate-limit and API failures."""
         client, inner = self._client()
         inner.query.side_effect = CloudKitAuthError("no")
+        query = CKQueryObject(recordType="SearchIndexes")
+        zone_id = CKZoneIDReq(zoneName="Notes")
         with self.assertRaises(NotesAuthError):
-            client.query(
-                query=CKQueryObject(recordType="SearchIndexes"),
-                zone_id=CKZoneIDReq(zoneName="Notes"),
-            )
+            client.query(query=query, zone_id=zone_id)
 
         client, inner = self._client()
         inner.query.side_effect = CloudKitRateLimited("slow", retry_after=2.5)
+        query = CKQueryObject(recordType="SearchIndexes")
+        zone_id = CKZoneIDReq(zoneName="Notes")
         with self.assertRaises(NotesRateLimited):
-            client.query(
-                query=CKQueryObject(recordType="SearchIndexes"),
-                zone_id=CKZoneIDReq(zoneName="Notes"),
-            )
+            client.query(query=query, zone_id=zone_id)
 
         client, inner = self._client()
         inner.query.side_effect = CloudKitApiError("server", payload="oops")
+        query = CKQueryObject(recordType="SearchIndexes")
+        zone_id = CKZoneIDReq(zoneName="Notes")
         with self.assertRaises(NotesApiError) as ctx:
-            client.query(
-                query=CKQueryObject(recordType="SearchIndexes"),
-                zone_id=CKZoneIDReq(zoneName="Notes"),
-            )
+            client.query(query=query, zone_id=zone_id)
         cause = ctx.exception.__cause__
         self.assertIsNotNone(cause)
         assert cause is not None
@@ -1121,21 +1107,17 @@ class CloudKitNotesClientCoverageTest(unittest.TestCase):
         """``changes`` translates backend failures like the other methods."""
         client, inner = self._client()
         inner.iter_changes.side_effect = self._api_error_with_cause()
+        zone_req = CKZoneChangesZoneReq(zoneID=CKZoneID(zoneName="Notes"))
+        changes = client.changes(zone_req=zone_req)
         with self.assertRaises(NotesApiError):
-            list(
-                client.changes(
-                    zone_req=CKZoneChangesZoneReq(zoneID=CKZoneID(zoneName="Notes"))
-                )
-            )
+            list(changes)
 
         client, inner = self._client()
         inner.iter_changes.side_effect = CloudKitAuthError("no")
+        zone_req = CKZoneChangesZoneReq(zoneID=CKZoneID(zoneName="Notes"))
+        changes = client.changes(zone_req=zone_req)
         with self.assertRaises(NotesAuthError):
-            list(
-                client.changes(
-                    zone_req=CKZoneChangesZoneReq(zoneID=CKZoneID(zoneName="Notes"))
-                )
-            )
+            list(changes)
 
     # ---- asset helpers ----
 
@@ -1145,7 +1127,7 @@ class CloudKitNotesClientCoverageTest(unittest.TestCase):
         m = mock_open()
         with (
             patch.object(
-                client, "download_asset_stream", lambda url: iter([b"a", b"b"])
+                client, "download_asset_stream", return_value=iter([b"a", b"b"])
             ),
             patch("pyicloud.services.notes.client.os.makedirs") as makedirs,
             patch("pyicloud.services.notes.client.open", m),
@@ -1162,7 +1144,7 @@ class CloudKitNotesClientCoverageTest(unittest.TestCase):
         """``download_asset_to`` still finishes when there are no chunks."""
         client, _ = self._client()
         with (
-            patch.object(client, "download_asset_stream", lambda url: iter([])),
+            patch.object(client, "download_asset_stream", return_value=iter([])),
             patch("pyicloud.services.notes.client.os.makedirs"),
             patch("pyicloud.services.notes.client.open", mock_open()),
         ):

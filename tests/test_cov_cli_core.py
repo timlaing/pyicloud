@@ -299,15 +299,17 @@ def test_handle_2fa_without_trusted_number_aborts() -> None:
 def test_handle_2sa_without_devices_aborts() -> None:
     """2SA without trusted devices should abort."""
     api = _ns(trusted_devices=[])
+    state = _make_state()
     with pytest.raises(context_module.CLIAbort):
-        _make_state()._handle_2sa(api)
+        state._handle_2sa(api)
 
 
 def test_handle_2sa_requires_interaction() -> None:
     """2SA should abort when prompts are disabled."""
     api = _ns(trusted_devices=[{"phoneNumber": "+1"}])
+    state = _make_state(interactive=False)
     with pytest.raises(context_module.CLIAbort):
-        _make_state(interactive=False)._handle_2sa(api)
+        state._handle_2sa(api)
 
 
 def test_handle_2sa_send_failure_aborts() -> None:
@@ -316,8 +318,9 @@ def test_handle_2sa_send_failure_aborts() -> None:
         trusted_devices=[{"phoneNumber": "+1"}],
         send_verification_code=MagicMock(return_value=False),
     )
+    state = _make_state(interactive=True)
     with pytest.raises(context_module.CLIAbort):
-        _make_state(interactive=True)._handle_2sa(api)
+        state._handle_2sa(api)
 
 
 def test_handle_2sa_verify_failure_aborts() -> None:
@@ -327,11 +330,12 @@ def test_handle_2sa_verify_failure_aborts() -> None:
         send_verification_code=MagicMock(return_value=True),
         validate_verification_code=MagicMock(return_value=False),
     )
+    state = _make_state(interactive=True)
     with (
         patch.object(context_module.typer, "prompt", return_value="123"),
         pytest.raises(context_module.CLIAbort),
     ):
-        _make_state(interactive=True)._handle_2sa(api)
+        state._handle_2sa(api)
 
 
 def test_get_login_api_returns_cached_api() -> None:
@@ -615,10 +619,10 @@ def test_write_to_file_without_stream_returns() -> None:
 
 def test_write_response_to_path_rejects_unstreamable() -> None:
     """write_response_to_path should abort on unstreamable responses."""
+    response = object()
+    target = _tmp_dir("download") / "out.bin"
     with pytest.raises(context_module.CLIAbort):
-        context_module.write_response_to_path(
-            object(), _tmp_dir("download") / "out.bin"
-        )
+        context_module.write_response_to_path(response, target)
 
 
 def test_write_response_to_path_streams_to_disk() -> None:
@@ -983,11 +987,12 @@ def test_cmdline_main_guard_runs_main() -> None:
     fake_app = ModuleType("pyicloud.cli.app")
     fake_app.main = lambda: 5  # type: ignore[attr-defined]
     namespace: dict[str, Any] = {"__name__": "__main__"}
+    code = compile(source, filename, "exec")
     with (
         patch.dict(sys.modules, {"pyicloud.cli.app": fake_app}),
         pytest.raises(SystemExit) as exc,
     ):
-        exec(compile(source, filename, "exec"), namespace)  # pylint: disable=exec-used
+        exec(code, namespace)  # pylint: disable=exec-used
     assert exc.value.code == 5
 
 
