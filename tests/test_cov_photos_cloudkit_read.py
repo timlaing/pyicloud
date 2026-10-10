@@ -925,7 +925,9 @@ def test_insert_exif_datetime_segment_paths() -> None:
 
 def test_build_exif_tiff_is_deterministic() -> None:
     """Build exif tiff is deterministic."""
-    assert _build_exif_tiff(b"abc\x00") == _build_exif_tiff(b"abc\x00")
+    first = _build_exif_tiff(b"abc\x00")
+    second = _build_exif_tiff(b"abc\x00")
+    assert first == second
 
 
 def test_parse_tiff_ifd_paths() -> None:
