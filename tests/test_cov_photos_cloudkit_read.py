@@ -223,9 +223,9 @@ def test_decode_encrypted_text_paths() -> None:
     )
     assert (
         decode_encrypted_text(
-            {"fields": {"captionEnc": {"value": "héllo"}}}, "captionEnc"
+            {"fields": {"captionEnc": {"value": "h\u00e9llo"}}}, "captionEnc"
         )
-        == "héllo"
+        == "h\u00e9llo"
     )
 
 

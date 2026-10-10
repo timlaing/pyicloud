@@ -165,9 +165,14 @@ def test_get_bytes_server_error_raises_api_error() -> None:
 def test_get_bytes_encodes_text_content() -> None:
     """Text-only asset responses are encoded to UTF-8 bytes."""
     session = MagicMock()
-    session.get.return_value = MagicMock(status_code=200, content=None, text="héllo")
+    session.get.return_value = MagicMock(
+        status_code=200, content=None, text="h\u00e9llo"
+    )
     client = CloudKitContainerClient("https://example.com/database", session, {})
-    assert client.download_asset_bytes("https://example.com/asset") == "héllo".encode()
+    assert (
+        client.download_asset_bytes("https://example.com/asset")
+        == "h\u00e9llo".encode()
+    )
 
 
 def test_get_bytes_invalid_content_raises_api_error() -> None:
