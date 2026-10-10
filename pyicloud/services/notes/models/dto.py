@@ -74,6 +74,8 @@ class NoteFolder(FrozenServiceModel):
     name: str | None
     has_subfolders: bool | None
     count: int | None  # not always available
+    # Added last with a default to preserve existing folder construction.
+    parent_id: str | None = None
 
 
 class ChangeEvent(FrozenServiceModel):
