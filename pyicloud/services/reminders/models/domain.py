@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import IntEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -185,13 +185,34 @@ class RecurrenceFrequency(IntEnum):
     MONTHLY = 3
     YEARLY = 4
 
+    @classmethod
+    def from_wire(cls, wire: int) -> "RecurrenceFrequency":
+        """Decode Apple's zero-based frequency without changing public values."""
+        try:
+            return cls(wire + 1)
+        except ValueError:
+            member = int.__new__(cls, wire + 1)
+            # Enum stores pseudo-member metadata on the constructed integer.
+            # pylint: disable=attribute-defined-outside-init
+            member._name_ = "UNKNOWN"
+            member._value_ = wire + 1
+            return member
+
+    @property
+    def wire_value(self) -> int:
+        """Return Apple's zero-based frequency, preserving unknown values."""
+        return int(self) - 1
+
+    def __reduce_ex__(self, protocol: object) -> Any:
+        return (type(self).from_wire, (self.wire_value,))
+
 
 class RecurrenceRule(MutableServiceModel):
     """Recurrence rule for a repeating reminder."""
 
     id: str
     reminder_id: str
-    frequency: RecurrenceFrequency = RecurrenceFrequency.DAILY
+    frequency: RecurrenceFrequency | None = RecurrenceFrequency.DAILY
     interval: int = Field(default=1, ge=1)
     occurrence_count: int = Field(default=0, ge=0)  # 0 == infinite
     first_day_of_week: int = Field(default=0, ge=0, le=6)

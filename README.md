@@ -1375,6 +1375,11 @@ for row in reminders.alarms_for(reminder):
     print(row.alarm.id, row.trigger.id if row.trigger else None)
 ```
 
+`RecurrenceFrequency` keeps its public values (DAILY=1 through YEARLY=4).
+CloudKit reads and writes translate these to Apple's zero-based numbering.
+A missing server frequency is `None`; an unsupported frequency has name
+`UNKNOWN` and retains its original `wire_value` for round trips.
+
 _Add hashtags, URL attachments, and recurrence rules:_
 
 ```python

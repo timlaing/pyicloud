@@ -364,11 +364,10 @@ class RemindersRecordMapper:
     def record_to_recurrence_rule(self, rec: CKRecord) -> RecurrenceRule:
         """Map a CloudKit recurrence rule record to a ``RecurrenceRule``."""
         fields = rec.fields
-        freq_raw = fields.get_value("Frequency") or 1
-        try:
-            freq = RecurrenceFrequency(freq_raw)
-        except ValueError:
-            freq = RecurrenceFrequency.DAILY
+        freq_raw = fields.get_value("Frequency")
+        freq = (
+            None if freq_raw is None else RecurrenceFrequency.from_wire(int(freq_raw))
+        )
         return RecurrenceRule(
             id=rec.recordName,
             reminder_id=_ref_name(fields, "Reminder"),
