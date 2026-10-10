@@ -1018,6 +1018,7 @@ class TestRecordToAlarmTrigger:
         assert t.address == "Paris, France"
         assert abs(t.latitude - 48.8567879) < 0.0001
         assert abs(t.longitude - 2.3510768) < 0.0001
+        assert t.radius is not None
         assert abs(t.radius - 8972.70) < 0.1
         assert t.proximity == Proximity.ARRIVING
         assert t.alarm_id == "Alarm/ALARM-001"

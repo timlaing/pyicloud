@@ -1375,6 +1375,11 @@ for row in reminders.alarms_for(reminder):
     print(row.alarm.id, row.trigger.id if row.trigger else None)
 ```
 
+For records read from CloudKit, absent recurrence interval, occurrence count,
+first weekday, and location radius remain `None`. Invalid recurrence numeric
+fields are logged by field name and remain unknown without dropping the record.
+Caller-created models keep their existing defaults and validation.
+
 _Add hashtags, URL attachments, and recurrence rules:_
 
 ```python
