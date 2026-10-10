@@ -120,7 +120,7 @@ class RemindersWriteAPI:
         *,
         recurrence_id: str,
         reminder_id: str,
-        frequency: RecurrenceFrequency,
+        frequency: RecurrenceFrequency | None,
         interval: int,
         occurrence_count: int,
         first_day_of_week: int,
@@ -969,6 +969,10 @@ class RemindersWriteAPI:
             occurrence_count=occurrence_count,
             first_day_of_week=first_day_of_week,
         )
+        validated_frequency = validated_rule.frequency
+        if validated_frequency is None:
+            raise ValueError("A recurrence rule needs a frequency")
+
         reminder_record_name = self._reminder_record_name(reminder.id)
         recurrence_record_name, modify_response = self._create_linked_child(
             reminder=reminder,
@@ -987,7 +991,7 @@ class RemindersWriteAPI:
                 },
                 "Frequency": {
                     "type": "INT64",
-                    "value": int(validated_rule.frequency),
+                    "value": validated_frequency.wire_value,
                 },
                 "Interval": {"type": "INT64", "value": int(validated_rule.interval)},
                 "OccurrenceCount": {
@@ -1031,7 +1035,7 @@ class RemindersWriteAPI:
         validated_rule = self._validated_recurrence_rule(
             recurrence_id=recurrence_rule.id,
             reminder_id=recurrence_rule.reminder_id,
-            frequency=frequency or recurrence_rule.frequency,
+            frequency=recurrence_rule.frequency if frequency is None else frequency,
             interval=recurrence_rule.interval if interval is None else interval,
             occurrence_count=(
                 recurrence_rule.occurrence_count
@@ -1047,7 +1051,11 @@ class RemindersWriteAPI:
         )
 
         if frequency is not None:
-            fields["Frequency"] = {"type": "INT64", "value": int(frequency)}
+            assert validated_rule.frequency is not None
+            fields["Frequency"] = {
+                "type": "INT64",
+                "value": validated_rule.frequency.wire_value,
+            }
         if interval is not None:
             fields["Interval"] = {"type": "INT64", "value": int(interval)}
         if occurrence_count is not None:

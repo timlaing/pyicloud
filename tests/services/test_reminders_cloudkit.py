@@ -1512,7 +1512,7 @@ class TestRecordToRecurrenceRule:
                     "type": "REFERENCE",
                     "value": {"recordName": "REM-001", "action": "VALIDATE"},
                 },
-                "Frequency": {"type": "INT64", "value": 3},
+                "Frequency": {"type": "INT64", "value": 2},
                 "Interval": {"type": "INT64", "value": 1},
                 "OccurrenceCount": {"type": "INT64", "value": 0},
                 "FirstDayOfTheWeek": {"type": "INT64", "value": 0},
@@ -1538,7 +1538,7 @@ class TestRecordToRecurrenceRule:
                     "type": "REFERENCE",
                     "value": {"recordName": "REM-002"},
                 },
-                "Frequency": {"type": "INT64", "value": 2},
+                "Frequency": {"type": "INT64", "value": 1},
                 "Interval": {"type": "INT64", "value": 2},
                 "OccurrenceCount": {"type": "INT64", "value": 10},
                 "FirstDayOfTheWeek": {"type": "INT64", "value": 2},
@@ -1551,10 +1551,8 @@ class TestRecordToRecurrenceRule:
         assert rr.occurrence_count == 10
         assert rr.first_day_of_week == 2
 
-    def test_unknown_frequency_defaults_to_daily(
-        self, service: RemindersService
-    ) -> None:
-        """An unknown frequency defaults to daily."""
+    def test_unknown_frequency_is_preserved(self, service: RemindersService) -> None:
+        """An unknown frequency retains its wire value."""
         rec = _ck_record(
             "RecurrenceRule",
             "RecurrenceRule/RR-003",
@@ -1568,7 +1566,9 @@ class TestRecordToRecurrenceRule:
         )
         rr = service._record_to_recurrence_rule(rec)
 
-        assert rr.frequency == RecurrenceFrequency.DAILY
+        assert rr.frequency is not None
+        assert rr.frequency.name == "UNKNOWN"
+        assert rr.frequency.wire_value == 99
 
 
 # ---------------------------------------------------------------------------
@@ -2060,8 +2060,9 @@ class TestAdditionalWriteApis:
         assert len(reminder.recurrence_rule_ids) == 1
         create_ops = svc._raw.modify.call_args.kwargs["operations"]
         assert create_ops[1].record.recordType == "RecurrenceRule"
-        assert create_ops[1].record.fields["Frequency"].value == int(
-            RecurrenceFrequency.WEEKLY
+        assert (
+            create_ops[1].record.fields["Frequency"].value
+            == RecurrenceFrequency.WEEKLY.wire_value
         )
 
         svc._raw.modify.reset_mock()
@@ -2663,7 +2664,7 @@ class TestReminderReadPaths:
                     "type": "REFERENCE",
                     "value": {"recordName": reminder_id, "action": "VALIDATE"},
                 },
-                "Frequency": {"type": "INT64", "value": 2},
+                "Frequency": {"type": "INT64", "value": 1},
                 "Interval": {"type": "INT64", "value": 1},
                 "OccurrenceCount": {"type": "INT64", "value": 0},
                 "FirstDayOfTheWeek": {"type": "INT64", "value": 1},
