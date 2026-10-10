@@ -1990,15 +1990,40 @@ class PhotoAsset:
 
     def download(self, version: str = "original", **kwargs: Any) -> bytes | None:
         """Download the asset's bytes for the given version."""
-        url = self.download_url(version)
-        if url is None:
+        resource = self.resources.get(version)
+        if resource is None or resource.url is None:
             return None
+        expected_size = resource.size
         if hasattr(self._service, "private_client") and _can_use_typed_cloudkit(
             getattr(self._service, "session", None)
         ):
-            return self._service.private_client.download_asset_bytes(url)
-        response = self._service.session.get(url, stream=True, **kwargs)
-        return response.raw.read()
+            chunks = self._service.private_client.download_asset_stream(resource.url)
+            try:
+                return self._download_chunks(chunks, expected_size)
+            finally:
+                close = getattr(chunks, "close", None)
+                if close is not None:
+                    close()
+        response = self._service.session.get(resource.url, stream=True, **kwargs)
+        try:
+            response.raise_for_status()
+            return self._download_chunks(response.iter_content(65536), expected_size)
+        finally:
+            response.close()
+
+    @staticmethod
+    def _download_chunks(chunks: Iterable[bytes], expected_size: int | None) -> bytes:
+        """Decode transfers and refuse a body differing from the declared asset size."""
+        body = bytearray()
+        for chunk in chunks:
+            body.extend(chunk)
+            if expected_size and len(body) > expected_size:
+                raise PhotosServiceException(
+                    "Downloaded asset size differs from resource"
+                )
+        if expected_size and len(body) != expected_size:
+            raise PhotosServiceException("Downloaded asset size differs from resource")
+        return bytes(body)
 
     def _replace_asset_record(
         self,
