@@ -92,9 +92,8 @@ class CodecsCoverageTest(unittest.TestCase):
 
     def test_decode_json_bytes_bytearray_valid_base64_bad_json(self) -> None:
         """A bytearray whose base64 decodes to non-JSON still returns None."""
-        # "@@@@" is valid base64 (three NUL bytes) but is not JSON.
-        self.assertIsNone(decode_json_bytes(bytearray(b"@@@@")))
-        self.assertIsNone(decode_json_bytes(bytearray(b"@@@@")))
+        # "AAAA" is valid base64 (three NUL bytes) but is not JSON.
+        self.assertIsNone(decode_json_bytes(bytearray(b"AAAA")))
 
     def test_decode_integrations_skips_non_mapping_entries(self) -> None:
         """decode_integrations ignores non-dict entries and keeps iterating."""

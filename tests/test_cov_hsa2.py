@@ -1372,8 +1372,8 @@ def test_validate_code_malformed_step4() -> None:
         )
 
 
-def test_validate_code_missing_encrypted_code() -> None:
-    """A final push without encryptedCode raises."""
+def test_validate_code_final_push_without_encrypted_code() -> None:
+    """The real final-push guard rejects a payload lacking encryptedCode."""
 
     step4_data = base64.b64encode(
         (bridge._hex_to_b64("aa01") + "_" + bridge._hex_to_b64("bb02")).encode()
@@ -1392,7 +1392,6 @@ def test_validate_code_missing_encrypted_code() -> None:
     prover.process_message2.return_value = {"isVerified": True}
     prover.decrypt_message.return_value = "code"
     bootstrapper = _bootstrapper(ws, prover=prover)
-    bootstrapper._apply_final_bridge_push = MagicMock()  # type: ignore[method-assign]
     state = TrustedDeviceBridgeState(
         connection_path="c",
         push_token="p",
@@ -1406,7 +1405,7 @@ def test_validate_code_missing_encrypted_code() -> None:
     session = MagicMock()
     session.request_raw.return_value = MagicMock(status_code=200)
     with pytest.raises(
-        PyiCloudTrustedDeviceVerificationException, match="missing encryptedCode"
+        PyiCloudTrustedDeviceVerificationException, match="unexpected final payload"
     ):
         bootstrapper.validate_code(
             session=session,

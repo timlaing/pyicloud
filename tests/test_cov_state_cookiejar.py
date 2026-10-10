@@ -1,12 +1,14 @@
 """Branch-coverage tests for photo sync state and the cookie jar (issue #394)."""
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name
 
 from __future__ import annotations
 
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
+
+import pytest
 
 from pyicloud.cookie_jar import PyiCloudCookieJar
 from pyicloud.services.photos_cloudkit.state import (
@@ -15,14 +17,19 @@ from pyicloud.services.photos_cloudkit.state import (
     SyncedPhotoResource,
 )
 
-TEST_BASE = Path(tempfile.gettempdir()) / "python-test-results"
-TEST_BASE.mkdir(parents=True, exist_ok=True)
+
+@pytest.fixture(scope="module")
+def state_base() -> Path:
+    """A writable base directory permitted by the filesystem guard."""
+    base = Path(tempfile.gettempdir()) / "python-test-results"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
 
 
-def test_sqlite_state_open_is_idempotent_and_conn_lazy() -> None:
+def test_sqlite_state_open_is_idempotent_and_conn_lazy(state_base: Path) -> None:
     """open() is idempotent, conn auto-opens, and close() is safe when unopened."""
 
-    db_path = TEST_BASE / "cov-state-lazy.sqlite3"
+    db_path = state_base / "cov-state-lazy.sqlite3"
     state = SQLitePhotoSyncState(db_path)
     try:
         # conn property opens lazily (covers the None branch at line 126).
@@ -39,10 +46,10 @@ def test_sqlite_state_open_is_idempotent_and_conn_lazy() -> None:
             candidate.unlink(missing_ok=True)
 
 
-def test_sqlite_state_clears_cursor_with_none() -> None:
+def test_sqlite_state_clears_cursor_with_none(state_base: Path) -> None:
     """Setting the sync cursor to None deletes the stored row."""
 
-    db_path = TEST_BASE / "cov-state-cursor.sqlite3"
+    db_path = state_base / "cov-state-cursor.sqlite3"
     state = SQLitePhotoSyncState(db_path)
     try:
         with state:

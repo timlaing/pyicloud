@@ -13,7 +13,7 @@ import os
 from types import SimpleNamespace
 from typing import Any, cast
 import unittest
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 import zlib
 from zlib import compress
 
@@ -1271,7 +1271,7 @@ class CloudKitNotesClientCoverageTest(unittest.TestCase):
         resp = MagicMock()
         resp.status_code = 204
         resp.headers = {}
-        type(resp).text = MagicMock(
+        type(resp).text = PropertyMock(
             side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "bad")
         )
         with (

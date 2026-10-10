@@ -277,7 +277,7 @@ def test_reminders_update_conflicting_options() -> None:
             "2026-04-01T09:00:00Z",
             "--clear-due-date",
         ).exit_code
-        != 0
+        == 2
     )
     assert (
         invoke(
@@ -289,7 +289,7 @@ def test_reminders_update_conflicting_options() -> None:
             "UTC",
             "--clear-time-zone",
         ).exit_code
-        != 0
+        == 2
     )
     assert (
         invoke(
@@ -301,7 +301,7 @@ def test_reminders_update_conflicting_options() -> None:
             "Reminder/B",
             "--clear-parent-reminder",
         ).exit_code
-        != 0
+        == 2
     )
 
 
@@ -524,9 +524,9 @@ def test_notes_validation_errors() -> None:
         invoke(
             fake_api, "notes", "list", "--folder-id", "Folder/NOTES", "--all"
         ).exit_code
-        != 0
+        == 2
     )
-    assert invoke(fake_api, "notes", "list", "--since", "cursor").exit_code != 0
+    assert invoke(fake_api, "notes", "list", "--since", "cursor").exit_code == 2
 
 
 def test_notes_sparse_note_text_branches() -> None:
@@ -551,7 +551,7 @@ def test_photos_album_resolution_errors() -> None:
     fake_api = FakeAPI()
 
     missing_root = invoke(fake_api, "photos", "list", "--album", "Does Not Exist")
-    assert missing_root.exit_code != 0
+    assert missing_root.exit_code == 1
     assert missing_root.exception is not None
     assert (
         missing_root.exception.args[0] == "No album named 'Does Not Exist' was found."
@@ -561,11 +561,11 @@ def test_photos_album_resolution_errors() -> None:
         invoke(
             fake_api, "photos", "list", "--shared-stream", "--album", "Nope"
         ).exit_code
-        != 0
+        == 1
     )
 
     missing_album_name = invoke(fake_api, "photos", "list", "--shared-stream")
-    assert missing_album_name.exit_code != 0
+    assert missing_album_name.exit_code == 1
     assert missing_album_name.exception is not None
     assert (
         missing_album_name.exception.args[0]
@@ -608,7 +608,7 @@ def test_photos_error_branches() -> None:
     fake_api = FakeAPI()
 
     missing_photo = invoke(fake_api, "photos", "get", "missing-photo")
-    assert missing_photo.exit_code != 0
+    assert missing_photo.exit_code == 1
     assert missing_photo.exception is not None
     assert missing_photo.exception.args[0] == "No photo matched 'missing-photo'."
 
@@ -621,7 +621,7 @@ def test_photos_error_branches() -> None:
             "--output",
             str(TEST_ROOT / "cov-missing.bin"),
         ).exit_code
-        != 0
+        == 1
     )
 
     cast(Any, fake_api.photos.all)._photos[0].download = lambda version="original": None
@@ -633,7 +633,7 @@ def test_photos_error_branches() -> None:
         "--output",
         str(TEST_ROOT / "cov-null.bin"),
     )
-    assert null_download.exit_code != 0
+    assert null_download.exit_code == 1
     assert null_download.exception is not None
     assert (
         null_download.exception.args[0]
@@ -652,7 +652,7 @@ def test_photos_sync_cursor_without_support() -> None:
     )
 
     result = invoke(fake_api, "photos", "sync-cursor", "--library", "nocursor")
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert result.exception is not None
     assert (
         result.exception.args[0]

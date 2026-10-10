@@ -791,9 +791,9 @@ def test_render_relative_path_uses_strftime_and_empty_folders() -> None:
 
     dated = _render_relative_path(asset, asset.resources["original"], "%Y/%m")
     assert dated.startswith(str(asset_date.year))
+    assert dated.endswith("photo.jpg")
 
     collapsed = _render_relative_path(asset, asset.resources["original"], ".")
-    assert dated.endswith("photo.jpg")
     assert collapsed == "photo.jpg"
 
 
