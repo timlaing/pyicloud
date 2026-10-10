@@ -337,9 +337,7 @@ def test_apple_date_format_dataclass() -> None:
 
     # Test from_datetime for end time (different calculation)
     apple_format_end = AppleDateFormat.from_datetime(dt, is_start=False)
-    assert (
-        apple_format_end.minutes_from_midnight == 630
-    )  # (24-14)*60 + (60-30) = 10*60 + 30
+    assert apple_format_end.minutes_from_midnight == 570  # 1440 - (14*60 + 30)
 
 
 def test_calendar_object_uses_defaults() -> None:
