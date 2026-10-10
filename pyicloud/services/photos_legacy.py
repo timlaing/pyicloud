@@ -841,18 +841,16 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     def _process_photo_list_response(
         self, json: dict[str, list[dict[str, Any]]]
     ) -> Generator["PhotoAsset", None, None]:
-        asset_records: dict[str, Any]
-        master_records: list[dict[str, Any]]
-        asset_records, master_records = self._library.parse_asset_response(json)
-        for master_record in master_records:
-            record_name: str = master_record["recordName"]
-            asset_record = asset_records.get(record_name)
-            if not asset_record:
-                _LOGGER.debug(
-                    "No asset record found for master record: %s", record_name
-                )
-                continue
-            yield self._library.asset_type(self.service, master_record, asset_record)
+        # Import lazily because the modern package imports legacy Photos models.
+        from pyicloud.services.photos_cloudkit.mappers import (  # pylint: disable=import-outside-toplevel
+            _raw_asset_groups,
+        )
+
+        # Legacy consumers need the same one-master-to-many-assets join.
+        assets, masters = _raw_asset_groups(json)
+        for master in masters:
+            for asset in assets.get(master["recordName"], ()):
+                yield self._library.asset_type(self.service, master, asset)
 
     def photo(self, index: int) -> "PhotoAsset":
         """Returns a photo at the given index."""

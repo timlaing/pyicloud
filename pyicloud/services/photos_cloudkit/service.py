@@ -58,9 +58,10 @@ from .constants import (
     SmartAlbumEnum,
 )
 from .mappers import (
+    _master_asset_groups,
+    _raw_asset_groups,
     build_photo_resource,
     decode_encrypted_text,
-    master_asset_pairs,
     record_field_value,
     record_name,
     record_record_type,
@@ -1165,48 +1166,29 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         self,
         records: list[CKRecord | CKTombstoneRecord | Any] | dict[str, Any],
     ) -> Generator[PhotoAsset]:
+        # A duplicated photo has its own CPLAsset but shares its CPLMaster.
+        # A single-value mapping silently discards all but the last asset.
         if isinstance(records, dict):
-            raw_response = records
-            if hasattr(self._library, "parse_asset_response"):
-                asset_records, raw_masters = self._library.parse_asset_response(
-                    raw_response
-                )
-            else:
-                asset_records = {}
-                raw_masters = []
-                for record in raw_response["records"]:
-                    if record["recordType"] == "CPLAsset":
-                        master_ref = record["fields"]["masterRef"]["value"][
-                            "recordName"
-                        ]
-                        asset_records[master_ref] = record
-                    elif record["recordType"] == "CPLMaster":
-                        raw_masters.append(record)
-            for master in raw_masters:
-                asset = asset_records.get(master["recordName"])
-                if asset is None:
-                    continue
-                photo = self._library.asset_type(
-                    self.service,
-                    cast(CKRecord, master),
-                    cast(CKRecord, asset),
-                    library=cast(PhotoLibrary | None, self._library),
-                )
-                yield photo
+            raw_assets, raw_masters = _raw_asset_groups(records)
+            for raw_master in raw_masters:
+                for raw_asset in raw_assets.get(raw_master["recordName"], ()):
+                    yield self._library.asset_type(
+                        self.service,
+                        cast(CKRecord, raw_master),
+                        cast(CKRecord, raw_asset),
+                        library=cast(PhotoLibrary | None, self._library),
+                    )
             return
         typed_records = [record for record in records if isinstance(record, CKRecord)]
-        assets_by_master, masters = master_asset_pairs(typed_records)
-        for master_record in masters:
-            asset_record = assets_by_master.get(master_record.recordName)
-            if asset_record is None:
-                continue
-            photo = self._library.asset_type(
-                self.service,
-                master_record,
-                asset_record,
-                library=cast(PhotoLibrary | None, self._library),
-            )
-            yield photo
+        assets, masters = _master_asset_groups(typed_records)
+        for master in masters:
+            for asset in assets.get(master.recordName, ()):
+                yield self._library.asset_type(
+                    self.service,
+                    master,
+                    asset,
+                    library=cast(PhotoLibrary | None, self._library),
+                )
 
     def _iter_added_desc_photos(self) -> Generator[PhotoAsset]:
         """
