@@ -91,7 +91,7 @@ class LocationTrigger(MutableServiceModel):
     address: str = ""
     latitude: float = 0.0
     longitude: float = 0.0
-    radius: float = Field(default=0.0, ge=0.0)
+    radius: float | None = Field(default=0.0, ge=0.0)
     proximity: Proximity = Proximity.ARRIVING
     location_uid: str = ""
     record_change_tag: str | None = None
@@ -192,7 +192,7 @@ class RecurrenceRule(MutableServiceModel):
     id: str
     reminder_id: str
     frequency: RecurrenceFrequency = RecurrenceFrequency.DAILY
-    interval: int = Field(default=1, ge=1)
-    occurrence_count: int = Field(default=0, ge=0)  # 0 == infinite
-    first_day_of_week: int = Field(default=0, ge=0, le=6)
+    interval: int | None = Field(default=1, ge=1)
+    occurrence_count: int | None = Field(default=0, ge=0)  # 0 == infinite
+    first_day_of_week: int | None = Field(default=0, ge=0, le=6)
     record_change_tag: str | None = None

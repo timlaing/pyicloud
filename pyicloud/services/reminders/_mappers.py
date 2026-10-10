@@ -279,7 +279,7 @@ class RemindersRecordMapper:
                 address=fields.get_value("Address") or "",
                 latitude=float(fields.get_value("Latitude") or 0.0),
                 longitude=float(fields.get_value("Longitude") or 0.0),
-                radius=float(fields.get_value("Radius") or 0.0),
+                radius=fields.get_value("Radius"),
                 proximity=proximity,
                 location_uid=fields.get_value("LocationUID") or "",
                 record_change_tag=rec.recordChangeTag,
@@ -361,6 +361,23 @@ class RemindersRecordMapper:
             record_change_tag=rec.recordChangeTag,
         )
 
+    def _bounded_rule_int(
+        self, rec: CKRecord, field: str, minimum: int, maximum: int | None
+    ) -> int | None:
+        """Keep missing or invalid server values unknown, without losing the record."""
+        value = rec.fields.get_value(field)
+        if value is None:
+            return None
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < minimum
+            or (maximum is not None and value > maximum)
+        ):
+            self._logger.warning("Invalid recurrence field %s", field)
+            return None
+        return value
+
     def record_to_recurrence_rule(self, rec: CKRecord) -> RecurrenceRule:
         """Map a CloudKit recurrence rule record to a ``RecurrenceRule``."""
         fields = rec.fields
@@ -373,8 +390,8 @@ class RemindersRecordMapper:
             id=rec.recordName,
             reminder_id=_ref_name(fields, "Reminder"),
             frequency=freq,
-            interval=fields.get_value("Interval") or 1,
-            occurrence_count=fields.get_value("OccurrenceCount") or 0,
-            first_day_of_week=fields.get_value("FirstDayOfTheWeek") or 0,
+            interval=self._bounded_rule_int(rec, "Interval", 1, None),
+            occurrence_count=self._bounded_rule_int(rec, "OccurrenceCount", 0, None),
+            first_day_of_week=self._bounded_rule_int(rec, "FirstDayOfTheWeek", 0, 6),
             record_change_tag=rec.recordChangeTag,
         )

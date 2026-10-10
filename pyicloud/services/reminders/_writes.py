@@ -121,9 +121,9 @@ class RemindersWriteAPI:
         recurrence_id: str,
         reminder_id: str,
         frequency: RecurrenceFrequency,
-        interval: int,
-        occurrence_count: int,
-        first_day_of_week: int,
+        interval: int | None,
+        occurrence_count: int | None,
+        first_day_of_week: int | None,
         record_change_tag: str | None = None,
     ) -> RecurrenceRule:
         """Validate recurrence values before mutating remote state."""
@@ -969,6 +969,10 @@ class RemindersWriteAPI:
             occurrence_count=occurrence_count,
             first_day_of_week=first_day_of_week,
         )
+        assert validated_rule.interval is not None
+        assert validated_rule.occurrence_count is not None
+        assert validated_rule.first_day_of_week is not None
+
         reminder_record_name = self._reminder_record_name(reminder.id)
         recurrence_record_name, modify_response = self._create_linked_child(
             reminder=reminder,
