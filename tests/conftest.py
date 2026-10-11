@@ -8,6 +8,7 @@ from contextlib import ExitStack, contextmanager, suppress
 from contextvars import ContextVar
 import io
 import os
+import pathlib
 import secrets
 import shutil
 import sys
@@ -256,7 +257,7 @@ def _reject(
         return
     if fixture_read_allowed():
         return
-    if operation == "read" and source_read_allowed(path):
+    if source_read_allowed(path):
         return
     if _is_message_catalog(path):
         return
@@ -461,8 +462,19 @@ _SHUTIL_TWO_PATH: tuple[str, ...] = (
 
 @pytest.fixture(autouse=True)
 def block_io_open() -> Iterator[None]:
-    """Block ``io.open`` so ``pathlib`` file I/O cannot bypass the guards."""
-    with patch("io.open", _guard_open(io.open, "call io.open")):
+    """Block ``io.open``/``pathlib`` file I/O so it cannot bypass the guards."""
+    guard = _guard_open(io.open, "call io.open")
+    with ExitStack() as stack:
+        stack.enter_context(patch("io.open", guard))
+        # Python 3.10's ``Path.open`` reaches ``io.open`` through a captured
+        # ``_NormalAccessor`` reference, so patch the method itself as well.
+        stack.enter_context(
+            patch.object(
+                pathlib.Path,
+                "open",
+                _guard_open(pathlib.Path.open, "call Path.open"),
+            )
+        )
         yield
 
 

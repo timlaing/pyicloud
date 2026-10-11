@@ -98,6 +98,19 @@ def test_coverage_exemption_requires_a_coverage_frame() -> None:
         )
 
 
+def test_sanctioned_source_reads_cover_metadata() -> None:
+    """The inventory scan's exemption must authorise ``stat``, not just reads."""
+
+    with pytest.raises(FileSystemAccessError):
+        conftest._reject(
+            "call os.stat", conftest._PACKAGE_SOURCE_ROOT, operation="stat"
+        )
+    with conftest.allow_source_reads():
+        conftest._reject(
+            "call os.stat", conftest._PACKAGE_SOURCE_ROOT, operation="stat"
+        )
+
+
 def test_reject_blocks_writes_outside_sandbox_under_coverage() -> None:
     """A coverage frame must not sanction a write anywhere else."""
 
