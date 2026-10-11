@@ -258,9 +258,6 @@ _Pre-release for testing China mainland support_
 
 - Beta release for v2.0.0
 
-## [v2.0.0b6] - 2025-11-20
-
-## [V2.0.2] - 2025-12-15
 
 [Unreleased]: https://github.com/timlaing/pyicloud/compare/2.7.0...HEAD
 [2.7.0]: https://github.com/timlaing/pyicloud/compare/2.6.5...2.7.0
