@@ -259,20 +259,3 @@ _Pre-release for testing China mainland support_
 - Beta release for v2.0.0
 
 
-[Unreleased]: https://github.com/timlaing/pyicloud/compare/2.7.0...HEAD
-[2.7.0]: https://github.com/timlaing/pyicloud/compare/2.6.5...2.7.0
-[2.6.5]: https://github.com/timlaing/pyicloud/compare/2.6.4...2.6.5
-[2.6.4]: https://github.com/timlaing/pyicloud/compare/2.6.3...2.6.4
-[2.6.3]: https://github.com/timlaing/pyicloud/compare/2.6.2...2.6.3
-[2.6.2]: https://github.com/timlaing/pyicloud/compare/2.6.1...2.6.2
-[2.6.1]: https://github.com/timlaing/pyicloud/compare/2.6.0...2.6.1
-[2.6.0]: https://github.com/timlaing/pyicloud/compare/2.6.0b0...2.6.0
-[2.6.0b0]: https://github.com/timlaing/pyicloud/compare/2.5.0...2.6.0b0
-[2.5.0]: https://github.com/timlaing/pyicloud/compare/2.4.1...2.5.0
-[2.4.1]: https://github.com/timlaing/pyicloud/compare/2.4.0...2.4.1
-[2.4.0]: https://github.com/timlaing/pyicloud/compare/2.3.0...2.4.0
-[2.3.0]: https://github.com/timlaing/pyicloud/compare/2.2.0...2.3.0
-[2.2.0]: https://github.com/timlaing/pyicloud/compare/2.1.0...2.2.0
-[2.1.0]: https://github.com/timlaing/pyicloud/compare/2.0.2...2.1.0
-[2.0.2]: https://github.com/timlaing/pyicloud/compare/2.0.0b6...2.0.2
-[2.0.0b6]: https://github.com/timlaing/pyicloud/compare/2.0.2...2.0.0b6
