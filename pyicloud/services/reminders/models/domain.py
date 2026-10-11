@@ -33,6 +33,9 @@ class Reminder(MutableServiceModel):
     created: datetime | None = None
     modified: datetime | None = None
     record_change_tag: str | None = None
+    # A failed read is not editable empty text. Preserve affected field names
+    # so update can refuse before re-encoding either document.
+    undecodable_text_fields: tuple[str, ...] = ()
 
 
 class ReminderChangeEvent(FrozenServiceModel):
@@ -91,6 +94,43 @@ class LocationTrigger(MutableServiceModel):
     radius: float = Field(default=0.0, ge=0.0)
     proximity: Proximity = Proximity.ARRIVING
     location_uid: str = ""
+    record_change_tag: str | None = None
+
+
+class DateComponents(FrozenServiceModel):
+    """Decoded ``NSDateComponents`` carried by a date alarm trigger.
+
+    Apple serialises the trigger as an ``NSKeyedArchiver`` archive of an
+    ``NSDateComponents`` instance (the CloudKit ``DateComponentsData`` field).
+    Every component is optional: an alarm can specify a full timestamp, a
+    time-of-day only, or a date without a time.
+    """
+
+    era: int | None = None
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+    hour: int | None = None
+    minute: int | None = None
+    second: int | None = None
+    nanosecond: int | None = None
+    weekday: int | None = None
+    weekday_ordinal: int | None = None
+    week_of_month: int | None = None
+    week_of_year: int | None = None
+    year_for_week_of_year: int | None = None
+    quarter: int | None = None
+    leap_month: bool | None = None
+    repeated_day: bool | None = None
+    time_zone: str | None = None
+
+
+class DateTrigger(MutableServiceModel):
+    """Date-based (temporal) alarm trigger."""
+
+    id: str
+    alarm_id: str
+    date_components: DateComponents | None = None
     record_change_tag: str | None = None
 
 

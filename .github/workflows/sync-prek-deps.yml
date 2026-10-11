@@ -1,0 +1,66 @@
+name: Sync prek dependencies
+
+# Dependabot only bumps the requirements files; it never runs
+# scripts/sync_prek_deps.py, so the generated blocks in
+# .pre-commit-config.yaml go stale and the check-prek-deps hook fails the
+# prek job. This regenerates them on the Dependabot branch.
+#
+# The push authenticates with PR_SYNC_TOKEN rather than GITHUB_TOKEN,
+# because a push made with GITHUB_TOKEN leaves the re-triggered
+# pull_request runs in an approval-required state, so the required checks
+# would never report unattended. PR_SYNC_TOKEN is therefore set in both the
+# Actions and the Dependabot secret scopes: a workflow triggered by a
+# Dependabot pull request reads Dependabot secrets, and the follow-up run
+# needs the Actions one.
+#
+# yamllint disable-line rule:truthy
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "requirements*.txt"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-prek-deps-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: sync-prek-deps
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.PR_SYNC_TOKEN || github.token }}
+          persist-credentials: true
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Regenerate prek additional_dependencies
+        run: python3 scripts/sync_prek_deps.py requirements_all.txt
+
+      - name: Commit and push
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_SYNC_TOKEN: ${{ secrets.PR_SYNC_TOKEN }}
+        run: |
+          if git diff --quiet -- .pre-commit-config.yaml; then
+            echo "prek dependencies are already in sync"
+            exit 0
+          fi
+          if [ -z "${PR_SYNC_TOKEN}" ]; then
+            echo "::error::PR_SYNC_TOKEN is not set, so the sync commit cannot be pushed with a credential that re-triggers the required checks"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .pre-commit-config.yaml
+          git commit -m "chore: sync prek dependencies with requirements"
+          git push origin "HEAD:${PR_HEAD_REF}"

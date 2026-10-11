@@ -8,6 +8,7 @@ invented ones.
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -15,7 +16,6 @@ from pyicloud.diagnostics import (
     WebserviceStatus,
     diagnose_webservices,
     environment,
-    installed_version,
     services_at_risk,
     webservice_problems,
 )
@@ -204,8 +204,12 @@ def test_a_blank_url_does_not_count_as_advertised() -> None:
 def test_environment_describes_the_local_install() -> None:
     """The environment block has to stand alone when pasted into an issue."""
 
-    report = environment()
+    # ``installed_version`` reads package metadata off disk; the test sandbox
+    # forbids that, so the resolver is stubbed and its answer is what the
+    # environment block must carry through.
+    with patch("pyicloud.diagnostics.installed_version", return_value="9.9.9"):
+        report = environment()
 
     assert set(report) == {"pyicloud", "python", "platform"}
-    assert report["pyicloud"] == installed_version()
+    assert report["pyicloud"] == "9.9.9"
     assert all(value for value in report.values())

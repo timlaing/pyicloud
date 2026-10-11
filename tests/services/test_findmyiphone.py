@@ -891,6 +891,79 @@ def _make_manager(
     )
 
 
+def test_monitor_locate_defaults_to_passive_monitor() -> None:
+    """The library monitor thread should stay passive unless opted in."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager = _make_manager()
+    assert manager._monitor_locate is False
+
+
+def test_monitor_locate_true_builds_locating_monitor() -> None:
+    """monitor_locate=True should make the monitor thread locate devices."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager = _make_manager(monitor_locate=True)
+    assert manager._monitor_locate is True
+
+
+def test_monitor_locate_false_builds_passive_monitor() -> None:
+    """monitor_locate=False should keep the monitor thread passive."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager = _make_manager(monitor_locate=False)
+    assert manager._monitor_locate is False
+
+
+def test_start_monitor_thread_wires_locate_kwarg() -> None:
+    """_start_monitor_thread should forward locate to the monitor thread."""
+    for monitor_locate in (True, False):
+        with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+            manager = _make_manager(monitor_locate=monitor_locate)
+
+        with (
+            patch(
+                "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
+                new_callable=PropertyMock,
+            ) as mock_is_alive,
+            patch("threading.Thread") as mock_thread,
+        ):
+            mock_is_alive.return_value = False
+            manager._start_monitor_thread()
+
+        _, kwargs = mock_thread.call_args
+        assert kwargs["kwargs"]["locate"] is monitor_locate
+        # The monitor refreshes through the lock-protected entry point.
+        assert kwargs["kwargs"]["func"].__name__ == "_refresh_client"
+        mock_thread.return_value.start.assert_called_once_with()
+
+
+@pytest.mark.parametrize(("old_alive", "expect_join"), [(True, True), (False, False)])
+def test_start_monitor_thread_joins_stopped_predecessor(
+    old_alive: bool, expect_join: bool
+) -> None:
+    """_start_monitor_thread should join any still-running old monitor first."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager = _make_manager()
+
+    with (
+        patch(
+            "pyicloud.services.findmyiphone.FindMyiPhoneServiceManager.is_alive",
+            new_callable=PropertyMock,
+        ) as mock_is_alive,
+        patch("threading.Thread") as mock_thread,
+    ):
+        mock_is_alive.return_value = False
+        manager._start_monitor_thread()
+        monitor = mock_thread.return_value
+        monitor.is_alive.return_value = old_alive
+        # A second start must not skip replacing the stopped monitor.
+        manager._start_monitor_thread()
+
+    if expect_join:
+        monitor.join.assert_called_once_with()
+    else:
+        monitor.join.assert_not_called()
+    assert mock_thread.call_count == 2
+
+
 def test_family_poll_parameters_reject_invalid_values() -> None:
     """Test family_poll parameters reject negative, non-numeric, and bool values."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
@@ -906,6 +979,58 @@ def test_family_poll_parameters_reject_invalid_values() -> None:
             _make_manager(family_poll_max_retries=True)
         with pytest.raises(ValueError):
             _make_manager(family_poll_max_retries=2.5)
+
+
+def test_refresh_interval_rejects_non_positive_values() -> None:
+    """Test refresh_interval rejects zero, negative, bool, and non-numeric values."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        with pytest.raises(ValueError):
+            _make_manager(refresh_interval=0)
+        with pytest.raises(ValueError):
+            _make_manager(refresh_interval=-60)
+        with pytest.raises(ValueError):
+            _make_manager(refresh_interval=True)
+        with pytest.raises(ValueError):
+            _make_manager(refresh_interval="60")
+        with pytest.raises(ValueError):
+            _make_manager(refresh_interval=float("nan"))
+        with pytest.raises(ValueError):
+            _make_manager(refresh_interval=float("inf"))
+        # Finite but so large the monitor deadline computation would overflow.
+        with pytest.raises(ValueError):
+            _make_manager(refresh_interval=1.0e13)
+        manager = _make_manager(refresh_interval=None)
+        assert manager._refresh_interval == 5.0 * 60.0
+        manager = _make_manager(refresh_interval=30)
+        assert manager._refresh_interval == 30.0
+
+
+def test_refresh_interval_rejects_sub_second_values() -> None:
+    """Test refresh_interval rejects values below the 1s minimum."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        with pytest.raises(ValueError, match="at least 1s"):
+            _make_manager(refresh_interval=0.5)
+        manager = _make_manager(refresh_interval=1.0)
+        assert manager._refresh_interval == 1.0
+
+
+def test_refresh_client_serializes_refreshes_with_lock() -> None:
+    """Test _refresh_client holds the refresh lock around its state updates."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager = _make_manager()
+
+    locked_during_refresh: list[bool] = []
+
+    def record_lock_state(locate: bool) -> None:
+        locked_during_refresh.append(manager._refresh_lock.locked())
+        assert locate is False
+
+    with patch.object(manager, "_refresh_client_once", side_effect=record_lock_state):
+        manager._refresh_client(False)
+
+    # The request-and-update cycle runs under the lock, then releases it.
+    assert locked_during_refresh == [True]
+    assert manager._refresh_lock.locked() is False
 
 
 def test_monitor_thread_calls_func_at_interval() -> None:

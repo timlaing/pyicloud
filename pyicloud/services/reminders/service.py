@@ -52,6 +52,7 @@ from .client import CloudKitRemindersClient
 from .models import (
     Alarm,
     AlarmWithTrigger,
+    DateTrigger,
     Hashtag,
     ImageAttachment,
     ListRemindersResult,
@@ -391,7 +392,7 @@ class RemindersService(BaseService):
         )
 
     def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
-        """Return alarm rows, including attached location triggers, for ``reminder``."""
+        """Return alarm rows, including attached location or date triggers."""
         return self._reads.alarms_for(reminder)
 
     def tags_for(self, reminder: Reminder) -> list[Hashtag]:
@@ -425,7 +426,9 @@ class RemindersService(BaseService):
     def _record_to_alarm(self, rec: CKRecord) -> Alarm:
         return self._mapper.record_to_alarm(rec)
 
-    def _record_to_alarm_trigger(self, rec: CKRecord) -> LocationTrigger | None:
+    def _record_to_alarm_trigger(
+        self, rec: CKRecord
+    ) -> LocationTrigger | DateTrigger | None:
         return self._mapper.record_to_alarm_trigger(rec)
 
     def _record_to_attachment(self, rec: CKRecord) -> Attachment | None:

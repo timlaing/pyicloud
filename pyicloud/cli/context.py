@@ -18,8 +18,10 @@ import typer
 from pyicloud import PyiCloudService, utils
 from pyicloud.base import resolve_cookie_directory
 from pyicloud.exceptions import (
+    PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
+    PyiCloudConnectionException,
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudServiceUnavailable,
@@ -39,6 +41,12 @@ from .account_index import (
 from .output import OutputFormat, write_json
 
 COMMAND_OPTIONS_META_KEY = "command_options"
+
+# An outage is not a verdict on anything, so the remedy is to retry rather than
+# to re-authenticate. Reused wherever a connection failure can surface.
+CONNECTION_FAILURE_MESSAGE = (
+    "Could not reach iCloud. Check your network connection and try again."
+)
 
 
 class CLIAbort(RuntimeError):
@@ -75,6 +83,7 @@ class CLICommandOptions:
     interactive: bool = True
     accept_terms: bool = False
     with_family: bool = False
+    refresh_interval: float | None = None
     session_dir: str | None = None
     http_proxy: str | None = None
     https_proxy: str | None = None
@@ -95,6 +104,7 @@ class CLIState:
         interactive: bool,
         accept_terms: bool,
         with_family: bool,
+        refresh_interval: float | None,
         session_dir: str | None,
         http_proxy: str | None,
         https_proxy: str | None,
@@ -109,6 +119,7 @@ class CLIState:
         self.interactive = interactive
         self.accept_terms = accept_terms
         self.with_family = with_family
+        self.refresh_interval = refresh_interval
         self.session_dir = session_dir
         self.http_proxy = http_proxy
         self.https_proxy = https_proxy
@@ -121,6 +132,7 @@ class CLIState:
         self._api: PyiCloudService | None = None
         self._probe_api: PyiCloudService | None = None
         self._resolved_username: str | None = self.username or None
+        self.login_password_source: str | None = None
         self._logging_configured = False
 
     @classmethod
@@ -134,6 +146,7 @@ class CLIState:
             interactive=options.interactive,
             accept_terms=options.accept_terms,
             with_family=options.with_family,
+            refresh_interval=options.refresh_interval,
             session_dir=options.session_dir,
             http_proxy=options.http_proxy,
             https_proxy=options.https_proxy,
@@ -224,8 +237,18 @@ class CLIState:
             return None
         return entry.get("china_mainland")
 
-    def remember_account(self, api: PyiCloudService, *, select: bool = True) -> None:
-        """Persist an account entry for later local discovery."""
+    def remember_account(
+        self,
+        api: PyiCloudService,
+        *,
+        select: bool = True,
+        prune: bool = True,
+    ) -> None:
+        """Persist an account entry for later local discovery.
+
+        ``prune=False`` keeps neighbor pruning disabled for callers that must not
+        read the keyring, because pruning cannot confirm keyring-only accounts.
+        """
 
         remember_account(
             self.session_root,
@@ -234,9 +257,16 @@ class CLIState:
             cookiejar_path=api.session.cookiejar_path,
             china_mainland=api.is_china_mainland,
             keyring_has=self.has_keyring_password,
+            prune=prune,
         )
         if select:
             self._resolved_username = api.account_name
+
+    @property
+    def skips_keyring_for_login(self) -> bool:
+        """Report whether this login must avoid reading the local keyring."""
+
+        return not self.interactive and self.login_password_source == "explicit"
 
     def _resolve_username(self) -> str:
         """Resolve the Apple ID to use for the current CLI command."""
@@ -341,7 +371,11 @@ class CLIState:
             self.console.print("Touch the selected security key to continue.")
             try:
                 api.confirm_security_key(fido2_devices[selected_index])
-            except Exception as exc:  # pragma: no cover - live auth path
+            except PyiCloudAccountLockedException:
+                raise
+            except PyiCloudConnectionException as exc:
+                raise CLIAbort(CONNECTION_FAILURE_MESSAGE) from exc
+            except Exception as exc:
                 raise CLIAbort("Security key verification failed.") from exc
         else:
             if not self.interactive:
@@ -376,6 +410,10 @@ class CLIState:
                 raise CLIAbort(
                     "Failed to request the 2FA trusted-device prompt."
                 ) from exc
+            except PyiCloudConnectionException as exc:
+                # Reachable before the generic handler below, which would
+                # otherwise report an outage as a failed code request.
+                raise CLIAbort(CONNECTION_FAILURE_MESSAGE) from exc
             except PyiCloudAPIResponseException:
                 self.console.print(
                     "Failed to request the 2FA SMS code. "
@@ -450,7 +488,15 @@ class CLIState:
                 cookie_directory=self.session_dir,
                 accept_terms=self.accept_terms,
                 with_family=self.with_family,
+                monitor_locate=True,
+                refresh_interval=self.refresh_interval,
             )
+        except PyiCloudAccountLockedException as err:
+            raise CLIAbort(f"{err}. Unlock it before trying again.") from err
+        except PyiCloudConnectionException as err:
+            raise CLIAbort(
+                f"Could not reach iCloud: {err}. Check your connection and try again."
+            ) from err
         except PyiCloudFailedLoginException as err:
             if password_source == "keyring" and utils.password_exists_in_keyring(
                 username
@@ -460,8 +506,8 @@ class CLIState:
             raise CLIAbort(f"Bad username or password for {username}") from err
 
         if (
-            not utils.password_exists_in_keyring(username)
-            and self.interactive
+            self.interactive
+            and not utils.password_exists_in_keyring(username)
             and confirm("Save password in keyring?")
         ):
             utils.store_password_in_keyring(username, password)
@@ -471,8 +517,9 @@ class CLIState:
         elif api.requires_2sa:
             self._handle_2sa(api)
 
+        self.login_password_source = password_source
         self._api = api
-        self.remember_account(api)
+        self.remember_account(api, prune=not self.skips_keyring_for_login)
         return api
 
     def get_api(self) -> PyiCloudService:
@@ -529,6 +576,8 @@ class CLIState:
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
+            monitor_locate=True,
+            refresh_interval=self.refresh_interval,
             authenticate=False,
         )
 
@@ -543,6 +592,8 @@ class CLIState:
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
+            monitor_locate=True,
+            refresh_interval=self.refresh_interval,
             authenticate=False,
         )
 
@@ -634,6 +685,13 @@ def service_call(
 
     try:
         return fn()
+    except PyiCloudAccountLockedException as err:
+        raise CLIAbort(f"{err}. Unlock it before trying again.") from err
+    except PyiCloudConnectionException as err:
+        # Checked before the generic re-authentication hint below: an outage is
+        # not a verdict on the session, so telling the user to log in again
+        # would be wrong.
+        raise CLIAbort(f"{label} could not reach iCloud. {err}") from err
     except PyiCloudServiceUnavailable as err:
         raise CLIAbort(f"{label} service unavailable: {err}") from err
     except (PyiCloudAuthRequiredException, PyiCloudFailedLoginException) as err:

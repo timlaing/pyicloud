@@ -1,0 +1,93 @@
+name: Close stale issues
+
+# Ported from a sibling repository, which runs the same configuration.
+# The `stale` label and the exemptions below (pinned, security, roadmap) all
+# already exist in this repository.
+
+# yamllint disable-line rule:truthy
+on:
+  schedule:
+    # Run once per day at 01:30 UTC
+    - cron: "30 1 * * *"
+
+  # Allow maintainers to test/run the workflow manually
+  workflow_dispatch:
+
+# Only what actions/stale actually uses. issues: write lets the action label
+# and close issues, with close-issue-reason above describing that issue
+# lifecycle. pull-requests: write lets it clear a stale label from a pull
+# request when activity resumes, which still runs even though PR staling is
+# disabled below. There is no checkout, so the token needs no contents
+# access; anything more would fail #370's check that this workflow holds
+# only the permissions it requires.
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    name: Process stale issues
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mark and close stale issues
+        uses: actions/stale@v11
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+          # ------------------------------------------------------------
+          # Issues
+          # ------------------------------------------------------------
+
+          # Mark an issue stale after 60 days without activity.
+          days-before-issue-stale: 60
+
+          # Close an issue if there is no activity for another 14 days.
+          days-before-issue-close: 14
+
+          stale-issue-label: stale
+
+          stale-issue-message: |
+            This issue has been automatically marked as stale because there
+            has been no activity for 60 days.
+
+            If this issue is still relevant, please add a comment with any
+            updated information, logs, testing results, or other details that
+            may help move it forward.
+
+            This issue will be automatically closed in 14 days if no further
+            activity occurs.
+
+          close-issue-message: |
+            This issue has been automatically closed because there has been
+            no further activity since it was marked as stale.
+
+            If the issue is still relevant, please provide updated information
+            and reopen the issue if appropriate, or create a new issue
+            referencing this one.
+
+          # A stale issue is being closed due to inactivity rather than
+          # because the requested work has been completed.
+          close-issue-reason: not_planned
+
+          # Do not stale issues that are intentionally expected to remain
+          # open for a long period.
+          exempt-issue-labels: pinned,security,roadmap
+
+          # ------------------------------------------------------------
+          # Pull requests
+          # ------------------------------------------------------------
+
+          # PR lifecycle should be handled separately from issue lifecycle.
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+
+          # ------------------------------------------------------------
+          # Processing
+          # ------------------------------------------------------------
+
+          # Remove the stale label when new activity occurs.
+          remove-stale-when-updated: true
+
+          # Process enough operations per run for normal repository usage.
+          operations-per-run: 100

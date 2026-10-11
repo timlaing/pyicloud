@@ -3,6 +3,7 @@
 from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
 import logging
+import math
 import threading
 import time
 from types import MappingProxyType
@@ -20,6 +21,7 @@ from pyicloud.session import PyiCloudSession
 
 _FMIP_CLIENT_CONTEXT_TIMEZONE: str = "US/Pacific"
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+MIN_REFRESH_INTERVAL_SECONDS: float = 1.0
 
 
 def _monitor_thread(
@@ -56,27 +58,17 @@ class FindMyiPhoneServiceManager(BaseService):
         refresh_interval: float | None = None,
         family_poll_delay: float = 0.5,
         family_poll_max_retries: int = 5,
+        monitor_locate: bool = False,
     ) -> None:
         """Initialize the FindMyiPhoneServiceManager."""
         super().__init__(service_root, session, params)
         self._with_family: bool = with_family
-        self._refresh_interval: float = (
-            refresh_interval if refresh_interval is not None else 5.0 * 60.0
+        self._monitor_locate: bool = monitor_locate
+        self._family_poll_delay = self._validate_poll_delay(family_poll_delay)
+        self._family_poll_max_retries = self._validate_poll_retries(
+            family_poll_max_retries
         )
-        if isinstance(family_poll_delay, bool) or not isinstance(
-            family_poll_delay, (int, float)
-        ):
-            raise ValueError("family_poll_delay must be a non-negative number")
-        if family_poll_delay < 0:
-            raise ValueError("family_poll_delay must be a non-negative number")
-        if isinstance(family_poll_max_retries, bool) or not isinstance(
-            family_poll_max_retries, int
-        ):
-            raise ValueError("family_poll_max_retries must be a non-negative integer")
-        if family_poll_max_retries < 0:
-            raise ValueError("family_poll_max_retries must be a non-negative integer")
-        self._family_poll_delay: float = family_poll_delay
-        self._family_poll_max_retries: int = family_poll_max_retries
+        self._refresh_interval = self._validate_refresh_interval(refresh_interval)
 
         fmip_endpoint: str = f"{service_root}/fmipservice/client/web"
         self._fmip_init_url: str = f"{fmip_endpoint}/initClient"
@@ -93,6 +85,10 @@ class FindMyiPhoneServiceManager(BaseService):
         self._user_info: dict[str, Any] | None = None
         self._monitor: threading.Thread | None = None
         self.stop_event: threading.Event = threading.Event()
+        # Serializes refreshes: the locating monitor and explicit refreshes
+        # can overlap in flight, and an older response must not overwrite
+        # newer server context or device state.
+        self._refresh_lock: threading.Lock = threading.Lock()
 
         self._refresh_client_with_reauth(locate=True)
 
@@ -118,6 +114,49 @@ class FindMyiPhoneServiceManager(BaseService):
         # Initialize devices (including family devices if enabled)
         self._initialize_devices(locate=locate)
         self._start_monitor_thread()
+
+    @staticmethod
+    def _validate_poll_delay(delay: float) -> float:
+        """Validate family poll delay."""
+        if isinstance(delay, bool) or not isinstance(delay, (int, float)):
+            raise ValueError("family_poll_delay must be a non-negative number")
+        if delay < 0:
+            raise ValueError("family_poll_delay must be a non-negative number")
+        return float(delay)
+
+    @staticmethod
+    def _validate_poll_retries(retries: int) -> int:
+        """Validate family poll max retries."""
+        if isinstance(retries, bool) or not isinstance(retries, int):
+            raise ValueError("family_poll_max_retries must be a non-negative integer")
+        if retries < 0:
+            raise ValueError("family_poll_max_retries must be a non-negative integer")
+        return retries
+
+    @staticmethod
+    def _validate_refresh_interval(refresh_interval: float | None) -> float:
+        """Validate refresh interval."""
+        if refresh_interval is None:
+            return 5.0 * 60.0
+        if isinstance(refresh_interval, bool) or not isinstance(
+            refresh_interval, (int, float)
+        ):
+            raise ValueError("refresh_interval must be a positive number")
+        if refresh_interval <= 0:
+            raise ValueError("refresh_interval must be a positive number")
+        if not math.isfinite(refresh_interval):
+            raise ValueError("refresh_interval must be a finite positive number")
+        if refresh_interval < MIN_REFRESH_INTERVAL_SECONDS:
+            raise ValueError(
+                f"refresh_interval must be at least {MIN_REFRESH_INTERVAL_SECONDS:g}s"
+            )
+        try:
+            datetime.now() + timedelta(seconds=refresh_interval)
+        except OverflowError as exc:
+            raise ValueError(
+                "refresh_interval is too large for a valid monitor deadline"
+            ) from exc
+        return float(refresh_interval)
 
     def _initialize_devices(self, locate: bool) -> None:
         """Initializes the devices for the FindMyiPhoneServiceManager."""
@@ -162,6 +201,11 @@ class FindMyiPhoneServiceManager(BaseService):
 
     def _start_monitor_thread(self) -> None:
         """Starts the monitor thread for the FindMyiPhoneServiceManager."""
+        # The caller has already set stop_event; wait for any monitor still
+        # finishing an in-flight refresh so the is_alive check below does not
+        # skip starting its replacement.
+        if self._monitor is not None and self._monitor.is_alive():
+            self._monitor.join()
         if not self.is_alive:
             self._monitor = threading.Thread(
                 target=_monitor_thread,
@@ -169,6 +213,7 @@ class FindMyiPhoneServiceManager(BaseService):
                     "func": self._refresh_client,
                     "interval": self._refresh_interval,
                     "stop_event": self.stop_event,
+                    "locate": self._monitor_locate,
                 },
                 daemon=True,
             )
@@ -180,6 +225,11 @@ class FindMyiPhoneServiceManager(BaseService):
         Refreshes the FindMyiPhoneService endpoint, this ensures that the location data
         is up-to-date.
         """
+        with self._refresh_lock:
+            self._refresh_client_once(locate=locate)
+
+    def _refresh_client_once(self, locate: bool) -> None:
+        """Request one FMIP refresh and apply the response state."""
         req_json: dict[str, Any] = {
             "clientContext": {
                 "appName": "iCloud Find (Web)",
@@ -323,7 +373,13 @@ class AppleDevice:
 
     @property
     def location(self) -> dict[str, Any] | None:
-        """Updates the device location."""
+        """Returns the device location from the last FMIP refresh.
+
+        The value comes from the last server response. Background monitor
+        refreshes actively locate the device only when the manager was built
+        with ``monitor_locate=True``; ``refresh(locate=True)`` always requests
+        a fresh fix.
+        """
         if self.location_available is False:
             return None
         return cast(dict[str, Any], self._content["location"])

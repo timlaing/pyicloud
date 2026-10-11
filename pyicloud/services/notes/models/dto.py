@@ -10,7 +10,7 @@ from pydantic import computed_field
 
 from pyicloud.common.models import FrozenServiceModel
 
-if TYPE_CHECKING:  # pragma: no cover - import for type checking only
+if TYPE_CHECKING:
     from ..service import NotesService
 
 
@@ -74,6 +74,8 @@ class NoteFolder(FrozenServiceModel):
     name: str | None
     has_subfolders: bool | None
     count: int | None  # not always available
+    # Added last with a default to preserve existing folder construction.
+    parent_id: str | None = None
 
 
 class ChangeEvent(FrozenServiceModel):

@@ -28,20 +28,13 @@ scripts/startup.sh
 
 prek install -f
 
-# Optional maintainer tooling (opencode CLI + SonarQube MCP server). Opt-in so a
-# plain contributor bootstrap never installs remote tools via root or edits the
-# user's shell rc file as a side effect.
+# Optional maintainer tooling (SonarQube MCP server).
 if [ "${PYICLOUD_INSTALL_DEV_TOOLS:-0}" = "1" ]; then
-  if ! [ -x "$(command -v opencode)" ]; then
-    if [ -f "${HOME}/.zshrc" ] && ! grep -q "${HOME}/.opencode/bin" "${HOME}/.zshrc"; then
-      echo 'export PATH="$HOME/.opencode/bin:$PATH"' >> "${HOME}/.zshrc"
-    fi
-  fi
-
-  curl -fsSL --proto "=https" https://opencode.ai/install | bash
-
   if ! [ -e /opt/sonarqube-mcp/sonarqube-mcp-server.jar ]; then
+    MCP_LISTING="https://binaries.sonarsource.com/s3api?delimiter=/&prefix=Distribution/sonarqube-mcp-server/"
+    JAR=$(curl -fsSL --proto "=https" "${MCP_LISTING}" | grep -oP '<Key>.*?</Key>' | awk -F '[<>]' '/>.*\.jar</ { print $3 }' | tail -n 1)
     sudo mkdir -p /opt/sonarqube-mcp
-    sudo curl -L -o /opt/sonarqube-mcp/sonarqube-mcp-server.jar "https://binaries.sonarsource.com/Distribution/sonarqube-mcp-server/sonarqube-mcp-server-1.25.0.3221.jar"
+    set -x
+    sudo curl --proto "=https" -L -o /opt/sonarqube-mcp/sonarqube-mcp-server.jar "https://binaries.sonarsource.com/${JAR}"
   fi
 fi

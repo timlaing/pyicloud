@@ -24,7 +24,10 @@ from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloud2SARequiredException,
     PyiCloudAcceptTermsException,
+    PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
+    PyiCloudConnectionException,
     PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
     PyiCloudPCSTimeoutException,
@@ -84,6 +87,7 @@ def test_constructor_accepts_positional_refresh_interval() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_authenticate.return_value = None
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
@@ -110,6 +114,7 @@ def test_constructor_skips_authentication_when_requested() -> None:
         patch("pyicloud.base.get_password_from_keyring") as get_from_keyring,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
 
@@ -129,6 +134,7 @@ def test_china_mainland_uses_global_idmsa_and_cn_icloud_endpoints() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
 
@@ -156,6 +162,7 @@ def test_constructor_accepts_keyword_only_cloudkit_validation_extra() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_authenticate.return_value = None
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
@@ -167,6 +174,33 @@ def test_constructor_accepts_keyword_only_cloudkit_validation_extra() -> None:
         )
 
         assert service._cloudkit_validation_extra == "ignore"
+
+
+def test_constructor_stores_monitor_locate_for_findmyiphone() -> None:
+    """monitor_locate defaults to a passive monitor and honors overrides."""
+    with (
+        patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
+        patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
+        patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
+    ):
+        mock_authenticate.return_value = None
+        mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
+
+        default_service = PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            authenticate=False,
+        )
+        locating_service = PyiCloudService(
+            "test@example.com",
+            secrets.token_hex(32),
+            authenticate=False,
+            monitor_locate=True,
+        )
+
+    assert default_service._monitor_locate is False
+    assert locating_service._monitor_locate is True
 
 
 def test_authenticate_with_missing_token(
@@ -202,6 +236,39 @@ def test_authenticate_with_missing_token(
         assert mock_get_response.call_count == 1
         assert mock_post_response.call_count == 2
         assert mock_authenticate_with_token.call_count == 2
+
+
+def test_authenticate_retries_srp_when_cached_session_requires_reauth(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A rejected cached session should fall back to the password flow."""
+    reauth_required = PyiCloudAuthRequiredException("test@example.com", MagicMock())
+
+    with (
+        patch.object(
+            pyicloud_service,
+            "_authenticate_with_token",
+            side_effect=[reauth_required, None],
+        ) as mock_authenticate_with_token,
+        patch.object(
+            pyicloud_service, "_srp_authentication"
+        ) as mock_srp_authentication,
+    ):
+        pyicloud_service._authenticate()
+
+    mock_srp_authentication.assert_called_once_with(pause_2fa=False)
+    assert mock_authenticate_with_token.call_count == 2
+
+
+def test_cached_session_reauth_is_treated_as_cache_miss(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A cached session requiring reauth should fall back to fresh login."""
+    pyicloud_service.session._data = {"session_token": "cached-token"}
+    reauth_required = PyiCloudAuthRequiredException("test@example.com", MagicMock())
+
+    with patch.object(pyicloud_service, "_validate_token", side_effect=reauth_required):
+        assert pyicloud_service._try_reuse_cached_session(False, False) is False
 
 
 def test_get_auth_status_without_session_token(
@@ -379,6 +446,247 @@ def test_validate_2fa_code_keeps_legacy_endpoint_for_bridge_w_subtype(
     pyicloud_service._trusted_device_bridge.close.assert_called_once_with(bridge_state)
 
 
+def _security_code_conflict(body: Any) -> PyiCloudAPIResponseException:
+    """Build the 409 error the session raises for a trusted-device verify call."""
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.TWO_FACTOR_REQUIRED
+    if isinstance(body, Exception):
+        response.json.side_effect = body
+    else:
+        response.json.return_value = body
+    return PyiCloudAPIResponseException(
+        "Authentication required for Account.",
+        AppleAuthError.TWO_FACTOR_REQUIRED,
+        response,
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            {"securityCode": {"code": "123456", "valid": True}}, True, id="valid"
+        ),
+        pytest.param({"securityCode": {"valid": False}}, False, id="invalid"),
+        pytest.param({"securityCode": "nope"}, False, id="malformed-security-code"),
+        pytest.param({}, False, id="missing-security-code"),
+        pytest.param([], False, id="non-object-body"),
+        pytest.param(ValueError("bad json"), False, id="undecodable-body"),
+    ],
+)
+def test_validate_2fa_code_legacy_409_uses_security_code_verdict(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    body: Any,
+    expected: bool,
+) -> None:
+    """Apple answers `_W` legacy verification with 409 even when the code is valid.
+
+    The body's ``securityCode.valid`` flag decides whether to continue to trust.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = MagicMock(
+        uses_legacy_trusted_device_verifier=True
+    )
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+    cast(Any, pyicloud_service.session).post.side_effect = _security_code_conflict(body)
+
+    assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+    pyicloud_service._trusted_device_bridge.validate_code.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("valid", "expected"),
+    [pytest.param(True, True, id="valid"), pytest.param(False, False, id="invalid")],
+)
+def test_validate_2fa_code_legacy_hsa2_409_through_session(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    valid: bool,
+    expected: bool,
+) -> None:
+    """A real HSA2 409 body is classified by the session as 2FA-required.
+
+    The ``securityCode.valid`` verdict must still decide the outcome rather than
+    the session's PyiCloud2FARequiredException escaping validate_2fa_code.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = MagicMock(
+        uses_legacy_trusted_device_verifier=True
+    )
+    pyicloud_service._trusted_device_bridge = MagicMock()
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.TWO_FACTOR_REQUIRED
+    response.ok = False
+    response.reason = "Conflict"
+    response.headers = {"Content-Type": "application/json"}
+    response.json.return_value = {
+        "securityCode": {"code": "123456", "valid": valid},
+        "authenticationType": "hsa2",
+    }
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
+        patch("http.cookiejar.LWPCookieJar.save"),
+    ):
+        pyicloud_service._session = PyiCloudSession(
+            pyicloud_service, "", cookie_directory=""
+        )
+        assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            {"securityCode": {"code": "123456", "valid": True}}, True, id="valid"
+        ),
+        pytest.param({"securityCode": {"valid": False}}, False, id="invalid"),
+        pytest.param({"securityCode": "nope"}, False, id="malformed-security-code"),
+        pytest.param({}, False, id="missing-security-code"),
+        pytest.param([], False, id="non-object-body"),
+        pytest.param(ValueError("bad json"), False, id="undecodable-body"),
+    ],
+)
+def test_validate_2fa_code_sms_409_uses_security_code_verdict(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    body: Any,
+    expected: bool,
+) -> None:
+    """Apple answers SMS verification with 409 even when the code is valid.
+
+    The ``securityCode.valid`` verdict decides whether to continue to trust
+    rather than reporting an invalid code.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._auth_data = {
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {"id": 3, "nonFTEU": False, "pushMode": "sms"}
+        }
+    }
+    pyicloud_service._two_factor_delivery_method = "sms"
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+    cast(Any, pyicloud_service.session).post.side_effect = _security_code_conflict(body)
+
+    assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+
+
+@pytest.mark.parametrize(
+    ("valid", "expected"),
+    [pytest.param(True, True, id="valid"), pytest.param(False, False, id="invalid")],
+)
+def test_validate_2fa_code_sms_hsa2_409_through_session(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    valid: bool,
+    expected: bool,
+) -> None:
+    """A real HSA2 409 SMS body is classified by the session as 2FA-required.
+
+    The ``securityCode.valid`` verdict must still decide the outcome rather
+    than the session's PyiCloud2FARequiredException escaping validate_2fa_code.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._auth_data = {
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {"id": 3, "nonFTEU": False, "pushMode": "sms"}
+        }
+    }
+    pyicloud_service._two_factor_delivery_method = "sms"
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.TWO_FACTOR_REQUIRED
+    response.ok = False
+    response.reason = "Conflict"
+    response.headers = {"Content-Type": "application/json"}
+    response.json.return_value = {
+        "securityCode": {"code": "123456", "valid": valid},
+        "authenticationType": "hsa2",
+    }
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
+        patch("http.cookiejar.LWPCookieJar.save"),
+    ):
+        pyicloud_service._session = PyiCloudSession(
+            pyicloud_service, "", cookie_directory=""
+        )
+        assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+
+
+def test_validate_2fa_code_legacy_non_409_error_is_invalid_code(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Non-409 verify failures should still report an invalid code."""
+
+    pyicloud_service._two_factor_delivery_method = "trusted_device"
+    pyicloud_service._trusted_device_bridge_state = None
+    response = MagicMock(spec=Response)
+    response.status_code = 400
+    response.json.return_value = {"securityCode": {"valid": True}}
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).data = {}
+    cast(Any, pyicloud_service.session).post.side_effect = PyiCloudAPIResponseException(
+        "Bad request", 400, response
+    )
+
+    assert pyicloud_service.validate_2fa_code("123456") is False
+
+
 def test_validate_2fa_code_bridge_verification_exception_propagates(
     pyicloud_service: PyiCloudService,
 ) -> None:
@@ -478,7 +786,7 @@ def test_get_mfa_auth_options_parses_hsa2_boot_html(
 
     auth_options = pyicloud_service._get_mfa_auth_options()
 
-    _, kwargs = cast(Any, pyicloud_service.session).get.call_args
+    _, kwargs = cast(Any, pyicloud_service.session).get.call_args_list[0]
     assert kwargs["headers"]["Accept"] == "text/html"
     assert auth_options["authInitialRoute"] == "auth/bridge/step"
     assert auth_options["hasTrustedDevices"] is True
@@ -493,6 +801,154 @@ def test_get_mfa_auth_options_parses_hsa2_boot_html(
         "auth/bridge/step"
     )
     assert pyicloud_service._hsa2_boot_context.has_trusted_devices is True
+
+
+def test_get_mfa_auth_options_falls_back_to_json_for_security_key(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Security-key challenges should use JSON when the HTML shell omits WebAuthn."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {"direct": {"authInitialRoute": "auth/bridge/step"}}
+      </script>
+    </html>
+    """
+    json_response = MagicMock()
+    json_response.json.return_value = {
+        "keyNames": ["Security Key"],
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        },
+    }
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["keyNames"] == ["Security Key"]
+    assert auth_options["fsaChallenge"]["challenge"] == "challenge"
+    assert mock_session.get.call_count == 2
+    assert mock_session.get.call_args_list[0].kwargs["headers"]["Accept"] == "text/html"
+    assert (
+        mock_session.get.call_args_list[1].kwargs["headers"]["Accept"]
+        == "application/json"
+    )
+
+
+def test_get_mfa_auth_options_falls_back_to_json_for_security_key_names(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Security-key challenges should fetch JSON when names are absent."""
+
+    html_response = MagicMock()
+    html_response.json.return_value = {
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        }
+    }
+    json_response = MagicMock()
+    json_response.json.return_value = {"keyNames": ["Security Key"]}
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["keyNames"] == ["Security Key"]
+    assert mock_session.get.call_count == 2
+    assert (
+        mock_session.get.call_args_list[1].kwargs["headers"]["Accept"]
+        == "application/json"
+    )
+
+
+def test_get_mfa_auth_options_json_fallback_keeps_hsa2_boot_data(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """The SMS-shaped JSON response must not overwrite HSA2 bridge data."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {
+"direct": {
+              "authInitialRoute": "auth/bridge/step",
+              "hasTrustedDevices": true,
+              "twoSV": {
+                "authFactors": ["web_piggybacking", "sms"],
+                "bridgeInitiateData": {
+                  "phoneNumberVerification": {
+                    "trustedPhoneNumber": {"number": "****21"}
+                  }
+                }
+              }
+            }
+        }
+      </script>
+    </html>
+    """
+    json_response = MagicMock()
+    json_response.json.return_value = {
+        "authType": "auth",
+        "hasTrustedDevices": False,
+        "trustedPhoneNumber": None,
+        "keyNames": ["Security Key"],
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        },
+    }
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["keyNames"] == ["Security Key"]
+    assert auth_options["fsaChallenge"]["rpId"] == "apple.com"
+    assert auth_options["authInitialRoute"] == "auth/bridge/step"
+    assert auth_options["hasTrustedDevices"] is True
+    assert auth_options["trustedPhoneNumber"] == {"number": "****21"}
+
+
+def test_get_mfa_auth_options_json_fallback_survives_pending_hsa2_challenge(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A pending-challenge response on the JSON probe must not abort login."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {"direct": {"authInitialRoute": "auth/bridge/step"}}
+      </script>
+    </html>
+    """
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [
+        html_response,
+        PyiCloud2FARequiredException("test@example.com", MagicMock()),
+    ]
+
+    auth_options = pyicloud_service._get_mfa_auth_options()
+
+    assert auth_options["authInitialRoute"] == "auth/bridge/step"
+    assert "keyNames" not in auth_options
+    assert "fsaChallenge" not in auth_options
 
 
 def test_get_mfa_auth_options_parses_nested_json_boot_context(
@@ -1408,6 +1864,7 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open) as open_mock,
         patch("http.cookiejar.LWPCookieJar.save") as mock_save,
+        patch("os.path.exists", return_value=False),
     ):
         mock_response = MagicMock()
         mock_response.status_code = 400
@@ -1501,6 +1958,7 @@ def test_request_reports_a_withdrawn_endpoint(
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
         patch("http.cookiejar.LWPCookieJar.save"),
+        patch("os.path.exists", return_value=False),
     ):
         mock_response = MagicMock()
         mock_response.status_code = 410
@@ -1568,6 +2026,7 @@ def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) 
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
         patch("http.cookiejar.LWPCookieJar.save") as mock_save,
+        patch("os.path.exists", return_value=False),
     ):
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -1736,6 +2195,125 @@ def test_handle_request_error_two_factor_json_decode_error(
             status_code=AppleAuthError.TWO_FACTOR_REQUIRED,
             response=response,
         )
+
+
+@pytest.mark.parametrize("code", [-20209, "-20209"])
+@pytest.mark.parametrize(
+    "content_type", ["application/json;charset=UTF-8", "text/plain"]
+)
+def test_request_account_locked(
+    pyicloud_service_working: PyiCloudService,
+    code: int | str,
+    content_type: str,
+) -> None:
+    """A nested Apple service error identifies a lock through the request path."""
+    response = MagicMock()
+    response.status_code = AppleAuthError.FORBIDDEN
+    response.ok = False
+    response.reason = "Forbidden"
+    response.headers = {"Content-Type": content_type}
+    response.json.return_value = {
+        "serviceErrors": [
+            {
+                "code": code,
+                "message": "This Apple Account has been locked for security reasons.",
+                "private": "session-identifier",
+            }
+        ]
+    }
+    response.text = "response containing session-identifier"
+    response.raise_for_status.side_effect = HTTPError(response=response)
+
+    with patch.object(PyiCloudSession, "_load_session_data"):
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch.object(pyicloud_session, "_save_session_data"),
+        pytest.raises(PyiCloudAccountLockedException) as excinfo,
+    ):
+        pyicloud_session.request(
+            "POST", "https://idmsa.apple.com/appleauth/auth/signin/complete"
+        )
+
+    error = excinfo.value
+    assert error.code == code
+    assert error.response is response
+    assert isinstance(error, PyiCloudFailedLoginException)
+    assert "session-identifier" not in str(error)
+
+
+def test_request_forbidden_without_lock_keeps_body_reason(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """A non-JSON 403 that is not a lock still reports the response body."""
+    response = MagicMock()
+    response.status_code = AppleAuthError.FORBIDDEN
+    response.ok = False
+    response.reason = "Forbidden"
+    response.headers = {"Content-Type": "text/html"}
+    response.json.side_effect = ValueError("not json")
+    response.text = "<html>Access denied</html>"
+    response.raise_for_status.side_effect = HTTPError(response=response)
+
+    with patch.object(PyiCloudSession, "_load_session_data"):
+        pyicloud_session = PyiCloudSession(
+            pyicloud_service_working, "", cookie_directory=""
+        )
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch.object(pyicloud_session, "_save_session_data"),
+        pytest.raises(PyiCloudAPIResponseException) as excinfo,
+    ):
+        pyicloud_session.request(
+            "POST", "https://idmsa.apple.com/appleauth/auth/signin/complete"
+        )
+
+    assert str(excinfo.value) == "<html>Access denied</html> (403)"
+    assert excinfo.value.response is None
+
+
+def test_account_locked_bypasses_authentication_fallbacks(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """An account lock is not retried as an ordinary failed login."""
+    error = PyiCloudAccountLockedException("-20209", MagicMock())
+    pyicloud_service.data = {"apps": {"find": {"canLaunchWithOneFactor": True}}}
+
+    with patch.object(
+        pyicloud_service,
+        "_authenticate_with_credentials_service",
+        side_effect=error,
+    ) as authenticate_with_credentials:
+        with pytest.raises(PyiCloudAccountLockedException):
+            pyicloud_service._try_service_one_factor_login("find")
+        authenticate_with_credentials.assert_called_once_with("find")
+
+    with (
+        patch.object(
+            pyicloud_service,
+            "_authenticate_with_token",
+            side_effect=error,
+        ) as authenticate_with_token,
+        patch.object(pyicloud_service, "_srp_authentication") as srp_authentication,
+    ):
+        with pytest.raises(PyiCloudAccountLockedException):
+            pyicloud_service._authenticate()
+        authenticate_with_token.assert_called_once_with()
+        srp_authentication.assert_not_called()
+
+    pyicloud_service.session.data["session_token"] = "token"
+    with patch.object(
+        pyicloud_service,
+        "_authenticate_with_token",
+        side_effect=error,
+    ) as authenticate_with_paused_token:
+        with pytest.raises(PyiCloudAccountLockedException):
+            pyicloud_service._login_with_paused_token()
+        authenticate_with_paused_token.assert_called_once_with(require_trust=False)
 
 
 def test_request_pcs_for_service_icdrs_not_disabled(
@@ -3135,6 +3713,82 @@ def test_srp_authentication_routes_2fa_delivery_through_request_2fa_code(
         assert pyicloud_service._requires_mfa is True
 
 
+def test_srp_authentication_does_not_blame_credentials_for_an_outage(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """An unreachable iCloud during SRP init must not become a failed login.
+
+    Rewriting an outage as a rejected password would send the user to
+    re-authenticate when only a retry can help.
+    """
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        # signin/init is the first POST, so it is where the outage shows up.
+        mock_session.post.side_effect = PyiCloudConnectionException(
+            "Request failed to iCloud"
+        )
+
+        with pytest.raises(PyiCloudConnectionException):
+            pyicloud_service._srp_authentication()
+
+
+def test_srp_completion_does_not_blame_credentials_for_an_outage(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """An unreachable iCloud during SRP completion must not become a failed login."""
+    init_response = MagicMock()
+    init_response.raise_for_status = MagicMock()
+    init_response.json.return_value = {
+        "salt": base64.b64encode(b"\x00" * 32).decode(),
+        "b": base64.b64encode(b"\x01" * 256).decode(),
+        "c": "session_context",
+        "iteration": 1000,
+        "protocol": "s2k",
+    }
+    authorize_response = MagicMock()
+    authorize_response.raise_for_status = MagicMock()
+
+    with (
+        patch("pyicloud.base.PyiCloudSession") as mock_session,
+        patch("pyicloud.base.srp.rfc5054_enable"),
+        patch("pyicloud.base.srp.no_username_in_x"),
+        patch("pyicloud.base.srp.User") as mock_srp_user_cls,
+    ):
+        mock_usr = MagicMock()
+        mock_usr.start_authentication.return_value = ("uname", b"\x02" * 32)
+        mock_usr.process_challenge.return_value = b"\x03" * 32
+        mock_usr.H_AMK = b"\x04" * 32
+        mock_srp_user_cls.return_value = mock_usr
+
+        pyicloud_service._session = mock_session
+        mock_session.data = {}
+        mock_session.get.return_value = authorize_response
+        # signin/init succeeds, then the outage hits signin/complete.
+        mock_session.post.side_effect = [
+            init_response,
+            PyiCloudConnectionException("Request failed to iCloud"),
+        ]
+
+        with pytest.raises(PyiCloudConnectionException):
+            pyicloud_service._srp_authentication()
+
+
 def test_authenticate_skips_token_auth_after_srp_2fa_required(
     pyicloud_service: PyiCloudService,
 ) -> None:
@@ -3217,6 +3871,7 @@ def test_constructor_passes_pause_2fa_to_authenticate() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
 
@@ -3281,6 +3936,141 @@ def test_authenticate_with_token_require_trust_true_raises_for_paused_session(
 
     with pytest.raises(PyiCloud2FARequiredException):
         pyicloud_service._authenticate_with_token(require_trust=True)
+
+
+def test_authenticate_with_token_keeps_connection_failure_distinct(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not be reported as a failed login.
+
+    Callers act on the difference: a rejected password is fixed by asking the
+    user to log in again, an outage by retrying later.
+    """
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+    pyicloud_service.session._data = {
+        "session_token": "a-token",
+        "account_country": "USA",
+        "trust_token": "",
+    }
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service._authenticate_with_token()
+
+
+def test_credentials_service_login_does_not_blame_password_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud during setup login must not become a failed login."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service._authenticate_with_credentials_service(None)
+
+
+def test_authenticate_with_token_still_reports_rejected_token(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An answer from iCloud rejecting the token is still a failed login."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "post",
+        MagicMock(
+            side_effect=PyiCloudAPIResponseException("Authentication required", 421)
+        ),
+    )
+    pyicloud_service.session._data = {
+        "session_token": "a-token",
+        "account_country": "USA",
+        "trust_token": "",
+    }
+
+    with pytest.raises(PyiCloudFailedLoginException):
+        pyicloud_service._authenticate_with_token()
+
+
+def test_validate_2fa_code_does_not_blame_the_code_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not come back as a wrong verification code."""
+    monkeypatch.setattr(
+        pyicloud_service,
+        "_validate_trusted_device_code",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+    monkeypatch.setattr(
+        type(pyicloud_service),
+        "two_factor_delivery_method",
+        property(lambda _self: "trusted_device"),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service.validate_2fa_code("123456")
+
+
+def test_trust_session_does_not_report_refusal_for_an_outage(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreachable iCloud must not come back as a refused session trust."""
+    monkeypatch.setattr(
+        pyicloud_service.session,
+        "get",
+        MagicMock(side_effect=PyiCloudConnectionException("Request failed to iCloud")),
+    )
+
+    with pytest.raises(PyiCloudConnectionException):
+        pyicloud_service.trust_session()
+
+
+def test_connection_exception_is_still_an_api_response_exception() -> None:
+    """Existing handlers must keep catching it."""
+    error = PyiCloudConnectionException("Request failed to iCloud")
+
+    assert isinstance(error, PyiCloudAPIResponseException)
+    # No response came back, so there is no status to report.
+    assert error.code is None
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ConnectionError("connection refused"),
+        requests.exceptions.ConnectTimeout("connect timed out"),
+        requests.exceptions.ReadTimeout("read timed out"),
+    ],
+)
+def test_unreachable_icloud_raises_connection_exception(
+    error: requests.exceptions.RequestException,
+) -> None:
+    """A refused, unresolvable or unresponsive iCloud is a connection failure."""
+    with pytest.raises(PyiCloudConnectionException):
+        PyiCloudSession._raise_request_exception(error)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ChunkedEncodingError("response truncated"),
+        requests.exceptions.TooManyRedirects("redirect loop"),
+        requests.exceptions.InvalidURL("bad url"),
+        requests.exceptions.MissingSchema("no scheme"),
+    ],
+)
+def test_request_faults_are_not_reported_as_connection_failures(
+    error: requests.exceptions.RequestException,
+) -> None:
+    """A malformed request is the caller's fault, not an unreachable iCloud."""
+    with pytest.raises(PyiCloudAPIResponseException) as excinfo:
+        PyiCloudSession._raise_request_exception(error)
+
+    assert not isinstance(excinfo.value, PyiCloudConnectionException)
 
 
 def test_srp_authentication_pause_2fa_includes_pause2fa_flag(

@@ -4,11 +4,13 @@ import argparse
 import importlib.util
 import os
 import sys
+import tempfile
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
 CLI_PATH = os.path.join(os.path.dirname(__file__), "..", "examples", "notes_cli.py")
+OUTPUT_ROOT = os.path.join(tempfile.gettempdir(), "python-test-results", "notes-cli")
 
 
 def _load_notes_cli() -> ModuleType:
@@ -26,7 +28,7 @@ class TestNotesCli(unittest.TestCase):
     """Tests for the notes CLI example script."""
 
     def _output_dir(self, name: str) -> str:
-        path = os.path.join("/tmp/python-test-results", "notes-cli", name)
+        path = os.path.join(OUTPUT_ROOT, name)
         os.makedirs(path, exist_ok=True)
         return path
 

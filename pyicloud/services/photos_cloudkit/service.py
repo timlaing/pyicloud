@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import base64
 from collections.abc import Generator, Iterable, Iterator
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 import os
@@ -58,9 +59,10 @@ from .constants import (
     SmartAlbumEnum,
 )
 from .mappers import (
+    _master_asset_groups,
+    _raw_asset_groups,
     build_photo_resource,
     decode_encrypted_text,
-    master_asset_pairs,
     record_field_value,
     record_name,
     record_record_type,
@@ -238,6 +240,23 @@ def _is_shared_library_zone_name(zone_name: str | None) -> bool:
     return bool(zone_name and zone_name.startswith(SHARED_LIBRARY_ZONE_PREFIX))
 
 
+class _HydrationBackoff:
+    """Deadline-bounded exponential backoff for upload hydration polling."""
+
+    def __init__(self, timeout: float, interval: float) -> None:
+        self.deadline = time.monotonic() + max(timeout, 0.0)
+        self.delay = interval
+
+    def wait(self, seconds: float | None = None) -> bool:
+        """Sleep within the deadline and double the delay for the next attempt."""
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(max(min(seconds or self.delay, remaining), 0.0))
+        self.delay = min(self.delay * 2, UPLOAD_HYDRATION_MAX_INTERVAL)
+        return True
+
+
 class AlbumContainer(Iterable["BasePhotoAlbum"]):
     """Container for photo albums."""
 
@@ -352,50 +371,56 @@ class BasePhotoLibrary(ABC):
         self._ensure_indexing_ready()
 
     def _ensure_indexing_ready(self) -> None:
-        if self._client is not None and _can_use_typed_cloudkit(self.service.session):
-            response = self._client.query(
-                query=check_indexing_state_query(),
-                zone_id=CKZoneIDReq(**self.zone_id),
-                results_limit=1,
-            )
-            self._current_sync_token = response.syncToken
-            state = None
-            for record in response.records:
-                if isinstance(record, CKRecord):
-                    state = record.fields.get_value("state")
-                    break
-            self._indexing_state = str(state) if state is not None else None
+        client = self._client
+        if client is not None and _can_use_typed_cloudkit(self.service.session):
+            self._indexing_state = self._indexing_state_via_typed_client(client)
         else:
-            request = self.service.session.post(
-                url=self.url,
-                json={
-                    "query": {
-                        "recordType": "CheckIndexingState",
-                    },
-                    "zoneID": self.zone_id,
-                },
-                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            )
-            response = request.json()
-            if _is_mock_like(response):
-                self._indexing_state = "FINISHED"
-            else:
-                self._indexing_state = (
-                    response
-                    .get("records", [{}])[0]
-                    .get("fields", {})
-                    .get("state", {})
-                    .get("value")
-                )
-            if (
-                self._indexing_state is None or _is_mock_like(self._indexing_state)
-            ) and _is_mock_like(self.service):
-                self._indexing_state = "FINISHED"
+            self._indexing_state = self._indexing_state_via_rest()
         if self._indexing_state != "FINISHED":
             raise PyiCloudServiceNotActivatedException(
                 "iCloud Photo Library not finished indexing. "
                 "Please try again in a few minutes."
             )
+
+    def _indexing_state_via_typed_client(
+        self, client: PhotosCloudKitClient
+    ) -> str | None:
+        response = client.query(
+            query=check_indexing_state_query(),
+            zone_id=CKZoneIDReq(**self.zone_id),
+            results_limit=1,
+        )
+        self._current_sync_token = response.syncToken
+        for record in response.records:
+            if isinstance(record, CKRecord):
+                state = record.fields.get_value("state")
+                return str(state) if state is not None else None
+        return None
+
+    def _indexing_state_via_rest(self) -> str | None:
+        request = self.service.session.post(
+            url=self.url,
+            json={
+                "query": {
+                    "recordType": "CheckIndexingState",
+                },
+                "zoneID": self.zone_id,
+            },
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+        )
+        response = request.json()
+        if _is_mock_like(response):
+            return "FINISHED"
+        state = (
+            response
+            .get("records", [{}])[0]
+            .get("fields", {})
+            .get("state", {})
+            .get("value")
+        )
+        if (state is None or _is_mock_like(state)) and _is_mock_like(self.service):
+            return "FINISHED"
+        return cast(str | None, state)
 
     @property
     def indexing_state(self) -> str | None:
@@ -588,42 +613,50 @@ class PhotoLibrary(BasePhotoLibrary):
     }
 
     def _fetch_album_records(self, parent_id: str | None = None) -> list[CKRecord]:
-        if self._client is None or not _can_use_typed_cloudkit(self.service.session):
-            query = album_query(parent_id)
-            payload = _query_request_payload(query=query, zone_id=self.zone_id)
+        client = self._client
+        if client is None or not _can_use_typed_cloudkit(self.service.session):
+            return self._fetch_album_records_rest(parent_id)
+        return self._fetch_album_records_typed(client, parent_id)
+
+    def _fetch_album_records_rest(self, parent_id: str | None) -> list[Any]:
+        query = album_query(parent_id)
+        payload = _query_request_payload(query=query, zone_id=self.zone_id)
+        request = self.service.session.post(
+            url=self.url,
+            json=payload,
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+        )
+        response = request.json()
+        raw_records: list[Any] = response.get("records", [])
+        while "continuationMarker" in response:
+            payload = _query_request_payload(
+                query=query,
+                zone_id=self.zone_id,
+                continuation=response["continuationMarker"],
+            )
             request = self.service.session.post(
                 url=self.url,
                 json=payload,
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             response = request.json()
-            raw_records: list[Any] = response.get("records", [])
-            while "continuationMarker" in response:
-                payload = _query_request_payload(
-                    query=query,
-                    zone_id=self.zone_id,
-                    continuation=response["continuationMarker"],
+            raw_records.extend(response.get("records", []))
+        raw_nested_records = []
+        for record in raw_records:
+            album_type = record.get("fields", {}).get("albumType", {}).get("value")
+            if album_type == AlbumTypeEnum.FOLDER.value:
+                raw_nested_records.extend(
+                    self._fetch_album_records(record.get("recordName"))
                 )
-                request = self.service.session.post(
-                    url=self.url,
-                    json=payload,
-                    headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-                )
-                response = request.json()
-                raw_records.extend(response.get("records", []))
-            raw_nested_records = []
-            for record in raw_records:
-                album_type = record.get("fields", {}).get("albumType", {}).get("value")
-                if album_type == AlbumTypeEnum.FOLDER.value:
-                    raw_nested_records.extend(
-                        self._fetch_album_records(record.get("recordName"))
-                    )
-            return raw_records + raw_nested_records
+        return raw_records + raw_nested_records
 
+    def _fetch_album_records_typed(
+        self, client: PhotosCloudKitClient, parent_id: str | None
+    ) -> list[CKRecord]:
         records: list[CKRecord] = []
         continuation: str | None = None
         while True:
-            response = self._client.query(
+            response = client.query(
                 query=album_query(parent_id),
                 zone_id=CKZoneIDReq(**self.zone_id),
                 continuation=continuation,
@@ -675,6 +708,13 @@ class PhotoLibrary(BasePhotoLibrary):
             direction = DirectionEnum.DESCENDING
         if album_type is AlbumTypeEnum.FOLDER:
             cls = PhotoAlbumFolder
+        record_state = PhotoAlbumRecordState(
+            parent_id=cast(str | None, record_field_value(record, "parentId")),
+            record_change_tag=_record_change_tag(record),
+            record_modification_date=record_field_value(
+                record, "recordModificationDate"
+            ),
+        )
         if cls is PhotoAlbum:
             return cls(
                 library=self,
@@ -687,11 +727,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 client=self._client,
                 zone_id=self.zone_id,
                 query_filters=typed_query_filters,
-                parent_id=cast(str | None, record_field_value(record, "parentId")),
-                record_change_tag=_record_change_tag(record),
-                record_modification_date=record_field_value(
-                    record, "recordModificationDate"
-                ),
+                record=record_state,
             )
         return cls(
             library=self,
@@ -704,11 +740,7 @@ class PhotoLibrary(BasePhotoLibrary):
             client=self._client,
             zone_id=self.zone_id,
             query_filters=typed_query_filters,
-            parent_id=cast(str | None, record_field_value(record, "parentId")),
-            record_change_tag=_record_change_tag(record),
-            record_modification_date=record_field_value(
-                record, "recordModificationDate"
-            ),
+            record=record_state,
         )
 
     def _get_albums(self) -> AlbumContainer:
@@ -756,73 +788,91 @@ class PhotoLibrary(BasePhotoLibrary):
         """Create a new album in the library and return it."""
         encoded = base64.b64encode(name.encode("utf-8")).decode("utf-8")
         position = _new_album_position()
-        if self._client is not None and _can_use_typed_cloudkit(self.service.session):
-            op = CKModifyOperation(
-                operationType="create",
-                record=CKWriteRecord(
-                    recordName=os.urandom(16).hex().upper(),
-                    recordType="CPLAlbum",
-                    fields={
-                        "albumNameEnc": {
-                            "type": "ENCRYPTED_BYTES",
-                            "value": encoded,
-                        },
-                        "albumType": {"type": "INT64", "value": int(album_type.value)},
-                        "isDeleted": {"type": "INT64", "value": 0},
-                        "isExpunged": {"type": "INT64", "value": 0},
-                        "position": {"type": "INT64", "value": position},
-                        "sortType": {"type": "INT64", "value": 1},
-                        "sortAscending": {"type": "INT64", "value": 1},
+        client = self._client
+        if client is not None and _can_use_typed_cloudkit(self.service.session):
+            return self._create_album_typed(client, encoded, album_type, position)
+        return self._create_album_rest(encoded, album_type, position)
+
+    def _create_album_typed(
+        self,
+        client: PhotosCloudKitClient,
+        encoded: str,
+        album_type: AlbumTypeEnum,
+        position: int,
+    ) -> PhotoAlbum | None:
+        op = CKModifyOperation(
+            operationType="create",
+            record=CKWriteRecord(
+                recordName=os.urandom(16).hex().upper(),
+                recordType="CPLAlbum",
+                fields={
+                    "albumNameEnc": {
+                        "type": "ENCRYPTED_BYTES",
+                        "value": encoded,
                     },
-                ),
-            )
-            resp = self._client.modify(
-                operations=[op],
-                zone_id=CKZoneIDReq(**self.zone_id),
-                atomic=True,
-            )
-            for record in resp.records:
-                if isinstance(record, CKRecord):
-                    album = self._convert_record_to_album(record)
-                    if isinstance(album, PhotoAlbum):
-                        self._cache_created_album(album)
-                        return album
-        else:
-            endpoint = self.service.service_endpoint
-            params = urlencode(self.service.params)
-            url = f"{endpoint}/records/modify?{params}"
-            response = self.service.session.post(
-                url,
-                json={
-                    "operations": [
-                        {
-                            "operationType": "create",
-                            "record": {
-                                "recordType": "CPLAlbum",
-                                "fields": {
-                                    "albumNameEnc": {"value": encoded},
-                                    "albumType": {"value": album_type.value},
-                                    "isDeleted": {"value": 0},
-                                    "isExpunged": {"value": 0},
-                                    "position": {"value": position},
-                                    "sortType": {"value": 1},
-                                    "sortAscending": {"value": 1},
-                                },
-                            },
-                        }
-                    ],
-                    "zoneID": self.zone_id,
-                    "atomic": True,
+                    "albumType": {"type": "INT64", "value": int(album_type.value)},
+                    "isDeleted": {"type": "INT64", "value": 0},
+                    "isExpunged": {"type": "INT64", "value": 0},
+                    "position": {"type": "INT64", "value": position},
+                    "sortType": {"type": "INT64", "value": 1},
+                    "sortAscending": {"type": "INT64", "value": 1},
                 },
-                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-            )
-            payload = response.json()
-            records = payload.get("records", [])
-            if records:
-                album = self._convert_record_to_album(records[0])
+            ),
+        )
+        resp = client.modify(
+            operations=[op],
+            zone_id=CKZoneIDReq(**self.zone_id),
+            atomic=True,
+        )
+        for record in resp.records:
+            if isinstance(record, CKRecord):
+                album = self._convert_record_to_album(record)
                 if isinstance(album, PhotoAlbum):
                     self._cache_created_album(album)
                     return album
+        return None
+
+    def _create_album_rest(
+        self,
+        encoded: str,
+        album_type: AlbumTypeEnum,
+        position: int,
+    ) -> PhotoAlbum | None:
+        endpoint = self.service.service_endpoint
+        params = urlencode(self.service.params)
+        url = f"{endpoint}/records/modify?{params}"
+        response = self.service.session.post(
+            url,
+            json={
+                "operations": [
+                    {
+                        "operationType": "create",
+                        "record": {
+                            "recordType": "CPLAlbum",
+                            "fields": {
+                                "albumNameEnc": {"value": encoded},
+                                "albumType": {"value": album_type.value},
+                                "isDeleted": {"value": 0},
+                                "isExpunged": {"value": 0},
+                                "position": {"value": position},
+                                "sortType": {"value": 1},
+                                "sortAscending": {"value": 1},
+                            },
+                        },
+                    }
+                ],
+                "zoneID": self.zone_id,
+                "atomic": True,
+            },
+            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+        )
+        payload = response.json()
+        records = payload.get("records", [])
+        if records:
+            album = self._convert_record_to_album(records[0])
+            if isinstance(album, PhotoAlbum):
+                self._cache_created_album(album)
+                return album
         return None
 
     def _hydrate_uploaded_asset(
@@ -832,23 +882,7 @@ class PhotoLibrary(BasePhotoLibrary):
         timeout: float | None = None,
         interval: float | None = None,
     ) -> PhotoAsset | None:
-        """Turn a ``putAsset`` registration into a fully populated asset.
-
-        ``putAsset`` returns only the ``CPLMaster``/``CPLAsset`` record names,
-        so the records are always looked up before an asset is exposed.
-
-        Registration and indexing are separate: for a newly uploaded file the
-        lookup answers ``NOT_FOUND`` for 14-20 seconds before CloudKit makes
-        the records queryable, so it is retried until ``timeout`` elapses.
-        Duplicates resolve on the first attempt, since those records already
-        exist.
-
-        Returns ``None`` if the records are still not indexed when ``timeout``
-        elapses; the file is stored in iCloud regardless. A lookup that keeps
-        failing outright raises ``PyiCloudAPIResponseException``, so a broken
-        lookup is distinguishable from a slow one.
-        """
-
+        """Turn a ``putAsset`` registration into a fully populated asset."""
         master_name = result.cplMaster
         asset_name = result.cplAsset
         if self._client is None or not master_name or not asset_name:
@@ -859,63 +893,79 @@ class PhotoLibrary(BasePhotoLibrary):
         if interval is None:
             interval = self._upload_hydration_interval
 
+        return self._poll_uploaded_asset(
+            [master_name, asset_name], timeout=timeout, interval=interval
+        )
+
+    def _poll_uploaded_asset(
+        self,
+        record_names: list[str],
+        *,
+        timeout: float,
+        interval: float,
+    ) -> PhotoAsset | None:
+        """Poll CloudKit until the uploaded asset is indexed or time runs out."""
+        assert self._client is not None
         zone_id = CKZoneIDReq(**self.zone_id)
-        deadline = time.monotonic() + max(timeout, 0.0)
-        delay = interval
-
-        def _wait(seconds: float) -> bool:
-            """Sleep before the next attempt; False once the deadline passes."""
-
-            nonlocal delay
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            time.sleep(max(min(seconds, remaining), 0.0))
-            delay = min(delay * 2, UPLOAD_HYDRATION_MAX_INTERVAL)
-            return True
+        backoff = _HydrationBackoff(timeout, interval)
 
         while True:
-            try:
-                lookup = self._client.lookup(
-                    record_names=[master_name, asset_name],
-                    zone_id=zone_id,
-                    desired_keys=PHOTO_DESIRED_KEYS,
-                )
-            except CloudKitRateLimited as exc:
-                # The bytes are already stored; back off rather than losing the
-                # record names to an exception.
-                if not _wait(exc.retry_after or delay):
-                    LOGGER.debug("Rate limited while waiting for the upload to index")
-                    return None
-                continue
-            except CloudKitApiError as exc:
-                # Same reasoning: a transient CloudKit failure inside the
-                # indexing window should not discard an upload that succeeded.
-                # A persistent one is reported rather than being mistaken for a
-                # slow index, and is normalised so this method raises the same
-                # exception type whether registration or hydration failed.
-                if not _wait(delay):
-                    raise PyiCloudAPIResponseException(str(exc)) from exc
-                continue
-
-            records_by_type = {
-                record_record_type(record): record
-                for record in lookup.records
-                if isinstance(record, CKRecord)
-                and record_record_type(record) in {"CPLMaster", "CPLAsset"}
-            }
-            if "CPLMaster" in records_by_type and "CPLAsset" in records_by_type:
-                return self.asset_type(
-                    self.service,
-                    records_by_type["CPLMaster"],
-                    records_by_type["CPLAsset"],
-                    library=self,
-                )
-            if not _wait(delay):
+            records = self._lookup_uploaded_records(record_names, zone_id, backoff)
+            if records is None:
+                return None
+            asset = self._asset_from_uploaded_records(records)
+            if asset is not None:
+                return asset
+            if not backoff.wait():
                 LOGGER.debug(
                     "Uploaded asset was still not indexed after %.0fs", timeout
                 )
                 return None
+
+    def _lookup_uploaded_records(
+        self,
+        record_names: list[str],
+        zone_id: CKZoneIDReq,
+        backoff: _HydrationBackoff,
+    ) -> list[CKRecord | CKTombstoneRecord | CKErrorItem] | None:
+        """Look the records up, retrying transient CloudKit failures."""
+        assert self._client is not None
+        while True:
+            try:
+                lookup = self._client.lookup(
+                    record_names=record_names,
+                    zone_id=zone_id,
+                    desired_keys=PHOTO_DESIRED_KEYS,
+                )
+            except CloudKitRateLimited as exc:
+                if not backoff.wait(exc.retry_after):
+                    LOGGER.debug("Rate limited while waiting for the upload to index")
+                    return None
+            except CloudKitApiError as exc:
+                if not backoff.wait():
+                    raise PyiCloudAPIResponseException(str(exc)) from exc
+            else:
+                return lookup.records
+
+    def _asset_from_uploaded_records(
+        self,
+        records: Iterable[CKRecord | CKTombstoneRecord | CKErrorItem],
+    ) -> PhotoAsset | None:
+        """Build an asset from an indexed ``CPLMaster``/``CPLAsset`` pair."""
+        records_by_type = {
+            record_record_type(record): record
+            for record in records
+            if isinstance(record, CKRecord)
+            and record_record_type(record) in {"CPLMaster", "CPLAsset"}
+        }
+        if "CPLMaster" not in records_by_type or "CPLAsset" not in records_by_type:
+            return None
+        return self.asset_type(
+            self.service,
+            records_by_type["CPLMaster"],
+            records_by_type["CPLAsset"],
+            library=self,
+        )
 
     def upload_file(self, path: str) -> PhotoAsset | None:
         """Upload a file into the library and return the created asset."""
@@ -956,20 +1006,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 )
             )
 
-        records_by_type = {
-            record_record_type(record): record
-            for record in upload_payload.records
-            if isinstance(record, CKRecord)
-            and record_record_type(record) in {"CPLMaster", "CPLAsset"}
-        }
-        if "CPLMaster" not in records_by_type or "CPLAsset" not in records_by_type:
-            return None
-        return self.asset_type(
-            self.service,
-            records_by_type["CPLMaster"],
-            records_by_type["CPLAsset"],
-            library=self,
-        )
+        return self._asset_from_uploaded_records(upload_payload.records)
 
     @property
     def all(self) -> PhotoAlbum:
@@ -1165,48 +1202,29 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         self,
         records: list[CKRecord | CKTombstoneRecord | Any] | dict[str, Any],
     ) -> Generator[PhotoAsset]:
+        # A duplicated photo has its own CPLAsset but shares its CPLMaster.
+        # A single-value mapping silently discards all but the last asset.
         if isinstance(records, dict):
-            raw_response = records
-            if hasattr(self._library, "parse_asset_response"):
-                asset_records, raw_masters = self._library.parse_asset_response(
-                    raw_response
-                )
-            else:
-                asset_records = {}
-                raw_masters = []
-                for record in raw_response["records"]:
-                    if record["recordType"] == "CPLAsset":
-                        master_ref = record["fields"]["masterRef"]["value"][
-                            "recordName"
-                        ]
-                        asset_records[master_ref] = record
-                    elif record["recordType"] == "CPLMaster":
-                        raw_masters.append(record)
-            for master in raw_masters:
-                asset = asset_records.get(master["recordName"])
-                if asset is None:
-                    continue
-                photo = self._library.asset_type(
-                    self.service,
-                    cast(CKRecord, master),
-                    cast(CKRecord, asset),
-                    library=cast(PhotoLibrary | None, self._library),
-                )
-                yield photo
+            raw_assets, raw_masters = _raw_asset_groups(records)
+            for raw_master in raw_masters:
+                for raw_asset in raw_assets.get(raw_master["recordName"], ()):
+                    yield self._library.asset_type(
+                        self.service,
+                        cast(CKRecord, raw_master),
+                        cast(CKRecord, raw_asset),
+                        library=cast(PhotoLibrary | None, self._library),
+                    )
             return
         typed_records = [record for record in records if isinstance(record, CKRecord)]
-        assets_by_master, masters = master_asset_pairs(typed_records)
-        for master_record in masters:
-            asset_record = assets_by_master.get(master_record.recordName)
-            if asset_record is None:
-                continue
-            photo = self._library.asset_type(
-                self.service,
-                master_record,
-                asset_record,
-                library=cast(PhotoLibrary | None, self._library),
-            )
-            yield photo
+        assets, masters = _master_asset_groups(typed_records)
+        for master in masters:
+            for asset in assets.get(master.recordName, ()):
+                yield self._library.asset_type(
+                    self.service,
+                    master,
+                    asset,
+                    library=cast(PhotoLibrary | None, self._library),
+                )
 
     def _iter_added_desc_photos(self) -> Generator[PhotoAsset]:
         """
@@ -1379,6 +1397,19 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         )
 
 
+@dataclass
+class PhotoAlbumRecordState:
+    """Server-side bookkeeping carried by a :class:`PhotoAlbum`.
+
+    Groups the parent link and change-tracking fields so the album constructor
+    keeps a manageable parameter count.
+    """
+
+    parent_id: str | None = None
+    record_change_tag: str | None = None
+    record_modification_date: Any | None = None
+
+
 class PhotoAlbum(BasePhotoAlbum):
     """A user or virtual photo album."""
 
@@ -1397,9 +1428,7 @@ class PhotoAlbum(BasePhotoAlbum):
         zone_id: dict[str, str] | None = None,
         query_filters: list[CKQueryFilterBy] | None = None,
         page_size: int = 100,
-        parent_id: str | None = None,
-        record_change_tag: str | None = None,
-        record_modification_date: Any | None = None,
+        record: PhotoAlbumRecordState | None = None,
     ) -> None:
         super().__init__(
             library=library,
@@ -1419,9 +1448,10 @@ class PhotoAlbum(BasePhotoAlbum):
             else ""
         )
         self._zone_id = zone_id or PRIMARY_ZONE
-        self._parent_id = parent_id
-        self._record_change_tag = record_change_tag
-        self._record_modification_date = record_modification_date
+        state = record or PhotoAlbumRecordState()
+        self._parent_id = state.parent_id
+        self._record_change_tag = state.record_change_tag
+        self._record_modification_date = state.record_modification_date
 
     @property
     def id(self) -> str:

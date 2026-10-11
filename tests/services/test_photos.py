@@ -9,7 +9,6 @@ import base64
 from collections.abc import Generator
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, call, mock_open, patch
@@ -45,6 +44,7 @@ from pyicloud.services.photos import (
     ListTypeEnum,
     ObjectTypeEnum,
     PhotoAlbum,
+    PhotoAlbumRecordState,
     PhotoAsset,
     PhotoLibrary,
     PhotosService,
@@ -76,63 +76,7 @@ from pyicloud.services.photos_legacy import (
     PhotosServiceException as LegacyPhotosServiceException,
 )
 from pyicloud.session import PyiCloudSession
-
-FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
-BROWSER_MUTATION_FIXTURE_DIR = FIXTURE_DIR / "photos_browser_mutations"
-ALBUM_CREATE_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_album_create_response.json").read_text(encoding="utf-8")
-)
-ALBUM_RENAME_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_album_rename_response.json").read_text(encoding="utf-8")
-)
-INDEXING_NOT_FINISHED_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_indexing_not_finished_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-ZONES_LIST_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_zones_list_response.json").read_text(encoding="utf-8")
-)
-SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_private_zones_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-SHARED_LIBRARY_SHARED_ZONES_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_shared_zones_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-SHARED_LIBRARY_ALL_PHOTOS_QUERY_CORE = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_all_photos_query_core.json").read_text(
-        encoding="utf-8"
-    )
-)
-SHARED_LIBRARY_ALL_PHOTOS_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_all_photos_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-SHARED_LIBRARY_FAVORITES_QUERY_CORE = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_favorites_query_core.json").read_text(
-        encoding="utf-8"
-    )
-)
-SHARED_LIBRARY_FAVORITES_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_favorites_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-SHARED_LIBRARY_ZONE_CHANGES_REQUEST = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_zone_changes_request.json").read_text(
-        encoding="utf-8"
-    )
-)
-SHARED_LIBRARY_ZONE_CHANGES_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_zone_changes_response.json").read_text(
-        encoding="utf-8"
-    )
-)
+from tests.fixture_loader import load_fixture
 
 
 def test_decode_encrypted_text_returns_predecoded_unicode() -> None:
@@ -144,118 +88,6 @@ def test_decode_encrypted_text_returns_predecoded_unicode() -> None:
     }
 
     assert decode_encrypted_text(record, "captionEnc") == "\u2603"
-
-
-SHARED_LIBRARY_UNFAVORITE_REQUEST = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_unfavorite_request.json").read_text(
-        encoding="utf-8"
-    )
-)
-SHARED_LIBRARY_UNFAVORITE_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_shared_library_unfavorite_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ZONE_CHANGES_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_zone_changes_response.json").read_text(encoding="utf-8")
-)
-ALL_PHOTOS_QUERY_CORE = json.loads(
-    (FIXTURE_DIR / "photos_all_photos_query_core.json").read_text(encoding="utf-8")
-)
-ALL_PHOTOS_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_all_photos_response.json").read_text(encoding="utf-8")
-)
-RECENTLY_ADDED_QUERY_CORE = json.loads(
-    (FIXTURE_DIR / "photos_recently_added_query_core.json").read_text(encoding="utf-8")
-)
-RECENTLY_ADDED_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_recently_added_response.json").read_text(encoding="utf-8")
-)
-FAVORITES_QUERY_CORE = json.loads(
-    (FIXTURE_DIR / "photos_favorites_query_core.json").read_text(encoding="utf-8")
-)
-FAVORITES_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_favorites_response.json").read_text(encoding="utf-8")
-)
-MISSING_COUNTERPARTS_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_missing_counterparts_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-ALBUM_MEMBERSHIP_QUERY_CORE = json.loads(
-    (FIXTURE_DIR / "photos_album_membership_query_core.json").read_text(
-        encoding="utf-8"
-    )
-)
-ALBUM_MEMBERSHIP_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_album_membership_response.json").read_text(encoding="utf-8")
-)
-LIVE_PHOTO_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_live_photo_response.json").read_text(encoding="utf-8")
-)
-VIDEO_ONLY_RESPONSE = json.loads(
-    (FIXTURE_DIR / "photos_video_only_response.json").read_text(encoding="utf-8")
-)
-BROWSER_ALBUM_CREATE_REQUEST = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_create_request.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_CREATE_RESPONSE = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_create_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_RENAME_REQUEST = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_rename_request.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_RENAME_RESPONSE = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_rename_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_ADD_PHOTO_REQUEST = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_add_photo_request.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_ADD_PHOTO_RESPONSE = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_add_photo_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_REMOVE_PHOTO_REQUEST = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_remove_photo_request.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_REMOVE_PHOTO_RESPONSE = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_remove_photo_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_PHOTO_DELETE_REQUEST = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "photo_delete_request.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_PHOTO_DELETE_RESPONSE = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "photo_delete_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_DELETE_REQUEST = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_delete_request.json").read_text(
-        encoding="utf-8"
-    )
-)
-BROWSER_ALBUM_DELETE_RESPONSE = json.loads(
-    (BROWSER_MUTATION_FIXTURE_DIR / "album_delete_response.json").read_text(
-        encoding="utf-8"
-    )
-)
 
 
 def _ck_record(
@@ -325,8 +157,8 @@ def test_photo_library_initialization(mock_photos_service: MagicMock) -> None:
 
 def test_photo_library_indexing_not_finished(mock_photos_service: MagicMock) -> None:
     """Tests exception when indexing is not finished."""
-    mock_photos_service.session.post.return_value.json.return_value = (
-        INDEXING_NOT_FINISHED_RESPONSE
+    mock_photos_service.session.post.return_value.json.return_value = load_fixture(
+        "photos_indexing_not_finished_response.json"
     )
     with pytest.raises(PyiCloudServiceNotActivatedException):
         PhotoLibrary(
@@ -357,8 +189,8 @@ def test_photo_library_sync_cursor_uses_zones_list_fixture(
 ) -> None:
     """Raw sync-cursor discovery should use the tracked zones/list fixture."""
 
-    mock_photos_service.session.post.return_value.json.return_value = (
-        ZONES_LIST_RESPONSE
+    mock_photos_service.session.post.return_value.json.return_value = load_fixture(
+        "photos_zones_list_response.json"
     )
     library = PhotoLibrary.__new__(PhotoLibrary)
     library.service = mock_photos_service
@@ -393,7 +225,9 @@ def test_photo_library_iter_changes_uses_zone_changes_fixture() -> None:
         syncToken="SYNC_TOKEN_100",
     )
     mock_client.iter_changes.return_value = iter(
-        CKZoneChangesResponse.model_validate(BROWSER_ZONE_CHANGES_RESPONSE).zones
+        CKZoneChangesResponse.model_validate(
+            load_fixture("photos_zone_changes_response.json")
+        ).zones
     )
     service: PhotosService = cast(
         PhotosService,
@@ -1474,7 +1308,7 @@ def test_all_photos_feed_uses_default_index_and_fixture_response(
 
     mock_photo_library.zone_id = PRIMARY_ZONE
     mock_photo_library.service.session.post.return_value.json.return_value = (
-        ALL_PHOTOS_RESPONSE
+        load_fixture("photos_all_photos_response.json")
     )
     album = SmartPhotoAlbum(
         library=mock_photo_library,
@@ -1489,9 +1323,18 @@ def test_all_photos_feed_uses_default_index_and_fixture_response(
     photos = list(album._get_photos_at(0, DirectionEnum.DESCENDING, 1))
 
     posted = _last_posted_json(mock_photo_library.service.session.post)
-    assert posted["query"]["recordType"] == ALL_PHOTOS_QUERY_CORE["recordType"]
-    assert posted["resultsLimit"] == ALL_PHOTOS_QUERY_CORE["resultsLimit"]
-    assert _payload_filter_map(posted) == ALL_PHOTOS_QUERY_CORE["filters"]
+    assert (
+        posted["query"]["recordType"]
+        == load_fixture("photos_all_photos_query_core.json")["recordType"]
+    )
+    assert (
+        posted["resultsLimit"]
+        == load_fixture("photos_all_photos_query_core.json")["resultsLimit"]
+    )
+    assert (
+        _payload_filter_map(posted)
+        == load_fixture("photos_all_photos_query_core.json")["filters"]
+    )
     assert len(photos) == 1
     assert photos[0].id == "ASSET_RECORD_ID_201"
     assert photos[0].filename == "all_photo.jpg"
@@ -1506,7 +1349,7 @@ def test_recently_added_feed_uses_added_index_and_fixture_response(
 
     mock_photo_library.zone_id = PRIMARY_ZONE
     mock_photo_library.service.session.post.return_value.json.return_value = (
-        RECENTLY_ADDED_RESPONSE
+        load_fixture("photos_recently_added_response.json")
     )
     album = PhotoAlbum(
         library=mock_photo_library,
@@ -1522,9 +1365,18 @@ def test_recently_added_feed_uses_added_index_and_fixture_response(
     photos = list(album._get_photos_at(0, DirectionEnum.DESCENDING, 1))
 
     posted = _last_posted_json(mock_photo_library.service.session.post)
-    assert posted["query"]["recordType"] == RECENTLY_ADDED_QUERY_CORE["recordType"]
-    assert posted["resultsLimit"] == RECENTLY_ADDED_QUERY_CORE["resultsLimit"]
-    assert _payload_filter_map(posted) == RECENTLY_ADDED_QUERY_CORE["filters"]
+    assert (
+        posted["query"]["recordType"]
+        == load_fixture("photos_recently_added_query_core.json")["recordType"]
+    )
+    assert (
+        posted["resultsLimit"]
+        == load_fixture("photos_recently_added_query_core.json")["resultsLimit"]
+    )
+    assert (
+        _payload_filter_map(posted)
+        == load_fixture("photos_recently_added_query_core.json")["filters"]
+    )
     assert len(photos) == 1
     assert photos[0].id == "ASSET_RECORD_ID_202"
     assert photos[0].filename == "recent_added.jpg"
@@ -1537,7 +1389,7 @@ def test_favorites_feed_uses_smart_album_filter_and_fixture_response(
 
     mock_photo_library.zone_id = PRIMARY_ZONE
     mock_photo_library.service.session.post.return_value.json.return_value = (
-        FAVORITES_RESPONSE
+        load_fixture("photos_favorites_response.json")
     )
     album = SmartPhotoAlbum(
         library=mock_photo_library,
@@ -1553,9 +1405,18 @@ def test_favorites_feed_uses_smart_album_filter_and_fixture_response(
     photos = list(album._get_photos_at(0, DirectionEnum.ASCENDING, 1))
 
     posted = _last_posted_json(mock_photo_library.service.session.post)
-    assert posted["query"]["recordType"] == FAVORITES_QUERY_CORE["recordType"]
-    assert posted["resultsLimit"] == FAVORITES_QUERY_CORE["resultsLimit"]
-    assert _payload_filter_map(posted) == FAVORITES_QUERY_CORE["filters"]
+    assert (
+        posted["query"]["recordType"]
+        == load_fixture("photos_favorites_query_core.json")["recordType"]
+    )
+    assert (
+        posted["resultsLimit"]
+        == load_fixture("photos_favorites_query_core.json")["resultsLimit"]
+    )
+    assert (
+        _payload_filter_map(posted)
+        == load_fixture("photos_favorites_query_core.json")["filters"]
+    )
     assert len(photos) == 1
     assert photos[0].id == "ASSET_RECORD_ID_203"
     assert photos[0].filename == "favorite_photo.jpg"
@@ -1576,7 +1437,11 @@ def test_process_photo_list_response_skips_missing_counterparts_fixture(
         url="https://example.com/records/query?dsid=12345",
     )
 
-    photos = list(album._process_photo_list_response(MISSING_COUNTERPARTS_RESPONSE))
+    photos = list(
+        album._process_photo_list_response(
+            load_fixture("photos_missing_counterparts_response.json")
+        )
+    )
 
     assert len(photos) == 1
     assert photos[0].id == "ASSET_MATCHED_001"
@@ -1598,7 +1463,11 @@ def test_process_photo_list_response_maps_live_photo_fixture(
         url="https://example.com/records/query?dsid=12345",
     )
 
-    photos = list(album._process_photo_list_response(LIVE_PHOTO_RESPONSE))
+    photos = list(
+        album._process_photo_list_response(
+            load_fixture("photos_live_photo_response.json")
+        )
+    )
 
     assert len(photos) == 1
     photo = photos[0]
@@ -1627,7 +1496,11 @@ def test_process_photo_list_response_maps_video_only_fixture(
         url="https://example.com/records/query?dsid=12345",
     )
 
-    photos = list(album._process_photo_list_response(VIDEO_ONLY_RESPONSE))
+    photos = list(
+        album._process_photo_list_response(
+            load_fixture("photos_video_only_response.json")
+        )
+    )
 
     assert len(photos) == 1
     photo = photos[0]
@@ -1655,7 +1528,7 @@ def test_album_membership_feed_uses_container_relation_fixture(
 
     mock_photo_library.zone_id = PRIMARY_ZONE
     mock_photo_library.service.session.post.return_value.json.return_value = (
-        ALBUM_MEMBERSHIP_RESPONSE
+        load_fixture("photos_album_membership_response.json")
     )
     album = PhotoAlbum(
         library=mock_photo_library,
@@ -1672,9 +1545,18 @@ def test_album_membership_feed_uses_container_relation_fixture(
     photos = list(album._get_photos_at(0, DirectionEnum.ASCENDING, 1))
 
     posted = _last_posted_json(mock_photo_library.service.session.post)
-    assert posted["query"]["recordType"] == ALBUM_MEMBERSHIP_QUERY_CORE["recordType"]
-    assert posted["resultsLimit"] == ALBUM_MEMBERSHIP_QUERY_CORE["resultsLimit"]
-    assert _payload_filter_map(posted) == ALBUM_MEMBERSHIP_QUERY_CORE["filters"]
+    assert (
+        posted["query"]["recordType"]
+        == load_fixture("photos_album_membership_query_core.json")["recordType"]
+    )
+    assert (
+        posted["resultsLimit"]
+        == load_fixture("photos_album_membership_query_core.json")["resultsLimit"]
+    )
+    assert (
+        _payload_filter_map(posted)
+        == load_fixture("photos_album_membership_query_core.json")["filters"]
+    )
     assert len(photos) == 1
     assert photos[0].id == "ASSET_RECORD_ID_206"
     assert photos[0].filename == "album_membership.jpg"
@@ -1964,7 +1846,9 @@ def test_photos_service_libraries_classify_shared_sync_zone_raw_path(
     entries.
     """
 
-    shared_zone = SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE["zones"][0]["zoneID"]
+    shared_zone = load_fixture("photos_shared_library_private_zones_response.json")[
+        "zones"
+    ][0]["zoneID"]
     mock_photos_service.session.post.return_value.json.side_effect = [
         {
             "records": [
@@ -1975,7 +1859,7 @@ def test_photos_service_libraries_classify_shared_sync_zone_raw_path(
                 }
             ]
         },
-        SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE,
+        load_fixture("photos_shared_library_private_zones_response.json"),
         {
             "records": [
                 {
@@ -2045,7 +1929,7 @@ def test_photos_service_libraries_classify_shared_sync_zone_typed_path(
         )
         private_zones_list_mock = MagicMock(
             return_value=CKZoneListResponse.model_validate(
-                SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE
+                load_fixture("photos_shared_library_private_zones_response.json")
             )
         )
         monkeypatch.setattr(
@@ -2053,7 +1937,7 @@ def test_photos_service_libraries_classify_shared_sync_zone_typed_path(
         )
         shared_zones_list_mock = MagicMock(
             return_value=CKZoneListResponse.model_validate(
-                SHARED_LIBRARY_SHARED_ZONES_RESPONSE
+                load_fixture("photos_shared_library_shared_zones_response.json")
             )
         )
         monkeypatch.setattr(
@@ -2083,7 +1967,9 @@ def test_shared_library_all_photos_feed_uses_captured_fixture(
 ) -> None:
     """Shared Library all-photos reads should target the SharedSync zone."""
 
-    shared_zone = SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE["zones"][0]["zoneID"]
+    shared_zone = load_fixture("photos_shared_library_private_zones_response.json")[
+        "zones"
+    ][0]["zoneID"]
     service = MagicMock()
     service.service_endpoint = "https://example.com/endpoint"
     service.params = {"dsid": "12345"}
@@ -2093,7 +1979,13 @@ def test_shared_library_all_photos_feed_uses_captured_fixture(
                 return_value={"records": [{"fields": {"state": {"value": "FINISHED"}}}]}
             )
         ),
-        MagicMock(json=MagicMock(return_value=SHARED_LIBRARY_ALL_PHOTOS_RESPONSE)),
+        MagicMock(
+            json=MagicMock(
+                return_value=load_fixture(
+                    "photos_shared_library_all_photos_response.json"
+                )
+            )
+        ),
     ]
     library = PhotoLibrary(
         service=service,
@@ -2105,9 +1997,14 @@ def test_shared_library_all_photos_feed_uses_captured_fixture(
 
     photos = list(
         library.all._get_photos_at(
-            SHARED_LIBRARY_ALL_PHOTOS_QUERY_CORE["filters"]["startRank"],
+            load_fixture("photos_shared_library_all_photos_query_core.json")["filters"][
+                "startRank"
+            ],
             DirectionEnum.DESCENDING,
-            SHARED_LIBRARY_ALL_PHOTOS_QUERY_CORE["resultsLimit"] // 2,
+            load_fixture("photos_shared_library_all_photos_query_core.json")[
+                "resultsLimit"
+            ]
+            // 2,
         )
     )
 
@@ -2117,13 +2014,19 @@ def test_shared_library_all_photos_feed_uses_captured_fixture(
     posted = _last_posted_json(service.session.post)
     assert (
         posted["query"]["recordType"]
-        == SHARED_LIBRARY_ALL_PHOTOS_QUERY_CORE["recordType"]
+        == load_fixture("photos_shared_library_all_photos_query_core.json")[
+            "recordType"
+        ]
     )
     assert (
-        posted["resultsLimit"] == SHARED_LIBRARY_ALL_PHOTOS_QUERY_CORE["resultsLimit"]
+        posted["resultsLimit"]
+        == load_fixture("photos_shared_library_all_photos_query_core.json")[
+            "resultsLimit"
+        ]
     )
     assert (
-        _payload_filter_map(posted) == SHARED_LIBRARY_ALL_PHOTOS_QUERY_CORE["filters"]
+        _payload_filter_map(posted)
+        == load_fixture("photos_shared_library_all_photos_query_core.json")["filters"]
     )
     assert posted["zoneID"] == shared_zone
 
@@ -2133,7 +2036,9 @@ def test_shared_library_all_photos_skips_album_record_fetch(
 ) -> None:
     """Shared Library should expose only the currently supported smart albums."""
 
-    shared_zone = SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE["zones"][0]["zoneID"]
+    shared_zone = load_fixture("photos_shared_library_private_zones_response.json")[
+        "zones"
+    ][0]["zoneID"]
     service = MagicMock()
     service.service_endpoint = "https://example.com/endpoint"
     service.params = {"dsid": "12345"}
@@ -2169,7 +2074,9 @@ def test_shared_library_favorites_feed_uses_captured_fixture(
 ) -> None:
     """Shared Library favorites should use the captured smart-album query shape."""
 
-    shared_zone = SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE["zones"][0]["zoneID"]
+    shared_zone = load_fixture("photos_shared_library_private_zones_response.json")[
+        "zones"
+    ][0]["zoneID"]
     service = MagicMock()
     service.service_endpoint = "https://example.com/endpoint"
     service.params = {"dsid": "12345"}
@@ -2179,7 +2086,13 @@ def test_shared_library_favorites_feed_uses_captured_fixture(
                 return_value={"records": [{"fields": {"state": {"value": "FINISHED"}}}]}
             )
         ),
-        MagicMock(json=MagicMock(return_value=SHARED_LIBRARY_FAVORITES_RESPONSE)),
+        MagicMock(
+            json=MagicMock(
+                return_value=load_fixture(
+                    "photos_shared_library_favorites_response.json"
+                )
+            )
+        ),
     ]
     library = PhotoLibrary(
         service=service,
@@ -2199,21 +2112,33 @@ def test_shared_library_favorites_feed_uses_captured_fixture(
     posted = _last_posted_json(service.session.post)
     assert (
         posted["query"]["recordType"]
-        == SHARED_LIBRARY_FAVORITES_QUERY_CORE["recordType"]
+        == load_fixture("photos_shared_library_favorites_query_core.json")["recordType"]
     )
-    assert posted["resultsLimit"] == SHARED_LIBRARY_FAVORITES_QUERY_CORE["resultsLimit"]
-    assert _payload_filter_map(posted) == SHARED_LIBRARY_FAVORITES_QUERY_CORE["filters"]
+    assert (
+        posted["resultsLimit"]
+        == load_fixture("photos_shared_library_favorites_query_core.json")[
+            "resultsLimit"
+        ]
+    )
+    assert (
+        _payload_filter_map(posted)
+        == load_fixture("photos_shared_library_favorites_query_core.json")["filters"]
+    )
     assert posted["zoneID"] == shared_zone
 
 
 def test_shared_library_iter_changes_uses_captured_zone_fixture() -> None:
     """Shared Library zone changes should map into normal PhotoChangeEvent objects."""
 
-    shared_zone = SHARED_LIBRARY_ZONE_CHANGES_REQUEST["zones"][0]["zoneID"]
+    shared_zone = load_fixture("photos_shared_library_zone_changes_request.json")[
+        "zones"
+    ][0]["zoneID"]
     mock_client = MagicMock()
     mock_client.query.return_value = _indexing_ready_response("SYNC_TOKEN_001")
     mock_client.iter_changes.return_value = iter(
-        CKZoneChangesResponse.model_validate(SHARED_LIBRARY_ZONE_CHANGES_RESPONSE).zones
+        CKZoneChangesResponse.model_validate(
+            load_fixture("photos_shared_library_zone_changes_response.json")
+        ).zones
     )
     service: PhotosService = cast(
         PhotosService,
@@ -2233,7 +2158,9 @@ def test_shared_library_iter_changes_uses_captured_zone_fixture() -> None:
 
     events = list(
         library.iter_changes(
-            since=SHARED_LIBRARY_ZONE_CHANGES_REQUEST["zones"][0]["syncToken"]
+            since=load_fixture("photos_shared_library_zone_changes_request.json")[
+                "zones"
+            ][0]["syncToken"]
         )
     )
 
@@ -2251,14 +2178,18 @@ def test_shared_library_iter_changes_uses_captured_zone_fixture() -> None:
     assert zone_req.zoneID.zoneName == shared_zone["zoneName"]
     assert (
         zone_req.syncToken
-        == SHARED_LIBRARY_ZONE_CHANGES_REQUEST["zones"][0]["syncToken"]
+        == load_fixture("photos_shared_library_zone_changes_request.json")["zones"][0][
+            "syncToken"
+        ]
     )
 
 
 def test_shared_library_all_photo_lookup_falls_back_to_scanning_feed() -> None:
     """Shared Library should fall back to feed scanning when direct lookup misses."""
 
-    shared_zone = SHARED_LIBRARY_PRIVATE_ZONES_RESPONSE["zones"][0]["zoneID"]
+    shared_zone = load_fixture("photos_shared_library_private_zones_response.json")[
+        "zones"
+    ][0]["zoneID"]
     mock_client = MagicMock()
     mock_client.query.side_effect = [
         _indexing_ready_response("SYNC_TOKEN_001"),
@@ -2690,9 +2621,11 @@ def test_photo_album_initialization(mock_photo_library: MagicMock) -> None:
         ],
         zone_id={"zoneName": "TestZone"},
         page_size=50,
-        parent_id="parent123",
-        record_change_tag="tag123",
-        record_modification_date="2023-01-01T00:00:00Z",
+        record=PhotoAlbumRecordState(
+            parent_id="parent123",
+            record_change_tag="tag123",
+            record_modification_date="2023-01-01T00:00:00Z",
+        ),
     )
 
     assert album.name == "Test Album"
@@ -2757,7 +2690,7 @@ def test_photo_album_fullname_with_parent() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="parent123",
+        record=PhotoAlbumRecordState(parent_id="parent123"),
     )
 
     assert album.fullname == "Parent Album/Child Album"
@@ -2778,7 +2711,7 @@ def test_photo_album_fullname_missing_parent_falls_back_to_name() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="missing-parent",
+        record=PhotoAlbumRecordState(parent_id="missing-parent"),
     )
 
     assert album.fullname == "Child Album"
@@ -2796,7 +2729,7 @@ def test_photo_album_fullname_cycle_falls_back_without_recursing() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="child123",
+        record=PhotoAlbumRecordState(parent_id="child123"),
     )
     child_album = PhotoAlbum(
         library=mock_photo_library,
@@ -2806,7 +2739,7 @@ def test_photo_album_fullname_cycle_falls_back_without_recursing() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="parent123",
+        record=PhotoAlbumRecordState(parent_id="parent123"),
     )
     mock_photo_library.albums = AlbumContainer([parent_album, child_album])
 
@@ -2829,7 +2762,7 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
         zone_id={"zoneName": "TestZone"},
     )
 
@@ -2865,7 +2798,7 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
 
     # Verify that if the server returns updated tags, they are stored
     mock_photo_library.service.session.post.return_value.json.return_value = (
-        ALBUM_RENAME_RESPONSE
+        load_fixture("photos_album_rename_response.json")
     )
     album.rename("Another Name")
     assert album._record_change_tag == "new_tag"
@@ -2882,10 +2815,16 @@ def test_photo_album_rename_uses_browser_response_user_modification_date() -> No
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
     mock_photo_library.service.session.post.return_value = MagicMock(
-        json=MagicMock(return_value=BROWSER_ALBUM_RENAME_RESPONSE)
+        json=MagicMock(
+            return_value=load_fixture(
+                "photos_browser_mutations", "album_rename_response.json"
+            )
+        )
     )
 
-    request_record = BROWSER_ALBUM_RENAME_REQUEST["operations"][0]["record"]
+    request_record = load_fixture(
+        "photos_browser_mutations", "album_rename_request.json"
+    )["operations"][0]["record"]
     album = PhotoAlbum(
         library=mock_photo_library,
         name="ALBUM_NAME_ENC_001",
@@ -2894,15 +2833,29 @@ def test_photo_album_rename_uses_browser_response_user_modification_date() -> No
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag=request_record["recordChangeTag"],
-        zone_id=BROWSER_ALBUM_RENAME_REQUEST["zoneID"],
+        record=PhotoAlbumRecordState(
+            record_change_tag=request_record["recordChangeTag"]
+        ),
+        zone_id=load_fixture("photos_browser_mutations", "album_rename_request.json")[
+            "zoneID"
+        ],
     )
 
     album.rename("ALBUM_NAME_ENC_028")
 
     posted = _last_posted_json(mock_photo_library.service.session.post)
-    assert posted["atomic"] is BROWSER_ALBUM_RENAME_REQUEST["atomic"]
-    assert posted["zoneID"] == BROWSER_ALBUM_RENAME_REQUEST["zoneID"]
+    assert (
+        posted["atomic"]
+        is load_fixture("photos_browser_mutations", "album_rename_request.json")[
+            "atomic"
+        ]
+    )
+    assert (
+        posted["zoneID"]
+        == load_fixture("photos_browser_mutations", "album_rename_request.json")[
+            "zoneID"
+        ]
+    )
     assert posted["operations"][0]["operationType"] == "update"
     assert (
         posted["operations"][0]["record"]["recordName"] == request_record["recordName"]
@@ -3071,7 +3024,7 @@ def test_photo_album_delete_success(mock_photo_library: MagicMock) -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
         zone_id={"zoneName": "TestZone"},
     )
 
@@ -3113,7 +3066,9 @@ def test_photo_album_delete_matches_browser_request_fixture() -> None:
     mock_photo_library.service.params = {"dsid": "12345"}
     mock_photo_library.service.session.post.return_value = MagicMock()
 
-    request_record = BROWSER_ALBUM_DELETE_REQUEST["operations"][0]["record"]
+    request_record = load_fixture(
+        "photos_browser_mutations", "album_delete_request.json"
+    )["operations"][0]["record"]
     album = PhotoAlbum(
         library=mock_photo_library,
         name="ALBUM_NAME_ENC_028",
@@ -3122,17 +3077,24 @@ def test_photo_album_delete_matches_browser_request_fixture() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag=request_record["recordChangeTag"],
-        zone_id=BROWSER_ALBUM_DELETE_REQUEST["zoneID"],
+        record=PhotoAlbumRecordState(
+            record_change_tag=request_record["recordChangeTag"]
+        ),
+        zone_id=load_fixture("photos_browser_mutations", "album_delete_request.json")[
+            "zoneID"
+        ],
     )
 
     assert album.delete() is True
 
     assert _last_posted_json(mock_photo_library.service.session.post) == (
-        BROWSER_ALBUM_DELETE_REQUEST
+        load_fixture("photos_browser_mutations", "album_delete_request.json")
     )
     assert (
-        BROWSER_ALBUM_DELETE_RESPONSE["records"][0]["fields"]["isDeleted"]["value"] == 1
+        load_fixture("photos_browser_mutations", "album_delete_response.json")[
+            "records"
+        ][0]["fields"]["isDeleted"]["value"]
+        == 1
     )
 
 
@@ -3195,30 +3157,34 @@ def test_photo_album_add_photo_matches_browser_request_fixture() -> None:
     mock_photo_library.service.session.post.return_value = MagicMock()
     photo = MagicMock(spec=PhotoAsset)
     photo.id = "MASTER_RECORD_ID_031"
-    photo.asset_id = BROWSER_ALBUM_ADD_PHOTO_REQUEST["operations"][0]["record"][
-        "fields"
-    ]["itemId"]["value"]
+    photo.asset_id = load_fixture(
+        "photos_browser_mutations", "album_add_photo_request.json"
+    )["operations"][0]["record"]["fields"]["itemId"]["value"]
 
     album = PhotoAlbum(
         library=mock_photo_library,
         name="ALBUM_NAME_ENC_028",
-        record_id=BROWSER_ALBUM_ADD_PHOTO_REQUEST["operations"][0]["record"]["fields"][
-            "containerId"
-        ]["value"],
+        record_id=load_fixture(
+            "photos_browser_mutations", "album_add_photo_request.json"
+        )["operations"][0]["record"]["fields"]["containerId"]["value"],
         obj_type=ObjectTypeEnum.CONTAINER,
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        zone_id=BROWSER_ALBUM_ADD_PHOTO_REQUEST["zoneID"],
+        zone_id=load_fixture(
+            "photos_browser_mutations", "album_add_photo_request.json"
+        )["zoneID"],
     )
 
     assert album.add_photo(photo) is True
 
     assert _last_posted_json(mock_photo_library.service.session.post) == (
-        BROWSER_ALBUM_ADD_PHOTO_REQUEST
+        load_fixture("photos_browser_mutations", "album_add_photo_request.json")
     )
     assert (
-        BROWSER_ALBUM_ADD_PHOTO_RESPONSE["records"][0]["recordType"]
+        load_fixture("photos_browser_mutations", "album_add_photo_response.json")[
+            "records"
+        ][0]["recordType"]
         == "CPLContainerRelation"
     )
 
@@ -3226,8 +3192,12 @@ def test_photo_album_add_photo_matches_browser_request_fixture() -> None:
 def test_browser_album_remove_photo_fixture_represents_force_delete_relation() -> None:
     """The browser remove-from-album flow deletes the relation record, not the asset."""
 
-    request_operation = BROWSER_ALBUM_REMOVE_PHOTO_REQUEST["operations"][0]
-    response_record = BROWSER_ALBUM_REMOVE_PHOTO_RESPONSE["records"][0]
+    request_operation = load_fixture(
+        "photos_browser_mutations", "album_remove_photo_request.json"
+    )["operations"][0]
+    response_record = load_fixture(
+        "photos_browser_mutations", "album_remove_photo_response.json"
+    )["records"][0]
 
     assert request_operation["operationType"] == "forceDelete"
     assert request_operation["record"]["recordName"] == response_record["recordName"]
@@ -3267,7 +3237,7 @@ def test_photo_album_rename_success_typed_client() -> None:
         direction=DirectionEnum.ASCENDING,
         client=mock_client,
         zone_id={"zoneName": "TestZone"},
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
     )
 
     album.rename("New Name")
@@ -3298,7 +3268,7 @@ def test_photo_album_delete_success_typed_client() -> None:
         direction=DirectionEnum.ASCENDING,
         client=mock_client,
         zone_id={"zoneName": "TestZone"},
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
     )
 
     assert album.delete() is True
@@ -3992,36 +3962,46 @@ def test_photo_asset_delete_success_raw_request_payload() -> None:
 def test_photo_asset_delete_matches_browser_request_fixture() -> None:
     """Photo deletion should match the browser's library-delete payload."""
 
-    request_record = BROWSER_PHOTO_DELETE_REQUEST["operations"][0]["record"]
-    master_record_name = BROWSER_PHOTO_DELETE_RESPONSE["records"][0]["fields"][
-        "masterRef"
-    ]["value"]["recordName"]
+    request_record = load_fixture(
+        "photos_browser_mutations", "photo_delete_request.json"
+    )["operations"][0]["record"]
+    master_record_name = load_fixture(
+        "photos_browser_mutations", "photo_delete_response.json"
+    )["records"][0]["fields"]["masterRef"]["value"]["recordName"]
     asset_record = {
         "recordName": request_record["recordName"],
         "recordType": request_record["recordType"],
         "recordChangeTag": request_record["recordChangeTag"],
-        "zoneID": BROWSER_PHOTO_DELETE_REQUEST["zoneID"],
+        "zoneID": load_fixture("photos_browser_mutations", "photo_delete_request.json")[
+            "zoneID"
+        ],
         "fields": {
-            "assetDate": BROWSER_PHOTO_DELETE_RESPONSE["records"][0]["fields"][
-                "assetDate"
-            ],
-            "addedDate": BROWSER_PHOTO_DELETE_RESPONSE["records"][0]["fields"][
-                "addedDate"
-            ],
+            "assetDate": load_fixture(
+                "photos_browser_mutations", "photo_delete_response.json"
+            )["records"][0]["fields"]["assetDate"],
+            "addedDate": load_fixture(
+                "photos_browser_mutations", "photo_delete_response.json"
+            )["records"][0]["fields"]["addedDate"],
         },
     }
     master_record = {
         "recordName": master_record_name,
         "recordType": "CPLMaster",
         "recordChangeTag": "MASTER_RECORD_CHANGE_TAG_001",
-        "zoneID": BROWSER_PHOTO_DELETE_REQUEST["zoneID"],
+        "zoneID": load_fixture("photos_browser_mutations", "photo_delete_request.json")[
+            "zoneID"
+        ],
         "fields": {},
     }
     mock_service = MagicMock()
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
     mock_service.session.post.return_value = MagicMock(
-        json=MagicMock(return_value=BROWSER_PHOTO_DELETE_RESPONSE),
+        json=MagicMock(
+            return_value=load_fixture(
+                "photos_browser_mutations", "photo_delete_response.json"
+            )
+        ),
         status_code=200,
     )
 
@@ -4030,14 +4010,19 @@ def test_photo_asset_delete_matches_browser_request_fixture() -> None:
     )
 
     assert asset.delete() is True
-    assert _last_posted_json(mock_service.session.post) == BROWSER_PHOTO_DELETE_REQUEST
-    assert (
-        BROWSER_PHOTO_DELETE_RESPONSE["records"][0]["fields"]["isDeleted"]["value"] == 1
+    assert _last_posted_json(mock_service.session.post) == load_fixture(
+        "photos_browser_mutations", "photo_delete_request.json"
     )
     assert (
-        BROWSER_PHOTO_DELETE_RESPONSE["records"][0]["fields"]["masterRef"]["value"][
-            "action"
-        ]
+        load_fixture("photos_browser_mutations", "photo_delete_response.json")[
+            "records"
+        ][0]["fields"]["isDeleted"]["value"]
+        == 1
+    )
+    assert (
+        load_fixture("photos_browser_mutations", "photo_delete_response.json")[
+            "records"
+        ][0]["fields"]["masterRef"]["value"]["action"]
         == "DELETE_SELF"
     )
 
@@ -4222,13 +4207,19 @@ def test_legacy_photo_asset_added_date_falls_back_to_epoch() -> None:
 def test_photo_asset_unfavorite_matches_shared_library_browser_fixture() -> None:
     """Shared Library unfavorite should match the captured browser request exactly."""
 
-    master_record = SHARED_LIBRARY_FAVORITES_RESPONSE["records"][1]
-    asset_record = SHARED_LIBRARY_FAVORITES_RESPONSE["records"][0]
+    master_record = load_fixture("photos_shared_library_favorites_response.json")[
+        "records"
+    ][1]
+    asset_record = load_fixture("photos_shared_library_favorites_response.json")[
+        "records"
+    ][0]
     mock_service = MagicMock()
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
     mock_service.session.post.return_value = MagicMock(
-        json=MagicMock(return_value=SHARED_LIBRARY_UNFAVORITE_RESPONSE),
+        json=MagicMock(
+            return_value=load_fixture("photos_shared_library_unfavorite_response.json")
+        ),
         status_code=200,
     )
 
@@ -4236,7 +4227,7 @@ def test_photo_asset_unfavorite_matches_shared_library_browser_fixture() -> None
 
     assert asset.unfavorite() is True
     assert _last_posted_json(mock_service.session.post) == (
-        SHARED_LIBRARY_UNFAVORITE_REQUEST
+        load_fixture("photos_shared_library_unfavorite_request.json")
     )
     assert record_field_value(asset._asset_record, "isFavorite") == 0
     assert record_change_tag(asset._asset_record) == "RECORD_CHANGE_TAG_309"
@@ -4245,14 +4236,22 @@ def test_photo_asset_unfavorite_matches_shared_library_browser_fixture() -> None
 def test_photo_asset_favorite_uses_symmetric_shared_library_payload() -> None:
     """Shared Library favorite should reuse the captured unfavorite request shape."""
 
-    expected_request = json.loads(json.dumps(SHARED_LIBRARY_UNFAVORITE_REQUEST))
+    expected_request = json.loads(
+        json.dumps(load_fixture("photos_shared_library_unfavorite_request.json"))
+    )
     expected_request["operations"][0]["record"]["fields"]["isFavorite"]["value"] = 1
-    favorite_response = json.loads(json.dumps(SHARED_LIBRARY_UNFAVORITE_RESPONSE))
+    favorite_response = json.loads(
+        json.dumps(load_fixture("photos_shared_library_unfavorite_response.json"))
+    )
     favorite_response["records"][0]["recordChangeTag"] = "RECORD_CHANGE_TAG_310"
     favorite_response["records"][0]["fields"]["isFavorite"]["value"] = 1
 
-    master_record = SHARED_LIBRARY_FAVORITES_RESPONSE["records"][1]
-    asset_record = SHARED_LIBRARY_FAVORITES_RESPONSE["records"][0]
+    master_record = load_fixture("photos_shared_library_favorites_response.json")[
+        "records"
+    ][1]
+    asset_record = load_fixture("photos_shared_library_favorites_response.json")[
+        "records"
+    ][0]
     mock_service = MagicMock()
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
@@ -4288,7 +4287,7 @@ def test_photo_asset_set_favorite_success_typed_client() -> None:
             }
         },
         recordChangeTag="RECORD_CHANGE_TAG_302",
-        zoneID=SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+        zoneID=load_fixture("photos_shared_library_unfavorite_request.json")["zoneID"],
     )
     asset_record = _ck_record(
         "CPLAsset",
@@ -4299,7 +4298,9 @@ def test_photo_asset_set_favorite_success_typed_client() -> None:
                 "value": {
                     "recordName": "MASTER_RECORD_ID_110",
                     "action": "DELETE_SELF",
-                    "zoneID": SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+                    "zoneID": load_fixture(
+                        "photos_shared_library_unfavorite_request.json"
+                    )["zoneID"],
                 },
             },
             "assetDate": {"type": "TIMESTAMP", "value": 1775652698554},
@@ -4307,7 +4308,7 @@ def test_photo_asset_set_favorite_success_typed_client() -> None:
             "isFavorite": {"type": "INT64", "value": 0},
         },
         recordChangeTag="RECORD_CHANGE_TAG_309",
-        zoneID=SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+        zoneID=load_fixture("photos_shared_library_unfavorite_request.json")["zoneID"],
     )
     mock_client.modify.return_value = CKModifyResponse(
         records=[
@@ -4320,7 +4321,9 @@ def test_photo_asset_set_favorite_success_typed_client() -> None:
                         "value": {
                             "recordName": "MASTER_RECORD_ID_110",
                             "action": "DELETE_SELF",
-                            "zoneID": SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+                            "zoneID": load_fixture(
+                                "photos_shared_library_unfavorite_request.json"
+                            )["zoneID"],
                         },
                     },
                     "assetDate": {"type": "TIMESTAMP", "value": 1775652698554},
@@ -4328,7 +4331,9 @@ def test_photo_asset_set_favorite_success_typed_client() -> None:
                     "isFavorite": {"type": "INT64", "value": 1},
                 },
                 recordChangeTag="RECORD_CHANGE_TAG_311",
-                zoneID=SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+                zoneID=load_fixture("photos_shared_library_unfavorite_request.json")[
+                    "zoneID"
+                ],
             )
         ],
         syncToken="SYNC_TOKEN_006",
@@ -4365,7 +4370,7 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
             }
         },
         recordChangeTag="RECORD_CHANGE_TAG_302",
-        zoneID=SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+        zoneID=load_fixture("photos_shared_library_unfavorite_request.json")["zoneID"],
     )
     asset_record = _ck_record(
         "CPLAsset",
@@ -4376,7 +4381,9 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
                 "value": {
                     "recordName": "MASTER_RECORD_ID_110",
                     "action": "DELETE_SELF",
-                    "zoneID": SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+                    "zoneID": load_fixture(
+                        "photos_shared_library_unfavorite_request.json"
+                    )["zoneID"],
                 },
             },
             "assetDate": {"type": "TIMESTAMP", "value": 1775652698554},
@@ -4384,7 +4391,7 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
             "isFavorite": {"type": "INT64", "value": 1},
         },
         recordChangeTag="RECORD_CHANGE_TAG_309",
-        zoneID=SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+        zoneID=load_fixture("photos_shared_library_unfavorite_request.json")["zoneID"],
     )
     mock_client.modify.return_value = CKModifyResponse(
         records=[], syncToken="SYNC_TOKEN_006"
@@ -4405,7 +4412,9 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
                     "value": {
                         "recordName": "MASTER_RECORD_ID_110",
                         "action": "DELETE_SELF",
-                        "zoneID": SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+                        "zoneID": load_fixture(
+                            "photos_shared_library_unfavorite_request.json"
+                        )["zoneID"],
                     },
                 },
                 "assetDate": {"type": "TIMESTAMP", "value": 1775652698554},
@@ -4413,7 +4422,9 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
                 "isFavorite": {"type": "INT64", "value": 0},
             },
             recordChangeTag="RECORD_CHANGE_TAG_312",
-            zoneID=SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+            zoneID=load_fixture("photos_shared_library_unfavorite_request.json")[
+                "zoneID"
+            ],
         ),
     )
     refreshed_library.all.get.return_value = refreshed_asset
@@ -4444,7 +4455,7 @@ def test_photo_asset_set_favorite_raises_on_record_error() -> None:
             }
         },
         recordChangeTag="RECORD_CHANGE_TAG_302",
-        zoneID=SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+        zoneID=load_fixture("photos_shared_library_unfavorite_request.json")["zoneID"],
     )
     asset_record = _ck_record(
         "CPLAsset",
@@ -4455,7 +4466,9 @@ def test_photo_asset_set_favorite_raises_on_record_error() -> None:
                 "value": {
                     "recordName": "MASTER_RECORD_ID_110",
                     "action": "DELETE_SELF",
-                    "zoneID": SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+                    "zoneID": load_fixture(
+                        "photos_shared_library_unfavorite_request.json"
+                    )["zoneID"],
                 },
             },
             "assetDate": {"type": "TIMESTAMP", "value": 1775652698554},
@@ -4463,7 +4476,7 @@ def test_photo_asset_set_favorite_raises_on_record_error() -> None:
             "isFavorite": {"type": "INT64", "value": 1},
         },
         recordChangeTag="RECORD_CHANGE_TAG_309",
-        zoneID=SHARED_LIBRARY_UNFAVORITE_REQUEST["zoneID"],
+        zoneID=load_fixture("photos_shared_library_unfavorite_request.json")["zoneID"],
     )
     mock_client.modify.return_value = CKModifyResponse(
         records=[
@@ -4822,7 +4835,11 @@ def test_create_album_success(mock_photos_service: MagicMock) -> None:
                 }
             )
         ),
-        MagicMock(json=MagicMock(return_value=ALBUM_CREATE_RESPONSE)),
+        MagicMock(
+            json=MagicMock(
+                return_value=load_fixture("photos_album_create_response.json")
+            )
+        ),
     ]
     library = PhotoLibrary(
         service=mock_photos_service,
@@ -4879,13 +4896,21 @@ def test_create_album_browser_fixture_matches_core_request_fields() -> None:
                 }
             )
         ),
-        MagicMock(json=MagicMock(return_value=BROWSER_ALBUM_CREATE_RESPONSE)),
+        MagicMock(
+            json=MagicMock(
+                return_value=load_fixture(
+                    "photos_browser_mutations", "album_create_response.json"
+                )
+            )
+        ),
     ]
     mock_photos_service.service_endpoint = "https://example.com/endpoint"
     mock_photos_service.params = {"dsid": "12345"}
     library = PhotoLibrary(
         service=mock_photos_service,
-        zone_id=BROWSER_ALBUM_CREATE_REQUEST["zoneID"],
+        zone_id=load_fixture("photos_browser_mutations", "album_create_request.json")[
+            "zoneID"
+        ],
         upload_url="https://upload.example.com",
     )
 
@@ -4894,9 +4919,21 @@ def test_create_album_browser_fixture_matches_core_request_fields() -> None:
     assert album is not None
     posted = _last_posted_json(mock_photos_service.session.post)
     request_record = posted["operations"][0]["record"]
-    browser_record = BROWSER_ALBUM_CREATE_REQUEST["operations"][0]["record"]
-    assert posted["atomic"] is BROWSER_ALBUM_CREATE_REQUEST["atomic"]
-    assert posted["zoneID"] == BROWSER_ALBUM_CREATE_REQUEST["zoneID"]
+    browser_record = load_fixture(
+        "photos_browser_mutations", "album_create_request.json"
+    )["operations"][0]["record"]
+    assert (
+        posted["atomic"]
+        is load_fixture("photos_browser_mutations", "album_create_request.json")[
+            "atomic"
+        ]
+    )
+    assert (
+        posted["zoneID"]
+        == load_fixture("photos_browser_mutations", "album_create_request.json")[
+            "zoneID"
+        ]
+    )
     assert posted["operations"][0]["operationType"] == "create"
     assert request_record["recordType"] == browser_record["recordType"]
     for field_name in (
@@ -4913,7 +4950,12 @@ def test_create_album_browser_fixture_matches_core_request_fields() -> None:
     assert "position" in request_record["fields"]
     assert "position" in browser_record["fields"]
     assert request_record["fields"]["position"]["value"] > 0
-    assert BROWSER_ALBUM_CREATE_RESPONSE["records"][0]["recordType"] == "CPLAlbum"
+    assert (
+        load_fixture("photos_browser_mutations", "album_create_response.json")[
+            "records"
+        ][0]["recordType"]
+        == "CPLAlbum"
+    )
 
 
 def test_create_album_returns_none_on_invalid_response(

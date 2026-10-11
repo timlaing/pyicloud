@@ -2,6 +2,8 @@
 
 from .domain import (
     Alarm,
+    DateComponents,
+    DateTrigger,
     Hashtag,
     ImageAttachment,
     LocationTrigger,
@@ -18,6 +20,8 @@ from .results import AlarmWithTrigger, ListRemindersResult
 __all__ = [
     "Alarm",
     "AlarmWithTrigger",
+    "DateComponents",
+    "DateTrigger",
     "Hashtag",
     "ImageAttachment",
     "ListRemindersResult",

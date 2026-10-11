@@ -113,6 +113,62 @@ def master_asset_pairs(
     return assets_by_master, masters
 
 
+def _master_asset_groups(
+    records: Iterable[CKRecord],
+) -> tuple[dict[str, list[CKRecord]], list[CKRecord]]:
+    """Keep every asset that refers to a master, in response order."""
+    assets: dict[str, list[CKRecord]] = {}
+    masters: list[CKRecord] = []
+    for record in records:
+        if record.recordType == "CPLAsset":
+            ref = record.fields.get_value("masterRef")
+            name = getattr(ref, "recordName", None) or record.recordName
+            assets.setdefault(name, []).append(record)
+        elif record.recordType == "CPLMaster":
+            masters.append(record)
+    return assets, masters
+
+
+def _raw_asset_groups(
+    response: dict[str, Any],
+) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    """Join raw records without collapsing duplicated photos into one asset."""
+    assets: dict[str, list[dict[str, Any]]] = {}
+    masters: list[dict[str, Any]] = []
+    records = response.get("records", [])
+    if not isinstance(records, list):
+        return assets, masters
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if record.get("recordType") == "CPLMaster":
+            masters.append(record)
+            continue
+        if record.get("recordType") != "CPLAsset":
+            continue
+        name = _extract_master_record_name_from_asset(record)
+        if isinstance(name, str):
+            assets.setdefault(name, []).append(record)
+    return assets, masters
+
+
+def _extract_master_record_name_from_asset(record: dict[str, Any]) -> str | None:
+    """Extract the master record name from a CPLAsset record."""
+    fields = record.get("fields")
+    if not isinstance(fields, dict):
+        return None
+    reference = fields.get("masterRef")
+    if not isinstance(reference, dict):
+        return None
+    value = reference.get("value")
+    if not isinstance(value, dict):
+        return None
+    name = value.get("recordName")
+    if isinstance(name, str):
+        return name
+    return None
+
+
 def timestamp_or_epoch(value: Any) -> datetime:
     """Normalize optional CloudKit timestamps to a stable datetime."""
 

@@ -82,11 +82,23 @@ def _auth_status_rows(payload: dict[str, object]) -> list[tuple[str, object]]:
 
 
 def _auth_payload(
-    state: CLIState, api: PyiCloudService, status: dict[str, object]
+    state: CLIState,
+    api: PyiCloudService,
+    status: dict[str, object],
+    *,
+    check_keyring: bool = True,
 ) -> dict[str, object]:
+    """Build one auth payload.
+
+    ``check_keyring=False`` leaves ``has_keyring_password`` unknown (``None``)
+    instead of reading the local keyring or claiming the password is absent.
+    """
+
     payload: dict[str, object] = {
         "account_name": api.account_name,
-        "has_keyring_password": state.has_keyring_password(api.account_name),
+        "has_keyring_password": (
+            state.has_keyring_password(api.account_name) if check_keyring else None
+        ),
         **state.auth_storage_info(api),
         **status,
     }
@@ -234,6 +246,7 @@ def auth_login(
             "requires_2fa": api.requires_2fa,
             "requires_2sa": api.requires_2sa,
         },
+        check_keyring=not state.skips_keyring_for_login,
     )
     if state.json_output:
         state.write_json(payload)

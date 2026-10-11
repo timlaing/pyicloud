@@ -35,10 +35,10 @@ def test_load_no_filename() -> None:
     jar.load()  # No-op
 
 
-def test_load_with_filename_removes_fmip_cookie(
+def test_load_with_filename_preserves_fmip_cookie(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that loading a jar with an FMIP cookie removes that cookie."""
+    """Test that loading a jar preserves the persisted FMIP credential."""
     filename = "test_cookies.txt"
     buffer = StringIO()
     monkeypatch.setattr(buffer, "close", MagicMock())
@@ -56,19 +56,19 @@ def test_load_with_filename_removes_fmip_cookie(
         # Add a non-FMIP cookie too
         jar.set("other_cookie", "value", domain="example.com", path="/")
         jar.save()
-        # Reload and check FMIP cookie is removed
+        # Reload and check both independent service credentials survive
         jar2 = PyiCloudCookieJar(filename=filename)
         buffer.seek(0)
         jar2.load()
         names: list[str] = [cookie.name for cookie in jar2]
-        assert _FMIP_AUTH_COOKIE_NAME not in names
+        assert _FMIP_AUTH_COOKIE_NAME in names
         assert "other_cookie" in names
 
 
-def test_load_with_custom_filename_argument_removes_fmip_cookie(
+def test_load_with_custom_filename_argument_preserves_fmip_cookie(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that loading a jar with an FMIP cookie removes that cookie."""
+    """Test that loading a jar preserves the persisted FMIP credential."""
     filename = "test_cookies.txt"
     buffer = StringIO()
     monkeypatch.setattr(buffer, "close", MagicMock())
@@ -85,8 +85,10 @@ def test_load_with_custom_filename_argument_removes_fmip_cookie(
         jar.save()
 
         jar2: PyiCloudCookieJar = PyiCloudCookieJar()
+        buffer.seek(0)
+        jar2.load(filename=filename)
         names: list[str] = [cookie.name for cookie in jar2]
-        assert _FMIP_AUTH_COOKIE_NAME not in names
+        assert _FMIP_AUTH_COOKIE_NAME in names
 
 
 def test_load_handles_keyerror_on_clear(

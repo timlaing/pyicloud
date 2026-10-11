@@ -1,0 +1,115 @@
+# Command-Line Interface
+
+[← Back to the documentation index](../index.md)
+
+The `icloud` command line interface is organized around top-level
+subcommands such as `auth`, `account`, `devices`, `calendar`,
+`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, and `reminders`,
+plus a standalone `doctor` command described under
+[Diagnostics](diagnostics.md).
+
+Command options belong on the final command that uses them. For example:
+
+```console
+icloud auth login --username jappleseed@apple.com
+icloud account summary --format json
+```
+
+The root command only exposes help and shell-completion utilities.
+
+You can store your password in the system keyring using the
+command-line tool:
+
+```console
+icloud auth login --username jappleseed@apple.com
+Enter iCloud password for jappleseed@apple.com:
+Save password in keyring? (y/N)
+```
+
+If you have stored a password in the keyring, you will not be required
+to provide a password when interacting with the command-line tool or
+instantiating the `PyiCloudService` class for that username.
+
+```python
+api = PyiCloudService("jappleseed@apple.com")
+```
+
+CLI examples:
+
+```console
+icloud auth status
+icloud auth login --username jappleseed@apple.com
+icloud auth login --username jappleseed@apple.com --china-mainland
+icloud auth login --username jappleseed@apple.com --accept-terms
+icloud account summary
+icloud account summary --format json
+icloud devices list --locate
+icloud devices list --with-family
+icloud devices show "Example iPhone"
+icloud devices export "Example iPhone" --output ./iphone.json
+icloud calendar events --username jappleseed@apple.com --period week
+icloud contacts me --username jappleseed@apple.com
+icloud drive list /Documents --username jappleseed@apple.com
+icloud photos libraries --username jappleseed@apple.com
+icloud photos albums --username jappleseed@apple.com
+icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com
+icloud photos get photo-id-123 --format json --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --username jappleseed@apple.com
+icloud photos watch --directory ./downloads --recent 1 --interval 300 --username jappleseed@apple.com
+icloud photos sync --directory ./downloads --album Favorites --folder-structure '{:%Y/%m}' --username jappleseed@apple.com
+icloud photos sync-cursor --username jappleseed@apple.com
+icloud photos changes --since '<sync-cursor>' --username jappleseed@apple.com
+icloud hidemyemail list --username jappleseed@apple.com
+icloud auth logout
+icloud auth logout --keep-trusted
+icloud auth logout --all-sessions
+icloud auth logout --keep-trusted --all-sessions
+icloud auth logout --remove-keyring
+icloud auth keyring delete --username jappleseed@apple.com
+```
+
+If you would like to delete a password stored in your system keyring,
+use the dedicated keyring subcommand:
+
+```console
+icloud auth keyring delete --username jappleseed@apple.com
+```
+
+The `auth` command group lets you inspect and manage persisted sessions:
+
+- `icloud auth status`: report active logged-in iCloud sessions without prompting for password or 2FA
+- `icloud auth login`: ensure a usable authenticated session exists
+- `icloud auth logout`: sign out and clear the local session so the next login will typically require 2FA again
+- `icloud auth logout --keep-trusted`: sign out while asking Apple to preserve trusted-browser state for the next login
+- `icloud auth logout --all-sessions`: attempt to sign out all browser sessions
+- `icloud auth logout --remove-keyring`: also delete the stored password for the selected account
+- `icloud auth keyring delete --username <apple-id>`: delete the stored password without logging out
+- `icloud auth logout --keep-trusted --all-sessions`: experimental combination that requests both behaviors
+
+When only one local account is known, `auth login` can omit
+`--username`. Service commands, `auth status`, and `auth logout` without
+`--username` operate on active logged-in sessions only, similar to `gh`.
+If no active sessions exist, service commands and `auth status` report
+that no iCloud accounts are logged in and direct you to
+`icloud auth login --username <apple-id>`. If multiple logged-in
+accounts exist, pass `--username` to disambiguate account-targeted
+operations.
+
+`--keep-trusted` and `--all-sessions` are translated to Apple's logout
+payload internally; the CLI intentionally exposes user-facing semantics
+instead of the raw wire field names.
+
+Stored passwords in the system keyring are treated separately from
+authenticated sessions. A plain `icloud auth logout` ends the session
+but keeps the stored password. Use `icloud auth logout --remove-keyring`
+or `icloud auth keyring delete --username <apple-id>` if you also want
+to forget the saved password.
+
+**Note**: Authentication expires on an interval set by Apple, at which
+point you will have to authenticate again.
+
+**Note**: Apple will require you to accept new terms and conditions to
+access the iCloud web service. This will result in login failures until
+the terms are accepted. This can be automatically accepted by PyiCloud
+using `icloud auth login --accept-terms`. Alternatively you can visit
+the iCloud web site to view and accept the terms.

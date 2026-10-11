@@ -6,6 +6,7 @@ from pyicloud.common.models import FrozenServiceModel
 
 from .domain import (
     Alarm,
+    DateTrigger,
     Hashtag,
     ImageAttachment,
     LocationTrigger,
@@ -16,10 +17,10 @@ from .domain import (
 
 
 class AlarmWithTrigger(FrozenServiceModel):
-    """Alarm paired with its optional location trigger."""
+    """Alarm paired with its optional location or date trigger."""
 
     alarm: Alarm
-    trigger: LocationTrigger | None = None
+    trigger: LocationTrigger | DateTrigger | None = None
 
 
 class ListRemindersResult(FrozenServiceModel):
@@ -28,7 +29,7 @@ class ListRemindersResult(FrozenServiceModel):
 
     reminders: list[Reminder]
     alarms: dict[str, Alarm]
-    triggers: dict[str, LocationTrigger]
+    triggers: dict[str, LocationTrigger | DateTrigger]
     attachments: dict[str, URLAttachment | ImageAttachment]
     hashtags: dict[str, Hashtag]
     recurrence_rules: dict[str, RecurrenceRule]

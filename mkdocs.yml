@@ -1,0 +1,97 @@
+# MkDocs configuration for the PyiCloud documentation site.
+#
+# The configuration is intentionally kept compatible with Zensical
+# (https://zensical.org), the successor to Material for MkDocs, so the eventual
+# migration is low-cost. See docs/README and .readthedocs.yaml.
+site_name: PyiCloud
+site_description: >-
+  A Python library and CLI for interacting with Apple iCloud web services.
+site_url: !ENV [READTHEDOCS_CANONICAL_URL, https://pyicloud.readthedocs.io/]
+repo_url: https://github.com/timlaing/pyicloud
+repo_name: timlaing/pyicloud
+edit_uri: edit/main/docs/
+docs_dir: docs
+
+# Post-process the generated CLI page to stop mkdocs-autorefs from treating
+# Typer usage metavars (for example "[OPTIONS][path]") as cross-references.
+hooks:
+  - docs/hooks/typer_autorefs.py
+
+# Maintainer design notes are not part of the published site.
+exclude_docs: |
+  research/
+  hooks/
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - toc.follow
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            filters: ["!^_"]
+            members_order: source
+            show_source: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+  - mkdocs_typer2.markdown:makeExtension
+
+validation:
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Authentication: guides/authentication.md
+      - Command-Line Interface: guides/cli.md
+      - Diagnostics: guides/diagnostics.md
+  - Services:
+      - Account: services/account.md
+      - Devices & Find My: services/devices.md
+      - Calendar: services/calendar.md
+      - Contacts: services/contacts.md
+      - File Storage (Drive): services/drive.md
+      - Photos: services/photos.md
+      - Hide My Email: services/hidemyemail.md
+      - Reminders: services/reminders.md
+      - Notes: services/notes.md
+      - Invites: services/invites.md
+  - Examples: examples.md
+  - API Reference:
+      - Overview: api/index.md
+      - PyiCloudService: api/pyicloud-service.md
+      - Services:
+          - Overview: api/services.md
+          - Account: api/services/account.md
+          - Calendar: api/services/calendar.md
+          - Contacts: api/services/contacts.md
+          - Drive: api/services/drive.md
+          - Find My iPhone: api/services/findmyiphone.md
+          - Hide My Email: api/services/hidemyemail.md
+          - Photos: api/services/photos.md
+          - Reminders: api/services/reminders.md
+          - Notes: api/services/notes.md
+          - Invites: api/services/invites.md
+      - Exceptions: api/exceptions.md
+      - Command-Line Interface: api/cli.md

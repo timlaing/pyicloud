@@ -9,6 +9,7 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - `pyicloud/services/` — per-service modules (drive, photos, findmyiphone, notes, reminders, invites, ...). Notes and reminders have heavier sub-packages (`models/`, `protobuf/`, `rendering/`, `_writes.py`, `_reads.py`, `_protocol.py`).
 - `tests/` — pytest suite mirroring package layout; `tests/const/` holds HTTP-response fixtures.
 - `scripts/` — dev/tooling helpers (see below).
+- `docs/` — user documentation: `docs/guides/` (cross-cutting how-tos), `docs/services/` (one page per service), and `docs/research/` (maintainer design notes).
 
 ## Setup
 
@@ -20,13 +21,16 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - Format/lint: `ruff check --fix` and `ruff format` (Ruff is the only formatter; line length 88, `preview=true` in `[tool.ruff]`).
 - Types: `mypy .` (strict mode, `[tool.mypy]`).
 - Pylint: `pylint` (config in `[tool.pylint.*]`).
-- Pre-commit hooks are managed by **`prek`** (a pre-commit drop-in), not `pre-commit`. Hooks & config: `.pre-commit-config.yaml`; install with `prek install`. Runs: ruff, cspell, yamllint, prettier, mypy, pylint.
+- Pre-commit hooks are managed by **`prek`** (a pre-commit drop-in), not `pre-commit`. Hooks & config: `.pre-commit-config.yaml`; install with `prek install`. Runs: ruff, cspell, yamllint, prettier, mypy, pylint. A manual `pytest` hook additionally gates coverage at `--cov-fail-under=90`.
 - Tests: `pytest` (config in `[tool.pytest.ini_options]`). Run a single file with `pytest tests/services/test_drive.py` or single test with `pytest tests/test_base.py::test_name -k`.
 
 ## Test gotchas (important)
 
 - `pyproject.toml` `[tool.pytest.ini_options]` adds `--disable-socket --allow-unix-socket --timeout=2` via `addopts`. **Tests must not make network calls** and must complete fast.
-- `tests/conftest.py` installs autouse fixtures that **block filesystem access**: `open`, `os.open`, `os.mkdir`, `os.makedirs`, `os.chmod` all raise unless the path contains `"python-test-results"`. New tests must mock any file I/O.
+- `tests/conftest.py` **blocks filesystem access outside the `python-test-results` sandbox** (`tempfile.gettempdir()/python-test-results`; a resolved-prefix match, so on macOS it sits under `/var/folders/...`, not `/tmp`). Reads (`os.stat`/`lstat`/`listdir`/`scandir`/`walk`/`access`/`readlink`), mutations (`os.mkdir`/`makedirs`/`chmod`/`remove`/`unlink`/`rename`/`replace`/…), `shutil`, and `builtins.open`/`os.open`/`io.open` all raise outside it. Mock the call in the test (`patch("os.path.exists", return_value=False)`, …) or write inside the sandbox.
+- Sanctioned exceptions are library/tooling behaviour, never test I/O: gettext/click `.mo` lookups, coverage's path-only metadata resolution plus its reads of package sources and write-only `coverage.xml` output, fixture reads made through `tests/fixture_loader.load_fixture`, and the inventory scan's package-source reads via `tests.conftest.allow_source_reads`.
+- Load fixtures with `load_fixture(...)` from `tests/fixture_loader.py`; it wraps the read in the sanctioned exemption, so don't reach for `Path.read_text` directly.
+- **Do not disable coverage** to make a target pass: never add `# pragma: no cover` (or other `exclude_lines`/coverage-exclusion comments) without explicit approval — close the gap with a test instead.
 
 ## Generated protobuf
 
@@ -40,3 +44,13 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 
 - `docs/research/invites_service_design.md` describes the invites/CloudKit wire protocol — read it before touching that service.
 - `.env` (gitignored, local only) sets HTTP(S)_PROXY for the dev env; not part of the repo and not required for tests.
+
+## Changelog
+
+- Maintain `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+- This project uses [CalVer](https://calver.org/) format (`YYYY.M.PATCH`) for versioning starting from the next release.
+- All PRs must update `CHANGELOG.md` under the `[Unreleased]` section with appropriate entries (Added, Changed, Fixed, Removed, Deprecated, Security, Refactored, Tests, etc.) describing user-facing changes.
+- On release, move entries from `[Unreleased]` to a new versioned section with the release date (format `YYYY-MM-DD`), use the version number in CalVer format (e.g., `[2026.10.1]`), and update the comparison links at the bottom.
+- Never hand-edit version numbers - they come from git tags via setuptools-scm.
+- **Never bypass commit checks** (e.g., `git commit --no-verify`). All pre-commit hooks must pass locally before committing changes. If a hook fails due to false positives, fix the configuration or the files properly - do not skip the checks. Only bypass checks with explicit case-by-case approval from the user.
+- When adding words to cspell dictionaries (e.g., `.vscode/cspell.json`), ensure words are in **lowercase** and in **alphabetical order**.

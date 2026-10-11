@@ -57,6 +57,26 @@ class PyiCloudPCSTimeoutException(PyiCloudAPIResponseException):
     """Raised when PCS access could not be granted after all retries."""
 
 
+class PyiCloudConnectionException(PyiCloudAPIResponseException):
+    """Raised when iCloud could not be reached at all.
+
+    A connection error, DNS failure or timeout says nothing about whether the
+    caller's credentials or session are still good, only that no answer came
+    back. Callers need to tell the two apart because the remedies are opposite:
+    a rejected password is fixed by asking the user to log in again, while an
+    unreachable service is fixed by waiting and retrying.
+
+    Distinguishing it matters most during authentication, where every transport
+    failure used to be reported as a failed login. A consumer acting on that
+    asks the user to re-enter working credentials in the middle of an outage,
+    and, if it stops polling until they do, stays down long after iCloud has
+    come back.
+
+    Subclasses the generic response error so existing handlers keep catching
+    it, and carries no ``code`` because no HTTP response was received.
+    """
+
+
 class PyiCloudEndpointGoneException(PyiCloudAPIResponseException):
     """Raised when Apple reports an endpoint as permanently gone (HTTP 410).
 
@@ -111,6 +131,27 @@ class PyiCloudFailedLoginException(PyiCloudException):
         if response is not None and response.text:
             message = f"{message} ({response.status_code}): {response.text}"
         super().__init__(message, *args)
+
+
+# Keep the recovery URL whole so its query parameters are unambiguous.
+# pylint: disable=line-too-long
+class PyiCloudAccountLockedException(PyiCloudFailedLoginException):
+    """Apple rejected authentication because the account is locked.
+
+    The iCloud sign-in flow directs locked accounts to this unlock URL. Apple
+    determines the required verification steps. Replace
+    ``{url_encoded_apple_account}`` with the URL-encoded Apple Account:
+    ``https://iforgot.apple.com/password/verify/appleid?returnUrl=https%3A%2F%2Fwww.icloud.com%2F&prs_account_nm={url_encoded_apple_account}&unlock=true``.
+    """
+
+    def __init__(self, code: int | str, response: Response) -> None:
+        """Keep the service error and response available without logging its body."""
+        self.code: int | str = code
+        super().__init__("Apple Account is locked for security reasons")
+        self.response = response
+
+
+# pylint: enable=line-too-long
 
 
 class PyiCloudAcceptTermsException(PyiCloudException):

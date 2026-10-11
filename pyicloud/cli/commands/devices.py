@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
+import time
+from typing import Any
 
 import typer
 
@@ -16,6 +19,7 @@ from pyicloud.cli.options import (
     LogLevelOption,
     NoVerifySslOption,
     OutputFormatOption,
+    RefreshIntervalOption,
     SessionDirOption,
     UsernameOption,
     WithFamilyOption,
@@ -25,6 +29,7 @@ from pyicloud.cli.output import (
     console_kv_table,
     console_table,
     print_json_text,
+    to_json_string,
     write_json_file,
 )
 
@@ -34,47 +39,24 @@ FIND_MY = "Find My"
 DEVICE_ID_HELP = "Device id or name."
 
 
-@app.command("list")
-def devices_list(
-    ctx: typer.Context,
-    locate: bool = typer.Option(
-        False, "--locate", help="Fetch current device locations."
-    ),
-    username: UsernameOption = None,
-    session_dir: SessionDirOption = None,
-    http_proxy: HttpProxyOption = None,
-    https_proxy: HttpsProxyOption = None,
-    no_verify_ssl: NoVerifySslOption = False,
-    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
-    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
-    with_family: WithFamilyOption = False,
-) -> None:
-    """List Find My devices."""
+def _fetch_device_summaries(api: Any, *, locate: bool) -> list[dict[str, Any]]:
+    """Fetch normalized device summaries from Find My."""
 
-    store_command_options(
-        ctx,
-        username=username,
-        session_dir=session_dir,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
-        no_verify_ssl=no_verify_ssl,
-        output_format=output_format,
-        log_level=log_level,
-        with_family=with_family,
+    # Iterating the manager can trigger a refresh (when its monitor has
+    # stopped), so keep it inside service_call's error handling.
+    summaries: list[dict[str, Any]] = service_call(
+        FIND_MY,
+        lambda: [
+            normalize_device_summary(device, locate=locate) for device in api.devices
+        ],
+        account_name=api.account_name,
     )
-    state = get_state(ctx)
-    api = state.get_api()
-    payload = [
-        normalize_device_summary(device, locate=locate)
-        for device in service_call(
-            FIND_MY,
-            lambda: api.devices,
-            account_name=api.account_name,
-        )
-    ]
-    if state.json_output:
-        state.write_json(payload)
-        return
+    return summaries
+
+
+def _render_device_summary_table(state: Any, payload: list[dict[str, Any]]) -> None:
+    """Render one device summary listing as a console table."""
+
     state.console.print(
         console_table(
             "Devices",
@@ -94,6 +76,153 @@ def devices_list(
     )
 
 
+def _print_device_watch_wait(
+    state: Any,
+    *,
+    interval_seconds: float,
+    next_iteration: int,
+    iterations: int | None,
+) -> None:
+    """Print a progress message between device listing watch runs."""
+
+    if iterations is None:
+        state.console.print(
+            f"Waiting {interval_seconds:g}s before device listing run "
+            f"{next_iteration}..."
+        )
+        return
+    state.console.print(
+        f"Waiting {interval_seconds:g}s before device listing run "
+        f"{next_iteration} of {iterations}..."
+    )
+
+
+def _iter_device_watch_payloads(
+    state: Any,
+    api: Any,
+    *,
+    interval_seconds: float,
+    iterations: int | None,
+    locate: bool,
+) -> Iterator[list[dict[str, Any]]]:
+    """Locate devices and yield a fresh summary on every watch run."""
+
+    completed = 0
+    while iterations is None or completed < iterations:
+        if completed > 0:
+            if not state.json_output:
+                _print_device_watch_wait(
+                    state,
+                    interval_seconds=interval_seconds,
+                    next_iteration=completed + 1,
+                    iterations=iterations,
+                )
+            time.sleep(interval_seconds)
+        # Locate before every run: the manager's initial initClient request
+        # omits the locate fields, so the first listing would be stale.
+        service_call(
+            FIND_MY,
+            lambda: api.devices.refresh(locate=True),
+            account_name=api.account_name,
+        )
+        yield _fetch_device_summaries(api, locate=locate)
+        completed += 1
+
+
+def _watch_device_summaries(
+    state: Any,
+    api: Any,
+    *,
+    interval_seconds: float,
+    iterations: int | None,
+    locate: bool,
+) -> None:
+    """Re-locate and re-list devices at the interval until interrupted."""
+
+    payloads = _iter_device_watch_payloads(
+        state,
+        api,
+        interval_seconds=interval_seconds,
+        iterations=iterations,
+        locate=locate,
+    )
+    try:
+        if state.json_output:
+            if iterations is None:
+                for payload in payloads:
+                    # Compact JSON per run; markup off so device names like
+                    # "[bold]Phone[/bold]" survive verbatim.
+                    state.console.print(to_json_string(payload), markup=False)
+                return
+            state.write_json(list(payloads))
+            return
+
+        for payload in payloads:
+            _render_device_summary_table(state, payload)
+    except KeyboardInterrupt as err:
+        raise typer.Exit(code=130) from err
+
+
+@app.command("list")
+def devices_list(
+    ctx: typer.Context,
+    locate: bool = typer.Option(
+        False, "--locate", help="Fetch current device locations."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+    with_family: WithFamilyOption = False,
+    refresh_interval: RefreshIntervalOption = None,
+    iterations: int | None = typer.Option(
+        None,
+        "--iterations",
+        min=1,
+        help="Stop after N listing runs (requires --refresh-interval; "
+        "default: watch until interrupted).",
+    ),
+) -> None:
+    """List Find My devices."""
+
+    if iterations is not None and refresh_interval is None:
+        raise typer.BadParameter("The --iterations option requires --refresh-interval.")
+
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+        with_family=with_family,
+        refresh_interval=refresh_interval,
+    )
+    state = get_state(ctx)
+    api = state.get_api()
+
+    if refresh_interval is None:
+        payload = _fetch_device_summaries(api, locate=locate)
+        if state.json_output:
+            state.write_json(payload)
+            return
+        _render_device_summary_table(state, payload)
+        return
+
+    _watch_device_summaries(
+        state,
+        api,
+        interval_seconds=refresh_interval,
+        iterations=iterations,
+        locate=locate,
+    )
+
+
 @app.command("show")
 def devices_show(
     ctx: typer.Context,
@@ -110,6 +239,7 @@ def devices_show(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Show detailed information for one device."""
 
@@ -123,6 +253,7 @@ def devices_show(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -163,6 +294,7 @@ def devices_sound(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Play a sound on a device."""
 
@@ -176,6 +308,7 @@ def devices_sound(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -194,7 +327,7 @@ def devices_sound(
 
 @app.command("message")
 def devices_message(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     message: str = typer.Argument(..., help="Message to display."),
     subject: str = typer.Option("A Message", "--subject"),
@@ -207,6 +340,7 @@ def devices_message(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Display a message on a device."""
 
@@ -220,6 +354,7 @@ def devices_message(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -245,7 +380,7 @@ def devices_message(
 
 @app.command("lost-mode")
 def devices_lost_mode(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     phone: str = typer.Option("", "--phone", help="Phone number shown in lost mode."),
     message: str = typer.Option(
@@ -262,6 +397,7 @@ def devices_lost_mode(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Enable lost mode for a device."""
 
@@ -275,6 +411,7 @@ def devices_lost_mode(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -315,6 +452,7 @@ def devices_erase(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Request a remote erase for a device."""
 
@@ -328,6 +466,7 @@ def devices_erase(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -350,7 +489,7 @@ def devices_erase(
 
 @app.command("export")
 def devices_export(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     output: Path = typer.Option(..., "--output", help="Destination JSON file."),
     raw: bool | None = typer.Option(
@@ -372,6 +511,7 @@ def devices_export(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
+    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Export a device snapshot to JSON."""
 
@@ -385,6 +525,7 @@ def devices_export(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
+        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()

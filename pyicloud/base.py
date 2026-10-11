@@ -10,6 +10,7 @@ from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
 import time
 from typing import Any, Optional, cast
+from urllib.parse import urlparse
 from uuid import uuid1
 
 from fido2.client import DefaultClientDataCollector, Fido2Client
@@ -26,11 +27,19 @@ from requests.models import Response
 import srp
 
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
-from pyicloud.const import ACCOUNT_NAME, CONTENT_TYPE_JSON, CONTENT_TYPE_TEXT
+from pyicloud.const import (
+    ACCOUNT_NAME,
+    CONTENT_TYPE_JSON,
+    CONTENT_TYPE_TEXT,
+    AppleAuthError,
+)
 from pyicloud.exceptions import (
     PyiCloud2FARequiredException,
     PyiCloudAcceptTermsException,
+    PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
+    PyiCloudAuthRequiredException,
+    PyiCloudConnectionException,
     PyiCloudFailedLoginException,
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
@@ -250,7 +259,7 @@ class PyiCloudService:
         return _cookie_directory
 
     def __init__(
-        self,
+        self,  # noqa: S107 - public entry point intentionally exposes many options
         apple_id: str,
         password: str | None = None,
         cookie_directory: str | None = None,
@@ -262,6 +271,7 @@ class PyiCloudService:
         refresh_interval: float | None = None,
         family_poll_delay: float = 0.5,
         family_poll_max_retries: int = 5,
+        monitor_locate: bool = False,
         *,
         authenticate: bool = True,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
@@ -301,6 +311,7 @@ class PyiCloudService:
         self._with_family: bool = with_family
         self._family_poll_delay: float = family_poll_delay
         self._family_poll_max_retries: int = family_poll_max_retries
+        self._monitor_locate: bool = monitor_locate
         self._cloudkit_validation_extra = cloudkit_validation_extra
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
@@ -395,7 +406,10 @@ class PyiCloudService:
             return False
         try:
             self.data = self._validate_token()
-        except PyiCloudAPIResponseException:
+        except (
+            PyiCloudAPIResponseException,
+            PyiCloudAuthRequiredException,
+        ):
             LOGGER.debug("Invalid authentication token, will log in from scratch.")
             return False
         if not self.is_trusted_session and not pause_2fa:
@@ -418,6 +432,8 @@ class PyiCloudService:
         try:
             self._authenticate_with_credentials_service(service)
             return True
+        except PyiCloudAccountLockedException:
+            raise
         except PyiCloudFailedLoginException:
             LOGGER.debug("Could not log into service. Attempting brand new login.")
             return False
@@ -579,7 +595,13 @@ class PyiCloudService:
 
         try:
             self._authenticate_with_token()
-        except (PyiCloudFailedLoginException, PyiCloud2FARequiredException):
+        except PyiCloudAccountLockedException:
+            raise
+        except (
+            PyiCloudFailedLoginException,
+            PyiCloud2FARequiredException,
+            PyiCloudAuthRequiredException,
+        ):
             paused_login_succeeded = self._srp_authentication(pause_2fa=pause_2fa)
             if self._requires_mfa:
                 LOGGER.debug(
@@ -636,6 +658,9 @@ class PyiCloudService:
                 headers=self._get_auth_headers(),
             )
             response.raise_for_status()
+        except PyiCloudConnectionException:
+            # Not a credentials problem; let it through as itself.
+            raise
         except (
             PyiCloudAPIResponseException,
             HTTPError,
@@ -697,6 +722,9 @@ class PyiCloudService:
                 PyiCloudNoTrustedNumberAvailable,
             ) as error:
                 LOGGER.debug("Automatic 2FA code delivery failed: %s", error)
+        except PyiCloudConnectionException:
+            # Not a credentials problem; let it through as itself.
+            raise
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg) from error
@@ -711,6 +739,8 @@ class PyiCloudService:
         )
         try:
             self._authenticate_with_token(require_trust=False)
+        except PyiCloudAccountLockedException:
+            raise
         except (PyiCloudAPIResponseException, PyiCloudFailedLoginException):
             LOGGER.debug("Paused session-token login failed; falling back to MFA flow.")
             return False
@@ -755,6 +785,9 @@ class PyiCloudService:
             self._hsa2_boot_context = None
             self._clear_trusted_device_bridge_state()
             self._set_two_factor_delivery_state("unknown")
+        except PyiCloudConnectionException:
+            # Not a credentials problem; let it through as itself.
+            raise
         except (PyiCloudAPIResponseException, HTTPError) as error:
             msg = "Invalid authentication token."
             raise PyiCloudFailedLoginException(msg, error) from error
@@ -773,6 +806,9 @@ class PyiCloudService:
             self._handle_accept_terms(login_data)
 
             self.data = self._validate_token()
+        except PyiCloudConnectionException:
+            # Not a credentials problem; let it through as itself.
+            raise
         except PyiCloudAPIResponseException as error:
             msg = "Invalid email/password combination."
             raise PyiCloudFailedLoginException(msg, error) from error
@@ -916,7 +952,41 @@ class PyiCloudService:
         self._hsa2_boot_context = boot_context
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("unknown")
+
+        self._augment_webauthn_options(auth_options)
+
         return auth_options
+
+    def _augment_webauthn_options(self, auth_options: dict[str, Any]) -> None:
+        """Probe JSON endpoint for WebAuthn options if missing."""
+        fsa_challenge = auth_options.get("fsaChallenge")
+        if (
+            isinstance(fsa_challenge, dict)
+            and all(
+                fsa_challenge.get(key) for key in ("challenge", "keyHandles", "rpId")
+            )
+            and auth_options.get("keyNames")
+        ):
+            return
+
+        try:
+            json_response = self.session.get(
+                self._auth_endpoint,
+                headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+            ).json()
+        except (
+            PyiCloudAPIResponseException,
+            PyiCloud2FARequiredException,
+            PyiCloudAuthRequiredException,
+            TypeError,
+            ValueError,
+        ):
+            return
+
+        if isinstance(json_response, dict):
+            for webauthn_key in ("fsaChallenge", "keyNames"):
+                if webauthn_key in json_response:
+                    auth_options[webauthn_key] = json_response[webauthn_key]
 
     def _set_two_factor_delivery_state(
         self, method: str, notice: str | None = None
@@ -1261,7 +1331,10 @@ class PyiCloudService:
                 self._validate_trusted_device_code(code)
         except PyiCloudTrustedDeviceVerificationException:
             raise
-        except PyiCloudAPIResponseException:
+        except PyiCloudConnectionException:
+            # Never seen by Apple, so it says nothing about the code.
+            raise
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             # Wrong verification code
             LOGGER.error("Code verification failed.")
             return False
@@ -1279,11 +1352,40 @@ class PyiCloudService:
 
         data: dict[str, Any] = {"securityCode": {"code": code}}
         headers: dict[str, Any] = self._get_auth_headers({"Accept": CONTENT_TYPE_JSON})
-        self.session.post(
-            f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
-            json=data,
-            headers=headers,
-        )
+        try:
+            self.session.post(
+                f"{self._auth_endpoint}/verify/trusteddevice/securitycode",
+                json=data,
+                headers=headers,
+            )
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException) as error:
+            # For `_W` bridge challenges Apple accepts the code but still answers
+            # 409; the body's `securityCode.valid` flag is the real verdict. The
+            # session raises an HSA2 409 as PyiCloud2FARequiredException.
+            if not self._is_accepted_security_code_conflict(error.response):
+                raise
+            LOGGER.debug(
+                "Apple accepted the trusted-device code with a 409 response; "
+                "continuing to session trust."
+            )
+
+    @staticmethod
+    def _is_accepted_security_code_conflict(response: Response | None) -> bool:
+        """Return whether a 409 verify response reports the code as valid."""
+
+        if (
+            response is None
+            or response.status_code != AppleAuthError.TWO_FACTOR_REQUIRED
+        ):
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        if not isinstance(body, dict):
+            return False
+        security_code = body.get("securityCode")
+        return isinstance(security_code, dict) and security_code.get("valid") is True
 
     def _validate_sms_code(self, code: str) -> None:
         """Verifies a verification code received via Apple's SMS system."""
@@ -1300,11 +1402,22 @@ class PyiCloudService:
             "Accept": f"{CONTENT_TYPE_JSON}, {CONTENT_TYPE_TEXT}"
         })
 
-        self.session.post(
-            f"{self._auth_endpoint}/verify/phone/securitycode",
-            json=data,
-            headers=headers,
-        )
+        try:
+            self.session.post(
+                f"{self._auth_endpoint}/verify/phone/securitycode",
+                json=data,
+                headers=headers,
+            )
+        except (PyiCloudAPIResponseException, PyiCloud2FARequiredException) as error:
+            # Apple accepts the SMS code but still answers 409; the body's
+            # `securityCode.valid` flag is the real verdict. The session raises
+            # an HSA2 409 as PyiCloud2FARequiredException.
+            if not self._is_accepted_security_code_conflict(error.response):
+                raise
+            LOGGER.debug(
+                "Apple accepted the SMS code with a 409 response; "
+                "continuing to session trust."
+            )
 
     def trust_session(self) -> bool:
         """Request session trust to avoid user log in going forward."""
@@ -1320,6 +1433,9 @@ class PyiCloudService:
             self._authenticate_with_token()
             LOGGER.debug("Session trust successful.")
             return True
+        except PyiCloudConnectionException:
+            # Apple never answered, so the session was not refused.
+            raise
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException):
             LOGGER.error("Session trust failed.")
             return False
@@ -1375,6 +1491,15 @@ class PyiCloudService:
                 "(Apple advertised it without a usable url)"
             )
 
+        try:
+            endpoint = urlparse(url)
+            secure = endpoint.scheme.lower() == "https" and bool(endpoint.hostname)
+        except ValueError:
+            secure = False
+        if not secure:
+            raise PyiCloudServiceNotActivatedException(
+                f"Webservice not available: {ws_key} (expected an HTTPS endpoint)"
+            )
         return url
 
     @property
@@ -1392,6 +1517,7 @@ class PyiCloudService:
                     refresh_interval=self._refresh_interval,
                     family_poll_delay=self._family_poll_delay,
                     family_poll_max_retries=self._family_poll_max_retries,
+                    monitor_locate=self._monitor_locate,
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(
@@ -1601,10 +1727,7 @@ class PyiCloudService:
                     params=self.params,
                     cloudkit_validation_extra=self._cloudkit_validation_extra,
                 )
-            except (
-                PyiCloudAPIResponseException,
-                PyiCloudServiceNotActivatedException,
-            ) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Invites service not available"
                 ) from error

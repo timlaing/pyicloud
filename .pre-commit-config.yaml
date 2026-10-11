@@ -17,7 +17,7 @@ repos:
       - id: check-added-large-files
       - id: requirements-txt-fixer
       - id: name-tests-test
-        exclude: ^tests/const.*\.py$
+        exclude: ^tests/(const.*|fixture_loader)\.py$
         args:
           - --pytest-test-first
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -104,7 +104,7 @@ repos:
           - bbpb
           - mypy
           - prek
-          - pylint
+          - pylint>=4.0.8,<4.1
           - pylint-strict-informational
           - pytest
           - pytest-asyncio
@@ -143,7 +143,7 @@ repos:
           - bbpb
           - mypy
           - prek
-          - pylint
+          - pylint>=4.0.8,<4.1
           - pylint-strict-informational
           - pytest
           - pytest-asyncio
@@ -163,7 +163,7 @@ repos:
           - "--cov=pyicloud"
           - "--cov-branch"
           - "--cov-report=term-missing"
-          - "--cov-fail-under=80"
+          - "--cov-fail-under=90"
         language: python
         stages: [manual]
         pass_filenames: false
@@ -184,7 +184,7 @@ repos:
           - bbpb
           - mypy
           - prek
-          - pylint
+          - pylint>=4.0.8,<4.1
           - pylint-strict-informational
           - pytest
           - pytest-asyncio

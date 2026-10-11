@@ -251,57 +251,45 @@ class NotesService(BaseService):
                     yield self._summary_from_record(rec)
 
     def folders(self) -> Iterable[NoteFolder]:
-        """
-        Yield top-level Notes folders as ``NoteFolder`` models.
-
-        Use this to build folder navigation or resolve folder IDs before calling
-        ``in_folder()``.
-        """
-        desired_keys = [
-            NotesDesiredKey.TITLE_ENCRYPTED,
-            _HAS_SUBFOLDER_FIELD,
-        ]
-        query = CKQueryObject(
-            recordType="SearchIndexes",
-            filterBy=[
-                CKQueryFilterBy(
-                    comparator="EQUALS",
-                    fieldName="indexName",
-                    fieldValue=CKFVString(type="STRING", value="parentless"),
-                )
-            ],
-        )
-        cont: str | None = None
-        LOGGER.debug("Fetching folders")
-        while True:
-            resp: CKQueryResponse = self._raw.query(
-                query=query,
-                zone_id=NOTES_ZONE_REQ,
-                desired_keys=self._coerce_keys(desired_keys),
-                results_limit=200,
-                continuation=cont,
+        """Yield all Notes folders, including nested folders and their parents."""
+        # A root-only search index omits descendants, and HasSubfolder is not
+        # supplied for every folder. Enumerate Folder records and derive the
+        # relationship from ParentFolder rather than trusting an absent flag.
+        records: list[CKRecord] = []
+        for zone in self._raw.changes(
+            zone_req=CKZoneChangesZoneReq(
+                zoneID=NOTES_ZONE,
+                desiredRecordTypes=[NotesRecordType.Folder],
+                desiredKeys=self._coerce_keys([
+                    NotesDesiredKey.TITLE_ENCRYPTED,
+                    "ParentFolder",
+                ]),
+                reverse=False,
             )
-            for rec in resp.records:
-                if isinstance(rec, CKRecord):
-                    folder_id = rec.recordName
-                    name = self._decode_encrypted(
-                        rec.fields.get_value("TitleEncrypted")
-                    )
-                    has_sub_value = getattr(
-                        rec.fields.get_field(_HAS_SUBFOLDER_FIELD) or (),
-                        "value",
-                        None,
-                    )
-                    has_sub = None if has_sub_value is None else bool(has_sub_value)
-                    yield NoteFolder(
-                        id=folder_id, name=name, has_subfolders=has_sub, count=None
-                    )
-                    # cache for later
-                    self._folder_name_cache.setdefault(folder_id, name)
-            cont = getattr(resp, "continuationMarker", None)
-            if not cont:
-                LOGGER.debug("Folders: no more continuation marker, done.")
-                return
+        ):
+            records.extend(
+                record
+                for record in zone.records
+                if isinstance(record, CKRecord) and record.recordType == "Folder"
+            )
+        parents: dict[str, str | None] = {}
+        for record in records:
+            parent = record.fields.get_value("ParentFolder")
+            name = getattr(parent, "recordName", None)
+            parents[record.recordName] = (
+                name if isinstance(name, str) and name else None
+            )
+        with_children = {parent for parent in parents.values() if parent}
+        for record in records:
+            name = self._decode_encrypted(record.fields.get_value("TitleEncrypted"))
+            self._folder_name_cache.setdefault(record.recordName, name)
+            yield NoteFolder(
+                id=record.recordName,
+                name=name,
+                parent_id=parents[record.recordName],
+                has_subfolders=record.recordName in with_children,
+                count=None,
+            )
 
     def in_folder(
         self, folder_id: str, *, limit: int | None = None

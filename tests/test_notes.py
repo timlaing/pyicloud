@@ -4,9 +4,7 @@
 
 from datetime import datetime
 import importlib
-import json
 import os
-from pathlib import Path
 import tempfile
 from typing import Annotated, Any
 import unittest
@@ -17,7 +15,6 @@ import pytest
 
 from pyicloud.common.cloudkit import (
     CKLookupResponse,
-    CKQueryResponse,
     CKZoneChangesResponse,
 )
 from pyicloud.common.cloudkit.base import resolve_cloudkit_validation_extra
@@ -43,14 +40,12 @@ from pyicloud.services.notes.domain import NoteBody
 import pyicloud.services.notes.models.cloudkit as notes_cloudkit
 from pyicloud.services.notes.rendering.exporter import decode_and_parse_note, write_html
 from pyicloud.services.notes.service import NoteNotFound
-
-FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
-NOTES_FIXTURE_DIR = FIXTURE_DIR / "notes"
+from tests.fixture_loader import load_fixture
 
 
 def load_notes_fixture(name: str) -> Any:
     """Load a synthetic Notes CloudKit fixture."""
-    return json.loads((NOTES_FIXTURE_DIR / name).read_text(encoding="utf-8"))
+    return load_fixture("notes", name)
 
 
 def _resolve_cloudkit_shim_attr(name: str) -> Any:
@@ -573,53 +568,50 @@ class NotesServiceTest(unittest.TestCase):
         )
 
     def test_notes_service_folders_uses_supported_desired_keys(self) -> None:
-        """Folder listing should not depend on nonexistent Notes desired-key enums."""
-
-        query_mock = MagicMock(
-            return_value=CKQueryResponse.model_validate(
-                load_notes_fixture("notes_query_folders_response.json")
-            )
-        )
-        self._monkeypatch.setattr(self.service.raw, "query", query_mock)
-
-        folders = list(self.service.folders())
-
-        self.assertEqual(
-            query_mock.call_args.kwargs["desired_keys"],
-            ["TitleEncrypted", "HasSubfolder"],
-        )
-        self.assertEqual(len(folders), 1)
-        self.assertEqual(folders[0].id, "Folder/FOLDER-FIXTURE")
-        self.assertEqual(folders[0].name, "Synthetic Folder")
-        self.assertTrue(folders[0].has_subfolders)
-
-    def test_notes_service_folders_treats_subfolder_flag_as_optional(self) -> None:
-        """Folder listing should still work when Apple omits the subfolder flag."""
-
+        """Folder listing requests folder titles and parent references."""
         folder_record = CKRecord.model_validate({
-            "recordName": "Folder/2",
-            "recordType": "SearchIndexes",
+            "recordName": "Folder/FIXTURE",
+            "recordType": "Folder",
             "fields": {
                 "TitleEncrypted": {
                     "type": "STRING",
-                    "value": "Personal",
+                    "value": "Synthetic Folder",
                     "isEncrypted": True,
-                },
+                }
+            },
+        })
+        changes_mock = MagicMock(return_value=[MagicMock(records=[folder_record])])
+        self._monkeypatch.setattr(self.service.raw, "changes", changes_mock)
+        folders = list(self.service.folders())
+        request = changes_mock.call_args.kwargs["zone_req"]
+        self.assertEqual(request.desiredKeys, ["TitleEncrypted", "ParentFolder"])
+        self.assertEqual(request.desiredRecordTypes, ["Folder"])
+        self.assertEqual(len(folders), 1)
+        self.assertEqual(folders[0].name, "Synthetic Folder")
+        self.assertFalse(folders[0].has_subfolders)
+
+    def test_notes_service_folders_treats_parent_reference_as_optional(self) -> None:
+        """A folder without a parent reference is a root folder."""
+        folder_record = CKRecord.model_validate({
+            "recordName": "Folder/FIXTURE",
+            "recordType": "Folder",
+            "fields": {
+                "TitleEncrypted": {
+                    "type": "STRING",
+                    "value": "Synthetic Folder",
+                    "isEncrypted": True,
+                }
             },
         })
         self._monkeypatch.setattr(
             self.service.raw,
-            "query",
-            MagicMock(
-                return_value=MagicMock(records=[folder_record], continuationMarker=None)
-            ),
+            "changes",
+            MagicMock(return_value=[MagicMock(records=[folder_record])]),
         )
-
         folders = list(self.service.folders())
-
         self.assertEqual(len(folders), 1)
-        self.assertEqual(folders[0].name, "Personal")
-        self.assertIsNone(folders[0].has_subfolders)
+        self.assertIsNone(folders[0].parent_id)
+        self.assertFalse(folders[0].has_subfolders)
 
     def test_write_html_rejects_filename_escape(self) -> None:
         """write_html rejects filenames that escape the output directory."""
