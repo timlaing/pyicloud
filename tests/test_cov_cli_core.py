@@ -289,7 +289,8 @@ def test_handle_2fa_security_key_failure_aborts() -> None:
         confirm_security_key=MagicMock(side_effect=RuntimeError("no touch")),
         is_trusted_session=True,
     )
-    state = _make_state(interactive=True)
+    with patch.object(sys.modules[__name__], "_tmp_dir", return_value=Path("session")):
+        state = _make_state(interactive=True)
     with (
         patch.object(state, "_prompt_index", return_value=0),
         pytest.raises(context_module.CLIAbort) as exc,
@@ -931,9 +932,12 @@ def test_locked_index_ignores_unlink_oserror() -> None:
 
 def test_locked_index_without_fcntl_yields_path() -> None:
     """The lock manager should yield the index when fcntl is unavailable."""
-    root = _tmp_dir("index-lock-no-fcntl")
+    root = str(Path(tempfile.gettempdir()) / "python-test-results" / "index-no-fcntl")
+    lock_file = MagicMock()
     with (
         patch.dict(sys.modules, {"fcntl": None}),
+        patch.object(Path, "mkdir"),
+        patch.object(Path, "open", return_value=lock_file),
         account_index._locked_index(root) as index_path,
     ):
         assert index_path == account_index.account_index_path(root)
