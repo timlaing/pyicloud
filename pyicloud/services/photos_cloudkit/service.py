@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import base64
 from collections.abc import Generator, Iterable, Iterator
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 import os
@@ -707,6 +708,13 @@ class PhotoLibrary(BasePhotoLibrary):
             direction = DirectionEnum.DESCENDING
         if album_type is AlbumTypeEnum.FOLDER:
             cls = PhotoAlbumFolder
+        record_state = PhotoAlbumRecordState(
+            parent_id=cast(str | None, record_field_value(record, "parentId")),
+            record_change_tag=_record_change_tag(record),
+            record_modification_date=record_field_value(
+                record, "recordModificationDate"
+            ),
+        )
         if cls is PhotoAlbum:
             return cls(
                 library=self,
@@ -719,11 +727,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 client=self._client,
                 zone_id=self.zone_id,
                 query_filters=typed_query_filters,
-                parent_id=cast(str | None, record_field_value(record, "parentId")),
-                record_change_tag=_record_change_tag(record),
-                record_modification_date=record_field_value(
-                    record, "recordModificationDate"
-                ),
+                record=record_state,
             )
         return cls(
             library=self,
@@ -736,11 +740,7 @@ class PhotoLibrary(BasePhotoLibrary):
             client=self._client,
             zone_id=self.zone_id,
             query_filters=typed_query_filters,
-            parent_id=cast(str | None, record_field_value(record, "parentId")),
-            record_change_tag=_record_change_tag(record),
-            record_modification_date=record_field_value(
-                record, "recordModificationDate"
-            ),
+            record=record_state,
         )
 
     def _get_albums(self) -> AlbumContainer:
@@ -1397,6 +1397,19 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         )
 
 
+@dataclass
+class PhotoAlbumRecordState:
+    """Server-side bookkeeping carried by a :class:`PhotoAlbum`.
+
+    Groups the parent link and change-tracking fields so the album constructor
+    keeps a manageable parameter count.
+    """
+
+    parent_id: str | None = None
+    record_change_tag: str | None = None
+    record_modification_date: Any | None = None
+
+
 class PhotoAlbum(BasePhotoAlbum):
     """A user or virtual photo album."""
 
@@ -1415,9 +1428,7 @@ class PhotoAlbum(BasePhotoAlbum):
         zone_id: dict[str, str] | None = None,
         query_filters: list[CKQueryFilterBy] | None = None,
         page_size: int = 100,
-        parent_id: str | None = None,
-        record_change_tag: str | None = None,
-        record_modification_date: Any | None = None,
+        record: PhotoAlbumRecordState | None = None,
     ) -> None:
         super().__init__(
             library=library,
@@ -1437,9 +1448,10 @@ class PhotoAlbum(BasePhotoAlbum):
             else ""
         )
         self._zone_id = zone_id or PRIMARY_ZONE
-        self._parent_id = parent_id
-        self._record_change_tag = record_change_tag
-        self._record_modification_date = record_modification_date
+        state = record or PhotoAlbumRecordState()
+        self._parent_id = state.parent_id
+        self._record_change_tag = state.record_change_tag
+        self._record_modification_date = state.record_modification_date
 
     @property
     def id(self) -> str:
