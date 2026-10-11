@@ -161,21 +161,25 @@ def _is_coverage_collecting() -> bool:
     return False
 
 
-_PACKAGE_SOURCE_ROOT: str = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), os.pardir, "pyicloud")
-)
+_PROJECT_ROOT: str = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+_PACKAGE_SOURCE_ROOT: str = os.path.join(_PROJECT_ROOT, "pyicloud")
+_COVERAGE_REPORT_PATH: str = os.path.join(_PROJECT_ROOT, "coverage.xml")
 _SOURCE_READ: ContextVar[bool] = ContextVar("_source_read", default=False)
+
+
+def _is_package_source(path: Any) -> bool:
+    """Return True when ``path`` is one of the library's own source files."""
+
+    candidate = os.path.abspath(normalize_path(path))
+    return candidate == _PACKAGE_SOURCE_ROOT or candidate.startswith(
+        _PACKAGE_SOURCE_ROOT + os.sep
+    )
 
 
 def source_read_allowed(path: Any) -> bool:
     """Return True for package-source reads a scanning test has sanctioned."""
 
-    if not _SOURCE_READ.get():
-        return False
-    candidate = os.path.abspath(normalize_path(path))
-    return candidate == _PACKAGE_SOURCE_ROOT or candidate.startswith(
-        _PACKAGE_SOURCE_ROOT + os.sep
-    )
+    return _SOURCE_READ.get() and _is_package_source(path)
 
 
 @contextmanager
@@ -194,7 +198,56 @@ def allow_source_reads() -> Generator[None, None, None]:
         _SOURCE_READ.reset(token)
 
 
-def _reject(action: str, path: Any, *, allow_ancestors: bool = False) -> None:
+def _coverage_access_allowed(
+    path: Any,
+    *,
+    operation: str,
+    mode: str | None = None,
+    flags: int | None = None,
+) -> bool:
+    """Return True for the narrow file access coverage itself needs.
+
+    Coverage's ``sys.monitoring`` backend canonicalizes every executed file
+    (``realpath`` on stdlib paths included), reads and tokenizes the measured
+    package sources, and its report writer emits ``coverage.xml``.  Only those
+    shapes are sanctioned, so a coverage frame cannot authorise arbitrary
+    access:
+
+    * ``stat``/``access`` metadata resolution is allowed anywhere, because
+      canonicalizing a filename is path-only and cannot read file contents;
+    * content reads (``open``/``listdir``/``walk``/...) must target package
+      sources;
+    * writes must be *write-only* to the report path.
+
+    Mutations and two-path operations never qualify.
+    """
+
+    if not _is_coverage_collecting():
+        return False
+    if operation == "stat":
+        return True
+    if operation == "read":
+        return _is_package_source(path)
+    if operation != "write":
+        return False
+    if os.path.abspath(normalize_path(path)) != _COVERAGE_REPORT_PATH:
+        return False
+    if mode is not None:
+        return mode.startswith("w") and "+" not in mode
+    if flags is not None:
+        return flags & _WRITE_FLAGS == os.O_WRONLY
+    return False
+
+
+def _reject(
+    action: str,
+    path: Any,
+    *,
+    allow_ancestors: bool = False,
+    operation: str = "other",
+    mode: str | None = None,
+    flags: int | None = None,
+) -> None:
     """Raise :class:`FileSystemAccessError` when ``path`` is outside sandbox."""
 
     if _RESOLVING.get():
@@ -203,23 +256,60 @@ def _reject(action: str, path: Any, *, allow_ancestors: bool = False) -> None:
         return
     if fixture_read_allowed():
         return
-    if source_read_allowed(path):
+    if operation == "read" and source_read_allowed(path):
         return
     if _is_message_catalog(path):
         return
-    if _is_coverage_collecting():
+    if _coverage_access_allowed(path, operation=operation, mode=mode, flags=flags):
         return
     raise FileSystemAccessError(
         f"You should not {action} in tests. {normalize_path(path)}"
     )
 
 
-def _guard_path(original: Any, action: str, *, allow_ancestors: bool = False) -> Any:
+def _guard_path(
+    original: Any,
+    action: str,
+    *,
+    allow_ancestors: bool = False,
+    operation: str = "other",
+) -> Any:
     """Wrap a one-path function so non-sandbox access raises."""
 
     def guarded(path: Any, *args: Any, **kwargs: Any) -> Any:
         if not isinstance(path, int):
-            _reject(action, path, allow_ancestors=allow_ancestors)
+            _reject(
+                action,
+                path,
+                allow_ancestors=allow_ancestors,
+                operation=operation,
+            )
+        return original(path, *args, **kwargs)
+
+    return guarded
+
+
+def _guard_open(original: Any, action: str) -> Any:
+    """Wrap ``open``-style functions, classifying read vs. write access."""
+
+    def guarded(path: Any, *args: Any, **kwargs: Any) -> Any:
+        mode = args[0] if args else kwargs.get("mode", "r")
+        if not isinstance(path, int):
+            operation = "write" if any(c in mode for c in "wax+") else "read"
+            _reject(action, path, operation=operation, mode=mode)
+        return original(path, *args, **kwargs)
+
+    return guarded
+
+
+def _guard_os_open(original: Any, action: str) -> Any:
+    """Wrap ``os.open`` so its access flags are classified for the guard."""
+
+    def guarded(path: Any, *args: Any, **kwargs: Any) -> Any:
+        flags = args[0] if args else kwargs.get("flags", os.O_RDONLY)
+        if not isinstance(path, int):
+            operation = "read" if (flags & _WRITE_FLAGS) == 0 else "write"
+            _reject(action, path, operation=operation, flags=flags)
         return original(path, *args, **kwargs)
 
     return guarded
@@ -315,26 +405,14 @@ def mock_chmod() -> Iterator[Any]:
 @pytest.fixture(autouse=True, scope="session")
 def mock_open_fixture() -> Iterator[Any]:
     """Mock the open function to prevent file system access."""
-    builtins_open = open
-
-    def my_open(path: Any, *args: Any, **kwargs: Any) -> Any:
-        _reject("be opening files", path)
-        return builtins_open(path, *args, **kwargs)
-
-    with patch(BUILTINS_OPEN, my_open) as open_mock:
+    with patch(BUILTINS_OPEN, _guard_open(open, "be opening files")) as open_mock:
         yield open_mock
 
 
 @pytest.fixture(autouse=True, scope="session")
 def mock_os_open_fixture() -> Iterator[Any]:
     """Mock the open function to prevent file system access."""
-    builtins_open = os.open
-
-    def my_open(path: Any, *args: Any, **kwargs: Any) -> Any:
-        _reject("be opening files", path)
-        return builtins_open(path, *args, **kwargs)
-
-    with patch("os.open", my_open) as open_mock:
+    with patch("os.open", _guard_os_open(os.open, "be opening files")) as open_mock:
         yield open_mock
 
 
@@ -350,6 +428,16 @@ _READ_ONLY_OS: tuple[str, ...] = (
 # ``Path.resolve`` stats and reads links up to the root, including ancestors of
 # the sandbox, so those metadata calls may look above the sandbox boundary.
 _READ_ONLY_OS_ANCESTORS: tuple[str, ...] = ("stat", "lstat", "readlink")
+# Metadata-only calls resolve names without reading file contents, so coverage
+# may use them (``realpath`` on stdlib paths, say) even outside package sources.
+_READ_ONLY_OS_METADATA: frozenset[str] = frozenset({
+    "stat",
+    "lstat",
+    "readlink",
+    "access",
+})
+# ``os.O_RDONLY`` is 0, so mask the write bits to classify ``os.open`` flags.
+_WRITE_FLAGS: int = os.O_WRONLY | os.O_RDWR
 _MUTATION_OS: tuple[str, ...] = (
     "remove",
     "unlink",
@@ -374,7 +462,7 @@ _SHUTIL_TWO_PATH: tuple[str, ...] = (
 @pytest.fixture(autouse=True)
 def block_io_open() -> Iterator[None]:
     """Block ``io.open`` so ``pathlib`` file I/O cannot bypass the guards."""
-    with patch("io.open", _guard_path(io.open, "call io.open")):
+    with patch("io.open", _guard_open(io.open, "call io.open")):
         yield
 
 
@@ -397,6 +485,7 @@ def _readonly_guards() -> Generator[None, None, None]:
                         func,
                         f"call os.{name}",
                         allow_ancestors=name in _READ_ONLY_OS_ANCESTORS,
+                        operation="stat" if name in _READ_ONLY_OS_METADATA else "read",
                     ),
                 )
             )
