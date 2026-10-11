@@ -30,14 +30,12 @@ def escaping_symlink() -> Iterator[Path]:
 
     _SANDBOX.mkdir(parents=True, exist_ok=True)
     link = _SANDBOX / "escaping-symlink"
-    if link.is_symlink():
-        link.unlink()
+    link.unlink(missing_ok=True)
     os.symlink(tempfile.gettempdir(), link)
     try:
         yield link
     finally:
-        if link.is_symlink():
-            link.unlink()
+        link.unlink(missing_ok=True)
 
 
 def test_escaping_symlink_is_rejected(escaping_symlink: Path) -> None:
