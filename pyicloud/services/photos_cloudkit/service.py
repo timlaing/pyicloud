@@ -833,23 +833,7 @@ class PhotoLibrary(BasePhotoLibrary):
         timeout: float | None = None,
         interval: float | None = None,
     ) -> PhotoAsset | None:
-        """Turn a ``putAsset`` registration into a fully populated asset.
-
-        ``putAsset`` returns only the ``CPLMaster``/``CPLAsset`` record names,
-        so the records are always looked up before an asset is exposed.
-
-        Registration and indexing are separate: for a newly uploaded file the
-        lookup answers ``NOT_FOUND`` for 14-20 seconds before CloudKit makes
-        the records queryable, so it is retried until ``timeout`` elapses.
-        Duplicates resolve on the first attempt, since those records already
-        exist.
-
-        Returns ``None`` if the records are still not indexed when ``timeout``
-        elapses; the file is stored in iCloud regardless. A lookup that keeps
-        failing outright raises ``PyiCloudAPIResponseException``, so a broken
-        lookup is distinguishable from a slow one.
-        """
-
+        """Turn a ``putAsset`` registration into a fully populated asset."""
         master_name = result.cplMaster
         asset_name = result.cplAsset
         if self._client is None or not master_name or not asset_name:
@@ -865,8 +849,6 @@ class PhotoLibrary(BasePhotoLibrary):
         delay = interval
 
         def _wait(seconds: float) -> bool:
-            """Sleep before the next attempt; False once the deadline passes."""
-
             nonlocal delay
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -875,26 +857,22 @@ class PhotoLibrary(BasePhotoLibrary):
             delay = min(delay * 2, UPLOAD_HYDRATION_MAX_INTERVAL)
             return True
 
+        def _lookup_records():
+            return self._client.lookup(
+                record_names=[master_name, asset_name],
+                zone_id=zone_id,
+                desired_keys=PHOTO_DESIRED_KEYS,
+            )
+
         while True:
             try:
-                lookup = self._client.lookup(
-                    record_names=[master_name, asset_name],
-                    zone_id=zone_id,
-                    desired_keys=PHOTO_DESIRED_KEYS,
-                )
+                lookup = _lookup_records()
             except CloudKitRateLimited as exc:
-                # The bytes are already stored; back off rather than losing the
-                # record names to an exception.
                 if not _wait(exc.retry_after or delay):
                     LOGGER.debug("Rate limited while waiting for the upload to index")
                     return None
                 continue
             except CloudKitApiError as exc:
-                # Same reasoning: a transient CloudKit failure inside the
-                # indexing window should not discard an upload that succeeded.
-                # A persistent one is reported rather than being mistaken for a
-                # slow index, and is normalised so this method raises the same
-                # exception type whether registration or hydration failed.
                 if not _wait(delay):
                     raise PyiCloudAPIResponseException(str(exc)) from exc
                 continue

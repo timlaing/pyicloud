@@ -52,9 +52,11 @@ def test_children_can_precede_parents_across_pages() -> None:
     )
     rows = {row.id: row for row in api.folders()}
     assert set(rows) == {"root", "child", "leaf"}
-    assert rows["child"].parent_id == "root" and rows["leaf"].parent_id == "child"
+    assert rows["child"].parent_id == "root"
+    assert rows["leaf"].parent_id == "child"
     assert rows["root"].parent_id is None
-    assert rows["root"].has_subfolders and rows["child"].has_subfolders
+    assert rows["root"].has_subfolders
+    assert rows["child"].has_subfolders
     assert not rows["leaf"].has_subfolders
     assert api._folder_name_cache["child"] == "child"
     request = api._raw.changes.call_args.kwargs["zone_req"]

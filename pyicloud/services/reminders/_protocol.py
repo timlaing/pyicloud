@@ -149,37 +149,15 @@ def _decode_nsdatecomponents(value: object) -> DateComponents | None:
     when the alarm fires. Returns ``None`` when the payload is missing or is
     not a recognisable ``NSKeyedArchiver`` archive.
     """
-    if value is None:
-        return None
-    if isinstance(value, str):
-        try:
-            value = base64.b64decode(value, validate=False)
-        except (ValueError, TypeError):
-            return None
-    if not isinstance(value, (bytes, bytearray)):
+    decoded_bytes = _extract_archive_bytes(value)
+    if decoded_bytes is None:
         return None
 
-    try:
-        plist = plistlib.loads(bytes(value))
-    except (ValueError, TypeError, ExpatError):
-        return None
-    if not isinstance(plist, dict) or plist.get("$archiver") != "NSKeyedArchiver":
+    root, objects = _extract_nskeyed_archiver_root(decoded_bytes)
+    if root is None or not isinstance(root, dict):
         return None
 
-    objects = plist.get("$objects")
-    top = plist.get("$top")
-    if not isinstance(objects, list) or not isinstance(top, dict):
-        return None
-
-    root = _archive_object(top.get("root"), objects)
-    if not isinstance(root, dict):
-        return None
-
-    decoded: dict[str, object] = {}
-    for archive_key, field_name in _NSDATE_COMPONENT_FIELDS.items():
-        if archive_key in root:
-            decoded[field_name] = root[archive_key]
-
+    decoded = _extract_nsdate_components(root)
     time_zone = _archive_object(root.get("NS.timezone"), objects)
     if isinstance(time_zone, dict):
         tz_name = _archive_object(time_zone.get("NS.name"), objects)
@@ -192,6 +170,49 @@ def _decode_nsdatecomponents(value: object) -> DateComponents | None:
         return DateComponents.model_validate(decoded)
     except ValidationError:
         return None
+
+
+def _extract_archive_bytes(value: object) -> bytes | None:
+    """Convert the possible encoded value to bytes."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            return base64.b64decode(value, validate=False)
+        except (ValueError, TypeError):
+            return None
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    return None
+
+
+def _extract_nskeyed_archiver_root(
+    value: bytes,
+) -> tuple[dict[str, object], list[object]] | tuple[None, None]:
+    """Extract the root object and objects list from an NSKeyedArchiver plist."""
+    try:
+        plist = plistlib.loads(value)
+    except (ValueError, TypeError, ExpatError):
+        return None, None
+    if not isinstance(plist, dict) or plist.get("$archiver") != "NSKeyedArchiver":
+        return None, None
+    objects = plist.get("$objects")
+    top = plist.get("$top")
+    if not isinstance(objects, list) or not isinstance(top, dict):
+        return None, None
+    root = _archive_object(top.get("root"), objects)
+    if not isinstance(root, dict):
+        return None, None
+    return root, objects
+
+
+def _extract_nsdate_components(root: dict[str, object]) -> dict[str, object]:
+    """Extract DateComponents fields from the root."""
+    decoded: dict[str, object] = {}
+    for archive_key, field_name in _NSDATE_COMPONENT_FIELDS.items():
+        if archive_key in root:
+            decoded[field_name] = root[archive_key]
+    return decoded
 
 
 def _decode_crdt_document(  # noqa: S3776

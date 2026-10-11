@@ -53,5 +53,6 @@ def test_valid_text_has_no_failure_marker() -> None:
     value = mapper.record_to_reminder(
         record(_encode_crdt_document("Title"), _encode_crdt_document("Notes"))
     )
-    assert value.title == "Title" and value.desc == "Notes"
+    assert value.title == "Title"
+    assert value.desc == "Notes"
     assert not value.undecodable_text_fields
