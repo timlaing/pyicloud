@@ -107,6 +107,24 @@ def _is_message_catalog(path: Any) -> bool:
     return False
 
 
+def _is_coverage_collecting() -> bool:
+    """Return True when file access comes from coverage collecting data.
+
+    With branch coverage enabled, coverage's ``sys.monitoring`` backend reads
+    and tokenizes source files to build a branch map while a test runs.  That is
+    tooling behaviour rather than a test touching the disk, so it is allowed for
+    coverage callers only.
+    """
+
+    frame: FrameType | None = sys._getframe()
+    while frame is not None:
+        module = frame.f_globals.get("__name__", "")
+        if module == "coverage" or module.startswith(("coverage.", "pytest_cov")):
+            return True
+        frame = frame.f_back
+    return False
+
+
 def _reject(action: str, path: Any, *, allow_ancestors: bool = False) -> None:
     """Raise :class:`FileSystemAccessError` when ``path`` is outside sandbox."""
 
@@ -115,6 +133,8 @@ def _reject(action: str, path: Any, *, allow_ancestors: bool = False) -> None:
     if fixture_read_allowed():
         return
     if _is_message_catalog(path):
+        return
+    if _is_coverage_collecting():
         return
     raise FileSystemAccessError(
         f"You should not {action} in tests. {normalize_path(path)}"
