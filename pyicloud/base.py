@@ -1727,10 +1727,7 @@ class PyiCloudService:
                     params=self.params,
                     cloudkit_validation_extra=self._cloudkit_validation_extra,
                 )
-            except (
-                PyiCloudAPIResponseException,
-                PyiCloudServiceNotActivatedException,
-            ) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Invites service not available"
                 ) from error

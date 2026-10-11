@@ -322,7 +322,7 @@ def download_image_assets(  # noqa: S3776
                 return ".jpg"
             if head.startswith(b"\x89PNG\r\n\x1a\n"):
                 return ".png"
-            if head.startswith(b"GIF87a") or head.startswith(b"GIF89a"):
+            if head.startswith((b"GIF87a", b"GIF89a")):
                 return ".gif"
             if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
                 return ".webp"
@@ -335,7 +335,7 @@ def download_image_assets(  # noqa: S3776
             if head.startswith(b"BM"):
                 return ".bmp"
             # TIFF
-            if head.startswith(b"II*\x00") or head.startswith(b"MM\x00*"):
+            if head.startswith((b"II*\x00", b"MM\x00*")):
                 return ".tiff"
         except Exception:
             pass
@@ -418,11 +418,7 @@ def download_av_assets(  # noqa: S3776
             if head.startswith(b"ID3"):
                 return ".mp3"
             # MP3 - frame sync (approximate)
-            if (
-                head.startswith(b"\xff\xfb")
-                or head.startswith(b"\xff\xf3")
-                or head.startswith(b"\xff\xf2")
-            ):
+            if head.startswith((b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")):
                 return ".mp3"
             # WAVE
             if head.startswith(b"RIFF") and head[8:12] == b"WAVE":
