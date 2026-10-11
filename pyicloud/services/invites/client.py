@@ -26,6 +26,7 @@ from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import logging
+import math
 from typing import Any, Literal, NoReturn, cast
 from urllib.parse import urlencode
 
@@ -68,9 +69,13 @@ def _parse_retry_after(header: str | None) -> float | None:
     if not header:
         return None
     try:
-        return float(header)
+        seconds = float(header)
     except (TypeError, ValueError):
         pass
+    else:
+        # RFC 9110 delay-seconds is 1*DIGIT, so a negative or non-finite value
+        # is malformed. Surfacing it would hand callers a wait they cannot use.
+        return seconds if math.isfinite(seconds) and seconds >= 0 else None
     try:
         retry_at = parsedate_to_datetime(header)
     except (TypeError, ValueError, OverflowError):

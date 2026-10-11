@@ -552,6 +552,21 @@ class InvitesServiceTest(unittest.TestCase):
 
         self.assertEqual(caught.exception.retry_after, 0.0)
 
+    def test_a_negative_or_non_finite_retry_after_is_rejected(self) -> None:
+        """A malformed numeric delay must not surface as a usable wait."""
+        for header in ("-1", "NaN", "Infinity", "-Infinity"):
+            response = MagicMock()
+            response.headers = {"Retry-After": header}
+            session = MagicMock()
+            session.post.side_effect = PyiCloudAPIResponseException(
+                "slow down", 429, response
+            )
+            self._monkeypatch.setattr(self.service.raw, "_session", session)
+            with self.subTest(header=header):
+                with self.assertRaises(InvitesRateLimited) as caught:
+                    self.service.raw.resolve(["008FIXTURE"])
+                self.assertIsNone(caught.exception.retry_after)
+
     def test_a_status_code_maps_the_same_as_a_string_or_an_int(self) -> None:
         """`PyiCloudAPIResponseException.code` is typed `int | str | None`.
 
