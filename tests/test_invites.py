@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from typing import Any
 import unittest
 from unittest.mock import MagicMock
@@ -513,6 +514,43 @@ class InvitesServiceTest(unittest.TestCase):
                 with self.assertRaises(InvitesRateLimited) as caught:
                     self.service.raw.resolve(["008FIXTURE"])
                 self.assertIsNone(caught.exception.retry_after)
+
+    def test_a_rate_limit_accepts_an_http_date_retry_after(self) -> None:
+        """RFC 9110 also allows a date; it must not be silently discarded.
+
+        A caller told exactly when to retry should wait that long rather than
+        fall back to a guess because ``float()`` rejected the date form.
+        """
+        retry_at = datetime.now(timezone.utc) + timedelta(seconds=90)
+        response = MagicMock()
+        response.headers = {"Retry-After": format_datetime(retry_at)}
+        session = MagicMock()
+        session.post.side_effect = PyiCloudAPIResponseException(
+            "slow down", 429, response
+        )
+        self._monkeypatch.setattr(self.service.raw, "_session", session)
+
+        with self.assertRaises(InvitesRateLimited) as caught:
+            self.service.raw.resolve(["008FIXTURE"])
+
+        assert caught.exception.retry_after is not None  # narrow for type checker
+        self.assertGreater(caught.exception.retry_after, 0)
+        self.assertLessEqual(caught.exception.retry_after, 90)
+
+    def test_a_past_retry_after_date_clamps_to_zero(self) -> None:
+        """A date with no zone, or one already past, must not go negative."""
+        response = MagicMock()
+        response.headers = {"Retry-After": "Thu, 01 Jan 1970 00:00:00"}
+        session = MagicMock()
+        session.post.side_effect = PyiCloudAPIResponseException(
+            "slow down", 429, response
+        )
+        self._monkeypatch.setattr(self.service.raw, "_session", session)
+
+        with self.assertRaises(InvitesRateLimited) as caught:
+            self.service.raw.resolve(["008FIXTURE"])
+
+        self.assertEqual(caught.exception.retry_after, 0.0)
 
     def test_a_status_code_maps_the_same_as_a_string_or_an_int(self) -> None:
         """`PyiCloudAPIResponseException.code` is typed `int | str | None`.

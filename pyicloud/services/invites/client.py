@@ -23,6 +23,8 @@ client; see the Invites design doc.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import logging
 from typing import Any, Literal, NoReturn, cast
 from urllib.parse import urlencode
@@ -54,6 +56,30 @@ _UNAUTHORIZED_STATUSES = (401, 403)
 _RATE_LIMITED_STATUS = 429
 
 
+def _parse_retry_after(header: str | None) -> float | None:
+    """Read a ``Retry-After`` value as seconds to wait, if it parses.
+
+    RFC 9110 allows either a delay in seconds (``"120"``) or an HTTP-date
+    (``"Wed, 21 Oct 2015 07:28:00 GMT"``). Apple sends the former, but the date
+    form must not be dropped silently: the header is the only thing telling a
+    rate-limited caller exactly when it may retry.
+    """
+
+    if not header:
+        return None
+    try:
+        return float(header)
+    except (TypeError, ValueError):
+        pass
+    try:
+        retry_at = parsedate_to_datetime(header)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+
+
 def _retry_after_of(exc: PyiCloudAPIResponseException) -> float | None:
     """Return the ``Retry-After`` Apple sent with a rate limit, if any.
 
@@ -62,19 +88,10 @@ def _retry_after_of(exc: PyiCloudAPIResponseException) -> float | None:
     has told them exactly how long to wait.
     """
 
-    response = getattr(exc, "response", None)
+    response = exc.response
     if response is None:
         return None
-    try:
-        header = response.headers.get("Retry-After")
-    except AttributeError:
-        return None
-    if not header:
-        return None
-    try:
-        return float(header)
-    except (TypeError, ValueError):
-        return None
+    return _parse_retry_after(response.headers.get("Retry-After"))
 
 
 def _status_of(exc: PyiCloudAPIResponseException) -> int | None:
@@ -369,8 +386,10 @@ class CloudKitInvitesClient:
             resp = self._session.post(url, json=payload, timeout=self._timeout)
         except PyiCloudAPIResponseException as exc:
             # Same trap as the scoped wrappers above: PyiCloudSession raises on
-            # a non-ok JSON response, so every status check below is dead code
-            # for a 4xx. Map it the way those checks would have.
+            # a non-ok JSON response, so this is the path a real 4xx takes. The
+            # status checks below stay for session-like objects that return the
+            # response instead of raising; map the transport error the way
+            # those checks would have.
             self._raise_invites_error(exc)
         code = getattr(resp, "status_code", 0)
         if not isinstance(code, int):
@@ -379,14 +398,11 @@ class CloudKitInvitesClient:
         if code in (401, 403):
             raise InvitesAuthError(f"HTTP {code}: unauthorized")
         if code == 429:
-            retry_after: float | None = None
-            try:
-                hdr = resp.headers.get("Retry-After")
-                if hdr:
-                    retry_after = float(hdr)
-            except Exception:
-                retry_after = None
-            raise InvitesRateLimited("HTTP 429: rate limited", retry_after=retry_after)
+            headers = getattr(resp, "headers", {})
+            raise InvitesRateLimited(
+                "HTTP 429: rate limited",
+                retry_after=_parse_retry_after(headers.get("Retry-After")),
+            )
         if code >= 400:
             try:
                 body: Any = resp.json()

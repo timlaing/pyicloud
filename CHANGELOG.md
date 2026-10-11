@@ -22,6 +22,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Parse Date alarm triggers in Reminders instead of dropping them (#392)
 - Do not report an unreachable iCloud as a failed login (#357)
 - Make rich optional so the core install imports cleanly (#369)
+- Translate transport errors from the Invites public-scope endpoint and preserve Retry-After (#345)
 
 ### Refactored
 
