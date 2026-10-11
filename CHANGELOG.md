@@ -275,5 +275,4 @@ _Pre-release for testing China mainland support_
 [2.2.0]: https://github.com/timlaing/pyicloud/compare/2.1.0...2.2.0
 [2.1.0]: https://github.com/timlaing/pyicloud/compare/2.0.2...2.1.0
 [2.0.2]: https://github.com/timlaing/pyicloud/compare/2.0.0b6...2.0.2
-[2.0.0b6]: https://github.com/timlaing/pyicloud/compare/V2.0.2...2.0.0b6
-[V2.0.2]: https://github.com/timlaing/pyicloud/compare/2.0.0b6...V2.0.2
+[2.0.0b6]: https://github.com/timlaing/pyicloud/compare/2.0.2...2.0.0b6
