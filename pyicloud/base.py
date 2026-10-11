@@ -953,39 +953,40 @@ class PyiCloudService:
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("unknown")
 
-        fsa_challenge = auth_options.get("fsaChallenge")
-        if (
-            not isinstance(fsa_challenge, dict)
-            or not all(
-                fsa_challenge.get(key) for key in ("challenge", "keyHandles", "rpId")
-            )
-            or not auth_options.get("keyNames")
-        ):
-            # Security-key accounts expose WebAuthn options only in the JSON response.
-            # The HTML shell advertises nothing that distinguishes them from SMS-only
-            # accounts, so probe the JSON shape once per authentication and treat any
-            # failure as "no security key offered".
-            try:
-                json_response = self.session.get(
-                    self._auth_endpoint,
-                    headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
-                ).json()
-            except (
-                PyiCloudAPIResponseException,
-                PyiCloud2FARequiredException,
-                PyiCloudAuthRequiredException,
-                TypeError,
-                ValueError,
-            ):
-                json_response = None
-            if isinstance(json_response, dict):
-                # Copy only the WebAuthn fields: the JSON shape is SMS-oriented and an
-                # unbounded merge would drop the HSA2 bridge data parsed above.
-                for webauthn_key in ("fsaChallenge", "keyNames"):
-                    if webauthn_key in json_response:
-                        auth_options[webauthn_key] = json_response[webauthn_key]
+        self._augment_webauthn_options(auth_options)
 
         return auth_options
+
+    def _augment_webauthn_options(self, auth_options: dict[str, Any]) -> None:
+        """Probe JSON endpoint for WebAuthn options if missing."""
+        fsa_challenge = auth_options.get("fsaChallenge")
+        if (
+            isinstance(fsa_challenge, dict)
+            and all(
+                fsa_challenge.get(key) for key in ("challenge", "keyHandles", "rpId")
+            )
+            and auth_options.get("keyNames")
+        ):
+            return
+
+        try:
+            json_response = self.session.get(
+                self._auth_endpoint,
+                headers=self._get_auth_headers({"Accept": CONTENT_TYPE_JSON}),
+            ).json()
+        except (
+            PyiCloudAPIResponseException,
+            PyiCloud2FARequiredException,
+            PyiCloudAuthRequiredException,
+            TypeError,
+            ValueError,
+        ):
+            return
+
+        if isinstance(json_response, dict):
+            for webauthn_key in ("fsaChallenge", "keyNames"):
+                if webauthn_key in json_response:
+                    auth_options[webauthn_key] = json_response[webauthn_key]
 
     def _set_two_factor_delivery_state(
         self, method: str, notice: str | None = None

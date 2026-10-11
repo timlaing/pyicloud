@@ -143,14 +143,30 @@ def _raw_asset_groups(
             continue
         if record.get("recordType") == "CPLMaster":
             masters.append(record)
-        elif record.get("recordType") == "CPLAsset":
-            fields = record.get("fields")
-            reference = fields.get("masterRef") if isinstance(fields, dict) else None
-            value = reference.get("value") if isinstance(reference, dict) else None
-            name = value.get("recordName") if isinstance(value, dict) else None
-            if isinstance(name, str):
-                assets.setdefault(name, []).append(record)
+            continue
+        if record.get("recordType") != "CPLAsset":
+            continue
+        name = _extract_master_record_name_from_asset(record)
+        if isinstance(name, str):
+            assets.setdefault(name, []).append(record)
     return assets, masters
+
+
+def _extract_master_record_name_from_asset(record: dict[str, Any]) -> str | None:
+    """Extract the master record name from a CPLAsset record."""
+    fields = record.get("fields")
+    if not isinstance(fields, dict):
+        return None
+    reference = fields.get("masterRef")
+    if not isinstance(reference, dict):
+        return None
+    value = reference.get("value")
+    if not isinstance(value, dict):
+        return None
+    name = value.get("recordName")
+    if isinstance(name, str):
+        return name
+    return None
 
 
 def timestamp_or_epoch(value: Any) -> datetime:

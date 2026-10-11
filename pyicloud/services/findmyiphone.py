@@ -63,47 +63,12 @@ class FindMyiPhoneServiceManager(BaseService):
         """Initialize the FindMyiPhoneServiceManager."""
         super().__init__(service_root, session, params)
         self._with_family: bool = with_family
-        self._refresh_interval: float = (
-            refresh_interval if refresh_interval is not None else 5.0 * 60.0
-        )
         self._monitor_locate: bool = monitor_locate
-        if isinstance(family_poll_delay, bool) or not isinstance(
-            family_poll_delay, (int, float)
-        ):
-            raise ValueError("family_poll_delay must be a non-negative number")
-        if family_poll_delay < 0:
-            raise ValueError("family_poll_delay must be a non-negative number")
-        if isinstance(family_poll_max_retries, bool) or not isinstance(
-            family_poll_max_retries, int
-        ):
-            raise ValueError("family_poll_max_retries must be a non-negative integer")
-        if family_poll_max_retries < 0:
-            raise ValueError("family_poll_max_retries must be a non-negative integer")
-        if refresh_interval is not None and (
-            isinstance(refresh_interval, bool)
-            or not isinstance(refresh_interval, (int, float))
-        ):
-            raise ValueError("refresh_interval must be a positive number")
-        if refresh_interval is not None and refresh_interval <= 0:
-            raise ValueError("refresh_interval must be a positive number")
-        if refresh_interval is not None and not math.isfinite(refresh_interval):
-            raise ValueError("refresh_interval must be a finite positive number")
-        if (
-            refresh_interval is not None
-            and refresh_interval < MIN_REFRESH_INTERVAL_SECONDS
-        ):
-            raise ValueError(
-                f"refresh_interval must be at least {MIN_REFRESH_INTERVAL_SECONDS:g}s"
-            )
-        if refresh_interval is not None:
-            try:
-                datetime.now() + timedelta(seconds=refresh_interval)
-            except OverflowError as exc:
-                raise ValueError(
-                    "refresh_interval is too large for a valid monitor deadline"
-                ) from exc
-        self._family_poll_delay: float = family_poll_delay
-        self._family_poll_max_retries: int = family_poll_max_retries
+        self._family_poll_delay = self._validate_poll_delay(family_poll_delay)
+        self._family_poll_max_retries = self._validate_poll_retries(
+            family_poll_max_retries
+        )
+        self._refresh_interval = self._validate_refresh_interval(refresh_interval)
 
         fmip_endpoint: str = f"{service_root}/fmipservice/client/web"
         self._fmip_init_url: str = f"{fmip_endpoint}/initClient"
@@ -149,6 +114,49 @@ class FindMyiPhoneServiceManager(BaseService):
         # Initialize devices (including family devices if enabled)
         self._initialize_devices(locate=locate)
         self._start_monitor_thread()
+
+    @staticmethod
+    def _validate_poll_delay(delay: float) -> float:
+        """Validate family poll delay."""
+        if isinstance(delay, bool) or not isinstance(delay, (int, float)):
+            raise ValueError("family_poll_delay must be a non-negative number")
+        if delay < 0:
+            raise ValueError("family_poll_delay must be a non-negative number")
+        return float(delay)
+
+    @staticmethod
+    def _validate_poll_retries(retries: int) -> int:
+        """Validate family poll max retries."""
+        if isinstance(retries, bool) or not isinstance(retries, int):
+            raise ValueError("family_poll_max_retries must be a non-negative integer")
+        if retries < 0:
+            raise ValueError("family_poll_max_retries must be a non-negative integer")
+        return retries
+
+    @staticmethod
+    def _validate_refresh_interval(refresh_interval: float | None) -> float:
+        """Validate refresh interval."""
+        if refresh_interval is None:
+            return 5.0 * 60.0
+        if isinstance(refresh_interval, bool) or not isinstance(
+            refresh_interval, (int, float)
+        ):
+            raise ValueError("refresh_interval must be a positive number")
+        if refresh_interval <= 0:
+            raise ValueError("refresh_interval must be a positive number")
+        if not math.isfinite(refresh_interval):
+            raise ValueError("refresh_interval must be a finite positive number")
+        if refresh_interval < MIN_REFRESH_INTERVAL_SECONDS:
+            raise ValueError(
+                f"refresh_interval must be at least {MIN_REFRESH_INTERVAL_SECONDS:g}s"
+            )
+        try:
+            datetime.now() + timedelta(seconds=refresh_interval)
+        except OverflowError as exc:
+            raise ValueError(
+                "refresh_interval is too large for a valid monitor deadline"
+            ) from exc
+        return float(refresh_interval)
 
     def _initialize_devices(self, locate: bool) -> None:
         """Initializes the devices for the FindMyiPhoneServiceManager."""
