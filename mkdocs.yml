@@ -81,6 +81,17 @@ nav:
   - API Reference:
       - Overview: api/index.md
       - PyiCloudService: api/pyicloud-service.md
-      - Services: api/services.md
+      - Services:
+          - Overview: api/services.md
+          - Account: api/services/account.md
+          - Calendar: api/services/calendar.md
+          - Contacts: api/services/contacts.md
+          - Drive: api/services/drive.md
+          - Find My iPhone: api/services/findmyiphone.md
+          - Hide My Email: api/services/hidemyemail.md
+          - Photos: api/services/photos.md
+          - Reminders: api/services/reminders.md
+          - Notes: api/services/notes.md
+          - Invites: api/services/invites.md
       - Exceptions: api/exceptions.md
       - Command-Line Interface: api/cli.md
