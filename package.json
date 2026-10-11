@@ -1,6 +1,7 @@
 {
   "private": true,
   "devDependencies": {
+    "@opencode/cli": "^2.0.26",
     "@prettier/plugin-xml": "^3.4.1",
     "prettier": "^3.9.6",
     "prettier-plugin-sort-json": "^4.2.0"

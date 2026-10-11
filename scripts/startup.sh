@@ -21,4 +21,10 @@ uv pip install \
   --upgrade \
   --config-settings editable_mode=compat
 
-npm install
+if command -v npm >/dev/null 2>&1; then
+  if [ -f package-lock.json ]; then
+    npm ci
+  else
+    npm install
+  fi
+fi
