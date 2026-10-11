@@ -239,6 +239,23 @@ def _is_shared_library_zone_name(zone_name: str | None) -> bool:
     return bool(zone_name and zone_name.startswith(SHARED_LIBRARY_ZONE_PREFIX))
 
 
+class _HydrationBackoff:
+    """Deadline-bounded exponential backoff for upload hydration polling."""
+
+    def __init__(self, timeout: float, interval: float) -> None:
+        self.deadline = time.monotonic() + max(timeout, 0.0)
+        self.delay = interval
+
+    def wait(self, seconds: float | None = None) -> bool:
+        """Sleep within the deadline and double the delay for the next attempt."""
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(max(min(seconds or self.delay, remaining), 0.0))
+        self.delay = min(self.delay * 2, UPLOAD_HYDRATION_MAX_INTERVAL)
+        return True
+
+
 class AlbumContainer(Iterable["BasePhotoAlbum"]):
     """Container for photo albums."""
 
@@ -844,58 +861,79 @@ class PhotoLibrary(BasePhotoLibrary):
         if interval is None:
             interval = self._upload_hydration_interval
 
+        return self._poll_uploaded_asset(
+            [master_name, asset_name], timeout=timeout, interval=interval
+        )
+
+    def _poll_uploaded_asset(
+        self,
+        record_names: list[str],
+        *,
+        timeout: float,
+        interval: float,
+    ) -> PhotoAsset | None:
+        """Poll CloudKit until the uploaded asset is indexed or time runs out."""
+        assert self._client is not None
         zone_id = CKZoneIDReq(**self.zone_id)
-        deadline = time.monotonic() + max(timeout, 0.0)
-        delay = interval
-
-        def _wait(seconds: float) -> bool:
-            nonlocal delay
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return False
-            time.sleep(max(min(seconds, remaining), 0.0))
-            delay = min(delay * 2, UPLOAD_HYDRATION_MAX_INTERVAL)
-            return True
-
-        def _lookup_records() -> Any:
-            assert self._client is not None
-            return self._client.lookup(
-                record_names=[master_name, asset_name],
-                zone_id=zone_id,
-                desired_keys=PHOTO_DESIRED_KEYS,
-            )
+        backoff = _HydrationBackoff(timeout, interval)
 
         while True:
-            try:
-                lookup = _lookup_records()
-            except CloudKitRateLimited as exc:
-                if not _wait(exc.retry_after or delay):
-                    LOGGER.debug("Rate limited while waiting for the upload to index")
-                    return None
-                continue
-            except CloudKitApiError as exc:
-                if not _wait(delay):
-                    raise PyiCloudAPIResponseException(str(exc)) from exc
-                continue
-
-            records_by_type = {
-                record_record_type(record): record
-                for record in lookup.records
-                if isinstance(record, CKRecord)
-                and record_record_type(record) in {"CPLMaster", "CPLAsset"}
-            }
-            if "CPLMaster" in records_by_type and "CPLAsset" in records_by_type:
-                return self.asset_type(
-                    self.service,
-                    records_by_type["CPLMaster"],
-                    records_by_type["CPLAsset"],
-                    library=self,
-                )
-            if not _wait(delay):
+            records = self._lookup_uploaded_records(record_names, zone_id, backoff)
+            if records is None:
+                return None
+            asset = self._asset_from_uploaded_records(records)
+            if asset is not None:
+                return asset
+            if not backoff.wait():
                 LOGGER.debug(
                     "Uploaded asset was still not indexed after %.0fs", timeout
                 )
                 return None
+
+    def _lookup_uploaded_records(
+        self,
+        record_names: list[str],
+        zone_id: CKZoneIDReq,
+        backoff: _HydrationBackoff,
+    ) -> list[CKRecord | CKTombstoneRecord | CKErrorItem] | None:
+        """Look the records up, retrying transient CloudKit failures."""
+        assert self._client is not None
+        while True:
+            try:
+                lookup = self._client.lookup(
+                    record_names=record_names,
+                    zone_id=zone_id,
+                    desired_keys=PHOTO_DESIRED_KEYS,
+                )
+            except CloudKitRateLimited as exc:
+                if not backoff.wait(exc.retry_after):
+                    LOGGER.debug("Rate limited while waiting for the upload to index")
+                    return None
+            except CloudKitApiError as exc:
+                if not backoff.wait():
+                    raise PyiCloudAPIResponseException(str(exc)) from exc
+            else:
+                return lookup.records
+
+    def _asset_from_uploaded_records(
+        self,
+        records: Iterable[CKRecord | CKTombstoneRecord | CKErrorItem],
+    ) -> PhotoAsset | None:
+        """Build an asset from an indexed ``CPLMaster``/``CPLAsset`` pair."""
+        records_by_type = {
+            record_record_type(record): record
+            for record in records
+            if isinstance(record, CKRecord)
+            and record_record_type(record) in {"CPLMaster", "CPLAsset"}
+        }
+        if "CPLMaster" not in records_by_type or "CPLAsset" not in records_by_type:
+            return None
+        return self.asset_type(
+            self.service,
+            records_by_type["CPLMaster"],
+            records_by_type["CPLAsset"],
+            library=self,
+        )
 
     def upload_file(self, path: str) -> PhotoAsset | None:
         """Upload a file into the library and return the created asset."""
@@ -936,20 +974,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 )
             )
 
-        records_by_type = {
-            record_record_type(record): record
-            for record in upload_payload.records
-            if isinstance(record, CKRecord)
-            and record_record_type(record) in {"CPLMaster", "CPLAsset"}
-        }
-        if "CPLMaster" not in records_by_type or "CPLAsset" not in records_by_type:
-            return None
-        return self.asset_type(
-            self.service,
-            records_by_type["CPLMaster"],
-            records_by_type["CPLAsset"],
-            library=self,
-        )
+        return self._asset_from_uploaded_records(upload_payload.records)
 
     @property
     def all(self) -> PhotoAlbum:

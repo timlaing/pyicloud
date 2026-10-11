@@ -2835,8 +2835,9 @@ def test_account_lock_cli_handlers_preserve_stored_keyring_secret() -> None:
         state.get_login_api()
 
     delete_password.assert_not_called()
+    failing_call = MagicMock(side_effect=error)
     with pytest.raises(context_module.CLIAbort) as service_excinfo:
-        context_module.service_call("Find My", MagicMock(side_effect=error))
+        context_module.service_call("Find My", failing_call)
 
     message = (
         "Apple Account is locked for security reasons. Unlock it before trying again."
