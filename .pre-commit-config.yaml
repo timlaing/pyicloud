@@ -17,7 +17,7 @@ repos:
       - id: check-added-large-files
       - id: requirements-txt-fixer
       - id: name-tests-test
-        exclude: ^tests/const.*\.py$
+        exclude: ^tests/(const.*|fixture_loader)\.py$
         args:
           - --pytest-test-first
   - repo: https://github.com/astral-sh/ruff-pre-commit
