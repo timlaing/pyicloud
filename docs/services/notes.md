@@ -1,6 +1,6 @@
 # Notes
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 You can access your iCloud Notes through the `notes` property:
 
@@ -174,7 +174,7 @@ icloud notes sync-cursor --username you@example.com
 
 ## Notes CLI Example
 
-[`examples/notes_cli.py`](../../examples/notes_cli.py) is a local developer utility
+[`examples/notes_cli.py`](https://github.com/timlaing/pyicloud/blob/main/examples/notes_cli.py) is a local developer utility
 built on top of `api.notes`. It is useful for searching notes, inspecting the
 rendering pipeline, and exporting HTML, but its selection heuristics and debug
 output are convenience behavior rather than part of the Notes service contract.

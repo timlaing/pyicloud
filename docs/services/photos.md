@@ -1,6 +1,6 @@
 # Photo Library
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 You can access the iCloud Photo Library through the `photos` property.
 

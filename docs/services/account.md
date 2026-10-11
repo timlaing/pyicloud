@@ -1,6 +1,6 @@
 # Account
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 You can access information about your iCloud account using the `account` property:
 

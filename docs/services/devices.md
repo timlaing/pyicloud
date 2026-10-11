@@ -1,6 +1,6 @@
 # Devices
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 You can list which devices associated with your account by using the
 `devices` property:

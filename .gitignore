@@ -83,3 +83,6 @@ devcontainer-lock.json
 .opencode
 .mypy_cache
 node_modules
+
+# MkDocs build output
+site/

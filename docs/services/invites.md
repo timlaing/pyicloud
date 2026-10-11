@@ -1,6 +1,6 @@
 # Invites
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 Apple Invites events, read and RSVP. Events you created live in your private
 library; events other people shared with you arrive in the shared one, and both

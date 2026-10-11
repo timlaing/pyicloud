@@ -9,6 +9,8 @@
 [![Supported versions](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Ftimlaing%2Fpyicloud%2Fmain%2Fpyproject.toml)](https://pypi.org/project/pyicloud)
 [![Downloads](https://pepy.tech/badge/pyicloud)](https://pypi.org/project/pyicloud)
 
+[![Documentation Status](https://readthedocs.org/projects/pyicloud/badge/?version=latest)](https://pyicloud.readthedocs.io/en/latest/?badge=latest)
+
 [![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
 [![Code style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=timlaing_pyicloud&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=timlaing_pyicloud)
@@ -70,6 +72,8 @@ The `icloud` CLI can also store your password in the system keyring; see the
 ## Documentation
 
 Full documentation lives under [`docs/`](https://github.com/timlaing/pyicloud/tree/main/docs).
+It is also published, with a generated API reference, at
+**[pyicloud.readthedocs.io](https://pyicloud.readthedocs.io/)**.
 
 ### Guides
 

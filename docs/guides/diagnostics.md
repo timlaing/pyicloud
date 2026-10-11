@@ -1,6 +1,6 @@
 # Diagnostics
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 Apple changes the service map it advertises without notice: hosts move
 between partitions, keys stop being advertised, and endpoints get

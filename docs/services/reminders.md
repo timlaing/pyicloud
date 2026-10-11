@@ -1,6 +1,6 @@
 # Reminders
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 You can access your iCloud Reminders through the `reminders` property:
 
@@ -199,12 +199,12 @@ Reminders caveats:
 
 ## Reminders Example Scripts
 
-[`example_reminders.py`](../../examples/example_reminders.py) is a comprehensive live
+[`example_reminders.py`](https://github.com/timlaing/pyicloud/blob/main/examples/example_reminders.py) is a comprehensive live
 integration validator for the Reminders service. It exercises list discovery,
 read paths, write paths, location triggers, hashtags, attachments, recurrence
 rules, and delete flows against a real iCloud account.
 
-[`example_reminders_delta.py`](../../examples/example_reminders_delta.py) is a smaller live
+[`example_reminders_delta.py`](https://github.com/timlaing/pyicloud/blob/main/examples/example_reminders_delta.py) is a smaller live
 validator focused on `sync_cursor()` and `iter_changes(since=...)`.
 
 ## Reminders CLI
