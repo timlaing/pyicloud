@@ -8,6 +8,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Added
+
+- Add an `icloud invites` command group for listing, showing, and resolving Invites events (#346)
+
 ### Fixed
 
 - Reject advertised service endpoints that do not use HTTPS (#401)

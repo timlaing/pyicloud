@@ -4,7 +4,8 @@
 
 The `icloud` command line interface is organized around top-level
 subcommands such as `auth`, `account`, `devices`, `calendar`,
-`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, and `reminders`,
+`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, `reminders`, and
+`invites`,
 plus a standalone `doctor` command described under
 [Diagnostics](diagnostics.md).
 
