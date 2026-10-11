@@ -167,6 +167,7 @@ def test_session_init_keeps_preloaded_client_id(
     with (
         patch("pyicloud.session.load", return_value={"client_id": "preloaded"}),
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         session = PyiCloudSession(pyicloud_service, "fresh-id", cookie_directory="")
     assert session.data["client_id"] == "preloaded"
@@ -194,6 +195,7 @@ def test_save_session_data_creates_missing_cookie_directory(
         patch("os.path.isdir", return_value=False),
         patch("os.makedirs") as mock_makedirs,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         session = PyiCloudSession(pyicloud_service, "", cookie_directory="/not/real")
         session.cookies = MagicMock()
@@ -246,6 +248,7 @@ def test_request_raw_success(pyicloud_service_working: Any) -> None:
     with (
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         response = MagicMock(status_code=200)
         response.headers = {}
@@ -263,6 +266,7 @@ def test_request_returns_non_json_response_without_decoding(
     with (
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         response = MagicMock(status_code=200, ok=True)
         response.headers = {"Content-Type": "text/html"}
