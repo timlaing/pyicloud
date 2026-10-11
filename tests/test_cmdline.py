@@ -5338,9 +5338,15 @@ def test_invites_reports_a_listing_error_as_advice() -> None:
 
 
 def test_invites_show_reports_a_missing_event() -> None:
-    """An id that lists but cannot be fetched gets advice, not a trace."""
+    """An id that lists but cannot be fetched gets advice, not a trace.
+
+    The message names the resolved id, not the prefix the user typed, so it is
+    clear which event the listing promised but the lookup could not return.
+    """
 
     result = _invoke(VanishingEventAPI(), "invites", "show", "AAAA2")
 
     assert result.exit_code != 0
-    assert "No event with id" in str(result.exception)
+    assert "No event with id AAAA2222-0000-0000-0000-000000000002" in str(
+        result.exception
+    )

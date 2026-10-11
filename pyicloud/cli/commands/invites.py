@@ -146,11 +146,12 @@ def _invites_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
 def _lookup_event(api: PyiCloudService, event_id: str) -> Event:
     """Fetch one event, turning an unknown id into advice rather than a trace."""
 
+    resolved = _resolve_event_id(api, event_id)
     try:
-        return api.invites.event(_resolve_event_id(api, event_id))
+        return api.invites.event(resolved)
     except EventNotFound as err:
         raise CLIAbort(
-            f"No event with id {event_id}. Run `icloud invites list` to see "
+            f"No event with id {resolved}. Run `icloud invites list` to see "
             "the events available to you."
         ) from err
 
