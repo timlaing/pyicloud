@@ -30,11 +30,16 @@
     "pyicloud/services/reminders/protobuf",
     "package-lock.json"
   ],
-  "ignoreWords": ["scanne\u0301"],
+  "ignoreWords": [
+    "scanne\u0301"
+  ],
   "import": [],
   "language": "en,en-GB,lorem",
   "useGitignore": true,
   "words": [
+    "FezVrasta",
+    "MrJarnould",
+    "YoraiLevi",
     "acks",
     "acsegateway",
     "addopts",
@@ -137,6 +142,7 @@
     "generatedcode",
     "geofence",
     "guids",
+    "hackermengzhi",
     "hhii",
     "hidemyemail",
     "hoess",
