@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 FIXTURE_ROOT: Path = Path(__file__).parent / "fixtures"
+_RESOLVED_FIXTURE_ROOT: Path = FIXTURE_ROOT.resolve()
 
 _FIXTURE_READ: ContextVar[bool] = ContextVar("fixture_read", default=False)
 
@@ -47,5 +48,9 @@ def load_fixture(*parts: str) -> Any:
     """
 
     path = FIXTURE_ROOT.joinpath(*parts)
-    with _fixture_read(), open(path, encoding="utf-8") as handle:
-        return json.load(handle)
+    with _fixture_read():
+        resolved = path.resolve()
+        if not resolved.is_relative_to(_RESOLVED_FIXTURE_ROOT):
+            raise ValueError(f"Fixture path escapes {FIXTURE_ROOT}: {path}")
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)

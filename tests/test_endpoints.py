@@ -8,12 +8,9 @@ and the inventory disagree in either direction.
 from __future__ import annotations
 
 import ast
-from collections.abc import Generator, Iterator
-from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 import re
-from typing import Any
-from unittest.mock import patch
 
 from pyicloud.endpoints import (
     WEBSERVICE_KEYS,
@@ -22,41 +19,9 @@ from pyicloud.endpoints import (
     webservice,
     webservices_for,
 )
+from tests.conftest import allow_source_reads
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "pyicloud"
-
-# The scans below read the real package, but a test call may not touch the file
-# system.  Reading the sources once at import time and serving the snapshot from
-# memory keeps the scan honest without reaching disk while a test is running.
-_FROZEN_SOURCES: dict[Path, str] = {
-    source: source.read_text(encoding="utf-8") for source in PACKAGE_ROOT.rglob("*.py")
-}
-
-
-def _frozen_rglob(*_args: Any, **_kwargs: Any) -> Iterator[Path]:
-    """Return the frozen snapshot of package source paths."""
-
-    return iter(_FROZEN_SOURCES)
-
-
-def _frozen_read_text(
-    source: Path, encoding: str | None = None, errors: str | None = None
-) -> str:
-    """Return the frozen text for ``source``, ignoring encoding options."""
-
-    del encoding, errors
-    return _FROZEN_SOURCES[source]
-
-
-@contextmanager
-def _frozen_source_tree() -> Generator[None, None, None]:
-    """Serve the import-time snapshot of the package sources."""
-
-    with (
-        patch.object(Path, "rglob", new=_frozen_rglob),
-        patch.object(Path, "read_text", new=_frozen_read_text),
-    ):
-        yield
 
 
 # Matches get_webservice_url("key") and any future sibling resolver, so adding a
@@ -119,7 +84,7 @@ def test_inventory_matches_the_keys_the_library_resolves() -> None:
     key listed but never resolved means it is stale. Both are failures.
     """
 
-    with _frozen_source_tree():
+    with allow_source_reads():
         resolved = _keys_resolved_in_source()
 
     assert resolved, "found no webservice lookups; the source scan is broken"
@@ -150,7 +115,7 @@ def test_inventory_records_which_services_depend_on_each_key() -> None:
     re-express the mapping, not evidence the inventory is wrong.
     """
 
-    with _frozen_source_tree():
+    with allow_source_reads():
         derived = _powers_derived_from_source()
     declared = {entry.key: set(entry.powers) for entry in WEBSERVICES}
 

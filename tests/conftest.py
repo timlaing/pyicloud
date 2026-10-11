@@ -5,6 +5,7 @@
 
 from collections.abc import Generator, Iterator
 from contextlib import ExitStack, contextmanager, suppress
+from contextvars import ContextVar
 import io
 import os
 import secrets
@@ -68,11 +69,47 @@ def _sandbox_roots() -> frozenset[str]:
 _SANDBOX_ROOTS: frozenset[str] = _sandbox_roots()
 
 
+_RESOLVING: ContextVar[bool] = ContextVar("_resolving", default=False)
+
+
+def _matches_sandbox_root(candidate: str, *, allow_ancestors: bool) -> bool:
+    """Return True when ``candidate`` is inside (or, optionally, above) a root."""
+
+    for root in _SANDBOX_ROOTS:
+        if candidate == root or candidate.startswith(root + os.sep):
+            return True
+        if allow_ancestors and root.startswith(candidate + os.sep):
+            return True
+    return allow_ancestors and candidate == os.sep
+
+
+def _resolves_into_sandbox(candidate: str) -> bool:
+    """Return True when ``candidate`` resolves to a path inside the sandbox.
+
+    A symlink inside the sandbox can point outside it, so the lexical prefix
+    check is not enough on its own.  ``os.path.realpath`` walks the path with
+    ``os.lstat``/``os.readlink``, which the guards patch; ``_RESOLVING`` stops
+    the guard re-entering while it runs, and any resolution failure is treated
+    as outside the sandbox.
+    """
+
+    token = _RESOLVING.set(True)
+    try:
+        resolved = os.path.realpath(candidate)
+    except (OSError, FileSystemAccessError):
+        return False
+    finally:
+        _RESOLVING.reset(token)
+    return _matches_sandbox_root(resolved, allow_ancestors=False)
+
+
 def in_sandbox(path: Any, *, allow_ancestors: bool = False) -> bool:
     """Return True when ``path`` points inside the test sandbox.
 
     The check is a resolved-prefix comparison rather than a substring match, so
-    a sibling such as ``/tmp/python-test-results-backup`` is *not* allowed.
+    a sibling such as ``/tmp/python-test-results-backup`` is *not* allowed, and
+    a symlink inside the sandbox that points outside it resolves to a rejected
+    path.
 
     ``allow_ancestors`` additionally permits directories that contain the
     sandbox, which ``Path.resolve`` must inspect on its way down to a sandbox
@@ -80,12 +117,11 @@ def in_sandbox(path: Any, *, allow_ancestors: bool = False) -> bool:
     """
 
     candidate = os.path.abspath(normalize_path(path))
-    for root in _SANDBOX_ROOTS:
-        if candidate == root or candidate.startswith(root + os.sep):
-            return True
-        if allow_ancestors and root.startswith(candidate + os.sep):
-            return True
-    return allow_ancestors and candidate == os.sep
+    if not _matches_sandbox_root(candidate, allow_ancestors=allow_ancestors):
+        return False
+    if allow_ancestors:
+        return True
+    return _resolves_into_sandbox(candidate)
 
 
 def _is_message_catalog(path: Any) -> bool:
@@ -125,12 +161,49 @@ def _is_coverage_collecting() -> bool:
     return False
 
 
+_PACKAGE_SOURCE_ROOT: str = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), os.pardir, "pyicloud")
+)
+_SOURCE_READ: ContextVar[bool] = ContextVar("_source_read", default=False)
+
+
+def source_read_allowed(path: Any) -> bool:
+    """Return True for package-source reads a scanning test has sanctioned."""
+
+    if not _SOURCE_READ.get():
+        return False
+    candidate = os.path.abspath(normalize_path(path))
+    return candidate == _PACKAGE_SOURCE_ROOT or candidate.startswith(
+        _PACKAGE_SOURCE_ROOT + os.sep
+    )
+
+
+@contextmanager
+def allow_source_reads() -> Generator[None, None, None]:
+    """Sanction reads of the library's own sources for the inventory scan.
+
+    ``tests/test_endpoints.py`` parses the package at test time rather than at
+    import time, so the guard stays in force and the scan declares its reads
+    here instead of slipping past the checks.
+    """
+
+    token = _SOURCE_READ.set(True)
+    try:
+        yield
+    finally:
+        _SOURCE_READ.reset(token)
+
+
 def _reject(action: str, path: Any, *, allow_ancestors: bool = False) -> None:
     """Raise :class:`FileSystemAccessError` when ``path`` is outside sandbox."""
 
+    if _RESOLVING.get():
+        return
     if in_sandbox(path, allow_ancestors=allow_ancestors):
         return
     if fixture_read_allowed():
+        return
+    if source_read_allowed(path):
         return
     if _is_message_catalog(path):
         return
@@ -291,7 +364,6 @@ _SHUTIL_TWO_PATH: tuple[str, ...] = (
     "copyfile",
     "copy",
     "copy2",
-    "copyfileobj",
     "copymode",
     "copystat",
     "copytree",

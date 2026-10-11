@@ -85,10 +85,12 @@ Important test constraints:
   test (e.g. `patch("os.path.exists", return_value=False)`) or write inside the
   sandbox.
 - Tooling and library behaviour is exempt, never test I/O: gettext/click `.mo`
-  lookups, coverage/`pytest-cov` reading sources via `sys.monitoring`, and
-  fixture reads performed through `tests/fixture_loader.load_fixture`.
-- Add fixtures under `tests/const/` (HTTP-response fixtures) or `tests/fixtures/`,
-  and load them with `load_fixture(...)` from `tests/fixture_loader.py`.
+  lookups, coverage/`pytest-cov` reading sources via `sys.monitoring`, fixture
+  reads performed through `tests/fixture_loader.load_fixture`, and the inventory
+  scan's package-source reads via `tests.conftest.allow_source_reads`.
+- Add JSON fixtures under `tests/fixtures/` and load them with `load_fixture(...)`
+  from `tests/fixture_loader.py`. Standalone response constants live in the
+  `tests/const/` package and are imported directly.
 
 ## Coverage
 
@@ -100,8 +102,7 @@ pytest --cov=pyicloud --cov-branch --cov-report=term-missing
 
 Inspect the per-file table before claiming compliance; the aggregate percentage
 does not tell you which files are under-covered. Coverage is also measured by
-CI and reported to SonarQube Cloud, and the manual `pytest` prek hook fails the
-run below `--cov-fail-under=90`. The filesystem guard allows coverage's own
+CI and reported to SonarQube Cloud. The filesystem guard allows coverage's own
 source reads, so these commands run unchanged.
 
 ## Adding or changing dependencies
