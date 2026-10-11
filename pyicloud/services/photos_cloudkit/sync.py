@@ -668,7 +668,7 @@ def _render_relative_path(
             folder = folder_structure.format(asset_date)
         else:
             folder = asset_date.strftime(folder_structure)
-    except Exception as exc:  # pragma: no cover - defensive formatting guard
+    except Exception as exc:
         raise PhotosServiceException(
             f"Invalid folder structure format '{folder_structure}'."
         ) from exc

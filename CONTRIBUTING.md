@@ -90,7 +90,8 @@ pytest --cov=pyicloud --cov-branch --cov-report=term-missing
 
 Inspect the per-file table before claiming compliance; the aggregate percentage
 does not tell you which files are under-covered. Coverage is also measured by
-CI and reported to SonarQube Cloud.
+CI and reported to SonarQube Cloud, and the manual `pytest` prek hook fails the
+run below `--cov-fail-under=90`.
 
 ## Adding or changing dependencies
 

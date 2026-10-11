@@ -20,13 +20,14 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - Format/lint: `ruff check --fix` and `ruff format` (Ruff is the only formatter; line length 88, `preview=true` in `[tool.ruff]`).
 - Types: `mypy .` (strict mode, `[tool.mypy]`).
 - Pylint: `pylint` (config in `[tool.pylint.*]`).
-- Pre-commit hooks are managed by **`prek`** (a pre-commit drop-in), not `pre-commit`. Hooks & config: `.pre-commit-config.yaml`; install with `prek install`. Runs: ruff, cspell, yamllint, prettier, mypy, pylint.
+- Pre-commit hooks are managed by **`prek`** (a pre-commit drop-in), not `pre-commit`. Hooks & config: `.pre-commit-config.yaml`; install with `prek install`. Runs: ruff, cspell, yamllint, prettier, mypy, pylint. A manual `pytest` hook additionally gates coverage at `--cov-fail-under=90`.
 - Tests: `pytest` (config in `[tool.pytest.ini_options]`). Run a single file with `pytest tests/services/test_drive.py` or single test with `pytest tests/test_base.py::test_name -k`.
 
 ## Test gotchas (important)
 
 - `pyproject.toml` `[tool.pytest.ini_options]` adds `--disable-socket --allow-unix-socket --timeout=2` via `addopts`. **Tests must not make network calls** and must complete fast.
 - `tests/conftest.py` installs autouse fixtures that **block filesystem access**: `open`, `os.open`, `os.mkdir`, `os.makedirs`, `os.chmod` all raise unless the path contains `"python-test-results"`. New tests must mock any file I/O.
+- **Do not disable coverage** to make a target pass: never add `# pragma: no cover` (or other `exclude_lines`/coverage-exclusion comments) without explicit approval — close the gap with a test instead.
 
 ## Generated protobuf
 

@@ -115,7 +115,7 @@ class _Renderer:
 
     def render(
         self, ctx: AttachmentContext, render_note_cb: Callable[[Any], str]
-    ) -> str:  # pragma: no cover - interface
+    ) -> str:
         """Render attachment to HTML fragment based on its type."""
         raise NotImplementedError
 
