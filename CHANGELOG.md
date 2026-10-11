@@ -33,6 +33,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Update package name to pyicloud and add allowScripts configuration
 
+### Documentation
+
+- Split the monolithic README into focused guides and per-service docs under `docs/`, leaving a slim landing page
+
 ### Features
 
 - Update @opencode/cli version and clean up setup script

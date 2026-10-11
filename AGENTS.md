@@ -9,6 +9,7 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - `pyicloud/services/` — per-service modules (drive, photos, findmyiphone, notes, reminders, invites, ...). Notes and reminders have heavier sub-packages (`models/`, `protobuf/`, `rendering/`, `_writes.py`, `_reads.py`, `_protocol.py`).
 - `tests/` — pytest suite mirroring package layout; `tests/const/` holds HTTP-response fixtures.
 - `scripts/` — dev/tooling helpers (see below).
+- `docs/` — user documentation: `docs/guides/` (cross-cutting how-tos), `docs/services/` (one page per service), and `docs/research/` (maintainer design notes).
 
 ## Setup
 
