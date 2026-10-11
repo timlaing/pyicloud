@@ -109,6 +109,19 @@ def test_sanctioned_source_reads_cover_metadata() -> None:
         )
 
 
+@pytest.mark.parametrize("operation", ["write", "other"])
+def test_sanctioned_source_reads_reject_mutations(operation: str) -> None:
+    """The read-only scan exemption must not authorise writes or mutations."""
+
+    with (
+        conftest.allow_source_reads(),
+        pytest.raises(FileSystemAccessError),
+    ):
+        conftest._reject(
+            "be writing", conftest._PACKAGE_SOURCE_ROOT, operation=operation
+        )
+
+
 def test_reject_blocks_writes_outside_sandbox_under_coverage() -> None:
     """A coverage frame must not sanction a write anywhere else."""
 

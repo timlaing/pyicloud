@@ -257,7 +257,9 @@ def _reject(
         return
     if fixture_read_allowed():
         return
-    if source_read_allowed(path):
+    # The inventory scan is a read-only exemption: it may read and inspect
+    # package sources (``stat``/``listdir``/...), but never write or mutate them.
+    if operation in ("read", "stat") and source_read_allowed(path):
         return
     if _is_message_catalog(path):
         return
