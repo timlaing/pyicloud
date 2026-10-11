@@ -259,7 +259,7 @@ class PyiCloudService:
         return _cookie_directory
 
     def __init__(
-        self,
+        self,  # noqa: S107 - public entry point intentionally exposes many options
         apple_id: str,
         password: str | None = None,
         cookie_directory: str | None = None,
@@ -1727,10 +1727,7 @@ class PyiCloudService:
                     params=self.params,
                     cloudkit_validation_extra=self._cloudkit_validation_extra,
                 )
-            except (
-                PyiCloudAPIResponseException,
-                PyiCloudServiceNotActivatedException,
-            ) as error:
+            except PyiCloudAPIResponseException as error:
                 raise PyiCloudServiceUnavailable(
                     "Invites service not available"
                 ) from error

@@ -44,6 +44,7 @@ from pyicloud.services.photos import (
     ListTypeEnum,
     ObjectTypeEnum,
     PhotoAlbum,
+    PhotoAlbumRecordState,
     PhotoAsset,
     PhotoLibrary,
     PhotosService,
@@ -2620,9 +2621,11 @@ def test_photo_album_initialization(mock_photo_library: MagicMock) -> None:
         ],
         zone_id={"zoneName": "TestZone"},
         page_size=50,
-        parent_id="parent123",
-        record_change_tag="tag123",
-        record_modification_date="2023-01-01T00:00:00Z",
+        record=PhotoAlbumRecordState(
+            parent_id="parent123",
+            record_change_tag="tag123",
+            record_modification_date="2023-01-01T00:00:00Z",
+        ),
     )
 
     assert album.name == "Test Album"
@@ -2687,7 +2690,7 @@ def test_photo_album_fullname_with_parent() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="parent123",
+        record=PhotoAlbumRecordState(parent_id="parent123"),
     )
 
     assert album.fullname == "Parent Album/Child Album"
@@ -2708,7 +2711,7 @@ def test_photo_album_fullname_missing_parent_falls_back_to_name() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="missing-parent",
+        record=PhotoAlbumRecordState(parent_id="missing-parent"),
     )
 
     assert album.fullname == "Child Album"
@@ -2726,7 +2729,7 @@ def test_photo_album_fullname_cycle_falls_back_without_recursing() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="child123",
+        record=PhotoAlbumRecordState(parent_id="child123"),
     )
     child_album = PhotoAlbum(
         library=mock_photo_library,
@@ -2736,7 +2739,7 @@ def test_photo_album_fullname_cycle_falls_back_without_recursing() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="parent123",
+        record=PhotoAlbumRecordState(parent_id="parent123"),
     )
     mock_photo_library.albums = AlbumContainer([parent_album, child_album])
 
@@ -2759,7 +2762,7 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
         zone_id={"zoneName": "TestZone"},
     )
 
@@ -2830,7 +2833,9 @@ def test_photo_album_rename_uses_browser_response_user_modification_date() -> No
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag=request_record["recordChangeTag"],
+        record=PhotoAlbumRecordState(
+            record_change_tag=request_record["recordChangeTag"]
+        ),
         zone_id=load_fixture("photos_browser_mutations", "album_rename_request.json")[
             "zoneID"
         ],
@@ -3019,7 +3024,7 @@ def test_photo_album_delete_success(mock_photo_library: MagicMock) -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
         zone_id={"zoneName": "TestZone"},
     )
 
@@ -3072,7 +3077,9 @@ def test_photo_album_delete_matches_browser_request_fixture() -> None:
         list_type=ListTypeEnum.CONTAINER,
         direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag=request_record["recordChangeTag"],
+        record=PhotoAlbumRecordState(
+            record_change_tag=request_record["recordChangeTag"]
+        ),
         zone_id=load_fixture("photos_browser_mutations", "album_delete_request.json")[
             "zoneID"
         ],
@@ -3230,7 +3237,7 @@ def test_photo_album_rename_success_typed_client() -> None:
         direction=DirectionEnum.ASCENDING,
         client=mock_client,
         zone_id={"zoneName": "TestZone"},
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
     )
 
     album.rename("New Name")
@@ -3261,7 +3268,7 @@ def test_photo_album_delete_success_typed_client() -> None:
         direction=DirectionEnum.ASCENDING,
         client=mock_client,
         zone_id={"zoneName": "TestZone"},
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
     )
 
     assert album.delete() is True
