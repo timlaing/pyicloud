@@ -2830,9 +2830,9 @@ def test_account_lock_cli_handlers_preserve_stored_keyring_secret() -> None:
         patch.object(
             context_module.utils, "delete_password_in_keyring"
         ) as delete_password,
+        pytest.raises(context_module.CLIAbort) as login_excinfo,
     ):
-        with pytest.raises(context_module.CLIAbort) as login_excinfo:
-            state.get_login_api()
+        state.get_login_api()
 
     delete_password.assert_not_called()
     with pytest.raises(context_module.CLIAbort) as service_excinfo:

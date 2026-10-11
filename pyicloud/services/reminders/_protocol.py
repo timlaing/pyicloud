@@ -154,7 +154,7 @@ def _decode_nsdatecomponents(value: object) -> DateComponents | None:
         return None
 
     root, objects = _extract_nskeyed_archiver_root(decoded_bytes)
-    if root is None or not isinstance(root, dict):
+    if root is None or objects is None or not isinstance(root, dict):
         return None
 
     decoded = _extract_nsdate_components(root)

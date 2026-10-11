@@ -857,7 +857,8 @@ class PhotoLibrary(BasePhotoLibrary):
             delay = min(delay * 2, UPLOAD_HYDRATION_MAX_INTERVAL)
             return True
 
-        def _lookup_records():
+        def _lookup_records() -> Any:
+            assert self._client is not None
             return self._client.lookup(
                 record_names=[master_name, asset_name],
                 zone_id=zone_id,
