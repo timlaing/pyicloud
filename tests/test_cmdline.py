@@ -126,7 +126,7 @@ class FakeDriveResponse:
 
     def iter_content(  # pylint: disable=unused-argument
         self,
-        chunk_size: int = 8192,  # pragma: no cover - trivial
+        chunk_size: int = 8192,
     ) -> Iterator[bytes]:
         """Yield the fake download body."""
         yield b"hello"
@@ -164,7 +164,7 @@ class FakeDriveNode:
 
     def open(  # pylint: disable=unused-argument
         self,
-        **kwargs: Any,  # pragma: no cover - trivial
+        **kwargs: Any,
     ) -> FakeDriveResponse:
         """Return a fake download response."""
         return FakeDriveResponse()

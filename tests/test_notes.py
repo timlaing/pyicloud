@@ -4,9 +4,7 @@
 
 from datetime import datetime
 import importlib
-import json
 import os
-from pathlib import Path
 import tempfile
 from typing import Annotated, Any
 import unittest
@@ -42,14 +40,12 @@ from pyicloud.services.notes.domain import NoteBody
 import pyicloud.services.notes.models.cloudkit as notes_cloudkit
 from pyicloud.services.notes.rendering.exporter import decode_and_parse_note, write_html
 from pyicloud.services.notes.service import NoteNotFound
-
-FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
-NOTES_FIXTURE_DIR = FIXTURE_DIR / "notes"
+from tests.fixture_loader import load_fixture
 
 
 def load_notes_fixture(name: str) -> Any:
     """Load a synthetic Notes CloudKit fixture."""
-    return json.loads((NOTES_FIXTURE_DIR / name).read_text(encoding="utf-8"))
+    return load_fixture("notes", name)
 
 
 def _resolve_cloudkit_shim_attr(name: str) -> Any:

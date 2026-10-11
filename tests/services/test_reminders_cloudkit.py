@@ -9,7 +9,6 @@ import base64
 from datetime import datetime, timezone
 import json
 import logging
-from pathlib import Path
 import plistlib
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
@@ -76,17 +75,12 @@ from pyicloud.services.reminders.protobuf import (
     versioned_document_pb2,
 )
 from pyicloud.services.reminders.service import RemindersService
-
-FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
-REMINDERS_FIXTURE_DIR = FIXTURE_DIR / "reminders"
+from tests.fixture_loader import load_fixture
 
 
 def load_reminders_fixture(name: str) -> dict[str, Any]:
     """Load a synthetic Reminders CloudKit fixture."""
-    return cast(
-        dict[str, Any],
-        json.loads((REMINDERS_FIXTURE_DIR / name).read_text(encoding="utf-8")),
-    )
+    return cast(dict[str, Any], load_fixture("reminders", name))
 
 
 DATE_TRIGGER_FIXTURE = "reminders_query_alarm_date_trigger_response.json"

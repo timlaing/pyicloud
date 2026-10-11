@@ -3,9 +3,15 @@
 # pylint: disable=protected-access
 # pylint: disable=redefined-outer-name
 
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
+from contextlib import ExitStack, contextmanager, suppress
+import io
 import os
 import secrets
+import shutil
+import sys
+import tempfile
+from types import FrameType
 from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -27,6 +33,7 @@ from pyicloud.services.photos import (
 from pyicloud.session import PyiCloudSession
 from tests import PyiCloudSessionMock
 from tests.const import LOGIN_WORKING
+from tests.fixture_loader import fixture_read_allowed
 
 BUILTINS_OPEN: str = "builtins.open"
 EXAMPLE_DOMAIN: str = "https://example.com"
@@ -43,6 +50,98 @@ def normalize_path(path: Any) -> str:
         return str(os.fspath(path))
     except TypeError:
         return str(path)
+
+
+SANDBOX_DIRNAME: str = "python-test-results"
+
+
+def _sandbox_roots() -> frozenset[str]:
+    """Absolute and symlink-resolved roots tests are allowed to touch."""
+
+    base = os.path.join(tempfile.gettempdir(), SANDBOX_DIRNAME)
+    roots = {os.path.abspath(base)}
+    with suppress(OSError):
+        roots.add(os.path.realpath(base))
+    return frozenset(roots)
+
+
+_SANDBOX_ROOTS: frozenset[str] = _sandbox_roots()
+
+
+def in_sandbox(path: Any, *, allow_ancestors: bool = False) -> bool:
+    """Return True when ``path`` points inside the test sandbox.
+
+    The check is a resolved-prefix comparison rather than a substring match, so
+    a sibling such as ``/tmp/python-test-results-backup`` is *not* allowed.
+
+    ``allow_ancestors`` additionally permits directories that contain the
+    sandbox, which ``Path.resolve`` must inspect on its way down to a sandbox
+    path.
+    """
+
+    candidate = os.path.abspath(normalize_path(path))
+    for root in _SANDBOX_ROOTS:
+        if candidate == root or candidate.startswith(root + os.sep):
+            return True
+        if allow_ancestors and root.startswith(candidate + os.sep):
+            return True
+    return allow_ancestors and candidate == os.sep
+
+
+def _is_message_catalog(path: Any) -> bool:
+    """Return True for gettext catalogs read by click/gettext.
+
+    Click (via Typer) lazily imports translated help text, which stats and opens
+    ``LC_MESSAGES/*.mo`` files.  That lookup is library behaviour rather than
+    test file access, so it is allowed for click/gettext callers only.
+    """
+
+    if not normalize_path(path).endswith(".mo"):
+        return False
+    frame: FrameType | None = sys._getframe()
+    while frame is not None:
+        module = frame.f_globals.get("__name__", "")
+        if module == "gettext" or "click" in module:
+            return True
+        frame = frame.f_back
+    return False
+
+
+def _reject(action: str, path: Any, *, allow_ancestors: bool = False) -> None:
+    """Raise :class:`FileSystemAccessError` when ``path`` is outside sandbox."""
+
+    if in_sandbox(path, allow_ancestors=allow_ancestors):
+        return
+    if fixture_read_allowed():
+        return
+    if _is_message_catalog(path):
+        return
+    raise FileSystemAccessError(
+        f"You should not {action} in tests. {normalize_path(path)}"
+    )
+
+
+def _guard_path(original: Any, action: str, *, allow_ancestors: bool = False) -> Any:
+    """Wrap a one-path function so non-sandbox access raises."""
+
+    def guarded(path: Any, *args: Any, **kwargs: Any) -> Any:
+        if not isinstance(path, int):
+            _reject(action, path, allow_ancestors=allow_ancestors)
+        return original(path, *args, **kwargs)
+
+    return guarded
+
+
+def _guard_two_paths(original: Any, action: str) -> Any:
+    """Wrap a two-path function so non-sandbox access raises."""
+
+    def guarded(src: Any, dst: Any, *args: Any, **kwargs: Any) -> Any:
+        for path in (src, dst):
+            if not isinstance(path, int):
+                _reject(action, path)
+        return original(src, dst, *args, **kwargs)
+
+    return guarded
 
 
 @pytest.fixture(autouse=True)
@@ -87,11 +186,7 @@ def mock_mkdir() -> Iterator[Any]:
     mkdir = os.mkdir
 
     def my_mkdir(path: Any, *args: Any, **kwargs: Any) -> None:
-        normalized = normalize_path(path)
-        if "python-test-results" not in normalized:
-            raise FileSystemAccessError(
-                f"You should not be creating directories in tests. {normalized}"
-            )
+        _reject("be creating directories", path)
         return mkdir(path, *args, **kwargs)
 
     with patch("os.mkdir", my_mkdir) as mkdir_mock:
@@ -104,11 +199,7 @@ def mock_makedirs() -> Iterator[Any]:
     mkdirs = os.makedirs
 
     def my_makedirs(path: Any, *args: Any, **kwargs: Any) -> None:
-        normalized = normalize_path(path)
-        if "python-test-results" not in normalized:
-            raise FileSystemAccessError(
-                f"You should not be creating directories in tests. {normalized}"
-            )
+        _reject("be creating directories", path)
         return mkdirs(path, *args, **kwargs)
 
     with patch("os.makedirs", my_makedirs) as mkdir_mock:
@@ -121,11 +212,7 @@ def mock_chmod() -> Iterator[Any]:
     chmod = os.chmod
 
     def my_chmod(path: Any, *args: Any, **kwargs: Any) -> None:
-        normalized = normalize_path(path)
-        if "python-test-results" not in normalized:
-            raise FileSystemAccessError(
-                f"You should not be changing file permissions in tests. {normalized}"
-            )
+        _reject("be changing file permissions", path)
         return chmod(path, *args, **kwargs)
 
     with patch("os.chmod", my_chmod) as chmod_mock:
@@ -138,11 +225,7 @@ def mock_open_fixture() -> Iterator[Any]:
     builtins_open = open
 
     def my_open(path: Any, *args: Any, **kwargs: Any) -> Any:
-        normalized = normalize_path(path)
-        if "python-test-results" not in normalized:
-            raise FileSystemAccessError(
-                f"You should not be opening files in tests. {normalized}"
-            )
+        _reject("be opening files", path)
         return builtins_open(path, *args, **kwargs)
 
     with patch(BUILTINS_OPEN, my_open) as open_mock:
@@ -155,15 +238,121 @@ def mock_os_open_fixture() -> Iterator[Any]:
     builtins_open = os.open
 
     def my_open(path: Any, *args: Any, **kwargs: Any) -> Any:
-        normalized = normalize_path(path)
-        if "python-test-results" not in normalized:
-            raise FileSystemAccessError(
-                f"You should not be opening files in tests. {normalized}"
-            )
+        _reject("be opening files", path)
         return builtins_open(path, *args, **kwargs)
 
     with patch("os.open", my_open) as open_mock:
         yield open_mock
+
+
+_READ_ONLY_OS: tuple[str, ...] = (
+    "stat",
+    "lstat",
+    "listdir",
+    "scandir",
+    "walk",
+    "access",
+    "readlink",
+)
+# ``Path.resolve`` stats and reads links up to the root, including ancestors of
+# the sandbox, so those metadata calls may look above the sandbox boundary.
+_READ_ONLY_OS_ANCESTORS: tuple[str, ...] = ("stat", "lstat", "readlink")
+_MUTATION_OS: tuple[str, ...] = (
+    "remove",
+    "unlink",
+    "rmdir",
+    "removedirs",
+    "truncate",
+    "utime",
+)
+_MUTATION_OS_TWO_PATH: tuple[str, ...] = ("rename", "replace", "link", "symlink")
+_SHUTIL_ONE_PATH: tuple[str, ...] = ("rmtree",)
+_SHUTIL_TWO_PATH: tuple[str, ...] = (
+    "copyfile",
+    "copy",
+    "copy2",
+    "copyfileobj",
+    "copymode",
+    "copystat",
+    "copytree",
+    "move",
+)
+
+
+@pytest.fixture(autouse=True)
+def block_io_open() -> Iterator[None]:
+    """Block ``io.open`` so ``pathlib`` file I/O cannot bypass the guards."""
+    with patch("io.open", _guard_path(io.open, "call io.open")):
+        yield
+
+
+@contextmanager
+def _readonly_guards() -> Generator[None, None, None]:
+    """Patch read-only ``os`` entry points for the duration of the block.
+
+    These are installed around the test call (not as a fixture) so pytest can
+    still call ``Path.exists`` while importing the test module and while
+    formatting a failure traceback, once the guards have been removed.
+    """
+
+    with ExitStack() as stack:
+        for name in _READ_ONLY_OS:
+            func = getattr(os, name)
+            stack.enter_context(
+                patch(
+                    f"os.{name}",
+                    _guard_path(
+                        func,
+                        f"call os.{name}",
+                        allow_ancestors=name in _READ_ONLY_OS_ANCESTORS,
+                    ),
+                )
+            )
+        yield
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Iterator[Any]:  # pylint: disable=unused-argument
+    """Block read-only file-system inspection during the test call."""
+    with _readonly_guards():
+        return (yield)
+
+
+@pytest.fixture(autouse=True)
+def block_file_system_mutations() -> Iterator[None]:
+    """Block file-system mutations outside the sandbox."""
+    with ExitStack() as stack:
+        for name in _MUTATION_OS:
+            func = getattr(os, name)
+            stack.enter_context(
+                patch(f"os.{name}", _guard_path(func, f"call os.{name}"))
+            )
+        for name in _MUTATION_OS_TWO_PATH:
+            func = getattr(os, name)
+            stack.enter_context(
+                patch(f"os.{name}", _guard_two_paths(func, f"call os.{name}"))
+            )
+        yield
+
+
+@pytest.fixture(autouse=True)
+def block_shutil_file_system() -> Iterator[None]:
+    """Block ``shutil`` file-system operations outside the sandbox."""
+    with ExitStack() as stack:
+        for name in _SHUTIL_ONE_PATH:
+            func = getattr(shutil, name)
+            stack.enter_context(
+                patch(f"shutil.{name}", _guard_path(func, f"call shutil.{name}"))
+            )
+        for name in _SHUTIL_TWO_PATH:
+            func = getattr(shutil, name)
+            stack.enter_context(
+                patch(
+                    f"shutil.{name}",
+                    _guard_two_paths(func, f"call shutil.{name}"),
+                )
+            )
+        yield
 
 
 @pytest.fixture
