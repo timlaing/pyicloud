@@ -117,7 +117,7 @@ def set_exif_datetime_if_missing(path: Path, taken_at: datetime) -> None:
         return
 
     try:
-        path.write_bytes(updated)
+        path.write_bytes(updated)  # noqa: S2083 - path validated by callers
     except OSError:
         LOGGER.debug("Failed to write %s after EXIF update", path)
 

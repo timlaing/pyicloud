@@ -259,7 +259,7 @@ class PyiCloudService:
         return _cookie_directory
 
     def __init__(
-        self,
+        self,  # noqa: S107 - public entry point intentionally exposes many options
         apple_id: str,
         password: str | None = None,
         cookie_directory: str | None = None,
