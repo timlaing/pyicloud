@@ -4,12 +4,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-import json
 import logging
-from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 from uuid import UUID
 
@@ -25,51 +23,9 @@ from pyicloud.common.cloudkit.models import (
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.services.photos_cloudkit.client import PhotosCloudKitClient
 from pyicloud.services.photos_cloudkit.upload import _local_time_zone
-
-FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures"
-ZONES_LIST_PAYLOAD = json.loads(
-    (FIXTURE_DIR / "photos_zones_list_response.json").read_text(encoding="utf-8")
-)
-DATABASE_CHANGES_PAYLOAD = json.loads(
-    (FIXTURE_DIR / "photos_database_changes_response.json").read_text(encoding="utf-8")
-)
-ZONE_CHANGES_PAYLOAD = json.loads(
-    (FIXTURE_DIR / "photos_zone_changes_response.json").read_text(encoding="utf-8")
-)
-
+from tests.fixture_loader import load_fixture
 
 UPLOAD_CLIENT_UUID = "11111111-2222-3333-4444-555555555555"
-UPLOAD_FIXTURE_DIR = FIXTURE_DIR / "photos_upload"
-CREATE_UPLOAD_URL_PAYLOAD = json.loads(
-    (UPLOAD_FIXTURE_DIR / "create_upload_url_response.json").read_text(encoding="utf-8")
-)
-SINGLE_FILE_UPLOAD_PAYLOAD = json.loads(
-    (UPLOAD_FIXTURE_DIR / "single_file_upload_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-PUT_ASSET_PAYLOAD = json.loads(
-    (UPLOAD_FIXTURE_DIR / "put_asset_response.json").read_text(encoding="utf-8")
-)
-UPLOAD_STATUS_PAYLOAD = json.loads(
-    (UPLOAD_FIXTURE_DIR / "upload_status_response.json").read_text(encoding="utf-8")
-)
-UPLOAD_STATUS_UNKNOWN_PAYLOAD = json.loads(
-    (UPLOAD_FIXTURE_DIR / "upload_status_unknown_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-PUT_ASSET_DUPLICATE_PAYLOAD = json.loads(
-    (UPLOAD_FIXTURE_DIR / "put_asset_duplicate_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-PUT_ASSET_REJECTED_PAYLOAD = json.loads(
-    (UPLOAD_FIXTURE_DIR / "put_asset_rejected_response.json").read_text(
-        encoding="utf-8"
-    )
-)
-RESERVED_UPLOAD_URL = CREATE_UPLOAD_URL_PAYLOAD["uploadUrls"][UPLOAD_CLIENT_UUID]
 
 
 def _upload_client(session: MagicMock) -> PhotosCloudKitClient:
@@ -87,7 +43,7 @@ def _upload_client(session: MagicMock) -> PhotosCloudKitClient:
 @contextmanager
 def _upload_environment(
     *, size: int = 3105, mtime: float = 1787731877.546
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Pin the file metadata and client UUID the upload flow reads."""
 
     with (
@@ -113,25 +69,52 @@ def test_upload_file_runs_the_four_step_flow() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: PUT_ASSET_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "single_file_upload_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture("photos_upload", "put_asset_response.json"),
+        ),
     ]
     client = _upload_client(session)
 
     with _upload_environment():
         result = client.upload_file("/virtual/new_upload.jpg", zone_name="PrimarySync")
 
-    assert result.cplMaster == PUT_ASSET_PAYLOAD[0]["cplMaster"]
-    assert result.cplAsset == PUT_ASSET_PAYLOAD[0]["cplAsset"]
-    assert result.uploadJobId == PUT_ASSET_PAYLOAD[0]["uploadJobId"]
+    assert (
+        result.cplMaster
+        == load_fixture("photos_upload", "put_asset_response.json")[0]["cplMaster"]
+    )
+    assert (
+        result.cplAsset
+        == load_fixture("photos_upload", "put_asset_response.json")[0]["cplAsset"]
+    )
+    assert (
+        result.uploadJobId
+        == load_fixture("photos_upload", "put_asset_response.json")[0]["uploadJobId"]
+    )
 
     urls = [call.kwargs["url"] for call in session.post.call_args_list]
     assert urls[0].startswith(
         "https://photosupload.example.com/photosupload/createUploadUrl?"
     )
     assert "dsid=12345" in urls[0]
-    assert urls[1] == RESERVED_UPLOAD_URL
+    assert (
+        urls[1]
+        == load_fixture("photos_upload", "create_upload_url_response.json")[
+            "uploadUrls"
+        ][UPLOAD_CLIENT_UUID]
+    )
     assert urls[2].startswith("https://photosupload.example.com/photosupload/putAsset?")
 
     reserve_body = session.post.call_args_list[0].kwargs["json"]
@@ -148,7 +131,9 @@ def test_upload_file_runs_the_four_step_flow() -> None:
     # The receipt from step 2 is echoed back verbatim.
     assert (
         register_body["files"][0]["singleFileUploadRequest"]
-        == SINGLE_FILE_UPLOAD_PAYLOAD["singleFile"]
+        == load_fixture("photos_upload", "single_file_upload_response.json")[
+            "singleFile"
+        ]
     )
     assert session.post.call_args_list[0].kwargs["timeout"] == (10.0, 60.0)
 
@@ -158,9 +143,22 @@ def test_upload_file_passes_shared_library_zone_through() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: PUT_ASSET_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "single_file_upload_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture("photos_upload", "put_asset_response.json"),
+        ),
     ]
     client = _upload_client(session)
 
@@ -211,9 +209,24 @@ def test_upload_file_raises_when_registration_is_rejected() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: PUT_ASSET_REJECTED_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "single_file_upload_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "put_asset_rejected_response.json"
+            ),
+        ),
     ]
     client = _upload_client(session)
 
@@ -233,9 +246,24 @@ def test_upload_file_returns_existing_asset_for_duplicate() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: PUT_ASSET_DUPLICATE_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "single_file_upload_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "put_asset_duplicate_response.json"
+            ),
+        ),
     ]
     client = _upload_client(session)
 
@@ -245,8 +273,18 @@ def test_upload_file_returns_existing_asset_for_duplicate() -> None:
         )
 
     assert result.is_duplicate is True
-    assert result.cplMaster == PUT_ASSET_DUPLICATE_PAYLOAD[0]["cplMaster"]
-    assert result.cplAsset == PUT_ASSET_DUPLICATE_PAYLOAD[0]["cplAsset"]
+    assert (
+        result.cplMaster
+        == load_fixture("photos_upload", "put_asset_duplicate_response.json")[0][
+            "cplMaster"
+        ]
+    )
+    assert (
+        result.cplAsset
+        == load_fixture("photos_upload", "put_asset_duplicate_response.json")[0][
+            "cplAsset"
+        ]
+    )
     assert result.uploadJobId is None
     assert result.response is not None
     assert result.response.isRetryable is None
@@ -258,9 +296,22 @@ def test_upload_file_success_is_not_flagged_as_duplicate() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: PUT_ASSET_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "single_file_upload_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture("photos_upload", "put_asset_response.json"),
+        ),
     ]
     client = _upload_client(session)
 
@@ -275,11 +326,12 @@ def test_upload_status_sends_the_job_ids_envelope() -> None:
 
     session = MagicMock()
     session.post.return_value = MagicMock(
-        status_code=200, json=lambda: UPLOAD_STATUS_PAYLOAD
+        status_code=200,
+        json=lambda: load_fixture("photos_upload", "upload_status_response.json"),
     )
     client = _upload_client(session)
 
-    job_id = next(iter(UPLOAD_STATUS_PAYLOAD))
+    job_id = next(iter(load_fixture("photos_upload", "upload_status_response.json")))
     statuses = client.upload_status([job_id])
 
     assert session.post.call_args.kwargs["json"] == {"uploadJobIds": [job_id]}
@@ -295,11 +347,16 @@ def test_upload_status_marks_unknown_jobs() -> None:
 
     session = MagicMock()
     session.post.return_value = MagicMock(
-        status_code=200, json=lambda: UPLOAD_STATUS_UNKNOWN_PAYLOAD
+        status_code=200,
+        json=lambda: load_fixture(
+            "photos_upload", "upload_status_unknown_response.json"
+        ),
     )
     client = _upload_client(session)
 
-    job_id = next(iter(UPLOAD_STATUS_UNKNOWN_PAYLOAD))
+    job_id = next(
+        iter(load_fixture("photos_upload", "upload_status_unknown_response.json"))
+    )
     statuses = client.upload_status([job_id])
 
     assert statuses[job_id].is_unknown is True
@@ -366,11 +423,24 @@ def test_upload_file_rejects_a_surplus_put_asset_result() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
         MagicMock(
             status_code=200,
-            json=lambda: PUT_ASSET_PAYLOAD + PUT_ASSET_PAYLOAD,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "single_file_upload_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: (
+                load_fixture("photos_upload", "put_asset_response.json")
+                + load_fixture("photos_upload", "put_asset_response.json")
+            ),
         ),
     ]
     client = _upload_client(session)
@@ -454,7 +524,12 @@ def test_upload_file_raises_when_receipt_is_missing() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
         MagicMock(status_code=200, json=lambda: {"unexpected": True}),
     ]
     client = _upload_client(session)
@@ -473,8 +548,18 @@ def test_upload_file_raises_when_put_asset_is_not_a_list() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "single_file_upload_response.json"
+            ),
+        ),
         MagicMock(status_code=200, json=lambda: {"not": "a list"}),
     ]
     client = _upload_client(session)
@@ -497,8 +582,18 @@ def test_upload_file_raises_when_put_asset_registers_nothing() -> None:
 
     session = MagicMock()
     session.post.side_effect = [
-        MagicMock(status_code=200, json=lambda: CREATE_UPLOAD_URL_PAYLOAD),
-        MagicMock(status_code=200, json=lambda: SINGLE_FILE_UPLOAD_PAYLOAD),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "create_upload_url_response.json"
+            ),
+        ),
+        MagicMock(
+            status_code=200,
+            json=lambda: load_fixture(
+                "photos_upload", "single_file_upload_response.json"
+            ),
+        ),
         MagicMock(status_code=200, json=lambda: []),
     ]
     client = _upload_client(session)
@@ -713,7 +808,9 @@ def test_zones_list_parses_fixture_payload() -> None:
     )
 
     with patch.object(
-        client._client._http, "post", return_value=ZONES_LIST_PAYLOAD
+        client._client._http,
+        "post",
+        return_value=load_fixture("photos_zones_list_response.json"),
     ) as post_mock:
         result = client.zones_list()
 
@@ -733,7 +830,9 @@ def test_database_changes_parses_fixture_payload() -> None:
     )
 
     with patch.object(
-        client._client._http, "post", return_value=DATABASE_CHANGES_PAYLOAD
+        client._client._http,
+        "post",
+        return_value=load_fixture("photos_database_changes_response.json"),
     ) as post_mock:
         result = client.database_changes(sync_token="SYNC_TOKEN_101")
 
@@ -758,7 +857,11 @@ def test_iter_changes_parses_fixture_payload() -> None:
         base_params={"dsid": "12345"},
     )
 
-    with patch.object(client._client._http, "post", return_value=ZONE_CHANGES_PAYLOAD):
+    with patch.object(
+        client._client._http,
+        "post",
+        return_value=load_fixture("photos_zone_changes_response.json"),
+    ):
         zones = list(
             client.iter_changes(
                 zone_req=CKZoneChangesZoneReq(

@@ -26,7 +26,9 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 ## Test gotchas (important)
 
 - `pyproject.toml` `[tool.pytest.ini_options]` adds `--disable-socket --allow-unix-socket --timeout=2` via `addopts`. **Tests must not make network calls** and must complete fast.
-- `tests/conftest.py` installs autouse fixtures that **block filesystem access**: `open`, `os.open`, `os.mkdir`, `os.makedirs`, `os.chmod` all raise unless the path contains `"python-test-results"`. New tests must mock any file I/O.
+- `tests/conftest.py` **blocks filesystem access outside the `python-test-results` sandbox** (`tempfile.gettempdir()/python-test-results`; a resolved-prefix match, so on macOS it sits under `/var/folders/...`, not `/tmp`). Reads (`os.stat`/`lstat`/`listdir`/`scandir`/`walk`/`access`/`readlink`), mutations (`os.mkdir`/`makedirs`/`chmod`/`remove`/`unlink`/`rename`/`replace`/…), `shutil`, and `builtins.open`/`os.open`/`io.open` all raise outside it. Mock the call in the test (`patch("os.path.exists", return_value=False)`, …) or write inside the sandbox.
+- Sanctioned exceptions are library/tooling behaviour, never test I/O: gettext/click `.mo` lookups, coverage's path-only metadata resolution plus its reads of package sources and write-only `coverage.xml` output, fixture reads made through `tests/fixture_loader.load_fixture`, and the inventory scan's package-source reads via `tests.conftest.allow_source_reads`.
+- Load fixtures with `load_fixture(...)` from `tests/fixture_loader.py`; it wraps the read in the sanctioned exemption, so don't reach for `Path.read_text` directly.
 - **Do not disable coverage** to make a target pass: never add `# pragma: no cover` (or other `exclude_lines`/coverage-exclusion comments) without explicit approval — close the gap with a test instead.
 
 ## Generated protobuf

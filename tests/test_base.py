@@ -87,6 +87,7 @@ def test_constructor_accepts_positional_refresh_interval() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_authenticate.return_value = None
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
@@ -113,6 +114,7 @@ def test_constructor_skips_authentication_when_requested() -> None:
         patch("pyicloud.base.get_password_from_keyring") as get_from_keyring,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
 
@@ -132,6 +134,7 @@ def test_china_mainland_uses_global_idmsa_and_cn_icloud_endpoints() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
 
@@ -159,6 +162,7 @@ def test_constructor_accepts_keyword_only_cloudkit_validation_extra() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_authenticate.return_value = None
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
@@ -178,6 +182,7 @@ def test_constructor_stores_monitor_locate_for_findmyiphone() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_authenticate.return_value = None
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
@@ -1859,6 +1864,7 @@ def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open) as open_mock,
         patch("http.cookiejar.LWPCookieJar.save") as mock_save,
+        patch("os.path.exists", return_value=False),
     ):
         mock_response = MagicMock()
         mock_response.status_code = 400
@@ -1952,6 +1958,7 @@ def test_request_reports_a_withdrawn_endpoint(
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
         patch("http.cookiejar.LWPCookieJar.save"),
+        patch("os.path.exists", return_value=False),
     ):
         mock_response = MagicMock()
         mock_response.status_code = 410
@@ -2019,6 +2026,7 @@ def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) 
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
         patch("http.cookiejar.LWPCookieJar.save") as mock_save,
+        patch("os.path.exists", return_value=False),
     ):
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -3863,6 +3871,7 @@ def test_constructor_passes_pause_2fa_to_authenticate() -> None:
         patch("pyicloud.PyiCloudService.authenticate") as mock_authenticate,
         patch("pyicloud.PyiCloudService._setup_cookie_directory") as mock_setup_dir,
         patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
     ):
         mock_setup_dir.return_value = "/tmp/pyicloud/cookies"
 

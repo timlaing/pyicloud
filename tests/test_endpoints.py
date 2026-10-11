@@ -19,8 +19,10 @@ from pyicloud.endpoints import (
     webservice,
     webservices_for,
 )
+from tests.conftest import allow_source_reads
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "pyicloud"
+
 
 # Matches get_webservice_url("key") and any future sibling resolver, so adding a
 # tolerant variant does not silently escape this check.
@@ -82,7 +84,8 @@ def test_inventory_matches_the_keys_the_library_resolves() -> None:
     key listed but never resolved means it is stale. Both are failures.
     """
 
-    resolved = _keys_resolved_in_source()
+    with allow_source_reads():
+        resolved = _keys_resolved_in_source()
 
     assert resolved, "found no webservice lookups; the source scan is broken"
 
@@ -112,7 +115,8 @@ def test_inventory_records_which_services_depend_on_each_key() -> None:
     re-express the mapping, not evidence the inventory is wrong.
     """
 
-    derived = _powers_derived_from_source()
+    with allow_source_reads():
+        derived = _powers_derived_from_source()
     declared = {entry.key: set(entry.powers) for entry in WEBSERVICES}
 
     assert derived == declared, (

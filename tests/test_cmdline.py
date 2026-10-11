@@ -126,7 +126,7 @@ class FakeDriveResponse:
 
     def iter_content(  # pylint: disable=unused-argument
         self,
-        chunk_size: int = 8192,  # pragma: no cover - trivial
+        chunk_size: int = 8192,
     ) -> Iterator[bytes]:
         """Yield the fake download body."""
         yield b"hello"
@@ -164,7 +164,7 @@ class FakeDriveNode:
 
     def open(  # pylint: disable=unused-argument
         self,
-        **kwargs: Any,  # pragma: no cover - trivial
+        **kwargs: Any,
     ) -> FakeDriveResponse:
         """Return a fake download response."""
         return FakeDriveResponse()
@@ -1373,6 +1373,10 @@ def _invoke(
                 "stored-secret" if candidate in (keyring_passwords or set()) else None
             ),
         ),
+        # ``environment()`` reads installed package metadata, which touches the
+        # file system outside the test sandbox; the version itself is not what
+        # any CLI test asserts.
+        patch("pyicloud.diagnostics.installed_version", return_value="0.0.0"),
     ):
         return runner.invoke(app, cli_args)
 
@@ -2796,6 +2800,8 @@ def test_auth_login_explicit_password_does_not_delete_stored_keyring_secret() ->
                 "--password",
                 "wrong-secret",
                 "--non-interactive",
+                "--session-dir",
+                str(_unique_session_dir("auth-login-keyring")),
             ],
         )
 

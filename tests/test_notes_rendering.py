@@ -7,7 +7,6 @@
 
 import base64
 import importlib
-import json
 import os
 import sys
 import tempfile
@@ -36,15 +35,7 @@ from pyicloud.services.notes.rendering.table_builder import (
     TableBuilder,
     render_table_from_mergeable,
 )
-
-FIXTURE_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "fixtures",
-    "notes",
-    "note_rendering_fixture.json",
-)
-with open(FIXTURE_PATH, encoding="utf-8") as fixture_file:
-    NOTE_FIXTURE = json.load(fixture_file)
+from tests.fixture_loader import load_fixture
 
 
 class _Field(NamedTuple):
@@ -83,7 +74,7 @@ class TestNoteRendering(unittest.TestCase):
     """Tests for note rendering functionality."""
 
     def setUp(self) -> None:
-        self.fixture = NOTE_FIXTURE
+        self.fixture = load_fixture("notes", "note_rendering_fixture.json")
 
     def _reconstruct_record(self, data: dict[str, Any]) -> CKRecord:
         # Helper to rebuild a pseudo-CKRecord from the JSON dict

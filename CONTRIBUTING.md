@@ -76,9 +76,22 @@ Important test constraints:
 
 - Tests **must not make network calls** and must complete fast. `pyproject.toml`
   adds `--disable-socket --allow-unix-socket --timeout=2` via `addopts`.
-- `tests/conftest.py` installs autouse fixtures that **block filesystem access**.
-  New tests must mock any file I/O.
-- Add fixtures under `tests/const/` (HTTP-response fixtures) or `tests/fixtures/`.
+- `tests/conftest.py` **blocks filesystem access outside the
+  `python-test-results` sandbox** (`tempfile.gettempdir()/python-test-results`;
+  a resolved-prefix match, so on macOS it lives under `/var/folders/...`, not
+  `/tmp`). Reads (`os.stat`/`listdir`/`scandir`/`walk`/…), writes and removals
+  (`os.mkdir`/`makedirs`/`chmod`/`remove`/`rename`/…), `shutil`, and
+  `builtins.open`/`os.open`/`io.open` all raise outside it. Mock the call in the
+  test (e.g. `patch("os.path.exists", return_value=False)`) or write inside the
+  sandbox.
+- Tooling and library behaviour is exempt, never test I/O: gettext/click `.mo`
+  lookups, coverage's path-only metadata resolution plus its reads of package
+  sources and write-only `coverage.xml` output, fixture reads performed through
+  `tests/fixture_loader.load_fixture`, and the inventory scan's package-source
+  reads via `tests.conftest.allow_source_reads`.
+- Add JSON fixtures under `tests/fixtures/` and load them with `load_fixture(...)`
+  from `tests/fixture_loader.py`. Standalone response constants live in the
+  `tests/const/` package and are imported directly.
 
 ## Coverage
 
@@ -91,7 +104,9 @@ pytest --cov=pyicloud --cov-branch --cov-report=term-missing
 Inspect the per-file table before claiming compliance; the aggregate percentage
 does not tell you which files are under-covered. Coverage is also measured by
 CI and reported to SonarQube Cloud, and the manual `pytest` prek hook fails the
-run below `--cov-fail-under=90`.
+run below `--cov-fail-under=90`. The filesystem guard allows coverage's own
+metadata resolution, package-source reads, and write-only `coverage.xml` output,
+so these commands run unchanged.
 
 ## Adding or changing dependencies
 

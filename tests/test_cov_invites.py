@@ -14,8 +14,6 @@ filesystem access).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 import unittest
@@ -64,13 +62,12 @@ from pyicloud.services.invites.codecs import (
     encode_json_bytes,
 )
 from pyicloud.services.invites.service import EventNotFound
-
-FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "invites"
+from tests.fixture_loader import load_fixture
 
 
 def load_invites_fixture(name: str) -> Any:
     """Load a synthetic Invites CloudKit fixture."""
-    return json.loads((FIXTURE_DIR / name).read_text(encoding="utf-8"))
+    return load_fixture("invites", name)
 
 
 class CodecsCoverageTest(unittest.TestCase):
