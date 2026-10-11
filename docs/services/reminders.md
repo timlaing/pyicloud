@@ -1,0 +1,268 @@
+# Reminders
+
+[← Back to the documentation index](../README.md)
+
+You can access your iCloud Reminders through the `reminders` property:
+
+```python
+reminders = api.reminders
+```
+
+The high-level Reminders service exposes typed list, reminder, alarm, hashtag,
+attachment, and recurrence-rule models for both snapshot reads and mutations.
+
+_List reminder lists:_
+
+```python
+for lst in api.reminders.lists():
+    print(lst.id, lst.title, lst.color, lst.count)
+```
+
+_List reminders globally or within one list:_
+
+```python
+reminders = api.reminders
+
+target_list = next(iter(reminders.lists()), None)
+if target_list:
+    for reminder in reminders.reminders(list_id=target_list.id):
+        print(reminder.id, reminder.title, reminder.completed)
+
+for reminder in reminders.reminders():
+    print(reminder.title)
+```
+
+_Fetch one reminder by ID:_
+
+```python
+reminder_id = "YOUR_REMINDER_ID"
+reminder = api.reminders.get(reminder_id)
+
+print(reminder.title)
+print(reminder.desc)
+print(reminder.due_date)
+```
+
+_Create, update, and delete a reminder:_
+
+```python
+from datetime import datetime, timedelta, timezone
+
+reminders = api.reminders
+target_list = next(iter(reminders.lists()), None)
+if target_list is None:
+    raise RuntimeError("No reminder lists found")
+
+created = reminders.create(
+    list_id=target_list.id,
+    title="Buy milk",
+    desc="2 percent",
+    due_date=datetime.now(timezone.utc) + timedelta(days=1),
+    priority=1,
+    flagged=True,
+)
+
+created.desc = "2 percent organic"
+created.completed = True
+reminders.update(created)
+
+fresh = reminders.get(created.id)
+reminders.delete(fresh)
+```
+
+`priority` uses Apple's numeric values. Common values are `0` (none), `1`
+(high), `5` (medium), and `9` (low).
+
+_Work with a compound list snapshot:_
+
+```python
+reminders = api.reminders
+target_list = next(iter(reminders.lists()), None)
+if target_list is None:
+    raise RuntimeError("No reminder lists found")
+
+result = api.reminders.list_reminders(
+    list_id=target_list.id,
+    include_completed=True,
+    results_limit=200,
+)
+
+print(len(result.reminders))
+print(result.alarms.keys())
+print(result.attachments.keys())
+print(result.hashtags.keys())
+```
+
+`list_reminders()` returns a `ListRemindersResult` containing:
+
+- `reminders`
+- `alarms`
+- `triggers`
+- `attachments`
+- `hashtags`
+- `recurrence_rules`
+
+_Track incremental changes:_
+
+```python
+reminders = api.reminders
+
+# Earlier run: capture and persist a cursor somewhere durable.
+cursor = reminders.sync_cursor()
+# save cursor to disk / database here
+
+# Later run: reload the previously saved cursor from disk / database.
+loaded_cursor = stored_cursor_value
+for event in reminders.iter_changes(since=loaded_cursor):
+    print(event.type, event.reminder_id)
+    if event.reminder is not None:
+        print(event.reminder.title)
+
+# After processing, persist the new high-water mark for the next run.
+next_cursor = reminders.sync_cursor()
+```
+
+`iter_changes(since=...)` yields `ReminderChangeEvent` objects. Updated
+reminders include a hydrated `reminder` payload. Deleted events may still carry
+`event.reminder` for soft-deleted records; only true tombstones guarantee
+`event.reminder is None`, in which case you should rely on `event.reminder_id`.
+
+_Add location triggers and inspect alarms:_
+
+```python
+from pyicloud.services.reminders.models import Proximity
+
+reminders = api.reminders
+reminder = next(iter(reminders.reminders()), None)
+if reminder is None:
+    raise RuntimeError("No reminders found")
+
+alarm, trigger = reminders.add_location_trigger(
+    reminder,
+    title="Office",
+    address="1 Infinite Loop, Cupertino, CA",
+    latitude=37.3318,
+    longitude=-122.0312,
+    radius=150.0,
+    proximity=Proximity.ARRIVING,
+)
+
+for row in reminders.alarms_for(reminder):
+    print(row.alarm.id, row.trigger.id if row.trigger else None)
+```
+
+_Add hashtags, URL attachments, and recurrence rules:_
+
+```python
+from pyicloud.services.reminders.models import RecurrenceFrequency
+
+reminders = api.reminders
+reminder = next(iter(reminders.reminders()), None)
+if reminder is None:
+    raise RuntimeError("No reminders found")
+
+hashtag = reminders.create_hashtag(reminder, "errands")
+attachment = reminders.create_url_attachment(
+    reminder,
+    url="https://example.com/checklist",
+)
+rule = reminders.create_recurrence_rule(
+    reminder,
+    frequency=RecurrenceFrequency.WEEKLY,
+    interval=1,
+)
+
+print(reminders.tags_for(reminder))
+print(reminders.attachments_for(reminder))
+print(reminders.recurrence_rules_for(reminder))
+```
+
+You can also update and delete related records:
+
+```python
+reminders.update_attachment(attachment, url="https://example.org/checklist")
+reminders.update_recurrence_rule(rule, interval=2)
+reminders.delete_hashtag(reminder, hashtag)
+reminders.delete_attachment(reminder, attachment)
+reminders.delete_recurrence_rule(reminder, rule)
+```
+
+Reminders caveats:
+
+- Reminder mutations operate on typed models. The normal pattern is to fetch a
+  reminder, mutate fields locally, then call `update(reminder)`.
+- Naive `datetime` values passed to `create()` are interpreted as UTC by the
+  service.
+- `update_hashtag()` exists, but the iCloud Reminders web app currently treats
+  hashtag names as effectively read-only in some live flows, so rename behavior
+  may not be reflected consistently outside the API.
+
+## Reminders Example Scripts
+
+[`example_reminders.py`](../../examples/example_reminders.py) is a comprehensive live
+integration validator for the Reminders service. It exercises list discovery,
+read paths, write paths, location triggers, hashtags, attachments, recurrence
+rules, and delete flows against a real iCloud account.
+
+[`example_reminders_delta.py`](../../examples/example_reminders_delta.py) is a smaller live
+validator focused on `sync_cursor()` and `iter_changes(since=...)`.
+
+## Reminders CLI
+
+The official Typer CLI exposes `icloud reminders ...` for common read and write
+flows.
+
+_List reminder lists and open reminders:_
+
+```bash
+icloud reminders lists --username you@example.com
+icloud reminders list --username you@example.com
+icloud reminders list --username you@example.com --list-id INBOX --include-completed
+```
+
+`icloud reminders list` defaults to open reminders only. Use
+`--include-completed` to include completed reminders, and `--list-id` to scope
+the query to one list.
+
+_Get, create, update, and delete reminders:_
+
+```bash
+icloud reminders get REMINDER_ID --username you@example.com
+icloud reminders create --username you@example.com --list-id INBOX --title "Buy milk"
+icloud reminders update REMINDER_ID --username you@example.com --title "Buy oat milk"
+icloud reminders set-status REMINDER_ID --username you@example.com --completed
+icloud reminders delete REMINDER_ID --username you@example.com
+```
+
+_Inspect snapshots and incremental changes:_
+
+```bash
+icloud reminders snapshot --username you@example.com --list-id INBOX
+icloud reminders changes --username you@example.com --since PREVIOUS_CURSOR
+icloud reminders sync-cursor --username you@example.com
+```
+
+_Work with reminder sub-records:_
+
+```bash
+icloud reminders alarm add-location REMINDER_ID \
+  --username you@example.com \
+  --title "Office" \
+  --address "1 Infinite Loop, Cupertino, CA" \
+  --latitude 37.3318 \
+  --longitude -122.0312
+
+icloud reminders hashtag create REMINDER_ID errands --username you@example.com
+icloud reminders attachment create-url REMINDER_ID \
+  --username you@example.com \
+  --url https://example.com/checklist
+icloud reminders recurrence create REMINDER_ID \
+  --username you@example.com \
+  --frequency weekly \
+  --interval 1
+```
+
+The reminder CLI is organized as core commands plus `alarm`, `hashtag`,
+`attachment`, and `recurrence` subgroups. Hashtag rename is exposed through
+`icloud reminders hashtag update`, but Apple’s web app may still treat hashtag
+names as effectively read-only in some live flows.
