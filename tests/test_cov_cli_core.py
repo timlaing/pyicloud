@@ -282,6 +282,22 @@ def test_handle_2fa_requires_interaction_without_security_key() -> None:
         state._handle_2fa(api)
 
 
+def test_handle_2fa_security_key_failure_aborts() -> None:
+    """A failed security-key touch should surface a CLIAbort."""
+    api = _ns(
+        fido2_devices=["key"],
+        confirm_security_key=MagicMock(side_effect=RuntimeError("no touch")),
+        is_trusted_session=True,
+    )
+    state = _make_state(interactive=True)
+    with (
+        patch.object(state, "_prompt_index", return_value=0),
+        pytest.raises(context_module.CLIAbort) as exc,
+    ):
+        state._handle_2fa(api)
+    assert "Security key verification failed" in str(exc.value)
+
+
 def test_handle_2fa_without_trusted_number_aborts() -> None:
     """A missing trusted number should surface a CLIAbort."""
     api = _ns(
@@ -911,6 +927,16 @@ def test_locked_index_ignores_unlink_oserror() -> None:
     root = _tmp_dir("index-lock-oserror")
     with patch.object(Path, "unlink", side_effect=OSError("boom")):
         assert account_index.prune_accounts(root, lambda candidate: False) == []
+
+
+def test_locked_index_without_fcntl_yields_path() -> None:
+    """The lock manager should yield the index when fcntl is unavailable."""
+    root = _tmp_dir("index-lock-no-fcntl")
+    with (
+        patch.dict(sys.modules, {"fcntl": None}),
+        account_index._locked_index(root) as index_path,
+    ):
+        assert index_path == account_index.account_index_path(root)
 
 
 def test_save_accounts_cleans_temp_on_failure() -> None:

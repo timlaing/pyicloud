@@ -165,7 +165,7 @@ def authenticate(args: argparse.Namespace) -> PyiCloudService:  # noqa: S3776
             print("Touch the selected security key to continue.")
             try:
                 api.confirm_security_key(selected_device)
-            except Exception as exc:  # pragma: no cover - live integration path
+            except Exception as exc:
                 raise RuntimeError("Security key verification failed.") from exc
         else:
             code = input("Enter 2FA code: ").strip()
@@ -251,7 +251,7 @@ def cleanup_generated(api: PyiCloudService, state: RunState) -> None:
         api.reminders.delete(fresh)
         state.deleted = True
         print(f"  [OK] Deleted {state.created.id}")
-    except Exception as exc:  # pragma: no cover - live integration path
+    except Exception as exc:
         print(f"  [WARN] Cleanup failed for {state.created.id}: {exc}")
 
 
@@ -395,7 +395,7 @@ def main() -> int:  # noqa: S3776
         print("  - iter_changes(since=...) after update")
         print("  - iter_changes(since=...) after delete")
 
-    except Exception as exc:  # pragma: no cover - live integration path
+    except Exception as exc:
         banner("Fatal Error")
         print(str(exc))
         if args.debug:
@@ -406,7 +406,7 @@ def main() -> int:  # noqa: S3776
         if args.cleanup and api is not None:
             try:
                 cleanup_generated(api, state)
-            except Exception as cleanup_exc:  # pragma: no cover
+            except Exception as cleanup_exc:
                 print(f"[WARN] Cleanup failed: {cleanup_exc}")
 
     banner("Validation Summary")

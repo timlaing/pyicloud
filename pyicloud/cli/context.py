@@ -375,7 +375,7 @@ class CLIState:
                 raise
             except PyiCloudConnectionException as exc:
                 raise CLIAbort(CONNECTION_FAILURE_MESSAGE) from exc
-            except Exception as exc:  # pragma: no cover - live auth path
+            except Exception as exc:
                 raise CLIAbort("Security key verification failed.") from exc
         else:
             if not self.interactive:

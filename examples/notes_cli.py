@@ -172,7 +172,7 @@ def ensure_auth(api: PyiCloudService) -> None:  # noqa: S3776
             logger.info("Touch the selected security key to continue.")
             try:
                 api.confirm_security_key(fido2_devices[idx])
-            except Exception as exc:  # pragma: no cover - live auth path
+            except Exception as exc:
                 raise RuntimeError("Security key verification failed") from exc
         else:
             logger.info("Two-factor authentication required.")

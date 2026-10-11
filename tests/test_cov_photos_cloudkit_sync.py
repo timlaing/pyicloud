@@ -800,6 +800,15 @@ def test_render_relative_path_uses_strftime_and_empty_folders() -> None:
     assert collapsed == "photo.jpg"
 
 
+def test_render_relative_path_rejects_bad_format() -> None:
+    """An unusable folder structure should raise a PhotosServiceException."""
+    asset_date = datetime(2026, 4, 21, tzinfo=timezone.utc)
+    asset = DummyAsset("asset-1", "photo.jpg", asset_date=asset_date)
+
+    with pytest.raises(PhotosServiceException, match="Invalid folder structure"):
+        _render_relative_path(asset, asset.resources["original"], "{missing}")
+
+
 def test_unique_relative_path_assigns_discriminators() -> None:
     """Colliding paths should gain stable, incremented discriminators."""
 
