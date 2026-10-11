@@ -257,5 +257,3 @@ _Pre-release for testing China mainland support_
 ### Changed
 
 - Beta release for v2.0.0
-
-
