@@ -113,13 +113,13 @@ cursor = reminders.sync_cursor()
 
 # Later run: reload the previously saved cursor from disk / database.
 loaded_cursor = stored_cursor_value
+next_cursor = reminders.sync_cursor()
 for event in reminders.iter_changes(since=loaded_cursor):
     print(event.type, event.reminder_id)
     if event.reminder is not None:
         print(event.reminder.title)
 
-# After processing, persist the new high-water mark for the next run.
-next_cursor = reminders.sync_cursor()
+# After processing, persist next_cursor for the next run.
 ```
 
 `iter_changes(since=...)` yields `ReminderChangeEvent` objects. Updated

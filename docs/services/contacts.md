@@ -6,7 +6,7 @@ You can access your iCloud contacts/address book through the `contacts`
 property:
 
 ```pycon
->>> for c in api.contacts.all:
+>>> for c in api.contacts.all or []:
 ...     print(c.get("firstName"), c.get("phones"))
 John [{'field': '+1 555-55-5555-5', 'label': 'MOBILE'}]
 ```

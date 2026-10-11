@@ -14,11 +14,11 @@ The calendar functionality is based around the `CalendarObject` dataclass. Every
 _returns a list of the user's calendars_<br>
 if `as_objs` is set to `True`, the returned list will be of CalendarObjects; else it will be of dictionaries.
 
-**add_calendar(calendar:CalendarObject) -> None:**<br>
-_adds a calendar to the users apple calendar_
+**add_calendar(calendar:CalendarObject) -> dict**<br>
+_adds a calendar to the users apple calendar and returns the response JSON_
 
-**remove_calendar(cal_guid:str) -> None**<br>
-_Removes a Calendar from the apple calendar given the provided guid_
+**remove_calendar(cal_guid:str) -> dict**<br>
+_Removes a Calendar from the apple calendar given the provided guid and returns the response JSON_
 
 ### Examples
 

@@ -9,6 +9,8 @@ To generate a new email alias use the `generate` method.
 ```python
 # Generate a new email alias
 new_email = api.hidemyemail.generate()
+if new_email is None:
+    raise RuntimeError("Failed to generate a new email alias")
 print(f"Generated new email: {new_email}")
 ```
 
@@ -16,6 +18,8 @@ To reserve the generated email with a custom label
 
 ```python
 reserved = api.hidemyemail.reserve(new_email, "Shopping")
+if not reserved:
+    raise RuntimeError("Failed to reserve the generated email")
 print(f"Reserved email - response: {reserved}")
 ```
 
@@ -23,6 +27,8 @@ To get the anonymous_id (unique identifier) from the reservation.
 
 ```python
 anonymous_id = reserved.get("anonymousId")
+if anonymous_id is None:
+    raise RuntimeError("Reservation did not return an anonymousId")
 print(anonymous_id)
 ```
 

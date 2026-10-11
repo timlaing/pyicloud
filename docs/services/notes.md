@@ -40,10 +40,10 @@ _Iterate all notes or capture a sync cursor for later incremental work:_
 ```python
 notes = api.notes
 
+cursor = notes.sync_cursor()
 for summary in notes.iter_all():
     print(summary.id, summary.title)
 
-cursor = notes.sync_cursor()
 print(cursor)
 ```
 
