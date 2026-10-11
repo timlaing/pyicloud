@@ -1,9 +1,8 @@
 # PyiCloud Documentation
 
-[← Back to the project README](../README.md)
-
-Full, topic-focused documentation for PyiCloud. The [project README](../README.md)
-covers installation and a quick authentication example; the pages below go deeper.
+Full, topic-focused documentation for PyiCloud. The
+[project README](https://github.com/timlaing/pyicloud#readme) covers installation
+and a quick authentication example; the pages below go deeper.
 
 ## Guides
 
@@ -34,9 +33,12 @@ One page per iCloud service, mirroring `pyicloud/services/`.
 - [Notes](services/notes.md) — folders, note rendering, and HTML export
 - [Invites](services/invites.md) — reading events and responding to invitations
 
-## Research
+## API Reference
 
-Design notes and wire-protocol references for maintainers.
+Auto-generated reference for the public Python API and the `icloud` command.
 
-- [Invites service design](research/invites_service_design.md) — the
-  invites/CloudKit record topology and dual-write pattern
+- [PyiCloudService](api/pyicloud-service.md) — the main entry point and its
+  service properties
+- [Services](api/services.md) — the per-service classes
+- [Exceptions](api/exceptions.md) — the exception hierarchy
+- [Command-Line Interface](api/cli.md) — the generated `icloud` command reference

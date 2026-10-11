@@ -1,6 +1,6 @@
 # File Storage
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 ## Ubiquity (legacy service)
 

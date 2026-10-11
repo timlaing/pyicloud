@@ -1,6 +1,6 @@
 # Authentication
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 Authentication without using a saved password is as simple as passing your username and password to the `PyiCloudService` class:
 

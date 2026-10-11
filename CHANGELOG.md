@@ -36,6 +36,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Documentation
 
 - Split the monolithic README into focused guides and per-service docs under `docs/`, leaving a slim landing page
+- Publish the docs and a generated API reference to Read the Docs via MkDocs, mkdocstrings, and a `.readthedocs.yaml`
 
 ### Features
 

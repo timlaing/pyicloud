@@ -1,6 +1,6 @@
 # Calendar
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 The calendar webservice supports fetching, creating, and removing calendars and events, with support for alarms, and invitees.
 

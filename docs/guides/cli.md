@@ -1,6 +1,6 @@
 # Command-Line Interface
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 The `icloud` command line interface is organized around top-level
 subcommands such as `auth`, `account`, `devices`, `calendar`,

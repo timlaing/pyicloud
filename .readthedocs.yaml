@@ -1,0 +1,28 @@
+# Read the Docs configuration file.
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details.
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+  jobs:
+    # Read the Docs performs a shallow clone; unshallow so setuptools-scm can
+    # detect the version from the git tags.
+    post_checkout:
+      - git fetch --unshallow || true
+      - git fetch --tags || true
+
+mkdocs:
+  configuration: mkdocs.yml
+  fail_on_warning: true
+
+python:
+  install:
+    - requirements: docs/requirements.txt
+    # Install the project (with the CLI extra) so mkdocstrings can import
+    # pyicloud and mkdocs-typer2 can import the Typer application.
+    - method: pip
+      path: .
+      extra_requirements:
+        - cli

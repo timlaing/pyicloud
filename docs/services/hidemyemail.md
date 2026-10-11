@@ -1,6 +1,6 @@
 # Hide My Email
 
-[← Back to the documentation index](../README.md)
+[← Back to the documentation index](../index.md)
 
 You can access the iCloud Hide My Email service through the `hidemyemail` property
 
