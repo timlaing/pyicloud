@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import typer
 
@@ -44,13 +45,34 @@ SHORT_GUID_HELP = (
     "An invite link, or just its trailing part: either "
     "https://www.icloud.com/invites/008ABCDEFGHIJ or 008ABCDEFGHIJ."
 )
+_NO_INVITE_ID = (
+    "No invite id given. Pass the trailing part of an invite link, "
+    "for example 008ABCDEFGHIJ from "
+    "https://www.icloud.com/invites/008ABCDEFGHIJ."
+)
+
+
+def _format_moment(payload: dict[str, Any], key: str) -> str:
+    """Render one instant compactly, labeled with its zone.
+
+    ``EventTime`` values are UTC instants (see the service's ``_decode_time``),
+    so an unlabeled ``YYYY-MM-DD HH:MM`` would look like local time while
+    actually being UTC. Keep the minute precision that fits a table cell, but
+    spell out the zone so the time cannot be read as the wrong one.
+    """
+
+    value = payload.get(key)
+    if not isinstance(value, datetime):
+        return "" if value is None else str(value)
+    return f"{value:%Y-%m-%d %H:%M %Z}".rstrip()
 
 
 def _format_when(payload: dict[str, Any]) -> str:
     """Render an event's start compactly enough to fit a table cell.
 
-    The full ISO value keeps seconds and a UTC offset, which wraps onto three
+    The full ISO value keeps seconds and an offset, which wraps onto three
     lines in an eighty-column terminal and pushes the event id out of view.
+    The date alone is enough for an all-day event.
     """
 
     starts_at = payload.get("starts_at")
@@ -58,7 +80,7 @@ def _format_when(payload: dict[str, Any]) -> str:
         return "" if starts_at is None else str(starts_at)
     if payload.get("is_all_day"):
         return f"{starts_at:%Y-%m-%d} (all day)"
-    return f"{starts_at:%Y-%m-%d %H:%M}"
+    return _format_moment(payload, "starts_at")
 
 
 def _resolve_event_id(api: PyiCloudService, given: str) -> str:
@@ -68,20 +90,27 @@ def _resolve_event_id(api: PyiCloudService, given: str) -> str:
     would make the id column decorative. Prefixes work the way they do in git.
     """
 
+    queried = given.strip()
+    prefix = queried.lower()
+    if not prefix:
+        raise CLIAbort(
+            "No event id given. Run `icloud invites list` to see the events "
+            "available to you."
+        )
     candidates = [
         event.event_id
         for event in api.invites.events()
-        if event.event_id.lower().startswith(given.lower())
+        if event.event_id.lower().startswith(prefix)
     ]
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
         raise CLIAbort(
-            f"No event id starts with {given!r}. Run `icloud invites list` to "
+            f"No event id starts with {queried!r}. Run `icloud invites list` to "
             "see the events available to you."
         )
     listed = "\n".join(f"  - {candidate}" for candidate in candidates)
-    raise CLIAbort(f"{given!r} matches more than one event:\n{listed}")
+    raise CLIAbort(f"{queried!r} matches more than one event:\n{listed}")
 
 
 def _short_guid_from(given: str) -> str:
@@ -92,14 +121,16 @@ def _short_guid_from(given: str) -> str:
     """
 
     candidate = given.strip().rstrip("/")
-    if "/" in candidate:
+    parsed = urlparse(candidate)
+    if parsed.scheme and parsed.netloc:
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if len(segments) < 2 or segments[-2] != "invites":
+            raise CLIAbort(_NO_INVITE_ID)
+        candidate = segments[-1]
+    elif "/" in candidate:
         candidate = candidate.rsplit("/", 1)[-1]
     if not candidate:
-        raise CLIAbort(
-            "No invite id given. Pass the trailing part of an invite link, "
-            "for example 008ABCDEFGHIJ from "
-            "https://www.icloud.com/invites/008ABCDEFGHIJ."
-        )
+        raise CLIAbort(_NO_INVITE_ID)
     return candidate
 
 
@@ -219,7 +250,7 @@ def invites_show(
                 ("Scope", payload["scope"]),
                 ("Host", payload["host_display_name"]),
                 ("When", _format_when(payload)),
-                ("Ends", payload["ends_at"]),
+                ("Ends", _format_moment(payload, "ends_at")),
                 ("Location", payload["location"]),
                 ("City", payload["city"]),
                 ("Notes", payload["notes"]),
@@ -327,7 +358,15 @@ def invites_resolve(
                 ("Event", payload["event_id"]),
                 (
                     "Host",
-                    f"{payload['owner_given_name']} {payload['owner_family_name']}",
+                    " ".join(
+                        part
+                        for part in (
+                            payload["owner_given_name"],
+                            payload["owner_family_name"],
+                        )
+                        if part
+                    )
+                    or "Unknown",
                 ),
                 ("Your status", payload["participant_status"]),
                 ("Your role", payload["participant_type"]),

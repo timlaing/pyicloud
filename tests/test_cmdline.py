@@ -30,6 +30,7 @@ from pyicloud.services.invites import (
     EventScope,
     EventShare,
     EventTime,
+    InvitesError,
     ResolvedShare,
     Rsvp,
     RsvpStatus,
@@ -1352,6 +1353,38 @@ class UnavailableInvitesAPI(FakeAPI):
     @invites.setter
     def invites(self, value: FakeInvites) -> None:
         """Absorb the assignment FakeAPI makes in its own constructor."""
+
+
+class FailingInvites(FakeInvites):
+    """Invites service whose listing fails the way Apple can."""
+
+    def events(self) -> list[Event]:
+        """Raise a service-level error."""
+        raise InvitesError("boom")
+
+
+class InvitesErrorAPI(FakeAPI):
+    """An account whose invites listing raises an InvitesError."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.invites = FailingInvites()
+
+
+class VanishingInvites(FakeInvites):
+    """Invites service that lists an event its lookup cannot fetch."""
+
+    def event(self, event_id: str) -> Event:
+        """Lose the event between the listing and the lookup."""
+        raise EventNotFound(event_id)
+
+
+class VanishingEventAPI(FakeAPI):
+    """An account whose event lookup rejects every id."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.invites = VanishingInvites()
 
 
 def _runner() -> CliRunner:
@@ -5035,7 +5068,7 @@ def test_invites_start_times_are_rendered_compactly() -> None:
 
     assert (
         fmt({"starts_at": datetime(2026, 5, 1, 9, 0, tzinfo=timezone.utc)})
-        == "2026-05-01 09:00"
+        == "2026-05-01 09:00 UTC"
     )
     assert (
         fmt({
@@ -5045,6 +5078,10 @@ def test_invites_start_times_are_rendered_compactly() -> None:
         == "2026-06-02 (all day)"
     )
     assert fmt({"starts_at": None}) == ""
+
+    moment = invites_module._format_moment
+    assert moment({"ends_at": None}, "ends_at") == ""
+    assert moment({"ends_at": "TBD"}, "ends_at") == "TBD"
 
 
 def test_invites_list_shows_the_compact_time_and_the_id() -> None:
@@ -5194,3 +5231,116 @@ def test_invites_resolve_rejects_an_empty_id_without_calling_apple() -> None:
 
     assert result.exit_code != 0
     assert "No invite id given" in str(result.exception)
+
+
+def test_invites_resolve_rejects_a_link_without_an_id() -> None:
+    """A truncated link must not forward its last path segment to Apple."""
+
+    result = _invoke(FakeAPI(), "invites", "resolve", "https://www.icloud.com/invites/")
+
+    assert result.exit_code != 0
+    assert "No invite id given" in str(result.exception)
+
+
+def test_invites_resolve_accepts_a_link_with_a_query_string() -> None:
+    """Share links often carry tracking parameters after the id."""
+
+    result = _invoke(
+        FakeAPI(),
+        "invites",
+        "resolve",
+        "https://www.icloud.com/invites/008FIXTURE?campaign=share",
+    )
+
+    assert result.exit_code == 0
+    assert "Sam Appleseed" in _unwrapped(result)
+
+
+def test_invites_show_strips_surrounding_whitespace() -> None:
+    """A copied id can arrive padded without being a different id."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "  AAAA2  ")
+
+    assert result.exit_code == 0
+    assert "Birthday" in _unwrapped(result)
+
+
+def test_invites_show_rejects_an_empty_id() -> None:
+    """Whitespace is not a prefix of every event."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "   ")
+
+    assert result.exit_code != 0
+    assert "No event id given" in str(result.exception)
+
+
+def test_invites_short_guid_accepts_a_path_like_id() -> None:
+    """A bare id with a trailing path segment keeps only the segment."""
+
+    assert invites_module._short_guid_from("prefix/008FIXTURE") == "008FIXTURE"
+
+
+def test_invites_show_json_output() -> None:
+    """JSON mode carries the detail fields the table shows."""
+
+    result = _invoke(FakeAPI(), "invites", "show", "AAAA2222", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["title"] == "Birthday"
+    assert payload["scope"] == "shared"
+    assert payload["share_short_guid"] == "008FIXTURE"
+    assert payload["share_url"] == "https://www.icloud.com/invites/008FIXTURE"
+    assert payload["participant_count"] == 0
+
+
+def test_invites_rsvps_json_output() -> None:
+    """JSON mode carries the RSVP fields the table shows."""
+
+    result = _invoke(FakeAPI(), "invites", "rsvps", "AAAA1111", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload == [
+        {
+            "participant_id": "P1",
+            "name": "Dana Appleseed",
+            "status": "GOING",
+            "message": "See you there",
+            "additional_adults": 1,
+            "additional_kids": 0,
+        }
+    ]
+
+
+def test_invites_resolve_json_output() -> None:
+    """JSON mode carries the resolved share fields the table shows."""
+
+    result = _invoke(
+        FakeAPI(), "invites", "resolve", "008FIXTURE", output_format="json"
+    )
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["short_guid"] == "008FIXTURE"
+    assert payload["owner_given_name"] == "Sam"
+    assert payload["participant_status"] == "INVITED"
+    assert payload["participant_permission"] == "READ_WRITE"
+
+
+def test_invites_reports_a_listing_error_as_advice() -> None:
+    """An InvitesError is prefixed rather than escaping as a traceback."""
+
+    result = _invoke(InvitesErrorAPI(), "invites", "list")
+
+    assert result.exit_code != 0
+    assert "Invites: boom" in str(result.exception)
+
+
+def test_invites_show_reports_a_missing_event() -> None:
+    """An id that lists but cannot be fetched gets advice, not a trace."""
+
+    result = _invoke(VanishingEventAPI(), "invites", "show", "AAAA2")
+
+    assert result.exit_code != 0
+    assert "No event with id" in str(result.exception)

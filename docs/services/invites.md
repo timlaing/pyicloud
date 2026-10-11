@@ -86,7 +86,8 @@ icloud invites resolve 008ABCDEFGHIJ
 ```
 
 `list` shows events you host and events shared with you, with start times
-rendered in each event's own timezone (UTC when the event carries none).
+rendered to the minute and labeled with their zone. Apple stores these as UTC
+instants, so the label keeps a UTC time from being read as a local one.
 `show` and `rsvps` take a full event id or any unambiguous prefix of one,
 since the listing truncates ids to fit the terminal. `resolve` previews an
 invite link — or just its trailing id — without joining it.
