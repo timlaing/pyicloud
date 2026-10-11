@@ -43,3 +43,13 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 
 - `docs/research/invites_service_design.md` describes the invites/CloudKit wire protocol — read it before touching that service.
 - `.env` (gitignored, local only) sets HTTP(S)_PROXY for the dev env; not part of the repo and not required for tests.
+
+## Changelog
+
+- Maintain `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format.
+- This project uses [CalVer](https://calver.org/) format (`YYYY.M.PATCH`) for versioning starting from the next release.
+- All PRs must update `CHANGELOG.md` under the `[Unreleased]` section with appropriate entries (Added, Changed, Fixed, Removed, Deprecated, Security, Refactored, Tests, etc.) describing user-facing changes.
+- On release, move entries from `[Unreleased]` to a new versioned section with the release date (format `YYYY-MM-DD`), use the version number in CalVer format (e.g., `[2026.10.1]`), and update the comparison links at the bottom.
+- Never hand-edit version numbers - they come from git tags via setuptools-scm.
+- **Never bypass commit checks** (e.g., `git commit --no-verify`). All pre-commit hooks must pass locally before committing changes. If a hook fails due to false positives, fix the configuration or the files properly - do not skip the checks. Only bypass checks with explicit case-by-case approval from the user.
+- When adding words to cspell dictionaries (e.g., `.vscode/cspell.json`), ensure words are in **lowercase** and in **alphabetical order**.
