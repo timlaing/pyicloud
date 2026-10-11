@@ -224,7 +224,7 @@ def _decode_crdt_document(  # noqa: S3776
             value = reminders_pb2.String()  # type: ignore[attr-defined]
             value.ParseFromString(string_bytes)
             return value.string or ""
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - fallback path
         LOGGER.debug("versioned_document.Document parse failed: %s", exc)
 
     try:
@@ -234,7 +234,7 @@ def _decode_crdt_document(  # noqa: S3776
             value = reminders_pb2.String()  # type: ignore[attr-defined]
             value.ParseFromString(version.data)
             return value.string or ""
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - fallback path
         LOGGER.debug("versioned_document.Version parse failed: %s", exc)
 
     try:
@@ -242,7 +242,7 @@ def _decode_crdt_document(  # noqa: S3776
         value.ParseFromString(data)
         if value.string:
             return cast(str, value.string)
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - legacy fallback path
         LOGGER.debug("bare String parse failed: %s", exc)
 
     raise CRDTDecodeError("Unable to decode CRDT document")

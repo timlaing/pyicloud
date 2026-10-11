@@ -180,7 +180,7 @@ class RemindersRecordMapper:
                     field_name="TitleDocument",
                     record_name=rec.recordName,
                 )
-            except Exception as exc:
+            except Exception as exc:  # pragma: no cover - defensive fallback
                 self._logger.warning(
                     "TitleDocument decode failed for %s: %s",
                     rec.recordName,
@@ -198,7 +198,7 @@ class RemindersRecordMapper:
                     field_name="NotesDocument",
                     record_name=rec.recordName,
                 )
-            except Exception as exc:
+            except Exception as exc:  # pragma: no cover - defensive fallback
                 self._logger.warning(
                     "NotesDocument decode failed for %s: %s",
                     rec.recordName,

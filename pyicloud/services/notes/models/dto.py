@@ -10,7 +10,7 @@ from pydantic import computed_field
 
 from pyicloud.common.models import FrozenServiceModel
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover - import for type checking only
     from ..service import NotesService
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 import json
@@ -72,7 +72,7 @@ def load_accounts(session_root: str | Path) -> dict[str, AccountIndexEntry]:
 
 
 @contextmanager
-def _locked_index(session_root: str | Path) -> Generator[Path, None, None]:
+def _locked_index(session_root: str | Path) -> Iterator[Path]:
     """Serialize account index updates when the platform supports file locking."""
 
     index_path = account_index_path(session_root)
@@ -81,7 +81,7 @@ def _locked_index(session_root: str | Path) -> Generator[Path, None, None]:
     with lock_path.open("a+", encoding="utf-8") as lock_file:
         try:
             import fcntl  # pylint: disable=import-outside-toplevel
-        except ImportError:
+        except ImportError:  # pragma: no cover - Windows fallback
             yield index_path
             return
 
