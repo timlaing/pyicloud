@@ -6,7 +6,7 @@
 site_name: PyiCloud
 site_description: >-
   A Python library and CLI for interacting with Apple iCloud web services.
-site_url: https://pyicloud.readthedocs.io/
+site_url: !ENV [READTHEDOCS_CANONICAL_URL, https://pyicloud.readthedocs.io/]
 repo_url: https://github.com/timlaing/pyicloud
 repo_name: timlaing/pyicloud
 edit_uri: edit/main/docs/
