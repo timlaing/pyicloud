@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog].
 
-Releases up to `2.7.0` follow [Semantic Versioning](https://semver.org/). From that release onward, versions follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
+Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
 ## [Unreleased]
 
@@ -258,9 +258,9 @@ _Pre-release for testing China mainland support_
 
 - Beta release for v2.0.0
 
-## [v2.0.0b6] - earlier
+## [v2.0.0b6] - 2025-11-20
 
-## [V2.0.2] - earlier
+## [V2.0.2] - 2025-12-15
 
 [Unreleased]: https://github.com/timlaing/pyicloud/compare/2.7.0...HEAD
 [2.7.0]: https://github.com/timlaing/pyicloud/compare/2.6.5...2.7.0
