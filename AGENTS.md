@@ -20,13 +20,15 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - Format/lint: `ruff check --fix` and `ruff format` (Ruff is the only formatter; line length 88, `preview=true` in `[tool.ruff]`).
 - Types: `mypy .` (strict mode, `[tool.mypy]`).
 - Pylint: `pylint` (config in `[tool.pylint.*]`).
-- Pre-commit hooks are managed by **`prek`** (a pre-commit drop-in), not `pre-commit`. Hooks & config: `.pre-commit-config.yaml`; install with `prek install`. Runs: ruff, cspell, yamllint, prettier, mypy, pylint.
+- Pre-commit hooks are managed by **`prek`** (a pre-commit drop-in), not `pre-commit`. Hooks & config: `.pre-commit-config.yaml`; install with `prek install`. Runs: ruff, cspell, yamllint, prettier, mypy, pylint. A manual `pytest` hook additionally gates coverage at `--cov-fail-under=90`.
 - Tests: `pytest` (config in `[tool.pytest.ini_options]`). Run a single file with `pytest tests/services/test_drive.py` or single test with `pytest tests/test_base.py::test_name -k`.
 
 ## Test gotchas (important)
 
 - `pyproject.toml` `[tool.pytest.ini_options]` adds `--disable-socket --allow-unix-socket --timeout=2` via `addopts`. **Tests must not make network calls** and must complete fast.
-- `tests/conftest.py` installs autouse fixtures that **block filesystem access**: `open`, `os.open`, `os.mkdir`, `os.makedirs`, `os.chmod` all raise unless the path contains `"python-test-results"`. New tests must mock any file I/O.
+- `tests/conftest.py` **blocks filesystem access outside the `python-test-results` sandbox** (`tempfile.gettempdir()/python-test-results`; a resolved-prefix match, so on macOS it sits under `/var/folders/...`, not `/tmp`). Reads (`os.stat`/`lstat`/`listdir`/`scandir`/`walk`/`access`/`readlink`), mutations (`os.mkdir`/`makedirs`/`chmod`/`remove`/`unlink`/`rename`/`replace`/…), `shutil`, and `builtins.open`/`os.open`/`io.open` all raise outside it. Mock the call in the test (`patch("os.path.exists", return_value=False)`, …) or write inside the sandbox.
+- Sanctioned exceptions are library/tooling behaviour, never test I/O: gettext/click `.mo` lookups, coverage/`pytest-cov` reading sources via `sys.monitoring`, and fixture reads made through `tests/fixture_loader.load_fixture`.
+- Load fixtures with `load_fixture(...)` from `tests/fixture_loader.py`; it wraps the read in the sanctioned exemption, so don't reach for `Path.read_text` directly.
 
 ## Generated protobuf
 
