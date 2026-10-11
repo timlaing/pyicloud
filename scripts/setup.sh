@@ -28,7 +28,7 @@ scripts/startup.sh
 
 prek install -f
 
-# Optional maintainer tooling (SonarQube MCP server). 
+# Optional maintainer tooling (SonarQube MCP server).
 if [ "${PYICLOUD_INSTALL_DEV_TOOLS:-0}" = "1" ]; then
   if ! [ -e /opt/sonarqube-mcp/sonarqube-mcp-server.jar ]; then
     MCP_LISTING="https://binaries.sonarsource.com/s3api?delimiter=/&prefix=Distribution/sonarqube-mcp-server/"
