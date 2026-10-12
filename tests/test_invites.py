@@ -181,9 +181,10 @@ class InvitesServiceTest(unittest.TestCase):
             load_invites_fixture("event_lookup_response.json")
         )
 
-    def _rsvp_query_response(self) -> CKQueryResponse:
-        return CKQueryResponse.model_validate(
-            load_invites_fixture("rsvp_query_response.json")
+    def _rsvp_zone_page_from_fixture(self) -> CKZoneChangesZone:
+        """The RSVP fixture as a zone-changes page, the shape RSVPs arrive in."""
+        return self._rsvp_zone_page(
+            load_invites_fixture("rsvp_query_response.json")["records"]
         )
 
     def _otl_empty_response(self) -> CKQueryResponse:
@@ -703,17 +704,22 @@ class InvitesServiceTest(unittest.TestCase):
             "lookup",
             MagicMock(side_effect=[empty_lookup, self._event_lookup_response()]),
         )
-        # The shared-path full hydration also issues RSVP + OTL queries.
+        # The shared-path full hydration reads RSVPs from the changes feed and
+        # still queries for one-time links.
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([self._rsvp_zone_page_from_fixture()])),
+        )
         self._monkeypatch.setattr(
             self.service.raw,
             "query",
-            MagicMock(
-                side_effect=[self._rsvp_query_response(), self._otl_empty_response()]
-            ),
+            MagicMock(return_value=self._otl_empty_response()),
         )
 
         event = self.service.event("EVENT-FIXTURE-AAAA")
         self.assertEqual(event.scope, EventScope.SHARED)
+        self.assertEqual(len(event.rsvps), 1)
 
     def test_event_missing_raises(self) -> None:
         """event() raises EventNotFound when no matching record exists."""
@@ -863,16 +869,20 @@ class InvitesServiceTest(unittest.TestCase):
         self._monkeypatch.setattr(self.service.raw, "lookup", lookup_mock)
         self._monkeypatch.setattr(
             self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([self._rsvp_zone_page_from_fixture()])),
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
             "query",
-            MagicMock(
-                side_effect=[self._rsvp_query_response(), self._otl_empty_response()]
-            ),
+            MagicMock(return_value=self._otl_empty_response()),
         )
 
         event = self.service.accept("008TESTFIXTUREAAAA")
 
         self.assertEqual(event.event_id, "EVENT-FIXTURE-AAAA")
         self.assertEqual(event.scope, EventScope.SHARED)
+        self.assertEqual(len(event.rsvps), 1)
         self.assertIsNotNone(event.share)
         assert event.share is not None  # narrow for type checker
         self.assertEqual(event.share.short_guid, "008TESTFIXTUREAAAA")
