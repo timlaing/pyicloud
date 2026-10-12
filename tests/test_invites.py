@@ -778,10 +778,11 @@ class InvitesServiceTest(unittest.TestCase):
                 }
             ]
         if extra_types:
-            # A real zone returns the event and the share alongside the RSVPs.
+            # A real zone returns the event and the share alongside the RSVPs,
+            # and not necessarily RSVP-first.
             records = [
-                *records,
                 {"recordName": "EventDetails:E", "recordType": "EventDetails"},
+                *records,
                 {"recordName": "cloudkit.zoneshare", "recordType": "cloudkit.share"},
             ]
         return CKZoneChangesZone.model_validate({
@@ -824,7 +825,10 @@ class InvitesServiceTest(unittest.TestCase):
         )
         event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
 
-        self.assertEqual(len(self.service.rsvps(event)), 1)
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual(len(rsvps), 1)
+        self.assertEqual(rsvps[0].name, "Dana")
 
     def test_rsvps_reads_every_page(self) -> None:
         """A zone with more behind it must not lose the later responses."""
