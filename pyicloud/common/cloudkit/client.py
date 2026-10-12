@@ -11,6 +11,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from pydantic import ValidationError
 from requests import Response
 
+from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
@@ -60,11 +61,11 @@ def redact_cloudkit_url(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
-class CloudKitAuthError(Exception):
+class CloudKitAuthError(PyiCloudException):
     """Raised when Apple rejects a CloudKit request due to auth/session state."""
 
 
-class CloudKitRateLimited(Exception):
+class CloudKitRateLimited(PyiCloudException):
     """Raised when Apple rate-limits a CloudKit request."""
 
     def __init__(self, message: str, *, retry_after: float | None = None) -> None:
@@ -72,7 +73,7 @@ class CloudKitRateLimited(Exception):
         self.retry_after = retry_after
 
 
-class CloudKitApiError(Exception):
+class CloudKitApiError(PyiCloudException):
     """Raised for transport, validation, or server-side CloudKit failures."""
 
     def __init__(self, message: str, *, payload: Any | None = None) -> None:

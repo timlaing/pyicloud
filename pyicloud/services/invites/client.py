@@ -49,7 +49,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitContainerClient,
     CloudKitRateLimited,
 )
-from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
 from pyicloud.services.invites.entitlement import (
     GATEWAY_BASE_URL,
     FeatureAccess,
@@ -124,7 +124,7 @@ ScopeLiteral = Literal["private", "shared"]
 # ------------------------------- Errors --------------------------------------
 
 
-class InvitesError(Exception):
+class InvitesError(PyiCloudException):
     """Base Invites transport error."""
 
 

@@ -37,6 +37,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitRateLimited,
     redact_cloudkit_url,
 )
+from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE_REQ
@@ -48,7 +49,7 @@ DEFAULT_TIMEOUT = (10.0, 60.0)
 # ------------------------------- Errors --------------------------------------
 
 
-class NotesError(Exception):
+class NotesError(PyiCloudException):
     """Base Notes transport error."""
 
 

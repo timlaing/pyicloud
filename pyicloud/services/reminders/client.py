@@ -24,16 +24,17 @@ from pyicloud.common.cloudkit.client import (
     CloudKitContainerClient,
     CloudKitRateLimited,
 )
+from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
 LOGGER = logging.getLogger(__name__)
 
 
-class RemindersAuthError(Exception):
+class RemindersAuthError(PyiCloudException):
     """Auth/PCS/cookie issues (401/403)."""
 
 
-class RemindersApiError(Exception):
+class RemindersApiError(PyiCloudException):
     """Catch-all API error."""
 
     def __init__(self, message: str, payload: object | None = None):
