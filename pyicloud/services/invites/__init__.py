@@ -4,6 +4,7 @@ from .client import (
     CloudKitInvitesClient,
     InvitesApiError,
     InvitesAuthError,
+    InvitesEntitlementError,
     InvitesError,
     InvitesRateLimited,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "EventTime",
     "InvitesApiError",
     "InvitesAuthError",
+    "InvitesEntitlementError",
     "InvitesError",
     "InvitesRateLimited",
     "InvitesService",
