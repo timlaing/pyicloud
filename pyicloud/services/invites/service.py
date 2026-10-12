@@ -157,14 +157,17 @@ class InvitesService(BaseService):
 
     def rsvps(self, event: Event) -> list[Rsvp]:
         """Return the list of RSVPs in an event's zone."""
-        return [
-            self._rsvp_from_record(record)
+        # A zone's changes feed can report a record more than once; keep only
+        # its latest state.
+        latest = {
+            record.recordName: record
             for record in self._zone_records(
                 self._scope_str(event.scope),
                 self._zone_id_req(event.event_id, event.scope),
                 InvitesRecordType.Rsvp.value,
             )
-        ]
+        }
+        return [self._rsvp_from_record(record) for record in latest.values()]
 
     def _zone_records(
         self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq, *record_types: str
@@ -176,7 +179,9 @@ class InvitesService(BaseService):
         works only for events shared with you. The changes feed reads any zone.
 
         ``desiredRecordTypes`` asks Apple for those records alone; the filter is
-        kept because that projection is a request, not a guarantee.
+        kept because that projection is a request, not a guarantee. The feed can
+        report the same record more than once, so callers reconcile by
+        ``recordName`` and keep the latest state.
         """
 
         wanted = frozenset(record_types)
@@ -195,12 +200,14 @@ class InvitesService(BaseService):
         """Read a zone's RSVPs and one-time links in one changes-feed pass.
 
         Both record types live in the event's zone, and the changes feed is the
-        only read an event you own supports. Records read before a mid-feed
-        failure are kept: hydration is best-effort, and partial data beats none.
+        only read an event you own supports. Records are reconciled by
+        ``recordName``, since the feed can repeat one, and records read before a
+        mid-feed failure are kept: hydration is best-effort, and partial data
+        beats none.
         """
 
-        rsvps: list[Rsvp] = []
-        links: list[OneTimeLinkGuest] = []
+        rsvps: dict[str, Rsvp] = {}
+        links: dict[str, OneTimeLinkGuest] = {}
         try:
             for record in self._zone_records(
                 scope_str,
@@ -209,16 +216,16 @@ class InvitesService(BaseService):
                 InvitesRecordType.OneTimeLinkGuestInfo.value,
             ):
                 if record.recordType == InvitesRecordType.Rsvp.value:
-                    rsvps.append(self._rsvp_from_record(record))
+                    rsvps[record.recordName] = self._rsvp_from_record(record)
                 else:
-                    links.append(self._one_time_link_from_record(record))
+                    links[record.recordName] = self._one_time_link_from_record(record)
         except InvitesError:
             LOGGER.debug(
                 "invites.event.zone_read_failed zone=%s",
                 zone_id.zoneName,
                 exc_info=True,
             )
-        return tuple(rsvps), tuple(links)
+        return tuple(rsvps.values()), tuple(links.values())
 
     def resolve(self, short_guid: str) -> ResolvedShare:
         """Preview a share without joining it."""

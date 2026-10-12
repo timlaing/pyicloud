@@ -838,7 +838,16 @@ class InvitesServiceTest(unittest.TestCase):
         The shared scope is addressed by its owner, so the changes request must
         carry the owner `zones_list` reports for the event.
         """
-        pages = [self._rsvp_zone_page(more_coming=True), self._rsvp_zone_page()]
+        pages = [
+            self._rsvp_zone_page(more_coming=True),
+            self._rsvp_zone_page([
+                {
+                    "recordName": "P2.rsvp",
+                    "recordType": "RSVP",
+                    "fields": {"name": {"type": "STRING", "value": "Erin"}},
+                }
+            ]),
+        ]
         changes = MagicMock(return_value=iter(pages))
         self._monkeypatch.setattr(self.service.raw, "iter_changes", changes)
         self._monkeypatch.setattr(
@@ -860,9 +869,62 @@ class InvitesServiceTest(unittest.TestCase):
         )
         event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.SHARED)
 
-        self.assertEqual(len(self.service.rsvps(event)), 2)
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual({rsvp.name for rsvp in rsvps}, {"Dana", "Erin"})
         zone_req = changes.call_args.kwargs["zone_req"]
         self.assertEqual(zone_req.zoneID.ownerRecordName, "_shared-owner")
+
+    def test_rsvps_keeps_only_the_latest_change_per_record(self) -> None:
+        """A record repeated in the feed yields one RSVP, its latest state."""
+        first = self._rsvp_zone_page()
+        updated = self._rsvp_zone_page(
+            [
+                {
+                    "recordName": "P1.rsvp",
+                    "recordType": "RSVP",
+                    "fields": {"name": {"type": "STRING", "value": "Dana Updated"}},
+                }
+            ],
+            more_coming=True,
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([first, updated])),
+        )
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual(len(rsvps), 1)
+        self.assertEqual(rsvps[0].name, "Dana Updated")
+
+    def test_rsvps_ignores_tombstones(self) -> None:
+        """A tombstone for a deleted record produces no RSVP."""
+        page = CKZoneChangesZone.model_validate({
+            "zoneID": {"zoneName": "EVENT-FIXTURE-AAAA"},
+            "records": [
+                {"recordName": "P1.rsvp", "deleted": True},
+                {
+                    "recordName": "P2.rsvp",
+                    "recordType": "RSVP",
+                    "fields": {"name": {"type": "STRING", "value": "Erin"}},
+                },
+            ],
+            "syncToken": "TOKEN",
+        })
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([page])),
+        )
+        event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
+
+        rsvps = self.service.rsvps(event)
+
+        self.assertEqual(len(rsvps), 1)
+        self.assertEqual(rsvps[0].name, "Erin")
 
     def test_resolve_returns_resolved_share(self) -> None:
         """resolve() returns the resolved share details."""
