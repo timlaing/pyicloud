@@ -15,12 +15,16 @@ import pytest
 
 from pyicloud.common.cloudkit.client import CloudKitApiError, CloudKitRateLimited
 from pyicloud.common.cloudkit.models import (
+    CKModifyOperation,
     CKRecord,
     CKTombstoneRecord,
+    CKWriteRecord,
     CKZoneChangesZoneReq,
     CKZoneID,
+    CKZoneIDReq,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.services.photos_cloudkit.client import PhotosCloudKitClient
 from pyicloud.services.photos_cloudkit.upload import _local_time_zone
 from tests.fixture_loader import load_fixture
@@ -886,3 +890,36 @@ def test_iter_changes_parses_fixture_payload() -> None:
     assert isinstance(zone.records[1], CKTombstoneRecord)
     assert zone.records[1].deleted is True
     assert zone.records[1].recordName == "ALBUM_RECORD_ID_999"
+
+
+def test_modify_translates_rejected_records_to_the_public_type() -> None:
+    """A rejected photos write must not escape as a bare CloudKitApiError."""
+
+    op = CKModifyOperation(
+        operationType="update",
+        record=CKWriteRecord(recordName="R1", recordType="Thing"),
+    )
+    zone_id = CKZoneIDReq(zoneName="PrimarySync")
+    session = MagicMock()
+    session.post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "records": [
+                {
+                    "recordName": "R1",
+                    "serverErrorCode": "CONFLICT",
+                    "reason": "record to insert already exists",
+                }
+            ]
+        },
+    )
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=session,
+        base_params={"dsid": "12345"},
+    )
+
+    with pytest.raises(
+        PyiCloudAPIResponseException, match="record to insert already exists"
+    ):
+        client.modify(operations=[op], zone_id=zone_id, atomic=True)

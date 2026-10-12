@@ -23,6 +23,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitContainerClient,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.session import PyiCloudSession
 
 from .models import (
@@ -97,10 +98,18 @@ class PhotosCloudKitClient:
         zone_id: CKZoneIDReq,
         atomic: bool | None = None,
     ) -> CKModifyResponse:
-        """Apply a batch of CloudKit modify operations in the given zone."""
-        return self._client.modify(
-            operations=operations, zone_id=zone_id, atomic=atomic
-        )
+        """Apply a batch of CloudKit modify operations in the given zone.
+
+        ``CloudKitContainerClient`` reports a rejected record as a
+        ``CloudKitApiError``. Translate it to the library's public exception
+        type so a failed photos write does not escape as a bare ``Exception``.
+        """
+        try:
+            return self._client.modify(
+                operations=operations, zone_id=zone_id, atomic=atomic
+            )
+        except CloudKitApiError as exc:
+            raise PyiCloudAPIResponseException(str(exc)) from exc
 
     def lookup(
         self,
