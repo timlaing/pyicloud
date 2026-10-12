@@ -606,6 +606,26 @@ class InvitesServiceTest(unittest.TestCase):
                 self.service.rsvp_image(rsvp)
         download.assert_not_called()
 
+    def test_an_rsvp_image_url_without_a_host_is_refused(self) -> None:
+        """A scheme-only URL has no host for the session to reach.
+
+        ``urlparse("https:example.com/a")`` reports the HTTPS scheme but an
+        empty netloc, so the host check rejects it before any request.
+        """
+        download = MagicMock()
+        self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
+
+        for url in ("https:cvws.icloud-content.com/a", "https:///a"):
+            rsvp = Rsvp(
+                record_name="RSVP/y",
+                participant_id="PY",
+                status=RsvpStatus.GOING,
+                image_download_url=url,
+            )
+            with self.subTest(url=url), self.assertRaises(InvitesApiError):
+                self.service.rsvp_image(rsvp)
+        download.assert_not_called()
+
     def test_an_rsvp_without_an_image_downloads_nothing(self) -> None:
         """Most responses carry only a monogram, so this is the common case."""
         rsvp = Rsvp(record_name="RSVP/2", participant_id="P2", status=RsvpStatus.MAYBE)

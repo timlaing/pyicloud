@@ -6,6 +6,7 @@ Read (Phase 1):
   - ``InvitesService.events()`` -> ``list[Event]``
   - ``InvitesService.event(event_id)`` -> ``Event``
   - ``InvitesService.rsvps(event)`` -> ``list[Rsvp]``
+  - ``InvitesService.rsvp_image(rsvp)`` -> ``bytes | None``
   - ``InvitesService.resolve(short_guid)`` -> ``ResolvedShare``
   - ``InvitesService.accept(short_guid)`` -> ``Event``
   - ``InvitesService.raw`` -> ``CloudKitInvitesClient``
@@ -87,9 +88,9 @@ class EventNotFound(InvitesError):
 class InvitesService(BaseService):
     """Typed, read-only Invites API.
 
-    Phase 1 exposes event listing, single-event lookup, RSVP listing, and the
-    public share resolution flow (``resolve`` / ``accept``). Mutating
-    operations land in subsequent phases.
+    Phase 1 exposes event listing, single-event lookup, RSVP listing, guest
+    photo download (``rsvp_image``), and the public share resolution flow
+    (``resolve`` / ``accept``). Mutating operations land in subsequent phases.
     """
 
     _CONTAINER = CONTAINER
@@ -255,10 +256,13 @@ class InvitesService(BaseService):
         # The download uses the authenticated session, so an attacker-supplied
         # scheme would put iCloud credentials on the wire in the clear. Guarded
         # the same way PhotosUploader.send_bytes guards the upload URL Apple
-        # echoes back to it.
-        if urlparse(url).scheme != "https":
+        # echoes back to it, plus a host check so a scheme-only URL such as
+        # ``https:example.com/a`` cannot slip through.
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.netloc:
             raise InvitesApiError(
-                f"RSVP image URL is not HTTPS; refusing to fetch it: {url!r}"
+                "RSVP image URL is not an absolute HTTPS URL; refusing to "
+                f"fetch it: {url!r}"
             )
         return self._raw.download_asset_bytes(url)
 

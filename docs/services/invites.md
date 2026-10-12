@@ -56,6 +56,9 @@ for index, rsvp in enumerate(api.invites.rsvps(event)):
 `rsvp.name` is supplied by the guest, so it is not safe as a filename — a value
 containing `/` or `..` would write outside the folder you intended.
 
+The method returns the stored bytes without a content type, so the example names
+the file `.jpg`; adjust the extension if the guest's photo is not a JPEG.
+
 This works for events shared with you as well as your own: the asset URL Apple
 returns is absolute and carries its own token.
 
