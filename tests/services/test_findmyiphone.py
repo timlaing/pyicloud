@@ -891,6 +891,60 @@ def _make_manager(
     )
 
 
+def test_an_ordinary_manager_refreshes_on_construction() -> None:
+    """The ordinary manager asks for devices as soon as it is built."""
+    with patch.object(
+        FindMyiPhoneServiceManager, "_refresh_client_with_reauth"
+    ) as refresh:
+        _make_manager()
+    refresh.assert_called_once_with(locate=True)
+
+
+def test_a_probe_manager_skips_the_eager_refresh() -> None:
+    """A probe manager must not contact Apple at construction time."""
+    with patch.object(
+        FindMyiPhoneServiceManager, "_refresh_client_with_reauth"
+    ) as refresh:
+        manager = _make_manager(probe=True)
+    refresh.assert_not_called()
+    assert manager._server_ctx is None
+    assert manager._monitor is None
+
+
+def test_a_positive_refresh_interval_starts_the_monitor_thread() -> None:
+    """A positive frequency is what schedules background refreshes."""
+    with (
+        patch.object(FindMyiPhoneServiceManager, "_refresh_client"),
+        patch.object(FindMyiPhoneServiceManager, "_initialize_devices"),
+        patch.object(FindMyiPhoneServiceManager, "_start_monitor_thread") as start,
+    ):
+        _make_manager(refresh_interval=30)
+    start.assert_called_once_with()
+
+
+def test_a_zero_refresh_interval_disables_the_monitor_thread() -> None:
+    """Zero means no monitor rather than refreshing as fast as possible."""
+    with (
+        patch.object(FindMyiPhoneServiceManager, "_refresh_client"),
+        patch.object(FindMyiPhoneServiceManager, "_initialize_devices"),
+        patch.object(FindMyiPhoneServiceManager, "_start_monitor_thread") as start,
+    ):
+        _make_manager(refresh_interval=0)
+    start.assert_not_called()
+
+
+def test_a_probe_mode_service_builds_a_passive_find_my_manager(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """A service built for probing must not locate nor leave a monitor behind."""
+    pyicloud_service_working._probe = True
+    pyicloud_service_working._refresh_interval = 0
+    manager = pyicloud_service_working.devices
+
+    assert manager._server_ctx is None
+    assert manager._monitor is None
+
+
 def test_monitor_locate_defaults_to_passive_monitor() -> None:
     """The library monitor thread should stay passive unless opted in."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
@@ -981,11 +1035,9 @@ def test_family_poll_parameters_reject_invalid_values() -> None:
             _make_manager(family_poll_max_retries=2.5)
 
 
-def test_refresh_interval_rejects_non_positive_values() -> None:
-    """Test refresh_interval rejects zero, negative, bool, and non-numeric values."""
+def test_refresh_interval_rejects_invalid_values() -> None:
+    """Test refresh_interval rejects negative, bool, and non-finite values."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
-        with pytest.raises(ValueError):
-            _make_manager(refresh_interval=0)
         with pytest.raises(ValueError):
             _make_manager(refresh_interval=-60)
         with pytest.raises(ValueError):
@@ -999,14 +1051,17 @@ def test_refresh_interval_rejects_non_positive_values() -> None:
         # Finite but so large the monitor deadline computation would overflow.
         with pytest.raises(ValueError):
             _make_manager(refresh_interval=1.0e13)
+        # Zero is valid: it disables the monitor thread.
+        manager = _make_manager(refresh_interval=0)
+        assert manager._refresh_interval == 0.0
         manager = _make_manager(refresh_interval=None)
         assert manager._refresh_interval == 5.0 * 60.0
         manager = _make_manager(refresh_interval=30)
         assert manager._refresh_interval == 30.0
 
 
-def test_refresh_interval_rejects_sub_second_values() -> None:
-    """Test refresh_interval rejects values below the 1s minimum."""
+def test_refresh_interval_rejects_sub_second_positive_values() -> None:
+    """Test refresh_interval rejects positive values below the 1s minimum."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
         with pytest.raises(ValueError, match="at least 1s"):
             _make_manager(refresh_interval=0.5)

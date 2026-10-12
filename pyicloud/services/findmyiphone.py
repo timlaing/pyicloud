@@ -59,11 +59,18 @@ class FindMyiPhoneServiceManager(BaseService):
         family_poll_delay: float = 0.5,
         family_poll_max_retries: int = 5,
         monitor_locate: bool = False,
+        probe: bool = False,
     ) -> None:
-        """Initialize the FindMyiPhoneServiceManager."""
+        """Initialize the FindMyiPhoneServiceManager.
+
+        ``probe`` builds a passive manager for read-only diagnostics: nothing
+        is requested at construction time and no background monitor is
+        started, so a caller can refresh explicitly without side effects.
+        """
         super().__init__(service_root, session, params)
         self._with_family: bool = with_family
         self._monitor_locate: bool = monitor_locate
+        self._probe: bool = probe
         self._family_poll_delay = self._validate_poll_delay(family_poll_delay)
         self._family_poll_max_retries = self._validate_poll_retries(
             family_poll_max_retries
@@ -90,7 +97,8 @@ class FindMyiPhoneServiceManager(BaseService):
         # newer server context or device state.
         self._refresh_lock: threading.Lock = threading.Lock()
 
-        self._refresh_client_with_reauth(locate=True)
+        if not self._probe:
+            self._refresh_client_with_reauth(locate=True)
 
     def _refresh_client_with_reauth(self, locate: bool, retry: bool = False) -> None:
         """
@@ -113,7 +121,8 @@ class FindMyiPhoneServiceManager(BaseService):
 
         # Initialize devices (including family devices if enabled)
         self._initialize_devices(locate=locate)
-        self._start_monitor_thread()
+        if self._refresh_interval > 0 and not self._probe:
+            self._start_monitor_thread()
 
     @staticmethod
     def _validate_poll_delay(delay: float) -> float:
@@ -135,20 +144,21 @@ class FindMyiPhoneServiceManager(BaseService):
 
     @staticmethod
     def _validate_refresh_interval(refresh_interval: float | None) -> float:
-        """Validate refresh interval."""
+        """Validate refresh interval; zero disables the monitor thread."""
         if refresh_interval is None:
             return 5.0 * 60.0
         if isinstance(refresh_interval, bool) or not isinstance(
             refresh_interval, (int, float)
         ):
-            raise ValueError("refresh_interval must be a positive number")
-        if refresh_interval <= 0:
-            raise ValueError("refresh_interval must be a positive number")
+            raise ValueError("refresh_interval must be a non-negative number")
+        if refresh_interval < 0:
+            raise ValueError("refresh_interval must be a non-negative number")
         if not math.isfinite(refresh_interval):
-            raise ValueError("refresh_interval must be a finite positive number")
-        if refresh_interval < MIN_REFRESH_INTERVAL_SECONDS:
+            raise ValueError("refresh_interval must be a finite non-negative number")
+        if 0 < refresh_interval < MIN_REFRESH_INTERVAL_SECONDS:
             raise ValueError(
-                f"refresh_interval must be at least {MIN_REFRESH_INTERVAL_SECONDS:g}s"
+                f"refresh_interval must be at least {MIN_REFRESH_INTERVAL_SECONDS:g}s "
+                "or zero to disable the monitor"
             )
         try:
             datetime.now() + timedelta(seconds=refresh_interval)

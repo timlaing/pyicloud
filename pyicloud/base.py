@@ -272,6 +272,7 @@ class PyiCloudService:
         family_poll_delay: float = 0.5,
         family_poll_max_retries: int = 5,
         monitor_locate: bool = False,
+        probe: bool = False,
         *,
         authenticate: bool = True,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
@@ -312,6 +313,7 @@ class PyiCloudService:
         self._family_poll_delay: float = family_poll_delay
         self._family_poll_max_retries: int = family_poll_max_retries
         self._monitor_locate: bool = monitor_locate
+        self._probe: bool = probe
         self._cloudkit_validation_extra = cloudkit_validation_extra
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
@@ -1504,12 +1506,16 @@ class PyiCloudService:
 
     @property
     def devices(self) -> FindMyiPhoneServiceManager:
-        """Returns all devices."""
+        """Returns all devices.
+
+        When the service was built with ``probe=True`` the manager is passive:
+        it locates nothing and starts no monitor thread, so a read-only
+        diagnostic can confirm the endpoint answers without touching hardware.
+        """
         if not self._devices:
             try:
-                service_root: str = self.get_webservice_url("findme")
                 self._devices = FindMyiPhoneServiceManager(
-                    service_root=service_root,
+                    service_root=self.get_webservice_url("findme"),
                     token_endpoint=self._setup_endpoint,
                     session=self.session,
                     params=self.params,
@@ -1518,6 +1524,7 @@ class PyiCloudService:
                     family_poll_delay=self._family_poll_delay,
                     family_poll_max_retries=self._family_poll_max_retries,
                     monitor_locate=self._monitor_locate,
+                    probe=self._probe,
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(

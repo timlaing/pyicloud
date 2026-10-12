@@ -390,7 +390,7 @@ def doctor(  # noqa: PLR0913
     # every service with a session that reports unauthenticated would produce
     # a page of failures that say nothing about the library.
     probes = (
-        probe_services(api, findings)
+        probe_services(state.get_readonly_api(), findings)
         if (probe and api is not None and authenticated)
         else ()
     )

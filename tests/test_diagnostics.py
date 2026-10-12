@@ -290,9 +290,10 @@ def test_probes_report_each_service_answering() -> None:
 def test_the_find_my_probe_does_not_ask_devices_to_report_location() -> None:
     """Counting or iterating Find My devices pings the user's hardware.
 
-    A diagnostic must not cause that as a side effect, so the probe calls
-    refresh(locate=False) explicitly rather than going through the manager's
-    container protocol.
+    A diagnostic must not cause that as a side effect, so it runs against an
+    api built in probe mode (``probe=True``), whose ``devices`` manager never
+    locates nor starts a monitor, and asks it for a single non-locating
+    refresh.
     """
 
     api = _probe_api()

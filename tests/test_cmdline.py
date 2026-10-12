@@ -2588,6 +2588,77 @@ def test_get_api_hydrates_session_backed_service_commands_from_probe_state() -> 
     service_api.get_auth_status.assert_not_called()
 
 
+def test_get_readonly_api_builds_a_cached_probe_mode_session_api() -> None:
+    """``doctor --probe`` should get a passive api that shares the session."""
+
+    session_dir = _unique_session_dir("readonly-api")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    probe_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    probe_api.data = {
+        "dsInfo": {"dsid": "1234567890", "hsaVersion": 2},
+        "webservices": {"findme": {"url": "https://example.invalid/findme"}},
+    }
+    service_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    service_api.data = dict(probe_api.data)
+    service_api._webservices = probe_api.data["webservices"]
+    readonly_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    readonly_api.data = {}
+    readonly_api.params = {}
+    readonly_api._webservices = None
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return (probe_api, service_api, readonly_api)[len(constructor_calls) - 1]
+
+    state = context_module.CLIState(
+        username=None,
+        password=None,
+        china_mainland=None,
+        interactive=False,
+        accept_terms=False,
+        with_family=False,
+        refresh_interval=None,
+        session_dir=str(session_dir),
+        http_proxy=None,
+        https_proxy=None,
+        no_verify_ssl=False,
+        log_level=context_module.LogLevel.WARNING,
+        output_format=output_module.OutputFormat.TEXT,
+    )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "solo@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+    ):
+        readonly = state.get_readonly_api()
+        again = state.get_readonly_api()
+
+    assert readonly is readonly_api
+    assert again is readonly_api
+    assert len(constructor_calls) == 3
+    assert constructor_calls[2]["probe"] is True
+    assert constructor_calls[2]["monitor_locate"] is False
+    assert constructor_calls[2]["refresh_interval"] == 0
+    assert readonly_api.data == probe_api.data
+    assert readonly_api._webservices == probe_api.data["webservices"]
+
+
 def test_multiple_local_accounts_require_explicit_username_for_auth_login() -> None:
     """Auth login should list local accounts when bootstrap discovery is ambiguous."""
 

@@ -315,7 +315,9 @@ def _probe_devices(api: PyiCloudService) -> object:
     """Refresh Find My without asking the devices to report their location.
 
     Iterating or counting the manager refreshes with ``locate=True``, which
-    pings the user's hardware. A diagnostic must not do that.
+    pings the user's hardware. A probe api is built with ``probe=True`` and
+    ``refresh_interval=0``, so ``api.devices`` makes no request and starts no
+    monitor; this asks it for a single non-locating refresh.
     """
 
     api.devices.refresh(locate=False)
