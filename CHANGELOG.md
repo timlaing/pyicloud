@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog].
 
 Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
-## [Unreleased]
+## [2026.10.0] - 2026-10-12
 
 ### Added
 
