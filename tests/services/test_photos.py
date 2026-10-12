@@ -770,10 +770,10 @@ def test_upload_file_retries_transient_lookup_failures() -> None:
 
 
 def test_upload_file_normalises_persistent_lookup_failures() -> None:
-    """A lookup that keeps failing raises the public exception type.
+    """A lookup that keeps failing raises the public response exception.
 
-    CloudKitApiError does not derive from PyiCloudException, so without this it
-    would escape upload_file unchanged and the method's error contract would
+    The hydration path normalises a CloudKit failure into a
+    ``PyiCloudAPIResponseException`` so the method's error contract does not
     depend on whether registration or hydration failed.
     """
     mock_client = _indexed_client()
