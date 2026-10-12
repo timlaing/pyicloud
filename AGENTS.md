@@ -22,7 +22,7 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - Types: `mypy .` (strict mode, `[tool.mypy]`).
 - Pylint: `pylint` (config in `[tool.pylint.*]`).
 - Pre-commit hooks are managed by **`prek`** (a pre-commit drop-in), not `pre-commit`. Hooks & config: `.pre-commit-config.yaml`; install with `prek install`. Runs: ruff, cspell, yamllint, prettier, mypy, pylint. A manual `pytest` hook additionally gates coverage at `--cov-fail-under=90`.
-- Every source file must keep coverage above 90% (per-file, not just the aggregate), and a PR must not introduce new SonarQube issues.
+- Every source file must keep coverage above 90% (per-file requirement); the CI workflow and the manual `pytest` hook enforce the aggregate `--cov-fail-under=90`. PRs must not introduce new SonarQube issues (the SonarQube workflow waits for the quality gate configured in SonarQube Cloud).
 - Tests: `pytest` (config in `[tool.pytest.ini_options]`). Run a single file with `pytest tests/services/test_drive.py` or single test with `pytest tests/test_base.py::test_name -k`.
 
 ## Test gotchas (important)

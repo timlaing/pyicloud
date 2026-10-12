@@ -102,14 +102,14 @@ pytest --cov=pyicloud --cov-branch --cov-report=term-missing
 ```
 
 Inspect the per-file table before claiming compliance; the aggregate percentage
-does not tell you which files are under-covered. **Every source file must stay
-above 90% coverage** — the per-file number is what we gate on, not just the
-aggregate. Coverage is also measured by CI and reported to SonarQube Cloud, and
-the manual `pytest` prek hook fails the run below `--cov-fail-under=90`. **Pull
-requests must not introduce new SonarQube issues**, or they will fail the
-SonarQube Cloud quality gate. The filesystem guard allows coverage's own
-metadata resolution, package-source reads, and write-only `coverage.xml` output,
-so these commands run unchanged.
+does not tell you which files are under-covered. The project requires every
+source file to stay above 90% coverage, but the CI workflow and the manual
+`pytest` prek hook enforce an aggregate `--cov-fail-under=90` threshold. Coverage
+is also reported to SonarQube Cloud. Pull requests must not introduce new
+SonarQube issues; the SonarQube workflow waits for the quality gate configured
+in SonarQube Cloud. The filesystem guard allows coverage's own metadata
+resolution, package-source reads, and write-only `coverage.xml` output, so these
+commands run unchanged.
 
 ## Documentation
 
