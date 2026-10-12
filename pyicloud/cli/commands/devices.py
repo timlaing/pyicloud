@@ -239,7 +239,6 @@ def devices_show(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
-    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Show detailed information for one device."""
 
@@ -253,7 +252,6 @@ def devices_show(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
-        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -294,7 +292,6 @@ def devices_sound(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
-    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Play a sound on a device."""
 
@@ -308,7 +305,6 @@ def devices_sound(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
-        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -340,7 +336,6 @@ def devices_message(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
-    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Display a message on a device."""
 
@@ -354,7 +349,6 @@ def devices_message(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
-        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -397,7 +391,6 @@ def devices_lost_mode(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
-    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Enable lost mode for a device."""
 
@@ -411,7 +404,6 @@ def devices_lost_mode(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
-        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -452,7 +444,6 @@ def devices_erase(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
-    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Request a remote erase for a device."""
 
@@ -466,7 +457,6 @@ def devices_erase(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
-        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()
@@ -511,7 +501,6 @@ def devices_export(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
     with_family: WithFamilyOption = False,
-    refresh_interval: RefreshIntervalOption = None,
 ) -> None:
     """Export a device snapshot to JSON."""
 
@@ -525,7 +514,6 @@ def devices_export(
         output_format=output_format,
         log_level=log_level,
         with_family=with_family,
-        refresh_interval=refresh_interval,
     )
     state = get_state(ctx)
     api = state.get_api()

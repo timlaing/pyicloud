@@ -13,7 +13,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 from uuid import uuid4
 
 import click
@@ -21,8 +21,12 @@ import pytest
 import typer
 from typer.testing import CliRunner, Result
 
+from pyicloud.diagnostics import PROBED_SERVICES
 from pyicloud.endpoints import WEBSERVICES
-from pyicloud.exceptions import PyiCloudServiceUnavailable
+from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
+    PyiCloudServiceUnavailable,
+)
 from pyicloud.services.invites import (
     Event,
     EventNotFound,
@@ -1736,7 +1740,7 @@ def test_devices_refresh_interval_reaches_service_with_locating_monitor() -> Non
     assert result.exit_code == 0
     assert constructor_calls
     for kwargs in constructor_calls:
-        assert kwargs["monitor_locate"] is True
+        assert kwargs["locate"] is True
         assert kwargs["refresh_interval"] == 90.0
 
 
@@ -2505,11 +2509,11 @@ def test_get_api_uses_keyring_password_for_session_backed_service_commands() -> 
     assert constructor_calls[0]["apple_id"] == "solo@example.com"
     assert constructor_calls[0]["password"] is None
     assert constructor_calls[0]["authenticate"] is False
-    assert constructor_calls[0]["monitor_locate"] is True
+    assert constructor_calls[0]["locate"] is True
     assert constructor_calls[1]["apple_id"] == "solo@example.com"
     assert constructor_calls[1]["password"] == "stored-secret"
     assert constructor_calls[1]["authenticate"] is False
-    assert constructor_calls[1]["monitor_locate"] is True
+    assert constructor_calls[1]["locate"] is True
     probe_api.get_auth_status.assert_called_once_with()
     service_api.get_auth_status.assert_called_once_with()
 
@@ -2582,6 +2586,76 @@ def test_get_api_hydrates_session_backed_service_commands_from_probe_state() -> 
     assert service_api._webservices == probe_api.data["webservices"]
     probe_api.get_auth_status.assert_called_once_with()
     service_api.get_auth_status.assert_not_called()
+
+
+def test_get_readonly_api_builds_a_cached_probe_mode_session_api() -> None:
+    """``doctor --probe`` should get a passive api that shares the session."""
+
+    session_dir = _unique_session_dir("readonly-api")
+    _remember_local_account(
+        session_dir,
+        "solo@example.com",
+        has_session_file=True,
+        keyring_passwords={"solo@example.com"},
+    )
+
+    probe_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    probe_api.data = {
+        "dsInfo": {"dsid": "1234567890", "hsaVersion": 2},
+        "webservices": {"findme": {"url": "https://example.invalid/findme"}},
+    }
+    service_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    service_api.data = dict(probe_api.data)
+    service_api._webservices = probe_api.data["webservices"]
+    readonly_api = FakeAPI(username="solo@example.com", session_dir=session_dir)
+    readonly_api.data = {}
+    readonly_api.params = {}
+    readonly_api._webservices = None
+    constructor_calls: list[dict[str, Any]] = []
+
+    def build_api(**kwargs: Any) -> FakeAPI:
+        constructor_calls.append(kwargs)
+        return (probe_api, service_api, readonly_api)[len(constructor_calls) - 1]
+
+    state = context_module.CLIState(
+        username=None,
+        password=None,
+        china_mainland=None,
+        interactive=False,
+        accept_terms=False,
+        with_family=False,
+        refresh_interval=None,
+        session_dir=str(session_dir),
+        http_proxy=None,
+        https_proxy=None,
+        no_verify_ssl=False,
+        log_level=context_module.LogLevel.WARNING,
+        output_format=output_module.OutputFormat.TEXT,
+    )
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=build_api),
+        patch.object(
+            context_module.utils,
+            "password_exists_in_keyring",
+            side_effect=lambda candidate: candidate == "solo@example.com",
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="stored-secret",
+        ),
+    ):
+        readonly = state.get_readonly_api()
+        again = state.get_readonly_api()
+
+    assert readonly is readonly_api
+    assert again is readonly_api
+    assert len(constructor_calls) == 3
+    assert constructor_calls[2]["locate"] is False
+    assert constructor_calls[2]["refresh_interval"] is None
+    assert readonly_api.data == probe_api.data
+    assert readonly_api._webservices == probe_api.data["webservices"]
 
 
 def test_multiple_local_accounts_require_explicit_username_for_auth_login() -> None:
@@ -5350,3 +5424,136 @@ def test_invites_show_reports_a_missing_event() -> None:
     assert "No event with id AAAA2222-0000-0000-0000-000000000002" in str(
         result.exception
     )
+
+
+def _probing_api(
+    webservices: dict[str, Any] | None = None,
+) -> tuple[FakeAPI, dict[str, MagicMock]]:
+    """Return an authenticated fake plus the service mocks its probes will hit.
+
+    The mocks are handed back rather than read off the fake afterwards: the
+    doctor attaches services `FakeAPI` does not declare, and assertions that
+    reach through the fake for them are neither type- nor lint-checkable.
+    """
+
+    fake_api = _doctor_api(webservices)
+    services = {name: MagicMock() for name in PROBED_SERVICES}
+    services["calendar"].get_calendars.return_value = []
+    services["notes"].sync_cursor.return_value = "cursor"
+    services["reminders"].sync_cursor.return_value = "cursor"
+    services["invites"].events.return_value = []
+    services["hidemyemail"].__len__ = MagicMock(return_value=0)
+    for name, mock in services.items():
+        setattr(fake_api, name, mock)
+    return fake_api, services
+
+
+def test_doctor_does_not_call_any_service_without_the_flag() -> None:
+    """The default run must stay a pure read of already-fetched state."""
+
+    fake_api, services = _probing_api()
+
+    result = _invoke(fake_api, "doctor")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    services["devices"].refresh.assert_not_called()
+    services["calendar"].get_calendars.assert_not_called()
+    assert "Service probes" not in text
+    # The verdict must not overstate what a map-only run proves.
+    assert "Nothing was called; add --probe" in text
+
+
+def test_doctor_does_not_probe_a_session_that_reports_unauthenticated() -> None:
+    """--probe must be gated on the session, like the map findings already are.
+
+    `api` can be non-null while the status read afterwards says otherwise.
+    Calling all eleven services with that session yields a page of failures
+    that say nothing about the library, under a verdict stating nothing could
+    be checked.
+    """
+
+    fake_api, services = _probing_api()
+    authed = {
+        "authenticated": True,
+        "trusted_session": True,
+        "requires_2fa": False,
+        "requires_2sa": False,
+    }
+    fake_api.get_auth_status = MagicMock(
+        side_effect=[authed, authed, {**authed, "authenticated": False}]
+    )
+
+    result = _invoke(fake_api, "doctor", "--probe", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["probes"] == []
+    services["calendar"].get_calendars.assert_not_called()
+    services["devices"].refresh.assert_not_called()
+
+
+def test_doctor_probe_calls_each_service_and_reports_it() -> None:
+    """--probe adds the section and actually exercises the services."""
+
+    fake_api, services = _probing_api()
+
+    result = _invoke(fake_api, "doctor", "--probe")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "Service probes" in text
+    assert "each one answered" in text
+    services["calendar"].get_calendars.assert_called_once()
+    # Find My must be read without pinging the user's hardware.
+    services["devices"].__len__.assert_called_once()
+    services["devices"].refresh.assert_not_called()
+
+
+def test_doctor_probe_fails_on_a_withdrawn_endpoint() -> None:
+    """A 410 behind a healthy host is exactly what probing exists to catch."""
+
+    fake_api, services = _probing_api()
+    type(services["photos"]).libraries = PropertyMock(
+        side_effect=PyiCloudAPIResponseException("Gone", 410)
+    )
+
+    result = _invoke(fake_api, "doctor", "--probe")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 1
+    assert "GONE" in text
+    assert "affecting: photos" in text
+    assert "pyicloud needs updating" in text
+
+
+def test_doctor_probe_reports_account_state_without_failing() -> None:
+    """A migrated service is the user's account, not a pyicloud defect."""
+
+    fake_api, services = _probing_api()
+    type(services["files"]).root = PropertyMock(
+        side_effect=PyiCloudServiceUnavailable("Account migrated")
+    )
+
+    result = _invoke(fake_api, "doctor", "--probe")
+    text = _unwrapped(result)
+
+    assert result.exit_code == 0
+    assert "unavailable" in text
+    assert "Account migrated" in text
+    assert "each one answered" in text
+
+
+def test_doctor_probe_json_includes_every_result() -> None:
+    """JSON mode carries the probe outcomes alongside the map findings."""
+
+    fake_api, _services = _probing_api()
+    result = _invoke(fake_api, "doctor", "--probe", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    probes = {item["service"]: item for item in payload["probes"]}
+    assert probes["calendar"]["status"] == "ok"
+    assert probes["calendar"]["is_failure"] is False
+    assert set(probes) == set(PROBED_SERVICES)

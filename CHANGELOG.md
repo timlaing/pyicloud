@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add an opt-in `--probe` layer to `icloud doctor` that calls each service once to catch withdrawn endpoints (#347)
 - Add an `icloud invites` command group for listing, showing, and resolving Invites events (#346)
 
 ### Fixed
@@ -36,7 +37,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
-- Update package name to pyicloud and add allowScripts configuration
+- Update package name to pyicloud
+- Rename the Find My `monitor_locate` option to `locate` (it now also gates the construction fetch), treat `refresh_interval=None` as "no monitor", and start that monitor from the `icloud` CLI only for `devices list --refresh-interval` (#347) and add allowScripts configuration
 
 ### Documentation
 

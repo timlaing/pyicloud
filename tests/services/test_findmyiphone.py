@@ -891,32 +891,113 @@ def _make_manager(
     )
 
 
-def test_monitor_locate_defaults_to_passive_monitor() -> None:
-    """The library monitor thread should stay passive unless opted in."""
+def test_an_ordinary_manager_refreshes_on_construction() -> None:
+    """The ordinary manager fetches devices as soon as it is built.
+
+    Automatic refreshes are passive by default (``locate=False``), so the
+    construction fetch does not ask the devices to report a location.
+    """
+    with patch.object(
+        FindMyiPhoneServiceManager, "_refresh_client_with_reauth"
+    ) as refresh:
+        _make_manager()
+    refresh.assert_called_once_with(locate=False)
+
+
+def test_a_manager_can_refresh_on_construction_with_locate() -> None:
+    """locate=True on construction asks devices for a fresh fix."""
+    with patch.object(
+        FindMyiPhoneServiceManager, "_refresh_client_with_reauth"
+    ) as refresh:
+        _make_manager(locate=True)
+    refresh.assert_called_once_with(locate=True)
+
+
+def test_a_probe_manager_refreshes_without_locating_or_monitoring() -> None:
+    """A diagnostics manager makes one passive request and leaves no thread.
+
+    This is the shape the read-only probe api uses: ``locate=False`` keeps the
+    devices from reporting their location and ``refresh_interval=None`` means
+    no background monitor is started.
+    """
+    with patch.object(
+        FindMyiPhoneServiceManager, "_refresh_client_with_reauth"
+    ) as refresh:
+        manager = _make_manager(locate=False, refresh_interval=None)
+    refresh.assert_called_once_with(locate=False)
+    assert manager._monitor is None
+
+
+def test_a_monitor_less_manager_still_serves_its_construction_data() -> None:
+    """Without a monitor, reads must not trigger a fresh (locating) refresh."""
+    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
+        manager = _make_manager(locate=False, refresh_interval=None)
+    manager._initialized = True
+    device = MagicMock()
+    manager._devices = {"device-1": device}
+
+    with patch.object(
+        FindMyiPhoneServiceManager, "_refresh_client_with_reauth"
+    ) as refresh:
+        assert list(iter(manager)) == [device]
+        assert len(manager) == 1
+
+    refresh.assert_not_called()
+
+
+def test_a_positive_refresh_interval_starts_the_monitor_thread() -> None:
+    """A positive frequency is what schedules background refreshes."""
+    with (
+        patch.object(FindMyiPhoneServiceManager, "_refresh_client"),
+        patch.object(FindMyiPhoneServiceManager, "_initialize_devices"),
+        patch.object(FindMyiPhoneServiceManager, "_start_monitor_thread") as start,
+    ):
+        _make_manager(refresh_interval=30)
+    start.assert_called_once_with()
+
+
+def test_none_refresh_interval_disables_the_monitor_thread() -> None:
+    """None means no monitor rather than refreshing as fast as possible."""
+    with (
+        patch.object(FindMyiPhoneServiceManager, "_refresh_client"),
+        patch.object(FindMyiPhoneServiceManager, "_initialize_devices"),
+        patch.object(FindMyiPhoneServiceManager, "_start_monitor_thread") as start,
+    ):
+        _make_manager(refresh_interval=None)
+    start.assert_not_called()
+
+
+def test_a_service_without_a_monitor_builds_a_passive_manager(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """A service built for probing must not locate nor leave a monitor behind."""
+    pyicloud_service_working._locate = False
+    pyicloud_service_working._refresh_interval = None
+    manager = pyicloud_service_working.devices
+
+    assert manager._locate is False
+    assert manager._monitor is None
+
+
+def test_locate_defaults_to_passive_automatic_refreshes() -> None:
+    """The library's automatic refreshes stay passive unless opted in."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
         manager = _make_manager()
-    assert manager._monitor_locate is False
+    assert manager._locate is False
 
 
-def test_monitor_locate_true_builds_locating_monitor() -> None:
-    """monitor_locate=True should make the monitor thread locate devices."""
+def test_locate_true_builds_locating_automatic_refreshes() -> None:
+    """locate=True makes the construction fetch and monitor locate devices."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
-        manager = _make_manager(monitor_locate=True)
-    assert manager._monitor_locate is True
-
-
-def test_monitor_locate_false_builds_passive_monitor() -> None:
-    """monitor_locate=False should keep the monitor thread passive."""
-    with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
-        manager = _make_manager(monitor_locate=False)
-    assert manager._monitor_locate is False
+        manager = _make_manager(locate=True)
+    assert manager._locate is True
 
 
 def test_start_monitor_thread_wires_locate_kwarg() -> None:
     """_start_monitor_thread should forward locate to the monitor thread."""
-    for monitor_locate in (True, False):
+    for locate in (True, False):
         with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
-            manager = _make_manager(monitor_locate=monitor_locate)
+            manager = _make_manager(locate=locate)
 
         with (
             patch(
@@ -929,7 +1010,7 @@ def test_start_monitor_thread_wires_locate_kwarg() -> None:
             manager._start_monitor_thread()
 
         _, kwargs = mock_thread.call_args
-        assert kwargs["kwargs"]["locate"] is monitor_locate
+        assert kwargs["kwargs"]["locate"] is locate
         # The monitor refreshes through the lock-protected entry point.
         assert kwargs["kwargs"]["func"].__name__ == "_refresh_client"
         mock_thread.return_value.start.assert_called_once_with()
@@ -981,8 +1062,8 @@ def test_family_poll_parameters_reject_invalid_values() -> None:
             _make_manager(family_poll_max_retries=2.5)
 
 
-def test_refresh_interval_rejects_non_positive_values() -> None:
-    """Test refresh_interval rejects zero, negative, bool, and non-numeric values."""
+def test_refresh_interval_rejects_invalid_values() -> None:
+    """Test refresh_interval rejects zero, negative, bool, and non-finite values."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
         with pytest.raises(ValueError):
             _make_manager(refresh_interval=0)
@@ -999,14 +1080,17 @@ def test_refresh_interval_rejects_non_positive_values() -> None:
         # Finite but so large the monitor deadline computation would overflow.
         with pytest.raises(ValueError):
             _make_manager(refresh_interval=1.0e13)
+        # None disables the monitor instead of meaning "use the default".
         manager = _make_manager(refresh_interval=None)
+        assert manager._refresh_interval is None
+        manager = _make_manager()
         assert manager._refresh_interval == 5.0 * 60.0
         manager = _make_manager(refresh_interval=30)
         assert manager._refresh_interval == 30.0
 
 
-def test_refresh_interval_rejects_sub_second_values() -> None:
-    """Test refresh_interval rejects values below the 1s minimum."""
+def test_refresh_interval_rejects_sub_second_positive_values() -> None:
+    """Test refresh_interval rejects positive values below the 1s minimum."""
     with patch.object(FindMyiPhoneServiceManager, "_refresh_client_with_reauth"):
         with pytest.raises(ValueError, match="at least 1s"):
             _make_manager(refresh_interval=0.5)

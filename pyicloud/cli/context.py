@@ -131,6 +131,7 @@ class CLIState:
         self._stack = ExitStack()
         self._api: PyiCloudService | None = None
         self._probe_api: PyiCloudService | None = None
+        self._readonly_api: PyiCloudService | None = None
         self._resolved_username: str | None = self.username or None
         self.login_password_source: str | None = None
         self._logging_configured = False
@@ -488,7 +489,7 @@ class CLIState:
                 cookie_directory=self.session_dir,
                 accept_terms=self.accept_terms,
                 with_family=self.with_family,
-                monitor_locate=True,
+                locate=True,
                 refresh_interval=self.refresh_interval,
             )
         except PyiCloudAccountLockedException as err:
@@ -576,13 +577,19 @@ class CLIState:
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
-            monitor_locate=True,
+            locate=True,
             refresh_interval=self.refresh_interval,
             authenticate=False,
         )
 
-    def build_session_api(self, username: str) -> PyiCloudService:
-        """Build a session-backed API that can satisfy service reauthentication."""
+    def build_session_api(
+        self, username: str, *, probe: bool = False
+    ) -> PyiCloudService:
+        """Build a session-backed API that can satisfy service reauthentication.
+
+        ``probe=True`` builds a read-only API for diagnostics: its Find My
+        manager neither locates the user's devices nor starts a monitor.
+        """
 
         self._configure_logging()
         return PyiCloudService(
@@ -592,10 +599,28 @@ class CLIState:
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
-            monitor_locate=True,
-            refresh_interval=self.refresh_interval,
+            locate=not probe,
+            refresh_interval=None if probe else self.refresh_interval,
             authenticate=False,
         )
+
+    def get_readonly_api(self) -> PyiCloudService:
+        """Return a session-backed API for read-only service probes.
+
+        It shares the authenticated session but is built with ``probe=True``,
+        so ``icloud doctor --probe`` can read each service without locating
+        the user's devices or leaving a monitor thread behind.
+        """
+
+        if self._readonly_api is not None:
+            return self._readonly_api
+        api = self.get_api()
+        readonly_api = self.build_session_api(api.account_name, probe=True)
+        self._hydrate_api_from_probe(readonly_api, api)
+        if api.webservices:
+            readonly_api.webservices = api.webservices
+        self._readonly_api = readonly_api
+        return readonly_api
 
     @staticmethod
     def _hydrate_api_from_probe(

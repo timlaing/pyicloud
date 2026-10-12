@@ -69,6 +69,7 @@ from pyicloud.services import (
 from pyicloud.services import (  # pylint: disable=useless-import-alias
     AppleDevice as AppleDevice,
 )
+from pyicloud.services.findmyiphone import DEFAULT_REFRESH_INTERVAL
 from pyicloud.services.invites import InvitesService
 from pyicloud.services.notes import NotesService
 from pyicloud.services.photos import (
@@ -268,10 +269,10 @@ class PyiCloudService:
         with_family: bool = True,
         china_mainland: bool | None = None,
         accept_terms: bool = False,
-        refresh_interval: float | None = None,
+        refresh_interval: float | None = DEFAULT_REFRESH_INTERVAL,
         family_poll_delay: float = 0.5,
         family_poll_max_retries: int = 5,
-        monitor_locate: bool = False,
+        locate: bool = False,
         *,
         authenticate: bool = True,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
@@ -311,7 +312,7 @@ class PyiCloudService:
         self._with_family: bool = with_family
         self._family_poll_delay: float = family_poll_delay
         self._family_poll_max_retries: int = family_poll_max_retries
-        self._monitor_locate: bool = monitor_locate
+        self._locate: bool = locate
         self._cloudkit_validation_extra = cloudkit_validation_extra
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
@@ -1504,12 +1505,17 @@ class PyiCloudService:
 
     @property
     def devices(self) -> FindMyiPhoneServiceManager:
-        """Returns all devices."""
+        """Returns all devices.
+
+        The manager is built lazily from this account's Find My webservice.
+        It starts a background monitor only when ``refresh_interval`` is a
+        positive number; ``locate`` decides whether its automatic refreshes
+        ask the devices to report their location.
+        """
         if not self._devices:
             try:
-                service_root: str = self.get_webservice_url("findme")
                 self._devices = FindMyiPhoneServiceManager(
-                    service_root=service_root,
+                    service_root=self.get_webservice_url("findme"),
                     token_endpoint=self._setup_endpoint,
                     session=self.session,
                     params=self.params,
@@ -1517,7 +1523,7 @@ class PyiCloudService:
                     refresh_interval=self._refresh_interval,
                     family_poll_delay=self._family_poll_delay,
                     family_poll_max_retries=self._family_poll_max_retries,
-                    monitor_locate=self._monitor_locate,
+                    locate=self._locate,
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(
