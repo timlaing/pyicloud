@@ -704,6 +704,46 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(len(event.rsvps), 1)
         self.assertEqual(event.rsvps[0].name, "Dana")
 
+    def test_event_full_drops_records_a_tombstone_deletes(self) -> None:
+        """A tombstone removes the RSVP and one-time link it deletes."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(return_value=self._event_lookup_response()),
+        )
+        live = self._rsvp_zone_page([
+            {
+                "recordName": "P1.rsvp",
+                "recordType": "RSVP",
+                "fields": {"name": {"type": "STRING", "value": "Dana"}},
+            },
+            {
+                "recordName": "PARTICIPANT-OTL_otl",
+                "recordType": "OneTimeLinkGuestInfo",
+                "fields": {},
+            },
+        ])
+        deleted = CKZoneChangesZone.model_validate({
+            "zoneID": {"zoneName": "EVENT-FIXTURE-AAAA"},
+            "records": [
+                {"recordName": "P1.rsvp", "deleted": True},
+                {"recordName": "PARTICIPANT-OTL_otl", "deleted": True},
+            ],
+            "syncToken": "TOKEN",
+        })
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(return_value=iter([live, deleted])),
+        )
+
+        event = self.service.event("EVENT-FIXTURE-AAAA")
+
+        self.assertEqual(event.rsvps, ())
+        self.assertIsNotNone(event.share)
+        assert event.share is not None
+        self.assertEqual(event.share.one_time_links, ())
+
     def test_event_falls_through_to_shared_on_private_miss(self) -> None:
         """event() falls back to the shared scope on a private miss."""
         # Private lookup returns no matching records; shared lookup succeeds.
@@ -901,30 +941,24 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(rsvps[0].name, "Dana Updated")
 
     def test_rsvps_ignores_tombstones(self) -> None:
-        """A tombstone for a deleted record produces no RSVP."""
-        page = CKZoneChangesZone.model_validate({
+        """A tombstone drops the record it deletes, even one seen before it."""
+        live = self._rsvp_zone_page()
+        deleted = CKZoneChangesZone.model_validate({
             "zoneID": {"zoneName": "EVENT-FIXTURE-AAAA"},
             "records": [
                 {"recordName": "P1.rsvp", "deleted": True},
-                {
-                    "recordName": "P2.rsvp",
-                    "recordType": "RSVP",
-                    "fields": {"name": {"type": "STRING", "value": "Erin"}},
-                },
+                {"recordName": "GHOST.rsvp", "deleted": True},
             ],
             "syncToken": "TOKEN",
         })
         self._monkeypatch.setattr(
             self.service.raw,
             "iter_changes",
-            MagicMock(return_value=iter([page])),
+            MagicMock(return_value=iter([live, deleted])),
         )
         event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.PRIVATE)
 
-        rsvps = self.service.rsvps(event)
-
-        self.assertEqual(len(rsvps), 1)
-        self.assertEqual(rsvps[0].name, "Erin")
+        self.assertEqual(self.service.rsvps(event), [])
 
     def test_resolve_returns_resolved_share(self) -> None:
         """resolve() returns the resolved share details."""

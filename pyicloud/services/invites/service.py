@@ -31,6 +31,7 @@ from pyicloud.common.cloudkit import (
     CKQueryObject,
     CKQueryResponse,
     CKRecord,
+    CKTombstoneRecord,
     CKWriteFields,
     CKWriteRecord,
     CKZoneChangesZoneReq,
@@ -157,31 +158,34 @@ class InvitesService(BaseService):
 
     def rsvps(self, event: Event) -> list[Rsvp]:
         """Return the list of RSVPs in an event's zone."""
-        # A zone's changes feed can report a record more than once; keep only
-        # its latest state.
-        latest = {
-            record.recordName: record
-            for record in self._zone_records(
-                self._scope_str(event.scope),
-                self._zone_id_req(event.event_id, event.scope),
-                InvitesRecordType.Rsvp.value,
-            )
-        }
+        # A zone's changes feed can report a record more than once, or report a
+        # tombstone for one it reported earlier; keep the surviving latest state.
+        latest: dict[str, CKRecord] = {}
+        for record in self._zone_records(
+            self._scope_str(event.scope),
+            self._zone_id_req(event.event_id, event.scope),
+            InvitesRecordType.Rsvp.value,
+        ):
+            if isinstance(record, CKTombstoneRecord):
+                latest.pop(record.recordName, None)
+            else:
+                latest[record.recordName] = record
         return [self._rsvp_from_record(record) for record in latest.values()]
 
     def _zone_records(
         self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq, *record_types: str
-    ) -> Iterator[CKRecord]:
-        """Yield a zone's records of the given types, through its changes feed.
+    ) -> Iterator[CKRecord | CKTombstoneRecord]:
+        """Yield a zone's changes for the given record types.
 
         Not by querying it: an event's own zone rejects ``records/query`` with
         "syncToken operations supported only in SyncZone", so a per-zone query
         works only for events shared with you. The changes feed reads any zone.
 
         ``desiredRecordTypes`` asks Apple for those records alone; the filter is
-        kept because that projection is a request, not a guarantee. The feed can
-        report the same record more than once, so callers reconcile by
-        ``recordName`` and keep the latest state.
+        kept because that projection is a request, not a guarantee. Tombstones
+        are yielded too, unfiltered because they carry no ``recordType``, so
+        callers reconcile by ``recordName``: keep the latest live record, and
+        drop the name on a tombstone.
         """
 
         wanted = frozenset(record_types)
@@ -191,7 +195,9 @@ class InvitesService(BaseService):
         )
         for page in self._raw.iter_changes(scope_str, zone_req=zone_req):
             for record in page.records:
-                if isinstance(record, CKRecord) and record.recordType in wanted:
+                if isinstance(record, CKTombstoneRecord) or (
+                    isinstance(record, CKRecord) and record.recordType in wanted
+                ):
                     yield record
 
     def _zone_rsvps_and_links(
@@ -201,9 +207,9 @@ class InvitesService(BaseService):
 
         Both record types live in the event's zone, and the changes feed is the
         only read an event you own supports. Records are reconciled by
-        ``recordName``, since the feed can repeat one, and records read before a
-        mid-feed failure are kept: hydration is best-effort, and partial data
-        beats none.
+        ``recordName`` (the feed can repeat one, and a tombstone deletes one),
+        and records read before a mid-feed failure are kept: hydration is
+        best-effort, and partial data beats none.
         """
 
         rsvps: dict[str, Rsvp] = {}
@@ -215,7 +221,10 @@ class InvitesService(BaseService):
                 InvitesRecordType.Rsvp.value,
                 InvitesRecordType.OneTimeLinkGuestInfo.value,
             ):
-                if record.recordType == InvitesRecordType.Rsvp.value:
+                if isinstance(record, CKTombstoneRecord):
+                    rsvps.pop(record.recordName, None)
+                    links.pop(record.recordName, None)
+                elif record.recordType == InvitesRecordType.Rsvp.value:
                     rsvps[record.recordName] = self._rsvp_from_record(record)
                 else:
                     links[record.recordName] = self._one_time_link_from_record(record)
