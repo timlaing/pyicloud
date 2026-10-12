@@ -30,6 +30,7 @@ from pyicloud.common.cloudkit import (
     CKRecord,
     CKTombstoneRecord,
     CKWriteRecord,
+    CKZoneChangesZone,
     CKZoneChangesZoneReq,
     CKZoneIDReq,
     CKZoneListResponse,
@@ -639,11 +640,6 @@ class ServiceCoverageTest(unittest.TestCase):
         self._monkeypatch.setattr(
             self.service.raw, "iter_changes", MagicMock(return_value=iter([]))
         )
-        self._monkeypatch.setattr(
-            self.service.raw,
-            "query",
-            MagicMock(return_value=CKQueryResponse(records=[])),
-        )
 
         event = self.service._fetch_event_full("EVENT-FIXTURE-AAAA", EventScope.PRIVATE)
 
@@ -652,7 +648,7 @@ class ServiceCoverageTest(unittest.TestCase):
         self.assertEqual(event.event_id, "EVENT-FIXTURE-AAAA")
 
     def test_fetch_event_full_tolerates_rsvp_and_otl_read_failures(self) -> None:
-        """Failed RSVP changes and OTL queries stay empty rather than raising."""
+        """Failed RSVP/one-time-link changes reads stay empty rather than raising."""
         lookup = CKLookupResponse.model_validate(
             load_invites_fixture("event_lookup_response.json")
         )
@@ -663,9 +659,6 @@ class ServiceCoverageTest(unittest.TestCase):
             self.service.raw,
             "iter_changes",
             MagicMock(side_effect=InvitesApiError("boom")),
-        )
-        self._monkeypatch.setattr(
-            self.service.raw, "query", MagicMock(side_effect=InvitesApiError("boom"))
         )
 
         event = self.service._fetch_event_full("EVENT-FIXTURE-AAAA", EventScope.PRIVATE)
@@ -682,7 +675,8 @@ class ServiceCoverageTest(unittest.TestCase):
         lookup = CKLookupResponse.model_validate(
             load_invites_fixture("event_lookup_response.json")
         )
-        otl_response = CKQueryResponse.model_validate({
+        otl_page = CKZoneChangesZone.model_validate({
+            "zoneID": {"zoneName": "EVENT-FIXTURE-AAAA"},
             "records": [
                 {
                     "recordName": "PARTICIPANT-OTL_otl",
@@ -710,18 +704,14 @@ class ServiceCoverageTest(unittest.TestCase):
                     "recordType": "OneTimeLinkGuestInfo",
                     "fields": {},
                 },
-            ]
+            ],
+            "syncToken": "TOKEN",
         })
         self._monkeypatch.setattr(
             self.service.raw, "lookup", MagicMock(return_value=lookup)
         )
         self._monkeypatch.setattr(
-            self.service.raw, "iter_changes", MagicMock(return_value=iter([]))
-        )
-        self._monkeypatch.setattr(
-            self.service.raw,
-            "query",
-            MagicMock(return_value=otl_response),
+            self.service.raw, "iter_changes", MagicMock(return_value=iter([otl_page]))
         )
 
         event = self.service._fetch_event_full("EVENT-FIXTURE-AAAA", EventScope.PRIVATE)

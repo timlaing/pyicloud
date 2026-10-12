@@ -15,7 +15,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
-- Read Invites RSVPs for events you own through the zone changes feed instead of a per-zone query Apple rejects (#352)
+- Read Invites RSVPs and one-time link guests for events you own through the zone changes feed instead of a per-zone query Apple rejects (#352)
 - Reject advertised service endpoints that do not use HTTPS (#401)
 - Refuse Reminder updates after a text document fails to decode (#400)
 - Correct Calendar end-date minutes remaining until midnight (#399)

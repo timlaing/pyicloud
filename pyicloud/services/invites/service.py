@@ -19,7 +19,7 @@ via link) arrive in later phases per the design doc.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import datetime, timezone
 import logging
 from typing import Any, cast
@@ -157,39 +157,68 @@ class InvitesService(BaseService):
 
     def rsvps(self, event: Event) -> list[Rsvp]:
         """Return the list of RSVPs in an event's zone."""
-
         return [
             self._rsvp_from_record(record)
-            for record in self._rsvp_records(
+            for record in self._zone_records(
                 self._scope_str(event.scope),
                 self._zone_id_req(event.event_id, event.scope),
+                InvitesRecordType.Rsvp.value,
             )
         ]
 
-    def _rsvp_records(
-        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq
-    ) -> list[CKRecord]:
-        """Read a zone's RSVP records through its changes feed.
+    def _zone_records(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq, *record_types: str
+    ) -> Iterator[CKRecord]:
+        """Yield a zone's records of the given types, through its changes feed.
 
         Not by querying it: an event's own zone rejects ``records/query`` with
-        "syncToken operations supported only in SyncZone", so the query this
-        replaces worked only for events shared with you.
+        "syncToken operations supported only in SyncZone", so a per-zone query
+        works only for events shared with you. The changes feed reads any zone.
 
-        ``desiredRecordTypes`` asks Apple for the RSVP records alone; the
-        filter is kept because that projection is a request, not a guarantee.
+        ``desiredRecordTypes`` asks Apple for those records alone; the filter is
+        kept because that projection is a request, not a guarantee.
         """
 
-        wanted = InvitesRecordType.Rsvp.value
+        wanted = frozenset(record_types)
         zone_req = CKZoneChangesZoneReq(
             zoneID=CKZoneID(**zone_id.model_dump(exclude_none=True)),
-            desiredRecordTypes=[wanted],
+            desiredRecordTypes=list(record_types),
         )
-        return [
-            record
-            for page in self._raw.iter_changes(scope_str, zone_req=zone_req)
-            for record in page.records
-            if isinstance(record, CKRecord) and record.recordType == wanted
-        ]
+        for page in self._raw.iter_changes(scope_str, zone_req=zone_req):
+            for record in page.records:
+                if isinstance(record, CKRecord) and record.recordType in wanted:
+                    yield record
+
+    def _zone_rsvps_and_links(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq
+    ) -> tuple[tuple[Rsvp, ...], tuple[OneTimeLinkGuest, ...]]:
+        """Read a zone's RSVPs and one-time links in one changes-feed pass.
+
+        Both record types live in the event's zone, and the changes feed is the
+        only read an event you own supports. Records read before a mid-feed
+        failure are kept: hydration is best-effort, and partial data beats none.
+        """
+
+        rsvps: list[Rsvp] = []
+        links: list[OneTimeLinkGuest] = []
+        try:
+            for record in self._zone_records(
+                scope_str,
+                zone_id,
+                InvitesRecordType.Rsvp.value,
+                InvitesRecordType.OneTimeLinkGuestInfo.value,
+            ):
+                if record.recordType == InvitesRecordType.Rsvp.value:
+                    rsvps.append(self._rsvp_from_record(record))
+                else:
+                    links.append(self._one_time_link_from_record(record))
+        except InvitesError:
+            LOGGER.debug(
+                "invites.event.zone_read_failed zone=%s",
+                zone_id.zoneName,
+                exc_info=True,
+            )
+        return tuple(rsvps), tuple(links)
 
     def resolve(self, short_guid: str) -> ResolvedShare:
         """Preview a share without joining it."""
@@ -517,37 +546,7 @@ class InvitesService(BaseService):
 
         share = self._share_from_record(share_record) if share_record else None
 
-        rsvps: tuple[Rsvp, ...] = ()
-        try:
-            rsvps = tuple(
-                self._rsvp_from_record(record)
-                for record in self._rsvp_records(scope_str, zone_id)
-            )
-        except InvitesError:
-            LOGGER.debug(
-                "invites.event.rsvp_read_failed event_id=%s",
-                event_id,
-                exc_info=True,
-            )
-
-        otl_guests: tuple[OneTimeLinkGuest, ...] = ()
-        try:
-            otl_resp = self._raw.query(
-                scope_str,
-                query=CKQueryObject(
-                    recordType=InvitesRecordType.OneTimeLinkGuestInfo.value,
-                ),
-                zone_id=zone_id,
-            )
-            otl_guests = tuple(
-                self._one_time_link_from_record(r) for r in self._records_of(otl_resp)
-            )
-        except InvitesError:
-            LOGGER.debug(
-                "invites.event.otl_query_failed event_id=%s",
-                event_id,
-                exc_info=True,
-            )
+        rsvps, otl_guests = self._zone_rsvps_and_links(scope_str, zone_id)
 
         if share is not None and otl_guests:
             share = share.model_copy(update={"one_time_links": otl_guests})

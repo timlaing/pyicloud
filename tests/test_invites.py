@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from typing import Any
@@ -185,11 +186,6 @@ class InvitesServiceTest(unittest.TestCase):
         """The RSVP fixture as a zone-changes page, the shape RSVPs arrive in."""
         return self._rsvp_zone_page(
             load_invites_fixture("rsvp_query_response.json")["records"]
-        )
-
-    def _otl_empty_response(self) -> CKQueryResponse:
-        return CKQueryResponse.model_validate(
-            load_invites_fixture("one_time_link_query_empty_response.json")
         )
 
     @staticmethod
@@ -642,24 +638,18 @@ class InvitesServiceTest(unittest.TestCase):
     def test_event_full_lookup_includes_share_and_rsvps(self) -> None:
         """A full event lookup returns share and RSVP details.
 
-        RSVPs come from the zone's changes feed, like `rsvps()`; the one-time
-        link records still come from a query.
+        RSVPs and one-time links both come from the zone's changes feed, like
+        `rsvps()`.
         """
         self._monkeypatch.setattr(
             self.service.raw,
             "lookup",
             MagicMock(return_value=self._event_lookup_response()),
         )
-        rsvp_page = self._rsvp_zone_page(
-            load_invites_fixture("rsvp_query_response.json")["records"]
-        )
-        self._monkeypatch.setattr(
-            self.service.raw, "iter_changes", MagicMock(return_value=iter([rsvp_page]))
-        )
         self._monkeypatch.setattr(
             self.service.raw,
-            "query",
-            MagicMock(return_value=self._otl_empty_response()),
+            "iter_changes",
+            MagicMock(return_value=iter([self._rsvp_zone_page_from_fixture()])),
         )
 
         event = self.service.event("EVENT-FIXTURE-AAAA")
@@ -695,6 +685,25 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(rsvp.num_additional_kids, 0)
         self.assertEqual(rsvp.participant_id, "PARTICIPANT-FIXTURE-GUEST")
 
+    def test_event_full_keeps_records_read_before_a_mid_feed_failure(self) -> None:
+        """A changes feed that fails after a page does not drop that page."""
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "lookup",
+            MagicMock(return_value=self._event_lookup_response()),
+        )
+
+        def pages(*_args: Any, **_kwargs: Any) -> Iterator[CKZoneChangesZone]:
+            yield self._rsvp_zone_page()
+            raise InvitesApiError("boom")
+
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", pages)
+
+        event = self.service.event("EVENT-FIXTURE-AAAA")
+
+        self.assertEqual(len(event.rsvps), 1)
+        self.assertEqual(event.rsvps[0].name, "Dana")
+
     def test_event_falls_through_to_shared_on_private_miss(self) -> None:
         """event() falls back to the shared scope on a private miss."""
         # Private lookup returns no matching records; shared lookup succeeds.
@@ -704,17 +713,12 @@ class InvitesServiceTest(unittest.TestCase):
             "lookup",
             MagicMock(side_effect=[empty_lookup, self._event_lookup_response()]),
         )
-        # The shared-path full hydration reads RSVPs from the changes feed and
-        # still queries for one-time links.
+        # The shared-path full hydration reads RSVPs and one-time links from the
+        # changes feed.
         self._monkeypatch.setattr(
             self.service.raw,
             "iter_changes",
             MagicMock(return_value=iter([self._rsvp_zone_page_from_fixture()])),
-        )
-        self._monkeypatch.setattr(
-            self.service.raw,
-            "query",
-            MagicMock(return_value=self._otl_empty_response()),
         )
 
         event = self.service.event("EVENT-FIXTURE-AAAA")
@@ -739,9 +743,7 @@ class InvitesServiceTest(unittest.TestCase):
         are the same shape a zone-changes page returns, so it still describes
         what Apple sends back.
         """
-        page = self._rsvp_zone_page(
-            load_invites_fixture("rsvp_query_response.json")["records"]
-        )
+        page = self._rsvp_zone_page_from_fixture()
         changes = MagicMock(return_value=iter([page]))
         self._monkeypatch.setattr(self.service.raw, "iter_changes", changes)
         owner_event = Event(
@@ -831,14 +833,36 @@ class InvitesServiceTest(unittest.TestCase):
         self.assertEqual(rsvps[0].name, "Dana")
 
     def test_rsvps_reads_every_page(self) -> None:
-        """A zone with more behind it must not lose the later responses."""
+        """A zone with more behind it must not lose the later responses.
+
+        The shared scope is addressed by its owner, so the changes request must
+        carry the owner `zones_list` reports for the event.
+        """
         pages = [self._rsvp_zone_page(more_coming=True), self._rsvp_zone_page()]
+        changes = MagicMock(return_value=iter(pages))
+        self._monkeypatch.setattr(self.service.raw, "iter_changes", changes)
         self._monkeypatch.setattr(
-            self.service.raw, "iter_changes", MagicMock(return_value=iter(pages))
+            self.service.raw,
+            "zones_list",
+            MagicMock(
+                return_value=CKZoneListResponse.model_validate({
+                    "zones": [
+                        {
+                            "zoneID": {
+                                "zoneName": "EVENT-FIXTURE-AAAA",
+                                "ownerRecordName": "_shared-owner",
+                                "zoneType": "REGULAR_CUSTOM_ZONE",
+                            }
+                        }
+                    ]
+                })
+            ),
         )
         event = Event(event_id="EVENT-FIXTURE-AAAA", scope=EventScope.SHARED)
 
         self.assertEqual(len(self.service.rsvps(event)), 2)
+        zone_req = changes.call_args.kwargs["zone_req"]
+        self.assertEqual(zone_req.zoneID.ownerRecordName, "_shared-owner")
 
     def test_resolve_returns_resolved_share(self) -> None:
         """resolve() returns the resolved share details."""
@@ -875,11 +899,6 @@ class InvitesServiceTest(unittest.TestCase):
             self.service.raw,
             "iter_changes",
             MagicMock(return_value=iter([self._rsvp_zone_page_from_fixture()])),
-        )
-        self._monkeypatch.setattr(
-            self.service.raw,
-            "query",
-            MagicMock(return_value=self._otl_empty_response()),
         )
 
         event = self.service.accept("008TESTFIXTUREAAAA")
