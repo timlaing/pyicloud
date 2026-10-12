@@ -270,25 +270,29 @@ def _modify_op() -> CKModifyOperation:
 def test_a_rejected_record_raises_with_apples_reason() -> None:
     """CloudKit reports write failures per record, inside a 200 response.
 
-    Every caller looked for its record by name, found a CKErrorItem instead of
+    Every caller looked for its record by name, found an error entry instead of
     a CKRecord, and skipped it -- so a rejected write surfaced as a missing
     record or as nothing at all. The reason Apple gave has to reach the caller.
     """
 
+    op = _modify_op()
+    zone_id = CKZoneIDReq(zoneName="Z")
     session = MagicMock()
     session.post.return_value = _json_response({
         "records": [
             {
                 "recordName": "EventDetails:E1",
                 "serverErrorCode": "BAD_REQUEST",
-                "reason": "Attempt to save encrypted data in non encrypted field type",
+                "reason": (
+                    "Attempt to save encrypted data in non encrypted field type"
+                ),
             }
         ]
     })
     client = CloudKitContainerClient("https://example.com/database", session, {})
 
     with pytest.raises(CloudKitApiError) as exc_info:
-        client.modify(operations=[_modify_op()], zone_id=CKZoneIDReq(zoneName="Z"))
+        client.modify(operations=[op], zone_id=zone_id)
 
     message = str(exc_info.value)
     assert "BAD_REQUEST" in message
@@ -299,6 +303,8 @@ def test_a_rejected_record_raises_with_apples_reason() -> None:
 def test_every_rejected_record_is_named() -> None:
     """A batch that fails in more than one way should say so once."""
 
+    op = _modify_op()
+    zone_id = CKZoneIDReq(zoneName="Z")
     session = MagicMock()
     session.post.return_value = _json_response({
         "records": [
@@ -309,7 +315,7 @@ def test_every_rejected_record_is_named() -> None:
     client = CloudKitContainerClient("https://example.com/database", session, {})
 
     with pytest.raises(CloudKitApiError) as exc_info:
-        client.modify(operations=[_modify_op()], zone_id=CKZoneIDReq(zoneName="Z"))
+        client.modify(operations=[op], zone_id=zone_id)
 
     message = str(exc_info.value)
     assert "2 record(s)" in message
@@ -317,9 +323,44 @@ def test_every_rejected_record_is_named() -> None:
     assert "B: CONFLICT" in message
 
 
+def test_a_rejected_record_with_fields_is_still_detected() -> None:
+    """An error entry carrying record fields must not pass as a record.
+
+    CloudKit's per-record error shape is resolved by a union that would pick
+    ``CKRecord`` if the entry also carried ``recordType`` and ``fields``. The
+    guard inspects the raw payload, so the rejection still surfaces.
+    """
+
+    op = _modify_op()
+    zone_id = CKZoneIDReq(zoneName="Z")
+    session = MagicMock()
+    session.post.return_value = _json_response({
+        "records": [
+            {
+                "recordName": "A",
+                "recordType": "Thing",
+                "fields": {"f": {"type": "INT64", "value": 1}},
+                "serverErrorCode": "CONFLICT",
+                "reason": "record to insert already exists",
+            }
+        ]
+    })
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+
+    with pytest.raises(CloudKitApiError) as exc_info:
+        client.modify(operations=[op], zone_id=zone_id)
+
+    message = str(exc_info.value)
+    assert "CONFLICT" in message
+    assert "record to insert already exists" in message
+    assert "A" in message
+
+
 def test_a_successful_modify_still_returns_its_records() -> None:
     """The guard must not disturb the path that already worked."""
 
+    op = _modify_op()
+    zone_id = CKZoneIDReq(zoneName="Z")
     session = MagicMock()
     session.post.return_value = _json_response({
         "records": [
@@ -328,9 +369,7 @@ def test_a_successful_modify_still_returns_its_records() -> None:
     })
     client = CloudKitContainerClient("https://example.com/database", session, {})
 
-    response = client.modify(
-        operations=[_modify_op()], zone_id=CKZoneIDReq(zoneName="Z")
-    )
+    response = client.modify(operations=[op], zone_id=zone_id)
 
     assert len(response.records) == 1
     assert response.records[0].recordName == "R1"

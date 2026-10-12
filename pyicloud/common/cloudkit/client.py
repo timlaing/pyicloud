@@ -16,7 +16,6 @@ from pyicloud.session import PyiCloudSession
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
 from .models import (
     CKDatabaseChangesResponse,
-    CKErrorItem,
     CKLookupDescriptor,
     CKLookupRequest,
     CKLookupResponse,
@@ -302,31 +301,42 @@ def _raise_for_zone_errors(data: Any) -> None:
         raise CloudKitApiError(message, payload=data)
 
 
-def _raise_for_record_errors(response: CKModifyResponse) -> None:
+def _raise_for_record_errors(data: Any) -> None:
     """Raise when CloudKit reported a per-record failure inside a 200 response.
 
     CloudKit answers ``200`` for a modify whose records were rejected, and puts
-    the reason in the record entry. Callers looking for their record by name
-    find a ``CKErrorItem`` instead, and every one of them silently skipped it:
-    a rejected write surfaced as a missing record, or as nothing at all.
+    the reason in the record entry as a ``serverErrorCode``. Callers looking for
+    their record by name find an error entry instead, and every one of them
+    silently skipped it: a rejected write surfaced as a missing record, or as
+    nothing at all.
 
-    Raising here means the reason Apple gave -- "Attempt to save encrypted data
-    in non encrypted field type", say -- reaches the caller instead of being
-    replaced by a guess about the response shape.
+    The raw JSON is inspected rather than the parsed model, so an error entry
+    that also carries record fields cannot be mistaken for a ``CKRecord`` and
+    skipped. Raising here means the reason Apple gave -- "Attempt to save
+    encrypted data in non encrypted field type", say -- reaches the caller
+    instead of being replaced by a guess about the response shape.
     """
 
-    errors = [record for record in response.records if isinstance(record, CKErrorItem)]
+    records = data.get("records") if isinstance(data, dict) else None
+    if not isinstance(records, list):
+        return
+
+    errors = [
+        record
+        for record in records
+        if isinstance(record, dict) and "serverErrorCode" in record
+    ]
     if not errors:
         return
 
     detail = "; ".join(
-        f"{error.recordName or '<unnamed>'}: {error.serverErrorCode}"
-        + (f" ({error.reason})" if error.reason else "")
-        for error in errors
+        f"{record.get('recordName') or '<unnamed>'}: {record['serverErrorCode']}"
+        + (f" ({record['reason']})" if record.get("reason") else "")
+        for record in errors
     )
     raise CloudKitApiError(
         f"CloudKit rejected {len(errors)} record(s) -- {detail}",
-        payload=response.model_dump(mode="json", exclude_none=True),
+        payload=data,
     )
 
 
@@ -495,7 +505,13 @@ class CloudKitContainerClient:
         zone_id: CKZoneIDReq,
         atomic: bool | None = None,
     ) -> CKModifyResponse:
-        """Send record modify operations and return the parsed response."""
+        """Send record modify operations and return the parsed response.
+
+        CloudKit answers ``200`` even when it rejected records, so a rejection
+        is raised as ``CloudKitApiError`` rather than returned. The batch is
+        therefore all-or-nothing to the caller: if any record fails, none of
+        the accepted records are returned, even for a non-atomic batch.
+        """
         payload = CKModifyRequest(
             operations=operations,
             zoneID=zone_id,
@@ -509,7 +525,7 @@ class CloudKitContainerClient:
                 "Modify response validation failed",
                 payload=data,
             ) from exc
-        _raise_for_record_errors(response)
+        _raise_for_record_errors(data)
         return response
 
     def zones_list(self) -> CKZoneListResponse:
