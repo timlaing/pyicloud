@@ -108,6 +108,33 @@ run below `--cov-fail-under=90`. The filesystem guard allows coverage's own
 metadata resolution, package-source reads, and write-only `coverage.xml` output,
 so these commands run unchanged.
 
+## Documentation
+
+User documentation is an [MkDocs](https://www.mkdocs.org/) site under `docs/`,
+published to [Read the Docs](https://pyicloud.readthedocs.io/). The API reference
+is generated from docstrings with `mkdocstrings`, and the CLI reference from the
+Typer app with `mkdocs-typer2`.
+
+- `mkdocs.yml` — site configuration and navigation.
+- `.readthedocs.yaml` — the Read the Docs build; it installs
+  `docs/requirements.txt` and the package with the `cli` extra.
+- `docs/requirements.txt` — docs-only dependencies (MkDocs, Material, plugins).
+- `.github/workflows/docs.yml` — runs `mkdocs build --strict` on pushes and pull
+  requests to `main`.
+
+Preview the site locally:
+
+```sh
+pip install -r docs/requirements.txt
+pip install ".[cli]"
+mkdocs serve           # live preview at http://127.0.0.1:8000
+mkdocs build --strict  # the check CI and Read the Docs run
+```
+
+`docs/research/` (maintainer design notes) and `docs/hooks/` are excluded from
+the published site. Add any new page to the `nav:` in `mkdocs.yml`, or it will
+not appear.
+
 ## Adding or changing dependencies
 
 Dependencies are spread across `requirements.txt` (runtime),

@@ -9,7 +9,7 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - `pyicloud/services/` — per-service modules (drive, photos, findmyiphone, notes, reminders, invites, ...). Notes and reminders have heavier sub-packages (`models/`, `protobuf/`, `rendering/`, `_writes.py`, `_reads.py`, `_protocol.py`).
 - `tests/` — pytest suite mirroring package layout; `tests/const/` holds HTTP-response fixtures.
 - `scripts/` — dev/tooling helpers (see below).
-- `docs/` — user documentation: `docs/guides/` (cross-cutting how-tos), `docs/services/` (one page per service), and `docs/research/` (maintainer design notes).
+- `docs/` — user documentation: `docs/guides/` (cross-cutting how-tos), `docs/services/` (one page per service), and `docs/research/` (maintainer design notes). Built as an MkDocs site and published to Read the Docs (see Documentation below).
 
 ## Setup
 
@@ -39,6 +39,12 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 ## Dependency sync quirk
 
 - Dev dependencies live in `requirements_dev.txt` and (with runtime/cli ones) get **synced into the prek `additional_dependencies` blocks** in `.pre-commit-config.yaml` by `scripts/sync_prek_deps.py`. If you add/change a dependency, run `python3 scripts/sync_prek_deps.py requirements_all.txt`; the prek hook `check-prek-deps` enforces that the two are in sync.
+
+## Documentation
+
+- The `docs/` tree is an MkDocs site published to Read the Docs via `.readthedocs.yaml`; `.github/workflows/docs.yml` runs `mkdocs build --strict` on pushes and PRs to `main`.
+- Docs-only dependencies live in `docs/requirements.txt`; preview locally with `pip install -r docs/requirements.txt`, `pip install ".[cli]"`, then `mkdocs serve`.
+- Register every new page in the `nav:` of `mkdocs.yml` — pages absent from the nav are not published. `docs/research/` and `docs/hooks/` are excluded from the published site.
 
 ## Misc
 
