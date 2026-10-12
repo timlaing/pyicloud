@@ -6,6 +6,7 @@ Read (Phase 1):
   - ``InvitesService.events()`` -> ``list[Event]``
   - ``InvitesService.event(event_id)`` -> ``Event``
   - ``InvitesService.rsvps(event)`` -> ``list[Rsvp]``
+  - ``InvitesService.rsvp_image(rsvp)`` -> ``bytes | None``
   - ``InvitesService.resolve(short_guid)`` -> ``ResolvedShare``
   - ``InvitesService.accept(short_guid)`` -> ``Event``
   - ``InvitesService.raw`` -> ``CloudKitInvitesClient``
@@ -23,6 +24,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from datetime import datetime, timezone
 import logging
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from pyicloud.common.cloudkit import (
     CKLookupResponse,
@@ -86,9 +88,9 @@ class EventNotFound(InvitesError):
 class InvitesService(BaseService):
     """Typed, read-only Invites API.
 
-    Phase 1 exposes event listing, single-event lookup, RSVP listing, and the
-    public share resolution flow (``resolve`` / ``accept``). Mutating
-    operations land in subsequent phases.
+    Phase 1 exposes event listing, single-event lookup, RSVP listing, guest
+    photo download (``rsvp_image``), and the public share resolution flow
+    (``resolve`` / ``accept``). Mutating operations land in subsequent phases.
     """
 
     _CONTAINER = CONTAINER
@@ -235,6 +237,40 @@ class InvitesService(BaseService):
                 exc_info=True,
             )
         return tuple(rsvps.values()), tuple(links.values())
+
+    def rsvp_image(self, rsvp: Rsvp) -> bytes | None:
+        """Return the image a guest attached to their RSVP.
+
+        ``None`` when they attached none, which is the common case: the field
+        is optional and most responses carry only a monogram.
+
+        The download goes through the private container's HTTP wrapper, which
+        only supplies the session and timeouts -- the asset URL Apple returns
+        is absolute and carries its own token, so an RSVP in a shared event
+        downloads the same way as one in your own.
+        """
+
+        url = rsvp.image_download_url
+        if not url:
+            return None
+        # The download uses the authenticated session, so an attacker-supplied
+        # scheme would put iCloud credentials on the wire in the clear. Guarded
+        # the same way PhotosUploader.send_bytes guards the upload URL Apple
+        # echoes back to it, plus a real host check so a URL without a host,
+        # such as ``https:example.com/a`` or ``https://@/a``, cannot slip
+        # through.
+        try:
+            parsed = urlparse(url)
+        except ValueError as exc:
+            raise InvitesApiError(
+                f"RSVP image URL is malformed; refusing to fetch it: {url!r}"
+            ) from exc
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise InvitesApiError(
+                "RSVP image URL is not an absolute HTTPS URL; refusing to "
+                f"fetch it: {url!r}"
+            )
+        return self._raw.download_asset_bytes(url)
 
     def resolve(self, short_guid: str) -> ResolvedShare:
         """Preview a share without joining it."""

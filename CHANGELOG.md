@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Expose guest photos attached to an Invites RSVP through `InvitesService.rsvp_image()` (#349)
 - Add an opt-in `--probe` layer to `icloud doctor` that calls each service once to catch withdrawn endpoints (#347)
 - Add an `icloud invites` command group for listing, showing, and resolving Invites events (#346)
 
