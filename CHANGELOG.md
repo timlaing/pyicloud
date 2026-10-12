@@ -37,7 +37,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
-- Update package name to pyicloud and add allowScripts configuration
+- Update package name to pyicloud
+- Rename the Find My `monitor_locate` option to `locate` (it now also gates the construction fetch), treat `refresh_interval=None` as "no monitor", and start that monitor from the `icloud` CLI only for `devices list --refresh-interval` (#347) and add allowScripts configuration
 
 ### Documentation
 

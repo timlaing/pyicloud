@@ -288,19 +288,22 @@ def test_probes_report_each_service_answering() -> None:
 
 
 def test_the_find_my_probe_does_not_ask_devices_to_report_location() -> None:
-    """Counting or iterating Find My devices pings the user's hardware.
+    """Reading Find My devices must not ping the user's hardware.
 
     A diagnostic must not cause that as a side effect, so it runs against an
-    api built in probe mode (``probe=True``), whose ``devices`` manager never
-    locates nor starts a monitor, and asks it for a single non-locating
-    refresh.
+    api built in probe mode (``locate=False``, ``refresh_interval=None``),
+    whose ``devices`` manager performs its one refresh without locating and
+    starts no monitor.
     """
 
     api = _probe_api()
 
     probe_services(api)
 
-    api.devices.refresh.assert_called_once_with(locate=False)
+    # The probe reads the manager (built with locate=False); it must not ask
+    # for a locating refresh.
+    api.devices.__len__.assert_called_once()
+    api.devices.refresh.assert_not_called()
 
 
 @pytest.mark.parametrize(

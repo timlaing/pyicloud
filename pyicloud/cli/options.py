@@ -30,8 +30,8 @@ ACCEPT_TERMS_OPTION_HELP = "Automatically accept pending Apple iCloud web terms.
 WITH_FAMILY_OPTION_HELP = "Include family devices in Find My device listings."
 REFRESH_INTERVAL_OPTION_HELP = (
     "Seconds between Find My location refreshes (default: 300). On "
-    "`devices list`, also enables a watch loop that re-locates and re-lists "
-    "at this cadence."
+    "`devices list`, turns the command into a watch loop that re-locates and "
+    "re-lists at this cadence until interrupted."
 )
 SESSION_DIR_OPTION_HELP = "Directory to store session and cookie files."
 HTTP_PROXY_OPTION_HELP = "HTTP proxy URL for requests."

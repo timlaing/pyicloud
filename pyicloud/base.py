@@ -69,6 +69,7 @@ from pyicloud.services import (
 from pyicloud.services import (  # pylint: disable=useless-import-alias
     AppleDevice as AppleDevice,
 )
+from pyicloud.services.findmyiphone import DEFAULT_REFRESH_INTERVAL
 from pyicloud.services.invites import InvitesService
 from pyicloud.services.notes import NotesService
 from pyicloud.services.photos import (
@@ -268,11 +269,10 @@ class PyiCloudService:
         with_family: bool = True,
         china_mainland: bool | None = None,
         accept_terms: bool = False,
-        refresh_interval: float | None = None,
+        refresh_interval: float | None = DEFAULT_REFRESH_INTERVAL,
         family_poll_delay: float = 0.5,
         family_poll_max_retries: int = 5,
-        monitor_locate: bool = False,
-        probe: bool = False,
+        locate: bool = False,
         *,
         authenticate: bool = True,
         cloudkit_validation_extra: CloudKitExtraMode | None = None,
@@ -312,8 +312,7 @@ class PyiCloudService:
         self._with_family: bool = with_family
         self._family_poll_delay: float = family_poll_delay
         self._family_poll_max_retries: int = family_poll_max_retries
-        self._monitor_locate: bool = monitor_locate
-        self._probe: bool = probe
+        self._locate: bool = locate
         self._cloudkit_validation_extra = cloudkit_validation_extra
 
         _cookie_directory: str = self._setup_cookie_directory(cookie_directory)
@@ -1508,9 +1507,10 @@ class PyiCloudService:
     def devices(self) -> FindMyiPhoneServiceManager:
         """Returns all devices.
 
-        When the service was built with ``probe=True`` the manager is passive:
-        it locates nothing and starts no monitor thread, so a read-only
-        diagnostic can confirm the endpoint answers without touching hardware.
+        The manager is built lazily from this account's Find My webservice.
+        It starts a background monitor only when ``refresh_interval`` is a
+        positive number; ``locate`` decides whether its automatic refreshes
+        ask the devices to report their location.
         """
         if not self._devices:
             try:
@@ -1523,8 +1523,7 @@ class PyiCloudService:
                     refresh_interval=self._refresh_interval,
                     family_poll_delay=self._family_poll_delay,
                     family_poll_max_retries=self._family_poll_max_retries,
-                    monitor_locate=self._monitor_locate,
-                    probe=self._probe,
+                    locate=self._locate,
                 )
             except PyiCloudServiceNotActivatedException as error:
                 raise PyiCloudServiceUnavailable(

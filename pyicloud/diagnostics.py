@@ -314,14 +314,13 @@ class ServiceProbe:
 def _probe_devices(api: PyiCloudService) -> object:
     """Refresh Find My without asking the devices to report their location.
 
-    Iterating or counting the manager refreshes with ``locate=True``, which
-    pings the user's hardware. A probe api is built with ``probe=True`` and
-    ``refresh_interval=0``, so ``api.devices`` makes no request and starts no
-    monitor; this asks it for a single non-locating refresh.
+    Reading ``api.devices`` builds the manager, whose construction performs
+    exactly one refresh. The probe api is built with ``locate=False`` and
+    ``refresh_interval=None``, so that refresh does not ask the devices to
+    report their location and no monitor thread is started.
     """
 
-    api.devices.refresh(locate=False)
-    return "refreshed"
+    return len(api.devices)
 
 
 #: One read per service property named in the inventory. Each is a GET or the

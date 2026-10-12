@@ -489,7 +489,7 @@ class CLIState:
                 cookie_directory=self.session_dir,
                 accept_terms=self.accept_terms,
                 with_family=self.with_family,
-                monitor_locate=True,
+                locate=True,
                 refresh_interval=self.refresh_interval,
             )
         except PyiCloudAccountLockedException as err:
@@ -577,7 +577,7 @@ class CLIState:
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
-            monitor_locate=True,
+            locate=True,
             refresh_interval=self.refresh_interval,
             authenticate=False,
         )
@@ -599,9 +599,8 @@ class CLIState:
             cookie_directory=self.session_dir,
             accept_terms=self.accept_terms,
             with_family=self.with_family,
-            monitor_locate=not probe,
-            refresh_interval=0 if probe else self.refresh_interval,
-            probe=probe,
+            locate=not probe,
+            refresh_interval=None if probe else self.refresh_interval,
             authenticate=False,
         )
 

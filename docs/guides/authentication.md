@@ -24,7 +24,8 @@ api = PyiCloudService("jappleseed@apple.com", "password", china_mainland=True)
 
 If you plan to use this as a daemon or long-running service to keep the
 connection alive with Apple, a refresh interval can be configured
-(default: 5 minutes).
+(default: 5 minutes). Pass `refresh_interval=None` to disable the
+background monitor entirely:
 
 ```python
 from pyicloud import PyiCloudService
@@ -38,11 +39,10 @@ api.devices
 ```
 
 The background monitor refreshes device data each interval, but — when
-using pyicloud as a library — it does **not** actively locate devices
-(`shouldLocate`) by default; keeping GPS fresh is the caller's
-responsibility via `refresh(locate=True)` (or on the CLI, see below). To
-make the monitor actively locate devices on every refresh instead, pass
-`monitor_locate=True`; note this costs some device battery:
+using pyicloud as a library — automatic refreshes do **not** actively
+locate devices (`shouldLocate`). To make the construction fetch and
+every monitor refresh ask devices for a fresh fix, pass `locate=True`;
+note this costs some device battery:
 
 ```python
 from pyicloud import PyiCloudService
@@ -50,18 +50,20 @@ from pyicloud import PyiCloudService
 api = PyiCloudService(
     "jappleseed@apple.com",
     "password",
-    monitor_locate=True,  # each monitor refresh actively locates devices
+    locate=True,  # construction and monitor refreshes locate devices
 )
 ```
 
-When run through the `icloud` CLI, locating refreshes are always enabled
-and the interval is configurable. On `devices list`, the interval also
-turns the command into a watch loop that re-locates and re-lists at that
-cadence until interrupted; pass `--iterations` to stop after a fixed
-number of runs:
+Call `refresh(locate=True)` at any time to request a fix on demand.
+
+When run through the `icloud` CLI, locating refreshes are always enabled.
+Only `devices list --refresh-interval` starts the monitor, turning the
+command into a watch loop that re-locates and re-lists at that cadence
+until interrupted; pass `--iterations` to stop after a fixed number of
+runs:
 
 ```shell
-icloud devices list --locate --refresh-interval 60  # watch every 60s
+icloud devices list --refresh-interval 60  # watch every 60s
 ```
 
 When `with_family=True`, Find My polls Apple's backend while family

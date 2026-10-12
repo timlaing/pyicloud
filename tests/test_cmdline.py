@@ -1740,7 +1740,7 @@ def test_devices_refresh_interval_reaches_service_with_locating_monitor() -> Non
     assert result.exit_code == 0
     assert constructor_calls
     for kwargs in constructor_calls:
-        assert kwargs["monitor_locate"] is True
+        assert kwargs["locate"] is True
         assert kwargs["refresh_interval"] == 90.0
 
 
@@ -2509,11 +2509,11 @@ def test_get_api_uses_keyring_password_for_session_backed_service_commands() -> 
     assert constructor_calls[0]["apple_id"] == "solo@example.com"
     assert constructor_calls[0]["password"] is None
     assert constructor_calls[0]["authenticate"] is False
-    assert constructor_calls[0]["monitor_locate"] is True
+    assert constructor_calls[0]["locate"] is True
     assert constructor_calls[1]["apple_id"] == "solo@example.com"
     assert constructor_calls[1]["password"] == "stored-secret"
     assert constructor_calls[1]["authenticate"] is False
-    assert constructor_calls[1]["monitor_locate"] is True
+    assert constructor_calls[1]["locate"] is True
     probe_api.get_auth_status.assert_called_once_with()
     service_api.get_auth_status.assert_called_once_with()
 
@@ -2652,9 +2652,8 @@ def test_get_readonly_api_builds_a_cached_probe_mode_session_api() -> None:
     assert readonly is readonly_api
     assert again is readonly_api
     assert len(constructor_calls) == 3
-    assert constructor_calls[2]["probe"] is True
-    assert constructor_calls[2]["monitor_locate"] is False
-    assert constructor_calls[2]["refresh_interval"] == 0
+    assert constructor_calls[2]["locate"] is False
+    assert constructor_calls[2]["refresh_interval"] is None
     assert readonly_api.data == probe_api.data
     assert readonly_api._webservices == probe_api.data["webservices"]
 
@@ -5506,8 +5505,9 @@ def test_doctor_probe_calls_each_service_and_reports_it() -> None:
     assert "Service probes" in text
     assert "each one answered" in text
     services["calendar"].get_calendars.assert_called_once()
-    # Find My must be refreshed without pinging the user's hardware.
-    services["devices"].refresh.assert_called_once_with(locate=False)
+    # Find My must be read without pinging the user's hardware.
+    services["devices"].__len__.assert_called_once()
+    services["devices"].refresh.assert_not_called()
 
 
 def test_doctor_probe_fails_on_a_withdrawn_endpoint() -> None:
