@@ -256,10 +256,16 @@ class InvitesService(BaseService):
         # The download uses the authenticated session, so an attacker-supplied
         # scheme would put iCloud credentials on the wire in the clear. Guarded
         # the same way PhotosUploader.send_bytes guards the upload URL Apple
-        # echoes back to it, plus a host check so a scheme-only URL such as
-        # ``https:example.com/a`` cannot slip through.
-        parsed = urlparse(url)
-        if parsed.scheme != "https" or not parsed.netloc:
+        # echoes back to it, plus a real host check so a URL without a host,
+        # such as ``https:example.com/a`` or ``https://@/a``, cannot slip
+        # through.
+        try:
+            parsed = urlparse(url)
+        except ValueError as exc:
+            raise InvitesApiError(
+                f"RSVP image URL is malformed; refusing to fetch it: {url!r}"
+            ) from exc
+        if parsed.scheme != "https" or not parsed.hostname:
             raise InvitesApiError(
                 "RSVP image URL is not an absolute HTTPS URL; refusing to "
                 f"fetch it: {url!r}"

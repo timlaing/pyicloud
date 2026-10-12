@@ -607,15 +607,22 @@ class InvitesServiceTest(unittest.TestCase):
         download.assert_not_called()
 
     def test_an_rsvp_image_url_without_a_host_is_refused(self) -> None:
-        """A scheme-only URL has no host for the session to reach.
+        """A URL with no host is rejected before the session reaches it.
 
-        ``urlparse("https:example.com/a")`` reports the HTTPS scheme but an
-        empty netloc, so the host check rejects it before any request.
+        ``urlparse("https:example.com/a")`` has the HTTPS scheme but no netloc,
+        ``urlparse("https://@/a")`` has an authority but no hostname, and an
+        unmatched bracket makes ``urlparse`` raise ``ValueError``; all three
+        must surface as ``InvitesApiError``.
         """
         download = MagicMock()
         self._monkeypatch.setattr(self.service.raw, "download_asset_bytes", download)
 
-        for url in ("https:cvws.icloud-content.com/a", "https:///a"):
+        for url in (
+            "https:cvws.icloud-content.com/a",
+            "https:///a",
+            "https://@/a",
+            "https://[bad/a",
+        ):
             rsvp = Rsvp(
                 record_name="RSVP/y",
                 participant_id="PY",
