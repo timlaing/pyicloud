@@ -637,6 +637,9 @@ class ServiceCoverageTest(unittest.TestCase):
             self.service.raw, "lookup", MagicMock(return_value=lookup)
         )
         self._monkeypatch.setattr(
+            self.service.raw, "iter_changes", MagicMock(return_value=iter([]))
+        )
+        self._monkeypatch.setattr(
             self.service.raw,
             "query",
             MagicMock(return_value=CKQueryResponse(records=[])),
@@ -648,13 +651,18 @@ class ServiceCoverageTest(unittest.TestCase):
         assert event is not None
         self.assertEqual(event.event_id, "EVENT-FIXTURE-AAAA")
 
-    def test_fetch_event_full_tolerates_rsvp_and_otl_query_failures(self) -> None:
-        """Failed RSVP/OTL queries stay empty rather than raising."""
+    def test_fetch_event_full_tolerates_rsvp_and_otl_read_failures(self) -> None:
+        """Failed RSVP changes and OTL queries stay empty rather than raising."""
         lookup = CKLookupResponse.model_validate(
             load_invites_fixture("event_lookup_response.json")
         )
         self._monkeypatch.setattr(
             self.service.raw, "lookup", MagicMock(return_value=lookup)
+        )
+        self._monkeypatch.setattr(
+            self.service.raw,
+            "iter_changes",
+            MagicMock(side_effect=InvitesApiError("boom")),
         )
         self._monkeypatch.setattr(
             self.service.raw, "query", MagicMock(side_effect=InvitesApiError("boom"))
@@ -708,9 +716,12 @@ class ServiceCoverageTest(unittest.TestCase):
             self.service.raw, "lookup", MagicMock(return_value=lookup)
         )
         self._monkeypatch.setattr(
+            self.service.raw, "iter_changes", MagicMock(return_value=iter([]))
+        )
+        self._monkeypatch.setattr(
             self.service.raw,
             "query",
-            MagicMock(side_effect=[CKQueryResponse(records=[]), otl_response]),
+            MagicMock(return_value=otl_response),
         )
 
         event = self.service._fetch_event_full("EVENT-FIXTURE-AAAA", EventScope.PRIVATE)
