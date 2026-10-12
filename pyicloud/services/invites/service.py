@@ -19,7 +19,7 @@ via link) arrive in later phases per the design doc.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import datetime, timezone
 import logging
 from typing import Any, cast
@@ -31,9 +31,11 @@ from pyicloud.common.cloudkit import (
     CKQueryObject,
     CKQueryResponse,
     CKRecord,
+    CKTombstoneRecord,
     CKWriteFields,
     CKWriteRecord,
     CKZoneChangesZoneReq,
+    CKZoneID,
     CKZoneIDReq,
 )
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
@@ -156,13 +158,83 @@ class InvitesService(BaseService):
 
     def rsvps(self, event: Event) -> list[Rsvp]:
         """Return the list of RSVPs in an event's zone."""
-        zone_id = self._zone_id_req(event.event_id, event.scope)
-        resp = self._raw.query(
+        # A zone's changes feed can report a record more than once, or report a
+        # tombstone for one it reported earlier; keep the surviving latest state.
+        latest: dict[str, CKRecord] = {}
+        for record in self._zone_records(
             self._scope_str(event.scope),
-            query=CKQueryObject(recordType=InvitesRecordType.Rsvp.value),
-            zone_id=zone_id,
+            self._zone_id_req(event.event_id, event.scope),
+            InvitesRecordType.Rsvp.value,
+        ):
+            if isinstance(record, CKTombstoneRecord):
+                latest.pop(record.recordName, None)
+            else:
+                latest[record.recordName] = record
+        return [self._rsvp_from_record(record) for record in latest.values()]
+
+    def _zone_records(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq, *record_types: str
+    ) -> Iterator[CKRecord | CKTombstoneRecord]:
+        """Yield a zone's changes for the given record types.
+
+        Not by querying it: an event's own zone rejects ``records/query`` with
+        "syncToken operations supported only in SyncZone", so a per-zone query
+        works only for events shared with you. The changes feed reads any zone.
+
+        ``desiredRecordTypes`` asks Apple for those records alone; the filter is
+        kept because that projection is a request, not a guarantee. Tombstones
+        are yielded too, unfiltered because they carry no ``recordType``, so
+        callers reconcile by ``recordName``: keep the latest live record, and
+        drop the name on a tombstone.
+        """
+
+        wanted = frozenset(record_types)
+        zone_req = CKZoneChangesZoneReq(
+            zoneID=CKZoneID(**zone_id.model_dump(exclude_none=True)),
+            desiredRecordTypes=list(record_types),
         )
-        return [self._rsvp_from_record(r) for r in self._records_of(resp)]
+        for page in self._raw.iter_changes(scope_str, zone_req=zone_req):
+            for record in page.records:
+                if isinstance(record, CKTombstoneRecord) or (
+                    isinstance(record, CKRecord) and record.recordType in wanted
+                ):
+                    yield record
+
+    def _zone_rsvps_and_links(
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq
+    ) -> tuple[tuple[Rsvp, ...], tuple[OneTimeLinkGuest, ...]]:
+        """Read a zone's RSVPs and one-time links in one changes-feed pass.
+
+        Both record types live in the event's zone, and the changes feed is the
+        only read an event you own supports. Records are reconciled by
+        ``recordName`` (the feed can repeat one, and a tombstone deletes one),
+        and records read before a mid-feed failure are kept: hydration is
+        best-effort, and partial data beats none.
+        """
+
+        rsvps: dict[str, Rsvp] = {}
+        links: dict[str, OneTimeLinkGuest] = {}
+        try:
+            for record in self._zone_records(
+                scope_str,
+                zone_id,
+                InvitesRecordType.Rsvp.value,
+                InvitesRecordType.OneTimeLinkGuestInfo.value,
+            ):
+                if isinstance(record, CKTombstoneRecord):
+                    rsvps.pop(record.recordName, None)
+                    links.pop(record.recordName, None)
+                elif record.recordType == InvitesRecordType.Rsvp.value:
+                    rsvps[record.recordName] = self._rsvp_from_record(record)
+                else:
+                    links[record.recordName] = self._one_time_link_from_record(record)
+        except InvitesError:
+            LOGGER.debug(
+                "invites.event.zone_read_failed zone=%s",
+                zone_id.zoneName,
+                exc_info=True,
+            )
+        return tuple(rsvps.values()), tuple(links.values())
 
     def resolve(self, short_guid: str) -> ResolvedShare:
         """Preview a share without joining it."""
@@ -490,41 +562,7 @@ class InvitesService(BaseService):
 
         share = self._share_from_record(share_record) if share_record else None
 
-        rsvps: tuple[Rsvp, ...] = ()
-        try:
-            rsvp_resp = self._raw.query(
-                scope_str,
-                query=CKQueryObject(recordType=InvitesRecordType.Rsvp.value),
-                zone_id=zone_id,
-            )
-            rsvps = tuple(
-                self._rsvp_from_record(r) for r in self._records_of(rsvp_resp)
-            )
-        except InvitesError:
-            LOGGER.debug(
-                "invites.event.rsvp_query_failed event_id=%s",
-                event_id,
-                exc_info=True,
-            )
-
-        otl_guests: tuple[OneTimeLinkGuest, ...] = ()
-        try:
-            otl_resp = self._raw.query(
-                scope_str,
-                query=CKQueryObject(
-                    recordType=InvitesRecordType.OneTimeLinkGuestInfo.value,
-                ),
-                zone_id=zone_id,
-            )
-            otl_guests = tuple(
-                self._one_time_link_from_record(r) for r in self._records_of(otl_resp)
-            )
-        except InvitesError:
-            LOGGER.debug(
-                "invites.event.otl_query_failed event_id=%s",
-                event_id,
-                exc_info=True,
-            )
+        rsvps, otl_guests = self._zone_rsvps_and_links(scope_str, zone_id)
 
         if share is not None and otl_guests:
             share = share.model_copy(update={"one_time_links": otl_guests})
