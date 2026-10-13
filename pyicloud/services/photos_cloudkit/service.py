@@ -2419,7 +2419,7 @@ class PhotosService(BaseService):
                     upload_hydration_interval=self._upload_hydration_interval,
                     scope="shared-library",
                 )
-        except (CloudKitApiError, PyiCloudException):  # pylint: disable=broad-exception-caught
+        except PyiCloudException:  # pylint: disable=broad-exception-caught
             LOGGER.debug("Shared CloudKit photos zones unavailable", exc_info=True)
 
     def _discover_legacy_zones(
