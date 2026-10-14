@@ -193,6 +193,11 @@ Reminders caveats:
   reminder, mutate fields locally, then call `update(reminder)`.
 - Naive `datetime` values passed to `create()` are interpreted as UTC by the
   service.
+- `update()` reads the reminder's current server copy first. A changed title or
+  notes text is written as an edit on top of that document (the old text is
+  marked deleted under a new replica), which is what Apple devices need to
+  accept it; unchanged text documents are not rewritten. Inline formatting and
+  inline hashtags in a changed text are not preserved.
 - `update_hashtag()` exists, but the iCloud Reminders web app currently treats
   hashtag names as effectively read-only in some live flows, so rename behavior
   may not be reflected consistently outside the API.

@@ -24,9 +24,12 @@ from ._protocol import (
     CRDTDecodeError,
     _as_raw_id,
     _as_record_name,
+    _decode_crdt_document,
+    _edit_crdt_document,
     _encode_cloudkit_text_field,
     _encode_crdt_document,
     _generate_resolution_token_map,
+    _merge_resolution_token_map,
 )
 from ._support import (
     _assert_modify_success,
@@ -465,22 +468,51 @@ class RemindersWriteAPI:
 
         return self._lookup_created_reminder(record_name)
 
+    def _lookup_current_fields(self, record_name: str) -> Any | None:
+        """Return the server's current fields for ``record_name``, if found."""
+        resp = self._get_raw().lookup(
+            record_names=[record_name],
+            zone_id=_REMINDERS_ZONE_REQ,
+        )
+        for rec in getattr(resp, "records", None) or []:
+            if isinstance(rec, CKRecord) and rec.recordName == record_name:
+                return rec.fields
+        return None
+
+    @staticmethod
+    def _text_document_for_update(
+        current_fields: Any | None,
+        field_name: str,
+        text: str,
+    ) -> str | None:
+        """Build the CRDT document to write for ``text``, or ``None`` if unchanged.
+
+        When the server already holds a document, the change is written as a
+        CRDT edit on top of it so Apple devices accept it. A fresh document is
+        only built when there is nothing to edit.
+        """
+        existing = (
+            current_fields.get_value(field_name) if current_fields is not None else None
+        )
+        if not existing:
+            return _encode_crdt_document(text)
+        if _decode_crdt_document(existing) == text:
+            return None
+        return _edit_crdt_document(existing, text)
+
     def update(self, reminder: Reminder) -> None:
         """Update an existing reminder, refusing unreadable text documents."""
         if reminder.undecodable_text_fields:
-            # Both documents are re-encoded on every update. Even a flag-only
-            # edit would overwrite an unreadable server value with a placeholder.
+            # A changed text document is written as an edit on top of the
+            # server copy, which cannot be done safely for an unreadable value.
             raise CRDTDecodeError(
                 "Reminder text could not be decoded; refusing to overwrite it"
             )
         reminder_record_name = self._reminder_record_name(reminder.id)
-        title_doc = _encode_crdt_document(reminder.title)
-        notes_doc = _encode_crdt_document(reminder.desc or "")
+        current_fields = self._lookup_current_fields(reminder_record_name)
         now_ms = int(time.time() * 1000)
 
         fields_mod = [
-            "titleDocument",
-            "notesDocument",
             "completed",
             "completionDate",
             "priority",
@@ -488,6 +520,15 @@ class RemindersWriteAPI:
             "allDay",
             "lastModifiedDate",
         ]
+        text_fields: dict[str, Any] = {}
+        for field_name, token_name, text in (
+            ("TitleDocument", "titleDocument", reminder.title),
+            ("NotesDocument", "notesDocument", reminder.desc or ""),
+        ):
+            document = self._text_document_for_update(current_fields, field_name, text)
+            if document is not None:
+                text_fields[field_name] = {"type": "STRING", "value": document}
+                fields_mod.append(token_name)
         completion_date = self._completion_datetime(
             completed=reminder.completed,
             completed_date=reminder.completed_date,
@@ -500,8 +541,7 @@ class RemindersWriteAPI:
         )
 
         fields: dict[str, Any] = {
-            "TitleDocument": {"type": "STRING", "value": title_doc},
-            "NotesDocument": {"type": "STRING", "value": notes_doc},
+            **text_fields,
             "Completed": {"type": "INT64", "value": 1 if reminder.completed else 0},
             "CompletionDate": {
                 "type": "TIMESTAMP",
@@ -545,7 +585,12 @@ class RemindersWriteAPI:
         fields_mod.append("parentReminder")
         fields["ResolutionTokenMap"] = {
             "type": "STRING",
-            "value": _generate_resolution_token_map(fields_mod),
+            "value": _merge_resolution_token_map(
+                current_fields.get_value("ResolutionTokenMap")
+                if current_fields is not None
+                else None,
+                fields_mod,
+            ),
         }
 
         self._submit_single_record_update(
