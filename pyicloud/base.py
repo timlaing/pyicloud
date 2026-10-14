@@ -8,6 +8,7 @@ import json
 import logging
 from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
+from threading import Event
 import time
 from typing import Any, Optional, cast
 from urllib.parse import urlparse
@@ -1176,8 +1177,18 @@ class PyiCloudService:
         """List the available FIDO2 devices."""
         return list(CtapHidDevice.list_devices())
 
-    def confirm_security_key(self, device: CtapHidDevice | None = None) -> None:
-        """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
+    def confirm_security_key(
+        self,
+        device: CtapHidDevice | None = None,
+        *,
+        event: Event | None = None,
+    ) -> None:
+        """Conduct the WebAuthn assertion ceremony with user's FIDO2 device.
+
+        The call blocks until the security key is touched. Set ``event`` from
+        another thread to cancel waiting, in which case fido2 raises a
+        ``ClientError``.
+        """
         fsa: dict[str, Any] = self._auth_data.get("fsaChallenge", {})
         try:
             challenge = fsa["challenge"]
@@ -1213,7 +1224,7 @@ class PyiCloudService:
             user_verification=UserVerificationRequirement("discouraged"),
         )
         result: AuthenticationResponse = client.get_assertion(
-            assertion_options
+            assertion_options, event=event
         ).get_response(0)
 
         self._submit_webauthn_assertion_response({

@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import secrets
 import tempfile
+from threading import Event
 from typing import Any, cast
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -1395,6 +1396,41 @@ def test_confirm_security_key_success(
     })
 
     cast(Any, pyicloud_service.trust_session).assert_called_once()
+
+
+@patch("pyicloud.base.Fido2Client")
+def test_confirm_security_key_passes_cancel_event(
+    mock_fido2_client_cls: MagicMock,
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a cancel event is passed to the FIDO2 assertion."""
+    monkeypatch.setattr(
+        pyicloud_service, "_submit_webauthn_assertion_response", MagicMock()
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", MagicMock())
+    pyicloud_service._auth_data = {
+        "fsaChallenge": {
+            "challenge": "ZmFrZV9jaGFsbGVuZ2U",
+            "keyHandles": ["a2V5MQ"],
+            "rpId": "example.com",
+        }
+    }
+    mock_response = MagicMock()
+    mock_response.response.client_data = b"client_data"
+    mock_response.response.signature = b"signature"
+    mock_response.response.authenticator_data = b"auth_data"
+    mock_response.response.user_handle = None
+    mock_response.raw_id = b"cred_id"
+    mock_fido2_client = mock_fido2_client_cls.return_value
+    mock_fido2_client.get_assertion.return_value.get_response.return_value = (
+        mock_response
+    )
+    cancel = Event()
+
+    pyicloud_service.confirm_security_key(MagicMock(), event=cancel)
+
+    assert mock_fido2_client.get_assertion.call_args.kwargs["event"] is cancel
 
 
 def test_get_webservice_url_success(pyicloud_service: PyiCloudService) -> None:
