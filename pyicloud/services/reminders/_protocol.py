@@ -332,9 +332,6 @@ def _encode_crdt_document(text: str) -> str:
     return base64.b64encode(compressed).decode("utf-8")
 
 
-_CRDT_TERMINAL_CLOCK = 0xFFFF_FFFF
-
-
 def _utf16_length(text: str) -> int:
     """Return the length of ``text`` in UTF-16 code units, as topotext counts it."""
     return len(text.encode("utf-16-le")) // 2 if text else 0
@@ -345,6 +342,8 @@ def _parse_crdt_string(encoded: str | bytes) -> Any:
 
     Unlike :func:`_decode_crdt_document`, this keeps the full CRDT structure
     (substrings, vector clock, attribute runs) so it can be edited in place.
+    It accepts the same wrappers, in the same order: a versioned ``Document``,
+    a bare ``Version`` and a bare ``String``.
     """
     data = encoded
     if isinstance(data, str):
@@ -361,25 +360,42 @@ def _parse_crdt_string(encoded: str | bytes) -> Any:
         except (zlib.error, OSError, EOFError):
             continue
 
-    value = reminders_pb2.String()  # type: ignore[attr-defined]
     try:
         document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
         document.ParseFromString(data)
         if document.version:
+            value = reminders_pb2.String()  # type: ignore[attr-defined]
             value.ParseFromString(document.version[0].data)
             if value.substring:
                 return value
     except Exception as exc:  # noqa: BLE001
         LOGGER.debug("versioned_document.Document parse failed: %s", exc)
 
-    value = reminders_pb2.String()  # type: ignore[attr-defined]
-    try:
-        value.ParseFromString(data)
-    except Exception as exc:
-        raise CRDTDecodeError("Unable to parse CRDT document") from exc
-    if not value.substring:
-        raise CRDTDecodeError("CRDT document has no substrings")
-    return value
+    # A bare String and a bare Version share field numbers, so either parses
+    # as the other; only accept a candidate that carries both substrings and
+    # a vector clock.
+    for unwrap in (_bare_string_bytes, _version_string_bytes):
+        try:
+            value = reminders_pb2.String()  # type: ignore[attr-defined]
+            value.ParseFromString(unwrap(data))
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.debug("%s parse failed: %s", unwrap.__name__, exc)
+            continue
+        if value.substring and value.timestamp.clock:
+            return value
+    raise CRDTDecodeError("CRDT document has no editable structure")
+
+
+def _bare_string_bytes(data: bytes) -> bytes:
+    """Return ``data`` unchanged: the payload is a bare topotext ``String``."""
+    return data
+
+
+def _version_string_bytes(data: bytes) -> bytes:
+    """Return the ``String`` bytes held by a bare ``versioned_document.Version``."""
+    version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
+    version.ParseFromString(data)
+    return cast(bytes, version.data)
 
 
 def _serialize_crdt_string(value: Any) -> str:

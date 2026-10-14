@@ -7,6 +7,7 @@ import gzip
 import json
 from typing import Any
 from unittest.mock import MagicMock
+import zlib
 
 import pytest
 
@@ -18,7 +19,9 @@ from pyicloud.services.reminders._protocol import (
     _encode_crdt_document,
     _merge_resolution_token_map,
     _parse_crdt_string,
+    _serialize_crdt_string,
 )
+from pyicloud.services.reminders._writes import RemindersWriteAPI
 from pyicloud.services.reminders.client import RemindersApiError
 from pyicloud.services.reminders.models import Reminder
 from pyicloud.services.reminders.protobuf import (
@@ -363,6 +366,156 @@ def test_update_treats_not_found_as_missing_server_copy() -> None:
 
     fields = updated_fields(svc)
     assert _decode_crdt_document(fields["TitleDocument"].value) == "Title"
+
+
+def structureless_document(text: str, *, wrapped: bool) -> str:
+    """Encode ``text`` as a String without substrings, as some records hold."""
+    value = reminders_pb2.String()  # type: ignore[attr-defined]
+    value.string = text
+    version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
+    version.data = value.SerializeToString()
+    payload = version.SerializeToString()
+    if wrapped:
+        document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
+        document.version.append(version)
+        payload = zlib.compress(document.SerializeToString())
+    return base64.b64encode(payload).decode("ascii")
+
+
+def version_wrapped(encoded: str) -> str:
+    """Re-wrap a structured document as a bare, uncompressed ``Version``."""
+    document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
+    document.ParseFromString(zlib.decompress(base64.b64decode(encoded)))
+    return base64.b64encode(document.version[0].SerializeToString()).decode("ascii")
+
+
+def fields_with_title(document: str) -> Any:
+    """Return server fields whose TitleDocument is ``document``."""
+    return CKRecord.model_validate({
+        "recordName": "Reminder/REM-EDIT",
+        "recordType": "Reminder",
+        "fields": {"TitleDocument": {"type": "STRING", "value": document}},
+    }).fields
+
+
+def test_update_edits_version_wrapped_documents() -> None:
+    """A structured document wrapped in a bare Version is edited in place."""
+    current = fields_with_title(version_wrapped(_encode_crdt_document("Old")))
+
+    document = RemindersWriteAPI._text_document_for_update(
+        current, "TitleDocument", "New"
+    )
+
+    assert document is not None
+    assert _decode_crdt_document(document) == "New"
+    assert any(s.tombstone for s in _parse_crdt_string(document).substring)
+
+
+@pytest.mark.parametrize("wrapped", [True, False])
+def test_update_re_encodes_documents_without_crdt_structure(wrapped: bool) -> None:
+    """Readable documents without CRDT structure get a fresh document."""
+    current = fields_with_title(structureless_document("Old", wrapped=wrapped))
+
+    document = RemindersWriteAPI._text_document_for_update(
+        current, "TitleDocument", "New"
+    )
+
+    assert document is not None
+    assert _decode_crdt_document(document) == "New"
+
+
+def test_edit_rejects_documents_without_a_vector_clock() -> None:
+    """Substrings without a vector clock cannot be edited."""
+    value = _parse_crdt_string(_encode_crdt_document("Old"))
+    del value.timestamp.clock[:]
+
+    with pytest.raises(CRDTDecodeError, match="vector clock"):
+        _edit_crdt_document(_serialize_crdt_string(value), "New")
+
+
+def test_edit_rejects_documents_without_a_start_sentinel() -> None:
+    """Inserting text needs the start sentinel to attach to."""
+    value = _parse_crdt_string(_encode_crdt_document("Old"))
+    value.substring[0].charID.clock = 7
+
+    with pytest.raises(CRDTDecodeError, match="start sentinel"):
+        _edit_crdt_document(_serialize_crdt_string(value), "New")
+
+
+def test_edit_fills_an_empty_document_without_tombstones() -> None:
+    """Editing an empty document only inserts text."""
+    document = _edit_crdt_document(_encode_crdt_document(""), "New")
+
+    value = _parse_crdt_string(document)
+    assert _decode_crdt_document(document) == "New"
+    assert not any(s.tombstone for s in value.substring)
+
+
+def test_edit_drops_child_links_that_point_past_the_document() -> None:
+    """A dangling child index does not break the document-order rewrite."""
+    value = _parse_crdt_string(_encode_crdt_document("Old"))
+    value.substring[0].child.append(99)
+
+    document = _edit_crdt_document(_serialize_crdt_string(value), "New")
+
+    edited = _parse_crdt_string(document)
+    assert _decode_crdt_document(document) == "New"
+    assert all(c < len(edited.substring) for s in edited.substring for c in s.child)
+
+
+def test_update_treats_a_non_matching_lookup_record_as_missing() -> None:
+    """A lookup that answers for another record gives no server copy."""
+    other = server_record("Other", "Other notes", {}).model_copy(
+        update={"recordName": "Reminder/SOMETHING-ELSE"}
+    )
+    svc = make_service(other)
+
+    svc.update(edited_reminder())
+
+    fields = updated_fields(svc)
+    assert _decode_crdt_document(fields["TitleDocument"].value) == "Title"
+
+
+def test_update_keeps_device_text_when_the_caller_did_not_change_it() -> None:
+    """A stale object does not revert a title edited on a device."""
+    svc = make_service(server_record("Edited on iPhone", "Notes", {}))
+    reminder = Reminder(
+        id="Reminder/REM-EDIT",
+        list_id="List/LIST-001",
+        title="Buy milk",
+        desc="Notes",
+        flagged=True,
+        record_change_tag="server-tag",
+        server_title="Buy milk",
+        server_desc="Notes",
+    )
+
+    svc.update(reminder)
+
+    fields = updated_fields(svc)
+    assert "TitleDocument" not in fields
+    assert "NotesDocument" not in fields
+
+
+def test_update_writes_text_the_caller_changed_and_remembers_it() -> None:
+    """A changed title is written, and becomes the new baseline."""
+    svc = make_service(server_record("Buy milk", "Notes", {}))
+    reminder = Reminder(
+        id="Reminder/REM-EDIT",
+        list_id="List/LIST-001",
+        title="Buy oat milk",
+        desc="Notes",
+        record_change_tag="server-tag",
+        server_title="Buy milk",
+        server_desc="Notes",
+    )
+
+    svc.update(reminder)
+
+    fields = updated_fields(svc)
+    assert _decode_crdt_document(fields["TitleDocument"].value) == "Buy oat milk"
+    assert "NotesDocument" not in fields
+    assert reminder.server_title == "Buy oat milk"
 
 
 def test_parse_rejects_invalid_base64() -> None:

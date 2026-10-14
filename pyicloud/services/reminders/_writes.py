@@ -51,6 +51,8 @@ from .models import (
     URLAttachment,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class RemindersWriteAPI:
     """Encapsulates mutation behavior for the Reminders service."""
@@ -514,7 +516,14 @@ class RemindersWriteAPI:
             return _encode_crdt_document(text)
         if _decode_crdt_document(existing) == text:
             return None
-        return _edit_crdt_document(existing, text)
+        try:
+            return _edit_crdt_document(existing, text)
+        except CRDTDecodeError as exc:
+            # The text decoded, but the document carries no CRDT structure
+            # (substrings, vector clock, start sentinel) to edit. There is no
+            # replica state to preserve, so a fresh document is equivalent.
+            _LOGGER.debug("%s has no CRDT structure to edit (%s)", field_name, exc)
+            return _encode_crdt_document(text)
 
     def update(self, reminder: Reminder) -> None:
         """Update an existing reminder, refusing unreadable text documents."""
@@ -537,10 +546,19 @@ class RemindersWriteAPI:
             "lastModifiedDate",
         ]
         text_fields: dict[str, Any] = {}
-        for field_name, token_name, text in (
-            ("TitleDocument", "titleDocument", reminder.title),
-            ("NotesDocument", "notesDocument", reminder.desc or ""),
+        for field_name, token_name, text, read_text in (
+            ("TitleDocument", "titleDocument", reminder.title, reminder.server_title),
+            (
+                "NotesDocument",
+                "notesDocument",
+                reminder.desc or "",
+                reminder.server_desc,
+            ),
         ):
+            if read_text is not None and text == read_text:
+                # Not changed by the caller: keep whatever the server holds,
+                # including a newer edit made on a device.
+                continue
             document = self._text_document_for_update(current_fields, field_name, text)
             if document is not None:
                 text_fields[field_name] = {"type": "STRING", "value": document}
@@ -619,6 +637,8 @@ class RemindersWriteAPI:
         )
         reminder.completed_date = completion_date
         reminder.modified = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc)
+        reminder.server_title = reminder.title
+        reminder.server_desc = reminder.desc or ""
 
     def delete(self, reminder: Reminder) -> None:
         """Delete a reminder using soft-update (Deleted: 1)."""

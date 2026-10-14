@@ -198,6 +198,10 @@ Reminders caveats:
   marked deleted under a new replica), which is what Apple devices need to
   accept it; unchanged text documents are not rewritten. Inline formatting and
   inline hashtags in a changed text are not preserved.
+- A title or notes text is only written when it differs from the text the
+  reminder had when it was read. Updating another field on an older reminder
+  object therefore keeps a newer text edited on a device. If you do change the
+  text, your value wins, as it does for the other fields.
 - `update_hashtag()` exists, but the iCloud Reminders web app currently treats
   hashtag names as effectively read-only in some live flows, so rename behavior
   may not be reflected consistently outside the API.

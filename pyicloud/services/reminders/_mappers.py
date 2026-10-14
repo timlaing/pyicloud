@@ -212,6 +212,10 @@ class RemindersRecordMapper:
             title=title,
             desc=desc,
             undecodable_text_fields=tuple(undecodable_text_fields),
+            server_title=(
+                None if "TitleDocument" in undecodable_text_fields else title
+            ),
+            server_desc=None if "NotesDocument" in undecodable_text_fields else desc,
             due_date=fields.get_value("DueDate"),
             start_date=fields.get_value("StartDate"),
             completed=bool(fields.get_value("Completed")),
