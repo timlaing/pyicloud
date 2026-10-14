@@ -16,6 +16,7 @@ from ._protocol import (
     _decode_crdt_document,
     _decode_nsdatecomponents,
     _ref_name,
+    _structure_has_visible_text,
 )
 from .client import RemindersApiError
 from .models import (
@@ -211,13 +212,19 @@ class RemindersRecordMapper:
         # "string" field and never the substrings, so a document whose text
         # lives only in the substrings decodes to ""; recording that as the
         # baseline would make a real caller edit look unchanged and skip the
-        # write. Treat it as unknown, which falls back to comparing against the
-        # server copy. A genuinely empty or absent field keeps its baseline.
+        # write. That shape is detectable: the structure still carries visible
+        # substrings the cached string dropped. A genuinely empty document
+        # shows none, and keeps its "" baseline so a caller that did not touch
+        # the text still preserves a newer edit made on a device.
         server_title: str | None = title
-        if "TitleDocument" in undecodable_text_fields or (title_doc and not title):
+        if "TitleDocument" in undecodable_text_fields or (
+            title_doc and not title and _structure_has_visible_text(title_doc)
+        ):
             server_title = None
         server_desc: str | None = desc
-        if "NotesDocument" in undecodable_text_fields or (notes_doc and not desc):
+        if "NotesDocument" in undecodable_text_fields or (
+            notes_doc and not desc and _structure_has_visible_text(notes_doc)
+        ):
             server_desc = None
 
         return Reminder(

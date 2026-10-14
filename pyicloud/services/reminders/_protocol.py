@@ -387,12 +387,22 @@ def _parse_crdt_string(encoded: str | bytes) -> Any:
     # clock as well as substrings; a cross-parse yields substrings but never a
     # clock, so a genuine payload still wins. They are tried in the order the
     # read path uses, and the clock requirement is what keeps the order from
-    # mattering for correctness.
+    # mattering for correctness. Both candidates are checked before anything
+    # is raised for the same reason: a payload that cross-parses as unclocked
+    # substrings may still parse as the other wrapper with its clock. Only
+    # substrings that reference characters count here, because a cross-parse
+    # produces degenerate length-0 entries while genuine substrings do not;
+    # without that gate a structureless payload would be misreported as
+    # carrying state worth preserving.
+    unclocked_substrings = False
     try:
         value = reminders_pb2.String()  # type: ignore[attr-defined]
         value.ParseFromString(data)
-        if value.substring and value.timestamp.clock:
-            return value
+        if value.substring:
+            if value.timestamp.clock:
+                return value
+            if any(substring.length for substring in value.substring):
+                unclocked_substrings = True
     except Exception as exc:  # noqa: BLE001
         LOGGER.debug("bare String parse failed: %s", exc)
 
@@ -401,12 +411,39 @@ def _parse_crdt_string(encoded: str | bytes) -> Any:
         version.ParseFromString(data)
         value = reminders_pb2.String()  # type: ignore[attr-defined]
         value.ParseFromString(version.data)
-        if value.substring and value.timestamp.clock:
-            return value
+        if value.substring:
+            if value.timestamp.clock:
+                return value
+            if any(substring.length for substring in value.substring):
+                unclocked_substrings = True
     except Exception as exc:  # noqa: BLE001
         LOGGER.debug("bare Version parse failed: %s", exc)
 
+    if unclocked_substrings:
+        # Substrings carry character identifiers even without a clock, so
+        # re-encoding from scratch would discard replica state; this is not
+        # the structureless case and callers must not fall back for it.
+        raise CRDTDecodeError("CRDT document has substrings but no vector clock")
     raise CRDTStructureError("CRDT document has no editable structure")
+
+
+def _structure_has_visible_text(encoded: str | bytes) -> bool:
+    """Return whether a document's structure holds text its cached string may omit.
+
+    :func:`_decode_crdt_document` returns the cached ``string`` field and
+    never the substrings, so a document can decode to ``""`` while its
+    substrings still carry the text. Callers that must tell that shape apart
+    from a genuinely empty document use this. A payload whose structure
+    cannot be inspected at all shows no text either.
+    """
+    try:
+        value = _parse_crdt_string(encoded)
+    except CRDTDecodeError:
+        return False
+    return any(
+        substring.charID.replicaID and not substring.tombstone and substring.length
+        for substring in value.substring
+    )
 
 
 def _serialize_crdt_string(value: Any) -> str:

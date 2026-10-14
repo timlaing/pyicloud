@@ -23,6 +23,7 @@ from pyicloud.services.reminders._protocol import (
     _merge_resolution_token_map,
     _parse_crdt_string,
     _serialize_crdt_string,
+    _structure_has_visible_text,
 )
 from pyicloud.services.reminders._writes import RemindersWriteAPI
 from pyicloud.services.reminders.client import RemindersApiError
@@ -668,3 +669,103 @@ def test_parse_marks_an_uneditable_payload_as_a_structure_error() -> None:
 def test_structure_error_is_a_decode_error() -> None:
     """The narrow error stays catchable as the broad one."""
     assert issubclass(CRDTStructureError, CRDTDecodeError)
+
+
+def test_mapper_keeps_empty_baseline_for_genuinely_empty_documents() -> None:
+    """A valid empty document keeps its \"\" baseline.
+
+    Only a document whose structure still carries text the cached string
+    dropped may lose its baseline; a genuinely empty one must keep it so an
+    unchanged caller still preserves a newer edit made on a device.
+    """
+    mapped = RemindersRecordMapper(
+        MagicMock(), logging.getLogger(__name__)
+    ).record_to_reminder(server_record("", "", {}))
+
+    assert mapped.title == ""
+    assert mapped.server_title == ""
+    assert mapped.server_desc == ""
+
+
+def test_update_preserves_device_text_when_the_stale_caller_had_none() -> None:
+    """A caller who read an empty title does not overwrite a newer device edit."""
+    stale = RemindersRecordMapper(
+        MagicMock(), logging.getLogger(__name__)
+    ).record_to_reminder(server_record("", "", {}))
+    assert stale.title == ""
+    svc = make_service(server_record("Device edit", "", {}))
+
+    svc.update(stale)
+
+    fields = updated_fields(svc)
+    assert "TitleDocument" not in fields
+    assert "NotesDocument" not in fields
+
+
+def unclocked_bare_document() -> str:
+    """Build a bare String whose substrings survive but whose clock is gone."""
+    value = _parse_crdt_string(_encode_crdt_document("Old"))
+    del value.timestamp.clock[:]
+    return base64.b64encode(value.SerializeToString()).decode()
+
+
+def test_parse_reports_unclocked_substrings_as_decode_errors() -> None:
+    """Substrings without a vector clock are not the structureless case.
+
+    Character identifiers are present, so re-encoding from scratch would
+    discard replica state; the broad error keeps callers from falling back.
+    """
+    with pytest.raises(CRDTDecodeError) as excinfo:
+        _parse_crdt_string(unclocked_bare_document())
+
+    assert not isinstance(excinfo.value, CRDTStructureError)
+    assert "no vector clock" in str(excinfo.value)
+
+
+def test_parse_treats_a_degenerate_substring_as_no_structure() -> None:
+    """An entry without characters carries no state, so this stays structureless.
+
+    A cross-parse produces exactly this shape, so only substrings that
+    reference characters may keep a payload out of the fallback.
+    """
+    inner = reminders_pb2.String()  # type: ignore[attr-defined]
+    inner.substring.add()
+    version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
+    version.data = inner.SerializeToString()
+    payload = base64.b64encode(version.SerializeToString()).decode()
+
+    with pytest.raises(CRDTStructureError):
+        _parse_crdt_string(payload)
+
+
+def test_update_refuses_a_bare_copy_whose_substrings_have_no_clock() -> None:
+    """An unclocked bare document aborts the update instead of being replaced."""
+    document = unclocked_bare_document()
+    svc = make_service(record_with_title(document))
+    reminder = Reminder(
+        id="Reminder/REM-EDIT",
+        list_id="List/LIST-001",
+        title="New",
+        desc="Notes",
+        record_change_tag="server-tag",
+    )
+
+    with pytest.raises(CRDTDecodeError, match="no vector clock"):
+        svc.update(reminder)
+
+    raw: Any = svc._raw
+    raw.modify.assert_not_called()
+
+
+def test_visible_text_lookup_tells_dropped_text_from_empty() -> None:
+    """The lookup distinguishes a lossy decode from a genuinely empty one."""
+    assert _structure_has_visible_text(cached_string_only_document("Old"))
+    assert not _structure_has_visible_text(_encode_crdt_document(""))
+
+
+def test_visible_text_lookup_ignores_payloads_it_cannot_inspect() -> None:
+    """A payload whose structure cannot be read shows no hidden text."""
+    value = reminders_pb2.String(string="no structure")  # type: ignore[attr-defined]
+
+    assert not _structure_has_visible_text(value.SerializeToString())
+    assert not _structure_has_visible_text(b"\xff" * 16)
