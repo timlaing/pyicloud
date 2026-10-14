@@ -2981,7 +2981,7 @@ def test_confirm_security_key_no_devices_raises(
 
     with (
         patch("pyicloud.base.CtapHidDevice.list_devices", return_value=[]),
-        pytest.raises(RuntimeError, match="No FIDO2 devices found"),
+        pytest.raises(PyiCloudSecurityKeyException, match="No FIDO2 devices found"),
     ):
         pyicloud_service.confirm_security_key()
 

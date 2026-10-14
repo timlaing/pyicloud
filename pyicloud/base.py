@@ -1189,8 +1189,10 @@ class PyiCloudService:
 
         The call blocks until the security key is touched. Set ``event`` from
         another thread to stop waiting; when it is set, a
-        ``PyiCloudSecurityKeyTimeoutException`` is raised. Any other failure
-        of the ceremony raises ``PyiCloudSecurityKeyException``. Both derive
+        ``PyiCloudSecurityKeyTimeoutException`` is raised. Missing challenge
+        data raises ``PyiCloudAPIResponseException``; no available device or
+        any other failure of the ceremony raises
+        ``PyiCloudSecurityKeyException``. The security key exceptions derive
         from ``PyiCloudException``, with the underlying fido2 error chained
         as ``__cause__``.
         """
@@ -1208,7 +1210,7 @@ class PyiCloudService:
             devices: list[CtapHidDevice] = list(CtapHidDevice.list_devices())
 
             if not devices:
-                raise RuntimeError("No FIDO2 devices found")
+                raise PyiCloudSecurityKeyException("No FIDO2 devices found")
 
             device = devices[0]
 

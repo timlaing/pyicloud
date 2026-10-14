@@ -14,7 +14,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
-- Raise a `PyiCloudException` from `PyiCloudService.confirm_security_key()` when the security key ceremony fails: `PyiCloudSecurityKeyTimeoutException` when the cancel event is set, `PyiCloudSecurityKeyException` otherwise (the fido2 error is chained as `__cause__`), instead of leaking fido2's `ClientError`
+- Raise a `PyiCloudException` from `PyiCloudService.confirm_security_key()` instead of leaking a non-pyiCloud error: `PyiCloudSecurityKeyTimeoutException` when the cancel event is set, and `PyiCloudSecurityKeyException` for a missing FIDO2 device or any other failure of the security key ceremony (the fido2 error, where there is one, is chained as `__cause__`)
 
 ## [2026.10.0] - 2026-10-12
 
