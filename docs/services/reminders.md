@@ -196,8 +196,11 @@ Reminders caveats:
 - `update()` reads the reminder's current server copy first. A changed title or
   notes text is written as an edit on top of that document (the old text is
   marked deleted under a new replica), which is what Apple devices need to
-  accept it; unchanged text documents are not rewritten. Inline formatting and
-  inline hashtags in a changed text are not preserved.
+  accept it; unchanged text documents are not rewritten. A stored copy that
+  decodes to text but carries no CRDT structure is rewritten from scratch,
+  while one that carries structure pyicloud cannot edit (for example a missing
+  vector clock or start sentinel) raises rather than discarding that structure.
+  Inline formatting and inline hashtags in a changed text are not preserved.
 - A title or notes text is only written when it differs from the text the
   reminder had when it was read. Updating another field on an older reminder
   object therefore keeps a newer text edited on a device. If you do change the

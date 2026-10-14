@@ -5,6 +5,7 @@
 import base64
 import gzip
 import json
+import logging
 from typing import Any
 from unittest.mock import MagicMock
 import zlib
@@ -12,8 +13,10 @@ import zlib
 import pytest
 
 from pyicloud.common.cloudkit import CKErrorItem, CKModifyResponse, CKRecord
+from pyicloud.services.reminders._mappers import RemindersRecordMapper
 from pyicloud.services.reminders._protocol import (
     CRDTDecodeError,
+    CRDTStructureError,
     _decode_crdt_document,
     _edit_crdt_document,
     _encode_crdt_document,
@@ -561,3 +564,107 @@ def test_edit_stores_substrings_in_document_order() -> None:
     terminal = value.substring[len(value.substring) - 1]
     assert terminal.charID.replicaID == 0
     assert not terminal.child
+
+
+def cached_string_only_document(text: str) -> str:
+    """Build the fixture shape: substrings and a clock, but an empty ``string``.
+
+    ``_decode_crdt_document`` reads the cached ``string`` field and never the
+    substrings, so this decodes to ``""`` even though the text lives in the
+    substrings.
+    """
+    value = _parse_crdt_string(_encode_crdt_document(text))
+    value.string = ""
+    return _serialize_crdt_string(value)
+
+
+def record_with_title(document: str) -> CKRecord:
+    """Build a record whose only field is a ``TitleDocument``."""
+    return CKRecord.model_validate({
+        "recordName": "Reminder/REM-EDIT",
+        "recordType": "Reminder",
+        "recordChangeTag": "server-tag",
+        "fields": {"TitleDocument": {"type": "STRING", "value": document}},
+    })
+
+
+def test_update_writes_text_whose_baseline_decode_lost_it() -> None:
+    """A caller's title still reaches the server when decode dropped the text.
+
+    The fixture documents carry their text in substrings while the cached
+    ``string`` field is empty, so the mapper sees ``""``. Recording that as
+    the baseline would make a real edit look unchanged and skip the write.
+    """
+    document = cached_string_only_document("Old")
+    assert _decode_crdt_document(document) == ""
+    assert visible_substrings(_parse_crdt_string(document))
+    mapped = RemindersRecordMapper(
+        MagicMock(), logging.getLogger(__name__)
+    ).record_to_reminder(record_with_title(document))
+    assert mapped.server_title is None
+
+    reminder = Reminder(
+        id="Reminder/REM-EDIT",
+        list_id="List/LIST-001",
+        title="Buy milk",
+        desc="",
+        record_change_tag="server-tag",
+        server_title=mapped.server_title,
+        server_desc=mapped.server_desc,
+    )
+    svc = make_service(record_with_title(document))
+
+    svc.update(reminder)
+
+    fields = updated_fields(svc)
+    assert _decode_crdt_document(fields["TitleDocument"].value) == "Buy milk"
+
+
+def test_mapper_keeps_a_baseline_for_ordinary_documents() -> None:
+    """A normally shaped document still records the text it was read with."""
+    mapped = RemindersRecordMapper(
+        MagicMock(), logging.getLogger(__name__)
+    ).record_to_reminder(server_record("Buy milk", "Notes", {}))
+
+    assert mapped.title == "Buy milk"
+    assert mapped.server_title == "Buy milk"
+    assert mapped.server_desc == "Notes"
+
+
+def test_update_refuses_a_structureless_copy_that_cannot_be_preserved() -> None:
+    """A structured document that is not editable raises rather than degrading.
+
+    Substrings and a vector clock are present, so re-encoding would drop
+    replica state Apple devices have already merged; the error surfaces
+    instead.
+    """
+    value = _parse_crdt_string(_encode_crdt_document("Old"))
+    value.substring[0].charID.clock = 7  # the start sentinel is no longer found
+    document = _serialize_crdt_string(value)
+    svc = make_service(record_with_title(document))
+    reminder = Reminder(
+        id="Reminder/REM-EDIT",
+        list_id="List/LIST-001",
+        title="New",
+        desc="Notes",
+        record_change_tag="server-tag",
+    )
+
+    with pytest.raises(CRDTDecodeError, match="start sentinel"):
+        svc.update(reminder)
+
+    raw: Any = svc._raw
+    raw.modify.assert_not_called()
+
+
+def test_parse_marks_an_uneditable_payload_as_a_structure_error() -> None:
+    """A payload with no substrings raises the narrower structure error."""
+    value = reminders_pb2.String(string="no structure")  # type: ignore[attr-defined]
+
+    with pytest.raises(CRDTStructureError):
+        _parse_crdt_string(value.SerializeToString())
+
+
+def test_structure_error_is_a_decode_error() -> None:
+    """The narrow error stays catchable as the broad one."""
+    assert issubclass(CRDTStructureError, CRDTDecodeError)

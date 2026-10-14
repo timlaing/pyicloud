@@ -23,6 +23,7 @@ from ._constants import _REMINDERS_ZONE_REQ
 from ._mappers import Attachment, RemindersRecordMapper
 from ._protocol import (
     CRDTDecodeError,
+    CRDTStructureError,
     _as_raw_id,
     _as_record_name,
     _decode_crdt_document,
@@ -507,7 +508,8 @@ class RemindersWriteAPI:
 
         When the server already holds a document, the change is written as a
         CRDT edit on top of it so Apple devices accept it. A fresh document is
-        only built when there is nothing to edit.
+        only built when there is nothing to edit: no server copy, or one whose
+        text is already ``text``, or one that carries no CRDT structure at all.
         """
         existing = (
             current_fields.get_value(field_name) if current_fields is not None else None
@@ -518,10 +520,9 @@ class RemindersWriteAPI:
             return None
         try:
             return _edit_crdt_document(existing, text)
-        except CRDTDecodeError as exc:
-            # The text decoded, but the document carries no CRDT structure
-            # (substrings, vector clock, start sentinel) to edit. There is no
-            # replica state to preserve, so a fresh document is equivalent.
+        except CRDTStructureError as exc:
+            # Substrings are absent, so there is no replica state to preserve
+            # and a fresh document reaches devices as well as an edit would.
             _LOGGER.debug("%s has no CRDT structure to edit (%s)", field_name, exc)
             return _encode_crdt_document(text)
 

@@ -11,6 +11,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Fixed
 
 - Write Reminder title and notes changes as CRDT edits on top of the server document, so Apple devices show them instead of keeping (and later restoring) the old text, and bump the field resolution counters instead of resetting them (#421). A title or notes text is only written when the caller changed it since the reminder was read, so updating another field on an older object no longer reverts a text edited on a device
+- Edit title and notes documents that are wrapped in a bare CloudKit `Version`, as well as those in a `Document`, and raise on a stored copy whose structure cannot be edited instead of replacing it
 
 ## [2026.10.0] - 2026-10-12
 

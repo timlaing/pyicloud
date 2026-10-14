@@ -28,6 +28,17 @@ class CRDTDecodeError(ValueError):
     """Raised when a Reminders CRDT payload cannot be decoded."""
 
 
+class CRDTStructureError(CRDTDecodeError):
+    """Raised when a decodable payload has no CRDT structure to edit.
+
+    The document carries no substrings, so there is no replica state to
+    preserve and re-encoding from scratch is equivalent. Callers that fall
+    back to a fresh document should catch this rather than
+    :class:`CRDTDecodeError`, whose other cases (a missing vector clock or
+    start sentinel) mean replica state does exist and must not be discarded.
+    """
+
+
 def _ref_name(fields: CKFields, key: str) -> str:
     """Extract recordName from a REFERENCE field, or return ''."""
     field = fields.get_field(key)
@@ -372,30 +383,30 @@ def _parse_crdt_string(encoded: str | bytes) -> Any:
         LOGGER.debug("versioned_document.Document parse failed: %s", exc)
 
     # A bare String and a bare Version share field numbers, so either parses
-    # as the other; only accept a candidate that carries both substrings and
-    # a vector clock.
-    for unwrap in (_bare_string_bytes, _version_string_bytes):
-        try:
-            value = reminders_pb2.String()  # type: ignore[attr-defined]
-            value.ParseFromString(unwrap(data))
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.debug("%s parse failed: %s", unwrap.__name__, exc)
-            continue
+    # as the other. Both candidates are therefore gated on carrying a vector
+    # clock as well as substrings; a cross-parse yields substrings but never a
+    # clock, so a genuine payload still wins. They are tried in the order the
+    # read path uses, and the clock requirement is what keeps the order from
+    # mattering for correctness.
+    try:
+        value = reminders_pb2.String()  # type: ignore[attr-defined]
+        value.ParseFromString(data)
         if value.substring and value.timestamp.clock:
             return value
-    raise CRDTDecodeError("CRDT document has no editable structure")
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("bare String parse failed: %s", exc)
 
+    try:
+        version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
+        version.ParseFromString(data)
+        value = reminders_pb2.String()  # type: ignore[attr-defined]
+        value.ParseFromString(version.data)
+        if value.substring and value.timestamp.clock:
+            return value
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("bare Version parse failed: %s", exc)
 
-def _bare_string_bytes(data: bytes) -> bytes:
-    """Return ``data`` unchanged: the payload is a bare topotext ``String``."""
-    return data
-
-
-def _version_string_bytes(data: bytes) -> bytes:
-    """Return the ``String`` bytes held by a bare ``versioned_document.Version``."""
-    version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
-    version.ParseFromString(data)
-    return cast(bytes, version.data)
+    raise CRDTStructureError("CRDT document has no editable structure")
 
 
 def _serialize_crdt_string(value: Any) -> str:
