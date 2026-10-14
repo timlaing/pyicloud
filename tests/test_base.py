@@ -1454,11 +1454,12 @@ def test_confirm_security_key_cancel_event_raises_timeout(
     # fido2 leaves the ClientError constructor unannotated.
     client_error = ClientError(ClientError.ERR.TIMEOUT)  # type: ignore[no-untyped-call]
     mock_fido2_client_cls.return_value.get_assertion.side_effect = client_error
+    device = MagicMock()
     cancel = Event()
     cancel.set()
 
     with pytest.raises(PyiCloudSecurityKeyTimeoutException):
-        pyicloud_service.confirm_security_key(MagicMock(), event=cancel)
+        pyicloud_service.confirm_security_key(device, event=cancel)
 
 
 @patch("pyicloud.base.Fido2Client")
@@ -1474,9 +1475,11 @@ def test_confirm_security_key_wraps_client_error(
         ClientError.ERR.OTHER_ERROR
     )
     mock_fido2_client_cls.return_value.get_assertion.side_effect = client_error
+    device = MagicMock()
+    cancel = Event()
 
     with pytest.raises(PyiCloudSecurityKeyException) as exc_info:
-        pyicloud_service.confirm_security_key(MagicMock(), event=Event())
+        pyicloud_service.confirm_security_key(device, event=cancel)
 
     assert exc_info.value.__cause__ is client_error
 
@@ -1496,11 +1499,12 @@ def test_confirm_security_key_reports_failure_not_timeout_when_event_set_late(
         ClientError.ERR.DEVICE_INELIGIBLE
     )
     mock_fido2_client_cls.return_value.get_assertion.side_effect = client_error
+    device = MagicMock()
     cancel = Event()
     cancel.set()
 
     with pytest.raises(PyiCloudSecurityKeyException) as exc_info:
-        pyicloud_service.confirm_security_key(MagicMock(), event=cancel)
+        pyicloud_service.confirm_security_key(device, event=cancel)
 
     assert not isinstance(exc_info.value, PyiCloudSecurityKeyTimeoutException)
     assert exc_info.value.__cause__ is client_error
