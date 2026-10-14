@@ -194,3 +194,33 @@ elif api.requires_2sa:
         print("Failed to verify verification code")
         sys.exit(1)
 ```
+
+### Cancelling a security key confirmation
+
+`confirm_security_key()` blocks until the security key is touched. Callers
+that run it in a worker thread — a home-automation config flow, for example —
+can pass a `threading.Event` as the keyword-only `event` argument and set it
+from another thread to stop waiting. When the event is set, fido2 raises
+`fido2.client.ClientError` and no assertion is submitted:
+
+```python
+from threading import Event, Timer
+
+from fido2.client import ClientError
+
+cancel = Event()
+timer = Timer(60, cancel.set)
+timer.start()
+try:
+    api.confirm_security_key(selected_device, event=cancel)
+except ClientError:
+    if not cancel.is_set():
+        raise
+    print("The security key was not touched in time")
+finally:
+    timer.cancel()
+```
+
+Check `cancel.is_set()` before treating the error as a timeout: `ClientError`
+is also raised for unrelated failures, and a bare `except ClientError` would
+hide those.
