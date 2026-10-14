@@ -12,6 +12,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Accept an optional `event` in `PyiCloudService.confirm_security_key()` so callers can stop waiting for a security key touch
 
+### Fixed
+
+- Raise a `PyiCloudException` from `PyiCloudService.confirm_security_key()` when the security key ceremony fails: `PyiCloudSecurityKeyTimeoutException` when the cancel event is set, `PyiCloudSecurityKeyException` otherwise (the fido2 error is chained as `__cause__`), instead of leaking fido2's `ClientError`
+
 ## [2026.10.0] - 2026-10-12
 
 ### Added

@@ -14,7 +14,7 @@ from typing import Any, Optional, cast
 from urllib.parse import urlparse
 from uuid import uuid1
 
-from fido2.client import DefaultClientDataCollector, Fido2Client
+from fido2.client import ClientError, DefaultClientDataCollector, Fido2Client
 from fido2.hid import CtapHidDevice
 from fido2.webauthn import (
     AuthenticationResponse,
@@ -45,6 +45,8 @@ from pyicloud.exceptions import (
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
     PyiCloudPCSTimeoutException,
+    PyiCloudSecurityKeyException,
+    PyiCloudSecurityKeyTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
     PyiCloudTrustedDevicePromptException,
@@ -1186,8 +1188,11 @@ class PyiCloudService:
         """Conduct the WebAuthn assertion ceremony with user's FIDO2 device.
 
         The call blocks until the security key is touched. Set ``event`` from
-        another thread to cancel waiting, in which case fido2 raises a
-        ``ClientError``.
+        another thread to stop waiting; when it is set, a
+        ``PyiCloudSecurityKeyTimeoutException`` is raised. Any other failure
+        of the ceremony raises ``PyiCloudSecurityKeyException``. Both derive
+        from ``PyiCloudException``, with the underlying fido2 error chained
+        as ``__cause__``.
         """
         fsa: dict[str, Any] = self._auth_data.get("fsaChallenge", {})
         try:
@@ -1223,9 +1228,19 @@ class PyiCloudService:
             allow_credentials=credentials,
             user_verification=UserVerificationRequirement("discouraged"),
         )
-        result: AuthenticationResponse = client.get_assertion(
-            assertion_options, event=event
-        ).get_response(0)
+        try:
+            result: AuthenticationResponse = client.get_assertion(
+                assertion_options, event=event
+            ).get_response(0)
+        except ClientError as error:
+            if event is not None and event.is_set():
+                raise PyiCloudSecurityKeyTimeoutException(
+                    "Security key confirmation was cancelled or timed out "
+                    "before the key was touched"
+                ) from error
+            raise PyiCloudSecurityKeyException(
+                "Security key confirmation failed"
+            ) from error
 
         self._submit_webauthn_assertion_response({
             "challenge": challenge,

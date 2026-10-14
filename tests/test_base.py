@@ -12,6 +12,7 @@ from threading import Event
 from typing import Any, cast
 from unittest.mock import MagicMock, mock_open, patch
 
+from fido2.client import ClientError
 from fido2.hid import CtapHidDevice
 import pytest
 import requests
@@ -32,6 +33,8 @@ from pyicloud.exceptions import (
     PyiCloudEndpointGoneException,
     PyiCloudFailedLoginException,
     PyiCloudPCSTimeoutException,
+    PyiCloudSecurityKeyException,
+    PyiCloudSecurityKeyTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
     PyiCloudTrustedDevicePromptException,
@@ -1398,13 +1401,10 @@ def test_confirm_security_key_success(
     cast(Any, pyicloud_service.trust_session).assert_called_once()
 
 
-@patch("pyicloud.base.Fido2Client")
-def test_confirm_security_key_passes_cancel_event(
-    mock_fido2_client_cls: MagicMock,
-    pyicloud_service: PyiCloudService,
-    monkeypatch: pytest.MonkeyPatch,
+def _arrange_security_key_ceremony(
+    pyicloud_service: PyiCloudService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that a cancel event is passed to the FIDO2 assertion."""
+    """Arrange a pending WebAuthn challenge for confirm_security_key()."""
     monkeypatch.setattr(
         pyicloud_service, "_submit_webauthn_assertion_response", MagicMock()
     )
@@ -1416,6 +1416,16 @@ def test_confirm_security_key_passes_cancel_event(
             "rpId": "example.com",
         }
     }
+
+
+@patch("pyicloud.base.Fido2Client")
+def test_confirm_security_key_passes_cancel_event(
+    mock_fido2_client_cls: MagicMock,
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a cancel event is passed to the FIDO2 assertion."""
+    _arrange_security_key_ceremony(pyicloud_service, monkeypatch)
     mock_response = MagicMock()
     mock_response.response.client_data = b"client_data"
     mock_response.response.signature = b"signature"
@@ -1431,6 +1441,44 @@ def test_confirm_security_key_passes_cancel_event(
     pyicloud_service.confirm_security_key(MagicMock(), event=cancel)
 
     assert mock_fido2_client.get_assertion.call_args.kwargs["event"] is cancel
+
+
+@patch("pyicloud.base.Fido2Client")
+def test_confirm_security_key_cancel_event_raises_timeout(
+    mock_fido2_client_cls: MagicMock,
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a set cancel event surfaces as a pyicloud timeout exception."""
+    _arrange_security_key_ceremony(pyicloud_service, monkeypatch)
+    # fido2 leaves the ClientError constructor unannotated.
+    client_error = ClientError(ClientError.ERR.TIMEOUT)  # type: ignore[no-untyped-call]
+    mock_fido2_client_cls.return_value.get_assertion.side_effect = client_error
+    cancel = Event()
+    cancel.set()
+
+    with pytest.raises(PyiCloudSecurityKeyTimeoutException):
+        pyicloud_service.confirm_security_key(MagicMock(), event=cancel)
+
+
+@patch("pyicloud.base.Fido2Client")
+def test_confirm_security_key_wraps_client_error(
+    mock_fido2_client_cls: MagicMock,
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that fido2 client errors are wrapped in a pyicloud exception."""
+    _arrange_security_key_ceremony(pyicloud_service, monkeypatch)
+    # fido2 leaves the ClientError constructor unannotated.
+    client_error = ClientError(  # type: ignore[no-untyped-call]
+        ClientError.ERR.OTHER_ERROR
+    )
+    mock_fido2_client_cls.return_value.get_assertion.side_effect = client_error
+
+    with pytest.raises(PyiCloudSecurityKeyException) as exc_info:
+        pyicloud_service.confirm_security_key(MagicMock(), event=Event())
+
+    assert exc_info.value.__cause__ is client_error
 
 
 def test_get_webservice_url_success(pyicloud_service: PyiCloudService) -> None:
