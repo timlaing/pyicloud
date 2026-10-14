@@ -1188,7 +1188,7 @@ class PyiCloudService:
         """Conduct the WebAuthn assertion ceremony with user's FIDO2 device.
 
         The call blocks until the security key is touched. Set ``event`` from
-        another thread to stop waiting; when it is set, a
+        another thread to stop waiting; when the wait is aborted through it, a
         ``PyiCloudSecurityKeyTimeoutException`` is raised. Missing challenge
         data raises ``PyiCloudAPIResponseException``; no available device or
         any other failure of the ceremony raises
@@ -1235,7 +1235,11 @@ class PyiCloudService:
                 assertion_options, event=event
             ).get_response(0)
         except ClientError as error:
-            if event is not None and event.is_set():
+            if (
+                error.code == ClientError.ERR.TIMEOUT
+                and event is not None
+                and event.is_set()
+            ):
                 raise PyiCloudSecurityKeyTimeoutException(
                     "Security key confirmation was cancelled or timed out "
                     "before the key was touched"

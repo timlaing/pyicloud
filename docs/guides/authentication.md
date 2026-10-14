@@ -202,9 +202,9 @@ that run it in a worker thread â€” a home-automation config flow, for example â€
 can pass a `threading.Event` as the keyword-only `event` argument and set it
 from another thread to stop waiting; no assertion is submitted. Failures are
 reported as pyicloud exceptions: `PyiCloudSecurityKeyTimeoutException` when
-the event was set, and `PyiCloudSecurityKeyException` for any other failure
-of the ceremony. Both derive from `PyiCloudException`, with the underlying
-fido2 error chained as `__cause__`:
+the wait is aborted through the event, and `PyiCloudSecurityKeyException`
+for any other failure of the ceremony. Both derive from `PyiCloudException`,
+with the underlying fido2 error chained as `__cause__`:
 
 ```python
 from threading import Event, Timer

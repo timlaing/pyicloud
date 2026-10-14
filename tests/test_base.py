@@ -1481,6 +1481,31 @@ def test_confirm_security_key_wraps_client_error(
     assert exc_info.value.__cause__ is client_error
 
 
+@patch("pyicloud.base.Fido2Client")
+def test_confirm_security_key_reports_failure_not_timeout_when_event_set_late(
+    mock_fido2_client_cls: MagicMock,
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test a non-timeout failure is not masked by an event set afterwards."""
+    _arrange_security_key_ceremony(pyicloud_service, monkeypatch)
+    # A genuine ceremony failure can race with the caller setting the cancel
+    # event, and must still be reported as a failure rather than a timeout.
+    # fido2 leaves the ClientError constructor unannotated.
+    client_error = ClientError(  # type: ignore[no-untyped-call]
+        ClientError.ERR.DEVICE_INELIGIBLE
+    )
+    mock_fido2_client_cls.return_value.get_assertion.side_effect = client_error
+    cancel = Event()
+    cancel.set()
+
+    with pytest.raises(PyiCloudSecurityKeyException) as exc_info:
+        pyicloud_service.confirm_security_key(MagicMock(), event=cancel)
+
+    assert not isinstance(exc_info.value, PyiCloudSecurityKeyTimeoutException)
+    assert exc_info.value.__cause__ is client_error
+
+
 def test_get_webservice_url_success(pyicloud_service: PyiCloudService) -> None:
     """Test the get_webservice_url method with a valid key."""
     pyicloud_service._webservices = {"test_key": {"url": "https://example.com"}}
