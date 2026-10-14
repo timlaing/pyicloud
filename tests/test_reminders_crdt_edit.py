@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pyicloud.common.cloudkit import CKModifyResponse, CKRecord
+from pyicloud.common.cloudkit import CKErrorItem, CKModifyResponse, CKRecord
 from pyicloud.services.reminders._protocol import (
     CRDTDecodeError,
     _decode_crdt_document,
@@ -19,6 +19,7 @@ from pyicloud.services.reminders._protocol import (
     _merge_resolution_token_map,
     _parse_crdt_string,
 )
+from pyicloud.services.reminders.client import RemindersApiError
 from pyicloud.services.reminders.models import Reminder
 from pyicloud.services.reminders.protobuf import (
     reminders_pb2,
@@ -320,6 +321,48 @@ def test_update_without_a_server_copy_encodes_fresh_documents() -> None:
     assert _decode_crdt_document(fields["NotesDocument"].value) == "Notes"
     raw: Any = svc._raw
     raw.lookup.assert_called_once()
+
+
+def lookup_error_service(code: str) -> RemindersService:
+    """Create a service whose lookup answers with a CloudKit error item."""
+    svc = make_service(None)
+    raw: Any = svc._raw
+    raw.lookup.return_value = MagicMock(
+        records=[CKErrorItem(recordName="REM-EDIT", serverErrorCode=code)]
+    )
+    return svc
+
+
+def edited_reminder() -> Reminder:
+    """Return a reminder whose title differs from any server copy."""
+    return Reminder(
+        id="Reminder/REM-EDIT",
+        list_id="List/LIST-001",
+        title="Title",
+        desc="Notes",
+        record_change_tag="server-tag",
+    )
+
+
+def test_update_raises_on_lookup_errors_without_writing() -> None:
+    """A failed lookup never falls back to writing fresh documents."""
+    svc = lookup_error_service("THROTTLED")
+
+    with pytest.raises(RemindersApiError, match="THROTTLED"):
+        svc.update(edited_reminder())
+
+    raw: Any = svc._raw
+    raw.modify.assert_not_called()
+
+
+def test_update_treats_not_found_as_missing_server_copy() -> None:
+    """A record the server does not know gets freshly encoded documents."""
+    svc = lookup_error_service("NOT_FOUND")
+
+    svc.update(edited_reminder())
+
+    fields = updated_fields(svc)
+    assert _decode_crdt_document(fields["TitleDocument"].value) == "Title"
 
 
 def test_parse_rejects_invalid_base64() -> None:

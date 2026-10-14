@@ -10,6 +10,7 @@ from typing import Any, cast
 import uuid
 
 from pyicloud.common.cloudkit import (
+    CKErrorItem,
     CKModifyOperation,
     CKModifyResponse,
     CKRecord,
@@ -34,6 +35,7 @@ from ._protocol import (
 from ._support import (
     _assert_modify_success,
     _assert_read_success,
+    _raise_record_errors,
     _refresh_record_change_tag,
     _response_record_change_tag,
 )
@@ -469,12 +471,26 @@ class RemindersWriteAPI:
         return self._lookup_created_reminder(record_name)
 
     def _lookup_current_fields(self, record_name: str) -> Any | None:
-        """Return the server's current fields for ``record_name``, if found."""
+        """Return the server's current fields for ``record_name``, if found.
+
+        A record the server reports as ``NOT_FOUND`` yields ``None``; any other
+        lookup error is raised, so an update never replaces the server's CRDT
+        state with a fresh document by mistake.
+        """
         resp = self._get_raw().lookup(
             record_names=[record_name],
             zone_id=_REMINDERS_ZONE_REQ,
         )
-        for rec in getattr(resp, "records", None) or []:
+        records = getattr(resp, "records", None) or []
+        _raise_record_errors(
+            [
+                rec
+                for rec in records
+                if isinstance(rec, CKErrorItem) and rec.serverErrorCode != "NOT_FOUND"
+            ],
+            "Lookup reminder before update",
+        )
+        for rec in records:
             if isinstance(rec, CKRecord) and rec.recordName == record_name:
                 return rec.fields
         return None
