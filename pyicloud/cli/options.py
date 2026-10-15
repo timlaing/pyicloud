@@ -27,6 +27,13 @@ PASSWORD_OPTION_HELP = (
 CHINA_MAINLAND_OPTION_HELP = "Use China mainland Apple web service endpoints."
 INTERACTIVE_OPTION_HELP = "Enable or disable interactive prompts."
 ACCEPT_TERMS_OPTION_HELP = "Automatically accept pending Apple iCloud web terms."
+ONE_FACTOR_OPTION_HELP = (
+    "Run this command with a password-only sign-in, skipping the two-factor "
+    "prompt. Apple grants that to Find My alone, and the session it creates "
+    "cannot be saved, so it lasts for this one command: its cookies go to a "
+    "temporary directory that is removed when the command exits, leaving your "
+    "stored session untouched."
+)
 WITH_FAMILY_OPTION_HELP = "Include family devices in Find My device listings."
 REFRESH_INTERVAL_OPTION_HELP = (
     "Seconds between Find My location refreshes (default: 300). On "
@@ -161,6 +168,14 @@ WithFamilyOption = Annotated[
         "--with-family",
         help=WITH_FAMILY_OPTION_HELP,
         rich_help_panel=DEVICES_PANEL,
+    ),
+]
+OneFactorOption = Annotated[
+    bool,
+    typer.Option(
+        "--one-factor",
+        help=ONE_FACTOR_OPTION_HELP,
+        rich_help_panel=AUTHENTICATION_PANEL,
     ),
 ]
 RefreshIntervalOption = Annotated[

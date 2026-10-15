@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 import logging
 from pathlib import Path, PurePosixPath
+from tempfile import TemporaryDirectory
 from typing import IO, Any, cast
 
 from click import confirm
@@ -17,6 +18,7 @@ import typer
 
 from pyicloud import PyiCloudService, utils
 from pyicloud.base import resolve_cookie_directory
+from pyicloud.const import FIND_MY_APP_KEY
 from pyicloud.exceptions import (
     PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
@@ -467,6 +469,76 @@ class CLIState:
         code = typer.prompt("Enter 2SA verification code")
         if not api.validate_verification_code(device, code):
             raise CLIAbort("Failed to verify the 2SA code.")
+
+    def get_one_factor_api(self) -> PyiCloudService:
+        """Return a password-only session that can reach Find My and nothing else.
+
+        Apple issues no ``X-APPLE-WEBAUTH-TOKEN`` for a session that skipped the
+        2FA challenge, and answers ``/validate`` on one with a 421, so it cannot
+        be written down and picked up by a later command. It lives and dies
+        inside this process, which is why this is a per-command option rather
+        than a way to log in.
+
+        The cookies go to a throwaway directory for the same reason: persisting
+        them where the real session lives would replace a working trusted
+        session with one that only Find My accepts.
+        """
+
+        if self._api is not None:
+            return self._api
+
+        username = self._resolve_username()
+        password, _password_source = self._password_for_login(username)
+        if not password:
+            raise CLIAbort("No password supplied and no stored password was found.")
+
+        self._configure_logging()
+        scratch = self._stack.enter_context(
+            TemporaryDirectory(prefix="pyicloud-one-factor-")
+        )
+        try:
+            api = PyiCloudService(
+                apple_id=username,
+                password=password,
+                china_mainland=self.resolved_china_mainland(username),
+                cookie_directory=scratch,
+                accept_terms=self.accept_terms,
+                with_family=self.with_family,
+                locate=True,
+                refresh_interval=self.refresh_interval,
+                pause_2fa=True,
+            )
+        except PyiCloudAccountLockedException as err:
+            raise CLIAbort(f"{err}. Unlock it before trying again.") from err
+        except PyiCloudConnectionException as err:
+            raise CLIAbort(
+                f"Could not reach iCloud: {err}. Check your connection and try again."
+            ) from err
+        except PyiCloudFailedLoginException as err:
+            # Deliberately unlike get_login_api: a failed paused login is not
+            # proof the stored password is stale, so the keyring is left alone.
+            raise CLIAbort(f"Bad username or password for {username}") from err
+
+        if not self._grants_one_factor(api):
+            raise CLIAbort(
+                f"Apple did not grant {username} password-only access to Find "
+                "My. Run `icloud auth login` for a full session instead."
+            )
+
+        self._api = api
+        return api
+
+    @staticmethod
+    def _grants_one_factor(api: PyiCloudService) -> bool:
+        """Return whether Apple flagged Find My as reachable without 2FA.
+
+        Checked before the first request so an ineligible account gets a clear
+        answer rather than an authentication error from somewhere deeper.
+        """
+
+        apps: Any = api.data.get("apps")
+        entry: Any = apps.get(FIND_MY_APP_KEY) if isinstance(apps, Mapping) else None
+        return bool(isinstance(entry, Mapping) and entry.get("canLaunchWithOneFactor"))
 
     def get_login_api(self) -> PyiCloudService:
         """Return a PyiCloudService, bootstrapping login if needed."""
