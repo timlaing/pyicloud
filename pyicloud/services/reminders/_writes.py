@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
 import time
@@ -61,6 +61,46 @@ from .models import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _zone_key(value: datetime | None) -> str | None:
+    """Return the IANA key of ``value``'s tzinfo when it names a zone."""
+    if value is None:
+        return None
+    key = getattr(value.tzinfo, "key", None)
+    return key if isinstance(key, str) and key else None
+
+
+def _default_time_zone(due_date: datetime | None, all_day: bool) -> str | None:
+    """Return the IANA time zone name to store with a timed ``due_date``.
+
+    Apple devices treat a due date without ``TimeZone`` as floating time and
+    show its UTC clock time as local time. A ``zoneinfo.ZoneInfo`` carries its
+    IANA name, and naive or UTC values are stored as UTC. A fixed non-UTC
+    offset has no IANA name, so ``None`` is returned and the caller has to pass
+    ``time_zone`` explicitly. All-day reminders stay floating, as on devices.
+    """
+    if due_date is None or all_day:
+        return None
+    key = _zone_key(due_date)
+    if key:
+        return key
+    if due_date.tzinfo is None or due_date.utcoffset() == timedelta(0):
+        return "UTC"
+    return None
+
+
+def _filled_time_zone(reminder: Reminder) -> str | None:
+    """Return the time zone ``update()`` should fill in for ``reminder``.
+
+    Only a ``ZoneInfo`` due date names the caller's zone unambiguously; a UTC
+    value may be a floating time read back from the server, so it is left unset
+    rather than guessed. An already-set zone and all-day reminders are left
+    alone. Returns ``None`` when nothing is filled.
+    """
+    if reminder.time_zone or reminder.all_day or reminder.due_date is None:
+        return None
+    return _zone_key(reminder.due_date)
 
 
 class RemindersWriteAPI:
@@ -451,6 +491,7 @@ class RemindersWriteAPI:
                 "value": int(due_date.timestamp() * 1000),
             }
 
+        time_zone = time_zone or _default_time_zone(due_date, all_day)
         if time_zone:
             record_fields["TimeZone"] = {"type": "STRING", "value": time_zone}
 
@@ -570,11 +611,14 @@ class RemindersWriteAPI:
         completion_date_ms: int | None,
         now_ms: int,
         fields_mod: list[str],
+        time_zone: str | None,
     ) -> dict[str, Any]:
         """Return the non-text fields of an update, recording their token names.
 
         ``reminder.due_date`` is normalized to UTC in place, which is what the
-        caller sees afterwards.
+        caller sees afterwards. ``time_zone`` is the zone to store — either the
+        one already on ``reminder`` or one filled in by the caller — so the
+        model is not mutated before the write is known to have succeeded.
         """
         due_date = reminder.due_date
         if due_date is not None and due_date.tzinfo is None:
@@ -603,8 +647,8 @@ class RemindersWriteAPI:
                 else {"type": "TIMESTAMP", "value": None}
             ),
             "TimeZone": (
-                {"type": "STRING", "value": reminder.time_zone}
-                if reminder.time_zone
+                {"type": "STRING", "value": time_zone}
+                if time_zone
                 else {"type": "STRING", "value": None}
             ),
             "ParentReminder": (
@@ -649,10 +693,18 @@ class RemindersWriteAPI:
             else None
         )
 
+        # A ZoneInfo due date names the caller's zone unambiguously; a UTC
+        # value may be a floating time read back from the server, so it is left
+        # alone. The filled zone is written with the record and only stored on
+        # the model once the write succeeds, so a failed update does not leave
+        # the local object claiming a zone the server never received.
+        filled_zone = _filled_time_zone(reminder)
+        time_zone = reminder.time_zone or filled_zone
+
         fields: dict[str, Any] = {
             **text_fields,
             **self._update_base_fields(
-                reminder, completion_date_ms, now_ms, fields_mod
+                reminder, completion_date_ms, now_ms, fields_mod, time_zone
             ),
             "ResolutionTokenMap": {
                 "type": "STRING",
@@ -673,6 +725,8 @@ class RemindersWriteAPI:
             fields=fields,
             model_obj=reminder,
         )
+        if filled_zone is not None:
+            reminder.time_zone = filled_zone
         reminder.completed_date = completion_date
         reminder.modified = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc)
         reminder.server_title = reminder.title

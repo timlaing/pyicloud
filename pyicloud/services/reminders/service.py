@@ -212,7 +212,9 @@ class RemindersService(BaseService):
                 ``0`` (none), ``1`` (high), ``5`` (medium), and ``9`` (low).
             flagged: Whether the reminder is flagged.
             all_day: Whether the reminder should be treated as all-day.
-            time_zone: Optional time zone name for the due date.
+            time_zone: Optional IANA time zone name for the due date. When
+                omitted, it is taken from a ``ZoneInfo`` due date, or set to
+                ``UTC`` for naive and UTC due dates (not for all-day ones).
             parent_reminder_id: Optional parent reminder ID for subtasks.
         """
         return self._writes.create(

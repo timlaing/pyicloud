@@ -8,6 +8,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Changed
+
+- Publish pushes to `main` to TestPyPI using the `test` GitHub environment, alongside prereleases; stable releases continue to publish to PyPI
+
 ### Added
 
 - Accept an optional `event` in `PyiCloudService.confirm_security_key()` so callers can stop waiting for a security key touch
@@ -26,6 +30,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Edit title and notes documents that are wrapped in a bare CloudKit `Version`, as well as those in a `Document`, and raise on a stored copy whose structure cannot be edited instead of replacing it
 - Reminders recurrence rules now map to the correct frequency on the wire: a weekly rule was stored (and shown in the app) as monthly, and a daily rule could not be created at all (#419)
 - An explicit `RecurrenceFrequency.DAILY` is no longer dropped by `update_recurrence_rule()` in favour of the rule's current frequency (#419)
+- Store a time zone with timed Reminder due dates created without `time_zone` (the `ZoneInfo` name, or `UTC` for naive and UTC values), so Apple devices no longer show the UTC clock time as local time; a reminder created from a naive or UTC due date now displays at its true local time rather than the literal clock time. `update()` fills in the zone of a `ZoneInfo` due date (#422)
 
 ## [2026.10.0] - 2026-10-12
 

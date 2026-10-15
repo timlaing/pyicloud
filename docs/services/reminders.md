@@ -229,6 +229,15 @@ Reminders caveats:
   reminder had when it was read. Updating another field on an older reminder
   object therefore keeps a newer text edited on a device. If you do change the
   text, your value wins, as it does for the other fields.
+- Apple devices show a timed due date without a time zone as floating time
+  (its UTC clock time as local time). `create()` therefore stores a time zone
+  when `time_zone` is not given: the IANA name of a `zoneinfo.ZoneInfo`, or
+  `UTC` for naive and UTC values. A reminder created from a naive or UTC due
+  date therefore displays at its true local time rather than the literal clock
+  time. `update()` only fills in the zone of a `ZoneInfo` due date; to set or
+  clear the zone yourself, pass `time_zone` to `create()`, or set
+  `reminder.time_zone` before calling `update(reminder)`. All-day reminders
+  stay floating.
 - `update_hashtag()` exists, but the iCloud Reminders web app currently treats
   hashtag names as effectively read-only in some live flows, so rename behavior
   may not be reflected consistently outside the API.
