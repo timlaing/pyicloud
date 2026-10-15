@@ -8,12 +8,13 @@ import json
 import logging
 from os import chmod, environ, makedirs, path, umask
 from tempfile import gettempdir
+from threading import Event
 import time
 from typing import Any, Optional, cast
 from urllib.parse import urlparse
 from uuid import uuid1
 
-from fido2.client import DefaultClientDataCollector, Fido2Client
+from fido2.client import ClientError, DefaultClientDataCollector, Fido2Client
 from fido2.hid import CtapHidDevice
 from fido2.webauthn import (
     AuthenticationResponse,
@@ -44,6 +45,8 @@ from pyicloud.exceptions import (
     PyiCloudNoTrustedNumberAvailable,
     PyiCloudPasswordException,
     PyiCloudPCSTimeoutException,
+    PyiCloudSecurityKeyException,
+    PyiCloudSecurityKeyTimeoutException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
     PyiCloudTrustedDevicePromptException,
@@ -1176,8 +1179,23 @@ class PyiCloudService:
         """List the available FIDO2 devices."""
         return list(CtapHidDevice.list_devices())
 
-    def confirm_security_key(self, device: CtapHidDevice | None = None) -> None:
-        """Conduct the WebAuthn assertion ceremony with user's FIDO2 device."""
+    def confirm_security_key(
+        self,
+        device: CtapHidDevice | None = None,
+        *,
+        event: Event | None = None,
+    ) -> None:
+        """Conduct the WebAuthn assertion ceremony with user's FIDO2 device.
+
+        The call blocks until the security key is touched. Set ``event`` from
+        another thread to stop waiting; when the wait is aborted through it, a
+        ``PyiCloudSecurityKeyTimeoutException`` is raised. Missing challenge
+        data raises ``PyiCloudAPIResponseException``; no available device or
+        any other failure of the ceremony raises
+        ``PyiCloudSecurityKeyException``. The security key exceptions derive
+        from ``PyiCloudException``, with the underlying fido2 error chained
+        as ``__cause__``.
+        """
         fsa: dict[str, Any] = self._auth_data.get("fsaChallenge", {})
         try:
             challenge = fsa["challenge"]
@@ -1192,7 +1210,7 @@ class PyiCloudService:
             devices: list[CtapHidDevice] = list(CtapHidDevice.list_devices())
 
             if not devices:
-                raise RuntimeError("No FIDO2 devices found")
+                raise PyiCloudSecurityKeyException("No FIDO2 devices found")
 
             device = devices[0]
 
@@ -1212,9 +1230,23 @@ class PyiCloudService:
             allow_credentials=credentials,
             user_verification=UserVerificationRequirement("discouraged"),
         )
-        result: AuthenticationResponse = client.get_assertion(
-            assertion_options
-        ).get_response(0)
+        try:
+            result: AuthenticationResponse = client.get_assertion(
+                assertion_options, event=event
+            ).get_response(0)
+        except ClientError as error:
+            if (
+                error.code == ClientError.ERR.TIMEOUT
+                and event is not None
+                and event.is_set()
+            ):
+                raise PyiCloudSecurityKeyTimeoutException(
+                    "Security key confirmation was cancelled or timed out "
+                    "before the key was touched"
+                ) from error
+            raise PyiCloudSecurityKeyException(
+                "Security key confirmation failed"
+            ) from error
 
         self._submit_webauthn_assertion_response({
             "challenge": challenge,

@@ -194,3 +194,30 @@ elif api.requires_2sa:
         print("Failed to verify verification code")
         sys.exit(1)
 ```
+
+### Cancelling a security key confirmation
+
+`confirm_security_key()` blocks until the security key is touched. Callers
+that run it in a worker thread — a home-automation config flow, for example —
+can pass a `threading.Event` as the keyword-only `event` argument and set it
+from another thread to stop waiting; no assertion is submitted. Failures are
+reported as pyicloud exceptions: `PyiCloudSecurityKeyTimeoutException` when
+the wait is aborted through the event, and `PyiCloudSecurityKeyException`
+for any other failure of the ceremony. Both derive from `PyiCloudException`,
+with the underlying fido2 error chained as `__cause__`:
+
+```python
+from threading import Event, Timer
+
+from pyicloud.exceptions import PyiCloudSecurityKeyTimeoutException
+
+cancel = Event()
+timer = Timer(60, cancel.set)
+timer.start()
+try:
+    api.confirm_security_key(selected_device, event=cancel)
+except PyiCloudSecurityKeyTimeoutException:
+    print("The security key was not touched in time")
+finally:
+    timer.cancel()
+```

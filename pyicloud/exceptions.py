@@ -199,6 +199,14 @@ class PyiCloudTrustedDeviceVerificationException(PyiCloudAPIResponseException):
     """Trusted-device bridge verification exception."""
 
 
+class PyiCloudSecurityKeyException(PyiCloudException):
+    """Security key confirmation exception."""
+
+
+class PyiCloudSecurityKeyTimeoutException(PyiCloudSecurityKeyException):
+    """Security key confirmation cancelled or timed out before the key was touched."""
+
+
 class PyiCloudNoStoredPasswordAvailableException(PyiCloudException):
     """iCloud no stored password exception."""
 
