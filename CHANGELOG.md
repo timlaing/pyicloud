@@ -14,6 +14,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add service and component labels, issue form selection, and automatic classification of issues and pull requests
+
 - Accept an optional `event` in `PyiCloudService.confirm_security_key()` so callers can stop waiting for a security key touch
 
 ### Fixed
