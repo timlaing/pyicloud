@@ -3588,18 +3588,26 @@ class TestServiceFacadeDelegation:
         svc._raw = MagicMock()
         return svc
 
+    def test_write_api_receives_signed_in_account_id(self) -> None:
+        """The write API gets the session's directory id as account id."""
+        svc = RemindersService(
+            "https://ckdatabasews.icloud.com",
+            MagicMock(),
+            {"dsid": "DSID-123"},
+        )
+
+        assert svc._writes._account_id == "DSID-123"
+
     def test_set_early_reminders_delegates(self) -> None:
-        """set_early_reminders forwards alerts and the account identifier."""
+        """set_early_reminders forwards alerts to the write API."""
         svc = self._service()
         svc._writes.set_early_reminders = MagicMock()  # type: ignore[method-assign]
         reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
         alerts = (EarlyReminder(count=-1, unit=EarlyReminderUnit.HOURS),)
 
-        svc.set_early_reminders(reminder, alerts, account_identifier="ACCOUNT-1")
+        svc.set_early_reminders(reminder, alerts)
 
-        svc._writes.set_early_reminders.assert_called_once_with(
-            reminder, alerts, account_identifier="ACCOUNT-1"
-        )
+        svc._writes.set_early_reminders.assert_called_once_with(reminder, alerts)
 
     def test_set_urgent_delegates(self) -> None:
         """set_urgent forwards the enabled flag and person id."""

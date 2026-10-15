@@ -111,10 +111,16 @@ class RemindersWriteAPI:
         get_raw: Callable[[], Any],
         mapper: RemindersRecordMapper,
         logger: logging.Logger,
+        *,
+        account_id: str | None = None,
     ) -> None:
         self._get_raw = get_raw
         self._mapper = mapper
         self._logger = logger
+        # The signed-in account's directory id; Apple stores it in the
+        # early-reminder payload, so it doubles as the default account id
+        # when no app-written payload has revealed one yet.
+        self._account_id = account_id
 
     @staticmethod
     def _reminder_record_name(reminder_id: str) -> str:
@@ -793,16 +799,15 @@ class RemindersWriteAPI:
         self,
         reminder: Reminder,
         alerts: Sequence[EarlyReminder],
-        *,
-        account_identifier: str | None = None,
     ) -> None:
         """Replace a reminder's early reminders (the "Early Reminder" setting).
 
         Apple stores these in the reminder's ``DueDateDeltaAlertsData`` field
-        rather than as alarm records. The per-account ``accountIdentifier`` is
-        not exposed anywhere else, so it is learned from an early reminder the
-        app already wrote; without one, pass ``account_identifier``. An empty
-        ``alerts`` sequence removes every early reminder.
+        rather than as alarm records. The payload carries a per-account
+        ``accountIdentifier``: the value the app itself wrote is reused when
+        one is stored on the reminder, and otherwise the signed-in account's
+        directory id is used. An empty ``alerts`` sequence removes every early
+        reminder.
         """
         reminder_record_name = self._reminder_record_name(reminder.id)
         current_fields = self._lookup_current_fields(reminder_record_name)
@@ -815,16 +820,15 @@ class RemindersWriteAPI:
             existing_value
         )
         account_id = (
-            account_identifier
-            or existing_payload.get("accountIdentifier")
+            existing_payload.get("accountIdentifier")
             or reminder.early_reminder_account_id
-            or None
+            or self._account_id
         )
         if alerts and not account_id:
             raise ValueError(
-                "No account identifier known for early reminders; read a "
-                "reminder the Reminders app gave an early reminder, or pass "
-                "account_identifier"
+                "No account identifier known for early reminders; the "
+                "signed-in account's directory id is unavailable and the "
+                "reminder carries no app-written early-reminder payload"
             )
         reminder_identifier = str(
             existing_payload.get("reminderIdentifier") or reminder_record_name

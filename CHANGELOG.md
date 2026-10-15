@@ -16,9 +16,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Added
 
 - Accept an optional `event` in `PyiCloudService.confirm_security_key()` so callers can stop waiting for a security key touch
-- Add `RemindersService.set_early_reminders()` for the "Early Reminder" setting (hours/days before the due date), stored in the reminder record's `DueDateDeltaAlertsData` field; `Reminder` now carries `early_reminders` (#419)
+- Add `RemindersService.set_early_reminders()` for the "Early Reminder" setting (hours/days before the due date), stored in the reminder record's `DueDateDeltaAlertsData` field; the payload's account identifier is taken from an existing app-written payload or, by default, the signed-in account's directory id. `Reminder` now carries `early_reminders` (#419)
 - Add `RemindersService.set_urgent()` for Urgent presentation alarms (iOS 26.2+), with a generic CloudKit asset upload (`assets/upload` token request plus content upload) shared by the container client; `Reminder` now carries `urgent` (#419)
-- Add `icloud reminders update --early-reminder` / `--clear-early-reminders`, `--early-reminder-account-id`, and `--urgent/--not-urgent` options (#419)
+- Add `icloud reminders update --early-reminder` / `--clear-early-reminders` and `--urgent/--not-urgent` options (#419)
 
 ### Fixed
 

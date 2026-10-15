@@ -1116,12 +1116,10 @@ class FakeReminders:
         self,
         reminder: Reminder,
         alerts: list[EarlyReminder],
-        *,
-        account_identifier: str | None = None,
     ) -> None:
         """Replace the reminder's early reminders."""
         reminder.early_reminders = tuple(alerts)
-        reminder.early_reminder_account_id = account_identifier or "ACCOUNT-CLI"
+        reminder.early_reminder_account_id = "ACCOUNT-CLI"
 
     def set_urgent(
         self,
@@ -4547,8 +4545,6 @@ def test_reminders_core_commands() -> None:
         "3 hours",
         "--early-reminder",
         "1d",
-        "--early-reminder-account-id",
-        "ACCOUNT-CLI-1",
         "--urgent",
         output_format="json",
     )
@@ -4556,7 +4552,6 @@ def test_reminders_core_commands() -> None:
     assert early_result.exit_code == 0
     assert [row["count"] for row in early_payload["early_reminders"]] == [-3, -1]
     assert [row["unit"] for row in early_payload["early_reminders"]] == [1, 2]
-    assert early_payload["early_reminder_account_id"] == "ACCOUNT-CLI-1"
     assert early_payload["urgent"]["enabled"] is True
 
     clear_result = _invoke(

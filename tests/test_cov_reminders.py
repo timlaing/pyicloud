@@ -127,11 +127,17 @@ def _read_api() -> tuple[RemindersReadAPI, MagicMock]:
     return RemindersReadAPI(lambda: raw, mapper, LOGGER), raw
 
 
-def _write_api() -> tuple[RemindersWriteAPI, MagicMock]:
+def _write_api(
+    *,
+    account_id: str | None = None,
+) -> tuple[RemindersWriteAPI, MagicMock]:
     """Return a write API backed by a fully-mocked raw CloudKit client."""
     raw = MagicMock()
     mapper = MagicMock()
-    return RemindersWriteAPI(lambda: raw, mapper, LOGGER), raw
+    return (
+        RemindersWriteAPI(lambda: raw, mapper, LOGGER, account_id=account_id),
+        raw,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1243,8 +1249,10 @@ class TestEarlyReminderWrites:
     @staticmethod
     def _write_api_with_server(
         server_fields: dict[str, Any] | None = None,
+        *,
+        account_id: str | None = None,
     ) -> tuple[RemindersWriteAPI, MagicMock]:
-        api, raw = _write_api()
+        api, raw = _write_api(account_id=account_id)
         raw.modify.return_value = CKModifyResponse(records=[], syncToken="tok")
         records: list[Any] = []
         if server_fields is not None:
@@ -1252,14 +1260,30 @@ class TestEarlyReminderWrites:
         raw.lookup.return_value = MagicMock(records=records)
         return api, raw
 
-    def test_requires_account_identifier(self) -> None:
-        """Without a known account, the write refuses with guidance."""
+    def test_requires_an_account_identifier(self) -> None:
+        """Without a signed-in account or learned payload, the write refuses."""
         api, _ = self._write_api_with_server()
         reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
         alert = EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS)
 
         with pytest.raises(ValueError, match="account identifier"):
             api.set_early_reminders(reminder, [alert])
+
+    def test_falls_back_to_signed_in_account(self) -> None:
+        """A fresh reminder uses the signed-in account's directory id."""
+        api, raw = self._write_api_with_server(account_id="DSID-123")
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+
+        api.set_early_reminders(
+            reminder, [EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS)]
+        )
+
+        fields = raw.modify.call_args.kwargs["operations"][0].record.fields
+        payload, _ = _decode_due_date_delta_alerts(
+            base64.b64encode(fields["DueDateDeltaAlertsData"].value).decode("ascii")
+        )
+        assert payload["accountIdentifier"] == "DSID-123"
+        assert reminder.early_reminder_account_id == "DSID-123"
 
     def test_writes_field_and_tokens(self) -> None:
         """The alert payload, token map and local state are all updated."""

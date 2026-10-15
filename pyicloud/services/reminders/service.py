@@ -11,8 +11,7 @@ Public API:
   - RemindersService.create(...)
   - RemindersService.update(reminder) -> None
   - RemindersService.delete(reminder) -> None
-  - RemindersService.set_early_reminders(reminder, alerts,
-    account_identifier=None) -> None
+  - RemindersService.set_early_reminders(reminder, alerts) -> None
   - RemindersService.set_urgent(reminder, enabled, person_id=None) -> None
   - RemindersService.add_location_trigger(reminder, ...) ->
     tuple[Alarm, LocationTrigger]
@@ -117,7 +116,12 @@ class RemindersService(BaseService):
 
         self._mapper = RemindersRecordMapper(get_raw, LOGGER)
         self._reads = RemindersReadAPI(get_raw, self._mapper, LOGGER)
-        self._writes = RemindersWriteAPI(get_raw, self._mapper, LOGGER)
+        self._writes = RemindersWriteAPI(
+            get_raw,
+            self._mapper,
+            LOGGER,
+            account_id=(params or {}).get("dsid"),
+        )
 
     def lists(self) -> Iterable[RemindersList]:
         """
@@ -252,24 +256,19 @@ class RemindersService(BaseService):
         self,
         reminder: Reminder,
         alerts: Sequence[EarlyReminder],
-        *,
-        account_identifier: str | None = None,
     ) -> None:
         """
         Replace a reminder's "Early Reminder" alerts (before the due date).
 
         Apple stores early reminders in the reminder record's
         ``DueDateDeltaAlertsData`` field rather than as alarm records. The
-        per-account ``account_identifier`` is only readable from a reminder
-        the Reminders app already gave an early reminder; read one first (or
-        pass the value) when this is the account's first early reminder. Pass
-        an empty ``alerts`` sequence to remove them all.
+        payload carries a per-account ``accountIdentifier``: a value the
+        Reminders app already wrote is reused, and otherwise the signed-in
+        account's directory id is used, so no extra input is needed even for
+        an account's first early reminder. Pass an empty ``alerts`` sequence
+        to remove them all.
         """
-        self._writes.set_early_reminders(
-            reminder,
-            alerts,
-            account_identifier=account_identifier,
-        )
+        self._writes.set_early_reminders(reminder, alerts)
 
     def set_urgent(
         self,

@@ -245,10 +245,10 @@ Reminders caveats:
   zero-based (`DAILY=0`, `WEEKLY=1`, `MONTHLY=2`, `YEARLY=3`). Earlier releases
   were one-based and wrote every frequency one step late on the wire.
 - Early reminders (`set_early_reminders()`) live in the reminder record's
-  `DueDateDeltaAlertsData` field, not in alarm records. The per-account
-  identifier is only readable from a reminder the Reminders app already gave an
-  early reminder, so read one first (or pass `account_identifier`) when setting
-  the account's first early reminder.
+  `DueDateDeltaAlertsData` field, not in alarm records. The payload carries a
+  per-account identifier: a value the Reminders app already wrote is reused,
+  and otherwise the signed-in account's directory id is used, so no extra
+  input is needed even for an account's first early reminder.
 - Urgent presentation alarms (`set_urgent()`) are best-effort: the checksum
   Apple writes is not reproducible (the algorithm is unknown), so pyicloud
   writes the SHA-512 of the asset bytes in its place. Both the per-account
@@ -298,17 +298,15 @@ _Set early reminders and Urgent alarms:_
 icloud reminders update REMINDER_ID --username you@example.com \
   --early-reminder "3 hours" --early-reminder "1d"
 icloud reminders update REMINDER_ID --username you@example.com \
-  --early-reminder "1 day" --early-reminder-account-id ACCOUNT_ID
-icloud reminders update REMINDER_ID --username you@example.com \
   --clear-early-reminders
 icloud reminders update REMINDER_ID --username you@example.com --urgent
 icloud reminders update REMINDER_ID --username you@example.com --not-urgent
 ```
 
-The account identifier and Urgent person id are per-account and only readable
-from a record the Reminders app itself wrote; set the account's first early
-reminder or Urgent alarm by first reading one such reminder (its JSON output
-carries `early_reminder_account_id` and `urgent.person_id`).
+Early reminders resolve their per-account identifier automatically; the Urgent
+person id, though, is only readable from a record the Reminders app itself
+wrote — to enable Urgent on an account's first reminder, read one such record
+first (its JSON output carries `urgent.person_id`).
 
 _Inspect snapshots and incremental changes:_
 

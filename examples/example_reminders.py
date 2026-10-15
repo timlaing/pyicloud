@@ -1156,17 +1156,11 @@ def main() -> int:  # noqa: S3776
             )
 
         banner("8) Early Reminders and Urgent (wire formats)")
-        # The per-account identifiers are only readable from a record the
+        # Early reminders fall back to the signed-in account's directory id
+        # as the payload account identifier, so no preconditions are needed.
+        # The Urgent person id, though, is only readable from a record the
         # Reminders app wrote itself, so scan existing reminders for one.
         scanned = list(reminders_api.reminders())
-        account_id = next(
-            (
-                r.early_reminder_account_id
-                for r in scanned
-                if r.early_reminder_account_id
-            ),
-            None,
-        )
         person_id = next(
             (r.urgent.person_id for r in scanned if r.urgent and r.urgent.person_id),
             None,
@@ -1179,37 +1173,30 @@ def main() -> int:  # noqa: S3776
                 title="pyicloud early reminder wire check",
             )
             state.created["early-wire"] = early_case
-        if account_id is not None:
-            reminders_api.set_early_reminders(
-                early_case,
-                [
-                    EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS),
-                    EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS),
-                ],
-                account_identifier=account_id,
-            )
-            reread = reminders_api.get(early_case.id)
-            tracker.expect(
-                {(a.count, a.unit) for a in reread.early_reminders}
-                == {
-                    (-3, EarlyReminderUnit.HOURS),
-                    (-1, EarlyReminderUnit.DAYS),
-                },
-                "set_early_reminders() round-trips through DueDateDeltaAlertsData",
-                f"early_reminders={reread.early_reminders}",
-            )
-            reminders_api.set_early_reminders(early_case, [])
-            cleared = reminders_api.get(early_case.id)
-            tracker.expect(
-                cleared.early_reminders == (),
-                "set_early_reminders(()) clears early reminders",
-                f"early_reminders={cleared.early_reminders}",
-            )
-        else:
-            print(
-                "No existing early reminder found on this account; skipping the "
-                "early-reminder write check (create one in the app first)."
-            )
+        reminders_api.set_early_reminders(
+            early_case,
+            [
+                EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS),
+                EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS),
+            ],
+        )
+        reread = reminders_api.get(early_case.id)
+        tracker.expect(
+            {(a.count, a.unit) for a in reread.early_reminders}
+            == {
+                (-3, EarlyReminderUnit.HOURS),
+                (-1, EarlyReminderUnit.DAYS),
+            },
+            "set_early_reminders() round-trips through DueDateDeltaAlertsData",
+            f"early_reminders={reread.early_reminders}",
+        )
+        reminders_api.set_early_reminders(early_case, [])
+        cleared = reminders_api.get(early_case.id)
+        tracker.expect(
+            not cleared.early_reminders,
+            "set_early_reminders(()) clears early reminders",
+            f"early_reminders={cleared.early_reminders}",
+        )
 
         if person_id is not None:
             reminders_api.set_urgent(early_case, True, person_id=person_id)
