@@ -57,6 +57,7 @@ from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthE
 from pyicloud.services.reminders.models import (
     Alarm,
     AlarmWithTrigger,
+    EarlyReminder,
     Hashtag,
     ListRemindersResult,
     LocationTrigger,
@@ -66,6 +67,7 @@ from pyicloud.services.reminders.models import (
     Reminder,
     ReminderChangeEvent,
     RemindersList,
+    UrgentPresentationAlarms,
     URLAttachment,
 )
 
@@ -1109,6 +1111,29 @@ class FakeReminders:
             if row_id != recurrence_rule.id
         ]
         self.recurrence_rows.pop(recurrence_rule.id, None)
+
+    def set_early_reminders(
+        self,
+        reminder: Reminder,
+        alerts: list[EarlyReminder],
+    ) -> None:
+        """Replace the reminder's early reminders."""
+        reminder.early_reminders = tuple(alerts)
+        reminder.early_reminder_account_id = "ACCOUNT-CLI"
+
+    def set_urgent(
+        self,
+        reminder: Reminder,
+        enabled: bool,
+        *,
+        person_id: str | None = None,
+    ) -> None:
+        """Set the reminder's Urgent state."""
+        reminder.urgent = UrgentPresentationAlarms(
+            enabled=enabled,
+            person_id=person_id or "PERSON-CLI",
+            checksum="deadbeef",
+        )
 
     def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
         """Return alarms with triggers for the given reminder."""
@@ -4511,6 +4536,38 @@ def test_reminders_core_commands() -> None:
     assert update_payload["time_zone"] is None
     assert update_payload["parent_reminder_id"] is None
 
+    early_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--early-reminder",
+        "3 hours",
+        "--early-reminder",
+        "1d",
+        "--urgent",
+        output_format="json",
+    )
+    early_payload = json.loads(early_result.stdout)
+    assert early_result.exit_code == 0
+    assert [row["count"] for row in early_payload["early_reminders"]] == [-3, -1]
+    assert [row["unit"] for row in early_payload["early_reminders"]] == [1, 2]
+    assert early_payload["urgent"]["enabled"] is True
+
+    clear_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--clear-early-reminders",
+        "--not-urgent",
+        output_format="json",
+    )
+    clear_payload = json.loads(clear_result.stdout)
+    assert clear_result.exit_code == 0
+    assert clear_payload["early_reminders"] == []
+    assert clear_payload["urgent"]["enabled"] is False
+
     status_result = _invoke(
         fake_api,
         "reminders",
@@ -4813,6 +4870,40 @@ def test_reminders_commands_report_errors() -> None:
     assert update_result.exit_code != 0
     assert update_result.exception is not None
     assert update_result.exception.args[0] == "No reminder updates were requested."
+
+    both_alerts_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--early-reminder",
+        "1 day",
+        "--clear-early-reminders",
+    )
+    assert both_alerts_result.exit_code != 0
+    assert "not both" in both_alerts_result.stderr
+
+    bad_alert_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--early-reminder",
+        "3 weeks",
+    )
+    assert bad_alert_result.exit_code != 0
+    assert "hours or days" in bad_alert_result.stderr
+
+    zero_alert_result = _invoke(
+        fake_api,
+        "reminders",
+        "update",
+        "Reminder/A",
+        "--early-reminder",
+        "0d",
+    )
+    assert zero_alert_result.exit_code != 0
+    assert "must be positive" in zero_alert_result.stderr
 
     hashtag_result = _invoke(
         fake_api,

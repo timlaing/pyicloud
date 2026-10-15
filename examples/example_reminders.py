@@ -15,6 +15,8 @@ Validated API surface:
 - create_url_attachment(...) / update_attachment(...) / delete_attachment(...)
 - create_recurrence_rule(...) / update_recurrence_rule(...) /
   delete_recurrence_rule(...)
+- set_early_reminders(...)
+- set_urgent(...) (skipped unless the account has an app-set Urgent reminder)
 - alarms_for(reminder)
 - tags_for(reminder)
 - attachments_for(reminder)
@@ -43,6 +45,8 @@ from typing import Any, cast
 
 from pyicloud import PyiCloudService
 from pyicloud.services.reminders.models.domain import (
+    EarlyReminder,
+    EarlyReminderUnit,
     Proximity,
     RecurrenceFrequency,
     Reminder,
@@ -1151,7 +1155,71 @@ def main() -> int:  # noqa: S3776
                 fetched_rule,
             )
 
-        banner("8) reminders() + list_reminders() Query Paths")
+        banner("8) Early Reminders and Urgent (wire formats)")
+        # Early reminders fall back to the signed-in account's directory id
+        # as the payload account identifier, so no preconditions are needed.
+        # The Urgent person id, though, is only readable from a record the
+        # Reminders app wrote itself, so scan existing reminders for one.
+        scanned = list(reminders_api.reminders())
+        person_id = next(
+            (r.urgent.person_id for r in scanned if r.urgent and r.urgent.person_id),
+            None,
+        )
+
+        early_case = state.created.get("early-wire")
+        if early_case is None:
+            early_case = reminders_api.create(
+                list_id=target_list.id,
+                title="pyicloud early reminder wire check",
+            )
+            state.created["early-wire"] = early_case
+        reminders_api.set_early_reminders(
+            early_case,
+            [
+                EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS),
+                EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS),
+            ],
+        )
+        reread = reminders_api.get(early_case.id)
+        tracker.expect(
+            {(a.count, a.unit) for a in reread.early_reminders}
+            == {
+                (-3, EarlyReminderUnit.HOURS),
+                (-1, EarlyReminderUnit.DAYS),
+            },
+            "set_early_reminders() round-trips through DueDateDeltaAlertsData",
+            f"early_reminders={reread.early_reminders}",
+        )
+        reminders_api.set_early_reminders(early_case, [])
+        cleared = reminders_api.get(early_case.id)
+        tracker.expect(
+            not cleared.early_reminders,
+            "set_early_reminders(()) clears early reminders",
+            f"early_reminders={cleared.early_reminders}",
+        )
+
+        if person_id is not None:
+            reminders_api.set_urgent(early_case, True, person_id=person_id)
+            urgent_on = reminders_api.get(early_case.id)
+            tracker.expect(
+                urgent_on.urgent is not None and urgent_on.urgent.enabled is True,
+                "set_urgent(True) round-trips the Urgent asset",
+                f"urgent={urgent_on.urgent}",
+            )
+            reminders_api.set_urgent(early_case, False, person_id=person_id)
+            urgent_off = reminders_api.get(early_case.id)
+            tracker.expect(
+                urgent_off.urgent is not None and urgent_off.urgent.enabled is False,
+                "set_urgent(False) disables Urgent",
+                f"urgent={urgent_off.urgent}",
+            )
+        else:
+            print(
+                "No existing Urgent reminder found on this account; skipping the "
+                "Urgent write check (mark one Urgent in the app first)."
+            )
+
+        banner("10) reminders() + list_reminders() Query Paths")
         expected_created_ids = {r.id for r in state.created.values()}
 
         visible_in_list = wait_until(
@@ -1258,7 +1326,7 @@ def main() -> int:  # noqa: S3776
             f"recurrence_rule_id={recurrence_created.id}",
         )
 
-        banner("9) delete() Verification")
+        banner("11) delete() Verification")
         reminders_api.delete(reminders_api.get(delete_candidate.id))
         state.deleted_ids.add(delete_candidate.id)
 
