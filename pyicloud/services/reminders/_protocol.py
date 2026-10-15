@@ -168,8 +168,9 @@ def _decode_due_date_delta_alerts(
     if raw is None:
         return {}, ()
     try:
+        # UnicodeDecodeError is a ValueError; one clause covers both.
         payload = _json.loads(raw.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
+    except ValueError:
         LOGGER.debug("Undecodable DueDateDeltaAlertsData payload")
         return {}, ()
     if not isinstance(payload, dict):

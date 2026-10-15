@@ -1256,11 +1256,10 @@ class TestEarlyReminderWrites:
         """Without a known account, the write refuses with guidance."""
         api, _ = self._write_api_with_server()
         reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+        alert = EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS)
 
         with pytest.raises(ValueError, match="account identifier"):
-            api.set_early_reminders(
-                reminder, [EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS)]
-            )
+            api.set_early_reminders(reminder, [alert])
 
     def test_writes_field_and_tokens(self) -> None:
         """The alert payload, token map and local state are all updated."""
