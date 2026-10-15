@@ -35,6 +35,8 @@ from pyicloud.cli.output import console_kv_table, console_table, format_color_va
 from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
 from pyicloud.services.reminders.models import (
     AlarmWithTrigger,
+    EarlyReminder,
+    EarlyReminderUnit,
     ImageAttachment,
     Proximity,
     RecurrenceFrequency,
@@ -72,6 +74,13 @@ class RecurrenceFrequencyChoice(str, Enum):
     YEARLY = "yearly"
 
 
+class EarlyReminderUnitChoice(str, Enum):
+    """CLI-facing early reminder unit."""
+
+    HOURS = "hours"
+    DAYS = "days"
+
+
 PROXIMITY_MAP = {
     ProximityChoice.ARRIVING: Proximity.ARRIVING,
     ProximityChoice.LEAVING: Proximity.LEAVING,
@@ -81,6 +90,10 @@ RECURRENCE_FREQUENCY_MAP = {
     RecurrenceFrequencyChoice.WEEKLY: RecurrenceFrequency.WEEKLY,
     RecurrenceFrequencyChoice.MONTHLY: RecurrenceFrequency.MONTHLY,
     RecurrenceFrequencyChoice.YEARLY: RecurrenceFrequency.YEARLY,
+}
+EARLY_REMINDER_UNIT_MAP = {
+    EarlyReminderUnitChoice.HOURS: EarlyReminderUnit.HOURS,
+    EarlyReminderUnitChoice.DAYS: EarlyReminderUnit.DAYS,
 }
 
 
@@ -252,6 +265,62 @@ def _frequency_label(frequency: RecurrenceFrequency | None) -> str | None:
     return frequency.name.lower()
 
 
+_EARLY_REMINDER_UNITS = {
+    "h": EarlyReminderUnit.HOURS,
+    "hr": EarlyReminderUnit.HOURS,
+    "hrs": EarlyReminderUnit.HOURS,
+    "hour": EarlyReminderUnit.HOURS,
+    "hours": EarlyReminderUnit.HOURS,
+    "d": EarlyReminderUnit.DAYS,
+    "day": EarlyReminderUnit.DAYS,
+    "days": EarlyReminderUnit.DAYS,
+}
+
+
+def _parse_early_reminder(spec: str) -> EarlyReminder:
+    """Parse an early reminder spec like ``"3 hours"`` or ``"1d"``.
+
+    The count is positive in the spec and stored negative (before the due
+    date), which is the wire shape.
+    """
+    parts = spec.strip().split()
+    if len(parts) == 1 and parts[0][-1:].lower() in _EARLY_REMINDER_UNITS:
+        count_text, unit_text = parts[0][:-1], parts[0][-1:]
+    elif len(parts) == 2:
+        count_text, unit_text = parts
+    else:
+        raise typer.BadParameter(
+            f"Invalid early reminder {spec!r}; expected e.g. '3 hours' or '1d'."
+        )
+    try:
+        count = int(count_text)
+    except ValueError as exc:
+        raise typer.BadParameter(f"Invalid early reminder count in {spec!r}.") from exc
+    if count <= 0:
+        raise typer.BadParameter(f"Early reminder count must be positive, got {count}.")
+    unit = _EARLY_REMINDER_UNITS.get(unit_text.lower())
+    if unit is None:
+        raise typer.BadParameter(
+            f"Invalid early reminder unit in {spec!r}; use hours or days."
+        )
+    return EarlyReminder(count=-count, unit=unit)
+
+
+def _early_reminders_label(reminders: tuple[EarlyReminder, ...]) -> str | None:
+    """Return a human-readable early reminders label."""
+
+    if not reminders:
+        return None
+    return ", ".join(f"{-alert.count} {alert.unit.name.lower()}" for alert in reminders)
+
+
+def _urgent_label(urgent: object) -> str | None:
+    """Return a human-readable Urgent state label."""
+
+    enabled = getattr(urgent, "enabled", False)
+    return "on" if enabled else "off"
+
+
 def _sync_cursor_payload(state: CLIState, cursor: str) -> None:
     """Render a sync cursor in JSON or text mode."""
 
@@ -411,6 +480,8 @@ def reminders_get(
                 ("All Day", reminder.all_day),
                 ("Time Zone", reminder.time_zone),
                 ("Parent Reminder", reminder.parent_reminder_id),
+                ("Early Reminders", _early_reminders_label(reminder.early_reminders)),
+                ("Urgent", _urgent_label(reminder.urgent)),
             ],
         )
     )
@@ -533,6 +604,32 @@ def reminders_update(  # noqa: S3776
         "--clear-parent-reminder",
         help="Clear the parent reminder id.",
     ),
+    early_reminder: list[str] | None = typer.Option(
+        None,
+        "--early-reminder",
+        help=(
+            "Early reminder before the due date, e.g. '3 hours' or '1d'. "
+            "Repeat for several; replaces any existing early reminders."
+        ),
+    ),
+    clear_early_reminders: bool = typer.Option(
+        False,
+        "--clear-early-reminders",
+        help="Remove every early reminder.",
+    ),
+    urgent: bool | None = typer.Option(
+        None,
+        "--urgent/--not-urgent",
+        help="Turn Urgent presentation alarms (iOS 26.2+) on or off.",
+    ),
+    urgent_person_id: str | None = typer.Option(
+        None,
+        "--urgent-person-id",
+        help=(
+            "Per-account Urgent person id, learned from a reminder the "
+            "Reminders app marked Urgent."
+        ),
+    ),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -555,6 +652,11 @@ def reminders_update(  # noqa: S3776
         raise typer.BadParameter(
             "Choose either --parent-reminder-id or --clear-parent-reminder, not both."
         )
+    if early_reminder and clear_early_reminders:
+        raise typer.BadParameter(
+            "Choose either --early-reminder or --clear-early-reminders, not both."
+        )
+    early_alerts = [_parse_early_reminder(spec) for spec in (early_reminder or [])]
 
     store_command_options(
         ctx,
@@ -609,10 +711,25 @@ def reminders_update(  # noqa: S3776
         reminder.parent_reminder_id = None
         changed = True
 
-    if not changed:
+    if (
+        not changed
+        and not early_alerts
+        and not clear_early_reminders
+        and urgent is None
+    ):
         raise CLIAbort("No reminder updates were requested.")
 
-    _reminders_call(api, lambda: reminders.update(reminder))
+    if changed:
+        _reminders_call(api, lambda: reminders.update(reminder))
+    if early_alerts or clear_early_reminders:
+        alerts = [] if clear_early_reminders else early_alerts
+        _reminders_call(api, lambda: reminders.set_early_reminders(reminder, alerts))
+    if urgent is not None:
+        _reminders_call(
+            api,
+            lambda: reminders.set_urgent(reminder, urgent, person_id=urgent_person_id),
+        )
+
     if state.json_output:
         state.write_json(reminder)
         return

@@ -4,6 +4,8 @@ Covers previously-missed transport, zone-error, and response-validation
 branches in ``pyicloud.common.cloudkit.client``.
 """
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 from typing import Any
@@ -391,3 +393,181 @@ def test_query_sync_token_validation_error_raises_api_error() -> None:
         CloudKitApiError, match="Sync token query response validation failed"
     ):
         client.query_sync_token(query=query, zone_id=zone_id)
+
+
+# ---------------------------------------------------------------------------
+# Asset upload (post_bytes + upload_asset)
+# ---------------------------------------------------------------------------
+
+
+def _client_with_posts(*responses: Any) -> tuple[CloudKitContainerClient, MagicMock]:
+    """Build a client whose session.post answers with ``responses`` in order."""
+    session = MagicMock()
+    session.post.side_effect = list(responses)
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    return client, session
+
+
+def test_post_bytes_sends_raw_bytes_with_content_type() -> None:
+    """post_bytes sends the bytes and parses the JSON receipt."""
+    client, session = _client_with_posts(_json_response({"ok": True}))
+
+    result = client._http.post_bytes("https://upload.example.com/x", b"payload")
+
+    assert result == {"ok": True}
+    call = session.post.call_args
+    assert call.args[0] == "https://upload.example.com/x"
+    assert call.kwargs["data"] == b"payload"
+    assert call.kwargs["headers"] == {"Content-Type": "application/octet-stream"}
+
+
+def test_post_bytes_refuses_non_https_url() -> None:
+    """A non-HTTPS upload target is refused before any bytes leave."""
+    client, session = _client_with_posts()
+
+    with pytest.raises(CloudKitApiError, match="non-HTTPS"):
+        client._http.post_bytes("http://upload.example.com/x", b"payload")
+
+    session.post.assert_not_called()
+
+
+def test_post_bytes_auth_error() -> None:
+    """A 401/403 asset POST raises CloudKitAuthError."""
+    client, _ = _client_with_posts(_json_response({}, status_code=401))
+
+    with pytest.raises(CloudKitAuthError, match="HTTP 401"):
+        client._http.post_bytes("https://upload.example.com/x", b"payload")
+
+
+def test_post_bytes_rate_limited() -> None:
+    """A 429 asset POST raises CloudKitRateLimited with retry_after."""
+    client, _ = _client_with_posts(
+        _json_response({}, status_code=429, headers={"Retry-After": "3"})
+    )
+
+    with pytest.raises(CloudKitRateLimited) as exc_info:
+        client._http.post_bytes("https://upload.example.com/x", b"payload")
+
+    assert exc_info.value.retry_after == 3.0
+
+
+def test_post_bytes_http_error() -> None:
+    """A >=400 asset POST raises CloudKitApiError with the response text."""
+    client, _ = _client_with_posts(_json_response({}, status_code=500, text="boom"))
+
+    with pytest.raises(CloudKitApiError, match="HTTP 500 on asset POST"):
+        client._http.post_bytes("https://upload.example.com/x", b"payload")
+
+
+def test_post_bytes_invalid_json() -> None:
+    """A non-JSON asset POST response raises CloudKitApiError."""
+    response = MagicMock(status_code=200)
+    response.json.side_effect = ValueError("no json")
+    response.text = "<html>"
+    client, _ = _client_with_posts(response)
+
+    with pytest.raises(CloudKitApiError, match="Invalid asset upload response"):
+        client._http.post_bytes("https://upload.example.com/x", b"payload")
+
+
+def test_upload_asset_happy_path() -> None:
+    """upload_asset reserves a URL, sends bytes and returns the receipt."""
+    client, session = _client_with_posts(
+        _json_response({"tokens": [{"url": "https://upload.example.com/a"}]}),
+        _json_response({
+            "singleFile": {
+                "fileChecksum": "fsum",
+                "referenceChecksum": "reference-checksum",
+                "size": 12,
+            }
+        }),
+    )
+    zone_id = CKZoneIDReq(zoneName="Reminders", zoneType="REGULAR_CUSTOM_ZONE")
+
+    token = client.upload_asset(
+        record_type="Reminder",
+        field_name="UrgentPresentationAlarmsAsData",
+        record_name="Reminder/R-1",
+        data=b"{}",
+        zone_id=zone_id,
+    )
+
+    assert token.fileChecksum == "fsum"
+    assert token.referenceChecksum == "reference-checksum"
+    assert token.size == 12
+    token_request = session.post.call_args_list[0]
+    assert token_request.args[0] == "https://example.com/database/assets/upload"
+    assert token_request.kwargs["json"]["tokens"] == [
+        {
+            "recordType": "Reminder",
+            "fieldName": "UrgentPresentationAlarmsAsData",
+            "recordName": "Reminder/R-1",
+        }
+    ]
+    assert session.post.call_args_list[1].kwargs["data"] == b"{}"
+
+
+def test_upload_asset_missing_url_raises() -> None:
+    """A token response without a URL raises CloudKitApiError."""
+    client, _ = _client_with_posts(_json_response({"tokens": []}))
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(CloudKitApiError, match="did not include a URL"):
+        client.upload_asset(
+            record_type="Reminder",
+            field_name="F",
+            record_name="Reminder/R-1",
+            data=b"{}",
+            zone_id=zone_id,
+        )
+
+
+def test_upload_asset_url_must_be_a_string() -> None:
+    """A token entry whose url is not a string is rejected."""
+    client, _ = _client_with_posts(_json_response({"tokens": [{"url": 7}]}))
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(CloudKitApiError, match="did not include a URL"):
+        client.upload_asset(
+            record_type="Reminder",
+            field_name="F",
+            record_name="Reminder/R-1",
+            data=b"{}",
+            zone_id=zone_id,
+        )
+
+
+def test_upload_asset_missing_single_file_raises() -> None:
+    """An upload response without singleFile raises CloudKitApiError."""
+    client, _ = _client_with_posts(
+        _json_response({"tokens": [{"url": "https://upload.example.com/a"}]}),
+        _json_response({"receipt": "nope"}),
+    )
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(CloudKitApiError, match="did not include singleFile"):
+        client.upload_asset(
+            record_type="Reminder",
+            field_name="F",
+            record_name="Reminder/R-1",
+            data=b"{}",
+            zone_id=zone_id,
+        )
+
+
+def test_upload_asset_invalid_receipt_raises() -> None:
+    """A malformed singleFile receipt raises CloudKitApiError."""
+    client, _ = _client_with_posts(
+        _json_response({"tokens": [{"url": "https://upload.example.com/a"}]}),
+        _json_response({"singleFile": {"size": "not-an-int"}}),
+    )
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(CloudKitApiError, match="receipt validation failed"):
+        client.upload_asset(
+            record_type="Reminder",
+            field_name="F",
+            record_name="Reminder/R-1",
+            data=b"{}",
+            zone_id=zone_id,
+        )

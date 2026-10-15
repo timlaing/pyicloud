@@ -16,6 +16,8 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+import pytest
+import typer
 from typer.testing import CliRunner, Result
 
 from pyicloud.cli.app import app
@@ -24,9 +26,12 @@ from pyicloud.cli.commands import reminders as reminders_cmd
 from pyicloud.services.notes.models import Note
 from pyicloud.services.photos import PhotoSyncOptions, PhotoSyncResult
 from pyicloud.services.reminders.models import (
+    EarlyReminder,
+    EarlyReminderUnit,
     ImageAttachment,
     ListRemindersResult,
     RemindersList,
+    UrgentPresentationAlarms,
 )
 from tests.test_cmdline import (
     TEST_ROOT,
@@ -161,6 +166,25 @@ def test_reminders_helper_branches() -> None:
 
     assert reminders_cmd._proximity_label(None) is None
     assert reminders_cmd._frequency_label(None) is None
+
+    assert reminders_cmd._early_reminders_label(()) is None
+    assert (
+        reminders_cmd._early_reminders_label((
+            EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS),
+        ))
+        == "3 hours"
+    )
+    assert reminders_cmd._urgent_label(None) == "off"
+    assert reminders_cmd._urgent_label(UrgentPresentationAlarms(enabled=True)) == "on"
+
+    shorthand = reminders_cmd._parse_early_reminder("2h")
+    assert shorthand.count == -2
+    assert shorthand.unit == EarlyReminderUnit.HOURS
+
+    with pytest.raises(typer.BadParameter, match="expected e.g."):
+        reminders_cmd._parse_early_reminder("before")
+    with pytest.raises(typer.BadParameter, match="count"):
+        reminders_cmd._parse_early_reminder("many hours")
 
     image = ImageAttachment(
         id="Attachment/IMG",

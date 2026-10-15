@@ -11,16 +11,22 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Changed
 
 - Publish pushes to `main` to TestPyPI using the `test` GitHub environment, alongside prereleases; stable releases continue to publish to PyPI
+- **Breaking:** `RecurrenceFrequency` is now zero-based (`DAILY=0` ... `YEARLY=3`) to mirror Apple's wire encoding, so `int(frequency)` is the value stored in `RecurrenceRule.Frequency` and the value read back (#419)
 
 ### Added
 
 - Accept an optional `event` in `PyiCloudService.confirm_security_key()` so callers can stop waiting for a security key touch
+- Add `RemindersService.set_early_reminders()` for the "Early Reminder" setting (hours/days before the due date), stored in the reminder record's `DueDateDeltaAlertsData` field; the payload's account identifier is taken from an existing app-written payload or, by default, the signed-in account's directory id. `Reminder` now carries `early_reminders` (#419)
+- Add `RemindersService.set_urgent()` for Urgent presentation alarms (iOS 26.2+), with a generic CloudKit asset upload (`assets/upload` token request plus content upload) shared by the container client; `Reminder` now carries `urgent` (#419)
+- Add `icloud reminders update --early-reminder` / `--clear-early-reminders` and `--urgent/--not-urgent` options (#419)
 
 ### Fixed
 
 - Raise a `PyiCloudException` from `PyiCloudService.confirm_security_key()` instead of leaking a non-pyiCloud error: `PyiCloudSecurityKeyTimeoutException` when the wait is aborted through the cancel event, and `PyiCloudSecurityKeyException` for a missing FIDO2 device or any other failure of the security key ceremony (the fido2 error, where there is one, is chained as `__cause__`)
 - Write Reminder title and notes changes as CRDT edits on top of the server document, so Apple devices show them instead of keeping (and later restoring) the old text, and bump the field resolution counters instead of resetting them (#421). A title or notes text is only written when the caller changed it since the reminder was read, so updating another field on an older object no longer reverts a text edited on a device
 - Edit title and notes documents that are wrapped in a bare CloudKit `Version`, as well as those in a `Document`, and raise on a stored copy whose structure cannot be edited instead of replacing it
+- Reminders recurrence rules now map to the correct frequency on the wire: a weekly rule was stored (and shown in the app) as monthly, and a daily rule could not be created at all (#419)
+- An explicit `RecurrenceFrequency.DAILY` is no longer dropped by `update_recurrence_rule()` in favour of the rule's current frequency (#419)
 - Store a time zone with timed Reminder due dates created without `time_zone` (the `ZoneInfo` name, or `UTC` for naive and UTC values), so Apple devices no longer show the UTC clock time as local time; a reminder created from a naive or UTC due date now displays at its true local time rather than the literal clock time. `update()` fills in the zone of a `ZoneInfo` due date (#422)
 
 ## [2026.10.0] - 2026-10-12

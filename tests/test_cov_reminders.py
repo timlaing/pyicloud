@@ -15,6 +15,8 @@ the network or the filesystem.
 
 import base64
 from datetime import datetime, timezone
+import hashlib
+import json
 import logging
 import plistlib
 from types import SimpleNamespace
@@ -24,6 +26,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from pyicloud.common.cloudkit import (
+    CKAssetToken,
     CKModifyResponse,
     CKQueryObject,
     CKQueryResponse,
@@ -47,7 +50,11 @@ from pyicloud.services.reminders._protocol import (
     _decode_attachment_url,
     _decode_cloudkit_text_value,
     _decode_crdt_document,
+    _decode_due_date_delta_alerts,
     _decode_nsdatecomponents,
+    _decode_urgent_presentation_alarms,
+    _encode_due_date_delta_alerts,
+    _encode_urgent_presentation_alarms,
     _looks_like_url,
 )
 from pyicloud.services.reminders._reads import RemindersReadAPI
@@ -59,6 +66,8 @@ from pyicloud.services.reminders.client import (
 )
 from pyicloud.services.reminders.models import (
     DateComponents,
+    EarlyReminder,
+    EarlyReminderUnit,
     Hashtag,
     ImageAttachment,
     ListRemindersResult,
@@ -66,6 +75,7 @@ from pyicloud.services.reminders.models import (
     RecurrenceRule,
     Reminder,
     RemindersList,
+    UrgentPresentationAlarms,
     URLAttachment,
 )
 from pyicloud.services.reminders.protobuf import reminders_pb2
@@ -117,11 +127,17 @@ def _read_api() -> tuple[RemindersReadAPI, MagicMock]:
     return RemindersReadAPI(lambda: raw, mapper, LOGGER), raw
 
 
-def _write_api() -> tuple[RemindersWriteAPI, MagicMock]:
+def _write_api(
+    *,
+    account_id: str | None = None,
+) -> tuple[RemindersWriteAPI, MagicMock]:
     """Return a write API backed by a fully-mocked raw CloudKit client."""
     raw = MagicMock()
     mapper = MagicMock()
-    return RemindersWriteAPI(lambda: raw, mapper, LOGGER), raw
+    return (
+        RemindersWriteAPI(lambda: raw, mapper, LOGGER, account_id=account_id),
+        raw,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +551,7 @@ class TestRemindersWritesBranches:
         assert rule.frequency == RecurrenceFrequency.DAILY
         assert rule.first_day_of_week == 1
         fields = raw.modify.call_args.kwargs["operations"][0].record.fields
-        assert fields["Frequency"].value == 1
+        assert fields["Frequency"].value == 0
         assert fields["FirstDayOfTheWeek"].value == 1
         assert "Interval" not in fields
         assert "OccurrenceCount" not in fields
@@ -1000,3 +1016,660 @@ class TestRemindersProtocolBranches:
         result = _decode_crdt_document(value.SerializeToString())
 
         assert result == "legacy"
+
+
+# ---------------------------------------------------------------------------
+# Recurrence frequency — wire values are zero-based (#419)
+# ---------------------------------------------------------------------------
+
+
+class TestRecurrenceFrequencyWireValues:
+    """``RecurrenceFrequency`` mirrors Apple's zero-based wire encoding."""
+
+    @staticmethod
+    def _rule_record(frequency: int | None) -> CKRecord:
+        fields: dict[str, Any] = {"Interval": {"type": "INT64", "value": 1}}
+        if frequency is not None:
+            fields["Frequency"] = {"type": "INT64", "value": frequency}
+        return _ck_record("RecurrenceRule", "RecurrenceRule/RR-1", fields)
+
+    def test_wire_values_map_to_frequencies(self) -> None:
+        """0..3 are daily, weekly, monthly and yearly on the wire."""
+        mapper = RemindersRecordMapper(MagicMock, LOGGER)
+        for wire, expected in (
+            (0, RecurrenceFrequency.DAILY),
+            (1, RecurrenceFrequency.WEEKLY),
+            (2, RecurrenceFrequency.MONTHLY),
+            (3, RecurrenceFrequency.YEARLY),
+        ):
+            rule = mapper.record_to_recurrence_rule(self._rule_record(wire))
+            assert rule.frequency == expected
+
+    def test_missing_frequency_defaults_to_daily(self) -> None:
+        """A rule without a Frequency field reads as daily, not weekly."""
+        mapper = RemindersRecordMapper(MagicMock, LOGGER)
+
+        rule = mapper.record_to_recurrence_rule(self._rule_record(None))
+
+        assert rule.frequency == RecurrenceFrequency.DAILY
+
+    def test_daily_rule_writes_wire_zero(self) -> None:
+        """A daily rule writes Frequency=0 rather than dropping the update."""
+        api, raw = _write_api()
+        raw.modify.return_value = CKModifyResponse(records=[], syncToken="tok")
+        rule = RecurrenceRule(
+            id="RecurrenceRule/RR-X",
+            reminder_id="",
+            frequency=RecurrenceFrequency.WEEKLY,
+            record_change_tag="ctag",
+        )
+
+        api.update_recurrence_rule(rule, frequency=RecurrenceFrequency.DAILY)
+
+        fields = raw.modify.call_args.kwargs["operations"][0].record.fields
+        assert fields["Frequency"].value == 0
+
+    def test_create_writes_wire_values(self) -> None:
+        """create_recurrence_rule writes int(frequency), the wire value."""
+        api, raw = _write_api()
+        raw.modify.return_value = CKModifyResponse(records=[], syncToken="tok")
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+
+        api.create_recurrence_rule(reminder, frequency=RecurrenceFrequency.YEARLY)
+
+        create_ops = raw.modify.call_args.kwargs["operations"]
+        assert create_ops[1].record.fields["Frequency"].value == 3
+
+
+# ---------------------------------------------------------------------------
+# Early reminders — DueDateDeltaAlertsData (#419)
+# ---------------------------------------------------------------------------
+
+
+def _early_alerts_payload(**overrides: Any) -> dict[str, Any]:
+    """Build the JSON Apple stores in DueDateDeltaAlertsData."""
+    payload: dict[str, Any] = {
+        "reminderIdentifier": "Reminder/R-1",
+        "dueDateDeltaAlerts": [
+            {
+                "dueDateDeltaCount": -3,
+                "dueDateDeltaUnit": 1,
+                "identifier": "ALERT-1",
+                "creationDate": 813646978.64,
+                "minimumSupportedAppVersion": 0,
+            }
+        ],
+        "accountIdentifier": "ACCOUNT-1",
+        "minimumSupportedVersion": 20230430,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _encode_payload_field(payload: Any) -> dict[str, str]:
+    """Encode a payload as the ENCRYPTED_BYTES wire field CloudKit carries."""
+    text = payload if isinstance(payload, str) else json.dumps(payload)
+    return {
+        "type": "ENCRYPTED_BYTES",
+        "value": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+    }
+
+
+class TestEarlyReminderCodecs:
+    """The DueDateDeltaAlertsData payload round-trips as base64 JSON."""
+
+    def test_round_trip(self) -> None:
+        """Encoded alerts decode back to the same domain values."""
+        field = _encode_due_date_delta_alerts(
+            reminder_identifier="Reminder/R-1",
+            account_identifier="ACCOUNT-1",
+            alerts=[
+                EarlyReminder(
+                    count=-3,
+                    unit=EarlyReminderUnit.HOURS,
+                    identifier="ALERT-1",
+                )
+            ],
+        )
+
+        payload, alerts = _decode_due_date_delta_alerts(field["value"])
+
+        assert payload["accountIdentifier"] == "ACCOUNT-1"
+        assert payload["reminderIdentifier"] == "Reminder/R-1"
+        assert len(alerts) == 1
+        assert alerts[0].count == -3
+        assert alerts[0].unit == EarlyReminderUnit.HOURS
+        assert alerts[0].identifier == "ALERT-1"
+        assert alerts[0].creation_date is not None
+
+    def test_decode_accepts_bytes_str_and_none(self) -> None:
+        """The decoder accepts the shapes the field can arrive in.
+
+        On the wire CloudKit hands the field over already base64-decoded as
+        bytes; a ``str`` value is still base64 text.
+        """
+        payload = _early_alerts_payload()
+        raw = json.dumps(payload).encode("utf-8")
+        encoded = base64.b64encode(raw).decode("ascii")
+
+        from_bytes, _ = _decode_due_date_delta_alerts(raw)
+        from_b64, _ = _decode_due_date_delta_alerts(encoded)
+
+        assert from_bytes["accountIdentifier"] == "ACCOUNT-1"
+        assert from_b64["accountIdentifier"] == "ACCOUNT-1"
+
+    def test_undecodable_payload_is_not_fatal(self) -> None:
+        """Garbage in the field yields no alerts instead of raising."""
+        assert _decode_due_date_delta_alerts(b"\xff\xfe not json") == ({}, ())
+        assert _decode_due_date_delta_alerts(json.dumps([1, 2])) == ({}, ())
+        assert _decode_due_date_delta_alerts(None) == ({}, ())
+
+    def test_malformed_alert_entries_are_skipped(self) -> None:
+        """Entries missing usable values do not fail the whole payload."""
+        payload = _early_alerts_payload(
+            dueDateDeltaAlerts=[
+                {"dueDateDeltaCount": -1, "dueDateDeltaUnit": 1},
+                {"dueDateDeltaCount": -2, "dueDateDeltaUnit": 99},
+                "not-a-dict",
+            ]
+        )
+
+        _, alerts = _decode_due_date_delta_alerts(
+            _encode_payload_field(payload)["value"]
+        )
+
+        assert [alert.count for alert in alerts] == [-1]
+
+    def test_positive_counts_are_normalised(self) -> None:
+        """A stray positive count is stored as before-the-due-date."""
+        payload = _early_alerts_payload(
+            dueDateDeltaAlerts=[{"dueDateDeltaCount": 3, "dueDateDeltaUnit": 2}]
+        )
+
+        _, alerts = _decode_due_date_delta_alerts(
+            _encode_payload_field(payload)["value"]
+        )
+
+        assert alerts[0].count == -3
+        assert alerts[0].unit == EarlyReminderUnit.DAYS
+
+
+class TestEarlyReminderReads:
+    """The mapper surfaces early reminders from a reminder record."""
+
+    @staticmethod
+    def _mapper() -> RemindersRecordMapper:
+        return RemindersRecordMapper(MagicMock, LOGGER)
+
+    def test_early_reminders_from_record(self) -> None:
+        """A DueDateDeltaAlertsData field decodes into the domain model."""
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {"DueDateDeltaAlertsData": _encode_payload_field(_early_alerts_payload())},
+        )
+
+        reminder = self._mapper().record_to_reminder(rec)
+
+        assert reminder.early_reminders == (
+            EarlyReminder(
+                count=-3,
+                unit=EarlyReminderUnit.HOURS,
+                identifier="ALERT-1",
+                creation_date=813646978.64,
+            ),
+        )
+        assert reminder.early_reminder_account_id == "ACCOUNT-1"
+
+    def test_no_field_means_no_early_reminders(self) -> None:
+        """A reminder without the field has no alerts and no account id."""
+        rec = _ck_record("Reminder", "Reminder/R-1", {})
+
+        reminder = self._mapper().record_to_reminder(rec)
+
+        assert not reminder.early_reminders
+        assert reminder.early_reminder_account_id is None
+
+    def test_undecodable_field_is_not_fatal(self) -> None:
+        """An unreadable payload leaves the reminder readable."""
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {"DueDateDeltaAlertsData": _encode_payload_field("not json {")},
+        )
+
+        reminder = self._mapper().record_to_reminder(rec)
+
+        assert not reminder.early_reminders
+
+
+class TestEarlyReminderWrites:
+    """set_early_reminders writes the field with a merged token map."""
+
+    @staticmethod
+    def _write_api_with_server(
+        server_fields: dict[str, Any] | None = None,
+        *,
+        account_id: str | None = None,
+    ) -> tuple[RemindersWriteAPI, MagicMock]:
+        api, raw = _write_api(account_id=account_id)
+        raw.modify.return_value = CKModifyResponse(records=[], syncToken="tok")
+        records: list[Any] = []
+        if server_fields is not None:
+            records.append(_ck_record("Reminder", "Reminder/R-1", server_fields))
+        raw.lookup.return_value = MagicMock(records=records)
+        return api, raw
+
+    def test_requires_an_account_identifier(self) -> None:
+        """Without a signed-in account or learned payload, the write refuses."""
+        api, _ = self._write_api_with_server()
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+        alert = EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS)
+
+        with pytest.raises(ValueError, match="account identifier"):
+            api.set_early_reminders(reminder, [alert])
+
+    def test_falls_back_to_signed_in_account(self) -> None:
+        """A fresh reminder uses the signed-in account's directory id."""
+        api, raw = self._write_api_with_server(account_id="DSID-123")
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+
+        api.set_early_reminders(
+            reminder, [EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS)]
+        )
+
+        fields = raw.modify.call_args.kwargs["operations"][0].record.fields
+        payload, _ = _decode_due_date_delta_alerts(
+            base64.b64encode(fields["DueDateDeltaAlertsData"].value).decode("ascii")
+        )
+        assert payload["accountIdentifier"] == "DSID-123"
+        assert reminder.early_reminder_account_id == "DSID-123"
+
+    def test_writes_field_and_tokens(self) -> None:
+        """The alert payload, token map and local state are all updated."""
+        server_map = json.dumps({
+            "map": {"dueDate": {"counter": 4, "modificationTime": 1.0}}
+        })
+        api, raw = self._write_api_with_server({
+            "ResolutionTokenMap": {"type": "STRING", "value": server_map},
+        })
+        reminder = Reminder(
+            id="Reminder/R-1",
+            list_id="List/L-1",
+            title="t",
+            record_change_tag="ctag",
+            early_reminder_account_id="ACCOUNT-1",
+        )
+
+        api.set_early_reminders(
+            reminder, [EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS)]
+        )
+
+        fields = raw.modify.call_args.kwargs["operations"][0].record.fields
+        payload, alerts = _decode_due_date_delta_alerts(
+            base64.b64encode(fields["DueDateDeltaAlertsData"].value).decode("ascii")
+        )
+        assert payload["accountIdentifier"] == "ACCOUNT-1"
+        assert alerts[0].count == -1
+        assert alerts[0].unit == EarlyReminderUnit.DAYS
+        tokens = json.loads(fields["ResolutionTokenMap"].value)["map"]
+        assert tokens["dueDateDeltaAlertsData"]["counter"] == 1
+        assert tokens["lastModifiedDate"]["counter"] == 1
+        assert tokens["dueDate"]["counter"] == 4  # untouched tokens survive
+        assert reminder.early_reminders
+        assert reminder.early_reminder_account_id == "ACCOUNT-1"
+
+    def test_reuses_existing_alert_metadata(self) -> None:
+        """A replacement alert keeps the app's identifier and creation date."""
+        api, raw = self._write_api_with_server({
+            "DueDateDeltaAlertsData": _encode_payload_field(_early_alerts_payload()),
+        })
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+
+        api.set_early_reminders(
+            reminder, [EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS)]
+        )
+
+        fields = raw.modify.call_args.kwargs["operations"][0].record.fields
+        _, alerts = _decode_due_date_delta_alerts(
+            base64.b64encode(fields["DueDateDeltaAlertsData"].value).decode("ascii")
+        )
+        assert alerts[0].identifier == "ALERT-1"
+        assert alerts[0].creation_date == 813646978.64
+        assert reminder.early_reminder_account_id == "ACCOUNT-1"
+
+    def test_empty_alerts_clear_the_field(self) -> None:
+        """Passing no alerts removes them while keeping the account id."""
+        api, raw = self._write_api_with_server({
+            "DueDateDeltaAlertsData": _encode_payload_field(_early_alerts_payload()),
+        })
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+
+        api.set_early_reminders(reminder, [])
+
+        fields = raw.modify.call_args.kwargs["operations"][0].record.fields
+        payload, alerts = _decode_due_date_delta_alerts(
+            base64.b64encode(fields["DueDateDeltaAlertsData"].value).decode("ascii")
+        )
+        assert not alerts
+        assert payload["accountIdentifier"] == "ACCOUNT-1"
+        assert not reminder.early_reminders
+
+
+# ---------------------------------------------------------------------------
+# Urgent presentation alarms (#419)
+# ---------------------------------------------------------------------------
+
+
+class TestUrgentCodecs:
+    """The Urgent asset document round-trips."""
+
+    def test_round_trip(self) -> None:
+        """An encoded asset decodes back to the same state."""
+        data = _encode_urgent_presentation_alarms(
+            enabled=True, person_id="PERSON-1", modified_on=123.5
+        )
+
+        decoded = _decode_urgent_presentation_alarms(data)
+
+        assert decoded.enabled is True
+        assert decoded.person_id == "PERSON-1"
+        assert decoded.modified_on == 123.5
+        assert decoded.minimum_supported_version == 20251103
+
+    def test_disabled_asset(self) -> None:
+        """A disabled asset decodes with enabled False."""
+        data = _encode_urgent_presentation_alarms(enabled=False, person_id="PERSON-1")
+
+        assert _decode_urgent_presentation_alarms(data).enabled is False
+
+    def test_non_object_payload_raises(self) -> None:
+        """A JSON payload that is not an object is rejected."""
+        with pytest.raises(ValueError, match="not a JSON object"):
+            _decode_urgent_presentation_alarms(b"[1, 2, 3]")
+
+    def test_missing_account_entry(self) -> None:
+        """An asset without an account entry decodes as disabled."""
+        data = json.dumps({"minimumSupportedVersion": 1}).encode("utf-8")
+
+        decoded = _decode_urgent_presentation_alarms(data)
+
+        assert decoded.enabled is False
+        assert decoded.person_id is None
+        assert decoded.minimum_supported_version == 1
+
+
+class TestUrgentReads:
+    """The mapper surfaces Urgent state from a reminder record."""
+
+    @staticmethod
+    def _mapper(raw: MagicMock | None = None) -> RemindersRecordMapper:
+        return RemindersRecordMapper(lambda: raw or MagicMock(), LOGGER)
+
+    def test_urgent_from_inline_asset(self) -> None:
+        """An asset carrying its bytes decodes without a download."""
+        asset = CKAssetToken.model_validate({
+            "fileChecksum": "sum",
+            "downloadedData": base64.b64encode(
+                _encode_urgent_presentation_alarms(enabled=True, person_id="PERSON-1")
+            ).decode("ascii"),
+        })
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {
+                "UrgentPresentationAlarmsAsData": {
+                    "type": "ASSETID",
+                    "value": asset.model_dump(mode="json", exclude_none=True),
+                },
+                "UrgentPresentationAlarmsChecksum": {
+                    "type": "STRING",
+                    "value": "abc123",
+                    "isEncrypted": True,
+                },
+            },
+        )
+
+        reminder = self._mapper().record_to_reminder(rec)
+
+        assert reminder.urgent is not None
+        assert reminder.urgent.enabled is True
+        assert reminder.urgent.person_id == "PERSON-1"
+        assert reminder.urgent.checksum == "abc123"
+
+    def test_urgent_from_download_url(self) -> None:
+        """An asset with only a URL is downloaded before decoding."""
+        raw = MagicMock()
+        raw.download_asset_bytes.return_value = _encode_urgent_presentation_alarms(
+            enabled=True, person_id="PERSON-1"
+        )
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {
+                "UrgentPresentationAlarmsAsData": {
+                    "type": "ASSETID",
+                    "value": {"downloadURL": "https://example.com/urgent"},
+                },
+            },
+        )
+
+        reminder = self._mapper(raw).record_to_reminder(rec)
+
+        assert reminder.urgent is not None
+        assert reminder.urgent.enabled is True
+        raw.download_asset_bytes.assert_called_once_with("https://example.com/urgent")
+
+    def test_asset_without_data_or_url(self) -> None:
+        """An asset with neither bytes nor a URL degrades to the checksum."""
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {
+                "UrgentPresentationAlarmsAsData": {
+                    "type": "ASSETID",
+                    "value": {"fileChecksum": "sum"},
+                },
+                "UrgentPresentationAlarmsChecksum": {
+                    "type": "STRING",
+                    "value": "abc",
+                    "isEncrypted": True,
+                },
+            },
+        )
+
+        reminder = self._mapper().record_to_reminder(rec)
+
+        assert reminder.urgent is not None
+        assert reminder.urgent.enabled is False
+        assert reminder.urgent.checksum == "abc"
+
+    def test_undecodable_asset_degrades_to_checksum(self) -> None:
+        """Garbage in the asset keeps the reminder readable."""
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {
+                "UrgentPresentationAlarmsAsData": {
+                    "type": "ASSETID",
+                    "value": {
+                        "downloadedData": base64.b64encode(b"not json").decode("ascii")
+                    },
+                },
+                "UrgentPresentationAlarmsChecksum": {
+                    "type": "STRING",
+                    "value": "abc",
+                    "isEncrypted": True,
+                },
+            },
+        )
+
+        reminder = self._mapper().record_to_reminder(rec)
+
+        assert reminder.urgent is not None
+        assert reminder.urgent.checksum == "abc"
+
+    def test_download_failure_degrades_to_checksum(self) -> None:
+        """A failed asset download keeps the reminder readable."""
+        raw = MagicMock()
+        raw.download_asset_bytes.side_effect = RemindersApiError("HTTP 404")
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {
+                "UrgentPresentationAlarmsAsData": {
+                    "type": "ASSETID",
+                    "value": {"downloadURL": "https://example.com/urgent"},
+                },
+                "UrgentPresentationAlarmsChecksum": {
+                    "type": "STRING",
+                    "value": "abc",
+                    "isEncrypted": True,
+                },
+            },
+        )
+
+        reminder = self._mapper(raw).record_to_reminder(rec)
+
+        assert reminder.urgent is not None
+        assert reminder.urgent.enabled is False
+        assert reminder.urgent.checksum == "abc"
+
+    def test_no_urgent_fields(self) -> None:
+        """A reminder without Urgent fields has urgent None."""
+        rec = _ck_record("Reminder", "Reminder/R-1", {})
+
+        assert self._mapper().record_to_reminder(rec).urgent is None
+
+    def test_checksum_without_asset(self) -> None:
+        """A checksum alone still surfaces as (disabled) Urgent state."""
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {
+                "UrgentPresentationAlarmsChecksum": {
+                    "type": "STRING",
+                    "value": "abc",
+                    "isEncrypted": True,
+                },
+            },
+        )
+
+        reminder = self._mapper().record_to_reminder(rec)
+
+        assert reminder.urgent is not None
+        assert reminder.urgent.checksum == "abc"
+
+
+class TestUrgentWrites:
+    """set_urgent uploads the asset and writes both fields."""
+
+    def test_requires_person_id(self) -> None:
+        """Without a known person id, the write refuses with guidance."""
+        api, _ = _write_api()
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+
+        with pytest.raises(ValueError, match="person id"):
+            api.set_urgent(reminder, True)
+
+    def test_uploads_asset_and_writes_fields(self) -> None:
+        """The asset upload, checksum and token map are all wired up."""
+        api, raw = _write_api()
+        raw.modify.return_value = CKModifyResponse(records=[], syncToken="tok")
+        raw.lookup.return_value = MagicMock(records=[])
+        raw.upload_asset.return_value = CKAssetToken(
+            fileChecksum="fsum", referenceChecksum="reference-checksum", size=12
+        )
+        reminder = Reminder(
+            id="Reminder/R-1", list_id="List/L-1", title="t", record_change_tag="ctag"
+        )
+
+        api.set_urgent(reminder, True, person_id="PERSON-1")
+
+        upload = raw.upload_asset.call_args.kwargs
+        assert upload["record_type"] == "Reminder"
+        assert upload["field_name"] == "UrgentPresentationAlarmsAsData"
+        assert upload["record_name"] == "Reminder/R-1"
+        asset_payload = _decode_urgent_presentation_alarms(upload["data"])
+        assert asset_payload.enabled is True
+        assert asset_payload.person_id == "PERSON-1"
+
+        fields = raw.modify.call_args.kwargs["operations"][0].record.fields
+        assert fields["UrgentPresentationAlarmsAsData"].value.fileChecksum == "fsum"
+        expected_checksum = hashlib.sha512(upload["data"]).hexdigest()
+        assert fields["UrgentPresentationAlarmsChecksum"].value == expected_checksum
+        assert fields["UrgentPresentationAlarmsChecksum"].unwrap().isEncrypted is True
+        tokens = json.loads(fields["ResolutionTokenMap"].value)["map"]
+        assert "urgentPresentationAlarmsAsData" in tokens
+        assert "urgentPresentationAlarmsChecksum" in tokens
+        assert "lastModifiedDate" in tokens
+
+        assert reminder.urgent is not None
+        assert reminder.urgent.enabled is True
+        assert reminder.urgent.person_id == "PERSON-1"
+        assert reminder.urgent.checksum == expected_checksum
+
+    def test_person_id_learned_from_reminder(self) -> None:
+        """A known person id on the reminder does not need passing again."""
+        api, raw = _write_api()
+        raw.modify.return_value = CKModifyResponse(records=[], syncToken="tok")
+        raw.lookup.return_value = MagicMock(records=[])
+        raw.upload_asset.return_value = CKAssetToken()
+        reminder = Reminder(
+            id="Reminder/R-1",
+            list_id="List/L-1",
+            title="t",
+            urgent=UrgentPresentationAlarms(enabled=True, person_id="PERSON-1"),
+        )
+
+        api.set_urgent(reminder, False)
+
+        assert raw.upload_asset.called
+        assert reminder.urgent is not None
+        assert reminder.urgent.enabled is False
+        assert reminder.urgent.person_id == "PERSON-1"
+
+
+class TestRemindersClientUploadAsset:
+    """The Reminders client surfaces upload_asset with error translation."""
+
+    @staticmethod
+    def _client() -> tuple[CloudKitRemindersClient, MagicMock]:
+        client = CloudKitRemindersClient(
+            "https://ckdatabasews.icloud.com",
+            MagicMock(),
+            {},
+        )
+        inner = MagicMock()
+        client._client = cast(Any, inner)
+        return client, inner
+
+    def test_success(self) -> None:
+        """The token from the inner client is returned unchanged."""
+        client, inner = self._client()
+        token = CKAssetToken(fileChecksum="sum")
+        inner.upload_asset.return_value = token
+
+        result = client.upload_asset(
+            record_type="Reminder",
+            field_name="UrgentPresentationAlarmsAsData",
+            record_name="Reminder/R-1",
+            data=b"{}",
+            zone_id=_REMINDERS_ZONE_REQ,
+        )
+
+        assert result is token
+
+    def test_api_error_translated(self) -> None:
+        """A CloudKit API failure surfaces as RemindersApiError."""
+        client, inner = self._client()
+        inner.upload_asset.side_effect = CloudKitApiError("upload failed")
+
+        with pytest.raises(RemindersApiError, match="upload failed"):
+            client.upload_asset(
+                record_type="Reminder",
+                field_name="UrgentPresentationAlarmsAsData",
+                record_name="Reminder/R-1",
+                data=b"{}",
+                zone_id=_REMINDERS_ZONE_REQ,
+            )

@@ -2,6 +2,7 @@
 
 from .base import CKModel, CloudKitExtraMode, resolve_cloudkit_validation_extra
 from .models import (
+    CKAssetToken,
     CKDatabaseChangesResponse,
     CKDatabaseChangesZone,
     CKErrorItem,
@@ -40,6 +41,7 @@ from .models import (
 __all__ = [
     "CKModel",
     "CloudKitExtraMode",
+    "CKAssetToken",
     "CKDatabaseChangesResponse",
     "CKDatabaseChangesZone",
     "CKErrorItem",

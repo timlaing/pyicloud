@@ -9,6 +9,43 @@ from pydantic import Field
 from pyicloud.common.models import FrozenServiceModel, MutableServiceModel
 
 
+class EarlyReminderUnit(IntEnum):
+    """Unit for an early-reminder offset relative to the due date."""
+
+    HOURS = 1
+    DAYS = 2
+
+
+class EarlyReminder(FrozenServiceModel):
+    """An "Early Reminder" alert set before a reminder is due.
+
+    Mirrors the app's ``dueDateDeltaAlerts`` payload: ``count`` is the offset
+    and is negative (before the due date), so "3 hours before" is
+    ``EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS)``.
+    """
+
+    count: int = Field(le=0)
+    unit: EarlyReminderUnit = EarlyReminderUnit.HOURS
+    identifier: str = ""
+    creation_date: float | None = None
+
+
+class UrgentPresentationAlarms(FrozenServiceModel):
+    """Decoded "Urgent" presentation-alarm state (iOS 26.2+).
+
+    Stored as an asset (``UrgentPresentationAlarmsAsData``) holding a small
+    JSON document, plus a checksum string (``UrgentPresentationAlarmsChecksum``)
+    the schema marks as encrypted. ``person_id`` is per-account and is only
+    available from a reminder where the app itself enabled Urgent.
+    """
+
+    enabled: bool = False
+    person_id: str | None = None
+    modified_on: float | None = None
+    minimum_supported_version: int | None = None
+    checksum: str | None = None
+
+
 class Reminder(MutableServiceModel):
     """A reminder in a reminders list with metadata and related IDs."""
 
@@ -30,6 +67,8 @@ class Reminder(MutableServiceModel):
     attachment_ids: list[str] = Field(default_factory=list)
     recurrence_rule_ids: list[str] = Field(default_factory=list)
     parent_reminder_id: str | None = None
+    early_reminders: tuple[EarlyReminder, ...] = ()
+    urgent: UrgentPresentationAlarms | None = None
     created: datetime | None = None
     modified: datetime | None = None
     record_change_tag: str | None = None
@@ -41,6 +80,9 @@ class Reminder(MutableServiceModel):
     # edit made on a device in the meantime. ``None`` means unknown.
     server_title: str | None = Field(default=None, repr=False)
     server_desc: str | None = Field(default=None, repr=False)
+    # Account id Apple only reveals inside a stored early-reminder payload.
+    # Kept so set_early_reminders can write a payload the app recognises.
+    early_reminder_account_id: str | None = Field(default=None, repr=False)
 
 
 class ReminderChangeEvent(FrozenServiceModel):
@@ -183,12 +225,19 @@ class Hashtag(MutableServiceModel):
 
 
 class RecurrenceFrequency(IntEnum):
-    """Recurrence frequency type."""
+    """Recurrence frequency type.
 
-    DAILY = 1
-    WEEKLY = 2
-    MONTHLY = 3
-    YEARLY = 4
+    The values mirror Apple's wire encoding in ``RecurrenceRule.Frequency``
+    exactly: the field on the wire is zero-based (``0`` daily ... ``3``
+    yearly), so ``int(frequency)`` is the value to write and the value read
+    back. Earlier releases were one-based and wrote every frequency one step
+    late on the wire (a weekly rule landed as monthly).
+    """
+
+    DAILY = 0
+    WEEKLY = 1
+    MONTHLY = 2
+    YEARLY = 3
 
 
 class RecurrenceRule(MutableServiceModel):
