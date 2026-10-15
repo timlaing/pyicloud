@@ -26,7 +26,7 @@ module.exports = async ({ github, context }) => {
   const issue = context.payload.issue;
   // Issue edits never relabel: classifying again would restore labels a
   // maintainer deliberately removed, and needs-triage must not return after
-  // triage. issue-autolabeler.yml only sends opened and reopened events.
+  // triage. issue-autolabeler.yml should only send opened and reopened events.
   if (issue && context.payload.action === "edited") return;
   const item = issue || context.payload.pull_request;
   const files = [];
