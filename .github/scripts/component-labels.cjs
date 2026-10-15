@@ -24,6 +24,10 @@ function classify({ title = "", body = "", files = [], issue = false }) {
 
 module.exports = async ({ github, context }) => {
   const issue = context.payload.issue;
+  // Issue edits never relabel: classifying again would restore labels a
+  // maintainer deliberately removed, and needs-triage must not return after
+  // triage. issue-autolabeler.yml only sends opened and reopened events.
+  if (issue && context.payload.action === "edited") return;
   const item = issue || context.payload.pull_request;
   const files = [];
   if (!issue) {
@@ -38,7 +42,7 @@ module.exports = async ({ github, context }) => {
     }
   }
   const labels = classify({ ...item, files, issue: Boolean(issue) });
-  if (issue && context.payload.action !== "edited") labels.push("needs-triage");
+  if (issue) labels.push("needs-triage");
   // Additive: preserve labels chosen by maintainers, including other components.
   if (labels.length) {
     await github.rest.issues.addLabels({
