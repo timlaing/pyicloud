@@ -150,6 +150,19 @@ def test_update_fills_in_the_zoneinfo_name() -> None:
     assert item.time_zone == "Europe/Amsterdam"
 
 
+def test_update_does_not_store_the_zone_when_the_write_fails() -> None:
+    """A failed write leaves reminder.time_zone unset; nothing was stored."""
+    svc = service()
+    item = reminder(datetime(2026, 10, 20, 9, 0, tzinfo=AMSTERDAM))
+    raw: Any = svc._raw
+    raw.modify.side_effect = RuntimeError("write failed")
+
+    with pytest.raises(RuntimeError, match="write failed"):
+        svc.update(item)
+
+    assert item.time_zone is None
+
+
 def test_update_does_not_guess_a_zone_for_utc_due_dates() -> None:
     """A UTC due date may be floating time read back; update() keeps it as is."""
     svc = service()

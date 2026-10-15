@@ -603,11 +603,14 @@ class RemindersWriteAPI:
         completion_date_ms: int | None,
         now_ms: int,
         fields_mod: list[str],
+        time_zone: str | None,
     ) -> dict[str, Any]:
         """Return the non-text fields of an update, recording their token names.
 
         ``reminder.due_date`` is normalized to UTC in place, which is what the
-        caller sees afterwards.
+        caller sees afterwards. ``time_zone`` is the zone to store — either the
+        one already on ``reminder`` or one filled in by the caller — so the
+        model is not mutated before the write is known to have succeeded.
         """
         due_date = reminder.due_date
         if due_date is not None and due_date.tzinfo is None:
@@ -636,8 +639,8 @@ class RemindersWriteAPI:
                 else {"type": "TIMESTAMP", "value": None}
             ),
             "TimeZone": (
-                {"type": "STRING", "value": reminder.time_zone}
-                if reminder.time_zone
+                {"type": "STRING", "value": time_zone}
+                if time_zone
                 else {"type": "STRING", "value": None}
             ),
             "ParentReminder": (
@@ -684,16 +687,16 @@ class RemindersWriteAPI:
 
         # A ZoneInfo due date names the caller's zone unambiguously; a UTC
         # value may be a floating time read back from the server, so it is left
-        # alone. Storing it on the model keeps the written field and the local
-        # object in sync, the same way create() records the zone.
+        # alone. The filled zone is written with the record and only stored on
+        # the model once the write succeeds, so a failed update does not leave
+        # the local object claiming a zone the server never received.
         filled_zone = _filled_time_zone(reminder)
-        if filled_zone is not None:
-            reminder.time_zone = filled_zone
+        time_zone = reminder.time_zone or filled_zone
 
         fields: dict[str, Any] = {
             **text_fields,
             **self._update_base_fields(
-                reminder, completion_date_ms, now_ms, fields_mod
+                reminder, completion_date_ms, now_ms, fields_mod, time_zone
             ),
             "ResolutionTokenMap": {
                 "type": "STRING",
@@ -714,6 +717,8 @@ class RemindersWriteAPI:
             fields=fields,
             model_obj=reminder,
         )
+        if filled_zone is not None:
+            reminder.time_zone = filled_zone
         reminder.completed_date = completion_date
         reminder.modified = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc)
         reminder.server_title = reminder.title
