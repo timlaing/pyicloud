@@ -298,10 +298,17 @@ _Set early reminders and Urgent alarms:_
 icloud reminders update REMINDER_ID --username you@example.com \
   --early-reminder "3 hours" --early-reminder "1d"
 icloud reminders update REMINDER_ID --username you@example.com \
+  --early-reminder "1 day" --early-reminder-account-id ACCOUNT_ID
+icloud reminders update REMINDER_ID --username you@example.com \
   --clear-early-reminders
 icloud reminders update REMINDER_ID --username you@example.com --urgent
 icloud reminders update REMINDER_ID --username you@example.com --not-urgent
 ```
+
+The account identifier and Urgent person id are per-account and only readable
+from a record the Reminders app itself wrote; set the account's first early
+reminder or Urgent alarm by first reading one such reminder (its JSON output
+carries `early_reminder_account_id` and `urgent.person_id`).
 
 _Inspect snapshots and incremental changes:_
 

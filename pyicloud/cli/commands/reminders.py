@@ -617,6 +617,15 @@ def reminders_update(  # noqa: S3776
         "--clear-early-reminders",
         help="Remove every early reminder.",
     ),
+    early_reminder_account_id: str | None = typer.Option(
+        None,
+        "--early-reminder-account-id",
+        help=(
+            "Per-account early-reminder account id, needed when setting the "
+            "account's first early reminder; read one from a reminder the "
+            "Reminders app already gave an early reminder."
+        ),
+    ),
     urgent: bool | None = typer.Option(
         None,
         "--urgent/--not-urgent",
@@ -723,7 +732,14 @@ def reminders_update(  # noqa: S3776
         _reminders_call(api, lambda: reminders.update(reminder))
     if early_alerts or clear_early_reminders:
         alerts = [] if clear_early_reminders else early_alerts
-        _reminders_call(api, lambda: reminders.set_early_reminders(reminder, alerts))
+        _reminders_call(
+            api,
+            lambda: reminders.set_early_reminders(
+                reminder,
+                alerts,
+                account_identifier=early_reminder_account_id,
+            ),
+        )
     if urgent is not None:
         _reminders_call(
             api,
