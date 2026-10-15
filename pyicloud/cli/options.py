@@ -30,8 +30,9 @@ ACCEPT_TERMS_OPTION_HELP = "Automatically accept pending Apple iCloud web terms.
 ONE_FACTOR_OPTION_HELP = (
     "Run this command with a password-only sign-in, skipping the two-factor "
     "prompt. Apple grants that to Find My alone, and the session it creates "
-    "cannot be saved, so it lasts for this one command and no session is "
-    "written to disk."
+    "cannot be saved, so it lasts for this one command: its cookies go to a "
+    "temporary directory that is removed when the command exits, leaving your "
+    "stored session untouched."
 )
 WITH_FAMILY_OPTION_HELP = "Include family devices in Find My device listings."
 REFRESH_INTERVAL_OPTION_HELP = (

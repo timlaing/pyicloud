@@ -1933,7 +1933,7 @@ def test_devices_refresh_interval_rejects_invalid_values(
     build_api.assert_not_called()
 
 
-_FAKE_ONE_FACTOR_DIR = "/tmp/pyicloud-one-factor-fake"
+_FAKE_ONE_FACTOR_DIR = str(Path(tempfile.gettempdir()) / "pyicloud-one-factor-fake")
 
 
 def _one_factor_cli_args(session_dir: Path, *extra: str) -> list[str]:
