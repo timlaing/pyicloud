@@ -4,6 +4,8 @@ from .domain import (
     Alarm,
     DateComponents,
     DateTrigger,
+    EarlyReminder,
+    EarlyReminderUnit,
     Hashtag,
     ImageAttachment,
     LocationTrigger,
@@ -13,6 +15,7 @@ from .domain import (
     Reminder,
     ReminderChangeEvent,
     RemindersList,
+    UrgentPresentationAlarms,
     URLAttachment,
 )
 from .results import AlarmWithTrigger, ListRemindersResult
@@ -22,6 +25,8 @@ __all__ = [
     "AlarmWithTrigger",
     "DateComponents",
     "DateTrigger",
+    "EarlyReminder",
+    "EarlyReminderUnit",
     "Hashtag",
     "ImageAttachment",
     "ListRemindersResult",
@@ -33,4 +38,5 @@ __all__ = [
     "ReminderChangeEvent",
     "RemindersList",
     "URLAttachment",
+    "UrgentPresentationAlarms",
 ]

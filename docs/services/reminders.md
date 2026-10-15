@@ -187,6 +187,30 @@ reminders.delete_attachment(reminder, attachment)
 reminders.delete_recurrence_rule(reminder, rule)
 ```
 
+_Set early reminders and Urgent alarms:_
+
+```python
+from pyicloud.services.reminders.models import EarlyReminder, EarlyReminderUnit
+
+# "3 hours before" and "1 day before" the due date
+reminders.set_early_reminders(
+    reminder,
+    [
+        EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS),
+        EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS),
+    ],
+)
+print(reminder.early_reminders)
+
+# Remove them again
+reminders.set_early_reminders(reminder, [])
+
+# Urgent (iOS 26.2+); person_id is per-account and only readable from a
+# reminder the Reminders app itself marked Urgent
+reminders.set_urgent(reminder, True, person_id="<learned-from-app-record>")
+print(reminder.urgent.enabled)
+```
+
 Reminders caveats:
 
 - Reminder mutations operate on typed models. The normal pattern is to fetch a
@@ -208,6 +232,19 @@ Reminders caveats:
 - `update_hashtag()` exists, but the iCloud Reminders web app currently treats
   hashtag names as effectively read-only in some live flows, so rename behavior
   may not be reflected consistently outside the API.
+- `RecurrenceFrequency` values mirror Apple's wire encoding, which is
+  zero-based (`DAILY=0`, `WEEKLY=1`, `MONTHLY=2`, `YEARLY=3`). Earlier releases
+  were one-based and wrote every frequency one step late on the wire.
+- Early reminders (`set_early_reminders()`) live in the reminder record's
+  `DueDateDeltaAlertsData` field, not in alarm records. The per-account
+  identifier is only readable from a reminder the Reminders app already gave an
+  early reminder, so read one first (or pass `account_identifier`) when setting
+  the account's first early reminder.
+- Urgent presentation alarms (`set_urgent()`) are best-effort: the checksum
+  Apple writes is not reproducible (the algorithm is unknown), so pyicloud
+  writes the SHA-512 of the asset bytes in its place. Both the per-account
+  `person_id` and the checksum format were reverse-engineered from a single
+  account and may change with iOS.
 
 ## Reminders Example Scripts
 
@@ -244,6 +281,17 @@ icloud reminders create --username you@example.com --list-id INBOX --title "Buy 
 icloud reminders update REMINDER_ID --username you@example.com --title "Buy oat milk"
 icloud reminders set-status REMINDER_ID --username you@example.com --completed
 icloud reminders delete REMINDER_ID --username you@example.com
+```
+
+_Set early reminders and Urgent alarms:_
+
+```bash
+icloud reminders update REMINDER_ID --username you@example.com \
+  --early-reminder "3 hours" --early-reminder "1d"
+icloud reminders update REMINDER_ID --username you@example.com \
+  --clear-early-reminders
+icloud reminders update REMINDER_ID --username you@example.com --urgent
+icloud reminders update REMINDER_ID --username you@example.com --not-urgent
 ```
 
 _Inspect snapshots and incremental changes:_

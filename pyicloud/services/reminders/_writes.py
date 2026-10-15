@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
+import hashlib
 import logging
 import time
 from typing import Any, cast
@@ -22,14 +23,19 @@ from pyicloud.common.cloudkit import (
 from ._constants import _REMINDERS_ZONE_REQ
 from ._mappers import Attachment, RemindersRecordMapper
 from ._protocol import (
+    _APPLE_EPOCH_OFFSET,
+    _URGENT_PRESENTATION_ALARMS_MIN_VERSION,
     CRDTDecodeError,
     CRDTStructureError,
     _as_raw_id,
     _as_record_name,
     _decode_crdt_document,
+    _decode_due_date_delta_alerts,
     _edit_crdt_document,
     _encode_cloudkit_text_field,
     _encode_crdt_document,
+    _encode_due_date_delta_alerts,
+    _encode_urgent_presentation_alarms,
     _generate_resolution_token_map,
     _merge_resolution_token_map,
 )
@@ -42,6 +48,7 @@ from ._support import (
 )
 from .models import (
     Alarm,
+    EarlyReminder,
     Hashtag,
     ImageAttachment,
     LocationTrigger,
@@ -49,6 +56,7 @@ from .models import (
     RecurrenceFrequency,
     RecurrenceRule,
     Reminder,
+    UrgentPresentationAlarms,
     URLAttachment,
 )
 
@@ -694,6 +702,198 @@ class RemindersWriteAPI:
         reminder.deleted = True
         reminder.modified = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc)
 
+    @staticmethod
+    def _normalized_early_reminders(
+        alerts: Sequence[EarlyReminder],
+        existing: tuple[EarlyReminder, ...],
+    ) -> list[EarlyReminder]:
+        """Validate alerts and keep app-assigned metadata where it matches.
+
+        The app stamps each alert with an identifier and a creation date; a
+        replacement alert with the same offset reuses them, so a device sees
+        an edited alert rather than a deleted-and-recreated one.
+        """
+        by_offset = {(alert.count, alert.unit): alert for alert in existing}
+        normalized: list[EarlyReminder] = []
+        for alert in alerts:
+            previous = by_offset.get((alert.count, alert.unit))
+            identifier = alert.identifier
+            if not identifier and previous is not None:
+                identifier = previous.identifier
+            if not identifier:
+                identifier = str(uuid.uuid4()).upper()
+            creation_date = alert.creation_date
+            if creation_date is None and previous is not None:
+                creation_date = previous.creation_date
+            normalized.append(
+                EarlyReminder(
+                    count=alert.count,
+                    unit=alert.unit,
+                    identifier=identifier,
+                    creation_date=creation_date,
+                )
+            )
+        return normalized
+
+    def set_early_reminders(
+        self,
+        reminder: Reminder,
+        alerts: Sequence[EarlyReminder],
+        *,
+        account_identifier: str | None = None,
+    ) -> None:
+        """Replace a reminder's early reminders (the "Early Reminder" setting).
+
+        Apple stores these in the reminder's ``DueDateDeltaAlertsData`` field
+        rather than as alarm records. The per-account ``accountIdentifier`` is
+        not exposed anywhere else, so it is learned from an early reminder the
+        app already wrote; without one, pass ``account_identifier``. An empty
+        ``alerts`` sequence removes every early reminder.
+        """
+        reminder_record_name = self._reminder_record_name(reminder.id)
+        current_fields = self._lookup_current_fields(reminder_record_name)
+        existing_value = (
+            current_fields.get_value("DueDateDeltaAlertsData")
+            if current_fields is not None
+            else None
+        )
+        existing_payload, existing_alerts = _decode_due_date_delta_alerts(
+            existing_value
+        )
+        account_id = (
+            account_identifier
+            or existing_payload.get("accountIdentifier")
+            or reminder.early_reminder_account_id
+            or None
+        )
+        if alerts and not account_id:
+            raise ValueError(
+                "No account identifier known for early reminders; read a "
+                "reminder the Reminders app gave an early reminder, or pass "
+                "account_identifier"
+            )
+        reminder_identifier = str(
+            existing_payload.get("reminderIdentifier") or reminder_record_name
+        )
+        normalized = self._normalized_early_reminders(alerts, existing_alerts)
+
+        now_ms = int(time.time() * 1000)
+        fields: dict[str, Any] = {
+            "DueDateDeltaAlertsData": _encode_due_date_delta_alerts(
+                reminder_identifier=reminder_identifier,
+                account_identifier=account_id or "",
+                alerts=normalized,
+            ),
+            "LastModifiedDate": {"type": "TIMESTAMP", "value": now_ms},
+            "ResolutionTokenMap": {
+                "type": "STRING",
+                "value": _merge_resolution_token_map(
+                    current_fields.get_value("ResolutionTokenMap")
+                    if current_fields is not None
+                    else None,
+                    ["dueDateDeltaAlertsData", "lastModifiedDate"],
+                ),
+            },
+        }
+
+        self._submit_single_record_update(
+            operation_name="Set early reminders",
+            record_name=reminder_record_name,
+            record_type="Reminder",
+            record_change_tag=reminder.record_change_tag,
+            fields=fields,
+            model_obj=reminder,
+        )
+        reminder.early_reminders = tuple(normalized)
+        reminder.early_reminder_account_id = account_id
+        reminder.modified = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc)
+
+    def set_urgent(
+        self,
+        reminder: Reminder,
+        enabled: bool,
+        *,
+        person_id: str | None = None,
+    ) -> None:
+        """Enable or disable Urgent presentation alarms on a reminder.
+
+        The state lives in an uploaded asset (``UrgentPresentationAlarmsAsData``)
+        plus a checksum string. Apple only exposes the per-account
+        ``person_id`` on reminders where the app itself set Urgent, so it must
+        be passed in or already known from a read. The checksum Apple writes is
+        not reproducible here (its algorithm is unknown); the SHA-512 of the
+        asset bytes has been accepted by the server in its place, and Urgent
+        alarms were observed to fire. Treat this as best-effort.
+        """
+        reminder_record_name = self._reminder_record_name(reminder.id)
+        resolved_person_id = person_id or (
+            reminder.urgent.person_id if reminder.urgent else None
+        )
+        if not resolved_person_id:
+            raise ValueError(
+                "No person id known for Urgent alarms; read a reminder the "
+                "Reminders app marked Urgent, or pass person_id"
+            )
+
+        current_fields = self._lookup_current_fields(reminder_record_name)
+        asset_bytes = _encode_urgent_presentation_alarms(
+            enabled=enabled,
+            person_id=resolved_person_id,
+        )
+        asset_token = self._get_raw().upload_asset(
+            record_type="Reminder",
+            field_name="UrgentPresentationAlarmsAsData",
+            record_name=reminder_record_name,
+            data=asset_bytes,
+            zone_id=_REMINDERS_ZONE_REQ,
+        )
+        checksum = hashlib.sha512(asset_bytes).hexdigest()
+        now_ms = int(time.time() * 1000)
+        modified_on = time.time() - _APPLE_EPOCH_OFFSET
+
+        fields: dict[str, Any] = {
+            "UrgentPresentationAlarmsAsData": {
+                "type": "ASSETID",
+                "value": asset_token.model_dump(mode="json", exclude_none=True),
+            },
+            "UrgentPresentationAlarmsChecksum": {
+                "type": "STRING",
+                "value": checksum,
+                "isEncrypted": True,
+            },
+            "LastModifiedDate": {"type": "TIMESTAMP", "value": now_ms},
+            "ResolutionTokenMap": {
+                "type": "STRING",
+                "value": _merge_resolution_token_map(
+                    current_fields.get_value("ResolutionTokenMap")
+                    if current_fields is not None
+                    else None,
+                    [
+                        "urgentPresentationAlarmsAsData",
+                        "urgentPresentationAlarmsChecksum",
+                        "lastModifiedDate",
+                    ],
+                ),
+            },
+        }
+
+        self._submit_single_record_update(
+            operation_name="Set urgent presentation alarms",
+            record_name=reminder_record_name,
+            record_type="Reminder",
+            record_change_tag=reminder.record_change_tag,
+            fields=fields,
+            model_obj=reminder,
+        )
+        reminder.urgent = UrgentPresentationAlarms(
+            enabled=enabled,
+            person_id=resolved_person_id,
+            modified_on=modified_on,
+            minimum_supported_version=_URGENT_PRESENTATION_ALARMS_MIN_VERSION,
+            checksum=checksum,
+        )
+        reminder.modified = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc)
+
     def add_location_trigger(
         self,
         reminder: Reminder,
@@ -1142,7 +1342,7 @@ class RemindersWriteAPI:
         validated_rule = self._validated_recurrence_rule(
             recurrence_id=recurrence_rule.id,
             reminder_id=recurrence_rule.reminder_id,
-            frequency=frequency or recurrence_rule.frequency,
+            frequency=(recurrence_rule.frequency if frequency is None else frequency),
             interval=recurrence_rule.interval if interval is None else interval,
             occurrence_count=(
                 recurrence_rule.occurrence_count

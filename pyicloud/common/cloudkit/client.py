@@ -16,6 +16,7 @@ from pyicloud.session import PyiCloudSession
 
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
 from .models import (
+    CKAssetToken,
     CKDatabaseChangesResponse,
     CKLookupDescriptor,
     CKLookupRequest,
@@ -196,6 +197,64 @@ class _CloudKitHTTP:
             self._run_debug_hook(op, url, payload, resp)
             raise CloudKitApiError(
                 "Invalid JSON response",
+                payload=getattr(resp, "text", None),
+            ) from exc
+
+    def post_bytes(
+        self,
+        url: str,
+        data: bytes,
+        *,
+        content_type: str = "application/octet-stream",
+    ) -> dict[str, Any]:
+        """POST raw bytes to an absolute URL and return the parsed JSON.
+
+        Used for reserved asset-upload URLs Apple hands back from an
+        ``assets/upload`` token request: the URL carries its own access
+        token, so the scheme is checked before any bytes leave -- a
+        non-HTTPS target would put both the data and the token on the wire
+        in the clear.
+        """
+        if urlsplit(url).scheme != "https":
+            raise CloudKitApiError(
+                "Refusing to upload assets to a non-HTTPS URL",
+                payload={"url": url},
+            )
+        LOGGER.debug("CloudKit asset POST <redacted>")
+        resp = self._session.post(
+            url,
+            data=data,
+            headers={"Content-Type": content_type},
+            timeout=self._timeout,
+        )
+        code = getattr(resp, "status_code", 0)
+        if not isinstance(code, int):
+            code = 200
+        if code in (401, 403):
+            self._run_debug_hook("asset_post", url, {}, resp)
+            raise CloudKitAuthError(f"HTTP {code}: unauthorized")
+        if code == 429 and self._handle_rate_limits:
+            self._run_debug_hook("asset_post", url, {}, resp)
+            retry_after = None
+            try:
+                hdr = resp.headers.get("Retry-After")
+                if hdr:
+                    retry_after = float(hdr)
+            except Exception:
+                retry_after = None
+            raise CloudKitRateLimited(_RATE_LIMITED, retry_after=retry_after)
+        if code >= 400:
+            self._run_debug_hook("asset_post", url, {}, resp)
+            raise CloudKitApiError(
+                f"HTTP {code} on asset POST",
+                payload=getattr(resp, "text", None),
+            )
+        try:
+            return cast(dict[str, Any], resp.json())
+        except Exception as exc:
+            self._run_debug_hook("asset_post", url, {}, resp)
+            raise CloudKitApiError(
+                "Invalid asset upload response",
                 payload=getattr(resp, "text", None),
             ) from exc
 
@@ -570,6 +629,60 @@ class CloudKitContainerClient:
     ) -> Iterator[bytes]:
         """Stream an asset from the given URL in chunks."""
         yield from self._http.get_stream(url, chunk_size=chunk_size)
+
+    def upload_asset(
+        self,
+        *,
+        record_type: str,
+        field_name: str,
+        record_name: str,
+        data: bytes,
+        zone_id: CKZoneIDReq,
+    ) -> CKAssetToken:
+        """Upload asset bytes and return the token for an ``ASSETID`` field.
+
+        The upload is two steps: an ``assets/upload`` token request reserves
+        a one-shot URL for the target record field, then the bytes are POSTed
+        to that URL. The response's ``singleFile`` receipt is the value to
+        store in the record's ``ASSETID`` field.
+        """
+        payload = {
+            "tokens": [
+                {
+                    "recordType": record_type,
+                    "fieldName": field_name,
+                    "recordName": record_name,
+                }
+            ],
+            "zoneID": zone_id.model_dump(mode="json", exclude_none=True),
+        }
+        data_resp = self.raw_post("/assets/upload", payload)
+        tokens = data_resp.get("tokens") if isinstance(data_resp, dict) else None
+        upload_url = None
+        if isinstance(tokens, list) and tokens and isinstance(tokens[0], dict):
+            upload_url = tokens[0].get("url")
+        if not isinstance(upload_url, str) or not upload_url:
+            raise CloudKitApiError(
+                "Asset upload token response did not include a URL",
+                payload=data_resp,
+            )
+
+        upload_resp = self._http.post_bytes(upload_url, data)
+        single_file = (
+            upload_resp.get("singleFile") if isinstance(upload_resp, dict) else None
+        )
+        if not isinstance(single_file, dict):
+            raise CloudKitApiError(
+                "Asset upload response did not include singleFile",
+                payload=upload_resp,
+            )
+        try:
+            return CKAssetToken.model_validate(single_file)
+        except ValidationError as exc:
+            raise CloudKitApiError(
+                "Asset upload receipt validation failed",
+                payload=upload_resp,
+            ) from exc
 
     def query_sync_token(
         self,

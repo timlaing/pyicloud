@@ -24,6 +24,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitContainerClient,
     CloudKitRateLimited,
 )
+from pyicloud.common.cloudkit.models import CKAssetToken
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
@@ -164,5 +165,26 @@ class CloudKitRemindersClient:
         """Download raw bytes from a CloudKit asset URL."""
         try:
             return self._client.download_asset_bytes(url)
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_reminders_error(exc)
+
+    def upload_asset(
+        self,
+        *,
+        record_type: str,
+        field_name: str,
+        record_name: str,
+        data: bytes,
+        zone_id: CKZoneIDReq,
+    ) -> CKAssetToken:
+        """Upload asset bytes and return the token for an ``ASSETID`` field."""
+        try:
+            return self._client.upload_asset(
+                record_type=record_type,
+                field_name=field_name,
+                record_name=record_name,
+                data=data,
+                zone_id=zone_id,
+            )
         except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
             self._raise_reminders_error(exc)

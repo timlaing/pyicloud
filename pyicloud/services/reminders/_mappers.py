@@ -14,7 +14,9 @@ from ._protocol import (
     _decode_attachment_url,
     _decode_cloudkit_text_value,
     _decode_crdt_document,
+    _decode_due_date_delta_alerts,
     _decode_nsdatecomponents,
+    _decode_urgent_presentation_alarms,
     _ref_name,
     _structure_has_visible_text,
 )
@@ -30,6 +32,7 @@ from .models import (
     RecurrenceRule,
     Reminder,
     RemindersList,
+    UrgentPresentationAlarms,
     URLAttachment,
 )
 
@@ -227,6 +230,10 @@ class RemindersRecordMapper:
         ):
             server_desc = None
 
+        early_payload, early_alerts = _decode_due_date_delta_alerts(
+            fields.get_value("DueDateDeltaAlertsData")
+        )
+
         return Reminder(
             id=rec.recordName,
             list_id=_ref_name(fields, "List"),
@@ -259,6 +266,9 @@ class RemindersRecordMapper:
                 for x in (fields.get_value("RecurrenceRuleIDs") or [])
             ],
             parent_reminder_id=_ref_name(fields, "ParentReminder") or None,
+            early_reminders=early_alerts,
+            urgent=self._urgent_from_fields(fields, rec.recordName),
+            early_reminder_account_id=early_payload.get("accountIdentifier") or None,
             created=created,
             modified=modified,
             record_change_tag=rec.recordChangeTag,
@@ -384,14 +394,69 @@ class RemindersRecordMapper:
             record_change_tag=rec.recordChangeTag,
         )
 
-    def record_to_recurrence_rule(self, rec: CKRecord) -> RecurrenceRule:
-        """Map a CloudKit recurrence rule record to a ``RecurrenceRule``."""
-        fields = rec.fields
-        freq_raw = fields.get_value("Frequency") or 1
+    def _urgent_from_fields(
+        self, fields: Any, record_name: str
+    ) -> UrgentPresentationAlarms | None:
+        """Decode a reminder's Urgent presentation-alarm fields, if present.
+
+        The fields only appear when Urgent has been switched on for the
+        reminder: an ``ASSETID`` pointing at a small unencrypted JSON document
+        plus a checksum string. A missing or undecodable asset degrades to
+        what is readable (usually just the checksum) rather than failing the
+        reminder read.
+        """
+        checksum = fields.get_value("UrgentPresentationAlarmsChecksum")
+        asset = fields.get_value("UrgentPresentationAlarmsAsData")
+        if not checksum and asset is None:
+            return None
+
+        urgent = UrgentPresentationAlarms(checksum=checksum or None)
+        if asset is None:
+            return urgent
+
+        asset_bytes = getattr(asset, "downloadedData", None)
+        if asset_bytes is None:
+            download_url = getattr(asset, "downloadURL", None)
+            if not download_url:
+                self._logger.warning(
+                    "UrgentPresentationAlarmsAsData on %s has neither data "
+                    "nor downloadURL",
+                    record_name,
+                )
+                return urgent
+            asset_bytes = self._get_raw().download_asset_bytes(download_url)
+
         try:
-            freq = RecurrenceFrequency(freq_raw)
-        except ValueError:
+            decoded = _decode_urgent_presentation_alarms(asset_bytes)
+        except ValueError as exc:
+            self._logger.warning(
+                "UrgentPresentationAlarmsAsData on %s was undecodable: %s",
+                record_name,
+                exc,
+            )
+            return urgent
+        return decoded.model_copy(update={"checksum": urgent.checksum})
+
+    def record_to_recurrence_rule(self, rec: CKRecord) -> RecurrenceRule:
+        """Map a CloudKit recurrence rule record to a ``RecurrenceRule``.
+
+        ``Frequency`` is zero-based on the wire (0 daily ... 3 yearly), which
+        is what ``RecurrenceFrequency`` encodes, so the value is read as-is.
+        """
+        fields = rec.fields
+        freq_raw = fields.get_value("Frequency")
+        if freq_raw is None:
             freq = RecurrenceFrequency.DAILY
+        else:
+            try:
+                freq = RecurrenceFrequency(int(freq_raw))
+            except ValueError:
+                self._logger.warning(
+                    "Unknown Recurrence frequency %r on %s; defaulting to daily",
+                    freq_raw,
+                    rec.recordName,
+                )
+                freq = RecurrenceFrequency.DAILY
         return RecurrenceRule(
             id=rec.recordName,
             reminder_id=_ref_name(fields, "Reminder"),

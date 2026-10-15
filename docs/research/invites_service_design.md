@@ -865,7 +865,11 @@ link and submit an RSVP.
 
 5. **Asset upload for RSVP avatars**: out of scope for v1 reads. Writing avatar
    assets later means integrating with `assets/upload` (we have entry samples
-   but haven't unpacked the protocol).
+   but haven't unpacked the protocol). Note: a generic `assets/upload` flow is
+   now implemented in `CloudKitContainerClient.upload_asset()` (used by the
+   Reminders service for Urgent alarms, see `timlaing/pyicloud#419`), so the
+   token-request and content-upload halves are available; the RSVP avatar
+   field wiring is what remains.
 
 ## Out of scope (v1)
 

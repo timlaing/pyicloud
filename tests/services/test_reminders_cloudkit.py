@@ -58,6 +58,8 @@ from pyicloud.services.reminders.models import (
     Alarm,
     AlarmWithTrigger,
     DateTrigger,
+    EarlyReminder,
+    EarlyReminderUnit,
     Hashtag,
     ImageAttachment,
     ListRemindersResult,
@@ -1506,7 +1508,7 @@ class TestRecordToRecurrenceRule:
                     "type": "REFERENCE",
                     "value": {"recordName": "REM-001", "action": "VALIDATE"},
                 },
-                "Frequency": {"type": "INT64", "value": 3},
+                "Frequency": {"type": "INT64", "value": 2},
                 "Interval": {"type": "INT64", "value": 1},
                 "OccurrenceCount": {"type": "INT64", "value": 0},
                 "FirstDayOfTheWeek": {"type": "INT64", "value": 0},
@@ -1532,7 +1534,7 @@ class TestRecordToRecurrenceRule:
                     "type": "REFERENCE",
                     "value": {"recordName": "REM-002"},
                 },
-                "Frequency": {"type": "INT64", "value": 2},
+                "Frequency": {"type": "INT64", "value": 1},
                 "Interval": {"type": "INT64", "value": 2},
                 "OccurrenceCount": {"type": "INT64", "value": 10},
                 "FirstDayOfTheWeek": {"type": "INT64", "value": 2},
@@ -2657,7 +2659,7 @@ class TestReminderReadPaths:
                     "type": "REFERENCE",
                     "value": {"recordName": reminder_id, "action": "VALIDATE"},
                 },
-                "Frequency": {"type": "INT64", "value": 2},
+                "Frequency": {"type": "INT64", "value": 1},
                 "Interval": {"type": "INT64", "value": 1},
                 "OccurrenceCount": {"type": "INT64", "value": 0},
                 "FirstDayOfTheWeek": {"type": "INT64", "value": 1},
@@ -3570,3 +3572,43 @@ class TestCloudKitQueryResponseRobustness:
         asset = rec.fields.get_value("ReminderIDsAsset")
         assert asset is not None
         assert asset.downloadedData == b'["REM-1","REM-2"]'
+
+
+# ---------------------------------------------------------------------------
+# Tests: service facade delegation for #419 write helpers
+# ---------------------------------------------------------------------------
+
+
+class TestServiceFacadeDelegation:
+    """The service delegates its new write helpers to the write API."""
+
+    @staticmethod
+    def _service() -> RemindersService:
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        return svc
+
+    def test_set_early_reminders_delegates(self) -> None:
+        """set_early_reminders forwards alerts and the account identifier."""
+        svc = self._service()
+        svc._writes.set_early_reminders = MagicMock()  # type: ignore[method-assign]
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+        alerts = (EarlyReminder(count=-1, unit=EarlyReminderUnit.HOURS),)
+
+        svc.set_early_reminders(reminder, alerts, account_identifier="ACCOUNT-1")
+
+        svc._writes.set_early_reminders.assert_called_once_with(
+            reminder, alerts, account_identifier="ACCOUNT-1"
+        )
+
+    def test_set_urgent_delegates(self) -> None:
+        """set_urgent forwards the enabled flag and person id."""
+        svc = self._service()
+        svc._writes.set_urgent = MagicMock()  # type: ignore[method-assign]
+        reminder = Reminder(id="Reminder/R-1", list_id="List/L-1", title="t")
+
+        svc.set_urgent(reminder, True, person_id="PERSON-1")
+
+        svc._writes.set_urgent.assert_called_once_with(
+            reminder, True, person_id="PERSON-1"
+        )

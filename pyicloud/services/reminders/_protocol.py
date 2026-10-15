@@ -18,7 +18,12 @@ from pydantic import ValidationError
 
 from pyicloud.common.cloudkit.models import CKFields
 
-from .models import DateComponents
+from .models import (
+    DateComponents,
+    EarlyReminder,
+    EarlyReminderUnit,
+    UrgentPresentationAlarms,
+)
 from .protobuf import reminders_pb2, versioned_document_pb2
 
 LOGGER = logging.getLogger(__name__)
@@ -118,6 +123,143 @@ def _decode_cloudkit_text_value(value: object) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
     return str(value)
+
+
+# Apple reference epoch (2001-01-01) offset for timestamps stored in seconds.
+_APPLE_EPOCH_OFFSET = 978307200.0
+# Earliest app version understood by the dueDateDeltaAlerts payload shape.
+_DUE_DATE_DELTA_ALERTS_MIN_VERSION = 20230430
+# Earliest app version understood by the Urgent presentation-alarm payload.
+_URGENT_PRESENTATION_ALARMS_MIN_VERSION = 20251103
+
+
+def _parse_due_date_delta_alert(item: object) -> EarlyReminder | None:
+    """Parse one ``dueDateDeltaAlerts`` entry, or ``None`` when unusable."""
+    if not isinstance(item, dict):
+        return None
+    try:
+        return EarlyReminder(
+            # The count is negative on the wire (before the due date);
+            # normalise so a stray positive value cannot fail validation.
+            count=-abs(int(item.get("dueDateDeltaCount") or 0)),
+            unit=EarlyReminderUnit(int(item.get("dueDateDeltaUnit") or 1)),
+            identifier=str(item.get("identifier") or ""),
+            creation_date=(
+                float(item["creationDate"])
+                if item.get("creationDate") is not None
+                else None
+            ),
+        )
+    except (ValidationError, TypeError, ValueError):
+        return None
+
+
+def _decode_due_date_delta_alerts(
+    value: object,
+) -> tuple[dict[str, Any], tuple[EarlyReminder, ...]]:
+    """Decode a ``DueDateDeltaAlertsData`` field into (payload, alerts).
+
+    The wire type is ``ENCRYPTED_BYTES``, but CloudKit hands authenticated
+    sessions the inner document: base64 of UTF-8 JSON. An undecodable value
+    yields an empty payload and no alerts rather than raising, so one bad
+    field does not fail the read of an otherwise fine reminder.
+    """
+    raw = _extract_archive_bytes(value)
+    if raw is None:
+        return {}, ()
+    try:
+        payload = _json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        LOGGER.debug("Undecodable DueDateDeltaAlertsData payload")
+        return {}, ()
+    if not isinstance(payload, dict):
+        return {}, ()
+
+    items = payload.get("dueDateDeltaAlerts")
+    alerts: list[EarlyReminder] = []
+    if isinstance(items, list):
+        for item in items:
+            alert = _parse_due_date_delta_alert(item)
+            if alert is not None:
+                alerts.append(alert)
+    return payload, tuple(alerts)
+
+
+def _encode_due_date_delta_alerts(
+    *,
+    reminder_identifier: str,
+    account_identifier: str,
+    alerts: list[EarlyReminder] | tuple[EarlyReminder, ...],
+) -> dict[str, str]:
+    """Encode early reminders as a ``DueDateDeltaAlertsData`` write field.
+
+    ``creationDate`` is seconds since Apple's 2001 reference date, as the app
+    writes it; an alert without one gets the current time.
+    """
+    apple_epoch = time.time() - _APPLE_EPOCH_OFFSET
+    payload = {
+        "reminderIdentifier": reminder_identifier,
+        "dueDateDeltaAlerts": [
+            {
+                "dueDateDeltaCount": int(alert.count),
+                "dueDateDeltaUnit": int(alert.unit),
+                "identifier": alert.identifier,
+                "creationDate": (
+                    apple_epoch if alert.creation_date is None else alert.creation_date
+                ),
+                "minimumSupportedAppVersion": 0,
+            }
+            for alert in alerts
+        ],
+        "accountIdentifier": account_identifier,
+        "minimumSupportedVersion": _DUE_DATE_DELTA_ALERTS_MIN_VERSION,
+    }
+    encoded = base64.b64encode(
+        _json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+    return {"type": "ENCRYPTED_BYTES", "value": encoded}
+
+
+def _encode_urgent_presentation_alarms(
+    *,
+    enabled: bool,
+    person_id: str,
+    modified_on: float | None = None,
+) -> bytes:
+    """Encode the small JSON document stored in the Urgent asset field."""
+    payload = {
+        "minimumSupportedVersion": _URGENT_PRESENTATION_ALARMS_MIN_VERSION,
+        "account": [
+            {
+                "isEnabled": bool(enabled),
+                "personID": person_id,
+                "modifiedOn": (
+                    time.time() - _APPLE_EPOCH_OFFSET
+                    if modified_on is None
+                    else modified_on
+                ),
+            }
+        ],
+    }
+    return _json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+
+def _decode_urgent_presentation_alarms(data: bytes) -> UrgentPresentationAlarms:
+    """Decode the Urgent asset document (checksum is read separately)."""
+    payload = _json.loads(data.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Urgent asset payload was not a JSON object")
+    accounts = payload.get("account")
+    account = accounts[0] if isinstance(accounts, list) and accounts else None
+    version = payload.get("minimumSupportedVersion")
+    return UrgentPresentationAlarms(
+        enabled=bool(account.get("isEnabled")) if isinstance(account, dict) else False,
+        person_id=(account.get("personID") or None)
+        if isinstance(account, dict)
+        else None,
+        modified_on=account.get("modifiedOn") if isinstance(account, dict) else None,
+        minimum_supported_version=int(version) if version is not None else None,
+    )
 
 
 # NSKeyedArchiver keys used to encode an NSDateComponents instance.

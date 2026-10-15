@@ -11,6 +11,9 @@ Public API:
   - RemindersService.create(...)
   - RemindersService.update(reminder) -> None
   - RemindersService.delete(reminder) -> None
+  - RemindersService.set_early_reminders(reminder, alerts,
+    account_identifier=None) -> None
+  - RemindersService.set_urgent(reminder, enabled, person_id=None) -> None
   - RemindersService.add_location_trigger(reminder, ...) ->
     tuple[Alarm, LocationTrigger]
   - RemindersService.create_hashtag(...) / update_hashtag(...) /
@@ -31,7 +34,7 @@ directly.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 import logging
 from typing import Any, Union
@@ -53,6 +56,7 @@ from .models import (
     Alarm,
     AlarmWithTrigger,
     DateTrigger,
+    EarlyReminder,
     Hashtag,
     ImageAttachment,
     ListRemindersResult,
@@ -241,6 +245,47 @@ class RemindersService(BaseService):
         is updated accordingly.
         """
         self._writes.delete(reminder)
+
+    def set_early_reminders(
+        self,
+        reminder: Reminder,
+        alerts: Sequence[EarlyReminder],
+        *,
+        account_identifier: str | None = None,
+    ) -> None:
+        """
+        Replace a reminder's "Early Reminder" alerts (before the due date).
+
+        Apple stores early reminders in the reminder record's
+        ``DueDateDeltaAlertsData`` field rather than as alarm records. The
+        per-account ``account_identifier`` is only readable from a reminder
+        the Reminders app already gave an early reminder; read one first (or
+        pass the value) when this is the account's first early reminder. Pass
+        an empty ``alerts`` sequence to remove them all.
+        """
+        self._writes.set_early_reminders(
+            reminder,
+            alerts,
+            account_identifier=account_identifier,
+        )
+
+    def set_urgent(
+        self,
+        reminder: Reminder,
+        enabled: bool,
+        *,
+        person_id: str | None = None,
+    ) -> None:
+        """
+        Enable or disable Urgent presentation alarms (iOS 26.2+) on a reminder.
+
+        The state is an uploaded asset plus a checksum string. Apple only
+        exposes the per-account ``person_id`` on a reminder the app itself
+        marked Urgent, so read one of those first (or pass ``person_id``).
+        The checksum Apple writes is not reproducible; the SHA-512 of the
+        asset bytes is written in its place, which the server accepted.
+        """
+        self._writes.set_urgent(reminder, enabled, person_id=person_id)
 
     def add_location_trigger(
         self,
