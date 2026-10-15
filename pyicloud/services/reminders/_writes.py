@@ -526,6 +526,86 @@ class RemindersWriteAPI:
             _LOGGER.debug("%s has no CRDT structure to edit (%s)", field_name, exc)
             return _encode_crdt_document(text)
 
+    def _changed_text_documents(
+        self,
+        reminder: Reminder,
+        current_fields: Any | None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Return the text documents the caller changed, and their token names.
+
+        A text the caller did not change since the reminder was read is left
+        alone, keeping whatever the server holds — including a newer edit made
+        on a device.
+        """
+        text_fields: dict[str, Any] = {}
+        token_names: list[str] = []
+        for field_name, token_name, text, read_text in (
+            ("TitleDocument", "titleDocument", reminder.title, reminder.server_title),
+            (
+                "NotesDocument",
+                "notesDocument",
+                reminder.desc or "",
+                reminder.server_desc,
+            ),
+        ):
+            if read_text is not None and text == read_text:
+                continue
+            document = self._text_document_for_update(current_fields, field_name, text)
+            if document is not None:
+                text_fields[field_name] = {"type": "STRING", "value": document}
+                token_names.append(token_name)
+        return text_fields, token_names
+
+    @staticmethod
+    def _update_base_fields(
+        reminder: Reminder,
+        completion_date_ms: int | None,
+        now_ms: int,
+        fields_mod: list[str],
+    ) -> dict[str, Any]:
+        """Return the non-text fields of an update, recording their token names.
+
+        ``reminder.due_date`` is normalized to UTC in place, which is what the
+        caller sees afterwards.
+        """
+        due_date = reminder.due_date
+        if due_date is not None and due_date.tzinfo is None:
+            due_date = due_date.replace(tzinfo=timezone.utc)
+            reminder.due_date = due_date
+        parent_reminder: dict[str, Any] | None = None
+        if reminder.parent_reminder_id:
+            parent_reminder = {
+                "recordName": _as_record_name(
+                    reminder.parent_reminder_id,
+                    "Reminder",
+                ),
+                "action": "VALIDATE",
+            }
+        fields_mod.extend(["dueDate", "timeZone", "parentReminder"])
+        return {
+            "Completed": {"type": "INT64", "value": 1 if reminder.completed else 0},
+            "CompletionDate": {"type": "TIMESTAMP", "value": completion_date_ms},
+            "Priority": {"type": "INT64", "value": reminder.priority},
+            "Flagged": {"type": "INT64", "value": 1 if reminder.flagged else 0},
+            "AllDay": {"type": "INT64", "value": 1 if reminder.all_day else 0},
+            "LastModifiedDate": {"type": "TIMESTAMP", "value": now_ms},
+            "DueDate": (
+                {"type": "TIMESTAMP", "value": int(due_date.timestamp() * 1000)}
+                if due_date is not None
+                else {"type": "TIMESTAMP", "value": None}
+            ),
+            "TimeZone": (
+                {"type": "STRING", "value": reminder.time_zone}
+                if reminder.time_zone
+                else {"type": "STRING", "value": None}
+            ),
+            "ParentReminder": (
+                {"type": "REFERENCE", "value": parent_reminder}
+                if parent_reminder is not None
+                else {"type": "REFERENCE", "value": None}
+            ),
+        }
+
     def update(self, reminder: Reminder) -> None:
         """Update an existing reminder, refusing unreadable text documents."""
         if reminder.undecodable_text_fields:
@@ -546,24 +626,10 @@ class RemindersWriteAPI:
             "allDay",
             "lastModifiedDate",
         ]
-        text_fields: dict[str, Any] = {}
-        for field_name, token_name, text, read_text in (
-            ("TitleDocument", "titleDocument", reminder.title, reminder.server_title),
-            (
-                "NotesDocument",
-                "notesDocument",
-                reminder.desc or "",
-                reminder.server_desc,
-            ),
-        ):
-            if read_text is not None and text == read_text:
-                # Not changed by the caller: keep whatever the server holds,
-                # including a newer edit made on a device.
-                continue
-            document = self._text_document_for_update(current_fields, field_name, text)
-            if document is not None:
-                text_fields[field_name] = {"type": "STRING", "value": document}
-                fields_mod.append(token_name)
+        text_fields, text_tokens = self._changed_text_documents(
+            reminder, current_fields
+        )
+        fields_mod.extend(text_tokens)
         completion_date = self._completion_datetime(
             completed=reminder.completed,
             completed_date=reminder.completed_date,
@@ -577,55 +643,18 @@ class RemindersWriteAPI:
 
         fields: dict[str, Any] = {
             **text_fields,
-            "Completed": {"type": "INT64", "value": 1 if reminder.completed else 0},
-            "CompletionDate": {
-                "type": "TIMESTAMP",
-                "value": completion_date_ms,
-            },
-            "Priority": {"type": "INT64", "value": reminder.priority},
-            "Flagged": {"type": "INT64", "value": 1 if reminder.flagged else 0},
-            "AllDay": {"type": "INT64", "value": 1 if reminder.all_day else 0},
-            "LastModifiedDate": {"type": "TIMESTAMP", "value": now_ms},
-        }
-        if reminder.due_date is not None:
-            due_date = reminder.due_date
-            if due_date.tzinfo is None:
-                due_date = due_date.replace(tzinfo=timezone.utc)
-                reminder.due_date = due_date
-            fields["DueDate"] = {
-                "type": "TIMESTAMP",
-                "value": int(due_date.timestamp() * 1000),
-            }
-        else:
-            fields["DueDate"] = {"type": "TIMESTAMP", "value": None}
-        fields_mod.append("dueDate")
-        if reminder.time_zone:
-            fields["TimeZone"] = {"type": "STRING", "value": reminder.time_zone}
-        else:
-            fields["TimeZone"] = {"type": "STRING", "value": None}
-        fields_mod.append("timeZone")
-        if reminder.parent_reminder_id:
-            fields["ParentReminder"] = {
-                "type": "REFERENCE",
-                "value": {
-                    "recordName": _as_record_name(
-                        reminder.parent_reminder_id,
-                        "Reminder",
-                    ),
-                    "action": "VALIDATE",
-                },
-            }
-        else:
-            fields["ParentReminder"] = {"type": "REFERENCE", "value": None}
-        fields_mod.append("parentReminder")
-        fields["ResolutionTokenMap"] = {
-            "type": "STRING",
-            "value": _merge_resolution_token_map(
-                current_fields.get_value("ResolutionTokenMap")
-                if current_fields is not None
-                else None,
-                fields_mod,
+            **self._update_base_fields(
+                reminder, completion_date_ms, now_ms, fields_mod
             ),
+            "ResolutionTokenMap": {
+                "type": "STRING",
+                "value": _merge_resolution_token_map(
+                    current_fields.get_value("ResolutionTokenMap")
+                    if current_fields is not None
+                    else None,
+                    fields_mod,
+                ),
+            },
         }
 
         self._submit_single_record_update(

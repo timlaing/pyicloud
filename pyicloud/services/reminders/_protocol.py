@@ -382,49 +382,63 @@ def _parse_crdt_string(encoded: str | bytes) -> Any:
     except Exception as exc:  # noqa: BLE001
         LOGGER.debug("versioned_document.Document parse failed: %s", exc)
 
-    # A bare String and a bare Version share field numbers, so either parses
-    # as the other. Both candidates are therefore gated on carrying a vector
-    # clock as well as substrings; a cross-parse yields substrings but never a
-    # clock, so a genuine payload still wins. They are tried in the order the
-    # read path uses, and the clock requirement is what keeps the order from
-    # mattering for correctness. Both candidates are checked before anything
-    # is raised for the same reason: a payload that cross-parses as unclocked
-    # substrings may still parse as the other wrapper with its clock. Only
-    # substrings that reference characters count here, because a cross-parse
-    # produces degenerate length-0 entries while genuine substrings do not;
-    # without that gate a structureless payload would be misreported as
-    # carrying state worth preserving.
-    unclocked_substrings = False
-    try:
-        value = reminders_pb2.String()  # type: ignore[attr-defined]
-        value.ParseFromString(data)
-        if value.substring:
-            if value.timestamp.clock:
-                return value
-            if any(substring.length for substring in value.substring):
-                unclocked_substrings = True
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.debug("bare String parse failed: %s", exc)
-
-    try:
-        version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
-        version.ParseFromString(data)
-        value = reminders_pb2.String()  # type: ignore[attr-defined]
-        value.ParseFromString(version.data)
-        if value.substring:
-            if value.timestamp.clock:
-                return value
-            if any(substring.length for substring in value.substring):
-                unclocked_substrings = True
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.debug("bare Version parse failed: %s", exc)
-
+    value, unclocked_substrings = _parse_bare_crdt_string(data)
+    if value is not None:
+        return value
     if unclocked_substrings:
         # Substrings carry character identifiers even without a clock, so
         # re-encoding from scratch would discard replica state; this is not
         # the structureless case and callers must not fall back for it.
         raise CRDTDecodeError("CRDT document has substrings but no vector clock")
     raise CRDTStructureError("CRDT document has no editable structure")
+
+
+def _bare_version_data(data: bytes) -> bytes | None:
+    """Return the ``String`` bytes held by a bare ``versioned_document.Version``."""
+    try:
+        version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
+        version.ParseFromString(data)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("bare Version parse failed: %s", exc)
+        return None
+    return cast(bytes, version.data)
+
+
+def _parse_bare_crdt_string(data: bytes) -> tuple[Any | None, bool]:
+    """Parse a bare topotext ``String``, directly or through a ``Version``.
+
+    A bare String and a bare Version share field numbers, so either parses as
+    the other. Both candidates are therefore gated on carrying a vector clock
+    as well as substrings; a cross-parse yields substrings but never a clock,
+    so a genuine payload still wins, and the gate is what keeps the order from
+    mattering for correctness. Both candidates are checked before anything is
+    reported, because a payload that cross-parses as unclocked substrings may
+    still parse as the other wrapper with its clock.
+
+    Only substrings that reference characters count as unclocked state: a
+    cross-parse produces degenerate length-0 entries, and counting those would
+    misreport a structureless payload as carrying state worth preserving.
+
+    Returns the parsed value when a candidate matches, and whether either
+    candidate showed substrings that reference characters but no clock.
+    """
+    unclocked_substrings = False
+    for payload in (data, _bare_version_data(data)):
+        if payload is None:
+            continue
+        try:
+            value = reminders_pb2.String()  # type: ignore[attr-defined]
+            value.ParseFromString(payload)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.debug("bare String parse failed: %s", exc)
+            continue
+        if not value.substring:
+            continue
+        if value.timestamp.clock:
+            return value, False
+        if any(substring.length for substring in value.substring):
+            unclocked_substrings = True
+    return None, unclocked_substrings
 
 
 def _structure_has_visible_text(encoded: str | bytes) -> bool:

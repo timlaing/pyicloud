@@ -180,10 +180,10 @@ def test_edit_accepts_gzip_documents_written_by_devices() -> None:
 
 def test_edit_rejects_existing_replica_uuid() -> None:
     """Reusing a replica that already wrote to the document is refused."""
+    existing = _encode_crdt_document("Old")
+
     with pytest.raises(ValueError, match="already present"):
-        _edit_crdt_document(
-            _encode_crdt_document("Old"), "New", replica_uuid=DEFAULT_REPLICA
-        )
+        _edit_crdt_document(existing, "New", replica_uuid=DEFAULT_REPLICA)
 
 
 def test_edit_rejects_documents_without_structure() -> None:
@@ -354,9 +354,10 @@ def edited_reminder() -> Reminder:
 def test_update_raises_on_lookup_errors_without_writing() -> None:
     """A failed lookup never falls back to writing fresh documents."""
     svc = lookup_error_service("THROTTLED")
+    reminder = edited_reminder()
 
     with pytest.raises(RemindersApiError, match="THROTTLED"):
-        svc.update(edited_reminder())
+        svc.update(reminder)
 
     raw: Any = svc._raw
     raw.modify.assert_not_called()
@@ -432,18 +433,20 @@ def test_edit_rejects_documents_without_a_vector_clock() -> None:
     """Substrings without a vector clock cannot be edited."""
     value = _parse_crdt_string(_encode_crdt_document("Old"))
     del value.timestamp.clock[:]
+    document = _serialize_crdt_string(value)
 
     with pytest.raises(CRDTDecodeError, match="vector clock"):
-        _edit_crdt_document(_serialize_crdt_string(value), "New")
+        _edit_crdt_document(document, "New")
 
 
 def test_edit_rejects_documents_without_a_start_sentinel() -> None:
     """Inserting text needs the start sentinel to attach to."""
     value = _parse_crdt_string(_encode_crdt_document("Old"))
     value.substring[0].charID.clock = 7
+    document = _serialize_crdt_string(value)
 
     with pytest.raises(CRDTDecodeError, match="start sentinel"):
-        _edit_crdt_document(_serialize_crdt_string(value), "New")
+        _edit_crdt_document(document, "New")
 
 
 def test_edit_fills_an_empty_document_without_tombstones() -> None:
@@ -661,9 +664,10 @@ def test_update_refuses_a_structureless_copy_that_cannot_be_preserved() -> None:
 def test_parse_marks_an_uneditable_payload_as_a_structure_error() -> None:
     """A payload with no substrings raises the narrower structure error."""
     value = reminders_pb2.String(string="no structure")  # type: ignore[attr-defined]
+    payload = value.SerializeToString()
 
     with pytest.raises(CRDTStructureError):
-        _parse_crdt_string(value.SerializeToString())
+        _parse_crdt_string(payload)
 
 
 def test_structure_error_is_a_decode_error() -> None:
@@ -715,8 +719,10 @@ def test_parse_reports_unclocked_substrings_as_decode_errors() -> None:
     Character identifiers are present, so re-encoding from scratch would
     discard replica state; the broad error keeps callers from falling back.
     """
+    document = unclocked_bare_document()
+
     with pytest.raises(CRDTDecodeError) as excinfo:
-        _parse_crdt_string(unclocked_bare_document())
+        _parse_crdt_string(document)
 
     assert not isinstance(excinfo.value, CRDTStructureError)
     assert "no vector clock" in str(excinfo.value)
