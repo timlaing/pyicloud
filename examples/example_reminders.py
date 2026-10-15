@@ -1186,6 +1186,7 @@ def main() -> int:  # noqa: S3776
                     EarlyReminder(count=-3, unit=EarlyReminderUnit.HOURS),
                     EarlyReminder(count=-1, unit=EarlyReminderUnit.DAYS),
                 ],
+                account_identifier=account_id,
             )
             reread = reminders_api.get(early_case.id)
             tracker.expect(

@@ -11,6 +11,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Changed
 
 - Publish pushes to `main` to TestPyPI using the `test` GitHub environment, alongside prereleases; stable releases continue to publish to PyPI
+- **Breaking:** `RecurrenceFrequency` is now zero-based (`DAILY=0` ... `YEARLY=3`) to mirror Apple's wire encoding, so `int(frequency)` is the value stored in `RecurrenceRule.Frequency` and the value read back (#419)
 
 ### Added
 
@@ -18,10 +19,6 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add `RemindersService.set_early_reminders()` for the "Early Reminder" setting (hours/days before the due date), stored in the reminder record's `DueDateDeltaAlertsData` field; `Reminder` now carries `early_reminders` (#419)
 - Add `RemindersService.set_urgent()` for Urgent presentation alarms (iOS 26.2+), with a generic CloudKit asset upload (`assets/upload` token request plus content upload) shared by the container client; `Reminder` now carries `urgent` (#419)
 - Add `icloud reminders update --early-reminder` / `--clear-early-reminders` and `--urgent/--not-urgent` options (#419)
-
-### Changed
-
-- **Breaking:** `RecurrenceFrequency` is now zero-based (`DAILY=0` ... `YEARLY=3`) to mirror Apple's wire encoding, so `int(frequency)` is the value stored in `RecurrenceRule.Frequency` and the value read back (#419)
 
 ### Fixed
 

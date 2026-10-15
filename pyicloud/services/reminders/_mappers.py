@@ -424,7 +424,19 @@ class RemindersRecordMapper:
                     record_name,
                 )
                 return urgent
-            asset_bytes = self._get_raw().download_asset_bytes(download_url)
+            try:
+                asset_bytes = self._get_raw().download_asset_bytes(download_url)
+            except RemindersApiError as exc:
+                # An expired or failing asset download must not fail the
+                # read of every reminder in the list; degrade to the
+                # checksum. Auth errors still propagate: the session itself
+                # is unusable and every other read would fail too.
+                self._logger.warning(
+                    "UrgentPresentationAlarmsAsData on %s failed to download: %s",
+                    record_name,
+                    exc,
+                )
+                return urgent
 
         try:
             decoded = _decode_urgent_presentation_alarms(asset_bytes)

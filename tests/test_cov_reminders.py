@@ -1485,6 +1485,32 @@ class TestUrgentReads:
         assert reminder.urgent is not None
         assert reminder.urgent.checksum == "abc"
 
+    def test_download_failure_degrades_to_checksum(self) -> None:
+        """A failed asset download keeps the reminder readable."""
+        raw = MagicMock()
+        raw.download_asset_bytes.side_effect = RemindersApiError("HTTP 404")
+        rec = _ck_record(
+            "Reminder",
+            "Reminder/R-1",
+            {
+                "UrgentPresentationAlarmsAsData": {
+                    "type": "ASSETID",
+                    "value": {"downloadURL": "https://example.com/urgent"},
+                },
+                "UrgentPresentationAlarmsChecksum": {
+                    "type": "STRING",
+                    "value": "abc",
+                    "isEncrypted": True,
+                },
+            },
+        )
+
+        reminder = self._mapper(raw).record_to_reminder(rec)
+
+        assert reminder.urgent is not None
+        assert reminder.urgent.enabled is False
+        assert reminder.urgent.checksum == "abc"
+
     def test_no_urgent_fields(self) -> None:
         """A reminder without Urgent fields has urgent None."""
         rec = _ck_record("Reminder", "Reminder/R-1", {})
