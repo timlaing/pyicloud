@@ -8,6 +8,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Changed
+
+- Publish pushes to `main` to TestPyPI using the `test` GitHub environment, alongside prereleases; stable releases continue to publish to PyPI
+
 ### Added
 
 - Accept an optional `event` in `PyiCloudService.confirm_security_key()` so callers can stop waiting for a security key touch

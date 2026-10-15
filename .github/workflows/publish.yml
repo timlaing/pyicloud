@@ -2,6 +2,8 @@ name: Build and Publish Python Package
 # This workflow builds a Python package and publishes it to PyPI or TestPyPI
 # yamllint disable-line rule:truthy
 on:
+  push:
+    branches: [main]
   release:
     types: [published, prereleased]
 
@@ -13,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
           fetch-depth: 0
 
       - name: Set up Python
@@ -59,7 +61,7 @@ jobs:
 
   pypi-publish:
     name: Upload release to PyPI
-    if: ${{ !github.event.release.prerelease && github.repository == 'timlaing/pyicloud' }}
+    if: ${{ github.event_name == 'release' && !github.event.release.prerelease && github.repository == 'timlaing/pyicloud' }}
     needs: build
     runs-on: ubuntu-latest
     environment: pypi
@@ -83,11 +85,11 @@ jobs:
           print-hash: true
 
   test-pypi-publish:
-    name: Upload release to TestPyPI
-    if: ${{ github.event.release.prerelease && github.repository == 'timlaing/pyicloud' }}
+    name: Upload package to TestPyPI
+    if: ${{ (github.event_name == 'push' || github.event.release.prerelease) && github.repository == 'timlaing/pyicloud' }}
     needs: build
     runs-on: ubuntu-latest
-    environment: testpypi
+    environment: test
     permissions:
       contents: read
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
