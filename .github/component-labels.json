@@ -57,25 +57,25 @@
     "label": "service: reminders",
     "description": "iCloud reminders service",
     "text": "\\b(?:reminders)\\b",
-    "paths": "^(?:pyicloud/services/reminders(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?reminders(?:[_.])|(?:fixtures|const)/reminders(?:[/.]))|docs/services/reminders\\.md$)"
+    "paths": "^(?:pyicloud/services/reminders(?:[/.]|_)|tests/(?:services/)?(?:test_.*reminders(?:[_.])|(?:fixtures|const)/reminders(?:[/.]))|docs/services/reminders\\.md$)"
   },
   {
     "label": "service: ubiquity",
     "description": "iCloud ubiquity service",
     "text": "\\b(?:ubiquity)\\b",
-    "paths": "^(?:pyicloud/services/ubiquity(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?ubiquity(?:[_.])|(?:fixtures|const)/ubiquity(?:[/.]))|docs/services/ubiquity\\.md$)"
+    "paths": "^(?:pyicloud/services/ubiquity(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?ubiquity(?:[_.])|(?:fixtures|const)/ubiquity(?:[/.]))|docs/services/drive\\.md$)"
   },
   {
     "label": "component: authentication",
     "description": "Sign-in, sessions, cookies and two-factor authentication",
     "text": "\\b(?:authentication|sign[ -]?in|log[ -]?in|2fa|mfa|fido2|security key|session|cookies?|srp|hsa2)\\b",
-    "paths": "^pyicloud/(?:base|session|cookie_jar|srp_password|hsa2_bridge(?:_prover)?)\\.py$"
+    "paths": "^pyicloud/(?:base|session|cookie_jar|srp_password|hsa2_bridge(?:_prover)?)\\.py$|^tests/test_(?:cov_(?:hsa2|state_cookiejar|session_misc)|(?:base|srp_password|hsa2_bridge|cookie_jar))(?:[_.])"
   },
   {
     "label": "component: cli",
     "description": "Command-line interface",
     "text": "\\b(?:cli|command[ -]line)\\b",
-    "paths": "^(?:pyicloud/(?:cli/|cmdline\\.py)|tests/test_(?:cmdline|notes_cli|cov_cli))"
+    "paths": "^(?:pyicloud/(?:cli/|cmdline\\.py)|tests/test_(?:cmdline|output|notes_cli|cov_cli))"
   },
   {
     "label": "component: cloudkit",
@@ -87,7 +87,7 @@
     "label": "component: core",
     "description": "Shared library infrastructure",
     "text": "\\b(?:core|diagnostics|endpoints)\\b",
-    "paths": "^pyicloud/(?:__init__|const|diagnostics|endpoints|exceptions|ssl_context|utils)\\.py$|^pyicloud/services/base\\.py$"
+    "paths": "^pyicloud/(?:__init__|const|diagnostics|endpoints|exceptions|ssl_context|utils)\\.py$|^pyicloud/services/base\\.py$|^tests/test_(?:utils|endpoints|https_service_endpoints|diagnostics|exception_hierarchy|ssl_context)"
   },
   {
     "label": "component: ci",
