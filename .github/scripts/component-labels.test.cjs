@@ -1,7 +1,11 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { test } = require("node:test");
 const label = require("./component-labels.cjs");
 const { classify } = label;
+
+const root = path.resolve(__dirname, "..", "..");
 
 test("explicit issue selection overrides incidental log keywords", () => {
   assert.deepEqual(
@@ -95,26 +99,38 @@ test("triage is added on open/reopen, never re-added on edits", async () => {
   }
 });
 
-test("every service maps source, test and documentation paths", () => {
+test("every service rule points at files that exist in the repository", () => {
   const rules = require("../component-labels.json");
   for (const rule of rules.filter((entry) =>
     entry.label.startsWith("service:"),
   )) {
     const name = rule.label.slice("service: ".length);
-    for (const file of [
-      `pyicloud/services/${name}.py`,
-      `pyicloud/services/${name}/_reads.py`,
-      `tests/services/test_${name}.py`,
-      `tests/fixtures/${name}/response.json`,
-      `docs/services/${name === "findmyiphone" ? "devices" : name}.md`,
-    ]) {
-      assert.ok(classify({ files: [file] }).includes(rule.label), file);
-    }
+    const source = `pyicloud/services/${name}`;
+    const docs = "docs/services/";
+    const position = rule.paths.indexOf(docs);
+    assert.notEqual(position, -1, `${rule.label} must document a docs page`);
+    const page = rule.paths.slice(position + docs.length).match(/[a-z]+/);
+    assert.ok(page, rule.label);
+    assert.ok(
+      fs.existsSync(path.join(root, `${source}.py`)) ||
+        fs.existsSync(path.join(root, source)),
+      `${rule.label} source`,
+    );
+    assert.ok(
+      fs.existsSync(path.join(root, `tests/services/test_${name}.py`)) ||
+        fs.existsSync(path.join(root, `tests/test_${name}.py`)) ||
+        fs.existsSync(path.join(root, `tests/test_cov_${name}.py`)),
+      `${rule.label} tests`,
+    );
+    assert.ok(
+      fs.existsSync(path.join(root, `${docs}${page[0]}.md`)),
+      `${rule.label} docs`,
+    );
   }
 });
 
 test("null issue bodies preserve title classification and triage", async () => {
-  for (const action of ["opened", "reopened", "edited"]) {
+  for (const action of ["opened", "reopened"]) {
     const calls = [];
     await label({
       github: {
@@ -128,13 +144,48 @@ test("null issue bodies preserve title classification and triage", async () => {
         },
       },
     });
-    assert.deepEqual(
-      calls[0].labels,
-      action === "edited"
-        ? ["service: reminders"]
-        : ["service: reminders", "needs-triage"],
-    );
+    assert.deepEqual(calls[0].labels, ["service: reminders", "needs-triage"]);
     assert.equal(calls[0].issue_number, 8);
   }
   assert.deepEqual(classify({ issue: true, body: null }), []);
+});
+
+test("issue edits never relabel, so labels maintainers removed stay removed", async () => {
+  const calls = [];
+  await label({
+    github: {
+      rest: { issues: { addLabels: async (args) => calls.push(args) } },
+    },
+    context: {
+      repo: { owner: "owner", repo: "repo" },
+      payload: {
+        issue: { number: 4, title: "Reminders fail", body: null },
+        action: "edited",
+      },
+    },
+  });
+  assert.deepEqual(calls, []);
+});
+
+test("path rules classify the real files they are configured for", () => {
+  const cases = {
+    "tests/test_srp_password.py": ["component: authentication"],
+    "tests/test_hsa2_bridge.py": ["component: authentication"],
+    "tests/test_cov_state_cookiejar.py": ["component: authentication"],
+    "tests/test_base.py": ["component: authentication"],
+    "tests/test_utils.py": ["component: core"],
+    "tests/test_exception_hierarchy.py": ["component: core"],
+    "tests/test_https_service_endpoints.py": ["component: core"],
+    "tests/test_output.py": ["component: cli"],
+    "tests/test_example_reminders_delta.py": ["service: reminders"],
+    "tests/test_cov_notes_ck_base.py": ["service: notes"],
+    "docs/services/drive.md": [
+      "service: drive",
+      "service: ubiquity",
+      "component: documentation",
+    ],
+  };
+  for (const [file, expected] of Object.entries(cases)) {
+    assert.deepEqual(classify({ files: [file] }), expected, file);
+  }
 });
