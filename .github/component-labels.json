@@ -1,0 +1,104 @@
+[
+  {
+    "label": "service: account",
+    "description": "iCloud account service",
+    "text": "\\b(?:account)\\b",
+    "paths": "^(?:pyicloud/services/account(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?account(?:[_.])|(?:fixtures|const)/account(?:[/.]))|docs/services/account\\.md$)"
+  },
+  {
+    "label": "service: calendar",
+    "description": "iCloud calendar service",
+    "text": "\\b(?:calendar)\\b",
+    "paths": "^(?:pyicloud/services/calendar(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?calendar(?:[_.])|(?:fixtures|const)/calendar(?:[/.]))|docs/services/calendar\\.md$)"
+  },
+  {
+    "label": "service: contacts",
+    "description": "iCloud contacts service",
+    "text": "\\b(?:contacts)\\b",
+    "paths": "^(?:pyicloud/services/contacts(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?contacts(?:[_.])|(?:fixtures|const)/contacts(?:[/.]))|docs/services/contacts\\.md$)"
+  },
+  {
+    "label": "service: drive",
+    "description": "iCloud drive service",
+    "text": "\\b(?:drive)\\b",
+    "paths": "^(?:pyicloud/services/drive(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?drive(?:[_.])|(?:fixtures|const)/drive(?:[/.]))|docs/services/drive\\.md$)"
+  },
+  {
+    "label": "service: findmyiphone",
+    "description": "iCloud findmyiphone service",
+    "text": "\\b(?:findmyiphone|find my (?:iphone|devices?))\\b",
+    "paths": "^(?:pyicloud/services/findmyiphone(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?findmyiphone(?:[_.])|(?:fixtures|const)/findmyiphone(?:[/.]))|docs/services/devices\\.md$)"
+  },
+  {
+    "label": "service: hidemyemail",
+    "description": "iCloud hidemyemail service",
+    "text": "\\b(?:hidemyemail|hide my email)\\b",
+    "paths": "^(?:pyicloud/services/hidemyemail(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?hidemyemail(?:[_.])|(?:fixtures|const)/hidemyemail(?:[/.]))|docs/services/hidemyemail\\.md$)"
+  },
+  {
+    "label": "service: invites",
+    "description": "iCloud invites service",
+    "text": "\\b(?:invites)\\b",
+    "paths": "^(?:pyicloud/services/invites(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?invites(?:[_.])|(?:fixtures|const)/invites(?:[/.]))|docs/services/invites\\.md$)"
+  },
+  {
+    "label": "service: notes",
+    "description": "iCloud notes service",
+    "text": "\\b(?:notes)\\b",
+    "paths": "^(?:pyicloud/services/notes(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?notes(?:[_.])|(?:fixtures|const)/notes(?:[/.]))|docs/services/notes\\.md$)"
+  },
+  {
+    "label": "service: photos",
+    "description": "iCloud photos service",
+    "text": "\\b(?:photos(?:_legacy|_cloudkit)?)\\b",
+    "paths": "^(?:pyicloud/services/photos(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?photos(?:[_.])|(?:fixtures|const)/photos(?:[/.]))|docs/services/photos\\.md$)"
+  },
+  {
+    "label": "service: reminders",
+    "description": "iCloud reminders service",
+    "text": "\\b(?:reminders)\\b",
+    "paths": "^(?:pyicloud/services/reminders(?:[/.]|_)|tests/(?:services/)?(?:test_.*reminders(?:[_.])|(?:fixtures|const)/reminders(?:[/.]))|docs/services/reminders\\.md$)"
+  },
+  {
+    "label": "service: ubiquity",
+    "description": "iCloud ubiquity service",
+    "text": "\\b(?:ubiquity)\\b",
+    "paths": "^(?:pyicloud/services/ubiquity(?:[/.]|_)|tests/(?:services/)?(?:test_(?:cov_)?ubiquity(?:[_.])|(?:fixtures|const)/ubiquity(?:[/.]))|docs/services/drive\\.md$)"
+  },
+  {
+    "label": "component: authentication",
+    "description": "Sign-in, sessions, cookies and two-factor authentication",
+    "text": "\\b(?:authentication|sign[ -]?in|log[ -]?in|2fa|mfa|fido2|security key|session|cookies?|srp|hsa2)\\b",
+    "paths": "^pyicloud/(?:base|session|cookie_jar|srp_password|hsa2_bridge(?:_prover)?)\\.py$|^tests/test_(?:cov_(?:hsa2|state_cookiejar|session_misc)|(?:base|srp_password|hsa2_bridge|cookie_jar))(?:[_.])"
+  },
+  {
+    "label": "component: cli",
+    "description": "Command-line interface",
+    "text": "\\b(?:cli|command[ -]line)\\b",
+    "paths": "^(?:pyicloud/(?:cli/|cmdline\\.py)|tests/test_(?:cmdline|output|notes_cli|cov_cli))"
+  },
+  {
+    "label": "component: cloudkit",
+    "description": "Shared CloudKit protocol and client",
+    "text": "\\bcloudkit\\b",
+    "paths": "^(?:pyicloud/common/|tests/test_(?:cov_)?cloudkit)"
+  },
+  {
+    "label": "component: core",
+    "description": "Shared library infrastructure",
+    "text": "\\b(?:core|diagnostics|endpoints)\\b",
+    "paths": "^pyicloud/(?:__init__|const|diagnostics|endpoints|exceptions|ssl_context|utils)\\.py$|^pyicloud/services/base\\.py$|^tests/test_(?:utils|endpoints|https_service_endpoints|diagnostics|exception_hierarchy|ssl_context)"
+  },
+  {
+    "label": "component: ci",
+    "description": "GitHub Actions and development tooling",
+    "text": "\\b(?:github actions|ci|pre-commit|prek)\\b",
+    "paths": "^(?:\\.github/|scripts/|\\.pre-commit-config\\.yaml$)"
+  },
+  {
+    "label": "component: documentation",
+    "description": "Documentation and examples",
+    "text": "\\b(?:documentation|readme|docs)\\b",
+    "paths": "^(?:docs/|examples/|README\\.md$|mkdocs\\.yml$)"
+  }
+]

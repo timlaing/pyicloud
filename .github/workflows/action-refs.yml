@@ -20,3 +20,6 @@ jobs:
 
       - name: Check action references
         run: python3 scripts/check_action_refs.py .github/workflows
+
+      - name: Check component labelling
+        run: node --test .github/scripts/component-labels.test.cjs

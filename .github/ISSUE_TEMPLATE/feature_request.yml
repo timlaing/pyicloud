@@ -9,6 +9,33 @@ body:
         Thanks for suggesting a feature. Please search the
         [existing issues](https://github.com/timlaing/pyicloud/issues?q=is%3Aissue)
         first to see whether it has already been requested or discussed.
+  - type: dropdown
+    id: components
+    attributes:
+      label: Service / component
+      description: Select all affected services or components, or choose Unknown.
+      multiple: true
+      options:
+        - "service: account"
+        - "service: calendar"
+        - "service: contacts"
+        - "service: drive"
+        - "service: findmyiphone"
+        - "service: hidemyemail"
+        - "service: invites"
+        - "service: notes"
+        - "service: photos"
+        - "service: reminders"
+        - "service: ubiquity"
+        - "component: authentication"
+        - "component: cli"
+        - "component: cloudkit"
+        - "component: core"
+        - "component: ci"
+        - "component: documentation"
+        - Unknown
+    validations:
+      required: true
   - type: textarea
     attributes:
       label: The request

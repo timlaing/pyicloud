@@ -1,9 +1,11 @@
 name: "Auto labeller"
 
+# Use the default branch workflow and code so fork PRs can be labelled safely.
+# Never check out or execute the pull request's code in this workflow.
 # yamllint disable-line rule:truthy
 on:
-  pull_request:
-    types: [opened, reopened]
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize]
 
 permissions:
   contents: read
@@ -14,7 +16,14 @@ jobs:
   auto_label:
     runs-on: ubuntu-latest
     steps:
-      # runs autolabeler
       - uses: release-drafter/release-drafter/autolabeler@v7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const label = require('./.github/scripts/component-labels.cjs');
+            await label({ github, context });
