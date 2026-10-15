@@ -46,6 +46,7 @@ icloud account summary
 icloud account summary --format json
 icloud devices list --locate
 icloud devices list --with-family
+icloud devices list --one-factor
 icloud devices show "Example iPhone"
 icloud devices export "Example iPhone" --output ./iphone.json
 icloud calendar events --username jappleseed@apple.com --period week
@@ -114,3 +115,39 @@ access the iCloud web service. This will result in login failures until
 the terms are accepted. This can be automatically accepted by PyiCloud
 using `icloud auth login --accept-terms`. Alternatively you can visit
 the iCloud web site to view and accept the terms.
+
+## Find My without a two-factor code
+
+Apple lets one service through on the password alone: Find My. Of the apps it
+advertises for an account, `find` is the only one flagged
+`canLaunchWithOneFactor` — the same reason `icloud.com/find` works in a private
+window after just a password.
+
+```console
+icloud devices list --one-factor
+icloud devices sound "Example iPhone" --one-factor
+```
+
+The password comes from your keyring, or is prompted for.
+
+It is an option on the `devices` commands rather than a way to log in, because
+Apple issues no `X-APPLE-WEBAUTH-TOKEN` for a session that skipped the 2FA
+challenge and answers `/validate` on one with a `421`. Such a session cannot be
+saved and reopened; it lasts for the one command that created it. Its cookies go
+to a temporary directory, so running this never disturbs a session you already
+have.
+
+`list`, `show`, `sound`, `message`, `lost-mode` and `export` all accept the
+option. Note that `lost-mode` locks the device and can set a new passcode, so it
+is worth the same care on a password-only sign-in as it is on a full one.
+
+`icloud devices erase` is the exception and does not accept `--one-factor`. A
+remote wipe is the one irreversible action in the group, and it should cost a
+full session:
+
+```console
+icloud auth login --username jappleseed@apple.com
+```
+
+Everything outside Find My needs that full session too — on a password-only
+sign-in, `icloud account` answers `401` and `icloud drive` answers `421`.

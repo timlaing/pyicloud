@@ -4,8 +4,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import nullcontext, suppress
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager, nullcontext, suppress
 from datetime import datetime, timezone
 import importlib
 import json
@@ -21,10 +21,14 @@ import pytest
 import typer
 from typer.testing import CliRunner, Result
 
+from pyicloud.const import FIND_MY_APP_KEY
 from pyicloud.diagnostics import PROBED_SERVICES
 from pyicloud.endpoints import WEBSERVICES
 from pyicloud.exceptions import (
+    PyiCloudAccountLockedException,
     PyiCloudAPIResponseException,
+    PyiCloudConnectionException,
+    PyiCloudFailedLoginException,
     PyiCloudServiceUnavailable,
 )
 from pyicloud.services.invites import (
@@ -1927,6 +1931,362 @@ def test_devices_refresh_interval_rejects_invalid_values(
     error_text = " ".join(_plain_output(result).replace("│", " ").split())
     assert message in error_text
     build_api.assert_not_called()
+
+
+_FAKE_ONE_FACTOR_DIR = "/tmp/pyicloud-one-factor-fake"
+
+
+def _one_factor_cli_args(session_dir: Path, *extra: str) -> list[str]:
+    """Return CLI args for a one-factor devices list invocation."""
+
+    return [
+        "devices",
+        "list",
+        "--username",
+        "user@example.com",
+        "--session-dir",
+        str(session_dir),
+        "--one-factor",
+        *extra,
+    ]
+
+
+@contextmanager
+def _patched_one_factor_login(
+    fake_api: FakeAPI,
+    captured: dict[str, Any],
+    scratch_kwargs: dict[str, Any],
+) -> Generator[None, None, None]:
+    """Patch everything a one-factor CLI login touches.
+
+    The real TemporaryDirectory creates a directory, which the filesystem
+    guard forbids, so it is replaced by a stub that records the production
+    kwargs (notably the prefix) before handing back a fixed path.
+    """
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        captured.update(kwargs)
+        return fake_api
+
+    def fake_temporary_directory(**kwargs: Any) -> Any:
+        scratch_kwargs.update(kwargs)
+        return nullcontext(_FAKE_ONE_FACTOR_DIR)
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils,
+            "get_password_from_keyring",
+            return_value="secret",
+        ),
+        patch.object(context_module, "TemporaryDirectory", fake_temporary_directory),
+    ):
+        yield
+
+
+def _one_factor_fake_api(session_dir: Path) -> FakeAPI:
+    """Return a FakeAPI Apple would grant password-only Find My access to."""
+
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    fake_api.is_trusted_session = False
+    fake_api.data = {"apps": {"find": {"canLaunchWithOneFactor": True}}}
+    return fake_api
+
+
+def test_devices_one_factor_uses_a_paused_password_only_login() -> None:
+    """--one-factor signs in with the password and skips the 2FA challenge."""
+
+    session_dir = _unique_session_dir("one-factor-paused")
+    fake_api = _one_factor_fake_api(session_dir)
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with _patched_one_factor_login(fake_api, captured, scratch_kwargs):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code == 0
+    assert captured["pause_2fa"] is True
+    assert captured["locate"] is True
+
+
+def test_devices_one_factor_never_writes_over_the_stored_session() -> None:
+    """The paused login is isolated: it must not touch the real cookie jar.
+
+    Persisting it there would replace a working trusted session with one only
+    Find My accepts, so the cookies go to a throwaway directory instead.
+    """
+
+    session_dir = _unique_session_dir("one-factor-isolated")
+    fake_api = _one_factor_fake_api(session_dir)
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with _patched_one_factor_login(fake_api, captured, scratch_kwargs):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code == 0
+    cookie_dir = captured["cookie_directory"]
+    assert cookie_dir == _FAKE_ONE_FACTOR_DIR
+    assert cookie_dir != str(session_dir)
+    # Assert the production prefix through the stub's captured kwargs: the
+    # stub's own return path says nothing about what the real code passed.
+    assert "one-factor" in scratch_kwargs["prefix"]
+
+
+def test_devices_one_factor_refuses_an_account_apple_will_not_grant() -> None:
+    """An account without the grant is told so, before any Find My request."""
+
+    session_dir = _unique_session_dir("one-factor-ineligible")
+    # Apple advertises Find My but withholds the one-factor grant.
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    fake_api.data = {"apps": {"find": {}}}
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with _patched_one_factor_login(fake_api, captured, scratch_kwargs):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert "password-only" in str(result.exception)
+    assert "icloud auth login" in str(result.exception)
+
+
+def test_devices_one_factor_matches_the_apps_key_not_webservices() -> None:
+    """`findme` is the webservices key; the apps map only knows `find`.
+
+    A lookup under the wrong key must read as "not eligible" rather than
+    silently falling through to a full 2FA login.
+    """
+
+    assert FIND_MY_APP_KEY == "find"
+
+    session_dir = _unique_session_dir("one-factor-findme")
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    fake_api.data = {"apps": {"findme": {"canLaunchWithOneFactor": True}}}
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with _patched_one_factor_login(fake_api, captured, scratch_kwargs):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert "password-only" in str(result.exception)
+
+
+def test_devices_without_one_factor_uses_the_stored_session() -> None:
+    """The default path is unchanged and does not log in again."""
+
+    session_dir = _unique_session_dir("one-factor-default-path")
+    _remember_local_account(session_dir, "user@example.com", has_session_file=True)
+    fake_api = FakeAPI(username="user@example.com", session_dir=session_dir)
+    captured: dict[str, Any] = {}
+
+    def fake_service(*, apple_id: str, **kwargs: Any) -> FakeAPI:
+        assert apple_id == "user@example.com"
+        captured.update(kwargs)
+        return fake_api
+
+    with (
+        patch.object(context_module, "PyiCloudService", side_effect=fake_service),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "devices",
+                "list",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "pause_2fa" not in captured
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (
+            PyiCloudAccountLockedException(-20209, MagicMock()),
+            "Unlock it before trying again.",
+        ),
+        (PyiCloudConnectionException("No route to host"), "Could not reach iCloud"),
+        (PyiCloudFailedLoginException("Denied"), "Bad username or password"),
+    ],
+)
+def test_devices_one_factor_maps_login_failures_to_aborts(
+    error: Exception, message: str
+) -> None:
+    """Constructor failures surface as user-facing aborts, not tracebacks."""
+
+    session_dir = _unique_session_dir("one-factor-login-failure")
+    fake_api = _one_factor_fake_api(session_dir)
+    captured: dict[str, Any] = {}
+    scratch_kwargs: dict[str, Any] = {}
+
+    with (
+        _patched_one_factor_login(fake_api, captured, scratch_kwargs),
+        patch.object(context_module, "PyiCloudService", side_effect=error),
+    ):
+        result = _runner().invoke(app, _one_factor_cli_args(session_dir))
+
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert message in str(result.exception)
+
+
+def test_get_one_factor_api_without_a_password_aborts() -> None:
+    """No keyring password and no prompt available means a clear abort."""
+
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            interactive=False,
+            session_dir=str(_unique_session_dir("one-factor-no-password")),
+        )
+    )
+
+    with (
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+        pytest.raises(
+            context_module.CLIAbort, match="No password supplied and no stored"
+        ),
+    ):
+        state.get_one_factor_api()
+
+
+def test_get_one_factor_api_reuses_the_cached_session() -> None:
+    """The session already built for this process is returned, not rebuilt."""
+
+    state = context_module.CLIState.from_options(
+        context_module.CLICommandOptions(
+            username="user@example.com",
+            session_dir=str(_unique_session_dir("one-factor-cached")),
+        )
+    )
+    cached: Any = MagicMock()
+    state._api = cached
+
+    assert state.get_one_factor_api() is cached
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({"apps": {"find": {"canLaunchWithOneFactor": True}}}, True),
+        # Apple advertises Find My but withholds the grant.
+        ({"apps": {"find": {}}}, False),
+        ({"apps": {"find": {"canLaunchWithOneFactor": False}}}, False),
+        # The same service keyed as in the webservices map matches nothing.
+        ({"apps": {"findme": {"canLaunchWithOneFactor": True}}}, False),
+        # No apps map at all (or a malformed one) is not eligible.
+        ({}, False),
+        ({"apps": []}, False),
+        ({"apps": {"find": "not-a-mapping"}}, False),
+    ],
+)
+def test_grants_one_factor_reads_the_find_app_entry(
+    data: dict[str, Any], expected: bool
+) -> None:
+    """Eligibility is read from apps[find].canLaunchWithOneFactor only."""
+
+    fake_api: Any = SimpleNamespace(data=data)
+
+    assert context_module.CLIState._grants_one_factor(fake_api) is expected
+
+
+def test_devices_erase_has_no_one_factor_escape_hatch() -> None:
+    """A remote wipe is irreversible, so it always costs a full session."""
+
+    result = _runner().invoke(app, ["devices", "erase", "--help"])
+
+    assert result.exit_code == 0
+    assert "--one-factor" not in _plain_output(result)
+
+
+def test_devices_erase_never_takes_the_one_factor_path() -> None:
+    """Hiding the flag is not enough: erase must not reach that code at all."""
+
+    session_dir = _unique_session_dir("erase-full-session")
+    fake_api = _remember_local_account(
+        session_dir, "user@example.com", has_session_file=True
+    )
+    one_factor = MagicMock()
+
+    with (
+        patch.object(context_module, "PyiCloudService", return_value=fake_api),
+        patch.object(
+            context_module, "configurable_ssl_verification", return_value=nullcontext()
+        ),
+        patch.object(
+            context_module.utils, "get_password_from_keyring", return_value=None
+        ),
+        patch.object(context_module.CLIState, "get_one_factor_api", one_factor),
+    ):
+        result = _runner().invoke(
+            app,
+            [
+                "devices",
+                "erase",
+                "Example iPhone",
+                "--force",
+                "--username",
+                "user@example.com",
+                "--session-dir",
+                str(session_dir),
+            ],
+        )
+
+    # The erase has to actually run, or "it did not take the one-factor path"
+    # is satisfied by aborting before reaching any path at all.
+    assert result.exit_code == 0
+    assert fake_api.devices[0].erase_message is not None
+    one_factor.assert_not_called()
+
+
+def test_auth_login_has_no_one_factor_flag() -> None:
+    """A paused session cannot be persisted, so login must not offer it."""
+
+    result = _runner().invoke(app, ["auth", "login", "--help"])
+
+    assert result.exit_code == 0
+    assert "--one-factor" not in _plain_output(result)
+
+
+@pytest.mark.parametrize(
+    "cli_args",
+    [
+        ["devices", "list"],
+        ["devices", "show"],
+        ["devices", "sound"],
+        ["devices", "message"],
+        ["devices", "lost-mode"],
+        ["devices", "export"],
+    ],
+)
+def test_devices_commands_offer_one_factor(cli_args: list[str]) -> None:
+    """Every Find My command except erase offers --one-factor."""
+
+    result = _runner().invoke(app, [*cli_args, "--help"])
+
+    assert result.exit_code == 0
+    assert "--one-factor" in _plain_output(result)
 
 
 def test_account_summary_command() -> None:

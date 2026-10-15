@@ -109,6 +109,12 @@ will still need the normal 2FA flow (`request_2fa_code()` /
 reused when the current call also enables `pause_2fa`; it is rejected on the
 default (trusted) flow to avoid silently bypassing 2FA.
 
+The CLI equivalent is `icloud devices <command> --one-factor` (see
+[CLI usage](cli.md#find-my-without-a-two-factor-code)). Unlike the library
+keyword, it never persists anything: Apple issues no
+`X-APPLE-WEBAUTH-TOKEN` for a paused session, so it cannot be resumed after the
+command exits.
+
 ## Two-step and two-factor authentication (2SA/2FA)
 
 If you have enabled two-factor authentications (2FA) or [two-step

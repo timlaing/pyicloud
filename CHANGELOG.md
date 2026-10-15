@@ -15,6 +15,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add `--one-factor` to `icloud devices` `list`, `show`, `sound`, `message`, `lost-mode` and `export` for a password-only Find My sign-in that skips the two-factor prompt. The session lives for that one command only — its cookies go to a temporary directory and nothing is written to disk — and `devices erase` deliberately still requires a full session (#358)
 - Accept an optional `event` in `PyiCloudService.confirm_security_key()` so callers can stop waiting for a security key touch
 - Add `RemindersService.set_early_reminders()` for the "Early Reminder" setting (hours/days before the due date), stored in the reminder record's `DueDateDeltaAlertsData` field; the payload's account identifier is taken from an existing app-written payload or, by default, the signed-in account's directory id. `Reminder` now carries `early_reminders` (#419)
 - Add `RemindersService.set_urgent()` for Urgent presentation alarms (iOS 26.2+), with a generic CloudKit asset upload (`assets/upload` token request plus content upload) shared by the container client; `Reminder` now carries `urgent` (#419)
