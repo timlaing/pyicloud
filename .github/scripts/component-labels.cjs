@@ -1,6 +1,8 @@
 const rules = require("../component-labels.json");
 
+/** Return configured labels from a form selection, report text or file paths. */
 function classify({ title = "", body = "", files = [], issue = false }) {
+  body = body ?? "";
   // A form selection is authoritative; Unknown falls back to text matching.
   const selection = issue
     ? body.match(/(?:^|\n)### Service \/ component\s*\n+([^\n]+)/)?.[1]

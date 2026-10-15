@@ -112,3 +112,29 @@ test("every service maps source, test and documentation paths", () => {
     }
   }
 });
+
+test("null issue bodies preserve title classification and triage", async () => {
+  for (const action of ["opened", "reopened", "edited"]) {
+    const calls = [];
+    await label({
+      github: {
+        rest: { issues: { addLabels: async (args) => calls.push(args) } },
+      },
+      context: {
+        repo: { owner: "owner", repo: "repo" },
+        payload: {
+          issue: { number: 8, title: "Reminders fail", body: null },
+          action,
+        },
+      },
+    });
+    assert.deepEqual(
+      calls[0].labels,
+      action === "edited"
+        ? ["service: reminders"]
+        : ["service: reminders", "needs-triage"],
+    );
+    assert.equal(calls[0].issue_number, 8);
+  }
+  assert.deepEqual(classify({ issue: true, body: null }), []);
+});
