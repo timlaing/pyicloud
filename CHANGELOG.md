@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog].
 
 Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
+## [Unreleased]
+
+### Added
+
+- Accept an optional `event` in `PyiCloudService.confirm_security_key()` so callers can stop waiting for a security key touch
+
+### Fixed
+
+- Raise a `PyiCloudException` from `PyiCloudService.confirm_security_key()` instead of leaking a non-pyiCloud error: `PyiCloudSecurityKeyTimeoutException` when the wait is aborted through the cancel event, and `PyiCloudSecurityKeyException` for a missing FIDO2 device or any other failure of the security key ceremony (the fido2 error, where there is one, is chained as `__cause__`)
+
 ## [2026.10.0] - 2026-10-12
 
 ### Added
