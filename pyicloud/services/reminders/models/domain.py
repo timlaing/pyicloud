@@ -36,6 +36,11 @@ class Reminder(MutableServiceModel):
     # A failed read is not editable empty text. Preserve affected field names
     # so update can refuse before re-encoding either document.
     undecodable_text_fields: tuple[str, ...] = ()
+    # Text as last read from (or written to) the server. ``update`` only writes
+    # a text document the caller changed, so a stale object does not revert an
+    # edit made on a device in the meantime. ``None`` means unknown.
+    server_title: str | None = Field(default=None, repr=False)
+    server_desc: str | None = Field(default=None, repr=False)
 
 
 class ReminderChangeEvent(FrozenServiceModel):

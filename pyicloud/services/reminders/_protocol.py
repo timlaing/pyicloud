@@ -8,7 +8,7 @@ import json as _json
 import logging
 import plistlib
 import time
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlparse
 import uuid
 from xml.parsers.expat import ExpatError
@@ -26,6 +26,17 @@ LOGGER = logging.getLogger(__name__)
 
 class CRDTDecodeError(ValueError):
     """Raised when a Reminders CRDT payload cannot be decoded."""
+
+
+class CRDTStructureError(CRDTDecodeError):
+    """Raised when a decodable payload has no CRDT structure to edit.
+
+    The document carries no substrings, so there is no replica state to
+    preserve and re-encoding from scratch is equivalent. Callers that fall
+    back to a fresh document should catch this rather than
+    :class:`CRDTDecodeError`, whose other cases (a missing vector clock or
+    start sentinel) mean replica state does exist and must not be discarded.
+    """
 
 
 def _ref_name(fields: CKFields, key: str) -> str:
@@ -330,6 +341,313 @@ def _encode_crdt_document(text: str) -> str:
 
     compressed = zlib.compress(doc_bytes)
     return base64.b64encode(compressed).decode("utf-8")
+
+
+def _utf16_length(text: str) -> int:
+    """Return the length of ``text`` in UTF-16 code units, as topotext counts it."""
+    return len(text.encode("utf-16-le")) // 2 if text else 0
+
+
+def _parse_crdt_string(encoded: str | bytes) -> Any:
+    """Parse a TitleDocument/NotesDocument payload into a topotext ``String``.
+
+    Unlike :func:`_decode_crdt_document`, this keeps the full CRDT structure
+    (substrings, vector clock, attribute runs) so it can be edited in place.
+    It accepts the same wrappers, in the same order: a versioned ``Document``,
+    a bare ``Version`` and a bare ``String``.
+    """
+    data = encoded
+    if isinstance(data, str):
+        data += "=" * (-len(data) % 4)
+        try:
+            data = base64.b64decode(data)
+        except ValueError as exc:
+            raise CRDTDecodeError("Invalid base64-encoded CRDT document") from exc
+
+    for decompress in (zlib.decompress, gzip.decompress):
+        try:
+            data = decompress(data)
+            break
+        except (zlib.error, OSError, EOFError):
+            continue
+
+    try:
+        document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
+        document.ParseFromString(data)
+        if document.version:
+            value = reminders_pb2.String()  # type: ignore[attr-defined]
+            value.ParseFromString(document.version[0].data)
+            if value.substring:
+                return value
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("versioned_document.Document parse failed: %s", exc)
+
+    value, unclocked_substrings = _parse_bare_crdt_string(data)
+    if value is not None:
+        return value
+    if unclocked_substrings:
+        # Substrings carry character identifiers even without a clock, so
+        # re-encoding from scratch would discard replica state; this is not
+        # the structureless case and callers must not fall back for it.
+        raise CRDTDecodeError("CRDT document has substrings but no vector clock")
+    raise CRDTStructureError("CRDT document has no editable structure")
+
+
+def _bare_version_data(data: bytes) -> bytes | None:
+    """Return the ``String`` bytes held by a bare ``versioned_document.Version``."""
+    try:
+        version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
+        version.ParseFromString(data)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("bare Version parse failed: %s", exc)
+        return None
+    return cast(bytes, version.data)
+
+
+def _parse_bare_crdt_string(data: bytes) -> tuple[Any | None, bool]:
+    """Parse a bare topotext ``String``, directly or through a ``Version``.
+
+    A bare String and a bare Version share field numbers, so either parses as
+    the other. Both candidates are therefore gated on carrying a vector clock
+    as well as substrings; a cross-parse yields substrings but never a clock,
+    so a genuine payload still wins, and the gate is what keeps the order from
+    mattering for correctness. Both candidates are checked before anything is
+    reported, because a payload that cross-parses as unclocked substrings may
+    still parse as the other wrapper with its clock.
+
+    Only substrings that reference characters count as unclocked state: a
+    cross-parse produces degenerate length-0 entries, and counting those would
+    misreport a structureless payload as carrying state worth preserving.
+
+    Returns the parsed value when a candidate matches, and whether either
+    candidate showed substrings that reference characters but no clock.
+    """
+    unclocked_substrings = False
+    for payload in (data, _bare_version_data(data)):
+        if payload is None:
+            continue
+        try:
+            value = reminders_pb2.String()  # type: ignore[attr-defined]
+            value.ParseFromString(payload)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.debug("bare String parse failed: %s", exc)
+            continue
+        if not value.substring:
+            continue
+        if value.timestamp.clock:
+            return value, False
+        if any(substring.length for substring in value.substring):
+            unclocked_substrings = True
+    return None, unclocked_substrings
+
+
+def _structure_has_visible_text(encoded: str | bytes) -> bool:
+    """Return whether a document's structure holds text its cached string may omit.
+
+    :func:`_decode_crdt_document` returns the cached ``string`` field and
+    never the substrings, so a document can decode to ``""`` while its
+    substrings still carry the text. Callers that must tell that shape apart
+    from a genuinely empty document use this. A payload whose structure
+    cannot be inspected at all shows no text either.
+    """
+    try:
+        value = _parse_crdt_string(encoded)
+    except CRDTDecodeError:
+        return False
+    return any(
+        substring.charID.replicaID and not substring.tombstone and substring.length
+        for substring in value.substring
+    )
+
+
+def _serialize_crdt_string(value: Any) -> str:
+    """Wrap a topotext ``String`` in a versioned document, compressed and base64."""
+    version = versioned_document_pb2.Version()  # type: ignore[attr-defined]
+    version.serializationVersion = 0
+    version.minimumSupportedVersion = 0
+    version.data = value.SerializeToString()
+
+    document = versioned_document_pb2.Document()  # type: ignore[attr-defined]
+    document.serializationVersion = 0
+    document.version.append(version)
+    return base64.b64encode(zlib.compress(document.SerializeToString())).decode("utf-8")
+
+
+def _reorder_substrings(value: Any) -> None:
+    """Store substrings in document order, so children follow their parent.
+
+    The Reminders app writes substrings in the order a depth-first walk from
+    the start sentinel visits them; edits keep that layout.
+    """
+    original = list(value.substring)
+    order: list[int] = []
+    seen: set[int] = set()
+    stack = [0]
+    while stack:
+        index = stack.pop()
+        if index in seen or index >= len(original):
+            continue
+        seen.add(index)
+        order.append(index)
+        stack.extend(reversed(list(original[index].child)))
+    order.extend(index for index in range(len(original)) if index not in seen)
+
+    position = {old: new for new, old in enumerate(order)}
+    reordered = []
+    for old in order:
+        substring = type(original[old])()
+        substring.CopyFrom(original[old])
+        children = [position[child] for child in substring.child if child in position]
+        del substring.child[:]
+        substring.child.extend(children)
+        reordered.append(substring)
+    del value.substring[:]
+    value.substring.extend(reordered)
+
+
+def _edit_crdt_document(  # noqa: S3776
+    existing: str | bytes,
+    text: str,
+    *,
+    replica_uuid: bytes | None = None,
+) -> str:
+    """Replace the visible text of an existing topotext document as a CRDT edit.
+
+    Apple devices merge TitleDocument/NotesDocument as CRDTs: characters are
+    identified by ``(replica, clock)`` and a device ignores characters it has
+    already seen. Re-encoding a fresh document therefore never reaches a
+    device that knows the old one. This helper instead records the edit the
+    way the Reminders app does:
+
+    * a new replica is added to the vector clock (kept sorted by UUID, with
+      character and style references remapped accordingly);
+    * every visible substring is tombstoned;
+    * the new text is inserted right after the start sentinel, with character
+      clocks continuing after the highest clock any replica has used.
+    """
+    value = _parse_crdt_string(existing)
+    clocks = list(value.timestamp.clock)
+    if not clocks:
+        raise CRDTDecodeError("CRDT document has no vector clock")
+
+    new_uuid = replica_uuid or uuid.uuid4().bytes
+    old_uuids = [bytes(clock.replicaUUID) for clock in clocks]
+    if new_uuid in old_uuids:
+        raise ValueError("replica_uuid is already present in the document")
+
+    ordered = sorted([*old_uuids, new_uuid])
+    remap = {index + 1: ordered.index(uid) + 1 for index, uid in enumerate(old_uuids)}
+    replica_id = ordered.index(new_uuid) + 1
+
+    def _remap(char_id: Any) -> None:
+        if char_id.replicaID:
+            char_id.replicaID = remap.get(char_id.replicaID, char_id.replicaID)
+
+    for substring in value.substring:
+        _remap(substring.charID)
+        _remap(substring.timestamp)
+
+    next_char_clock = max(
+        (clock.replicaClock[0].clock for clock in clocks if clock.replicaClock),
+        default=0,
+    )
+    text_length = _utf16_length(text)
+    style_clock = 0
+
+    deleted_any = False
+    for substring in value.substring:
+        is_marker = substring.charID.replicaID == 0
+        if is_marker or substring.tombstone or substring.length == 0:
+            continue
+        substring.tombstone = True
+        substring.timestamp.replicaID = replica_id
+        substring.timestamp.clock = 1
+        deleted_any = True
+
+    if text_length:
+        sentinel = next(
+            (
+                substring
+                for substring in value.substring
+                if substring.charID.replicaID == 0 and substring.charID.clock == 0
+            ),
+            None,
+        )
+        if sentinel is None:
+            raise CRDTDecodeError("CRDT document has no start sentinel")
+        inserted = value.substring.add()
+        inserted.charID.replicaID = replica_id
+        inserted.charID.clock = next_char_clock
+        inserted.length = text_length
+        inserted.timestamp.replicaID = replica_id
+        inserted.timestamp.clock = 0
+        inserted.child.extend(sentinel.child)
+        del sentinel.child[:]
+        sentinel.child.append(len(value.substring) - 1)
+        style_clock = 1
+    if deleted_any:
+        style_clock = 2
+
+    by_uuid = {bytes(clock.replicaUUID): clock for clock in clocks}
+    del value.timestamp.clock[:]
+    for uid in ordered:
+        clock = value.timestamp.clock.add()
+        if uid == new_uuid:
+            clock.replicaUUID = new_uuid
+            clock.replicaClock.add().clock = next_char_clock + text_length
+            clock.replicaClock.add().clock = style_clock
+        else:
+            clock.CopyFrom(by_uuid[uid])
+
+    _reorder_substrings(value)
+    value.string = text
+    del value.attributeRun[:]
+    if text_length:
+        value.attributeRun.add().length = text_length
+
+    return _serialize_crdt_string(value)
+
+
+def _merge_resolution_token_map(
+    existing: str | None,
+    fields_modified: list[str],
+    *,
+    replica_id: str | None = None,
+) -> str:
+    """Bump the ResolutionTokenMap counters of ``fields_modified``.
+
+    Devices resolve field conflicts per field by comparing these counters, so
+    a write must carry a counter higher than the one already stored. Tokens
+    for fields that are not being written are kept as they are.
+    """
+    data: dict[str, object] = {}
+    if existing:
+        try:
+            parsed = _json.loads(existing)
+            if isinstance(parsed, dict):
+                data = parsed
+        except ValueError:
+            LOGGER.debug("Ignoring unparsable ResolutionTokenMap")
+
+    current = data.get("map")
+    tokens: dict[str, object] = dict(current) if isinstance(current, dict) else {}
+    apple_epoch = time.time() - 978307200.0
+    replica = replica_id or str(uuid.uuid4()).upper()
+    for field_name in fields_modified:
+        previous = tokens.get(field_name)
+        counter = 0
+        if isinstance(previous, dict):
+            try:
+                counter = int(previous.get("counter", 0))
+            except (TypeError, ValueError):
+                counter = 0
+        tokens[field_name] = {
+            "counter": counter + 1,
+            "modificationTime": apple_epoch,
+            "replicaID": replica,
+        }
+    data["map"] = tokens
+    return _json.dumps(data, separators=(",", ":"))
 
 
 def _generate_resolution_token_map(fields_modified: list[str]) -> str:

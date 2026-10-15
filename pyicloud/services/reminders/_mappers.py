@@ -16,6 +16,7 @@ from ._protocol import (
     _decode_crdt_document,
     _decode_nsdatecomponents,
     _ref_name,
+    _structure_has_visible_text,
 )
 from .client import RemindersApiError
 from .models import (
@@ -206,12 +207,34 @@ class RemindersRecordMapper:
                 )
                 undecodable_text_fields.append("NotesDocument")
 
+        # The baseline update() compares against has to reflect the text the
+        # server actually holds. _decode_crdt_document reads the cached
+        # "string" field and never the substrings, so a document whose text
+        # lives only in the substrings decodes to ""; recording that as the
+        # baseline would make a real caller edit look unchanged and skip the
+        # write. That shape is detectable: the structure still carries visible
+        # substrings the cached string dropped. A genuinely empty document
+        # shows none, and keeps its "" baseline so a caller that did not touch
+        # the text still preserves a newer edit made on a device.
+        server_title: str | None = title
+        if "TitleDocument" in undecodable_text_fields or (
+            title_doc and not title and _structure_has_visible_text(title_doc)
+        ):
+            server_title = None
+        server_desc: str | None = desc
+        if "NotesDocument" in undecodable_text_fields or (
+            notes_doc and not desc and _structure_has_visible_text(notes_doc)
+        ):
+            server_desc = None
+
         return Reminder(
             id=rec.recordName,
             list_id=_ref_name(fields, "List"),
             title=title,
             desc=desc,
             undecodable_text_fields=tuple(undecodable_text_fields),
+            server_title=server_title,
+            server_desc=server_desc,
             due_date=fields.get_value("DueDate"),
             start_date=fields.get_value("StartDate"),
             completed=bool(fields.get_value("Completed")),

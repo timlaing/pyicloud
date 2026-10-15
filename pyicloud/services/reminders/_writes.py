@@ -10,6 +10,7 @@ from typing import Any, cast
 import uuid
 
 from pyicloud.common.cloudkit import (
+    CKErrorItem,
     CKModifyOperation,
     CKModifyResponse,
     CKRecord,
@@ -22,15 +23,20 @@ from ._constants import _REMINDERS_ZONE_REQ
 from ._mappers import Attachment, RemindersRecordMapper
 from ._protocol import (
     CRDTDecodeError,
+    CRDTStructureError,
     _as_raw_id,
     _as_record_name,
+    _decode_crdt_document,
+    _edit_crdt_document,
     _encode_cloudkit_text_field,
     _encode_crdt_document,
     _generate_resolution_token_map,
+    _merge_resolution_token_map,
 )
 from ._support import (
     _assert_modify_success,
     _assert_read_success,
+    _raise_record_errors,
     _refresh_record_change_tag,
     _response_record_change_tag,
 )
@@ -45,6 +51,8 @@ from .models import (
     Reminder,
     URLAttachment,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class RemindersWriteAPI:
@@ -465,22 +473,152 @@ class RemindersWriteAPI:
 
         return self._lookup_created_reminder(record_name)
 
+    def _lookup_current_fields(self, record_name: str) -> Any | None:
+        """Return the server's current fields for ``record_name``, if found.
+
+        A record the server reports as ``NOT_FOUND`` yields ``None``; any other
+        lookup error is raised, so an update never replaces the server's CRDT
+        state with a fresh document by mistake.
+        """
+        resp = self._get_raw().lookup(
+            record_names=[record_name],
+            zone_id=_REMINDERS_ZONE_REQ,
+        )
+        records = getattr(resp, "records", None) or []
+        _raise_record_errors(
+            [
+                rec
+                for rec in records
+                if isinstance(rec, CKErrorItem) and rec.serverErrorCode != "NOT_FOUND"
+            ],
+            "Lookup reminder before update",
+        )
+        for rec in records:
+            if isinstance(rec, CKRecord) and rec.recordName == record_name:
+                return rec.fields
+        return None
+
+    @staticmethod
+    def _text_document_for_update(
+        current_fields: Any | None,
+        field_name: str,
+        text: str,
+    ) -> str | None:
+        """Build the CRDT document to write for ``text``, or ``None`` if unchanged.
+
+        When the server already holds a document, the change is written as a
+        CRDT edit on top of it so Apple devices accept it. A fresh document is
+        only built when there is nothing to edit: no server copy, or one whose
+        text is already ``text``, or one that carries no CRDT structure at all.
+        """
+        existing = (
+            current_fields.get_value(field_name) if current_fields is not None else None
+        )
+        if not existing:
+            return _encode_crdt_document(text)
+        if _decode_crdt_document(existing) == text:
+            return None
+        try:
+            return _edit_crdt_document(existing, text)
+        except CRDTStructureError as exc:
+            # Substrings are absent, so there is no replica state to preserve
+            # and a fresh document reaches devices as well as an edit would.
+            _LOGGER.debug("%s has no CRDT structure to edit (%s)", field_name, exc)
+            return _encode_crdt_document(text)
+
+    def _changed_text_documents(
+        self,
+        reminder: Reminder,
+        current_fields: Any | None,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Return the text documents the caller changed, and their token names.
+
+        A text the caller did not change since the reminder was read is left
+        alone, keeping whatever the server holds — including a newer edit made
+        on a device.
+        """
+        text_fields: dict[str, Any] = {}
+        token_names: list[str] = []
+        for field_name, token_name, text, read_text in (
+            ("TitleDocument", "titleDocument", reminder.title, reminder.server_title),
+            (
+                "NotesDocument",
+                "notesDocument",
+                reminder.desc or "",
+                reminder.server_desc,
+            ),
+        ):
+            if read_text is not None and text == read_text:
+                continue
+            document = self._text_document_for_update(current_fields, field_name, text)
+            if document is not None:
+                text_fields[field_name] = {"type": "STRING", "value": document}
+                token_names.append(token_name)
+        return text_fields, token_names
+
+    @staticmethod
+    def _update_base_fields(
+        reminder: Reminder,
+        completion_date_ms: int | None,
+        now_ms: int,
+        fields_mod: list[str],
+    ) -> dict[str, Any]:
+        """Return the non-text fields of an update, recording their token names.
+
+        ``reminder.due_date`` is normalized to UTC in place, which is what the
+        caller sees afterwards.
+        """
+        due_date = reminder.due_date
+        if due_date is not None and due_date.tzinfo is None:
+            due_date = due_date.replace(tzinfo=timezone.utc)
+            reminder.due_date = due_date
+        parent_reminder: dict[str, Any] | None = None
+        if reminder.parent_reminder_id:
+            parent_reminder = {
+                "recordName": _as_record_name(
+                    reminder.parent_reminder_id,
+                    "Reminder",
+                ),
+                "action": "VALIDATE",
+            }
+        fields_mod.extend(["dueDate", "timeZone", "parentReminder"])
+        return {
+            "Completed": {"type": "INT64", "value": 1 if reminder.completed else 0},
+            "CompletionDate": {"type": "TIMESTAMP", "value": completion_date_ms},
+            "Priority": {"type": "INT64", "value": reminder.priority},
+            "Flagged": {"type": "INT64", "value": 1 if reminder.flagged else 0},
+            "AllDay": {"type": "INT64", "value": 1 if reminder.all_day else 0},
+            "LastModifiedDate": {"type": "TIMESTAMP", "value": now_ms},
+            "DueDate": (
+                {"type": "TIMESTAMP", "value": int(due_date.timestamp() * 1000)}
+                if due_date is not None
+                else {"type": "TIMESTAMP", "value": None}
+            ),
+            "TimeZone": (
+                {"type": "STRING", "value": reminder.time_zone}
+                if reminder.time_zone
+                else {"type": "STRING", "value": None}
+            ),
+            "ParentReminder": (
+                {"type": "REFERENCE", "value": parent_reminder}
+                if parent_reminder is not None
+                else {"type": "REFERENCE", "value": None}
+            ),
+        }
+
     def update(self, reminder: Reminder) -> None:
         """Update an existing reminder, refusing unreadable text documents."""
         if reminder.undecodable_text_fields:
-            # Both documents are re-encoded on every update. Even a flag-only
-            # edit would overwrite an unreadable server value with a placeholder.
+            # A changed text document is written as an edit on top of the
+            # server copy, which cannot be done safely for an unreadable value.
             raise CRDTDecodeError(
                 "Reminder text could not be decoded; refusing to overwrite it"
             )
         reminder_record_name = self._reminder_record_name(reminder.id)
-        title_doc = _encode_crdt_document(reminder.title)
-        notes_doc = _encode_crdt_document(reminder.desc or "")
+        current_fields = self._lookup_current_fields(reminder_record_name)
         now_ms = int(time.time() * 1000)
 
         fields_mod = [
-            "titleDocument",
-            "notesDocument",
             "completed",
             "completionDate",
             "priority",
@@ -488,6 +626,10 @@ class RemindersWriteAPI:
             "allDay",
             "lastModifiedDate",
         ]
+        text_fields, text_tokens = self._changed_text_documents(
+            reminder, current_fields
+        )
+        fields_mod.extend(text_tokens)
         completion_date = self._completion_datetime(
             completed=reminder.completed,
             completed_date=reminder.completed_date,
@@ -500,52 +642,19 @@ class RemindersWriteAPI:
         )
 
         fields: dict[str, Any] = {
-            "TitleDocument": {"type": "STRING", "value": title_doc},
-            "NotesDocument": {"type": "STRING", "value": notes_doc},
-            "Completed": {"type": "INT64", "value": 1 if reminder.completed else 0},
-            "CompletionDate": {
-                "type": "TIMESTAMP",
-                "value": completion_date_ms,
+            **text_fields,
+            **self._update_base_fields(
+                reminder, completion_date_ms, now_ms, fields_mod
+            ),
+            "ResolutionTokenMap": {
+                "type": "STRING",
+                "value": _merge_resolution_token_map(
+                    current_fields.get_value("ResolutionTokenMap")
+                    if current_fields is not None
+                    else None,
+                    fields_mod,
+                ),
             },
-            "Priority": {"type": "INT64", "value": reminder.priority},
-            "Flagged": {"type": "INT64", "value": 1 if reminder.flagged else 0},
-            "AllDay": {"type": "INT64", "value": 1 if reminder.all_day else 0},
-            "LastModifiedDate": {"type": "TIMESTAMP", "value": now_ms},
-        }
-        if reminder.due_date is not None:
-            due_date = reminder.due_date
-            if due_date.tzinfo is None:
-                due_date = due_date.replace(tzinfo=timezone.utc)
-                reminder.due_date = due_date
-            fields["DueDate"] = {
-                "type": "TIMESTAMP",
-                "value": int(due_date.timestamp() * 1000),
-            }
-        else:
-            fields["DueDate"] = {"type": "TIMESTAMP", "value": None}
-        fields_mod.append("dueDate")
-        if reminder.time_zone:
-            fields["TimeZone"] = {"type": "STRING", "value": reminder.time_zone}
-        else:
-            fields["TimeZone"] = {"type": "STRING", "value": None}
-        fields_mod.append("timeZone")
-        if reminder.parent_reminder_id:
-            fields["ParentReminder"] = {
-                "type": "REFERENCE",
-                "value": {
-                    "recordName": _as_record_name(
-                        reminder.parent_reminder_id,
-                        "Reminder",
-                    ),
-                    "action": "VALIDATE",
-                },
-            }
-        else:
-            fields["ParentReminder"] = {"type": "REFERENCE", "value": None}
-        fields_mod.append("parentReminder")
-        fields["ResolutionTokenMap"] = {
-            "type": "STRING",
-            "value": _generate_resolution_token_map(fields_mod),
         }
 
         self._submit_single_record_update(
@@ -558,6 +667,8 @@ class RemindersWriteAPI:
         )
         reminder.completed_date = completion_date
         reminder.modified = datetime.fromtimestamp(now_ms / 1000.0, tz=timezone.utc)
+        reminder.server_title = reminder.title
+        reminder.server_desc = reminder.desc or ""
 
     def delete(self, reminder: Reminder) -> None:
         """Delete a reminder using soft-update (Deleted: 1)."""
