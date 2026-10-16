@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog].
 
 Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
+## [Unreleased]
+
+### Added
+
+- Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
+
 ## [2026.10.1] - 2026-10-15
 
 ### Changed

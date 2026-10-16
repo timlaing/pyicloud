@@ -1,0 +1,23 @@
+{
+  "records": [
+    {
+      "recordName": "EventDetails:EVENT-FIXTURE-AAAA",
+      "recordType": "EventDetails",
+      "recordChangeTag": "fixtureA2",
+      "fields": {
+        "isPublished": { "type": "INT64", "value": 1, "isEncrypted": true },
+        "title": {
+          "type": "STRING",
+          "value": "Synthetic draft",
+          "isEncrypted": true
+        }
+      }
+    },
+    {
+      "recordName": "cloudkit.zoneshare",
+      "recordType": "cloudkit.share",
+      "recordChangeTag": "shareFixtureA2",
+      "fields": { "isPublished": { "type": "INT64", "value": 1 } }
+    }
+  ]
+}

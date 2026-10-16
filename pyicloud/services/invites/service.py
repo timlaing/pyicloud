@@ -14,8 +14,9 @@ Read (Phase 1):
 Write (Phase 2):
   - ``InvitesService.rsvp(event, status, ...)`` -> ``Rsvp``
   - ``InvitesService.cancel(event, ...)`` -> ``Event``
+  - ``InvitesService.publish(event, ...)`` -> ``Event``
 
-Creating events, publishing them, and inviting via link arrive in later
+Creating events and inviting via link arrive in later
 phases per the design doc.
 """
 
@@ -94,7 +95,7 @@ class InvitesService(BaseService):
 
     Reads cover event listing, single-event lookup, RSVP listing, guest photo
     download (``rsvp_image``), and public share resolution (``resolve`` /
-    ``accept``); writes cover ``rsvp()`` and ``cancel()``.
+    ``accept``); writes cover ``rsvp()``, ``cancel()``, and ``publish()``.
     """
 
     _CONTAINER = CONTAINER
@@ -419,6 +420,18 @@ class InvitesService(BaseService):
 
         return self._set_event_flag(event, EventDetailsField.IS_CANCELLED, cancelled)
 
+    def publish(self, event: Event, *, published: bool = True) -> Event:
+        """Publish an event you host, or return it to an unpublished state.
+
+        Pass an event with a current record change tag from ``event()`` or a
+        previous write. Both EventDetails and its share are updated atomically;
+        if the share's change tag cannot be read, no modify is sent. The returned
+        event carries the new tag, but is not rehydrated with share/RSVP data.
+        """
+        if event.scope is not EventScope.PRIVATE:
+            raise InvitesApiError("Only events you host can be published.")
+        return self._set_event_flag(event, EventDetailsField.IS_PUBLISHED, published)
+
     # ------------------------------------------------------------------
     # Internal: write helpers
     # ------------------------------------------------------------------
@@ -457,13 +470,10 @@ class InvitesService(BaseService):
         The ``hint`` field carries the entitlement token. Without it Apple
         answers ``502 INTERNAL_ERROR`` with no explanation at all.
 
-        Only flags the schema stores unencrypted can go through here, and a
-        read says which those are: a field Apple sends back with
-        ``isEncrypted: true`` is PCS-protected, and writing it needs a
-        ciphertext this library cannot produce. ``isCancelled`` carries no such
-        marker and takes a plain ``INT64``. ``isPublished`` does carry it, and
-        Apple answers ``BAD_REQUEST -- expected type ENCRYPTED_NUMBER_INT64``
-        to every unencrypted encoding, so publishing waits on PCS support.
+        With ``remapEnums=true``, publication uses an ``INT64`` carrying
+        ``isEncrypted: true`` on EventDetails and a plain ``INT64`` on the share.
+        Omitting the marker causes ``expected type ENCRYPTED_NUMBER_INT64``;
+        client-side ciphertext is not required. Cancellation remains plain.
         """
 
         if not event.record_change_tag:
@@ -474,6 +484,9 @@ class InvitesService(BaseService):
 
         hint = json.dumps({"subscriptionAccessToken": self._entitlement_token()})
         flag: dict[str, Any] = {"type": "INT64", "value": int(value)}
+        event_flag = dict(flag)
+        if field is EventDetailsField.IS_PUBLISHED:
+            event_flag["isEncrypted"] = True
         scope_str = self._scope_str(event.scope)
         zone_id = self._zone_id_req(event.event_id, event.scope)
 
@@ -487,7 +500,7 @@ class InvitesService(BaseService):
                     fields=cast(
                         CKWriteFields,
                         {
-                            field.value: flag,
+                            field.value: event_flag,
                             EventDetailsField.HINT.value: {
                                 "type": "STRING",
                                 "value": hint,
@@ -499,6 +512,11 @@ class InvitesService(BaseService):
         ]
 
         share_tag = self._share_change_tag(scope_str, zone_id)
+        if field is EventDetailsField.IS_PUBLISHED and not share_tag:
+            raise InvitesApiError(
+                "Cannot publish an event without its share's current change tag; "
+                "no changes were sent."
+            )
         if share_tag is not None:
             operations.append(
                 CKModifyOperation(
