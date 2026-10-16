@@ -34,8 +34,13 @@ base64-encoded JSON. The fixture values base64 to inspectable JSON:
 - `style`: `{"titleFont": 0}`
 - `integrations`: `{"version": "1", "data": [{"type": "com.apple.widget.weather"}, ...]}`
 
-`isEncrypted: true` on a read means the server decrypted a PCS field for the
-web client. Those fields are declared `ENCRYPTED_*` in the schema and cannot be
-written back without PCS, so the fixtures keep the marker where Apple sends it:
-`isCancelled` and `blockNewRSVPs` are plain `INT64` and writable, while
-`isPublished`, `isPrivate`, and `title` are not.
+`isEncrypted: true` on a read marks a PCS-protected field. For publication,
+live verification showed that an `INT64` value with this marker on EventDetails
+and a plain `INT64` on the share works with `remapEnums=true`; client-generated
+ciphertext is not needed. Omitting the marker reproduces Apple's
+`expected type ENCRYPTED_NUMBER_INT64` error. Cancellation remains plain.
+
+`event_publish_modify_request.json` and `event_publish_modify_response.json` are
+minimal synthetic publication envelopes using the remapped enum spelling sent
+by pyicloud. They contain only fake IDs, change tags, and an entitlement token
+placeholder. The same shapes exercise unpublishing by changing the flag to zero.

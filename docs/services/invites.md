@@ -122,10 +122,27 @@ Pass an `event` that carries a current record change tag — one from `event()`
 or from a previous `cancel()`, as above. Apple rejects a stale one with an
 opaque `502`.
 
-Cancelling is the only event flag this library can write. Apple stores
-`isPublished`, `isPrivate` and `title` as PCS-encrypted fields, and writing
-those needs encryption support pyicloud does not have yet, so publishing an
-event or renaming it still has to happen in the Invites app.
+## Publishing an event you host
+
+```python
+event = api.invites.event("EVENT-UUID")
+published = api.invites.publish(event)
+print(published.is_published)  # True
+
+# Return it to an unpublished state:
+unpublished = api.invites.publish(published, published=False)
+```
+
+Publishing and unpublishing update both the event and its share atomically.
+Only hosted events are accepted, and the event must have a current record change
+tag. If the share's current tag cannot be read, the call fails before modifying
+either record. As with cancellation, the returned event carries the new tag;
+call `event()` again if you need its share and RSVP details.
+
+These operations change an invitation's availability. Live verification covered
+a guest-free development event; notification behavior for events with guests
+has not been verified. Creating events, renaming them, and generating one-time
+guest links are not yet exposed through the service.
 
 ## Command line
 
