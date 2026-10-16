@@ -957,6 +957,25 @@ class CKZoneListResponse(CKModel):
     zones: list[CKZoneListZone] = Field(default_factory=list)
 
 
+class CKZoneModifyOperation(CKModel):
+    """Create or delete a custom zone."""
+
+    operationType: Literal["create", "delete"]
+    zone: CKZoneListZone
+
+
+class CKZoneModifyRequest(CKModel):
+    """Payload for /zones/modify."""
+
+    operations: list[CKZoneModifyOperation]
+
+
+class CKZoneModifyResponse(CKModel):
+    """Successful zone modifications; per-zone errors are checked before parsing."""
+
+    zones: list[CKZoneListZone]
+
+
 class CKDatabaseChangesZone(CKModel):
     """
     One zone entry returned by /changes/database.

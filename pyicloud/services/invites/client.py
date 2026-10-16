@@ -41,6 +41,8 @@ from pyicloud.common.cloudkit import (
     CKZoneChangesZoneReq,
     CKZoneIDReq,
     CKZoneListResponse,
+    CKZoneModifyOperation,
+    CKZoneModifyResponse,
     CloudKitExtraMode,
 )
 from pyicloud.common.cloudkit.client import (
@@ -157,6 +159,27 @@ class InvitesApiError(InvitesError):
         self.payload = payload
 
 
+class InvitesCreationError(InvitesApiError):
+    """Creation failed; identifies the new zone and whether cleanup succeeded.
+
+    ``cleanup_succeeded`` is None if zone creation was not confirmed. Such an
+    ambiguous outcome is not automatically deleted. The original failure is
+    chained as the cause, and a failed cleanup is retained separately.
+    """
+
+    def __init__(
+        self,
+        event_id: str,
+        *,
+        cleanup_succeeded: bool | None,
+        cleanup_error: Exception | None = None,
+    ) -> None:
+        super().__init__(f"Event creation failed for zone {event_id!r}")
+        self.event_id = event_id
+        self.cleanup_succeeded = cleanup_succeeded
+        self.cleanup_error = cleanup_error
+
+
 # ------------------------------ Raw client -----------------------------------
 
 
@@ -268,6 +291,20 @@ class CloudKitInvitesClient:
         """
         try:
             return self._client_for(scope).zones_list()
+        except (
+            CloudKitApiError,
+            CloudKitAuthError,
+            CloudKitRateLimited,
+            PyiCloudAPIResponseException,
+        ) as exc:
+            self._raise_invites_error(exc)
+
+    def zones_modify(
+        self, operations: list[CKZoneModifyOperation]
+    ) -> CKZoneModifyResponse:
+        """Create/delete zones only in the owner's private database."""
+        try:
+            return self._private.zones_modify(operations)
         except (
             CloudKitApiError,
             CloudKitAuthError,

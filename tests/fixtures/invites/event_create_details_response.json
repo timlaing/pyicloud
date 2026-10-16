@@ -1,0 +1,22 @@
+{
+  "records": [
+    {
+      "recordName": "EventDetails:EVENT-CREATE-FIXTURE",
+      "recordType": "EventDetails",
+      "recordChangeTag": "created-fixture-1",
+      "zoneID": { "zoneName": "EVENT-CREATE-FIXTURE" },
+      "fields": {
+        "title": {
+          "type": "STRING",
+          "value": "Synthetic event",
+          "isEncrypted": true
+        },
+        "notes": {
+          "type": "STRING",
+          "value": "Synthetic notes",
+          "isEncrypted": true
+        }
+      }
+    }
+  ]
+}

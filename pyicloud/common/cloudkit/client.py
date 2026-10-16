@@ -33,6 +33,9 @@ from .models import (
     CKZoneChangesZoneReq,
     CKZoneIDReq,
     CKZoneListResponse,
+    CKZoneModifyOperation,
+    CKZoneModifyRequest,
+    CKZoneModifyResponse,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -45,6 +48,7 @@ _ResponseModelT = TypeVar(
     CKModifyResponse,
     CKZoneListResponse,
     CKDatabaseChangesResponse,
+    CKZoneModifyResponse,
 )
 CloudKitBoolParamStyle = Literal["python", "lower"]
 CloudKitDebugHook = Callable[[str, str, dict[str, Any], Response], None]
@@ -329,7 +333,7 @@ class _CloudKitHTTP:
                     close()
 
 
-def _raise_for_zone_errors(data: Any) -> None:
+def _raise_for_zone_errors(data: Any, *, operation: str = "changes") -> None:
     """Raise if any zone in a /changes/zone response failed.
 
     CloudKit answers HTTP 200 even when a zone could not be fetched, and puts a
@@ -346,7 +350,7 @@ def _raise_for_zone_errors(data: Any) -> None:
             continue
 
         code = zone["serverErrorCode"]
-        message = f"Zone changes failed: {code}"
+        message = f"Zone {operation} failed: {code}"
         if reason := zone.get("reason"):
             message = f"{message} ({reason})"
 
@@ -597,6 +601,22 @@ class CloudKitContainerClient:
             raise CloudKitApiError(
                 "Zones list response validation failed",
                 payload=data,
+            ) from exc
+
+    def zones_modify(
+        self, operations: list[CKZoneModifyOperation]
+    ) -> CKZoneModifyResponse:
+        """Create/delete custom zones, raising on HTTP-200 per-zone failures."""
+        payload = CKZoneModifyRequest(operations=operations).model_dump(
+            mode="json", exclude_none=True
+        )
+        data = self._http.post("/zones/modify", payload)
+        _raise_for_zone_errors(data, operation="modify")
+        try:
+            return self._validate_response(CKZoneModifyResponse, data)
+        except ValidationError as exc:
+            raise CloudKitApiError(
+                "Zones modify response validation failed", payload=data
             ) from exc
 
     def database_changes(
