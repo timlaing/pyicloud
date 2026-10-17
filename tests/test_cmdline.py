@@ -5978,6 +5978,30 @@ def test_doctor_probe_calls_each_service_and_reports_it() -> None:
     services["devices"].refresh.assert_not_called()
 
 
+@pytest.mark.parametrize("malformed", [False, True])
+def test_doctor_probe_skips_mail_without_usable_endpoint(malformed: bool) -> None:
+    """Missing Mail is harmless; malformed Mail still fails the map check."""
+    advertised = _advertised_webservices()
+    if malformed:
+        advertised["mccgateway"] = {}
+    else:
+        del advertised["mccgateway"]
+    fake_api, services = _probing_api(advertised)
+    services["mail"].folders.side_effect = AssertionError("Mail must not be probed")
+
+    result = _invoke(fake_api, "doctor", "--probe", output_format="json")
+    payload = json.loads(result.stdout)
+    probes = {item["service"]: item for item in payload["probes"]}
+
+    services["mail"].folders.assert_not_called()
+    services["calendar"].get_calendars.assert_called_once()
+    assert result.exit_code == int(malformed)
+    assert payload["ok"] is not malformed
+    assert probes["mail"]["status"] == "skipped"
+    assert probes["mail"]["is_failure"] is False
+    assert probes["calendar"]["status"] == "ok"
+
+
 def test_doctor_probe_fails_on_a_withdrawn_endpoint() -> None:
     """A 410 behind a healthy host is exactly what probing exists to catch."""
 

@@ -16,7 +16,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
-- Keep an absent optional Mail endpoint visible in `icloud doctor` without failing the account check; malformed advertised endpoints and missing required services still fail.
+- Keep an absent optional Mail endpoint visible in `icloud doctor` without failing the account check, and skip its unavailable probe with `--probe`; malformed advertised endpoints and missing required services still fail.
 
 ### Documentation
 

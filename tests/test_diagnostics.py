@@ -314,6 +314,7 @@ def test_probes_report_each_service_answering() -> None:
     api.notes.sync_cursor.assert_called_once()
     api.reminders.lists.assert_not_called()
     api.notes.folders.assert_not_called()
+    api.mail.folders.assert_called_once()
 
 
 def test_the_find_my_probe_does_not_ask_devices_to_report_location() -> None:
@@ -395,6 +396,30 @@ def test_a_withdrawn_endpoint_behind_a_healthy_host_fails_the_run() -> None:
     assert photos.status is ProbeStatus.GONE
     assert photos.is_failure
     assert probe_failures(results) == (photos,)
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_optional_mail_without_usable_endpoint_is_not_probed(malformed: bool) -> None:
+    """Optional absence is not a failure or a reason to access the service."""
+    advertised = _healthy_map()
+    if malformed:
+        advertised["mccgateway"] = {}
+    else:
+        del advertised["mccgateway"]
+    api = _probe_api()
+    mail = PropertyMock(side_effect=AssertionError("Mail must not be accessed"))
+    type(api).mail = mail
+
+    findings = diagnose_webservices(advertised)
+    results = probe_services(api, findings)
+    result = next(item for item in results if item.service == "mail")
+
+    mail.assert_not_called()
+    assert result.status is ProbeStatus.SKIPPED
+    assert result.elapsed_ms == 0
+    assert not probe_failures(results)
+    assert bool(webservice_problems(findings)) is malformed
+    api.calendar.get_calendars.assert_called_once()
 
 
 def test_probes_are_skipped_when_the_key_is_already_known_bad() -> None:

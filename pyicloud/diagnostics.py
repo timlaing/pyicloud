@@ -390,7 +390,7 @@ def _blocked_services(findings: tuple[WebserviceFinding, ...]) -> frozenset[str]
 
     blocked: set[str] = set()
     for finding in findings:
-        if finding.is_problem:
+        if finding.status in (WebserviceStatus.MISSING, WebserviceStatus.MALFORMED):
             blocked.update(finding.powers)
     return frozenset(blocked)
 
