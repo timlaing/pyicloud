@@ -1,0 +1,49 @@
+{
+  "records": [
+    {
+      "recordName": "cloudkit.zoneshare",
+      "recordType": "cloudkit.share",
+      "recordChangeTag": "share-before-fixture",
+      "shortGUID": "event-general-token",
+      "fields": {},
+      "participants": [
+        {
+          "participantId": "owner-fixture",
+          "userIdentity": {
+            "userRecordName": "_owner_fixture",
+            "lookupInfo": { "emailAddress": "owner@example.test" },
+            "nameComponents": { "givenName": "Synthetic owner" }
+          },
+          "type": "OWNER",
+          "permission": "READ_WRITE",
+          "acceptanceStatus": "ACCEPTED",
+          "publicKeyVersion": 1
+        },
+        {
+          "participantId": "prior-guest-fixture",
+          "userIdentity": { "lookupInfo": {} },
+          "type": "USER",
+          "permission": "READ_WRITE",
+          "acceptanceStatus": "INVITED"
+        }
+      ],
+      "currentUserParticipant": {
+        "participantId": "owner-fixture",
+        "type": "OWNER",
+        "permission": "READ_WRITE",
+        "acceptanceStatus": "ACCEPTED"
+      },
+      "oneTimeStableUrlInfo": {
+        "oneTimeLinks": [
+          {
+            "participantId": ["prior-guest-fixture"],
+            "sharingLink": "prior-link-token",
+            "shortTokenHash": "prior-link-hash",
+            "protectedFullToken": "synthetic-protected-token",
+            "encryptedFullTokenInfo": "synthetic-encrypted-info"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -243,6 +243,22 @@ class CKPCSInfo(CKChainProtectionInfo):
     """Top-level PCS envelope used by shared-record metadata."""
 
 
+class CKOneTimeLink(CKModel):
+    """A link associated with share participants, or a request to generate one."""
+
+    participantId: list[str] = Field(default_factory=list)
+    sharingLink: str | None = Field(default=None, repr=False)
+    shortTokenHash: str | None = Field(default=None, repr=False)
+    protectedFullToken: str | None = Field(default=None, repr=False)
+    encryptedFullTokenInfo: str | None = Field(default=None, repr=False)
+
+
+class CKOneTimeStableUrlInfo(CKModel):
+    """Participant-specific one-time links on a CloudKit share."""
+
+    oneTimeLinks: list[CKOneTimeLink] = Field(default_factory=list)
+
+
 class CKReference(CKModel):
     """
     Value inside REFERENCE / REFERENCE_LIST typed fields (both request & response).
@@ -660,6 +676,7 @@ class CKRecord(CKModel):
     displayedHostname: str | None = None
     stableUrl: CKStableUrl | None = None
     shortGUID: str | None = None
+    oneTimeStableUrlInfo: CKOneTimeStableUrlInfo | None = None
 
     # Share-surface (top-level shared metadata)
     share: CKShare | None = None
@@ -708,6 +725,7 @@ class CKWriteRecord(CKModel):
     recordChangeTag: str | None = None
     parent: CKWriteParent | None = None
     zoneID: CKZoneID | None = None
+    oneTimeStableUrlInfo: CKOneTimeStableUrlInfo | None = None
 
     @field_validator("fields", mode="before")
     @classmethod
