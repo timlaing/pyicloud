@@ -14,20 +14,21 @@ Read (Phase 1):
 Write (Phase 2):
   - ``InvitesService.rsvp(event, status, ...)`` -> ``Rsvp``
   - ``InvitesService.cancel(event, ...)`` -> ``Event``
+  - ``InvitesService.invite_via_link(event, ...)`` -> ``OneTimeLinkInvitation``
   - ``InvitesService.publish(event, ...)`` -> ``Event``
 
-Creating events and inviting via link arrive in later
-phases per the design doc.
+Event creation arrives in a later phase per the design doc.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import datetime, timezone
 import json
 import logging
 from typing import Any, cast
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -51,14 +52,22 @@ from ._constants import (
     CONTAINER,
     ENV,
     EVENT_DETAILS_RECORD_NAME_PREFIX,
+    ONE_TIME_LINK_RECORD_NAME_SUFFIX,
     RSVP_RECORD_NAME_SUFFIX,
     SHARE_RECORD_NAME,
+)
+from ._invitations import (
+    invitation_contacts,
+    invitation_operations,
+    invitation_records,
+    owner_share,
 )
 from .client import (
     CloudKitInvitesClient,
     InvitesApiError,
     InvitesEntitlementError,
     InvitesError,
+    InvitesInvitationError,
     ScopeLiteral,
 )
 from .codecs import decode_integrations, decode_json_bytes
@@ -77,6 +86,7 @@ from .models.dto import (
     EventShare,
     EventTime,
     OneTimeLinkGuest,
+    OneTimeLinkInvitation,
     Participant,
     ParticipantType,
     ResolvedShare,
@@ -96,7 +106,8 @@ class InvitesService(BaseService):
 
     Reads cover event listing, single-event lookup, RSVP listing, guest photo
     download (``rsvp_image``), and public share resolution (``resolve`` /
-    ``accept``); writes cover ``rsvp()``, ``cancel()``, and ``publish()``.
+    ``accept``); writes cover ``rsvp()``, ``cancel()``, ``publish()``, and
+    ``invite_via_link()``.
     """
 
     _CONTAINER = CONTAINER
@@ -313,6 +324,59 @@ class InvitesService(BaseService):
     # ------------------------------------------------------------------
     # Public writes
     # ------------------------------------------------------------------
+
+    def invite_via_link(
+        self,
+        event: Event,
+        *,
+        emails: Sequence[str] = (),
+        phone_numbers: Sequence[str] = (),
+        name: str = "",
+    ) -> OneTimeLinkInvitation:
+        """Create a participant-specific invitation for an event you host.
+
+        Experimental: verified for email invitations on a controlled account;
+        push notifications occurred during live tests. Email delivery and
+        phone-only invitations remain unverified.
+        Contacts are guest metadata, not an account lookup or an email-send API.
+        Dates and publication are not modified. The latest owner share is read
+        before an atomic guest-info create/share update. There are no retries.
+
+        A failure after submission raises InvitesInvitationError with the event
+        and participant IDs and the original cause. Inspect those records before
+        retrying: a missing or malformed response does not imply rollback.
+        """
+        if event.scope is not EventScope.PRIVATE:
+            raise InvitesApiError("Only hosted events can receive guest invitations")
+        contacts = invitation_contacts(name, emails, phone_numbers)
+        zone_id = self._zone_id_req(event.event_id, event.scope)
+        share = owner_share(
+            self._raw.lookup("private", [SHARE_RECORD_NAME], zone_id=zone_id)
+        )
+        participant_id = str(uuid4())
+        guest = OneTimeLinkGuest(
+            record_name=f"{participant_id}{ONE_TIME_LINK_RECORD_NAME_SUFFIX}",
+            participant_id=participant_id,
+            name=contacts.name,
+            emails=contacts.emails,
+            phone_numbers=contacts.phone_numbers,
+        )
+        operations = invitation_operations(share, guest)
+        try:
+            response = self._raw.modify(
+                "private", operations=operations, zone_id=zone_id, atomic=True
+            )
+            guest_record, updated_share, token = invitation_records(
+                response, share, guest
+            )
+            return OneTimeLinkInvitation(
+                **self._one_time_link_from_record(guest_record).model_dump(),
+                short_guid=token,
+                record_change_tag=cast(str, guest_record.recordChangeTag),
+                share_record_change_tag=cast(str, updated_share.recordChangeTag),
+            )
+        except Exception as exc:
+            raise InvitesInvitationError(event.event_id, participant_id) from exc
 
     def rsvp(
         self,
