@@ -97,6 +97,23 @@ class OneTimeLinkGuest(FrozenServiceModel):
     phone_numbers: tuple[str, ...] = ()
 
 
+class OneTimeLinkInvitation(OneTimeLinkGuest):
+    """A newly created guest invitation; its URL is a sensitive bearer link.
+
+    The tags describe the returned guest-info and share records, not the
+    EventDetails record. Existing OneTimeLinkGuest read results are unchanged.
+    """
+
+    short_guid: str = Field(repr=False)
+    record_change_tag: str
+    share_record_change_tag: str
+
+    @property
+    def url(self) -> str:
+        """Invitation URL, distinct from the event's general share URL."""
+        return f"{SHARE_URL_PREFIX}{self.short_guid}"
+
+
 class EventShare(FrozenServiceModel):
     """View of an event's ``cloudkit.share`` record."""
 

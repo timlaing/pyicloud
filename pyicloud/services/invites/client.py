@@ -157,6 +157,24 @@ class InvitesApiError(InvitesError):
         self.payload = payload
 
 
+class InvitesInvitationError(InvitesApiError):
+    """A submitted invitation failed or its result could not be verified.
+
+    Inspect the original cause and the retained participant/record IDs before
+    retrying. A timeout or malformed response does not imply rollback. No
+    automatic retry or compensating participant removal has been attempted.
+    """
+
+    def __init__(self, event_id: str, participant_id: str) -> None:
+        super().__init__(
+            f"Invitation for participant {participant_id!r} in event {event_id!r} "
+            "failed or could not be verified; inspect it before retrying."
+        )
+        self.event_id = event_id
+        self.participant_id = participant_id
+        self.record_name = f"{participant_id}_otl"
+
+
 # ------------------------------ Raw client -----------------------------------
 
 

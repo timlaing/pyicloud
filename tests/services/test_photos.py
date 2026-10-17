@@ -4400,6 +4400,8 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
     asset = PhotoAsset(service, master_record, asset_record)
     refreshed_library = MagicMock(spec=PhotoLibrary)
     refreshed_library.scope = "shared-library"
+    refreshed_all = MagicMock()
+    refreshed_library.all = refreshed_all
     refreshed_asset = PhotoAsset(
         service,
         master_record,
@@ -4427,11 +4429,11 @@ def test_photo_asset_set_favorite_refreshes_shared_library_state() -> None:
             ],
         ),
     )
-    refreshed_library.all.get.return_value = refreshed_asset
+    refreshed_all.get.return_value = refreshed_asset
     asset._library = refreshed_library
 
     assert asset.unfavorite() is True
-    refreshed_library.all.get.assert_called_once_with("ASSET_RECORD_ID_110")
+    refreshed_all.get.assert_called_once_with("ASSET_RECORD_ID_110")
     assert record_field_value(asset._asset_record, "isFavorite") == 0
     assert record_change_tag(asset._asset_record) == "RECORD_CHANGE_TAG_312"
 

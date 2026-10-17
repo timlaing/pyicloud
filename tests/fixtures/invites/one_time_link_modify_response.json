@@ -1,0 +1,77 @@
+{
+  "records": [
+    {
+      "recordName": "00000000-0000-4000-8000-000000000003_otl",
+      "recordType": "OneTimeLinkGuestInfo",
+      "recordChangeTag": "guest-created-fixture",
+      "fields": {
+        "name": {
+          "type": "STRING",
+          "value": "Synthetic guest",
+          "isEncrypted": true
+        },
+        "emails": {
+          "type": "STRING_LIST",
+          "value": ["guest@example.test"],
+          "isEncrypted": true
+        },
+        "phoneNumbers": {
+          "type": "STRING_LIST",
+          "value": [],
+          "isEncrypted": true
+        }
+      }
+    },
+    {
+      "recordName": "cloudkit.zoneshare",
+      "recordType": "cloudkit.share",
+      "recordChangeTag": "share-after-fixture",
+      "shortGUID": "event-general-token",
+      "fields": {},
+      "participants": [
+        {
+          "participantId": "owner-fixture",
+          "userIdentity": {
+            "userRecordName": "_owner_fixture",
+            "lookupInfo": { "emailAddress": "owner@example.test" }
+          },
+          "type": "OWNER",
+          "permission": "READ_WRITE",
+          "acceptanceStatus": "ACCEPTED"
+        },
+        {
+          "participantId": "prior-guest-fixture",
+          "userIdentity": { "lookupInfo": {} },
+          "type": "USER",
+          "permission": "READ_WRITE",
+          "acceptanceStatus": "INVITED"
+        },
+        {
+          "participantId": "00000000-0000-4000-8000-000000000003",
+          "userIdentity": { "lookupInfo": {} },
+          "type": "USER",
+          "permission": "READ_WRITE",
+          "acceptanceStatus": "INVITED"
+        }
+      ],
+      "oneTimeStableUrlInfo": {
+        "oneTimeLinks": [
+          {
+            "participantId": ["00000000-0000-4000-8000-000000000003"],
+            "sharingLink": "new-invitation-token",
+            "shortTokenHash": "new-link-hash",
+            "protectedFullToken": "new-synthetic-protected-token",
+            "encryptedFullTokenInfo": "new-synthetic-encrypted-info"
+          },
+          {
+            "participantId": ["prior-guest-fixture"],
+            "sharingLink": "prior-link-token",
+            "shortTokenHash": "prior-link-hash",
+            "protectedFullToken": "synthetic-protected-token",
+            "encryptedFullTokenInfo": "synthetic-encrypted-info"
+          }
+        ]
+      }
+    }
+  ]
+}

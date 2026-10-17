@@ -24,6 +24,18 @@ fake or omitted, and stable across test runs.
 
 ## Encoding notes
 
+The `one_time_link_share_lookup_response.json`, `one_time_link_modify_request.json`,
+and `one_time_link_modify_response.json` fixtures are synthetic one-time-link
+envelopes derived from two successful browser captures. All contacts, UUIDs,
+share tags, hashes, and bearer tokens are invented. The fixtures include a
+previous invitation so tests can verify participant/link preservation. Response
+link order intentionally differs from participant order: match by participant
+ID, not position. The request retains full earlier link metadata and adds a
+generation entry for the new participant. Live testing showed that omitting
+the existing entries causes Apple's "Participant contact information is empty"
+rejection on a second invitation. No raw capture or real invitation token is
+included.
+
 `time`, `place`, `background`, `style`, and `integrations` fields on
 `EventDetails` are typed `ENCRYPTED_BYTES` on the wire but carry
 base64-encoded JSON. The fixture values base64 to inspectable JSON:
