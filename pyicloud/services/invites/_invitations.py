@@ -18,6 +18,7 @@ from pyicloud.common.cloudkit.models import CKParticipant
 
 from ._constants import SHARE_RECORD_NAME
 from .client import InvitesApiError
+from .models.constants import InvitesRecordType
 from .models.dto import OneTimeLinkGuest
 
 _EMAIL_PART = r"[^@\s<>\x00-\x1f\x7f-\x9f]+"
@@ -74,7 +75,7 @@ def owner_share(response: CKLookupResponse) -> CKRecord:
         for record in response.records
         if isinstance(record, CKRecord)
         and record.recordName == SHARE_RECORD_NAME
-        and record.recordType == "cloudkit.share"
+        and record.recordType == InvitesRecordType.Share.value
     ]
     if len(shares) != 1:
         raise InvitesApiError("The current event share could not be read unambiguously")
@@ -153,7 +154,9 @@ def invitation_operations(
     link metadata is retained with its tokens; only the new entry is an empty
     generation request. Omitting existing link entries makes Apple treat their
     anonymous participants as ordinary contacts and reject the update.
-    Preservation is verified against the returned share after the write.
+    Participants and link tokens are verified against the returned share after
+    the write; the remaining preservation metadata is required before
+    submission and resent unchanged.
     """
     participants: list[dict[str, Any]] = []
     for participant in share.participants or []:
@@ -193,7 +196,7 @@ def invitation_operations(
         CKModifyOperation(
             operationType="create",
             record=CKWriteRecord(
-                recordType="OneTimeLinkGuestInfo",
+                recordType=InvitesRecordType.OneTimeLinkGuestInfo.value,
                 recordName=guest.record_name,
                 fields={
                     "name": {
@@ -217,7 +220,7 @@ def invitation_operations(
         CKModifyOperation(
             operationType="update",
             record=CKWriteRecord.model_validate({
-                "recordType": "cloudkit.share",
+                "recordType": InvitesRecordType.Share.value,
                 "recordName": SHARE_RECORD_NAME,
                 "recordChangeTag": share.recordChangeTag,
                 "fields": {},
@@ -250,13 +253,13 @@ def _record(response: CKModifyResponse, name: str, kind: str) -> CKRecord:
     return records[0]
 
 
-def _verify_preserved(before: CKRecord, after: CKRecord, participant_id: str) -> None:
-    participants = after.participants or []
-    ids = [p.participantId for p in participants]
-    if len(set(ids)) != len(ids):
-        raise InvitesApiError("Invitation response has duplicate participants")
-    current = {p.participantId: p for p in participants}
-    for old in before.participants or []:
+def _verify_participants_preserved(
+    before: Sequence[CKParticipant],
+    after: Sequence[CKParticipant],
+    participant_id: str,
+) -> None:
+    current = {p.participantId: p for p in after}
+    for old in before:
         new = current.get(old.participantId)
         if new is None or (
             old.type,
@@ -272,15 +275,15 @@ def _verify_preserved(before: CKRecord, after: CKRecord, participant_id: str) ->
         "INVITED",
     ):
         raise InvitesApiError("Invitation response is missing the invited participant")
-    links = (
-        after.oneTimeStableUrlInfo.oneTimeLinks if after.oneTimeStableUrlInfo else []
-    )
-    for old_link in (
-        before.oneTimeStableUrlInfo.oneTimeLinks if before.oneTimeStableUrlInfo else []
-    ):
+
+
+def _verify_links_preserved(
+    before: Sequence[CKOneTimeLink], after: Sequence[CKOneTimeLink]
+) -> None:
+    for old_link in before:
         matches = [
             link
-            for link in links
+            for link in after
             if set(link.participantId) == set(old_link.participantId)
         ]
         if len(matches) != 1:
@@ -293,12 +296,32 @@ def _verify_preserved(before: CKRecord, after: CKRecord, participant_id: str) ->
             raise InvitesApiError("An existing one-time link changed unexpectedly")
 
 
+def _verify_preserved(before: CKRecord, after: CKRecord, participant_id: str) -> None:
+    participants = after.participants or []
+    ids = [p.participantId for p in participants]
+    if len(set(ids)) != len(ids):
+        raise InvitesApiError("Invitation response has duplicate participants")
+    _verify_participants_preserved(
+        before.participants or [], participants, participant_id
+    )
+    _verify_links_preserved(
+        (
+            before.oneTimeStableUrlInfo.oneTimeLinks
+            if before.oneTimeStableUrlInfo
+            else []
+        ),
+        after.oneTimeStableUrlInfo.oneTimeLinks if after.oneTimeStableUrlInfo else [],
+    )
+
+
 def invitation_records(
     response: CKModifyResponse, before: CKRecord, guest: OneTimeLinkGuest
 ) -> tuple[CKRecord, CKRecord, str]:
     """Validate both halves without retrying a possibly successful creation."""
-    record = _record(response, guest.record_name, "OneTimeLinkGuestInfo")
-    share = _record(response, SHARE_RECORD_NAME, "cloudkit.share")
+    record = _record(
+        response, guest.record_name, InvitesRecordType.OneTimeLinkGuestInfo.value
+    )
+    share = _record(response, SHARE_RECORD_NAME, InvitesRecordType.Share.value)
     _verify_preserved(before, share, guest.participant_id)
     if any(
         record.fields.get_value(key) != expected

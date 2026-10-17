@@ -178,7 +178,9 @@ latest full share rather than relying on cached participants or an event change
 tag. A single atomic request creates the encrypted guest-info record and adds
 its share participant. Existing participants and their full one-time-link
 metadata are retained; only the new link entry requests token generation.
-Their preservation is checked in the response. Apple rejects an update that
+The response re-checks participants and each existing link's tokens; the
+remaining preservation metadata is required before submission and resent
+unchanged. Apple rejects an update that
 retains anonymous participants but omits their link entries, so a missing
 mapping or incomplete existing token-preservation metadata fails before
 submission. No event creation, publication, or RSVP

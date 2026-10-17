@@ -114,13 +114,12 @@ def test_typed_link_metadata_survives_validation_modes(mode: Any) -> None:
     lookup = CKLookupResponse.model_validate(_lookup(), extra=mode)
     modified = CKModifyResponse.model_validate(_modified(), extra=mode)
     share = lookup.records[0]
-    assert isinstance(share, CKRecord) and share.oneTimeStableUrlInfo is not None
+    assert isinstance(share, CKRecord)
+    assert share.oneTimeStableUrlInfo is not None
     assert share.oneTimeStableUrlInfo.oneTimeLinks[0].sharingLink == "prior-link-token"
     updated_share = modified.records[1]
-    assert (
-        isinstance(updated_share, CKRecord)
-        and updated_share.oneTimeStableUrlInfo is not None
-    )
+    assert isinstance(updated_share, CKRecord)
+    assert updated_share.oneTimeStableUrlInfo is not None
     assert updated_share.oneTimeStableUrlInfo.oneTimeLinks[0].participantId == [
         PARTICIPANT_ID
     ]
@@ -185,8 +184,9 @@ def test_invalid_contacts_fail_before_network(
 
 def test_shared_event_rejected(service: InvitesService, event: Event) -> None:
     """Accepted guests cannot create further invitations through this API."""
+    shared = event.model_copy(update={"scope": EventScope.SHARED})
     with pytest.raises(InvitesApiError, match="hosted"):
-        _invite(service, event.model_copy(update={"scope": EventScope.SHARED}))
+        _invite(service, shared)
     cast(MagicMock, service.session).post.assert_not_called()
 
 

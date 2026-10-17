@@ -50,6 +50,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitRateLimited,
 )
 from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
+from pyicloud.services.invites._constants import ONE_TIME_LINK_RECORD_NAME_SUFFIX
 from pyicloud.services.invites.entitlement import (
     GATEWAY_BASE_URL,
     FeatureAccess,
@@ -172,7 +173,7 @@ class InvitesInvitationError(InvitesApiError):
         )
         self.event_id = event_id
         self.participant_id = participant_id
-        self.record_name = f"{participant_id}_otl"
+        self.record_name = f"{participant_id}{ONE_TIME_LINK_RECORD_NAME_SUFFIX}"
 
 
 # ------------------------------ Raw client -----------------------------------
