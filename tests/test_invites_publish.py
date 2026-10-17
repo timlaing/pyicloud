@@ -126,8 +126,9 @@ def test_publish_rejects_invalid_event_before_network(
     service: InvitesService, event: Event, change: dict[str, Any]
 ) -> None:
     """Guests and events lacking optimistic-concurrency metadata cannot publish."""
+    updated = event.model_copy(update=change)
     with pytest.raises(InvitesApiError):
-        service.publish(event.model_copy(update=change))
+        service.publish(updated)
     cast(MagicMock, service.session).post.assert_not_called()
 
 
@@ -137,7 +138,6 @@ def test_publish_rejects_invalid_event_before_network(
         _response({"records": []}),
         _share_lookup(None),
         _share_lookup(""),
-        _response({"reason": "unreadable share"}, status=500),
     ],
 )
 def test_publish_refuses_to_modify_without_share_tag(
@@ -148,6 +148,26 @@ def test_publish_refuses_to_modify_without_share_tag(
     session.post.return_value = response
     with pytest.raises(InvitesApiError, match="no changes were sent"):
         service.publish(event)
+    session.post.assert_called_once()
+    assert session.post.call_args.args[0].split("?")[0].endswith("/records/lookup")
+
+
+def test_publish_surfaces_a_failed_share_lookup(
+    service: InvitesService, event: Event
+) -> None:
+    """A failed share lookup surfaces its own error, not a generic refusal.
+
+    A refusal claiming the tag was missing would misread a transient server
+    error as a permanent condition, and no modify may be sent either.
+    """
+    session = cast(MagicMock, service.session)
+    session.post.return_value = _response({"reason": "unreadable share"}, status=500)
+
+    with pytest.raises(InvitesApiError) as exc_info:
+        service.publish(event)
+
+    assert str(exc_info.value) == "HTTP 500"
+    assert exc_info.value.payload == {"reason": "unreadable share"}
     session.post.assert_called_once()
     assert session.post.call_args.args[0].split("?")[0].endswith("/records/lookup")
 

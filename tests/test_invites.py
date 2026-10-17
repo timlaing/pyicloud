@@ -1425,7 +1425,7 @@ class CancelTest(unittest.TestCase):
         modify_mock = MagicMock(return_value=self.modify_response)
         self._monkeypatch.setattr(self.service.raw, "modify", modify_mock)
         self._monkeypatch.setattr(
-            self.service, "_share_change_tag", lambda *_: share_tag
+            self.service, "_share_change_tag", lambda *_args, **_kwargs: share_tag
         )
         return modify_mock
 
