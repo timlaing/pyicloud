@@ -177,12 +177,33 @@ identifier: 356 unique messages. Subsequent metadata requests cover all 356.
 Deduplication is required even in this successful example.
 
 Other query responses include `continuationMarker`, but no captured request
-submits that marker. A complete continuation handshake is not established.
+submits that marker. A complete opaque-marker handshake is not established.
 The date-cutoff example does not prove safe enumeration beyond the 1,000-record
-limit or across equal timestamps. Do not implement an unbounded iterator that
-silently drops boundary records or falsely claims complete results. A first
-release should expose bounded results and explicit completeness limitations
-until a reliable continuation strategy is verified.
+limit or across equal timestamps.
+
+Additional authorized, read-only checks on 2026-10-18 used the library's own
+session, not browser credentials. With a date ordering and limit of two, both
+`message/list` and `geqs/query` returned two records with no continuation marker
+from mailboxes known to contain more messages. Marker absence therefore cannot
+establish exhaustion. Ordering `message/list` by `uid` descending and adding a
+`type: "lt"` predicate on `uid` returned strictly lower UIDs on the next page in
+both Inbox and Sent. Those responses included markers, but UID-boundary paging
+does not require interpreting or replaying them.
+
+The explicit `iter_messages()` path uses the verified UID comparison rather
+than an unverified date cutoff or opaque-marker handshake. It validates page
+ordering and identity, checks mailbox UID validity around reads, and requires an
+empty terminal response. A request budget fails explicitly instead of silently
+truncating. Bounded `messages()` and `search()` retain their previous semantics.
+This remains a live scan, not an atomic snapshot, and the mailbox checks cannot
+detect every concurrent change. See the Mail guide for the full limitations.
+
+The same day's read-only comparison exhausted seven Inbox records and 357 Sent
+records, ending on empty pages and matching independent bounded listings without
+duplicates. The implemented library iterator matched the Sent baseline and CLI
+`mail list --all` matched the Inbox baseline. No bodies or mutations were used.
+These live baselines fit within 1,000 records; larger-mailbox coverage currently
+comes from synthetic offline tests, not a live mailbox exceeding that size.
 
 ## Synchronization and Failures
 
