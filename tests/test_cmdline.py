@@ -5460,6 +5460,23 @@ def test_doctor_reports_a_healthy_account() -> None:
     assert "github.com/timlaing/pyicloud/issues" in text
 
 
+def test_doctor_missing_optional_mail_does_not_fail() -> None:
+    """The experimental Mail endpoint may be absent on a healthy account."""
+    advertised = _advertised_webservices()
+    del advertised["mccgateway"]
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    finding = next(
+        item for item in payload["webservices"] if item["key"] == "mccgateway"
+    )
+    assert finding["status"] == "missing"
+    assert finding["is_problem"] is False
+
+
 def test_doctor_names_the_services_a_withdrawn_key_takes_down() -> None:
     """A missing key fails the run and reports the blast radius, not the key."""
 

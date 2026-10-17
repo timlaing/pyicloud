@@ -64,6 +64,7 @@ class MailError(PyiCloudException):
 
 
 def _limit(value: int) -> None:
+    """Reject limits outside the supported bounded-query range."""
     if (
         isinstance(value, bool)
         or not isinstance(value, int)
@@ -73,6 +74,7 @@ def _limit(value: int) -> None:
 
 
 def _folder_predicate(folder: MailFolder) -> MailPredicate:
+    """Restrict a query to non-deleted messages in the requested folder."""
     return MailPredicate(
         type="eq",
         expression=MailExpression(property="mboxRef"),
@@ -100,6 +102,7 @@ class MailService(BaseService):
     def __init__(
         self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
     ) -> None:
+        """Validate the discovered endpoint and copy session query parameters."""
         parsed = urlsplit(service_root)
         if (
             parsed.scheme != "https"
@@ -120,6 +123,7 @@ class MailService(BaseService):
         *,
         keep_nulls: bool = False,
     ) -> ResponseModel:
+        """Send a bounded Mail request and validate its response envelope."""
         response = self.session.post(
             f"{self.service_root}/mailws2/v1/{path}",
             params=self.params,
@@ -312,6 +316,7 @@ class MailService(BaseService):
 
     @staticmethod
     def _chunks(chunks: Iterator[bytes]) -> Iterator[bytes]:
+        """Yield nonempty chunks and translate attachment transport failures."""
         try:
             for chunk in chunks:
                 if chunk:

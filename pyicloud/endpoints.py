@@ -24,11 +24,13 @@ class Webservice:
 
     ``powers`` names the ``PyiCloudService`` properties that depend on the key,
     so the blast radius of a missing host is readable without tracing calls.
+    ``required`` controls whether absence fails ordinary account diagnostics.
     """
 
     key: str
     powers: tuple[str, ...]
     description: str
+    required: bool = True
 
 
 WEBSERVICES: tuple[Webservice, ...] = (
@@ -74,6 +76,7 @@ WEBSERVICES: tuple[Webservice, ...] = (
         key="mccgateway",
         powers=("mail",),
         description="Experimental read-only Mail folders, messages, and attachments.",
+        required=False,
     ),
     Webservice(
         key="photosupload",

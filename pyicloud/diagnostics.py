@@ -25,7 +25,7 @@ import sys
 import time
 from typing import TYPE_CHECKING, Any
 
-from pyicloud.endpoints import WEBSERVICES, services_using
+from pyicloud.endpoints import WEBSERVICES, services_using, webservice
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
@@ -104,10 +104,14 @@ class WebserviceFinding:
         may still ask for it, so it is worth seeing, but Apple sending an empty
         entry for a service pyicloud does not wrap should not condemn the whole
         account.
+
+        Optional services may be absent, but an advertised unusable endpoint
+        still indicates a problem.
         """
 
         if self.status is WebserviceStatus.MISSING:
-            return True
+            entry = webservice(self.key)
+            return entry is None or entry.required
         return self.status is WebserviceStatus.MALFORMED and self.needed
 
 
