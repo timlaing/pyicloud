@@ -1,0 +1,16 @@
+{
+  "records": [
+    {
+      "recordName": "cloudkit.zoneshare",
+      "recordType": "cloudkit.share",
+      "recordChangeTag": "share-created-fixture-1",
+      "shortGUID": "fixture-created-share",
+      "publicPermission": "NONE",
+      "participants": [],
+      "zoneID": { "zoneName": "EVENT-CREATE-FIXTURE" },
+      "fields": {
+        "cloudkit.title": { "type": "STRING", "value": "Synthetic event" }
+      }
+    }
+  ]
+}
