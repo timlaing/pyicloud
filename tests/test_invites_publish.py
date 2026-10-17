@@ -60,6 +60,17 @@ def _share_lookup(tag: str | None = "shareFixtureA1") -> MagicMock:
     })
 
 
+def _share_lookup_error(code: str, reason: str | None = None) -> MagicMock:
+    """An in-band per-record failure: HTTP 200 with a CKErrorItem."""
+    item: dict[str, Any] = {
+        "recordName": "cloudkit.zoneshare",
+        "serverErrorCode": code,
+    }
+    if reason is not None:
+        item["reason"] = reason
+    return _response({"records": [item]})
+
+
 @pytest.mark.parametrize("published", [True, False])
 def test_publish_serializes_atomic_dual_write(
     service: InvitesService, event: Event, published: bool
@@ -126,8 +137,9 @@ def test_publish_rejects_invalid_event_before_network(
     service: InvitesService, event: Event, change: dict[str, Any]
 ) -> None:
     """Guests and events lacking optimistic-concurrency metadata cannot publish."""
+    updated = event.model_copy(update=change)
     with pytest.raises(InvitesApiError):
-        service.publish(event.model_copy(update=change))
+        service.publish(updated)
     cast(MagicMock, service.session).post.assert_not_called()
 
 
@@ -137,7 +149,6 @@ def test_publish_rejects_invalid_event_before_network(
         _response({"records": []}),
         _share_lookup(None),
         _share_lookup(""),
-        _response({"reason": "unreadable share"}, status=500),
     ],
 )
 def test_publish_refuses_to_modify_without_share_tag(
@@ -150,6 +161,89 @@ def test_publish_refuses_to_modify_without_share_tag(
         service.publish(event)
     session.post.assert_called_once()
     assert session.post.call_args.args[0].split("?")[0].endswith("/records/lookup")
+
+
+def test_publish_surfaces_a_failed_share_lookup(
+    service: InvitesService, event: Event
+) -> None:
+    """A failed share lookup surfaces its own error, not a generic refusal.
+
+    A refusal claiming the tag was missing would misread a transient server
+    error as a permanent condition, and no modify may be sent either.
+    """
+    session = cast(MagicMock, service.session)
+    session.post.return_value = _response({"reason": "unreadable share"}, status=500)
+
+    with pytest.raises(InvitesApiError) as exc_info:
+        service.publish(event)
+
+    assert str(exc_info.value) == "HTTP 500"
+    assert exc_info.value.payload == {"reason": "unreadable share"}
+    session.post.assert_called_once()
+    assert session.post.call_args.args[0].split("?")[0].endswith("/records/lookup")
+
+
+@pytest.mark.parametrize(
+    ("code", "reason"),
+    [
+        ("PERMISSION_DENIED", "Not allowed"),
+        ("ZONE_NOT_FOUND", "The zone is gone"),
+    ],
+)
+def test_publish_surfaces_a_per_record_share_lookup_error(
+    service: InvitesService, event: Event, code: str, reason: str
+) -> None:
+    """An in-band lookup failure must not read as a missing change tag.
+
+    CloudKit answers a failed ``/records/lookup`` with HTTP 200 and a
+    ``CKErrorItem``; strict publication propagates that server error and its
+    payload, and no modify may be sent.
+    """
+    session = cast(MagicMock, service.session)
+    session.post.return_value = _share_lookup_error(code, reason)
+
+    with pytest.raises(InvitesApiError) as exc_info:
+        service.publish(event)
+
+    assert str(exc_info.value) == f"Share lookup failed: {code} ({reason})"
+    assert exc_info.value.payload == {
+        "recordName": "cloudkit.zoneshare",
+        "serverErrorCode": code,
+        "reason": reason,
+    }
+    session.post.assert_called_once()
+    assert session.post.call_args.args[0].split("?")[0].endswith("/records/lookup")
+
+
+def test_publish_surfaces_a_per_record_error_without_a_reason(
+    service: InvitesService, event: Event
+) -> None:
+    """The error message degrades to the bare code when no reason is given."""
+    session = cast(MagicMock, service.session)
+    session.post.return_value = _share_lookup_error("QUOTA_EXCEEDED")
+
+    with pytest.raises(InvitesApiError) as exc_info:
+        service.publish(event)
+
+    assert str(exc_info.value) == "Share lookup failed: QUOTA_EXCEEDED"
+    assert exc_info.value.payload == {
+        "recordName": "cloudkit.zoneshare",
+        "serverErrorCode": "QUOTA_EXCEEDED",
+    }
+    session.post.assert_called_once()
+
+
+def test_publish_refuses_when_the_share_is_reported_missing(
+    service: InvitesService, event: Event
+) -> None:
+    """A NOT_FOUND share is an absent share, so the refusal explains it."""
+    session = cast(MagicMock, service.session)
+    session.post.return_value = _share_lookup_error("NOT_FOUND", "Record not found")
+
+    with pytest.raises(InvitesApiError, match="no changes were sent"):
+        service.publish(event)
+
+    session.post.assert_called_once()
 
 
 def test_publish_refuses_missing_entitlement(
