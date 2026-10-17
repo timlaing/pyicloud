@@ -4,7 +4,7 @@
 
 The `icloud` command line interface is organized around top-level
 subcommands such as `auth`, `account`, `devices`, `calendar`,
-`contacts`, `drive`, `photos`, `hidemyemail`, `notes`, `reminders`, and
+`contacts`, `drive`, `photos`, `hidemyemail`, `mail`, `notes`, `reminders`, and
 `invites`,
 plus a standalone `doctor` command described under
 [Diagnostics](diagnostics.md).
@@ -52,6 +52,11 @@ icloud devices export "Example iPhone" --output ./iphone.json
 icloud calendar events --username jappleseed@apple.com --period week
 icloud contacts me --username jappleseed@apple.com
 icloud drive list /Documents --username jappleseed@apple.com
+icloud mail folders --format json
+icloud mail list --folder-id '<folder-id>' --limit 50 --format json
+icloud mail search example --folder-id '<folder-id>' --field subject --format json
+icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
+icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
 icloud photos libraries --username jappleseed@apple.com
 icloud photos albums --username jappleseed@apple.com
 icloud photos list --album Screenshots --limit 20 --username jappleseed@apple.com

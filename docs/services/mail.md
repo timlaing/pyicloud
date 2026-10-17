@@ -3,7 +3,7 @@
 Mail support is **experimental and read-only**, using the iCloud web interface's
 undocumented HTTP API. It has been verified on one account. Sending, drafts,
 folder changes, flags, moving/deleting messages, and incremental synchronization
-are not supported. There are no dedicated Mail CLI commands in this release.
+are not supported. The read-only `icloud mail` commands expose the same bounded API.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
 
 ## Folders and Messages
@@ -98,6 +98,46 @@ Metadata size can describe Base64-encoded content, while the stream contains
 decoded bytes. Do not decode those bytes again or equate the metadata size with
 the downloaded size. Missing optional MIME type metadata defaults to
 `application/octet-stream`.
+
+## Command-Line Interface
+
+Install the optional CLI dependencies and authenticate using `icloud auth login`.
+Shared account, session, proxy, logging, and `--format text|json` options belong on
+the final command, just as with the other services.
+
+```console
+icloud mail folders --format json
+icloud mail list --folder-id '<folder-id>' --limit 50 --format json
+icloud mail search example --folder-id '<folder-id>' --field subject --limit 50 --format json
+icloud mail body '<message-id>' --folder-id '<folder-id>' --limit 50 --format json
+icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
+```
+
+Use exact folder IDs from `mail folders` and message IDs from `mail list`.
+JSON listings include MIME parts, attachment part IDs, and `complete: false`.
+Search returns **thread-group IDs**, which cannot be passed as message IDs to
+`body` or `download`. All six search fields described above are supported.
+
+`list` and `search` default to a limit of 50, with a maximum of 1,000. `body` and
+`download` first look for the requested message within the newest `--limit`
+messages in that folder (also 50 by default). A missing match produces an error
+instead of silently scanning the whole mailbox. Increase the explicit limit if
+needed; there is still no automatic paging or completeness guarantee.
+
+Body output is escaped JSON data even in text mode: HTML is never rendered and
+remote content is never loaded. Folder and message tables display remote text
+literally rather than interpreting terminal controls or Rich markup. The same
+read-only body request is used as in the library API.
+
+Downloads require an explicit `--output` file in an existing directory. A remote
+filename is never used as a local path. Bytes are staged in a private temporary
+file beside the destination, then published without overwriting existing files
+or symlinks, even if they appear during the download. Failed streams remove their
+temporary bytes and leave the destination untouched. Publishing requires a
+filesystem that supports hard links; unsupported filesystems produce an error
+rather than falling back to an overwriting copy. Mail Drop and external-link
+downloads remain unsupported. Downloaded files are private email data; keep them
+outside repositories.
 
 ## Errors and Privacy
 
