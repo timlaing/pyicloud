@@ -74,6 +74,7 @@ from pyicloud.services import (  # pylint: disable=useless-import-alias
 )
 from pyicloud.services.findmyiphone import DEFAULT_REFRESH_INTERVAL
 from pyicloud.services.invites import InvitesService
+from pyicloud.services.mail import MailService
 from pyicloud.services.notes import NotesService
 from pyicloud.services.photos import (
     UPLOAD_HYDRATION_INTERVAL,
@@ -354,6 +355,7 @@ class PyiCloudService:
         self._reminders: RemindersService | None = None
         self._notes: NotesService | None = None
         self._invites: InvitesService | None = None
+        self._mail: MailService | None = None
 
         self._requires_mfa: bool = False
         self._two_factor_code_requested: bool = False
@@ -505,6 +507,7 @@ class PyiCloudService:
         self._drive = None
         self._files = None
         self._hidemyemail = None
+        self._mail = None
         self._photos = None
         self._reminders = None
         self._invites = None
@@ -1770,6 +1773,17 @@ class PyiCloudService:
                     "Invites service not available"
                 ) from error
         return self._invites
+
+    @property
+    def mail(self) -> MailService:
+        """Experimental read-only Mail service using the discovered gateway."""
+        if self._mail is None:
+            self._mail = MailService(
+                service_root=self.get_webservice_url("mccgateway"),
+                session=self.session,
+                params=self.params,
+            )
+        return self._mail
 
     @property
     def account_name(self) -> str:

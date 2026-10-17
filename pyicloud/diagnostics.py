@@ -323,8 +323,8 @@ def _probe_devices(api: PyiCloudService) -> object:
     return len(api.devices)
 
 
-#: One read per service property named in the inventory. Each is a GET or the
-#: service's own documented refresh; none of them writes.
+#: One read per service property named in the inventory. These include read-only
+#: POST queries and documented refreshes; none of them writes.
 SERVICE_PROBES: tuple[ServiceProbe, ...] = (
     ServiceProbe("account", "reads storage usage", lambda api: api.account.storage),
     ServiceProbe(
@@ -342,6 +342,7 @@ SERVICE_PROBES: tuple[ServiceProbe, ...] = (
         lambda api: len(api.hidemyemail),
     ),
     ServiceProbe("invites", "lists invite events", lambda api: api.invites.events()),
+    ServiceProbe("mail", "lists Mail folders", lambda api: api.mail.folders()),
     # sync_cursor() rather than a listing for the two zone-backed services: it
     # is a single token fetch and proves the same reachability. Listing
     # reminders took 28s against a real account, which is not a diagnostic.

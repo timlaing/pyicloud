@@ -10,10 +10,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add experimental read-only `PyiCloudService.mail` support for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Complete mailbox enumeration, mutations, and incremental synchronization are not supported.
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
 
 ### Documentation
 
+- Document the observed iCloud Mail HTTP protocol, capture limitations, and a proposed read-only service scope without adding a public Mail API.
 - Reconcile the Invites design document with the shipped reads, CLI, RSVP image downloads, and cancellation support; document the entitlement flow and remaining owner-write limitations (#434).
 
 ## [2026.10.1] - 2026-10-15

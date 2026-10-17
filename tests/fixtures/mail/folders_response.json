@@ -1,0 +1,16 @@
+{
+  "domainObjects": [
+    {
+      "identifier": "10",
+      "name": "INBOX",
+      "uidValidity": 1234,
+      "messageCount": 2
+    },
+    {
+      "identifier": "20",
+      "name": "Sent Messages",
+      "uidValidity": 5678,
+      "messageCount": 356
+    }
+  ]
+}

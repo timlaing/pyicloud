@@ -15,3 +15,4 @@ reachable as a property on the main service instance.
 | Reminders      | `RemindersService`           | [reminders.md](services/reminders.md)       |
 | Notes          | `NotesService`               | [notes.md](services/notes.md)               |
 | Invites        | `InvitesService`             | [invites.md](services/invites.md)           |
+| Mail           | `MailService`                | [mail.md](services/mail.md)                 |

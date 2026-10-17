@@ -71,6 +71,11 @@ WEBSERVICES: tuple[Webservice, ...] = (
         description="Find My iPhone device list and location.",
     ),
     Webservice(
+        key="mccgateway",
+        powers=("mail",),
+        description="Experimental read-only Mail folders, messages, and attachments.",
+    ),
+    Webservice(
         key="photosupload",
         powers=("photos",),
         description=(
