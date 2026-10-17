@@ -1425,7 +1425,7 @@ class CancelTest(unittest.TestCase):
         modify_mock = MagicMock(return_value=self.modify_response)
         self._monkeypatch.setattr(self.service.raw, "modify", modify_mock)
         self._monkeypatch.setattr(
-            self.service, "_share_change_tag", lambda *_: share_tag
+            self.service, "_share_change_tag", lambda *_args, **_kwargs: share_tag
         )
         return modify_mock
 
@@ -1563,6 +1563,31 @@ class CancelTest(unittest.TestCase):
     def test_share_change_tag_is_none_when_the_share_is_absent(self) -> None:
         """A lookup that omits the share record yields no tag."""
         lookup = CKLookupResponse.model_validate({"records": []})
+        self._monkeypatch.setattr(
+            self.service.raw, "lookup", MagicMock(return_value=lookup)
+        )
+
+        tag = self.service._share_change_tag(
+            "private", CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+        )
+
+        self.assertIsNone(tag)
+
+    def test_share_change_tag_is_none_on_a_per_record_error(self) -> None:
+        """A per-record lookup error degrades to None rather than raising.
+
+        CloudKit answers lookup failures in-band with HTTP 200; cancellation
+        keeps its event-only fallback instead of losing the write entirely.
+        """
+        lookup = CKLookupResponse.model_validate({
+            "records": [
+                {
+                    "recordName": "cloudkit.zoneshare",
+                    "serverErrorCode": "PERMISSION_DENIED",
+                    "reason": "Not allowed",
+                }
+            ]
+        })
         self._monkeypatch.setattr(
             self.service.raw, "lookup", MagicMock(return_value=lookup)
         )
