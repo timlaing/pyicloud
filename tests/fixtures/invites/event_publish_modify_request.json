@@ -1,0 +1,35 @@
+{
+  "atomic": true,
+  "operations": [
+    {
+      "operationType": "update",
+      "record": {
+        "recordName": "EventDetails:EVENT-FIXTURE-AAAA",
+        "recordType": "EventDetails",
+        "recordChangeTag": "fixtureA1",
+        "pluginFields": {},
+        "fields": {
+          "isPublished": { "type": "INT64", "value": 1, "isEncrypted": true },
+          "hint": {
+            "type": "STRING",
+            "value": "{\"subscriptionAccessToken\": \"token-fixture\"}"
+          }
+        }
+      }
+    },
+    {
+      "operationType": "update",
+      "record": {
+        "recordName": "cloudkit.zoneshare",
+        "recordType": "cloudkit.share",
+        "recordChangeTag": "shareFixtureA1",
+        "pluginFields": {},
+        "fields": { "isPublished": { "type": "INT64", "value": 1 } }
+      }
+    }
+  ],
+  "zoneID": {
+    "zoneName": "EVENT-FIXTURE-AAAA",
+    "zoneType": "REGULAR_CUSTOM_ZONE"
+  }
+}

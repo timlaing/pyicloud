@@ -122,8 +122,27 @@ Pass an `event` that carries a current record change tag — one from `event()`
 or from a previous `cancel()`, as above. Apple rejects a stale one with an
 opaque `502`.
 
-Cancellation is the only event flag exposed by this version of the service;
-publishing an event or renaming it still has to happen in the Invites app.
+## Publishing an event you host
+
+```python
+event = api.invites.event("EVENT-UUID")
+published = api.invites.publish(event)
+print(published.is_published)  # True
+
+# Return it to an unpublished state:
+unpublished = api.invites.publish(published, published=False)
+```
+
+Publishing and unpublishing update both the event and its share atomically.
+Only hosted events are accepted, and the event must have a current record change
+tag. If the share's current tag cannot be read, the call fails before modifying
+either record. As with cancellation, the returned event carries the new tag;
+call `event()` again if you need its share and RSVP details.
+
+These operations change an invitation's availability. Live verification covered
+a guest-free development event; notification behavior for events with guests
+has not been verified. Creating events and renaming them are not yet exposed
+through the service.
 
 ## One-time-link guest invitations
 

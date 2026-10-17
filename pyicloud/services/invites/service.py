@@ -15,9 +15,9 @@ Write (Phase 2):
   - ``InvitesService.rsvp(event, status, ...)`` -> ``Rsvp``
   - ``InvitesService.cancel(event, ...)`` -> ``Event``
   - ``InvitesService.invite_via_link(event, ...)`` -> ``OneTimeLinkInvitation``
+  - ``InvitesService.publish(event, ...)`` -> ``Event``
 
-Creating events and publishing them arrive in later
-phases per the design doc.
+Event creation arrives in a later phase per the design doc.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from pyicloud.common.cloudkit import (
+    CKErrorItem,
     CKLookupResponse,
     CKModifyOperation,
     CKModifyResponse,
@@ -105,7 +106,8 @@ class InvitesService(BaseService):
 
     Reads cover event listing, single-event lookup, RSVP listing, guest photo
     download (``rsvp_image``), and public share resolution (``resolve`` /
-    ``accept``); writes cover ``rsvp()``, ``cancel()``, and ``invite_via_link()``.
+    ``accept``); writes cover ``rsvp()``, ``cancel()``, ``publish()``, and
+    ``invite_via_link()``.
     """
 
     _CONTAINER = CONTAINER
@@ -483,6 +485,20 @@ class InvitesService(BaseService):
 
         return self._set_event_flag(event, EventDetailsField.IS_CANCELLED, cancelled)
 
+    def publish(self, event: Event, *, published: bool = True) -> Event:
+        """Publish an event you host, or return it to an unpublished state.
+
+        Pass an event with a current record change tag from ``event()`` or a
+        previous write. Both EventDetails and its share are updated atomically;
+        no modify is sent unless the share's current tag could be read. A share
+        with no readable tag raises, and a failed lookup surfaces its own error
+        rather than a generic refusal. The returned event carries the new tag,
+        but is not rehydrated with share/RSVP data.
+        """
+        if event.scope is not EventScope.PRIVATE:
+            raise InvitesApiError("Only events you host can be published.")
+        return self._set_event_flag(event, EventDetailsField.IS_PUBLISHED, published)
+
     # ------------------------------------------------------------------
     # Internal: write helpers
     # ------------------------------------------------------------------
@@ -521,13 +537,14 @@ class InvitesService(BaseService):
         The ``hint`` field carries the entitlement token. Without it Apple
         answers ``502 INTERNAL_ERROR`` with no explanation at all.
 
-        Only flags the schema stores unencrypted can go through here, and a
-        read says which those are: a field Apple sends back with
-        ``isEncrypted: true`` is PCS-protected, and writing it needs a
-        ciphertext this library cannot produce. ``isCancelled`` carries no such
-        marker and takes a plain ``INT64``. ``isPublished`` does carry it, and
-        Apple answers ``BAD_REQUEST -- expected type ENCRYPTED_NUMBER_INT64``
-        to every unencrypted encoding, so publishing waits on PCS support.
+        With ``remapEnums=true``, publication uses an ``INT64`` carrying
+        ``isEncrypted: true`` on EventDetails and a plain ``INT64`` on the share.
+        Omitting the marker causes ``expected type ENCRYPTED_NUMBER_INT64``;
+        client-side ciphertext is not required. Cancellation remains plain.
+
+        Publication reads the share's tag strictly: a failed lookup propagates
+        its own error, and a share carrying no tag refuses the write outright,
+        whereas cancellation keeps its event-only fallback.
         """
 
         if not event.record_change_tag:
@@ -537,7 +554,11 @@ class InvitesService(BaseService):
             )
 
         hint = json.dumps({"subscriptionAccessToken": self._entitlement_token()})
+        publishing = field is EventDetailsField.IS_PUBLISHED
         flag: dict[str, Any] = {"type": "INT64", "value": int(value)}
+        event_flag = dict(flag)
+        if publishing:
+            event_flag["isEncrypted"] = True
         scope_str = self._scope_str(event.scope)
         zone_id = self._zone_id_req(event.event_id, event.scope)
 
@@ -551,7 +572,7 @@ class InvitesService(BaseService):
                     fields=cast(
                         CKWriteFields,
                         {
-                            field.value: flag,
+                            field.value: event_flag,
                             EventDetailsField.HINT.value: {
                                 "type": "STRING",
                                 "value": hint,
@@ -562,7 +583,12 @@ class InvitesService(BaseService):
             )
         ]
 
-        share_tag = self._share_change_tag(scope_str, zone_id)
+        share_tag = self._share_change_tag(scope_str, zone_id, strict=publishing)
+        if publishing and not share_tag:
+            raise InvitesApiError(
+                "Cannot publish an event without its share's current change tag; "
+                "no changes were sent."
+            )
         if share_tag is not None:
             operations.append(
                 CKModifyOperation(
@@ -586,7 +612,7 @@ class InvitesService(BaseService):
         )
 
     def _share_change_tag(
-        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq
+        self, scope_str: ScopeLiteral, zone_id: CKZoneIDReq, *, strict: bool = False
     ) -> str | None:
         """Return the share record's own change tag, or None if unreadable.
 
@@ -595,12 +621,41 @@ class InvitesService(BaseService):
         reading the share still gets its event updated rather than nothing;
         auth and rate-limit failures propagate instead, because the write that
         follows would hit the same wall.
+
+        ``strict`` is for publication, which refuses to write without the tag:
+        the lookup's own failure then propagates with its message and payload
+        instead of degrading to ``None``, so callers can tell a failed read
+        apart from a share that carries no tag. A per-record error item in the
+        lookup answer (anything but ``NOT_FOUND``, which only means the share
+        is absent) is treated the same way in strict mode; ``NOT_FOUND`` is
+        reported by the caller's missing-tag refusal instead.
         """
 
         try:
             resp = self._raw.lookup(scope_str, [SHARE_RECORD_NAME], zone_id=zone_id)
         except InvitesApiError:
+            if strict:
+                raise
             LOGGER.debug("invites.share_change_tag_failed", exc_info=True)
+            return None
+        error = next(
+            (
+                item
+                for item in resp.records
+                if isinstance(item, CKErrorItem) and item.serverErrorCode != "NOT_FOUND"
+            ),
+            None,
+        )
+        if error is not None:
+            message = f"Share lookup failed: {error.serverErrorCode}"
+            if error.reason:
+                message = f"{message} ({error.reason})"
+            if strict:
+                raise InvitesApiError(
+                    message,
+                    payload=error.model_dump(mode="json", exclude_none=True),
+                )
+            LOGGER.debug("invites.share_lookup_error code=%s", error.serverErrorCode)
             return None
         for record in self._records_of(resp):
             if record.recordName == SHARE_RECORD_NAME:

@@ -11,16 +11,18 @@ fake or omitted, and stable across test runs.
 
 ## Files
 
-| File                                      | Shape                                                                                                                                     |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `events_query_response.json`              | `CKQueryResponse` for a `zoneWide` `EventDetails` query (two events: a full one and a minimal open-ended one).                            |
-| `event_lookup_response.json`              | `CKLookupResponse` for an `EventDetails` + `cloudkit.zoneshare` lookup against one event's zone.                                          |
-| `rsvp_query_response.json`                | `CKQueryResponse` for an `RSVP` query against one event's zone (one going RSVP with a plus-one).                                          |
-| `rsvp_modify_response.json`               | `CKModifyResponse` after toggling an existing RSVP to `Maybe` with no plus-ones (used by Phase 2 write tests).                            |
-| `event_cancel_modify_response.json`       | `CKModifyResponse` after cancelling one event: the `EventDetails` and `cloudkit.zoneshare` records both come back with `isCancelled` set. |
-| `one_time_link_query_empty_response.json` | `CKQueryResponse` empty record set, for the OneTimeLinkGuestInfo case when no link invitations exist.                                     |
-| `resolve_response.json`                   | Raw JSON from `public/records/resolve` for the owner viewing their own share.                                                             |
-| `accept_response.json`                    | Raw JSON from `public/records/accept` for a guest joining via the shortGUID.                                                              |
+| File                                      | Shape                                                                                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `events_query_response.json`              | `CKQueryResponse` for a `zoneWide` `EventDetails` query (two events: a full one and a minimal open-ended one).                             |
+| `event_lookup_response.json`              | `CKLookupResponse` for an `EventDetails` + `cloudkit.zoneshare` lookup against one event's zone.                                           |
+| `rsvp_query_response.json`                | `CKQueryResponse` for an `RSVP` query against one event's zone (one going RSVP with a plus-one).                                           |
+| `rsvp_modify_response.json`               | `CKModifyResponse` after toggling an existing RSVP to `Maybe` with no plus-ones (used by Phase 2 write tests).                             |
+| `event_cancel_modify_response.json`       | `CKModifyResponse` after cancelling one event: the `EventDetails` and `cloudkit.zoneshare` records both come back with `isCancelled` set.  |
+| `event_publish_modify_request.json`       | `records/modify` request envelope publishing an event: `isPublished` carries `isEncrypted` on `EventDetails` and stays plain on the share. |
+| `event_publish_modify_response.json`      | `CKModifyResponse` after publishing: both the `EventDetails` and `cloudkit.zoneshare` records come back with `isPublished` set.            |
+| `one_time_link_query_empty_response.json` | `CKQueryResponse` empty record set, for the OneTimeLinkGuestInfo case when no link invitations exist.                                      |
+| `resolve_response.json`                   | Raw JSON from `public/records/resolve` for the owner viewing their own share.                                                              |
+| `accept_response.json`                    | Raw JSON from `public/records/accept` for a guest joining via the shortGUID.                                                               |
 
 ## Encoding notes
 
@@ -46,8 +48,13 @@ base64-encoded JSON. The fixture values base64 to inspectable JSON:
 - `style`: `{"titleFont": 0}`
 - `integrations`: `{"version": "1", "data": [{"type": "com.apple.widget.weather"}, ...]}`
 
-`isEncrypted: true` on a read means the server decrypted a PCS field for the
-web client. Those fields are declared `ENCRYPTED_*` in the schema and cannot be
-written back without PCS, so the fixtures keep the marker where Apple sends it:
-`isCancelled` and `blockNewRSVPs` are plain `INT64` and writable, while
-`isPublished`, `isPrivate`, and `title` are not.
+`isEncrypted: true` on a read marks a PCS-protected field. For publication,
+live verification showed that an `INT64` value with this marker on EventDetails
+and a plain `INT64` on the share works with `remapEnums=true`; client-generated
+ciphertext is not needed. Omitting the marker reproduces Apple's
+`expected type ENCRYPTED_NUMBER_INT64` error. Cancellation remains plain.
+
+`event_publish_modify_request.json` and `event_publish_modify_response.json` are
+minimal synthetic publication envelopes using the remapped enum spelling sent
+by pyicloud. They contain only fake IDs, change tags, and an entitlement token
+placeholder. The same shapes exercise unpublishing by changing the flag to zero.
