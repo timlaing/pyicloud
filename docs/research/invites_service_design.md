@@ -1,907 +1,339 @@
-# Invites Service — Design Plan
+# Invites Service — Design and Implementation Status
 
 ## Status
 
-Phase 1 (read-only MVP) is implemented. Source lives under
-[`pyicloud/services/invites/`](../../pyicloud/services/invites/); the wire
-shapes are derived from four Proxyman HAR captures of the iCloud Invites web
-UI (2026-05-15 owner browsing + invite/accept; 2026-05-16 RSVP status
-variations + full event lifecycle including one-time link).
+Reviewed against pyicloud **2026.10.1** (`2d3d137`) on 2026-10-16. This is a
+maintainer protocol reference, not a promise that every captured browser operation
+is available through the library. See the [user guide](../services/invites.md)
+for the supported API.
 
-Phases 2–5 (RSVP write, guest-flow polish, owner writes, OneTimeLink writes)
-are still planned per the schedule at the end of this doc.
+| Capability                                                         | Status                                                    | Reference                                               |
+| ------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------- |
+| Event listing, lookup, RSVP reads, share resolution and acceptance | Implemented                                               | #246, #339, #352                                        |
+| Create/update the current user's RSVP                              | Implemented                                               | #247                                                    |
+| Read-only CLI (`list`, `show`, `rsvps`, `resolve`)                 | Implemented                                               | #346                                                    |
+| Download an RSVP image through `rsvp_image()`                      | Implemented                                               | #349                                                    |
+| Cancel/reinstate events with cached entitlement tokens             | Implemented                                               | #355                                                    |
+| Create an event                                                    | Not implemented                                           | [#431](https://github.com/timlaing/pyicloud/issues/431) |
+| Publish an event                                                   | Not implemented; encrypted-field writes remain unresolved | [#432](https://github.com/timlaing/pyicloud/issues/432) |
+| Invite guests through one-time links                               | Not implemented                                           | [#433](https://github.com/timlaing/pyicloud/issues/433) |
 
-## Summary
+The original umbrella [#341](https://github.com/timlaing/pyicloud/issues/341) is
+closed. This status reconciliation is tracked in
+[#434](https://github.com/timlaing/pyicloud/issues/434). The original phase schedule
+is superseded by the shipped capabilities and focused follow-ups above.
 
-Add `InvitesService` to pyicloud, exposing Apple's invite/event sharing system
-(branded as "iCloud Invites" since 2024, internally still named "Events"). The
-service consumes the `com.apple.icloud.events` CloudKit container via the
-existing `pyicloud.common.cloudkit` client, in the same shape as the existing
-Notes / Reminders / Photos services.
+## Evidence and limitations
 
-The defining design challenge is a recurring **atomic dual-write pattern**: a
-handful of event state flags live on _both_ the private `EventDetails` record
-and the public-facing `cloudkit.share` record, and must be updated together in
-one CloudKit operation. Most other complexity (encryption, zone topology,
-share resolution) follows standard CloudKit conventions.
+The initial design was derived from four local Proxyman HAR captures of the
+iCloud Invites website on 2026-05-15 and 2026-05-16. Those captures describe browser
+behavior; they do not establish that pyicloud can construct every encrypted field,
+share participant, or PCS blob needed to reproduce it.
 
-## Container & topology
+Later investigations in #341 and #355 established the entitlement gateway and
+verified cancellation/reinstatement. In particular, #355 reports that plain
+encodings of `isPublished` were rejected even after token acquisition worked.
+Earlier speculation that owner writes were unsupported, or that obtaining a token
+alone unblocked every write, must not be used as the current conclusion.
 
-| Property    | Value                                                                                            |
-| ----------- | ------------------------------------------------------------------------------------------------ |
-| Container   | `com.apple.icloud.events`                                                                        |
-| Environment | `production`                                                                                     |
-| Host (web)  | `p51-ckdatabasews.icloud.com` (region-routed; we reuse the existing pyicloud endpoint discovery) |
-| Auth        | Existing pyicloud iCloud session (cookies + X-Apple-\* headers)                                  |
+The existing May captures were also re-inspected for this update: both contain
+successful browser publication requests and responses (see Publishing limitation).
+No new live captures or writes were performed for this documentation update.
+Sections labeled historical or proposed below require fresh verification before
+implementation.
 
-**Zone-per-event**: each invite lives in its own custom zone. `zoneName` is the
-event UUID. `zoneType: REGULAR_CUSTOM_ZONE`. The owner sees zones in the
-`PRIVATE` database; guests who have accepted see them in `SHARED`. The `PUBLIC`
-database is used only for the share-resolution endpoints (`resolve` / `accept`).
+## Container and scope topology
 
-A `query` on `recordType: EventDetails` with `zoneWide: true` returns one record
-per event without enumerating zones individually — the natural list endpoint.
+| Property       | Value                                                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Container      | `com.apple.icloud.events`                                                                                               |
+| Environment    | `production`                                                                                                            |
+| CloudKit host  | Discovered from the authenticated `ckdatabasews` webservice; the historical captures used `p51-ckdatabasews.icloud.com` |
+| Authentication | Existing pyicloud session and Apple headers/cookies                                                                     |
 
-## Record types
+Each event lives in its own custom zone: `zoneName` is the event UUID and
+`zoneType` is `REGULAR_CUSTOM_ZONE`. Owners see events in `private`; accepted
+guests see them in `shared`. The `public` scope serves `records/resolve` and
+`records/accept`, which take short GUIDs rather than zone IDs. Using that scope
+does not imply anonymous access.
 
-### `EventDetails` (singleton per zone)
+### Implemented reads
 
-`recordName`: `EventDetails:<event-UUID>` (UUID equals the zoneName).
+- **Private listing:** `events()` queries `EventDetails` with `zoneWide: true`.
+- **Shared listing:** CloudKit rejects zone-wide shared-database queries. The
+  service lists shared zones, reads every page of each zone's changes feed, and
+  selects `EventDetails` records (#339). Zone owner metadata is preserved for
+  shared lookups and changes requests.
+- **Combined listing:** results are deduplicated by `(scope, event_id)` and contain
+  event details only. Call `event(event_id)` to hydrate the share and guest data.
+  Unreadable scopes/zones are handled on a best-effort basis, so a returned list
+  need not prove that every remote event was readable.
+- **Single event:** `event(event_id)` tries private then shared lookup for
+  `EventDetails:<event_id>` and `cloudkit.zoneshare`.
+- **RSVPs and one-time-link guests:** read through the zone changes feed (#352).
+  Hosted event zones reject the former per-zone `records/query` approach with
+  `syncToken operations supported only in SyncZone`. Live records and tombstones
+  are reconciled by record name. Full-event guest hydration preserves partial
+  results on a feed failure; the explicit `rsvps(event)` call propagates failures.
 
-| Field                        | CK type      | Encrypted | Notes                                                             |
-| ---------------------------- | ------------ | --------- | ----------------------------------------------------------------- |
-| `title`                      | STRING       | yes       | display name                                                      |
-| `notes`                      | STRING       | yes       | host's "Message to guests" — long-form description                |
-| `hostDisplayName`            | STRING       | yes       | usually empty                                                     |
-| `isPublished`                | NUMBER_INT64 | yes       | 1 once owner publishes; guests can't see until set                |
-| `isPrivate`                  | NUMBER_INT64 | yes       | 1 = no public link                                                |
-| `isCancelled`                | NUMBER_INT64 | yes       | soft-cancellation (mirrors on share)                              |
-| `blockNewRSVPs`              | NUMBER_INT64 | (no)      | seen unencrypted on a record                                      |
-| `maxAttendees`               | NUMBER_INT64 | yes       | per-event cap                                                     |
-| `maxAdditionalGuestsPerRSVP` | NUMBER_INT64 | yes       | plus-one allowance                                                |
-| `minimumSupportedVersion`    | NUMBER_INT64 | yes       | always 1 in current captures                                      |
-| `time`                       | BYTES        | yes       | base64 JSON, see codec below                                      |
-| `place`                      | BYTES        | yes       | base64 JSON, see codec below                                      |
-| `background`                 | BYTES        | yes       | base64 JSON, see codec below                                      |
-| `style`                      | BYTES        | yes       | base64 JSON, see codec below                                      |
-| `integrations`               | BYTES        | yes       | base64 JSON, see codec below                                      |
-| `clientRecordChangeTag`      | STRING       | yes       | client-supplied; rarely needed                                    |
-| `hint`                       | STRING       | no        | JSON sidecar (subscription token + UI metadata); see "hint field" |
+## Record reference
 
-### `cloudkit.share` (singleton per zone)
+These are capture-derived field descriptions, with later findings called out.
+Read-side decrypted data is not necessarily a valid write-side representation.
+Canonical field names live in
+[`models/constants.py`](../../pyicloud/services/invites/models/constants.py).
 
-`recordName`: `cloudkit.zoneshare`. Standard CloudKit share record with a few
-Apple-specific extras.
+### EventDetails
 
-| Field                                           | Notes                                                                                 |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `cloudkit.title`                                | STRING — duplicates `EventDetails.title` for share-preview UIs                        |
-| `time`, `place`, `style`                        | BYTES — same codecs as on EventDetails; duplicated so guests see a preview pre-accept |
-| `startDate`, `endDate`                          | TIMESTAMP (ms) — extracted from `time` for guest-side calendaring                     |
-| `isPublished`, `isPrivate`, `isCancelled`       | NUMBER_INT64 — mirror of EventDetails flags                                           |
-| `participants`                                  | array of participant objects (see below)                                              |
-| `owner`, `currentUserParticipant`               | participant pointers                                                                  |
-| `publicPermission`                              | `NONE` / `READ_WRITE`                                                                 |
-| `denyAccessRequests`                            | bool                                                                                  |
-| `allowAnyoneToResolve`, `publicAnonymousAccess` | flags governing share-link visibility                                                 |
-| `stableUrl.shortGUID`                           | the public token (`008S4-kMf8_DSNuoHZIfm26nA`)                                        |
-| `stableUrl.displayedHostname`                   | always `www.icloud.com` in our captures                                               |
-| `oneTimeStableUrlInfo.oneTimeLinks`             | array of `{participantId: [...]}` for OTL invites                                     |
-| `invitedPCS`, `selfAddedPCS`                    | Protection Class System blobs (E2E key wrapping)                                      |
+One record per event zone, named `EventDetails:<event_id>`.
 
-**Participant shape:**
+| Fields                                                                  | Observed content and constraints                                              |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `title`, `notes`, `hostDisplayName`                                     | Text; `title` is PCS-encrypted in the owner-write investigation               |
+| `isPublished`, `isPrivate`                                              | Integer flags; PCS-encrypted, unlike `isCancelled`                            |
+| `isCancelled`                                                           | Unencrypted integer flag; the shipped writer sends `INT64`, `0` or `1`        |
+| `blockNewRSVPs`                                                         | Observed unencrypted; no public setter is implemented                         |
+| `maxAttendees`, `maxAdditionalGuestsPerRSVP`, `minimumSupportedVersion` | Integer metadata from historical captures; not implemented as owner writes    |
+| `time`, `place`, `background`, `style`, `integrations`                  | Byte fields whose decrypted contents are JSON; see codecs below               |
+| `clientRecordChangeTag`                                                 | Captured client metadata; not required by the shipped cancellation writer     |
+| `hint`                                                                  | Unencrypted STRING containing JSON; owner writes require an entitlement token |
 
-```jsonc
-{
-  "participantId": "c32e4f61-754d-397e-9044-e763354be277",
-  "userIdentity": {
-    "userRecordName": "_7c587f3e..." or "++ZmaNURj...=" or absent,
-    "nameComponents": {"givenName": "...", "familyName": "..."},
-    "lookupInfo": {"emailAddress": "..."}
-  },
-  "type": "OWNER" | "PUBLIC_USER" | "USER",
-  "acceptanceStatus": "ACCEPTED" | "INVITED" | "REMOVED",
-  "permission": "READ_WRITE" | "READ_ONLY",
-  "publicKeyVersion": 1 | 2,
-  "protectionInfo": {"bytes": "...base64...", "pcsChangeTag": "..."}
-}
-```
+The original capture tables called integer fields `NUMBER_INT64`. The current
+writer uses `INT64` for cancellation. These names must not be interchanged as an
+assumption about other fields, particularly encrypted publishing fields.
 
-Participant `type` distinguishes:
+### cloudkit.share
 
-- `OWNER` — the event creator
-- `PUBLIC_USER` — a guest who joined via the shortGUID link with their iCloud account
-- `USER` — a guest invited via OneTimeLink (email/phone, may or may not yet have accepted)
+The record name is `cloudkit.zoneshare`. Historical captures contain:
 
-Guest `userRecordName` values may use the privacy-encoded `++...=` form rather
-than the `_<hex>` form owners see for themselves.
+- `cloudkit.title`, `time`, `place`, `style`, `startDate`, and `endDate` for previews.
+- Copies of lifecycle flags such as `isPublished`, `isPrivate`, and `isCancelled`.
+- `participants`, `owner`, and `currentUserParticipant`, with participant identity,
+  permission, acceptance status, and protection metadata.
+- `publicPermission`, `denyAccessRequests`, `allowAnyoneToResolve`, and
+  `publicAnonymousAccess` for share access.
+- `stableUrl.shortGUID` and `stableUrl.displayedHostname` for the public URL.
+- `oneTimeStableUrlInfo.oneTimeLinks`, `invitedPCS`, and `selfAddedPCS` for guest
+  links and protection metadata.
 
-### `RSVP` (one per participant)
+Participant types include `OWNER`, `PUBLIC_USER` (public-link guest), and `USER`
+(one-time-link guest). User record names can use different privacy encodings;
+callers must not assume every identity uses an underscore-prefixed record name.
 
-`recordName`: `<participantId>_rsvp`.
+The public URL is `https://www.icloud.com/invites/<shortGUID>`. Routing keys are
+separate metadata and are not an extra URL path component.
 
-| Field                     | CK type      | Encrypted            | Notes                                                                       |
-| ------------------------- | ------------ | -------------------- | --------------------------------------------------------------------------- |
-| `status`                  | NUMBER_INT64 | yes                  | enum (see RsvpStatus below)                                                 |
-| `name`                    | STRING       | yes                  | display name guest entered                                                  |
-| `message`                 | STRING       | yes                  | optional note to host                                                       |
-| `numAdditionalGuests`     | NUMBER_INT64 | yes                  | total plus-ones (= adults + kids)                                           |
-| `numAdditionalAdults`     | NUMBER_INT64 | yes                  |                                                                             |
-| `numAdditionalKids`       | NUMBER_INT64 | yes                  |                                                                             |
-| `monogramBackgroundColor` | NUMBER_INT64 | yes                  | UI avatar tint index                                                        |
-| `image`                   | ASSETID      | (asset-level crypto) | optional avatar with `downloadURL` to `cvws.icloud-content.com`             |
-| `hint`                    | STRING       | no                   | `{"updatedFields":["STATUS"],"timeZone":"...","bundleId":"com.apple.rsvp"}` |
+### RSVP and OneTimeLinkGuestInfo
 
-`RsvpStatus` enum (confirmed by three RSVPs — Not Going / Maybe / Going):
+An RSVP record is named `<participant_id>_rsvp`. It carries `status`, `name`,
+`message`, plus-one counts, optional monogram metadata, and an optional `image`
+asset. The service locates the current user through the share's participant ID.
 
-```python
-class RsvpStatus(IntEnum):
-    NO_RESPONSE = 0  # presumed default before first response
-    NOT_GOING = 1
-    MAYBE = 2
-    GOING = 3
-```
+`RsvpStatus` maps `NOT_GOING=1`, `MAYBE=2`, and `GOING=3`. `NO_RESPONSE=0` remains
+the presumed default; the original captures did not verify that value. The
+shipped RSVP writer creates a first response or updates an existing response and
+zeros plus-one counts for `NOT_GOING`.
 
-### `OneTimeLinkGuestInfo` (one per invited email/phone)
+`rsvp_image(rsvp)` returns bytes, or `None` when there is no image. It validates
+that the asset URL is absolute HTTPS and delegates the download to the raw client.
 
-`recordName`: `<participantId>_otl` where `participantId` matches the share
-participant added in the same atomic write.
+A one-time-link guest-info record is named `<participant_id>_otl`, with `name`,
+`emails`, and `phoneNumbers`. Those records and share participants are populated
+on reads. Constructing new invitations is separate work (#433); readable
+protection metadata is not proof that the library can generate it.
 
-| Field          | CK type     | Encrypted | Notes                                         |
-| -------------- | ----------- | --------- | --------------------------------------------- |
-| `name`         | STRING      | yes       | guest's display name (may be empty initially) |
-| `emails`       | STRING_LIST | yes       | list of email addresses                       |
-| `phoneNumbers` | STRING_LIST | yes       | list of phone numbers                         |
-
-### Deferred record types (v1 out-of-scope)
-
-- **`HostMessage`** — queried in every capture, but **never written**. The
-  "Message to guests" the user enters in the web UI flows through
-  `EventDetails.notes`. `HostMessage` is likely an iOS-only or legacy feature.
-- **`EventLimits`** — same pattern: queried, never written. Probably server-set
-  for quota tracking.
-
-Both record types should be queryable in v1 (cheap to expose, returns empty
-record sets in our captures) but the domain model doesn't need first-class
-support.
+`HostMessage` and `EventLimits` appeared in historical browser queries without
+observed writes. They have no dedicated public service methods or domain models;
+the raw query interface remains available for investigation.
 
 ## Encoded field codecs
 
-Five `EventDetails` fields and three `cloudkit.share` fields are typed as
-`BYTES` (or `ENCRYPTED_BYTES`) but their value is **base64-encoded JSON**. They
-appear "encrypted" only at the CloudKit protocol layer — authenticated sessions
-receive them with the inner JSON decryptable client-side. Schemas (all keys
-optional unless noted):
+[`codecs.py`](../../pyicloud/services/invites/codecs.py) handles JSON encoded in
+byte fields returned after CloudKit decryption. The historical inner shapes are:
 
-**`time`**
+| Field          | JSON keys                                                                         |
+| -------------- | --------------------------------------------------------------------------------- |
+| `time`         | `startSince1970`, `endSince1970` (milliseconds), `isAllDay`, `isOpenEnded`        |
+| `place`        | `latitude`, `longitude`, `title`, `subtitle`, `city`, `timeZoneIdentifier`, `url` |
+| `background`   | `kind`, `visibility`, optional `image.cropRect`                                   |
+| `style`        | `titleFont`                                                                       |
+| `integrations` | `version`, `data` entries with widget `type`                                      |
 
-```python
-{
-    "startSince1970": int,  # ms since epoch (required)
-    "endSince1970": int,  # ms since epoch
-    "isAllDay": bool,
-    "isOpenEnded": bool,
-}
+A place can contain only a city and time zone. Observed integration types include
+`com.apple.widget.weather`, `.location`, `.photos`, `.music`, and `.link.placeholder`.
+These observations are not a complete schema for future owner writes. Encoding
+inner JSON alone does not implement PCS encryption.
+
+## Implemented owner write: cancellation
+
+`cancel(event, cancelled=True)` and `cancel(event, cancelled=False)` cancel and
+reinstate an event. #355 reports live verification of both directions against a
+disposable event with no guests, including the guest-visible share state.
+
+The caller supplies an `Event` with a current `record_change_tag`, from `event()`
+or a previous write. Missing tags are rejected locally; Apple rejects stale tags.
+The returned event carries the updated tag, allowing another write to be chained.
+
+### Entitlement gateway and hint
+
+The gateway is outside the CloudKit container and is not advertised in the login
+`webservices` map. Its base URL is explicitly defined in
+[`entitlement.py`](../../pyicloud/services/invites/entitlement.py):
+
+```text
+GET https://gatewayws.icloud.com/acsegateway/v4/accounts/{dsid}/subscriptions/features
+x-apple-softwarecapabilityflags: apps.rsvp.create-event
 ```
 
-**`place`**
+The client passes its base query parameters, including the account DSID. The
+response is a list of grants matched by `featureKey`, containing `canUse`,
+`accessToken`, and `cacheTill`. The service caches the grant until 60 seconds
+before expiry; a missing expiry makes it unsuitable for reuse. If the capability
+is unavailable or no token is supplied, it raises `InvitesEntitlementError`
+before sending the event modify.
 
-```python
-{
-    "latitude": float,
-    "longitude": float,
-    "title": str,
-    "subtitle": str,
-    "city": str,
-    "timeZoneIdentifier": str,  # IANA tz, e.g. "Europe/London"
-    "url": str,  # https://maps.apple.com/...
-}
+Cancellation includes an unencrypted STRING `hint` containing:
+
+```json
+{ "subscriptionAccessToken": "<entitlement-token>" }
 ```
 
-A "timezone-only" form (just `city` + `timeZoneIdentifier`) is valid for events
-without a physical location.
-
-**`background`**
-
-```python
-{
-    "kind": str,  # "image" observed
-    "visibility": int,  # 1 observed
-    "image": {"cropRect": [x, y, w, h]},  # if kind == "image"
-}
-```
-
-**`style`**
-
-```python
-{"titleFont": int}
-```
-
-**`integrations`**
-
-```python
-{
-    "version": "1",
-    "data": [{"type": str}, ...],
-}
-```
-
-Observed widget types: `com.apple.widget.weather`, `.location`, `.photos`,
-`.music`, `.link.placeholder`.
-
-## Lifecycle states & the dual-write pattern
-
-Three boolean flags govern visibility/state. Each lives on **both**
-`EventDetails` (encrypted, owner-private) and `cloudkit.share` (plain,
-guest-visible). They must be updated **atomically in one `records/modify`
-request** containing both operations:
-
-| Flag          | Effect                                                              |
-| ------------- | ------------------------------------------------------------------- |
-| `isPublished` | 1 = event is publishable; guests resolving the shortGUID can see it |
-| `isPrivate`   | 1 = no public shortGUID resolution                                  |
-| `isCancelled` | 1 = event soft-cancelled (still readable, marked as such)           |
-
-Wire shape (example: `event.cancel()`):
-
-```jsonc
-{
-  "atomic": true,
-  "zoneID": {"ownerRecordName": "_<owner>", "zoneName": "<uuid>",
-             "zoneType": "REGULAR_CUSTOM_ZONE"},
-  "operations": [
-    {"operationType": "update", "record": {
-      "recordType": "EventDetails", "recordName": "EventDetails:<uuid>",
-      "recordChangeTag": "<latest>",
-      "fields": {"isCancelled": {"value": 1, "type": "NUMBER_INT64"}, ...}
-    }},
-    {"operationType": "update", "record": {
-      "recordType": "cloudkit.share", "recordName": "cloudkit.zoneshare",
-      "recordChangeTag": "<latest>",
-      "fields": {"isCancelled": {"value": 1, "type": "NUMBER_INT64"}}
-    }}
-  ]
-}
-```
-
-`blockNewRSVPs` lives only on `EventDetails` and is a single-write flag (no
-mirror on share).
-
-## Share URL format
-
-```
-https://www.icloud.com/invites/<shortGUID>
-```
-
-The `shortGUID` is the value at `cloudkit.share.stableUrl.shortGUID` (also
-returned at top level of `records/resolve` and `records/accept` responses).
-The `routingKey` ("008" in our captures) is metadata, not part of the
-displayed URL.
-
-## Operations reference (wire-level)
-
-All paths are relative to
-`https://p51-ckdatabasews.icloud.com/database/1/com.apple.icloud.events/production`.
-The scope segment (`private`/`shared`/`public`) is per request.
-
-| Operation                                                     | Method | Path                                         | Database    | Triggered by                               |
-| ------------------------------------------------------------- | ------ | -------------------------------------------- | ----------- | ------------------------------------------ |
-| List zones                                                    | GET    | `/private/zones/list`                        | private     | owner browsing                             |
-| List shared zones                                             | GET    | `/shared/zones/list`                         | shared      | guest browsing                             |
-| Create event zone                                             | POST   | `/private/zones/modify`                      | private     | `create_event` step 1                      |
-| Query EventDetails (all events)                               | POST   | `/private/records/query` (`zoneWide: true`)  | private     | `events()`                                 |
-| Lookup EventDetails by zone                                   | POST   | `/private/records/lookup`                    | private     | `event(id)` refresh                        |
-| Modify EventDetails                                           | POST   | `/private/records/modify`                    | private     | `update`, `publish`, `cancel` (dual-write) |
-| Modify cloudkit.share                                         | POST   | `/private/records/modify`                    | private     | share/participant changes                  |
-| Query RSVP / HostMessage / EventLimits / OneTimeLinkGuestInfo | POST   | `/private/records/query`                     | private     | event detail load                          |
-| Modify RSVP                                                   | POST   | `/private/records/modify` (or `/shared/...`) | guest scope | `rsvp()`                                   |
-| Modify OneTimeLinkGuestInfo + share                           | POST   | `/private/records/modify`                    | private     | `invite_via_link`                          |
-| Resolve share                                                 | POST   | `/public/records/resolve`                    | public      | guest preview                              |
-| Accept share                                                  | POST   | `/public/records/accept`                     | public      | guest join                                 |
-| Changes/zone                                                  | POST   | `/private/changes/zone`                      | private     | sync deltas                                |
-
-Resolve/accept request shape (identical):
-
-```jsonc
-{ "shortGUIDs": [{ "value": "<shortGUID>" }] }
-```
-
-## Service shape (mirrors codebase conventions)
-
-### `InvitesService` constructor
-
-Same pattern as [`NotesService`](../../pyicloud/services/notes/service.py) and
-[`RemindersService`](../../pyicloud/services/reminders/service.py): extend
-[`BaseService`](../../pyicloud/services/base.py), declare container/env/scope
-class constants, build endpoint URL, set baseline params, instantiate the
-wire client.
-
-```python
-class InvitesService(BaseService):
-    _CONTAINER = "com.apple.icloud.events"
-    _ENV = "production"
-
-    def __init__(
-        self,
-        service_root: str,
-        session,
-        params: Dict[str, str],
-        *,
-        cloudkit_validation_extra: CloudKitExtraMode | None = None,
-    ):
-        super().__init__(service_root=service_root, session=session, params=params)
-        base = f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}"
-        base_params = {
-            "remapEnums": True,
-            "getCurrentSyncToken": True,
-            **(params or {}),
-        }
-        # Three sub-clients, one per CK scope — see "Three-scope client" below.
-        self._raw = CloudKitInvitesClient(
-            base,
-            session,
-            base_params,
-            validation_extra=cloudkit_validation_extra,
-        )
-```
-
-### Multi-scope architecture (Invites-specific)
-
-Existing services use a single CK scope (always `private`), so their wire
-client has the scope baked into the endpoint URL. Invites is the first
-service that has to talk to multiple scopes — but the three scopes are
-**not symmetric**:
-
-| Scope     | Shape                                | Operations                                                                                     |
-| --------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `private` | records-in-zones (owner perspective) | query, lookup, modify, changes, zones/modify                                                   |
-| `shared`  | records-in-zones (guest perspective) | **same shape as private**, different DB view                                                   |
-| `public`  | shortGUID-keyed share resolution     | `records/resolve`, `records/accept` — **structurally different**, takes shortGUIDs not zoneIDs |
-
-So it's really _one_ records-in-zones API (private + shared) plus _one_
-share-resolution helper (public). Treating all three symmetrically obscures
-that and creates downstream complications.
-
-#### Approach shipped in Phase 1: two sub-clients + Invites-local public helper
-
-The Phase 1 PR took a narrower variant of the scope-per-call idea above to
-keep the common-client surface area minimal:
-
-1. [`CloudKitInvitesClient`](../../pyicloud/services/invites/client.py)
-   holds **two** [`CloudKitContainerClient`](../../pyicloud/common/cloudkit/client.py)
-   sub-clients: one with the URL ending in `/private` and one in `/shared`.
-   Service methods pick between them via a `scope` literal.
-2. `records/resolve` and `records/accept` (public scope) are issued through
-   a small dedicated `_post_public(path, payload)` helper inside
-   `CloudKitInvitesClient`, mirroring the common HTTP wrapper's
-   auth / rate-limit / error semantics. There is no third sub-client —
-   those endpoints don't fit the records-in-zones abstraction the common
-   client is built around (they take shortGUIDs, not zoneIDs).
-3. The only common-client change made in Phase 1 was a backward-compatible
-   addition to `CloudKitContainerClient.query()`: optional `zone_wide: bool`
-   parameter (with `zoneID` becoming `Optional`), required for the
-   `EventDetails` zone-wide query in `events()`. Notes / Reminders / Photos
-   callers are unaffected — they pass neither parameter and behavior is
-   preserved.
-
-```python
-class CloudKitInvitesClient:
-    def __init__(self, env_base_url, session, base_params, *, validation_extra=None):
-        # env_base_url = .../database/1/com.apple.icloud.events/production
-        common_kwargs = dict(
-            session=session, base_params=base_params,
-            validation_extra=validation_extra,
-            bool_param_style="lower", redact_urls=True,
-        )
-        self._private = CloudKitContainerClient(f"{env_base_url}/private", **common_kwargs)
-        self._shared = CloudKitContainerClient(f"{env_base_url}/shared", **common_kwargs)
-        self._public_base = f"{env_base_url}/public"
-        # ...
-
-    def query(self, scope, *, query, zone_id=None, zone_wide=False, ...):
-        return self._client_for(scope).query(
-            query=query, zone_id=zone_id, zone_wide=zone_wide, ...
-        )
-
-    def resolve(self, short_guids):
-        return self._post_public("/records/resolve",
-                                  {"shortGUIDs": [{"value": g} for g in short_guids]})
-
-    def accept(self, short_guids):
-        return self._post_public("/records/accept",
-                                  {"shortGUIDs": [{"value": g} for g in short_guids]})
-```
-
-#### Alternatives considered
-
-**A. Three symmetric sub-clients.** Construct three `CloudKitContainerClient`
-instances (one per scope, including a `public` one). Rejected because it
-triplicates configuration state (validation, timeouts, debug hook, rate-limit
-policy) — a config-drift bug magnet — and forces resolve/accept into the
-records/zones abstraction they don't fit.
-
-**B. Scope-per-call on the common client.** Add a `scope=` parameter to every
-`CloudKitContainerClient` method and use a single client. Cleaner long-term
-and originally proposed here, but deferred to a follow-up PR to keep the
-Phase 1 common-client change minimal (just `zone_wide`).
-
-**C. Hand-write HTTP for non-private calls.** Bypass the typed client for
-shared/public. Rejected because it re-implements validation, retry, debug
-hook, and URL redaction for half the operations and loses Pydantic-validated
-responses.
-
-**D. Two sub-clients + a small public helper** (chosen for Phase 1, above).
-
-#### Downstream complications (still apply to chosen approach)
-
-Multi-scope visibility is a domain requirement regardless of client
-architecture. These must still be handled:
-
-1. **`Event` carries a `scope` field** (`PRIVATE` or `SHARED`) set at parse
-   time from the originating query. Mutation operations dispatch via it.
-2. **`events()` queries both scopes and merges.** Sequential in v1; can be
-   parallelized later. Deduplicate by `(scope, event_id)` defensively.
-3. **Sync cursors are per-scope** — represent as a `(private_token,
-shared_token)` tuple, not a single string. Don't collapse them into one
-   key.
-4. **API takes Event objects, not raw IDs**, for any operation where scope
-   matters (mirrors Reminders' `update(reminder)` / `delete(reminder)`
-   pattern). String-ID overloads can be added later via a single-event
-   lookup helper.
-5. **RSVP scope dispatch** — guest mutating own RSVP uses `shared`; owner
-   mutating own RSVP uses `private`. The service decides by checking the
-   current user's `userRecordName` against the event's owner.
-
-#### Migration path
-
-The shipped Phase 1 design (two sub-clients + a public helper) leaves three
-forward paths open without breaking callers:
-
-- **Promote `scope=` to the common client (option B above).** Collapse the
-  two sub-clients into a single `CloudKitContainerClient` and pass `scope=`
-  per call. Mechanical refactor on the Invites side; existing Notes /
-  Reminders / Photos services unaffected by the default.
-- **Add a third sub-client for `public`.** Only worth it if a future feature
-  needs to issue more than two endpoints against `public`.
-- **Stay put.** The current composition is small enough that, if no other
-  service needs multi-scope, leaving it as-is is reasonable.
-
-The reverse asymmetry of choice A (three sub-clients) — config-drift bugs
-and rewriting every call site — is why we didn't start there.
-
-#### Open questions to resolve in implementation
-
-- **Public endpoints with auth**: confirm `public/records/resolve` requires
-  the same X-Apple-\* / cookie auth as private. Almost certainly yes
-  ("public DB" ≠ "public access"), but verify before deploying.
-- **Rate limits**: per-account or per-scope? If per-scope, the rate-limit
-  handler may need scope context when computing back-off.
-- **Same event in two scopes**: can a user be both owner and guest of the
-  same event? Probably impossible at the protocol level, but the merge in
-  `events()` should deduplicate defensively.
-
-### Error hierarchy
-
-Same shape as Notes / Reminders:
-
-```python
-class InvitesError(Exception):
-    pass
-
-
-class InvitesAuthError(InvitesError):
-    pass  # 401/403 (cookies/PCS)
-
-
-class InvitesRateLimited(InvitesError):  # 429
-    retry_after: Optional[float]
-
-
-class InvitesApiError(InvitesError):  # catch-all
-    payload: Optional[object]
-```
-
-The wire client catches `CloudKitApiError` / `CloudKitAuthError` /
-`CloudKitRateLimited` and re-raises as the Invites variant via a private
-`_raise_invites_error` translator. See
-[`CloudKitNotesClient._raise_notes_error`](../../pyicloud/services/notes/client.py)
-for the precise pattern.
-
-### Validation and debug env vars
-
-Following the per-service env-var convention seen in
-[`notes/models/_ck_base.py`](../../pyicloud/services/notes/models/_ck_base.py):
-
-| Variable                                       | Effect                                                                                                |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `PYICLOUD_INVITES_EXTRA=allow\|forbid\|ignore` | Override Pydantic `extra=` strictness on raw CK models. Falls back to `PYICLOUD_EXTRA`, then `forbid` |
-| `PYICLOUD_INVITES_DEBUG=1`                     | Dump every HTTP request/response as JSON under `workspace/invites_debug/`                             |
-| `PYICLOUD_DEBUG_MAX_BYTES`                     | Truncate large response bodies in the debug dump                                                      |
-
-The debug dump is invaluable when reverse-engineering further Apple-side
-behavior; Notes uses the same mechanism.
-
-### `PyiCloudService` integration
-
-Add to [pyicloud/base.py](../../pyicloud/base.py) following the pattern at
-lines 1395-1413:
-
-```python
-# in __init__
-self._invites: Optional[InvitesService] = None
-
-
-# new property
-@property
-def invites(self) -> InvitesService:
-    """Gets the 'Invites' service."""
-    if not self._invites:
-        try:
-            service_root = self.get_webservice_url("ckdatabasews")
-            self._invites = InvitesService(
-                service_root=service_root,
-                session=self.session,
-                params=self.params,
-                cloudkit_validation_extra=self._cloudkit_validation_extra,
-            )
-        except (
-            PyiCloudAPIResponseException,
-            PyiCloudServiceNotActivatedException,
-        ) as error:
-            raise PyiCloudServiceUnavailable("Invites service not available") from error
-    return self._invites
-```
-
-The `ckdatabasews` webservice URL is shared with Notes / Reminders / Photos —
-no new endpoint discovery required.
-
-## Domain model
-
-Domain types use [`pyicloud.common.models.FrozenServiceModel`][fsm] (Pydantic
-`BaseModel` with `frozen=True`, `extra="forbid"`), matching the existing
-Notes and Reminders services. This gives us validation at construction,
-field aliasing from camelCase wire data, discriminated unions, and early
-detection of Apple-side schema drift.
-
-[fsm]: ../../pyicloud/common/models.py
-
-```python
-from datetime import datetime
-from enum import IntEnum, StrEnum
-from typing import Optional
-
-from pydantic import Field
-
-from pyicloud.common.models import FrozenServiceModel
-
-
-class RsvpStatus(IntEnum):
-    NO_RESPONSE = 0
-    NOT_GOING = 1
-    MAYBE = 2
-    GOING = 3
-
-
-class ParticipantType(StrEnum):
-    OWNER = "OWNER"
-    PUBLIC_USER = "PUBLIC_USER"  # joined via shortGUID
-    USER = "USER"  # invited via OneTimeLink
-
-
-class AcceptanceStatus(StrEnum):
-    ACCEPTED = "ACCEPTED"
-    INVITED = "INVITED"
-    REMOVED = "REMOVED"
-
-
-class EventScope(StrEnum):
-    """Which CK database scope the event lives in for the current user."""
-
-    PRIVATE = "private"  # user is the owner
-    SHARED = "shared"  # user is an accepted guest
-
-
-class EventTime(FrozenServiceModel):
-    start: datetime  # required
-    end: Optional[datetime] = None
-    is_all_day: bool = False
-    is_open_ended: bool = False
-
-
-class EventPlace(FrozenServiceModel):
-    title: Optional[str] = None
-    subtitle: Optional[str] = None
-    city: Optional[str] = None
-    time_zone_identifier: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    url: Optional[str] = None
-
-
-class Participant(FrozenServiceModel):
-    participant_id: str
-    user_record_name: Optional[str] = None
-    given_name: Optional[str] = None
-    family_name: Optional[str] = None
-    email: Optional[str] = None
-    type: ParticipantType
-    acceptance_status: AcceptanceStatus
-    permission: str
-
-
-class OneTimeLinkGuest(FrozenServiceModel):
-    record_name: str  # "<participantId>_otl"
-    participant_id: str
-    name: str = ""
-    emails: tuple[str, ...] = ()
-    phone_numbers: tuple[str, ...] = ()
-
-
-class EventShare(FrozenServiceModel):
-    short_guid: str
-    public_permission: str
-    participants: tuple[Participant, ...] = ()
-    one_time_links: tuple[OneTimeLinkGuest, ...] = ()
-
-    @property
-    def url(self) -> str:
-        return f"https://www.icloud.com/invites/{self.short_guid}"
-
-
-class Rsvp(FrozenServiceModel):
-    record_name: str
-    participant_id: str
-    name: str
-    status: RsvpStatus
-    message: Optional[str] = None
-    num_additional_adults: int = 0
-    num_additional_kids: int = 0
-    image_download_url: Optional[str] = None
-    record_change_tag: str
-
-
-class Event(FrozenServiceModel):
-    event_id: str  # zoneName / UUID
-    scope: EventScope  # which CK DB this event lives in for current user
-    record_change_tag: str  # for optimistic concurrency
-    title: str
-    notes: str = ""
-    is_published: bool = False
-    is_private: bool = False
-    is_cancelled: bool = False
-    block_new_rsvps: bool = False
-    max_attendees: Optional[int] = None
-    max_additional_guests_per_rsvp: int = 0
-    time: EventTime
-    place: Optional[EventPlace] = None
-    background: dict = Field(default_factory=dict)  # opaque pass-through (v1)
-    style: dict = Field(default_factory=dict)  # opaque pass-through (v1)
-    integrations: tuple[str, ...] = ()  # widget type strings
-    created_timestamp: datetime
-    modified_timestamp: datetime
-    share: EventShare
-    rsvps: tuple[Rsvp, ...] = ()
-```
-
-Wire-side parsing models in `models/` use the same Pydantic base classes but
-mirror the raw CK record/field shape (`{"value": ..., "type": "STRING", ...}`),
-with `Field(alias="camelCaseName")` where Apple uses camelCase. Domain models
-above are built from wire models via a thin mapping layer in `client.py`,
-keeping parse concerns separate from the public-facing types.
-
-## `InvitesService` API
-
-Service-centric, mirroring the Notes / Reminders convention. Most operations
-live on the service rather than on DTO methods, keeping DTOs simple and
-frozen. We can add fluent variants (e.g. `event.publish()`) later if usage
-patterns call for them, following the `attachment.save_to(service=...)`
-pattern from Notes if/when added.
-
-```python
-service.invites                                          # InvitesService
-
-# --- Read (owner + accepted guest) ---
-service.invites.events() -> Iterable[Event]
-service.invites.event(event_id_or_short_guid: str) -> Event
-service.invites.rsvps(event_id: str) -> Iterable[Rsvp]
-
-# --- Guest flow ---
-service.invites.resolve(short_guid: str) -> ResolvedShare   # preview without joining
-service.invites.accept(short_guid: str) -> Event            # join, return joined event
-
-# --- RSVP (works for any participant) ---
-service.invites.rsvp(
-    event_id: str,
-    status: RsvpStatus,
-    *,
-    name: Optional[str] = None,
-    message: Optional[str] = None,
-    plus_one_adults: int = 0,
-    plus_one_kids: int = 0,
-) -> Rsvp
-
-# --- Owner writes ---
-service.invites.create_event(
-    title: str,
-    time: EventTime,
-    *,
-    place: Optional[EventPlace] = None,
-    notes: str = "",
-    max_attendees: Optional[int] = None,
-    max_additional_guests_per_rsvp: int = 0,
-    is_private: bool = False,
-) -> Event
-
-service.invites.update(event_id: str, **fields) -> Event    # batched partial update
-service.invites.publish(event_id: str) -> Event             # atomic dual-write isPublished=1
-service.invites.cancel(event_id: str) -> Event              # atomic dual-write isCancelled=1
-service.invites.set_block_new_rsvps(event_id: str, blocked: bool) -> Event
-service.invites.invite_via_link(
-    event_id: str,
-    *,
-    emails: Sequence[str] = (),
-    phone_numbers: Sequence[str] = (),
-    name: str = "",
-) -> OneTimeLinkGuest                                       # atomic OTL + share update
-```
-
-## Module layout
-
-Mirrors Notes' established layout (see [pyicloud/services/notes/](../../pyicloud/services/notes/)).
-The leading underscore on module names marks internal helpers (per
-[reminders/](../../pyicloud/services/reminders/) convention).
-
-```
-pyicloud/services/invites/
-  __init__.py          # public re-exports (InvitesService, Event, Rsvp, EventShare, ...)
-  _constants.py        # container ID, env, scope strings; record-type names; share record name
-  client.py            # CloudKit wire layer; service-specific error hierarchy; resolve/accept helpers
-  service.py           # InvitesService(BaseService) — public entry point
-  codecs.py            # base64-JSON codecs for time/place/background/style/integrations
-  models/
-    __init__.py        # re-exports of dto types
-    constants.py       # CK record-type enums, desired-key enums (mirrors notes/models/constants.py)
-    dto.py             # user-facing FrozenServiceModel DTOs (Event, Rsvp, Participant, ...)
-    _ck_base.py        # optional: env-driven `extra=` mode for raw CK wire models
-```
-
-`domain.py` is omitted — all our types are user-facing, with no encoded
-intermediates analogous to Notes' `AttachmentId` / `NoteBody`. If codec
-intermediates emerge during implementation, add `domain.py` then.
-
-`_reads.py` / `_writes.py` (the Reminders split) is **not** introduced in v1.
-Notes runs a 973-line monolithic `service.py` without that split; we'll
-follow the same pattern until method count or LOC make a refactor worthwhile.
-
-### Where the wire-model `CKRecord`-style classes live
-
-Apple's CloudKit JSON shape (`{"value": ..., "type": "STRING", ...}`) is
-already modeled centrally in [pyicloud/common/cloudkit/models.py](../../pyicloud/common/cloudkit/models.py).
-Invites should reuse those base shapes and add only the Invites-specific
-record-type names and field-key enums in `models/constants.py` —
-matching what [notes/models/constants.py](../../pyicloud/services/notes/models/constants.py)
-does for `NotesRecordType` / `NotesDesiredKey`.
-
-## Implementation phases
-
-### Phase 1 — Read-only MVP
-
-- Module scaffold per the layout above (`__init__.py`, `_constants.py`,
-  `client.py`, `service.py`, `codecs.py`, `models/` with `dto.py` +
-  `constants.py`).
-- Extend [`CloudKitContainerClient`](../../pyicloud/common/cloudkit/client.py)
-  with `scope=` parameter on query/lookup/modify/changes (default
-  `"private"` so existing services need no changes). Add `zones_modify(...)`.
-- `CloudKitInvitesClient` wrapping one `CloudKitContainerClient`, plus
-  service-local `resolve(short_guids)` / `accept(short_guids)` methods, plus
-  the service-specific error hierarchy.
-- `InvitesService(BaseService)` constructor + `events()` (merges private +
-  shared) + `event(...)` + `rsvps(event)`.
-- Codec functions for the five base64-JSON fields (`time`, `place`,
-  `background`, `style`, `integrations`).
-- DTOs (`Event`, `EventTime`, `EventPlace`, `EventShare`, `Participant`,
-  `OneTimeLinkGuest`, `Rsvp`) as `FrozenServiceModel` subclasses.
-- `PyiCloudService.invites` lazy property wired in [pyicloud/base.py](../../pyicloud/base.py).
-- Synthetic test fixtures under `tests/fixtures/invites/` (sanitized from
-  the HAR captures) + a `tests/services/test_invites.py` with mocked-client
-  tests covering codecs, query parsing, and the lazy-property wiring.
-
-**Exit criteria**: a live integration smoke (`pyicloud.invites.events()`)
-lists existing events with their share URLs, participants, and RSVPs against
-a real iCloud account.
-
-### Phase 2 — RSVP write
-
-- `event.rsvp(status, ...)` via `records/modify` (update existing RSVP record).
-- Handle `recordChangeTag` correctly.
-
-**Exit criteria**: can change one's own RSVP from a script.
-
-### Phase 3 — Guest flow
-
-- `resolve(short_guid)` and `accept(short_guid)` against the `public/` scope.
-- Returns enough to populate an `Event` after accept.
-
-**Exit criteria**: a second iCloud account can use the API to accept a share
-link and submit an RSVP.
-
-### Phase 4 — Owner writes
-
-- `create_event` (`zones/modify` + `records/modify` EventDetails + create
-  `cloudkit.share`).
-- `event.update(**fields)`.
-- `event.publish()` / `event.cancel()` (atomic dual-write).
-- `event.set_block_new_rsvps()`.
-
-**Exit criteria**: full event lifecycle from Python.
-
-### Phase 5 — OneTimeLink
-
-- `invite_via_link(emails=, phone_numbers=)` (atomic OTL create + share
-  participant update).
-- Mutability of the OTL `name` field.
-
-## Open questions
-
-1. **`hint` field on writes**: every web-UI update includes a `hint` blob with
-   a JWT `subscriptionAccessToken`. Is the server strict about its presence?
-   Initial plan is to omit it; if the server rejects writes, fall back to
-   fetching the token from a prior read or accepting that pyicloud writes don't
-   trigger push notifications (likely fine — pyicloud is server-side).
-
-2. **`recordChangeTag` strategy**: fetch-before-write (simpler, 2 round trips)
-   vs cache-and-retry-on-conflict (efficient, more code). Recommend fetch-
-   before-write for v1, optimize later if anyone complains.
-
-3. **Anonymous accept**: in the capture, the guest who accepted a one-time link
-   was still signed into iCloud. We never observed an unauthenticated guest
-   completing an accept. Likely iCloud Invites requires login; if so,
-   pyicloud's role is purely owner + authenticated-guest, and the OTL is just a
-   distribution-channel convenience.
-
-4. **`status: 0` mapping**: `NO_RESPONSE = 0` is inferred (we never observed
-   that wire value). A fresh-accepted RSVP without explicit user input may have
-   value 0; needs verification in implementation tests.
-
-5. **Asset upload for RSVP avatars**: out of scope for v1 reads. Writing avatar
-   assets later means integrating with `assets/upload` (we have entry samples
-   but haven't unpacked the protocol). Note: a generic `assets/upload` flow is
-   now implemented in `CloudKitContainerClient.upload_asset()` (used by the
-   Reminders service for Urgent alarms, see `timlaing/pyicloud#419`), so the
-   token-request and content-upload halves are available; the RSVP avatar
-   field wiring is what remains.
-
-## Out of scope (v1)
-
-- `HostMessage` writes (no observed usage).
-- `EventLimits` writes (no observed usage).
-- Push notification subscriptions (`subscriptions/modify`).
-- Asset uploads (RSVP avatars, event background images).
-- PCS / E2E key wrapping (CloudKit handles the standard share flow; we
-  pass-through PCS blobs but don't construct them).
-- Truly anonymous (no iCloud auth) guest accept.
-- CLI integration — defer until the service is stable.
-
-## Testing strategy
-
-Mirror the Notes / Reminders pattern:
-
-- **Synthetic CloudKit fixtures** in `tests/fixtures/invites/`, derived from the
-  two HAR captures and sanitized (no real `userRecordName` or tokens).
-- **Unit tests** for codecs (round-trip every JSON shape we've observed).
-- **Mocked-client tests** for `InvitesService` against the fixtures.
-- **Manual smoke** for live writes (`create_event`, `publish`, `cancel`,
-  `invite_via_link`) — gated behind an environment variable like
-  `PYICLOUD_INVITES_LIVE=1`, since live tests mutate the user's iCloud account.
-
-## References
-
-- HAR captures (local, not committed):
-  - `workspace/p51-ckdatabasews.icloud.com_05-15-2026-22-05-56.har` — owner browse
-  - `workspace/ckdatabasews.icloud.com_05-15-2026-22-21-27.har` — invite + accept
-  - `workspace/cvws.icloud-content.com_05-16-2026-02-06-00.har` — RSVP status enum
-  - `workspace/p51-ckdatabasews.icloud.com_05-16-2026-02-15-34.har` — full lifecycle
-- Existing CloudKit service patterns:
-  - `pyicloud/services/notes/` — closest structural analog
-  - `pyicloud/services/reminders/`
-  - `pyicloud/common/cloudkit/` — shared container client
+Without the token, the investigated EventDetails writes returned opaque
+`502 INTERNAL_ERROR` responses. Historical browser hints also contain `bundleId`,
+`updatedFields`, `shortGUIDLink`, or `timeZone`. The shipped cancellation path
+uses the token-only form; requirements for other operations must be verified
+instead of guessing values such as `IS_CANCELLED` or `IS_PUBLISHED`.
+
+### Event and share consistency
+
+The writer updates EventDetails and, when its current change tag can be read,
+the share's `isCancelled` copy in one `atomic=True` modify. Both use unencrypted
+`INT64` values. The share does not automatically follow an event-only update.
+
+There is an intentional fallback: when the share cannot be read or has no usable
+tag, the implementation sends only the EventDetails update. Atomic dual-write
+consistency therefore applies when both operations are available, not as an
+unconditional guarantee. A returned write result is not a fully rehydrated event.
+
+### Publishing limitation
+
+The later #355 investigation reports `BAD_REQUEST` with
+`expected type ENCRYPTED_NUMBER_INT64` for attempted plain `isPublished` writes.
+Writing only the share's plain copy succeeds without updating EventDetails.
+The entitlement token solves authorization for supported writes, but the library's
+publication path remains unresolved. `isPrivate` and `title` are also identified
+as PCS-protected in that investigation.
+
+There is an important qualification in the original browser evidence. The May 15
+capture (entry 33) and May 16 lifecycle capture (entry 25) both show successful
+atomic publication requests using `server_crypto=true` in the query string,
+`NUMBER_INT64` with numeric `value: 1` and `isEncrypted: true` on EventDetails,
+and a plain `NUMBER_INT64` copy on the share. Both response records report the
+published state without per-record errors. Their hints include the entitlement
+token, `shortGUIDLink`, `bundleId`, `reminderTime`, `rsvpReminderTimes`, and
+`timeZone`.
+
+These captures do not show a client-generated ciphertext for `isPublished`.
+Therefore the failed pyicloud attempts alone do not establish that implementing
+client-side encryption is necessary. Compare the full request, serialization,
+query parameters, hint, and session setup before deciding the missing primitive
+in #432. The historical success does not prove the same request still works
+today; a fresh capture may be needed after that comparison.
+
+## Current architecture and API
+
+- [`PyiCloudService.invites`](../../pyicloud/base.py) lazily constructs the service
+  using the discovered `ckdatabasews` endpoint.
+- [`CloudKitInvitesClient`](../../pyicloud/services/invites/client.py) composes
+  private and shared `CloudKitContainerClient` instances. Public resolve/accept
+  calls use an Invites-local helper, and entitlement requests use the gateway.
+- [`InvitesService`](../../pyicloud/services/invites/service.py) maps shared
+  CloudKit wire models into the frozen, typed
+  [domain models](../../pyicloud/services/invites/models/dto.py). Listing results
+  can omit time, share, timestamps, and other unavailable metadata.
+- `InvitesError` derives from `PyiCloudException`. Its service-specific subclasses
+  include `InvitesAuthError`, `InvitesRateLimited`, `InvitesApiError`, and
+  `InvitesEntitlementError`; `EventNotFound` also derives from `InvitesError`.
+- Raw CloudKit validation uses the shared `PYICLOUD_CK_EXTRA` setting (default
+  `allow`) or an explicit validation override. Invites-specific `EXTRA` and
+  request-dump `DEBUG` environment variables from the original proposal are not
+  implemented.
+
+The public service methods are:
+
+| Method                          | Input and result                                             |
+| ------------------------------- | ------------------------------------------------------------ |
+| `events()`                      | Returns `list[Event]`, with event details only               |
+| `event(event_id)`               | Full event lookup by ID, returning `Event`                   |
+| `rsvps(event)`                  | Takes an `Event`; returns `list[Rsvp]`                       |
+| `rsvp_image(rsvp)`              | Takes an `Rsvp`; returns `bytes` or `None`                   |
+| `resolve(short_guid)`           | Returns a `ResolvedShare` preview                            |
+| `accept(short_guid)`            | Accepts a share and returns `Event`; this changes membership |
+| `rsvp(event, status, ...)`      | Creates/updates the current user's response; returns `Rsvp`  |
+| `cancel(event, cancelled=True)` | Cancels or reinstates; returns `Event`                       |
+| `raw`                           | Exposes `CloudKitInvitesClient`                              |
+
+The read-only [CLI group](../../pyicloud/cli/commands/invites.py) exposes
+`icloud invites list`, `show`, `rsvps`, and `resolve`. CLI `show`/`rsvps` accept
+unambiguous event-ID prefixes; the service's `event()` takes the event ID.
+There is no public `create_event()`, `publish()`, `update()`,
+`set_block_new_rsvps()`, or `invite_via_link()` method. Earlier proposed signatures
+must not be used as runnable examples.
+
+## Remaining work and open questions
+
+1. **Event creation (#431):** verify the browser sequence for zone creation,
+   EventDetails creation, and share creation, including encrypted fields and
+   entitlement hints. The common client has no `zones_modify()` helper today.
+2. **Publishing (#432):** establish the encrypted-field write mechanism and atomic
+   event/share update. Verify whether unpublishing is supported before designing
+   a symmetric API. Broader owner edits have the same need for field-specific
+   protocol evidence.
+3. **One-time-link invitations (#433):** verify guest-info creation, participant
+   and protection metadata, link generation, notification behavior, and the
+   required atomic share update. Existing read support is not a writer.
+4. **Other owner controls:** `blockNewRSVPs` has no public setter. Historical notes
+   disagree about whether it is mirrored on the share; confirm that and its hint
+   requirements before implementing a setter.
+5. **Guest flow:** unauthenticated acceptance was not verified in the original
+   captures. The existing service uses an authenticated session. `NO_RESPONSE=0`
+   is still an inferred RSVP state.
+6. **Assets:** RSVP avatar and background-image uploads remain unimplemented in
+   Invites. The shared client now has `upload_asset()` (used for Reminders Urgent
+   alarms in #419), but the Invites field wiring and constraints need verification.
+7. **Other deferred work:** HostMessage/EventLimits writes, push subscriptions,
+   and construction of PCS/key-wrapping metadata have no supported Invites API.
+   A public incremental-sync API and its multi-scope cursor contract are also
+   future design work, not an existing `(private_token, shared_token)` API.
+
+## Testing and capture handling
+
+- The existing [service and codec tests](../../tests/test_invites.py),
+  [additional coverage tests](../../tests/test_cov_invites.py), and CLI tests use
+  synthetic fixtures in [`tests/fixtures/invites/`](../../tests/fixtures/invites/).
+- Test fixture reads go through `tests.fixture_loader.load_fixture`; automated
+  tests do not access live iCloud. Cancellation tests cover event/share writes,
+  the entitlement hint and cache, scope routing, missing tags, and share fallback.
+- Live verification of future writes must use disposable events and controlled
+  guest identities. Record notification behavior and cleanup; do not exercise
+  invitations or cancellation against real guests merely to test a change.
+- Keep raw HAR files, account data, signed URLs, cookies, entitlement tokens, and
+  binary assets local. Promote only minimized synthetic or sanitized fixtures.
+  There is no implemented `PYICLOUD_INVITES_LIVE` test switch; any future live
+  harness must be designed explicitly.
+
+## Historical capture references
+
+These local paths document the original evidence, not tracked test dependencies
+or a guarantee that the files are available in another checkout:
+
+- `workspace/p51-ckdatabasews.icloud.com_05-15-2026-22-05-56.har`: owner browsing.
+- `workspace/ckdatabasews.icloud.com_05-15-2026-22-21-27.har`: invite/accept flow.
+- `workspace/cvws.icloud-content.com_05-16-2026-02-06-00.har`: RSVP status variants.
+- `workspace/p51-ckdatabasews.icloud.com_05-16-2026-02-15-34.har`: event lifecycle and
+  one-time-link behavior.
+
+Current implementation and later validated findings take precedence over the
+original capture-era assumptions. See #341 for the investigation history and
+[#355](https://github.com/timlaing/pyicloud/pull/355) for the shipped owner-write
+scope and its reported live verification.
