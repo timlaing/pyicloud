@@ -30,6 +30,7 @@ from typing import Any, cast
 from urllib.parse import urlparse
 
 from pyicloud.common.cloudkit import (
+    CKErrorItem,
     CKLookupResponse,
     CKModifyOperation,
     CKModifyResponse,
@@ -560,7 +561,10 @@ class InvitesService(BaseService):
         ``strict`` is for publication, which refuses to write without the tag:
         the lookup's own failure then propagates with its message and payload
         instead of degrading to ``None``, so callers can tell a failed read
-        apart from a share that carries no tag.
+        apart from a share that carries no tag. A per-record error item in the
+        lookup answer (anything but ``NOT_FOUND``, which only means the share
+        is absent) is treated the same way in strict mode; ``NOT_FOUND`` is
+        reported by the caller's missing-tag refusal instead.
         """
 
         try:
@@ -569,6 +573,25 @@ class InvitesService(BaseService):
             if strict:
                 raise
             LOGGER.debug("invites.share_change_tag_failed", exc_info=True)
+            return None
+        error = next(
+            (
+                item
+                for item in resp.records
+                if isinstance(item, CKErrorItem) and item.serverErrorCode != "NOT_FOUND"
+            ),
+            None,
+        )
+        if error is not None:
+            message = f"Share lookup failed: {error.serverErrorCode}"
+            if error.reason:
+                message = f"{message} ({error.reason})"
+            if strict:
+                raise InvitesApiError(
+                    message,
+                    payload=error.model_dump(mode="json", exclude_none=True),
+                )
+            LOGGER.debug("invites.share_lookup_error code=%s", error.serverErrorCode)
             return None
         for record in self._records_of(resp):
             if record.recordName == SHARE_RECORD_NAME:

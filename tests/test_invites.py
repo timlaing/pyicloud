@@ -1573,6 +1573,31 @@ class CancelTest(unittest.TestCase):
 
         self.assertIsNone(tag)
 
+    def test_share_change_tag_is_none_on_a_per_record_error(self) -> None:
+        """A per-record lookup error degrades to None rather than raising.
+
+        CloudKit answers lookup failures in-band with HTTP 200; cancellation
+        keeps its event-only fallback instead of losing the write entirely.
+        """
+        lookup = CKLookupResponse.model_validate({
+            "records": [
+                {
+                    "recordName": "cloudkit.zoneshare",
+                    "serverErrorCode": "PERMISSION_DENIED",
+                    "reason": "Not allowed",
+                }
+            ]
+        })
+        self._monkeypatch.setattr(
+            self.service.raw, "lookup", MagicMock(return_value=lookup)
+        )
+
+        tag = self.service._share_change_tag(
+            "private", CKZoneIDReq(zoneName="EVENT-FIXTURE-AAAA")
+        )
+
+        self.assertIsNone(tag)
+
     def test_share_change_tag_propagates_auth_failures(self) -> None:
         """An auth failure reading the share is not hidden by the fallback."""
         self._monkeypatch.setattr(
