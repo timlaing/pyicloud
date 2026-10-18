@@ -37,6 +37,9 @@ from .models import (
     CKZoneIDReq,
     CKZoneListResponse,
     CKZoneListZone,
+    CKZoneModifyOperation,
+    CKZoneModifyRequest,
+    CKZoneModifyResponse,
     KnownCKField,
 )
 
@@ -72,6 +75,9 @@ __all__ = [
     "CKWriteRecord",
     "CKZoneListResponse",
     "CKZoneListZone",
+    "CKZoneModifyOperation",
+    "CKZoneModifyRequest",
+    "CKZoneModifyResponse",
     "CKZoneChangesRequest",
     "CKZoneChangesResponse",
     "CKZoneChangesZone",

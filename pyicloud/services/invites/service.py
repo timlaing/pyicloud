@@ -16,8 +16,7 @@ Write (Phase 2):
   - ``InvitesService.cancel(event, ...)`` -> ``Event``
   - ``InvitesService.invite_via_link(event, ...)`` -> ``OneTimeLinkInvitation``
   - ``InvitesService.publish(event, ...)`` -> ``Event``
-
-Event creation arrives in a later phase per the design doc.
+  - ``InvitesService.create_event(title, time, ...)`` -> ``Event``
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from datetime import datetime, timezone
 import json
 import logging
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -44,6 +43,8 @@ from pyicloud.common.cloudkit import (
     CKZoneChangesZoneReq,
     CKZoneID,
     CKZoneIDReq,
+    CKZoneListZone,
+    CKZoneModifyOperation,
 )
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
 from pyicloud.services.base import BaseService
@@ -56,6 +57,7 @@ from ._constants import (
     RSVP_RECORD_NAME_SUFFIX,
     SHARE_RECORD_NAME,
 )
+from ._creation import creation_fields
 from ._invitations import (
     invitation_contacts,
     invitation_operations,
@@ -65,6 +67,7 @@ from ._invitations import (
 from .client import (
     CloudKitInvitesClient,
     InvitesApiError,
+    InvitesCreationError,
     InvitesEntitlementError,
     InvitesError,
     InvitesInvitationError,
@@ -106,8 +109,8 @@ class InvitesService(BaseService):
 
     Reads cover event listing, single-event lookup, RSVP listing, guest photo
     download (``rsvp_image``), and public share resolution (``resolve`` /
-    ``accept``); writes cover ``rsvp()``, ``cancel()``, ``publish()``, and
-    ``invite_via_link()``.
+    ``accept``); writes cover ``rsvp()``, ``cancel()``, ``publish()``,
+    ``create_event()``, and ``invite_via_link()``.
     """
 
     _CONTAINER = CONTAINER
@@ -324,6 +327,126 @@ class InvitesService(BaseService):
     # ------------------------------------------------------------------
     # Public writes
     # ------------------------------------------------------------------
+
+    def create_event(
+        self,
+        title: str,
+        time: EventTime,
+        *,
+        place: EventPlace | None = None,
+        notes: str = "",
+        max_attendees: int | None = None,
+        max_additional_guests_per_rsvp: int = 0,
+        is_private: bool = False,
+    ) -> Event:
+        """Create an unpublished hosted event with a share, but no guests.
+
+        Dates must be timezone-aware. Entitlement is checked before creating a
+        zone. After a confirmed zone creation, subsequent failures trigger a
+        best-effort deletion of that new zone only. InvitesCreationError retains
+        its ID, cleanup outcome, and the original failure as its cause. An
+        unconfirmed zone creation is not automatically deleted or retried. The
+        created share may not identify the current user as a participant yet;
+        refetch via ``event()`` before ``rsvp()``.
+        """
+        fields, preview = creation_fields(
+            title,
+            time,
+            place=place,
+            notes=notes,
+            max_attendees=max_attendees,
+            max_additional_guests_per_rsvp=max_additional_guests_per_rsvp,
+            is_private=is_private,
+        )
+        fields[EventDetailsField.HINT.value] = {
+            "type": "STRING",
+            "value": json.dumps({"subscriptionAccessToken": self._entitlement_token()}),
+        }
+        event_id = str(uuid4()).upper()
+        zone_id = CKZoneIDReq(zoneName=event_id)
+        zone_created = False
+        try:
+            self._modify_new_zone(event_id, "create")
+            zone_created = True
+            record_name = f"{EVENT_DETAILS_RECORD_NAME_PREFIX}{event_id}"
+            response = self._raw.modify(
+                "private",
+                zone_id=zone_id,
+                atomic=True,
+                operations=[
+                    CKModifyOperation(
+                        operationType="create",
+                        record=CKWriteRecord(
+                            recordName=record_name,
+                            recordType=InvitesRecordType.EventDetails.value,
+                            fields=fields,
+                        ),
+                    )
+                ],
+            )
+            event = self._event_from_modify_response(
+                response, record_name, EventScope.PRIVATE
+            )
+            if not event.record_change_tag:
+                raise InvitesApiError("Created event response has no change tag")
+            share_response = self._raw.modify(
+                "private",
+                zone_id=zone_id,
+                atomic=True,
+                operations=[
+                    CKModifyOperation(
+                        operationType="create",
+                        record=CKWriteRecord.model_validate({
+                            "recordName": SHARE_RECORD_NAME,
+                            "recordType": InvitesRecordType.Share.value,
+                            "fields": preview,
+                            "participants": [],
+                            "requesters": [],
+                            "blocked": [],
+                            "publicPermission": "NONE",
+                            "denyAccessRequests": True,
+                        }),
+                    )
+                ],
+            )
+            for record in self._records_of(share_response):
+                if (
+                    record.recordName == SHARE_RECORD_NAME
+                    and record.recordType == InvitesRecordType.Share.value
+                ):
+                    share = self._share_from_record(record)
+                    if share.short_guid:
+                        return event.model_copy(update={"share": share})
+            raise InvitesApiError("Created share response has no usable shortGUID")
+        except Exception as exc:
+            cleanup: bool | None = None
+            cleanup_error: Exception | None = None
+            if zone_created:
+                try:
+                    self._modify_new_zone(event_id, "delete")
+                    cleanup = True
+                except Exception as cleanup_exc:
+                    cleanup = False
+                    cleanup_error = cleanup_exc
+            raise InvitesCreationError(
+                event_id, cleanup_succeeded=cleanup, cleanup_error=cleanup_error
+            ) from exc
+
+    def _modify_new_zone(
+        self, event_id: str, operation: Literal["create", "delete"]
+    ) -> None:
+        response = self._raw.zones_modify([
+            CKZoneModifyOperation(
+                operationType=operation,
+                zone=CKZoneListZone(zoneID=CKZoneID(zoneName=event_id)),
+            )
+        ])
+        if not any(
+            zone.zoneID.zoneName == event_id
+            and bool(zone.deleted) == (operation == "delete")
+            for zone in response.zones
+        ):
+            raise InvitesApiError("Zone modification was not confirmed")
 
     def invite_via_link(
         self,
@@ -776,7 +899,7 @@ class InvitesService(BaseService):
 
     @staticmethod
     def _records_of(
-        resp: CKQueryResponse | CKLookupResponse,
+        resp: CKQueryResponse | CKLookupResponse | CKModifyResponse,
     ) -> list[CKRecord]:
         return [r for r in resp.records if isinstance(r, CKRecord)]
 
