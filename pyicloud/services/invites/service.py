@@ -345,7 +345,9 @@ class InvitesService(BaseService):
         zone. After a confirmed zone creation, subsequent failures trigger a
         best-effort deletion of that new zone only. InvitesCreationError retains
         its ID, cleanup outcome, and the original failure as its cause. An
-        unconfirmed zone creation is not automatically deleted or retried.
+        unconfirmed zone creation is not automatically deleted or retried. The
+        created share may not identify the current user as a participant yet;
+        refetch via ``event()`` before ``rsvp()``.
         """
         fields, preview = creation_fields(
             title,
@@ -356,7 +358,7 @@ class InvitesService(BaseService):
             max_additional_guests_per_rsvp=max_additional_guests_per_rsvp,
             is_private=is_private,
         )
-        fields["hint"] = {
+        fields[EventDetailsField.HINT.value] = {
             "type": "STRING",
             "value": json.dumps({"subscriptionAccessToken": self._entitlement_token()}),
         }

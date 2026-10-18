@@ -131,17 +131,21 @@ have an end. Optional `max_attendees` must be positive, and
 `max_additional_guests_per_rsvp` must be non-negative. `is_private=True` sets
 the event's private flag. A supplied place time-zone identifier must be a
 valid IANA name. The returned event includes the server-assigned change tag
-and share; use `event()` for a fresh, fully hydrated view.
+and share; call `event()` for a fresh, fully hydrated view before RSVPing,
+because the share returned by creation may not yet identify you as a
+participant.
 
-Creation requires three requests: create a new zone, create EventDetails, then
-create its share. They are not one transaction. If a later step fails,
-pyicloud attempts to delete **only the new zone**. `InvitesCreationError`
-exposes `event_id`, `cleanup_succeeded` (`True`, `False`, or `None` when zone
-creation was not confirmed), and `cleanup_error`; the original failure is
-chained as `__cause__`. If cleanup fails or the creation response is lost,
-inspect that event ID before retrying: an incomplete draft may remain. Calls
-are not automatically retried because that could create duplicate events.
-Input validation and entitlement failures occur before any zone is created.
+Creation takes three CloudKit requests: create a new zone, create
+EventDetails, then create its share. An expired cached entitlement token adds
+one more request before those. They are not one transaction. If a later step
+fails, pyicloud attempts to delete **only the new zone**.
+`InvitesCreationError` exposes `event_id`, `cleanup_succeeded` (`True`,
+`False`, or `None` when zone creation was not confirmed), and `cleanup_error`;
+the original failure is chained as `__cause__`. If cleanup fails or the
+creation response is lost, inspect that event ID before retrying: an
+incomplete draft may remain. Calls are not automatically retried because that
+could create duplicate events. Input validation and entitlement failures
+occur before any zone is created.
 
 ## Cancelling an event you host
 

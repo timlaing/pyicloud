@@ -32,6 +32,7 @@ from tests.fixture_loader import load_fixture
 EVENT_ID = "EVENT-CREATE-FIXTURE"
 START = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
 END = datetime(2030, 1, 1, 13, tzinfo=timezone.utc)
+START_TIME = EventTime(start=START)
 
 
 def _response(payload: Any, status: int = 200) -> MagicMock:
@@ -99,7 +100,8 @@ def test_create_event_sequence(
     assert event.scope is EventScope.PRIVATE
     assert event.record_change_tag == "created-fixture-1"
     assert not event.is_published
-    assert event.share and event.share.short_guid == "fixture-created-share"
+    assert event.share is not None
+    assert event.share.short_guid == "fixture-created-share"
     calls = session.post.call_args_list
     assert len(calls) == 3
     assert calls[0].kwargs["json"] == {
@@ -164,7 +166,8 @@ def test_create_minimal_defaults(service: InvitesService) -> None:
     assert fields["maxAdditionalGuestsPerRSVP"]["value"] == 0
     assert decode_json_bytes(fields["place"]["value"]) == {}
     timing = decode_json_bytes(fields["time"]["value"])
-    assert timing is not None and timing["isOpenEnded"] is True
+    assert timing is not None
+    assert timing["isOpenEnded"] is True
 
 
 @pytest.mark.parametrize(
@@ -185,6 +188,7 @@ def test_create_minimal_defaults(service: InvitesService) -> None:
         {"notes": None},
         {"is_private": 1},
         {"place": {}},
+        {"place": EventPlace(time_zone_identifier="")},
         {"place": EventPlace(time_zone_identifier="not-a-zone")},
         {"place": EventPlace(time_zone_identifier="../invalid")},
     ],
@@ -215,7 +219,7 @@ def test_entitlement_denial_creates_no_zone(
         lambda _: FeatureAccess(feature_key=CREATE_EVENT_FEATURE, can_use=False),
     )
     with pytest.raises(InvitesEntitlementError):
-        service.create_event("Synthetic event", EventTime(start=START))
+        service.create_event("Synthetic event", START_TIME)
     cast(MagicMock, service.session).post.assert_not_called()
 
 
@@ -235,7 +239,7 @@ def test_unconfirmed_zone_is_not_deleted(service: InvitesService, failure: Any) 
     session = cast(MagicMock, service.session)
     session.post.side_effect = [failure]
     with pytest.raises(InvitesCreationError) as caught:
-        service.create_event("Synthetic event", EventTime(start=START))
+        service.create_event("Synthetic event", START_TIME)
     assert caught.value.event_id == EVENT_ID
     assert caught.value.cleanup_succeeded is None
     assert caught.value.cleanup_error is None
@@ -260,7 +264,7 @@ def test_partial_failure_deletes_only_new_zone(
     session = cast(MagicMock, service.session)
     session.post.side_effect = [*_created()[:stage], failure, _deleted()]
     with pytest.raises(InvitesCreationError) as caught:
-        service.create_event("Synthetic event", EventTime(start=START))
+        service.create_event("Synthetic event", START_TIME)
     assert caught.value.cleanup_succeeded is True
     assert caught.value.cleanup_error is None
     assert caught.value.__cause__ is not None
@@ -282,7 +286,7 @@ def test_malformed_success_also_cleans_up(service: InvitesService, stage: int) -
     session = cast(MagicMock, service.session)
     session.post.side_effect = [*responses[: stage + 1], _deleted()]
     with pytest.raises(InvitesCreationError) as caught:
-        service.create_event("Synthetic event", EventTime(start=START))
+        service.create_event("Synthetic event", START_TIME)
     assert caught.value.cleanup_succeeded is True
 
 
@@ -294,7 +298,7 @@ def test_cleanup_failure_retains_original_error(
     session = cast(MagicMock, service.session)
     session.post.side_effect = [_created()[0], _response({}, 401), cleanup]
     with pytest.raises(InvitesCreationError) as caught:
-        service.create_event("Synthetic event", EventTime(start=START))
+        service.create_event("Synthetic event", START_TIME)
     assert caught.value.event_id == EVENT_ID
     assert caught.value.cleanup_succeeded is False
     assert isinstance(caught.value.__cause__, InvitesAuthError)
@@ -313,7 +317,7 @@ def test_unusable_share_response_rolls_back(
     session = cast(MagicMock, service.session)
     session.post.side_effect = [*responses, _deleted()]
     with pytest.raises(InvitesCreationError) as caught:
-        service.create_event("Synthetic event", EventTime(start=START))
+        service.create_event("Synthetic event", START_TIME)
     assert caught.value.cleanup_succeeded is True
 
 
@@ -342,10 +346,9 @@ def test_common_zone_modify_errors(
     session = MagicMock()
     session.post.return_value = _response(payload, status)
     client = CloudKitContainerClient("https://example.test/private", session, {})
+    operation = CKZoneModifyOperation(
+        operationType="create",
+        zone=CKZoneListZone(zoneID=CKZoneID(zoneName=EVENT_ID)),
+    )
     with pytest.raises(error):
-        client.zones_modify([
-            CKZoneModifyOperation(
-                operationType="create",
-                zone=CKZoneListZone(zoneID=CKZoneID(zoneName=EVENT_ID)),
-            )
-        ])
+        client.zones_modify([operation])

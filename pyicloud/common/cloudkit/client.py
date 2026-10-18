@@ -334,12 +334,13 @@ class _CloudKitHTTP:
 
 
 def _raise_for_zone_errors(data: Any, *, operation: str = "changes") -> None:
-    """Raise if any zone in a /changes/zone response failed.
+    """Raise if any zone in a /changes/zone or /zones/modify response failed.
 
-    CloudKit answers HTTP 200 even when a zone could not be fetched, and puts a
-    "Zone Record Fetch Error Dictionary" (serverErrorCode, reason, and
-    sometimes retryAfter) in place of that zone's results. It has no syncToken
-    or records, so validating it as a zone fails with an opaque error.
+    CloudKit answers HTTP 200 even when a zone could not be fetched or
+    modified, and puts a "Zone Record Fetch Error Dictionary" (serverErrorCode,
+    reason, and sometimes retryAfter) in place of that zone's results. It has
+    no syncToken or records, so validating it as a zone fails with an opaque
+    error.
     """
     zones = data.get("zones") if isinstance(data, dict) else None
     if not isinstance(zones, list):
