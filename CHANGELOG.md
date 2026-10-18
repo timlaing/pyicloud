@@ -8,6 +8,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Fixed
+
+- Parse the MFA bootstrap HTML when Apple's authentication endpoint returns HTTP 409, allowing two-factor authentication to continue instead of raising an API error containing the HTML page.
+
 ### Added
 
 - Add experimental read-only `PyiCloudService.mail` support for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Complete mailbox enumeration, mutations, and incremental synchronization are not supported.

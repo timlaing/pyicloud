@@ -940,7 +940,22 @@ class PyiCloudService:
         # Apple exposes the HSA2 bridge bootstrap in the HTML auth shell.
         # Requesting JSON here tends to collapse the response to the SMS-oriented shape.
         headers = self._get_auth_headers({"Accept": "text/html"})
-        response = self.session.get(self._auth_endpoint, headers=headers)
+        try:
+            response = self.session.get(self._auth_endpoint, headers=headers)
+        except PyiCloudAPIResponseException as error:
+            if (
+                error.code != AppleAuthError.TWO_FACTOR_REQUIRED
+                or error.response is None
+                or error.response.headers
+                .get("Content-Type", "")
+                .split(";")[0]
+                .strip()
+                .lower()
+                != "text/html"
+            ):
+                raise
+            # Apple can return the MFA bootstrap HTML with a challenge status.
+            response = error.response
 
         auth_options: dict[str, Any] = {}
         try:
