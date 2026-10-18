@@ -319,6 +319,37 @@ def test_attachment_optional_metadata(
     assert set(session.get.call_args.kwargs["params"]) == {"guid", "type"}
 
 
+@pytest.mark.parametrize("content_type", ["application/pdf", "application/pdf; x=y"])
+def test_attachment_absent_type_metadata_accepts_the_real_type(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """With no advertised type there is nothing to match, only pages to reject."""
+    part = MailPart(partId="2", attach=True)
+    result = response(None)
+    result.headers = {"Content-Type": content_type}
+    session.get.return_value = result
+    with service.attachment(
+        message.model_copy(update={"parts": [part]}), "2"
+    ) as chunks:
+        assert b"".join(chunks) == b"%PDF-synthetic\n%%EOF"
+
+
+@pytest.mark.parametrize("content_type", ["", "text/html"])
+def test_attachment_absent_type_metadata_still_rejects_pages(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """An empty type or an HTML page is an error response, not attachment bytes."""
+    part = MailPart(partId="2", attach=True)
+    result = response(None)
+    result.headers = {"Content-Type": content_type}
+    session.get.return_value = result
+    with (
+        pytest.raises(MailError),
+        service.attachment(message.model_copy(update={"parts": [part]}), "2"),
+    ):
+        pytest.fail("must fail before yielding")
+
+
 @pytest.mark.parametrize(
     "status,content_type",
     [(302, "application/pdf"), (403, "application/pdf"), (200, "text/html"), (200, "")],

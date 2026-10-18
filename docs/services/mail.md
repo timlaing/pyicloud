@@ -97,7 +97,8 @@ and serialization. Do not follow those URLs automatically.
 Metadata size can describe Base64-encoded content, while the stream contains
 decoded bytes. Do not decode those bytes again or equate the metadata size with
 the downloaded size. Missing optional MIME type metadata defaults to
-`application/octet-stream`.
+`application/octet-stream`; the response is then only checked to exclude empty
+content types and HTML error pages, since there is no advertised type to match.
 
 ## Errors and Privacy
 
