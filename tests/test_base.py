@@ -754,15 +754,25 @@ def test_request_2fa_code_requests_sms_delivery(
     "status",
     [pytest.param(200, id="ok"), pytest.param(409, id="mfa_challenge")],
 )
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        pytest.param("text/html; charset=UTF-8", id="html"),
+        pytest.param("Text/HTML; charset=UTF-8", id="mixed-case"),
+        pytest.param("text/html ;charset=utf-8", id="whitespace"),
+        pytest.param("Text/HTML ;charset=utf-8", id="mixed-case-whitespace"),
+    ],
+)
 def test_get_mfa_auth_options_parses_hsa2_boot_html(
     pyicloud_service: PyiCloudService,
     status: int,
+    content_type: str,
 ) -> None:
     """GET /appleauth/auth HTML should populate the HSA2 boot context."""
 
     response = Response()
     response.status_code = status
-    response.headers["Content-Type"] = "text/html; charset=UTF-8"
+    response.headers["Content-Type"] = content_type
     response._content = b"""
     <html>
       <script type="application/json" class="boot_args">

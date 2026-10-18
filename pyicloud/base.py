@@ -943,7 +943,11 @@ class PyiCloudService:
             if (
                 error.code != AppleAuthError.TWO_FACTOR_REQUIRED
                 or error.response is None
-                or error.response.headers.get("Content-Type", "").split(";")[0]
+                or error.response.headers
+                .get("Content-Type", "")
+                .split(";")[0]
+                .strip()
+                .lower()
                 != "text/html"
             ):
                 raise
