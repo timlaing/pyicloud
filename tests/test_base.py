@@ -750,14 +750,30 @@ def test_request_2fa_code_requests_sms_delivery(
         assert kwargs["headers"]["Accept"] == "application/json"
 
 
+@pytest.mark.parametrize(
+    "status",
+    [pytest.param(200, id="ok"), pytest.param(409, id="mfa_challenge")],
+)
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        pytest.param("text/html; charset=UTF-8", id="html"),
+        pytest.param("Text/HTML; charset=UTF-8", id="mixed-case"),
+        pytest.param("text/html ;charset=utf-8", id="whitespace"),
+        pytest.param("Text/HTML ;charset=utf-8", id="mixed-case-whitespace"),
+    ],
+)
 def test_get_mfa_auth_options_parses_hsa2_boot_html(
     pyicloud_service: PyiCloudService,
+    status: int,
+    content_type: str,
 ) -> None:
     """GET /appleauth/auth HTML should populate the HSA2 boot context."""
 
-    response = MagicMock()
-    response.json.side_effect = ValueError("not json")
-    response.text = """
+    response = Response()
+    response.status_code = status
+    response.headers["Content-Type"] = content_type
+    response._content = b"""
     <html>
       <script type="application/json" class="boot_args">
         {
@@ -785,12 +801,18 @@ def test_get_mfa_auth_options_parses_hsa2_boot_html(
       </script>
     </html>
     """
-    pyicloud_service._session = MagicMock()
-    cast(Any, pyicloud_service.session).get.return_value = response
+    with patch.object(PyiCloudSession, "_load_session_data"):
+        pyicloud_service._session = PyiCloudSession(
+            pyicloud_service, "", cookie_directory=""
+        )
 
-    auth_options = pyicloud_service._get_mfa_auth_options()
+    with (
+        patch("requests.Session.request", return_value=response) as mock_request,
+        patch.object(pyicloud_service.session, "_save_session_data"),
+    ):
+        auth_options = pyicloud_service._get_mfa_auth_options()
 
-    _, kwargs = cast(Any, pyicloud_service.session).get.call_args_list[0]
+    _, kwargs = mock_request.call_args_list[0]
     assert kwargs["headers"]["Accept"] == "text/html"
     assert auth_options["authInitialRoute"] == "auth/bridge/step"
     assert auth_options["hasTrustedDevices"] is True
@@ -805,6 +827,49 @@ def test_get_mfa_auth_options_parses_hsa2_boot_html(
         "auth/bridge/step"
     )
     assert pyicloud_service._hsa2_boot_context.has_trusted_devices is True
+
+
+@pytest.mark.parametrize(
+    ("status", "content_type"),
+    [
+        pytest.param(401, "text/html", id="unauthorized"),
+        pytest.param(421, "text/html", id="expired_token"),
+        pytest.param(503, "text/html", id="service_unavailable"),
+        pytest.param(409, "application/json", id="json_conflict"),
+    ],
+)
+def test_get_mfa_auth_options_preserves_other_errors(
+    pyicloud_service: PyiCloudService,
+    status: int,
+    content_type: str,
+) -> None:
+    """Only an HTML 409 from the MFA-options request can be parsed as boot data."""
+    response = Response()
+    response.status_code = status
+    response.headers["Content-Type"] = content_type
+    response._content = b'{"error": "unavailable"}'
+    error = PyiCloudAPIResponseException("Request failed", status, response)
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).get.side_effect = error
+
+    with pytest.raises(PyiCloudAPIResponseException) as excinfo:
+        pyicloud_service._get_mfa_auth_options()
+
+    assert excinfo.value is error
+
+
+def test_get_mfa_auth_options_preserves_error_without_response(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A 409 without a response has no boot data to recover."""
+    error = PyiCloudAPIResponseException("Conflict", 409)
+    pyicloud_service._session = MagicMock()
+    cast(Any, pyicloud_service.session).get.side_effect = error
+
+    with pytest.raises(PyiCloudAPIResponseException) as excinfo:
+        pyicloud_service._get_mfa_auth_options()
+
+    assert excinfo.value is error
 
 
 def test_get_mfa_auth_options_falls_back_to_json_for_security_key(
