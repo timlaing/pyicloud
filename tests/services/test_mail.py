@@ -208,6 +208,47 @@ def test_body(service: MailService, session: MagicMock, message: MailMessage) ->
     assert session.post.call_args.args[0].endswith("/message/get")
 
 
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        "text/plain ; charset=UTF-8",
+        " text/html",
+        " Text/Plain ",
+        " TEXT/HTML ; charset=UTF-8 ",
+    ],
+)
+def test_body_normalizes_media_type_whitespace(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """Padded text types remain readable without selecting attachments."""
+    parts = [
+        MailPart(partId="1.1", contentType=content_type),
+        MailPart(partId="2", contentType=content_type, attach=True),
+        MailPart(partId="3", contentType="text/plain-extra"),
+    ]
+    session.post.return_value = response(load_fixture("mail", "body_response.json"))
+
+    service.body(message.model_copy(update={"parts": parts}))
+
+    query = session.post.call_args.kwargs["json"]
+    assert query["parts"] == ["1.1"]
+    assert query["dontMarkAsRead"] is True
+    assert session.post.call_count == 1
+
+
+@pytest.mark.parametrize("content_type", ["application/pdf", "text/plain-extra", " "])
+def test_body_still_rejects_unsupported_media_types(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """Whitespace normalization must not broaden the supported body types."""
+    parts = [MailPart(partId="1.1", contentType=content_type)]
+    selected = message.model_copy(update={"parts": parts})
+
+    with pytest.raises(ValueError, match="text body"):
+        service.body(selected)
+    session.post.assert_not_called()
+
+
 def test_no_body(
     service: MailService, session: MagicMock, message: MailMessage
 ) -> None:

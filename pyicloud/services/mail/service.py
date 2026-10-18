@@ -257,7 +257,7 @@ class MailService(BaseService):
             for part in message.parts
             if not part.is_attachment
             and re.fullmatch(MIME_PART_PATTERN, part.id)
-            and part.content_type.split(";", 1)[0].lower()
+            and part.content_type.split(";", 1)[0].strip().lower()
             in ("text/plain", "text/html")
         ]
         if not parts:
