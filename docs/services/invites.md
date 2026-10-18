@@ -2,7 +2,7 @@
 
 [← Back to the documentation index](../index.md)
 
-Apple Invites events, read and RSVP. Events you created live in your private
+Apple Invites events: create, read, publish, cancel, and RSVP. Events you created live in your private
 library; events other people shared with you arrive in the shared one, and both
 are returned together.
 
@@ -103,6 +103,50 @@ enums used elsewhere in this service.
 `resolve()` only looks; `accept()` joins the event, after which it appears in
 `events()` with the shared scope.
 
+## Creating an event
+
+```python
+from datetime import datetime, timezone
+from pyicloud.services.invites import EventPlace, EventTime
+
+event = api.invites.create_event(
+    "Dinner",
+    EventTime(start=datetime(2030, 6, 1, 18, tzinfo=timezone.utc)),
+    place=EventPlace(city="Paris", time_zone_identifier="Europe/Paris"),
+    notes="Bring something to share.",
+    max_additional_guests_per_rsvp=1,
+)
+print(event.event_id, event.record_change_tag)
+print(event.is_published)  # False
+print(event.share.url)
+```
+
+Creation returns an **unpublished draft**, with a share but no invited guests.
+Publish it separately when ready. Creating a share does not publish the event.
+Apple's subscription entitlement is checked before creating a zone.
+
+`title` must be non-empty and `time` must be an `EventTime` with timezone-aware
+dates. An optional end cannot precede the start; an open-ended event cannot
+have an end. Optional `max_attendees` must be positive, and
+`max_additional_guests_per_rsvp` must be non-negative. `is_private=True` sets
+the event's private flag. A supplied place time-zone identifier must be a
+valid IANA name. The returned event includes the server-assigned change tag
+and share; call `event()` for a fresh, fully hydrated view before RSVPing,
+because the share returned by creation may not yet identify you as a
+participant.
+
+Creation takes three CloudKit requests: create a new zone, create
+EventDetails, then create its share. An expired cached entitlement token adds
+one more request before those. They are not one transaction. If a later step
+fails, pyicloud attempts to delete **only the new zone**.
+`InvitesCreationError` exposes `event_id`, `cleanup_succeeded` (`True`,
+`False`, or `None` when zone creation was not confirmed), and `cleanup_error`;
+the original failure is chained as `__cause__`. If cleanup fails or the
+creation response is lost, inspect that event ID before retrying: an
+incomplete draft may remain. Calls are not automatically retried because that
+could create duplicate events. Input validation and entitlement failures
+occur before any zone is created.
+
 ## Cancelling an event you host
 
 ```python
@@ -141,8 +185,7 @@ call `event()` again if you need its share and RSVP details.
 
 These operations change an invitation's availability. Live verification covered
 a guest-free development event; notification behavior for events with guests
-has not been verified. Creating events and renaming them are not yet exposed
-through the service.
+has not been verified. Renaming events is not yet exposed through the service.
 
 ## One-time-link guest invitations
 
