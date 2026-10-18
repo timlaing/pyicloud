@@ -1793,11 +1793,20 @@ class PyiCloudService:
     def mail(self) -> MailService:
         """Experimental read-only Mail service using the discovered gateway."""
         if self._mail is None:
-            self._mail = MailService(
-                service_root=self.get_webservice_url("mccgateway"),
-                session=self.session,
-                params=self.params,
-            )
+            service_root: str = self.get_webservice_url("mccgateway")
+            try:
+                self._mail = MailService(
+                    service_root=service_root,
+                    session=self.session,
+                    params=self.params,
+                )
+            except ValueError as error:
+                # A discovered URL Mail's stricter validation rejects (query,
+                # fragment, or credentials) is an unusable endpoint, not a
+                # caller error: surface it as the library's own exception.
+                raise PyiCloudServiceUnavailable(
+                    "Mail service not available"
+                ) from error
         return self._mail
 
     @property

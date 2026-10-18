@@ -308,7 +308,18 @@ class MailService(BaseService):
                 response.headers.get("Content-Type", "").split(";", 1)[0].lower()
             )
             expected = part.content_type.split(";", 1)[0].lower()
-            if content_type not in (expected, "application/octet-stream"):
+            if expected == "application/octet-stream":
+                # Missing contentType metadata defaults to octet-stream here,
+                # and the server may then answer with the real type instead of
+                # echoing the default, so there is nothing specific to match.
+                # Only reject what cannot be attachment bytes: an empty type
+                # or an HTML error page served with HTTP 200.
+                acceptable = bool(content_type) and content_type != "text/html"
+            else:
+                # A specifically advertised type must match, unless the server
+                # fell back to octet-stream.
+                acceptable = content_type in (expected, "application/octet-stream")
+            if not acceptable:
                 raise MailError("Mail attachment returned an unexpected content type")
             yield self._chunks(response.iter_content(chunk_size=65536))
         finally:

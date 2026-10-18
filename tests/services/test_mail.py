@@ -15,6 +15,7 @@ from pyicloud.exceptions import (
     PyiCloudConnectionException,
     PyiCloudException,
     PyiCloudServiceNotActivatedException,
+    PyiCloudServiceUnavailable,
 )
 from pyicloud.services.mail import (
     MailError,
@@ -319,6 +320,37 @@ def test_attachment_optional_metadata(
     assert set(session.get.call_args.kwargs["params"]) == {"guid", "type"}
 
 
+@pytest.mark.parametrize("content_type", ["application/pdf", "application/pdf; x=y"])
+def test_attachment_absent_type_metadata_accepts_the_real_type(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """With no advertised type there is nothing to match, only pages to reject."""
+    part = MailPart(partId="2", attach=True)
+    result = response(None)
+    result.headers = {"Content-Type": content_type}
+    session.get.return_value = result
+    with service.attachment(
+        message.model_copy(update={"parts": [part]}), "2"
+    ) as chunks:
+        assert b"".join(chunks) == b"%PDF-synthetic\n%%EOF"
+
+
+@pytest.mark.parametrize("content_type", ["", "text/html"])
+def test_attachment_absent_type_metadata_still_rejects_pages(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """An empty type or an HTML page is an error response, not attachment bytes."""
+    part = MailPart(partId="2", attach=True)
+    result = response(None)
+    result.headers = {"Content-Type": content_type}
+    session.get.return_value = result
+    with (
+        pytest.raises(MailError),
+        service.attachment(message.model_copy(update={"parts": [part]}), "2"),
+    ):
+        pytest.fail("must fail before yielding")
+
+
 @pytest.mark.parametrize(
     "status,content_type",
     [(302, "application/pdf"), (403, "application/pdf"), (200, "text/html"), (200, "")],
@@ -473,3 +505,30 @@ def test_missing_mail_service(pyicloud_service: PyiCloudService) -> None:
         pytest.raises(PyiCloudServiceNotActivatedException),
     ):
         _ = pyicloud_service.mail
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:pass@example.test",
+        "https://example.test/?dsid=1",
+        "https://example.test/#x",
+    ],
+)
+def test_unusable_mail_endpoint_is_not_a_bare_value_error(
+    pyicloud_service: PyiCloudService, url: str
+) -> None:
+    """A discovered URL Mail rejects surfaces a library exception, not ValueError.
+
+    get_webservice_url() validates less strictly than MailService, so an
+    advertised URL with credentials, a query, or a fragment reaches the
+    constructor and must not escape as a bare ValueError.
+    """
+    with (
+        patch.object(pyicloud_service, "get_webservice_url", return_value=url),
+        pytest.raises(PyiCloudServiceUnavailable) as caught,
+    ):
+        _ = pyicloud_service.mail
+    assert isinstance(caught.value, PyiCloudException)
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert pyicloud_service._mail is None
