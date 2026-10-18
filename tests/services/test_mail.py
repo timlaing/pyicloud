@@ -15,6 +15,7 @@ from pyicloud.exceptions import (
     PyiCloudConnectionException,
     PyiCloudException,
     PyiCloudServiceNotActivatedException,
+    PyiCloudServiceUnavailable,
 )
 from pyicloud.services.mail import (
     MailError,
@@ -504,3 +505,30 @@ def test_missing_mail_service(pyicloud_service: PyiCloudService) -> None:
         pytest.raises(PyiCloudServiceNotActivatedException),
     ):
         _ = pyicloud_service.mail
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:pass@example.test",
+        "https://example.test/?dsid=1",
+        "https://example.test/#x",
+    ],
+)
+def test_unusable_mail_endpoint_is_not_a_bare_value_error(
+    pyicloud_service: PyiCloudService, url: str
+) -> None:
+    """A discovered URL Mail rejects surfaces a library exception, not ValueError.
+
+    get_webservice_url() validates less strictly than MailService, so an
+    advertised URL with credentials, a query, or a fragment reaches the
+    constructor and must not escape as a bare ValueError.
+    """
+    with (
+        patch.object(pyicloud_service, "get_webservice_url", return_value=url),
+        pytest.raises(PyiCloudServiceUnavailable) as caught,
+    ):
+        _ = pyicloud_service.mail
+    assert isinstance(caught.value, PyiCloudException)
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert pyicloud_service._mail is None
