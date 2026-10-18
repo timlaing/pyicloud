@@ -181,8 +181,73 @@ call `event()` again if you need its share and RSVP details.
 
 These operations change an invitation's availability. Live verification covered
 a guest-free development event; notification behavior for events with guests
-has not been verified. Renaming events and generating one-time guest links
-are not yet exposed through the service.
+has not been verified. Renaming events is not yet exposed through the service.
+
+## One-time-link guest invitations
+
+**Experimental:** verified with email invitations on one controlled account.
+Two successive invitations preserved the earlier guest and link, and an owner
+preview resolved that earlier link without accepting it. Push notifications
+were received during the controlled tests: do not assume the operation is
+silent, and deleting a test event cannot retract delivered notifications.
+Email delivery, phone-only invitations, and acceptance by a separate guest account remain
+unverified. Use disposable events and guest addresses you control until you
+have verified behavior for your account.
+
+```python
+event = api.invites.event("EVENT-UUID")
+invitation = api.invites.invite_via_link(
+    event,
+    emails=["guest@example.com"],
+    name="Guest",
+)
+print(invitation.url)  # Sensitive participant-specific bearer link.
+print(invitation.participant_id, invitation.record_name)
+```
+
+The result is a `OneTimeLinkInvitation`, extending the existing read-only
+`OneTimeLinkGuest` model with `short_guid`, `url`, `record_change_tag`, and
+`share_record_change_tag`. These tags identify guest-info and share records,
+not EventDetails. The link is different from the event's general share URL.
+Treat it as a credential: it is omitted from the result's representation but
+is accessible through these attributes and serialization.
+
+Only the event's current owner can create an invitation. The service reads the
+latest full share rather than relying on cached participants or an event change
+tag. A single atomic request creates the encrypted guest-info record and adds
+its share participant. Existing participants and their full one-time-link
+metadata are retained; only the new link entry requests token generation.
+The response re-checks participants and each existing link's tokens; the
+remaining preservation metadata is required before submission and resent
+unchanged. Apple rejects an update that
+retains anonymous participants but omits their link entries, so a missing
+mapping or incomplete existing token-preservation metadata fails before
+submission. No event creation, publication, or RSVP
+acceptance is performed.
+
+Supply at least one email address or phone number. Contacts must be sequences,
+not a single string. Surrounding whitespace is stripped and exact duplicate
+contacts are removed. Phone numbers must use international E.164 form, such as
+`+12025550123`. The guest name may be empty. Contact data is stored as guest
+metadata; it is not used to look up an iCloud account. This is not an email-send
+API; receipt of email or other notifications is not guaranteed.
+
+The captured requests contain no entitlement hint. This implementation leaves
+authorization to Apple's endpoint rather than assuming the event-editing
+subscription feature applies to invitations too. Live verification succeeded
+with the client's normal `remapEnums=true` query mode, without
+`server_crypto=true` or an explicit invitation entitlement hint. Eligibility
+on accounts without a qualifying subscription has not been tested.
+
+Invalid inputs raise `ValueError` before network access; an unreadable,
+incomplete, or non-owner share fails without a write. After submission,
+`InvitesInvitationError` retains `event_id`, `participant_id`, and `record_name`,
+with the original error chained as `__cause__` (including authorization,
+rate-limit, and conflict failures). Inspect that cause and the records before
+retrying. A timeout or unusable response does **not** prove rollback, so the
+service neither retries automatically nor removes participants to compensate.
+
+There is no CLI mutation command for this API.
 
 ## Command line
 

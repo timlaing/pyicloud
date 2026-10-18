@@ -7,6 +7,7 @@ from .client import (
     InvitesCreationError,
     InvitesEntitlementError,
     InvitesError,
+    InvitesInvitationError,
     InvitesRateLimited,
 )
 from .models import (
@@ -17,6 +18,7 @@ from .models import (
     EventShare,
     EventTime,
     OneTimeLinkGuest,
+    OneTimeLinkInvitation,
     Participant,
     ParticipantType,
     ResolvedShare,
@@ -39,9 +41,11 @@ __all__ = [
     "InvitesCreationError",
     "InvitesEntitlementError",
     "InvitesError",
+    "InvitesInvitationError",
     "InvitesRateLimited",
     "InvitesService",
     "OneTimeLinkGuest",
+    "OneTimeLinkInvitation",
     "Participant",
     "ParticipantType",
     "ResolvedShare",

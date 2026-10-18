@@ -8,9 +8,14 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Fixed
+
+- Parse the MFA bootstrap HTML when Apple's authentication endpoint returns HTTP 409, allowing two-factor authentication to continue instead of raising an API error containing the HTML page.
+
 ### Added
 
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
+- Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
 
 ### Documentation
