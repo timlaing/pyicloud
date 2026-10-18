@@ -320,7 +320,10 @@ def test_attachment_optional_metadata(
     assert set(session.get.call_args.kwargs["params"]) == {"guid", "type"}
 
 
-@pytest.mark.parametrize("content_type", ["application/pdf", "application/pdf; x=y"])
+@pytest.mark.parametrize(
+    "content_type",
+    ["application/pdf", "application/pdf; x=y", " Application/PDF ; charset=UTF-8"],
+)
 def test_attachment_absent_type_metadata_accepts_the_real_type(
     service: MailService, session: MagicMock, message: MailMessage, content_type: str
 ) -> None:
@@ -335,7 +338,9 @@ def test_attachment_absent_type_metadata_accepts_the_real_type(
         assert b"".join(chunks) == b"%PDF-synthetic\n%%EOF"
 
 
-@pytest.mark.parametrize("content_type", ["", "text/html"])
+@pytest.mark.parametrize(
+    "content_type", ["", "text/html", "text/html ; charset=UTF-8", " Text/HTML ", " "]
+)
 def test_attachment_absent_type_metadata_still_rejects_pages(
     service: MailService, session: MagicMock, message: MailMessage, content_type: str
 ) -> None:
@@ -349,6 +354,8 @@ def test_attachment_absent_type_metadata_still_rejects_pages(
         service.attachment(message.model_copy(update={"parts": [part]}), "2"),
     ):
         pytest.fail("must fail before yielding")
+    result.iter_content.assert_not_called()
+    result.close.assert_called_once()
 
 
 @pytest.mark.parametrize(

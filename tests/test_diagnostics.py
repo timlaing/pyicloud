@@ -114,15 +114,29 @@ def test_missing_optional_mail_is_visible_without_failing() -> None:
     assert not services_at_risk(findings)
 
 
-def test_advertised_malformed_mail_is_still_a_problem() -> None:
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {},
+        {"url": "http://example.test"},
+        {"url": "https://user@example.test"},
+        {"url": "https://example.test/?q=1"},
+        {"url": "https://example.test/#fragment"},
+        {"url": "https://"},
+        {"url": "https://[invalid"},
+    ],
+)
+def test_advertised_malformed_mail_is_still_a_problem(entry: dict[str, str]) -> None:
     """Optional absence does not hide a broken advertised Mail endpoint."""
     advertised = _healthy_map()
-    advertised["mccgateway"] = {}
+    advertised["mccgateway"] = entry
 
     finding = _finding(diagnose_webservices(advertised), "mccgateway")
 
     assert finding.status is WebserviceStatus.MALFORMED
     assert finding.is_problem
+    assert finding.url is None
+    assert services_at_risk(diagnose_webservices(advertised)) == ("mail",)
 
 
 def test_an_unused_key_without_a_url_is_reported_but_not_a_problem() -> None:

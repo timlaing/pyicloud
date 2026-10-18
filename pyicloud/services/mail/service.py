@@ -63,6 +63,20 @@ class MailError(PyiCloudException):
     """An invalid Mail response or a failed attachment stream."""
 
 
+def validate_mail_endpoint(service_root: str) -> None:
+    """Require the same usable HTTPS root for service calls and diagnostics."""
+    parsed = urlsplit(service_root)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Mail requires a discovered HTTPS endpoint")
+
+
 def _limit(value: int) -> None:
     """Reject limits outside the supported bounded-query range."""
     if (
@@ -103,16 +117,7 @@ class MailService(BaseService):
         self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
     ) -> None:
         """Validate the discovered endpoint and copy session query parameters."""
-        parsed = urlsplit(service_root)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("Mail requires a discovered HTTPS endpoint")
+        validate_mail_endpoint(service_root)
         super().__init__(service_root.rstrip("/"), session, dict(params))
 
     def _post(
@@ -305,9 +310,13 @@ class MailService(BaseService):
             if response.status_code != 200:
                 raise MailError(f"Mail attachment returned HTTP {response.status_code}")
             content_type = (
-                response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+                response.headers
+                .get("Content-Type", "")
+                .split(";", 1)[0]
+                .strip()
+                .lower()
             )
-            expected = part.content_type.split(";", 1)[0].lower()
+            expected = part.content_type.split(";", 1)[0].strip().lower()
             if expected == "application/octet-stream":
                 # Missing contentType metadata defaults to octet-stream here,
                 # and the server may then answer with the real type instead of

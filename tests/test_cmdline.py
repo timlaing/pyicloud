@@ -5477,6 +5477,32 @@ def test_doctor_missing_optional_mail_does_not_fail() -> None:
     assert finding["is_problem"] is False
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user@example.test",
+        "https://example.test/?q=1",
+        "https://example.test/#fragment",
+    ],
+)
+def test_doctor_rejects_unusable_mail_urls_without_probing(url: str) -> None:
+    """Ordinary diagnostics must reject roots the Mail service cannot use."""
+    advertised = _advertised_webservices()
+    advertised["mccgateway"] = {"url": url}
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    finding = next(
+        item for item in payload["webservices"] if item["key"] == "mccgateway"
+    )
+    assert finding["status"] == "malformed"
+    assert finding["is_problem"] is True
+    assert finding["url"] is None
+
+
 def test_doctor_names_the_services_a_withdrawn_key_takes_down() -> None:
     """A missing key fails the run and reports the blast radius, not the key."""
 
