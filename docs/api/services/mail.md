@@ -12,6 +12,18 @@
 
 ::: pyicloud.services.mail.models.MailSearchPage
 
+::: pyicloud.services.mail.models.MailFolderSearchPage
+
+::: pyicloud.services.mail.models.MailMultiSearchPage
+
+::: pyicloud.services.mail.models.MailMessageExport
+
+::: pyicloud.services.mail.models.MailPreview
+
+::: pyicloud.services.mail.models.MailThreadDigest
+
+::: pyicloud.services.mail.models.MailThreadFilterPage
+
 ::: pyicloud.services.mail.models.MailBody
 
 ::: pyicloud.services.mail.models.MailPart

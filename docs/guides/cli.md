@@ -56,6 +56,10 @@ icloud mail folders --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --format json
 icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
+icloud mail search-folders example --folder-id '<first-id>' --folder-id '<second-id>' --format json
+icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
+icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
+icloud mail filter --folder-id '<folder-id>' --filter unread --format json
 icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
 icloud photos libraries --username jappleseed@apple.com

@@ -1,0 +1,7 @@
+{
+  "events": [],
+  "result": [
+    { "messageGuid": "INBOX/7", "preview": "Synthetic preview text." }
+  ],
+  "sessionHeaders": { "folder": "INBOX", "modseq": 123, "threadmodseq": 456 }
+}

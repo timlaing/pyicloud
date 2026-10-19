@@ -233,6 +233,57 @@ Search counts describe matching grouped results and cannot establish the total
 number of thread members. Expansion must remain explicitly incomplete even for
 short/empty pages or when an opaque continuation marker is absent.
 
+## Client-Side Read-Only Tools
+
+Multi-folder search composes the existing per-folder `geqs/query` calls; it does
+not introduce a cross-folder server predicate. Requests remain bounded and
+results preserve folder context rather than guessing global thread identity,
+ranking, or completeness. JSON export serializes existing typed message data
+and optionally calls `message/get` with the existing non-mutating body request.
+Neither feature establishes raw MIME export or complete-mailbox backup support.
+
+### Preview and Filter Captures
+
+User-authorized browser captures on 2026-10-19 established `previewId` in detailed
+message metadata and `POST message/preview` requests containing `folder`, an
+array of advertised `previewIds`, and fresh `sessionHeaders`. Responses contain
+`result` records with `messageGuid` (`<folder-name>/<uid>`) and `preview` strings,
+plus folder context and events. Both a non-empty snippet and an explicitly
+empty string were observed. Opaque preview IDs are passed through, not derived
+from a guessed UID/part convention. No reading-pane actions are required to
+request these list snippets.
+
+The same capture established `POST thread/search` with `responseType` set to
+`THREAD_DIGEST`, `maxResults`, `includeFolderStatus`, and a `filters` object:
+Unread uses `unseen: true`; Flagged uses `flagged: true`. Replies contain
+`threadList` digest records, `totalThreadsReturned`, session context, and folder
+status. Digest IDs and counts describe thread groups, not individual matching
+messages. The implementation does not interpret integer message flag bits or
+persist returned modification sequences.
+
+For one folder, Unread returned one group and Flagged returned two; selecting
+both returned three groups, exactly their union. This evidence rules out
+assuming AND for that combination, but does not establish arbitrary filter
+combination semantics. The public API exposes each filter separately and
+always labels results bounded/incomplete. Raw captures, snippet text, account
+identifiers, and actual thread IDs remain outside Git; fixtures are synthetic.
+
+### Live Tool Verification
+
+Read-only library and CLI checks on 2026-10-19 verified all four tools. Searches
+across two explicitly selected folders matched separate bounded searches, each
+capped at five groups. Preview text from an advertised ID matched between the
+library and CLI. Fresh-context Unread and Flagged queries matched the captured
+browser group IDs exactly (one and two groups respectively); no captured
+modification sequences or browser credentials were replayed.
+
+Metadata-only and body-inclusive JSON exports of the known self-sent test
+message had the expected versioned shape and private `0600` file permissions.
+The selected message's integer flags were unchanged after preview and body
+reads. No mutation endpoints, flag changes, or attachment downloads were
+requested. Private output and comparisons remain outside Git; this verifies
+one account, not every MIME structure or a globally atomic mail snapshot.
+
 ## Loading More Messages
 
 The Sent Messages capture demonstrates a two-stage listing strategy:
