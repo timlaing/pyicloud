@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 Identifier = Annotated[str, Field(strict=True, min_length=1)]
 MIME_PART_PATTERN = r"^[0-9]+(?:\.[0-9]+)*$"
 PartID = Annotated[str, Field(pattern=MIME_PART_PATTERN)]
+MailThreadFilter = Literal["unread", "flagged"]
 
 
 class MailModel(BaseModel):
@@ -50,6 +51,7 @@ class MailMessageRecord(MailModel):
     uid: int = Field(gt=0)
     mailbox: MailboxReference = Field(alias="mboxRef")
     thread_id: str | None = Field(default=None, alias="appleThrid")
+    preview_id: Identifier | None = Field(default=None, alias="previewId", repr=False)
     subject: str | None = Field(default=None, repr=False)
     sender: str | None = Field(default=None, alias="from", repr=False)
     to: str | None = Field(default=None, repr=False)
@@ -100,6 +102,20 @@ class MailSearchPage(MailModel):
     complete: Literal[False] = False
 
 
+class MailFolderSearchPage(MailSearchPage):
+    """Thread-group matches with their explicit folder context."""
+
+    folder: MailFolder
+
+
+class MailMultiSearchPage(MailModel):
+    """Separate bounded pages, never a globally ranked or complete search."""
+
+    pages: list[MailFolderSearchPage]
+    limit_per_folder: int
+    complete: Literal[False] = False
+
+
 class MailBodyPart(MailModel):
     """Returned content is data; HTML is not sanitized for rendering."""
 
@@ -116,6 +132,75 @@ class MailBody(MailModel):
     parts: list[MailBodyPart]
 
 
+class MailMessageExport(MailModel):
+    """Versioned JSON data, not a raw MIME message or a complete-mailbox backup."""
+
+    format_version: Literal[1] = 1
+    message: MailMessage
+    body: MailBody | None = None
+
+
+class MailPreview(MailModel):
+    """Untrusted snippet data for a verified folder-local message identity."""
+
+    message_id: Identifier
+    folder: MailFolder
+    uid: int = Field(gt=0)
+    text: str = Field(repr=False)
+
+
+class MailThreadDigest(MailModel):
+    """A browser-filtered thread group, not an individual message."""
+
+    id: Identifier = Field(alias="threadId")
+    record_type: Literal["threadDigest"] = Field(alias="jsonType")
+    timestamp: float = Field(allow_inf_nan=False)
+    subject: str | None = Field(default=None, repr=False)
+    preview: str | None = Field(default=None, repr=False)
+    count: int | None = Field(default=None, ge=0)
+    folder_message_count: int | None = Field(
+        default=None, alias="folderMessageCount", ge=0
+    )
+
+
+class MailThreadFilterPage(MailModel):
+    """One bounded folder's filtered thread groups; completeness is unknown."""
+
+    folder: MailFolder
+    filter_by: MailThreadFilter
+    results: list[MailThreadDigest]
+    limit: int
+    complete: Literal[False] = False
+
+
+class MailReadContext(MailModel):
+    """Response scope only; modification sequences are not persisted or replayed."""
+
+    folder: Identifier
+
+
+class MailPreviewRecord(MailModel):
+    """A required snippet field; an empty string is a valid preview."""
+
+    message_guid: Identifier = Field(alias="messageGuid")
+    preview: str = Field(repr=False)
+
+
+class PreviewResponse(MailModel):
+    """Required preview envelope and folder context."""
+
+    records: list[MailPreviewRecord] = Field(alias="result")
+    context: MailReadContext = Field(alias="sessionHeaders")
+
+
+class ThreadFilterResponse(MailModel):
+    """Digest-only response; counts are returned groups, not mailbox totals."""
+
+    records: list[MailThreadDigest] = Field(alias="threadList")
+    returned_count: int = Field(alias="totalThreadsReturned", ge=0)
+    context: MailReadContext = Field(alias="sessionHeaders")
+
+
 class FolderResponse(MailModel):
     """Required folder query envelope."""
 
@@ -127,6 +212,7 @@ class MessageResponse(MailModel):
     """Required message query envelope."""
 
     records: list[MailMessageRecord] = Field(alias="domainObjects")
+    continuation_marker: str | None = Field(default=None, alias="continuationMarker")
 
 
 class SearchResponse(MailModel):
@@ -197,4 +283,28 @@ class MailBodyRequest(MailModel):
     dont_mark_as_read: Literal[True] = Field(
         default=True, serialization_alias="dontMarkAsRead"
     )
+    session_headers: MailSessionHeaders = Field(serialization_alias="sessionHeaders")
+
+
+class MailPreviewRequest(MailModel):
+    """One advertised preview ID; do not construct selectors from UID guesses."""
+
+    folder: Identifier
+    preview_ids: list[Identifier] = Field(
+        alias="previewIds", min_length=1, max_length=1
+    )
+    session_headers: MailSessionHeaders = Field(serialization_alias="sessionHeaders")
+
+
+class MailThreadFilterRequest(MailModel):
+    """Use the observed browser thread-filter protocol without combining filters."""
+
+    response_type: Literal["THREAD_DIGEST"] = Field(
+        default="THREAD_DIGEST", alias="responseType"
+    )
+    include_folder_status: Literal[True] = Field(
+        default=True, alias="includeFolderStatus"
+    )
+    max_results: int = Field(alias="maxResults", ge=1, le=1000)
+    filters: dict[Literal["unseen", "flagged"], Literal[True]]
     session_headers: MailSessionHeaders = Field(serialization_alias="sessionHeaders")
