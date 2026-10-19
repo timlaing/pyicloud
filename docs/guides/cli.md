@@ -55,6 +55,7 @@ icloud drive list /Documents --username jappleseed@apple.com
 icloud mail folders --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --format json
+icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
 icloud mail search-folders example --folder-id '<first-id>' --folder-id '<second-id>' --format json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json

@@ -79,6 +79,12 @@ class MailMessagePage(MailModel):
     complete: Literal[False] = False
 
 
+class MailThreadPage(MailMessagePage):
+    """Bounded thread metadata in one folder, not a complete conversation."""
+
+    thread_id: Identifier
+
+
 class MailSearchHit(MailModel):
     """A thread-grouped match, not necessarily a single message."""
 
@@ -206,6 +212,7 @@ class MessageResponse(MailModel):
     """Required message query envelope."""
 
     records: list[MailMessageRecord] = Field(alias="domainObjects")
+    continuation_marker: str | None = Field(default=None, alias="continuationMarker")
 
 
 class SearchResponse(MailModel):

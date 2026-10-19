@@ -1,0 +1,27 @@
+{
+  "continuationMarker": "synthetic-opaque-marker",
+  "domainObjects": [
+    {
+      "identifier": "thread-message-7",
+      "uid": 7,
+      "mboxRef": { "id": "10" },
+      "appleThrid": "synthetic-thread-1",
+      "stateInternalDate": 1700000001,
+      "subject": "Synthetic reply",
+      "from": "sender@example.test",
+      "flags": 0,
+      "parts": [{ "partId": "1", "contentType": "text/plain", "attach": false }]
+    },
+    {
+      "identifier": "thread-message-6",
+      "uid": 6,
+      "mboxRef": { "id": "10" },
+      "appleThrid": "synthetic-thread-1",
+      "stateInternalDate": 1700000000,
+      "subject": "Synthetic original",
+      "from": "another@example.test",
+      "flags": 1,
+      "parts": [{ "partId": "1", "contentType": "text/plain", "attach": false }]
+    }
+  ]
+}

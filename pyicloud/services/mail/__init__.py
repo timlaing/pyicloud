@@ -14,6 +14,7 @@ from .models import (
     MailSearchPage,
     MailThreadDigest,
     MailThreadFilterPage,
+    MailThreadPage,
 )
 from .service import MailError, MailService
 
@@ -33,4 +34,5 @@ __all__ = [
     "MailService",
     "MailThreadDigest",
     "MailThreadFilterPage",
+    "MailThreadPage",
 ]

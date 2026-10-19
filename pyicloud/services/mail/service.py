@@ -36,6 +36,7 @@ from pyicloud.services.mail.models import (
     MailThreadFilter,
     MailThreadFilterPage,
     MailThreadFilterRequest,
+    MailThreadPage,
     MessageResponse,
     PreviewResponse,
     SearchResponse,
@@ -47,6 +48,7 @@ DEFAULT_TIMEOUT = (10.0, 60.0)
 MAX_RESULTS = 1000
 MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
+_MESSAGE_LIST = "message/list"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
@@ -237,7 +239,7 @@ class MailService(BaseService):
         """Read at most limit records, newest first; completeness is unknown."""
         _limit(limit)
         response = self._post(
-            "message/list",
+            _MESSAGE_LIST,
             MailQuery(
                 domain="email",
                 properties=_HEADER_PROPERTIES,
@@ -258,6 +260,70 @@ class MailService(BaseService):
                 messages.append(MailMessage(**record.model_dump(), folder=folder))
                 seen.add(record.id)
         return MailMessagePage(messages=messages, limit=limit)
+
+    def message(self, folder: MailFolder, message_id: str) -> MailMessage | None:
+        """Look up one exact message ID in a verified mailbox, without scanning.
+
+        Return None when no matching non-deleted message exists. The folder
+        must have positive UID validity from folders(); a changed namespace,
+        ambiguous response, or inconsistent identity raises MailError.
+        """
+        if not isinstance(message_id, str) or not message_id.strip():
+            raise ValueError("message_id must be a non-empty string")
+        return self._lookup_message(folder, "identifier", message_id)
+
+    def message_by_uid(self, folder: MailFolder, uid: int) -> MailMessage | None:
+        """Look up a folder-local UID, guarded by the folder's UID validity.
+
+        A UID alone is not a globally unique message ID. Use a fresh folder
+        from folders() and retain its UID validity with any saved UID.
+        """
+        if isinstance(uid, bool) or not isinstance(uid, int) or uid < 1:
+            raise ValueError("uid must be a positive integer")
+        return self._lookup_message(folder, "uid", uid)
+
+    def _lookup_message(
+        self, folder: MailFolder, field: Literal["identifier", "uid"], value: str | int
+    ) -> MailMessage | None:
+        """Validate an exact metadata response before binding a UID to a folder."""
+        if folder.uid_validity is None or folder.uid_validity < 1:
+            raise ValueError(
+                "A positive mailbox UID validity is required; refresh folders"
+            )
+        current = self._checked_mailbox(folder)
+        predicate = _folder_predicate(current)
+        predicate = predicate.model_copy(
+            update={
+                "and_": [
+                    *(predicate.and_ or []),
+                    MailPredicate(
+                        type="eq",
+                        expression=MailExpression(type="property", property=field),
+                        value=value,
+                    ),
+                ]
+            }
+        )
+        response = self._post(
+            _MESSAGE_LIST,
+            MailQuery(
+                domain="email",
+                properties=_HEADER_PROPERTIES,
+                predicate=predicate,
+                limit=2,
+            ),
+            MessageResponse,
+        )
+        current = self._checked_mailbox(folder)
+        if response.continuation_marker or len(response.records) > 1:
+            raise MailError("Mail lookup returned an ambiguous or incomplete response")
+        if not response.records:
+            return None
+        record = response.records[0]
+        actual = record.id if field == "identifier" else record.uid
+        if record.mailbox.id != folder.id or actual != value:
+            raise MailError("Mail lookup returned a different message or folder")
+        return MailMessage(**record.model_dump(), folder=current)
 
     def iter_messages(
         self, folder: MailFolder, *, page_size: int = 50, max_pages: int = 10000
@@ -303,7 +369,7 @@ class MailService(BaseService):
                     }
                 )
             response = self._post(
-                "message/list",
+                _MESSAGE_LIST,
                 MailQuery(
                     domain="email",
                     properties=_HEADER_PROPERTIES,
@@ -371,6 +437,68 @@ class MailService(BaseService):
         if len(response.records) > limit:
             raise MailError(_RESULT_LIMIT_EXCEEDED)
         return MailSearchPage(results=response.records, limit=limit)
+
+    def thread_messages(
+        self, folder: MailFolder, thread_id: str, *, limit: int = 50
+    ) -> MailThreadPage:
+        """Read bounded metadata for a thread in one verified mailbox.
+
+        Accept thread-group IDs from search(), not message IDs. Only messages
+        in the selected folder are returned, including thread members that did
+        not match the original search text. Results always have complete=False:
+        neither short pages nor search counts establish conversation coverage.
+        No bodies, attachments, mutations, or further pages are requested.
+        """
+        _limit(limit)
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            raise ValueError("thread_id must be a non-empty string")
+        if folder.uid_validity is None or folder.uid_validity < 1:
+            raise ValueError(
+                "A positive mailbox UID validity is required; refresh folders"
+            )
+        current = self._checked_mailbox(folder)
+        predicate = _folder_predicate(current)
+        predicate = predicate.model_copy(
+            update={
+                "and_": [
+                    *(predicate.and_ or []),
+                    MailPredicate(
+                        type="eq",
+                        expression=MailExpression(
+                            type="property", property="appleThrid"
+                        ),
+                        value=thread_id,
+                    ),
+                ]
+            }
+        )
+        response = self._post(
+            _MESSAGE_LIST,
+            MailQuery(
+                domain="email",
+                properties=_HEADER_PROPERTIES,
+                predicate=predicate,
+                limit=limit,
+                orderby=MailOrder(),
+            ),
+            MessageResponse,
+        )
+        current = self._checked_mailbox(folder)
+        if len(response.records) > limit:
+            raise MailError(_RESULT_LIMIT_EXCEEDED)
+        if any(
+            record.mailbox.id != folder.id or record.thread_id != thread_id
+            for record in response.records
+        ):
+            raise MailError("Mail returned a message from another thread or folder")
+        records = _unique_uid_records(response.records)
+        return MailThreadPage(
+            thread_id=thread_id,
+            messages=[
+                MailMessage(**record.model_dump(), folder=current) for record in records
+            ],
+            limit=limit,
+        )
 
     def search_folders(
         self,

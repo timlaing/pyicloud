@@ -36,6 +36,35 @@ fewer records were returned: continuation and completeness are not established
 for every mailbox. No hidden requests fetch additional pages. This API is not
 suitable for a complete-mailbox backup.
 
+## Exact Message Lookup
+
+Look up older messages without scanning the newest messages or enumerating a
+mailbox:
+
+```python
+message = api.mail.message(inbox, "<message-id>")
+if message is not None:
+    body = api.mail.body(message)
+
+message = api.mail.message_by_uid(inbox, 7)
+```
+
+Both methods return `None` when the exact non-deleted message is absent from
+the specified folder. They retrieve metadata only, not bodies or attachments.
+There is no newest-message limit or fallback scan. Use an individual message
+ID from `messages()`, not a thread-group ID from search.
+
+Use a folder from `folders()` with positive `uid_validity`. Each lookup checks
+the mailbox identity before and after its metadata request. Disappearance or a
+changed UID validity raises `MailError`, as do ambiguous, incomplete, wrong-folder,
+or mismatched message responses. A rename within the same UID namespace updates
+the returned message's folder context.
+
+UIDs are local to a mailbox incarnation. When saving a UID, retain its folder ID
+and UID validity; never attach an old UID to a newly recreated mailbox's UID
+validity. These checks protect the lookup, not every later operation: a message
+may still be moved or deleted after it is returned.
+
 ## Enumerating a Mailbox
 
 Opt into UID-based pagination explicitly:
@@ -134,6 +163,40 @@ case-sensitive, phrase, or wildcard semantics.
 Results are grouped by thread, newest first, and are not interchangeable with
 `MailMessage` objects. A result count is not the number of matching individual
 messages. No cross-folder search or automatic result expansion is performed.
+
+## Thread Messages
+
+Expand a search-result thread ID into individual messages in the same folder:
+
+```python
+matches = api.mail.search(inbox, "example", field="subject", limit=50)
+if matches.results:
+    page = api.mail.thread_messages(inbox, matches.results[0].id, limit=50)
+    for message in page.messages:
+        print(message.id, message.uid, message.subject)
+```
+
+`thread_messages()` returns a `MailThreadPage` with `thread_id`, `messages`,
+`limit`, and `complete=False`. It fetches metadata only, including MIME part
+information, not bodies or attachments. Returned `MailMessage` objects retain
+their folder context and can be passed to the library's `body()` or
+`attachment()` methods explicitly.
+
+The thread ID is the opaque group ID from search, not a message ID or a subject
+line. Expansion includes non-deleted members of that thread in the **selected
+folder**, even if a member did not match the original search text. Messages in
+Sent, Archive, or another folder are not included automatically.
+
+Limits are 1 through 1,000, defaulting to 50; the request asks for newest-first
+metadata. Results are always incomplete snapshots. A short or empty response,
+an absent continuation marker, or a search hit's count does not establish a
+complete conversation. There is no automatic paging or cross-folder expansion.
+
+Use a folder from `folders()` with positive `uid_validity`. The service checks
+mailbox identity before and after the metadata request and raises `MailError`
+if the folder disappears or is recreated, or if returned identities, folder,
+thread, or response size violate the request. These checks do not make the
+result atomic against concurrent message changes.
 
 ## Unread and Flagged Thread Groups
 
@@ -252,20 +315,24 @@ icloud mail folders --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail list --folder-id '<folder-id>' --all --limit 50 --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --limit 50 --format json
+icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
 icloud mail filter --folder-id '<folder-id>' --filter flagged --format json
 icloud mail search-folders example --folder-id '<inbox-id>' --folder-id '<sent-id>' --limit-per-folder 50 --format json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message-with-body.json --include-body
-icloud mail body '<message-id>' --folder-id '<folder-id>' --limit 50 --format json
+icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
 ```
 
 Use exact folder IDs from `mail folders` and message IDs from `mail list`.
 JSON listings include MIME parts, attachment part IDs, and `complete: false`.
 Search returns **thread-group IDs**, which cannot be passed as message IDs to
-`body` or `download`. All six search fields described above are supported.
+`body` or `download`. Pass a thread ID to `mail thread` to retrieve bounded
+individual message metadata instead. Its JSON includes `thread_id`, `messages`,
+`limit`, and `complete: false`; text output also warns that the result is
+incomplete and folder-scoped. All six search fields described above are supported.
 
 `mail list --all` opts into UID enumeration; `--limit` then sets the **page
 size**, not the total number of messages. Successful JSON output has `messages`,
@@ -273,15 +340,21 @@ size**, not the total number of messages. Successful JSON output has `messages`,
 field. Output is printed only after enumeration succeeds; a later-page error
 does not emit a successful partial JSON result. This CLI mode holds the metadata
 in memory; use the library iterator for processing large mailboxes incrementally.
-It does not change the bounded lookup used by `body` and `download`.
+It does not change the exact lookup default or explicit bounded fallback used
+by `body` and `download`.
 
 `list` and `search` default to a limit of 50, with a maximum of 1,000. `body` and
-`download` first look for the requested message within the newest `--limit`
-messages in that folder (also 50 by default). A missing match produces an error
-instead of silently scanning the whole mailbox. Increase the explicit limit if
-needed; there is still no automatic paging or completeness guarantee. `export` and `preview`
-use the same bounded message lookup and `--limit` option as `body` and
-`download`. Export writes the explicitly selected message, not the whole listing.
+`download` use exact folder-scoped message-ID lookup by default, including for
+older messages. A missing match is an error, not an invitation to scan a mailbox.
+For compatibility, supplying `--limit N` explicitly retains the earlier bounded
+lookup within the newest N folder messages (1 through 1,000). Omitting that flag
+uses exact lookup instead. Search IDs still identify threads, not messages.
+Exact lookup also retrieves older message IDs returned by `mail thread`; bounded
+lookups only apply when `--limit` is supplied explicitly. The library's returned
+`MailMessage` objects can be used for explicit body retrieval without another
+CLI lookup. `export` and `preview` instead default to a bounded lookup of the
+newest 50 messages and accept the same explicit `--limit` option. Export writes
+the explicitly selected message, not the whole listing.
 
 Body output is escaped JSON data even in text mode: HTML is never rendered and
 remote content is never loaded. Folder and message tables display remote text
