@@ -105,6 +105,33 @@ client must not reproduce that mutation. Repeated library reads should verify
 that unread state remains unchanged, rather than assuming the request flag is
 sufficient evidence of the entire end-to-end behavior.
 
+### Live Unread-State Verification
+
+On 2026-10-18, an authorized test used a newly delivered disposable email that
+had not been opened in Apple Mail or iCloud webmail. Before any body retrieval,
+read-only metadata queries using the server's `SEEN` predicate placed the test
+message in unread results and excluded it from read results. The read and unread
+result sets were disjoint and together matched the independent Inbox listing;
+the test did not assume a numeric bit value for the seen flag.
+
+The test retrieved the same message body first through `MailService.body()` and
+then through `icloud mail body`. After each retrieval, the message remained in
+the server's unread results, remained absent from read results, and retained
+exactly the original numeric flags. A further check after a two-second delay
+confirmed the same state. No flag-changing, send, move, or delete requests were
+made by the test. The disposable message was left unread; no cleanup mutation
+was needed.
+
+This closes the previously unverified unread-body path for the tested account,
+not a guarantee for every account, future server version, message type, or
+longer observation period. Verification used server metadata rather than an
+independent UI check, and the earlier already-read PDF test alone did not
+establish unread preservation. TLS verification stayed enabled through a
+process-local bundle containing the normal CA roots and Proxyman's installed
+public CA certificate. No global trust or package defaults changed. Private
+message content, identifiers, account details, and session data remain outside
+the repository.
+
 Treat message HTML as untrusted content. Returning HTML as data is distinct
 from rendering it, opening remote images, or executing scripts. The first
 release should not implement an HTML viewer.
@@ -177,12 +204,33 @@ identifier: 356 unique messages. Subsequent metadata requests cover all 356.
 Deduplication is required even in this successful example.
 
 Other query responses include `continuationMarker`, but no captured request
-submits that marker. A complete continuation handshake is not established.
+submits that marker. A complete opaque-marker handshake is not established.
 The date-cutoff example does not prove safe enumeration beyond the 1,000-record
-limit or across equal timestamps. Do not implement an unbounded iterator that
-silently drops boundary records or falsely claims complete results. A first
-release should expose bounded results and explicit completeness limitations
-until a reliable continuation strategy is verified.
+limit or across equal timestamps.
+
+Additional authorized, read-only checks on 2026-10-18 used the library's own
+session, not browser credentials. With a date ordering and limit of two, both
+`message/list` and `geqs/query` returned two records with no continuation marker
+from mailboxes known to contain more messages. Marker absence therefore cannot
+establish exhaustion. Ordering `message/list` by `uid` descending and adding a
+`type: "lt"` predicate on `uid` returned strictly lower UIDs on the next page in
+both Inbox and Sent. Those responses included markers, but UID-boundary paging
+does not require interpreting or replaying them.
+
+The explicit `iter_messages()` path uses the verified UID comparison rather
+than an unverified date cutoff or opaque-marker handshake. It validates page
+ordering and identity, checks mailbox UID validity around reads, and requires an
+empty terminal response. A request budget fails explicitly instead of silently
+truncating. Bounded `messages()` and `search()` retain their previous semantics.
+This remains a live scan, not an atomic snapshot, and the mailbox checks cannot
+detect every concurrent change. See the Mail guide for the full limitations.
+
+The same day's read-only comparison exhausted seven Inbox records and 357 Sent
+records, ending on empty pages and matching independent bounded listings without
+duplicates. The implemented library iterator matched the Sent baseline and CLI
+`mail list --all` matched the Inbox baseline. No bodies or mutations were used.
+These live baselines fit within 1,000 records; larger-mailbox coverage currently
+comes from synthetic offline tests, not a live mailbox exceeding that size.
 
 ## Synchronization and Failures
 

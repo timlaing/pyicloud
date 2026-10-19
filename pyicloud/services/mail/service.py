@@ -22,6 +22,7 @@ from pyicloud.services.mail.models import (
     MailFolder,
     MailMessage,
     MailMessagePage,
+    MailMessageRecord,
     MailOrder,
     MailPredicate,
     MailQuery,
@@ -34,6 +35,7 @@ from pyicloud.session import PyiCloudSession
 
 DEFAULT_TIMEOUT = (10.0, 60.0)
 MAX_RESULTS = 1000
+_RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
@@ -60,7 +62,7 @@ _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
 
 
 class MailError(PyiCloudException):
-    """An invalid Mail response or a failed attachment stream."""
+    """An invalid response, incomplete enumeration, or failed attachment stream."""
 
 
 def validate_mail_endpoint(service_root: str) -> None:
@@ -105,12 +107,47 @@ def _folder_predicate(folder: MailFolder) -> MailPredicate:
     )
 
 
-class MailService(BaseService):
-    """Bounded Mail reads using the discovered mccgateway endpoint.
+def _unique_uid_records(records: list[MailMessageRecord]) -> list[MailMessageRecord]:
+    """Deduplicate exact identities while rejecting contradictory UID mappings."""
+    by_uid: dict[int, MailMessageRecord] = {}
+    identifiers: set[str] = set()
+    for record in records:
+        existing = by_uid.get(record.uid)
+        if existing is not None:
+            if existing.id != record.id:
+                raise MailError("Mail returned conflicting identities for a UID")
+            continue
+        if record.id in identifiers:
+            raise MailError("Mail returned one message identifier for multiple UIDs")
+        by_uid[record.uid] = record
+        identifiers.add(record.id)
+    return list(by_uid.values())
 
-    Results are snapshots. No implicit paging, mutations, HTML rendering, or
-    incremental synchronization is performed. Session authentication failures
-    retain the library's existing exception types.
+
+def _uid_page(
+    records: list[MailMessageRecord], folder: MailFolder, before: int | None, size: int
+) -> list[MailMessageRecord]:
+    """Validate a whole UID page before any of its records can be yielded."""
+    if len(records) > size:
+        raise MailError(_RESULT_LIMIT_EXCEEDED)
+    if any(record.mailbox.id != folder.id for record in records):
+        raise MailError("Mail returned a message from another folder")
+    if before is not None and any(record.uid >= before for record in records):
+        raise MailError("Mail did not honor the UID paging boundary")
+    unique = _unique_uid_records(records)
+    if any(
+        left.uid <= right.uid for left, right in zip(unique, unique[1:], strict=False)
+    ):
+        raise MailError("Mail did not return descending UID order")
+    return unique
+
+
+class MailService(BaseService):
+    """Read-only Mail with bounded reads and explicit UID-based enumeration.
+
+    Bounded methods remain snapshots; only ``iter_messages`` opts into paging.
+    No mutations, HTML rendering, or incremental synchronization are performed.
+    Session authentication failures retain the library's existing exception types.
     """
 
     def __init__(
@@ -191,7 +228,7 @@ class MailService(BaseService):
         messages: list[MailMessage] = []
         seen: set[str] = set()
         if len(response.records) > limit:
-            raise MailError("Mail exceeded the requested result limit")
+            raise MailError(_RESULT_LIMIT_EXCEEDED)
         for record in response.records:
             if record.mailbox.id != folder.id:
                 raise MailError("Mail returned a message from another folder")
@@ -199,6 +236,83 @@ class MailService(BaseService):
                 messages.append(MailMessage(**record.model_dump(), folder=folder))
                 seen.add(record.id)
         return MailMessagePage(messages=messages, limit=limit)
+
+    def _checked_mailbox(self, folder: MailFolder) -> MailFolder:
+        """Reject a disappeared or recreated mailbox before exposing page data."""
+        current = next((item for item in self.folders() if item.id == folder.id), None)
+        if current is None or current.uid_validity != folder.uid_validity:
+            raise MailError(
+                "Mailbox identity changed; refresh folders and restart enumeration"
+            )
+        return current
+
+    def iter_messages(
+        self, folder: MailFolder, *, page_size: int = 50, max_pages: int = 10000
+    ) -> Iterator[MailMessage]:
+        """Exhaust live metadata in descending UID order, not an atomic snapshot.
+
+        Each page has at most ``page_size`` records. An empty page establishes
+        exhaustion; short pages and opaque server markers do not. The budget
+        includes the terminal empty request and raises rather than truncating.
+        A changed UID validity or inconsistent page aborts enumeration. Earlier
+        yielded records cannot be retracted after a later failure. No bodies,
+        mutations, retries, or background prefetches are performed.
+        """
+        _limit(page_size)
+        if (
+            isinstance(max_pages, bool)
+            or not isinstance(max_pages, int)
+            or max_pages < 1
+        ):
+            raise ValueError("max_pages must be a positive integer")
+        if folder.uid_validity is None or folder.uid_validity < 1:
+            raise ValueError(
+                "A positive mailbox UID validity is required; refresh folders"
+            )
+        current = self._checked_mailbox(folder)
+        before: int | None = None
+        seen: set[str] = set()
+        for _ in range(max_pages):
+            predicate = _folder_predicate(current)
+            if before is not None:
+                predicate = predicate.model_copy(
+                    update={
+                        "and_": [
+                            *(predicate.and_ or []),
+                            MailPredicate(
+                                type="lt",
+                                expression=MailExpression(
+                                    type="property", property="uid"
+                                ),
+                                value=before,
+                            ),
+                        ]
+                    }
+                )
+            response = self._post(
+                "message/list",
+                MailQuery(
+                    domain="email",
+                    properties=_HEADER_PROPERTIES,
+                    predicate=predicate,
+                    limit=page_size,
+                    orderby=MailOrder(
+                        expressions=[MailExpression(type="property", property="uid")]
+                    ),
+                ),
+                MessageResponse,
+            )
+            current = self._checked_mailbox(folder)
+            records = _uid_page(response.records, current, before, page_size)
+            if not records:
+                return
+            if any(record.id in seen for record in records):
+                raise MailError("Mail repeated a message identifier across UID pages")
+            seen.update(record.id for record in records)
+            before = records[-1].uid
+            for record in records:
+                yield MailMessage(**record.model_dump(), folder=current)
+        raise MailError("Mail page budget exhausted; enumeration is incomplete")
 
     def search(
         self,
@@ -247,7 +361,7 @@ class MailService(BaseService):
             SearchResponse,
         )
         if len(response.records) > limit:
-            raise MailError("Mail exceeded the requested result limit")
+            raise MailError(_RESULT_LIMIT_EXCEEDED)
         return MailSearchPage(results=response.records, limit=limit)
 
     def body(self, message: MailMessage) -> MailBody:

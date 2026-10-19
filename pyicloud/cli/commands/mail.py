@@ -41,6 +41,15 @@ LimitOption = Annotated[
         "--limit", min=1, max=1000, help="Maximum messages or thread hits to fetch."
     ),
 ]
+ListLimitOption = Annotated[
+    int,
+    typer.Option(
+        "--limit",
+        min=1,
+        max=1000,
+        help="Total messages to fetch; with --all, the per-request page size.",
+    ),
+]
 LookupLimitOption = Annotated[
     int,
     typer.Option(
@@ -177,7 +186,12 @@ def mail_folders(
 def mail_list(
     ctx: typer.Context,
     folder_id: FolderOption,
-    limit: LimitOption = 50,
+    limit: ListLimitOption = 50,
+    all_messages: bool = typer.Option(
+        False,
+        "--all",
+        help="Exhaust UID paging; --limit becomes the per-request page size.",
+    ),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -186,7 +200,7 @@ def mail_list(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
-    """List a bounded metadata snapshot, including MIME parts in JSON output."""
+    """List metadata, bounded by default; explicitly opt into UID paging with --all."""
     store_command_options(
         ctx,
         username=username,
@@ -199,17 +213,36 @@ def mail_list(
     )
     state, api, mail = _context(ctx)
     folder = _folder(api, mail, folder_id)
-    payload = _mail_call(api, lambda: mail.messages(folder, limit=limit))
-    if state.json_output:
-        state.write_json(payload)
-        return
+    if all_messages:
+        messages = _mail_call(
+            api, lambda: list(mail.iter_messages(folder, page_size=limit))
+        )
+        if state.json_output:
+            state.write_json({
+                "messages": messages,
+                "page_size": limit,
+                "exhausted": True,
+            })
+            return
+    else:
+        payload = _mail_call(api, lambda: mail.messages(folder, limit=limit))
+        messages = payload.messages
+        if state.json_output:
+            state.write_json(payload)
+            return
     _table(
         state,
-        "Mail Messages (Bounded Snapshot)",
+        "Mail Messages (UID Enumeration)"
+        if all_messages
+        else "Mail Messages (Bounded Snapshot)",
         ["ID", "From", "Subject"],
-        [(message.id, message.sender, message.subject) for message in payload.messages],
+        [(message.id, message.sender, message.subject) for message in messages],
     )
-    state.console.print("Incomplete snapshot; no additional pages were fetched.")
+    state.console.print(
+        "UID range exhausted; concurrent changes are not an atomic snapshot."
+        if all_messages
+        else "Incomplete snapshot; no additional pages were fetched."
+    )
 
 
 @app.command("search")

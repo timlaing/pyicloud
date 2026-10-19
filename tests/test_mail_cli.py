@@ -4,6 +4,7 @@ from collections.abc import Iterator
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory, gettempdir
+from typing import Any
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -166,6 +167,7 @@ def test_mail_list(mail: MagicMock, output_format: str) -> None:
     )
     assert result.exit_code == 0, result.exception
     mail.messages.assert_called_once_with(mail.folders.return_value[0], limit=20)
+    mail.iter_messages.assert_not_called()
     if output_format == "json":
         payload = json.loads(result.stdout)
         assert payload["complete"] is False
@@ -173,6 +175,54 @@ def test_mail_list(mail: MagicMock, output_format: str) -> None:
     else:
         assert "[bold]" in result.stdout
         assert "Incomplete snapshot" in result.stdout
+
+
+@pytest.mark.parametrize("output_format", ["text", "json"])
+def test_mail_list_all(mail: MagicMock, output_format: str) -> None:
+    """Explicit all mode exhausts UID iteration, without changing bounded defaults."""
+    messages = mail.messages.return_value.messages
+    mail.iter_messages.return_value = iter(messages)
+    result = invoke(
+        mail,
+        "list",
+        "--folder-id",
+        "folder-1",
+        "--all",
+        "--limit",
+        "2",
+        "--format",
+        output_format,
+    )
+    assert result.exit_code == 0, result.exception
+    mail.iter_messages.assert_called_once_with(
+        mail.folders.return_value[0], page_size=2
+    )
+    mail.messages.assert_not_called()
+    if output_format == "json":
+        payload = json.loads(result.stdout)
+        assert payload["exhausted"] is True
+        assert payload["page_size"] == 2
+        assert payload["messages"][0]["id"] == "message-1"
+        assert "complete" not in payload
+    else:
+        assert "UID range exhausted" in result.stdout
+        assert "not an atomic snapshot" in result.stdout
+
+
+def test_mail_list_all_failure_never_prints_success(mail: MagicMock) -> None:
+    """A partial iterator failure does not produce successful or partial JSON."""
+
+    def messages() -> Iterator[Any]:
+        """Fail after a first synthetic record, as a later page could."""
+        yield mail.messages.return_value.messages[0]
+        raise MailError("Enumeration incomplete")
+
+    mail.iter_messages.return_value = messages()
+    result = invoke(
+        mail, "list", "--folder-id", "folder-1", "--all", "--format", "json"
+    )
+    assert isinstance(result.exception, CLIAbort)
+    assert result.stdout == ""
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
