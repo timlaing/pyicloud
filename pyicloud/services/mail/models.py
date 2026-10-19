@@ -121,6 +121,7 @@ class MessageResponse(MailModel):
     """Required message query envelope."""
 
     records: list[MailMessageRecord] = Field(alias="domainObjects")
+    continuation_marker: str | None = Field(default=None, alias="continuationMarker")
 
 
 class SearchResponse(MailModel):
@@ -142,7 +143,7 @@ class MailPredicate(MailModel):
 
     type: Literal["eq", "textMatch"]
     expression: MailExpression
-    value: str | bool
+    value: str | bool | int
     and_: list[MailPredicate] | None = Field(default=None, serialization_alias="and")
     or_: list[MailPredicate] | None = Field(default=None, serialization_alias="or")
 

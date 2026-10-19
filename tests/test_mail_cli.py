@@ -48,6 +48,7 @@ def mail_fixture() -> MagicMock:
     mail = MagicMock(spec=MailService)
     mail.folders.return_value = [folder]
     mail.messages.return_value = MailMessagePage(messages=[message], limit=50)
+    mail.message.return_value = message
     mail.search.return_value = MailSearchPage(
         results=[MailSearchHit(identifier="thread-1", subject="Example", count=1)],
         limit=50,
@@ -220,6 +221,40 @@ def test_mail_body(mail: MagicMock, output_format: str) -> None:
     assert payload["parts"][0]["content"].startswith("<script>")
     mail.messages.assert_called_once_with(mail.folders.return_value[0], limit=30)
     mail.body.assert_called_once_with(mail.messages.return_value.messages[0])
+    mail.message.assert_not_called()
+
+
+@pytest.mark.parametrize("output_format", ["text", "json"])
+def test_body_defaults_to_exact_lookup(mail: MagicMock, output_format: str) -> None:
+    """An older ID is resolved without listing the newest messages or paging."""
+    result = invoke(
+        mail, "body", "message-1", "--folder-id", "folder-1", "--format", output_format
+    )
+    assert result.exit_code == 0, result.exception
+    mail.message.assert_called_once_with(mail.folders.return_value[0], "message-1")
+    mail.messages.assert_not_called()
+    mail.body.assert_called_once_with(mail.message.return_value)
+    assert json.loads(result.stdout)["parts"]
+
+
+def test_missing_exact_message_never_falls_back_to_scanning(mail: MagicMock) -> None:
+    """Missing IDs and thread IDs do not cause broader mailbox reads."""
+    mail.message.return_value = None
+    result = invoke(mail, "body", "thread-1", "--folder-id", "folder-1")
+    assert isinstance(result.exception, CLIAbort)
+    assert "not found" in str(result.exception)
+    assert "threads" in str(result.exception)
+    mail.messages.assert_not_called()
+    mail.body.assert_not_called()
+
+
+def test_exact_lookup_failure_is_user_facing(mail: MagicMock) -> None:
+    """Identity failures abort body retrieval with a concise error."""
+    mail.message.side_effect = MailError("Mailbox identity changed")
+    result = invoke(mail, "body", "message-1", "--folder-id", "folder-1")
+    assert isinstance(result.exception, CLIAbort)
+    assert "Mailbox identity changed" in str(result.exception)
+    mail.body.assert_not_called()
 
 
 @pytest.mark.parametrize("command", ["list", "search", "body", "download"])
@@ -305,7 +340,10 @@ def test_mail_service_absence_is_user_facing() -> None:
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
-def test_mail_download(mail: MagicMock, output_dir: Path, output_format: str) -> None:
+@pytest.mark.parametrize("limit", [None, 2])
+def test_mail_download(
+    mail: MagicMock, output_dir: Path, output_format: str, limit: int | None
+) -> None:
     """Only the explicit path is used, never a remote traversal filename."""
     output = output_dir / "chosen.pdf"
     result = invoke(
@@ -320,12 +358,19 @@ def test_mail_download(mail: MagicMock, output_dir: Path, output_format: str) ->
         str(output),
         "--format",
         output_format,
+        *([] if limit is None else ["--limit", str(limit)]),
     )
     assert result.exit_code == 0, result.exception
     assert output.read_bytes() == b"%PDF-example"
     assert list(output_dir.iterdir()) == [output]
     mail.attachment.assert_called_once_with(mail.messages.return_value.messages[0], "2")
     mail.attachment.return_value.__exit__.assert_called_once()
+    if limit is None:
+        mail.message.assert_called_once_with(mail.folders.return_value[0], "message-1")
+        mail.messages.assert_not_called()
+    else:
+        mail.messages.assert_called_once_with(mail.folders.return_value[0], limit=limit)
+        mail.message.assert_not_called()
     if output_format == "json":
         assert json.loads(result.stdout)["size"] == 12
     else:

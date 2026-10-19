@@ -200,6 +200,79 @@ class MailService(BaseService):
                 seen.add(record.id)
         return MailMessagePage(messages=messages, limit=limit)
 
+    def message(self, folder: MailFolder, message_id: str) -> MailMessage | None:
+        """Look up one exact message ID in a verified mailbox, without scanning.
+
+        Return None when no matching non-deleted message exists. The folder
+        must have positive UID validity from folders(); a changed namespace,
+        ambiguous response, or inconsistent identity raises MailError.
+        """
+        if not isinstance(message_id, str) or not message_id.strip():
+            raise ValueError("message_id must be a non-empty string")
+        return self._lookup_message(folder, "identifier", message_id)
+
+    def message_by_uid(self, folder: MailFolder, uid: int) -> MailMessage | None:
+        """Look up a folder-local UID, guarded by the folder's UID validity.
+
+        A UID alone is not a globally unique message ID. Use a fresh folder
+        from folders() and retain its UID validity with any saved UID.
+        """
+        if isinstance(uid, bool) or not isinstance(uid, int) or uid < 1:
+            raise ValueError("uid must be a positive integer")
+        return self._lookup_message(folder, "uid", uid)
+
+    def _checked_mailbox(self, folder: MailFolder) -> MailFolder:
+        """Reject a disappeared or recreated mailbox before exposing metadata."""
+        current = next((item for item in self.folders() if item.id == folder.id), None)
+        if current is None or current.uid_validity != folder.uid_validity:
+            raise MailError(
+                "Mailbox identity changed; refresh folders and restart the operation"
+            )
+        return current
+
+    def _lookup_message(
+        self, folder: MailFolder, field: Literal["identifier", "uid"], value: str | int
+    ) -> MailMessage | None:
+        """Validate an exact metadata response before binding a UID to a folder."""
+        if folder.uid_validity is None or folder.uid_validity < 1:
+            raise ValueError(
+                "A positive mailbox UID validity is required; refresh folders"
+            )
+        current = self._checked_mailbox(folder)
+        predicate = _folder_predicate(current)
+        predicate = predicate.model_copy(
+            update={
+                "and_": [
+                    *(predicate.and_ or []),
+                    MailPredicate(
+                        type="eq",
+                        expression=MailExpression(type="property", property=field),
+                        value=value,
+                    ),
+                ]
+            }
+        )
+        response = self._post(
+            "message/list",
+            MailQuery(
+                domain="email",
+                properties=_HEADER_PROPERTIES,
+                predicate=predicate,
+                limit=2,
+            ),
+            MessageResponse,
+        )
+        current = self._checked_mailbox(folder)
+        if response.continuation_marker or len(response.records) > 1:
+            raise MailError("Mail lookup returned an ambiguous or incomplete response")
+        if not response.records:
+            return None
+        record = response.records[0]
+        actual = record.id if field == "identifier" else record.uid
+        if record.mailbox.id != folder.id or actual != value:
+            raise MailError("Mail lookup returned a different message or folder")
+        return MailMessage(**record.model_dump(), folder=current)
+
     def search(
         self,
         folder: MailFolder,
