@@ -122,6 +122,45 @@ def _folder_predicate(folder: MailFolder) -> MailPredicate:
     )
 
 
+def _validate_uid_scan(folder: MailFolder, page_size: int, max_pages: int) -> None:
+    """Validate a UID scan before checking mailbox identity or reading metadata."""
+    _limit(page_size)
+    if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
+        raise ValueError("max_pages must be a positive integer")
+    if folder.uid_validity is None or folder.uid_validity < 1:
+        raise ValueError("A positive mailbox UID validity is required; refresh folders")
+
+
+def _uid_query(
+    folder: MailFolder,
+    page_size: int,
+    before: int | None,
+    match: MailPredicate | None,
+) -> MailQuery:
+    """Retain the selected scope while adding a strict descending UID boundary."""
+    predicate = _folder_predicate(folder)
+    clauses = list(predicate.and_ or [])
+    if match is not None:
+        clauses.append(match)
+    if before is not None:
+        clauses.append(
+            MailPredicate(
+                type="lt",
+                expression=MailExpression(type="property", property="uid"),
+                value=before,
+            )
+        )
+    return MailQuery(
+        domain="email",
+        properties=_HEADER_PROPERTIES,
+        predicate=predicate.model_copy(update={"and_": clauses}),
+        limit=page_size,
+        orderby=MailOrder(
+            expressions=[MailExpression(type="property", property="uid")]
+        ),
+    )
+
+
 def _search_fields(text: str, field: SearchField, limit: int) -> tuple[str, ...]:
     """Validate a bounded text query before any request is sent."""
     _limit(limit)
@@ -403,52 +442,14 @@ class MailService(BaseService):
         thread_id: str | None = None,
     ) -> Iterator[MailMessage]:
         """Share UID progress, exhaustion and mailbox guards across read scopes."""
-        _limit(page_size)
-        if (
-            isinstance(max_pages, bool)
-            or not isinstance(max_pages, int)
-            or max_pages < 1
-        ):
-            raise ValueError("max_pages must be a positive integer")
-        if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+        _validate_uid_scan(folder, page_size, max_pages)
         current = self._checked_mailbox(folder)
         before: int | None = None
         seen: set[str] = set()
         for _ in range(max_pages):
-            predicate = _folder_predicate(current)
-            if match is not None:
-                predicate = predicate.model_copy(
-                    update={"and_": [*(predicate.and_ or []), match]}
-                )
-            if before is not None:
-                predicate = predicate.model_copy(
-                    update={
-                        "and_": [
-                            *(predicate.and_ or []),
-                            MailPredicate(
-                                type="lt",
-                                expression=MailExpression(
-                                    type="property", property="uid"
-                                ),
-                                value=before,
-                            ),
-                        ]
-                    }
-                )
             response = self._post(
                 _MESSAGE_LIST,
-                MailQuery(
-                    domain="email",
-                    properties=_HEADER_PROPERTIES,
-                    predicate=predicate,
-                    limit=page_size,
-                    orderby=MailOrder(
-                        expressions=[MailExpression(type="property", property="uid")]
-                    ),
-                ),
+                _uid_query(current, page_size, before, match),
                 MessageResponse,
             )
             current = self._checked_mailbox(folder)

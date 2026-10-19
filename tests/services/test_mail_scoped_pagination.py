@@ -108,7 +108,8 @@ def test_scoped_pages_keep_predicates_and_require_empty_terminator(
             assert clauses[2]["value"] == [9, 7][index - 1]
         assert query["orderby"]["expressions"][0]["property"] == "uid"
         assert query["orderby"]["ascending"] is False
-        assert "collapseOn" not in query and "continuationMarker" not in query
+        assert "collapseOn" not in query
+        assert "continuationMarker" not in query
     for page in pages:
         page.close.assert_called_once()
     session.get.assert_not_called()
@@ -140,8 +141,9 @@ def test_invalid_scope_pages_never_yield_partial_metadata(
     """Validate the entire response before exposing a scoped record."""
     _, session, _, _, _ = scoped
     session.post.return_value = response(*records)
+    iterator = scan(scoped)
     with pytest.raises(MailError, match=reason):
-        next(scan(scoped))
+        next(iterator)
 
 
 @pytest.mark.parametrize("wrong_thread", [None, "another-thread"])
@@ -153,11 +155,10 @@ def test_wrong_thread_even_on_duplicate_is_rejected(wrong_thread: str | None) ->
     session.post.return_value = response(
         record(10), record(10, appleThrid=wrong_thread)
     )
-    with (
-        patch.object(service, "folders", return_value=[folder]),
-        pytest.raises(MailError, match="another thread"),
-    ):
-        next(service.iter_thread_messages(folder, "synthetic-thread"))
+    with patch.object(service, "folders", return_value=[folder]):
+        iterator = service.iter_thread_messages(folder, "synthetic-thread")
+        with pytest.raises(MailError, match="another thread"):
+            next(iterator)
 
 
 @pytest.mark.parametrize("during_page", [False, True])
@@ -169,8 +170,9 @@ def test_changed_mailbox_aborts_scoped_scan(
     replacement = folder.model_copy(update={"uid_validity": 4321})
     folders.side_effect = [[folder], [replacement]] if during_page else [[replacement]]
     session.post.return_value = response(record(10))
+    iterator = scan(scoped)
     with pytest.raises(MailError, match="identity changed"):
-        next(scan(scoped))
+        next(iterator)
     assert session.post.call_count == int(during_page)
 
 
@@ -201,8 +203,9 @@ def test_invalid_options_make_no_requests(
 ) -> None:
     """All scopes share strict page size and budget validation."""
     _, session, folders, _, _ = scoped
+    iterator = scan(scoped, **option)
     with pytest.raises(ValueError):
-        list(scan(scoped, **option))
+        list(iterator)
     session.post.assert_not_called()
     folders.assert_not_called()
 
@@ -213,11 +216,13 @@ def test_invalid_scope_makes_no_requests(value: Any) -> None:
     folder = MailFolder(identifier="10", name="INBOX", uidValidity=1234)
     session = MagicMock(spec=PyiCloudSession)
     service = MailService("https://example.test", session, {})
+    iterator = service.iter_filtered_messages(folder, filter_by=value)
     with pytest.raises(ValueError, match="filter_by"):
-        list(service.iter_filtered_messages(folder, filter_by=value))
+        list(iterator)
     if value != "all":
+        iterator = service.iter_thread_messages(folder, value)
         with pytest.raises(ValueError, match="thread_id"):
-            list(service.iter_thread_messages(folder, value))
+            list(iterator)
     session.post.assert_not_called()
 
 
