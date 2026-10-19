@@ -9,6 +9,10 @@ Load these fixtures through `tests.fixture_loader.load_fixture` so reads respect
 the test filesystem sandbox. Search results are thread-grouped; listing fixtures
 represent bounded snapshots, not a complete synchronization protocol.
 
+`message_lookup_response.json` models a single exact metadata result verified
+by controlled, read-only ID and UID queries. Its IDs and message fields are
+synthetic; it is not a copied account response.
+
 `messages_uid_page_response.json` models a UID-ordered metadata page with equal
 dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
 an explicit empty terminal page; the marker is not a synchronization cursor.

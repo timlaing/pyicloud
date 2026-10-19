@@ -51,12 +51,12 @@ ListLimitOption = Annotated[
     ),
 ]
 LookupLimitOption = Annotated[
-    int,
+    int | None,
     typer.Option(
         "--limit",
         min=1,
         max=1000,
-        help="Look for the message only within this many newest folder messages.",
+        help="Search only the newest N messages instead of using exact ID lookup.",
     ),
 ]
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
@@ -97,10 +97,27 @@ def _folder(api: PyiCloudService, mail: MailService, folder_id: str) -> MailFold
 
 
 def _message(
-    api: PyiCloudService, mail: MailService, folder_id: str, message_id: str, limit: int
+    api: PyiCloudService,
+    mail: MailService,
+    folder_id: str,
+    message_id: str,
+    limit: int | None,
 ) -> MailMessage:
-    """Look up a message in one bounded, folder-specific metadata snapshot."""
+    """Resolve an exact message ID, preserving explicitly bounded legacy lookups."""
     folder = _folder(api, mail, folder_id)
+    if limit is None:
+        if folder.uid_validity is None or folder.uid_validity < 1:
+            raise CLIAbort(
+                "Exact lookup needs a folder with UID validity. "
+                "Use --limit N to search the newest N folder messages."
+            )
+        message = _mail_call(api, lambda: mail.message(folder, message_id))
+        if message is not None:
+            return cast(MailMessage, message)
+        raise CLIAbort(
+            "Message not found in this folder. Check --folder-id and the message "
+            "ID from mail list. Search IDs identify threads, not messages."
+        )
     page = _mail_call(api, lambda: mail.messages(folder, limit=limit))
     for message in page.messages:
         if message.id == message_id:
@@ -301,7 +318,7 @@ def mail_body(
     ctx: typer.Context,
     folder_id: FolderOption,
     message_id: str = typer.Argument(..., help="Message ID from mail list."),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -341,7 +358,7 @@ def mail_download(
     output: Path = typer.Option(
         ..., "--output", help="New destination file in an existing directory."
     ),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,

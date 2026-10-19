@@ -91,6 +91,27 @@ Distinguish message identifiers, folder-local UIDs, thread identifiers, and
 mailbox identifiers in models and method arguments. No capture establishes
 identifier stability across every move, restore, or mailbox recreation.
 
+### Exact Metadata Lookup Verification
+
+On 2026-10-19, controlled read-only requests verified `POST message/list` with
+an additional `eq` predicate on the `identifier` or `uid` property, combined
+with the existing mailbox predicate and `DELETED == false` filter. The UID is
+a JSON integer; the message identifier is a JSON string. Requests used a limit
+of two to detect ambiguous matches rather than selecting the first result.
+
+Both identity forms returned the same known older Sent message, independently
+confirmed to be outside the newest 50-message listing. A wrong-folder ID query,
+a synthetic absent ID, and an absent UID returned empty `domainObjects` arrays.
+All five requests returned HTTP 200, and mailbox UID validity was unchanged.
+No bodies, flag changes, or other mutations were requested.
+
+This protocol check used an authenticated session, not a new browser capture.
+The original browser HAR was no longer available locally, and Proxyman was
+closed. The evidence establishes these exact metadata queries on one account,
+not arbitrary cross-folder identity stability. Raw requests, message metadata,
+and account identifiers remain outside Git. The implementation checks the
+mailbox epoch on both sides of lookup and rejects inconsistent responses.
+
 ## Message Bodies and Read State
 
 `message/get` requests a UID and selected MIME part identifiers, with folder
