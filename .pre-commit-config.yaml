@@ -124,6 +124,11 @@ repos:
         args:
           - "-rn" # Only display messages
           - "-sn" # Don't display the score
+          # Force single-process analysis: with jobs > 1 pylint splits the
+          # module graph across workers, so cross-module inference can fail
+          # depending on which worker gets which file (e.g. C0103 false
+          # positives on class constants assigned via an instance).
+          - "-j1"
         types: [python]
         language: python
         additional_dependencies:
