@@ -1,0 +1,40 @@
+{
+  "domainObjects": [
+    {
+      "identifier": "synthetic-message-a",
+      "uid": 7,
+      "mboxRef": { "id": "10", "type": "mailbox" },
+      "appleThrid": "synthetic-thread-a",
+      "subject": "A synthetic attachment",
+      "from": "Example Sender <sender@example.test>",
+      "to": "recipient@example.test",
+      "flags": 0,
+      "stateInternalDate": 1700000000.125,
+      "rfc822Size": 2000,
+      "hasAttachment": true,
+      "parts": [
+        {
+          "partId": "1.1",
+          "contentType": "text/plain",
+          "encoding": "quoted-printable",
+          "attach": false,
+          "size": 20
+        },
+        {
+          "partId": "1.2",
+          "contentType": "text/html",
+          "attach": false,
+          "size": 30
+        },
+        {
+          "partId": "2",
+          "contentType": "application/pdf",
+          "encoding": "base64",
+          "fileName": "example.pdf",
+          "attach": true,
+          "size": 112008
+        }
+      ]
+    }
+  ]
+}

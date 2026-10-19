@@ -1,0 +1,10 @@
+{
+  "domainObjects": [
+    {
+      "identifier": "synthetic-message-a",
+      "subject": "Synthetic result",
+      "preview": "Invented preview",
+      "count": 2
+    }
+  ]
+}

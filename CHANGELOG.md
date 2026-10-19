@@ -10,16 +10,21 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Accept whitespace-padded plain-text and HTML body media types without changing the supported types or marking messages read.
+- Reject whitespace-padded HTML attachment responses and report advertised Mail endpoints with credentials, query strings, or fragments as malformed in diagnostics.
 - Parse the MFA bootstrap HTML when Apple's authentication endpoint returns HTTP 409, allowing two-factor authentication to continue instead of raising an API error containing the HTML page.
+- Keep an absent optional Mail endpoint visible in `icloud doctor` without failing the account check, and skip its unavailable probe with `--probe`; malformed advertised endpoints and missing required services still fail.
 
 ### Added
 
+- Add experimental read-only `PyiCloudService.mail` support for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Complete mailbox enumeration, mutations, and incremental synchronization are not supported.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
 
 ### Documentation
 
+- Document the observed iCloud Mail HTTP protocol research and capture limitations.
 - Reconcile the Invites design document with the shipped reads, CLI, RSVP image downloads, and cancellation support; document the entitlement flow and remaining owner-write limitations (#434).
 
 ## [2026.10.1] - 2026-10-15

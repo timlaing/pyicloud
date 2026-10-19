@@ -98,6 +98,47 @@ def test_a_needed_key_without_a_url_is_a_problem() -> None:
     assert services_at_risk(diagnose_webservices(advertised)) == ("devices",)
 
 
+def test_missing_optional_mail_is_visible_without_failing() -> None:
+    """An account without experimental Mail still passes ordinary diagnostics."""
+    advertised = _healthy_map()
+    del advertised["mccgateway"]
+
+    findings = diagnose_webservices(advertised)
+    finding = _finding(findings, "mccgateway")
+
+    assert finding.status is WebserviceStatus.MISSING
+    assert finding.needed
+    assert not finding.is_problem
+    assert "mail" in finding.detail
+    assert not webservice_problems(findings)
+    assert not services_at_risk(findings)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {},
+        {"url": "http://example.test"},
+        {"url": "https://user@example.test"},
+        {"url": "https://example.test/?q=1"},
+        {"url": "https://example.test/#fragment"},
+        {"url": "https://"},
+        {"url": "https://[invalid"},
+    ],
+)
+def test_advertised_malformed_mail_is_still_a_problem(entry: dict[str, str]) -> None:
+    """Optional absence does not hide a broken advertised Mail endpoint."""
+    advertised = _healthy_map()
+    advertised["mccgateway"] = entry
+
+    finding = _finding(diagnose_webservices(advertised), "mccgateway")
+
+    assert finding.status is WebserviceStatus.MALFORMED
+    assert finding.is_problem
+    assert finding.url is None
+    assert services_at_risk(diagnose_webservices(advertised)) == ("mail",)
+
+
 def test_an_unused_key_without_a_url_is_reported_but_not_a_problem() -> None:
     """The `schoolwork: {}` shape a live account actually returns.
 
@@ -184,7 +225,9 @@ def test_no_map_at_all_reports_every_key_missing(advertised: Any) -> None:
 
     assert len(findings) == len(WEBSERVICES)
     assert all(finding.status is WebserviceStatus.MISSING for finding in findings)
-    assert len(webservice_problems(findings)) == len(WEBSERVICES)
+    assert len(webservice_problems(findings)) == sum(
+        entry.required for entry in WEBSERVICES
+    )
 
 
 @pytest.mark.parametrize("entry", ["https://example.com", 42, [], None])
@@ -285,6 +328,7 @@ def test_probes_report_each_service_answering() -> None:
     api.notes.sync_cursor.assert_called_once()
     api.reminders.lists.assert_not_called()
     api.notes.folders.assert_not_called()
+    api.mail.folders.assert_called_once()
 
 
 def test_the_find_my_probe_does_not_ask_devices_to_report_location() -> None:
@@ -366,6 +410,30 @@ def test_a_withdrawn_endpoint_behind_a_healthy_host_fails_the_run() -> None:
     assert photos.status is ProbeStatus.GONE
     assert photos.is_failure
     assert probe_failures(results) == (photos,)
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_optional_mail_without_usable_endpoint_is_not_probed(malformed: bool) -> None:
+    """Optional absence is not a failure or a reason to access the service."""
+    advertised = _healthy_map()
+    if malformed:
+        advertised["mccgateway"] = {}
+    else:
+        del advertised["mccgateway"]
+    api = _probe_api()
+    mail = PropertyMock(side_effect=AssertionError("Mail must not be accessed"))
+    type(api).mail = mail
+
+    findings = diagnose_webservices(advertised)
+    results = probe_services(api, findings)
+    result = next(item for item in results if item.service == "mail")
+
+    mail.assert_not_called()
+    assert result.status is ProbeStatus.SKIPPED
+    assert result.elapsed_ms == 0
+    assert not probe_failures(results)
+    assert bool(webservice_problems(findings)) is malformed
+    api.calendar.get_calendars.assert_called_once()
 
 
 def test_probes_are_skipped_when_the_key_is_already_known_bad() -> None:

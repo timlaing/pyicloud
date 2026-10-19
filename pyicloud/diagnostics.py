@@ -25,13 +25,14 @@ import sys
 import time
 from typing import TYPE_CHECKING, Any
 
-from pyicloud.endpoints import WEBSERVICES, services_using
+from pyicloud.endpoints import WEBSERVICES, services_using, webservice
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
     PyiCloudFailedLoginException,
     PyiCloudServiceUnavailable,
 )
+from pyicloud.services.mail.service import validate_mail_endpoint
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance only
     from pyicloud.base import PyiCloudService
@@ -104,10 +105,14 @@ class WebserviceFinding:
         may still ask for it, so it is worth seeing, but Apple sending an empty
         entry for a service pyicloud does not wrap should not condemn the whole
         account.
+
+        Optional services may be absent, but an advertised unusable endpoint
+        still indicates a problem.
         """
 
         if self.status is WebserviceStatus.MISSING:
-            return True
+            entry = webservice(self.key)
+            return entry is None or entry.required
         return self.status is WebserviceStatus.MALFORMED and self.needed
 
 
@@ -151,6 +156,11 @@ def _describe_known(
         )
 
     url = _entry_url(entry)
+    if key == "mccgateway" and url is not None:
+        try:
+            validate_mail_endpoint(url)
+        except ValueError:
+            url = None
     if url is None:
         # Deliberately says what the condition means rather than which
         # exception it produces: Apple advertising a key broken is a different
@@ -323,8 +333,8 @@ def _probe_devices(api: PyiCloudService) -> object:
     return len(api.devices)
 
 
-#: One read per service property named in the inventory. Each is a GET or the
-#: service's own documented refresh; none of them writes.
+#: One read per service property named in the inventory. These include read-only
+#: POST queries and documented refreshes; none of them writes.
 SERVICE_PROBES: tuple[ServiceProbe, ...] = (
     ServiceProbe("account", "reads storage usage", lambda api: api.account.storage),
     ServiceProbe(
@@ -342,6 +352,7 @@ SERVICE_PROBES: tuple[ServiceProbe, ...] = (
         lambda api: len(api.hidemyemail),
     ),
     ServiceProbe("invites", "lists invite events", lambda api: api.invites.events()),
+    ServiceProbe("mail", "lists Mail folders", lambda api: api.mail.folders()),
     # sync_cursor() rather than a listing for the two zone-backed services: it
     # is a single token fetch and proves the same reachability. Listing
     # reminders took 28s against a real account, which is not a diagnostic.
@@ -385,7 +396,7 @@ def _blocked_services(findings: tuple[WebserviceFinding, ...]) -> frozenset[str]
 
     blocked: set[str] = set()
     for finding in findings:
-        if finding.is_problem:
+        if finding.status in (WebserviceStatus.MISSING, WebserviceStatus.MALFORMED):
             blocked.update(finding.powers)
     return frozenset(blocked)
 

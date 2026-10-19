@@ -1,4 +1,4 @@
-These fixtures back service tests that need stable CloudKit or rendering payloads.
+These fixtures back service tests that need stable API or rendering payloads.
 
 They are organized by service where practical:
 
@@ -10,6 +10,8 @@ They are organized by service where practical:
 - `notes/` contains synthetic Notes CloudKit fixtures and the Notes rendering
   fixture.
 - `reminders/` contains synthetic Reminders CloudKit fixtures.
+- `mail/` contains synthetic Mail HTTP envelopes for folders, message metadata,
+  bodies, and thread-grouped search results. Attachment bytes stay mocked.
 
 Tracked fixtures intentionally exclude raw HAR files, cookies, headers, account
 identifiers, live signed URLs, and binary media payloads. Any live captures used

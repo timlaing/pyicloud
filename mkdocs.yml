@@ -74,6 +74,7 @@ nav:
       - File Storage (Drive): services/drive.md
       - Photos: services/photos.md
       - Hide My Email: services/hidemyemail.md
+      - Mail (experimental): services/mail.md
       - Reminders: services/reminders.md
       - Notes: services/notes.md
       - Invites: services/invites.md
@@ -89,6 +90,7 @@ nav:
           - Drive: api/services/drive.md
           - Find My iPhone: api/services/findmyiphone.md
           - Hide My Email: api/services/hidemyemail.md
+          - Mail: api/services/mail.md
           - Photos: api/services/photos.md
           - Reminders: api/services/reminders.md
           - Notes: api/services/notes.md

@@ -5460,6 +5460,49 @@ def test_doctor_reports_a_healthy_account() -> None:
     assert "github.com/timlaing/pyicloud/issues" in text
 
 
+def test_doctor_missing_optional_mail_does_not_fail() -> None:
+    """The experimental Mail endpoint may be absent on a healthy account."""
+    advertised = _advertised_webservices()
+    del advertised["mccgateway"]
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 0
+    assert payload["ok"] is True
+    finding = next(
+        item for item in payload["webservices"] if item["key"] == "mccgateway"
+    )
+    assert finding["status"] == "missing"
+    assert finding["is_problem"] is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user@example.test",
+        "https://example.test/?q=1",
+        "https://example.test/#fragment",
+    ],
+)
+def test_doctor_rejects_unusable_mail_urls_without_probing(url: str) -> None:
+    """Ordinary diagnostics must reject roots the Mail service cannot use."""
+    advertised = _advertised_webservices()
+    advertised["mccgateway"] = {"url": url}
+
+    result = _invoke(_doctor_api(advertised), "doctor", output_format="json")
+    payload = json.loads(result.stdout)
+
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    finding = next(
+        item for item in payload["webservices"] if item["key"] == "mccgateway"
+    )
+    assert finding["status"] == "malformed"
+    assert finding["is_problem"] is True
+    assert finding["url"] is None
+
+
 def test_doctor_names_the_services_a_withdrawn_key_takes_down() -> None:
     """A missing key fails the run and reports the blast radius, not the key."""
 
@@ -5959,6 +6002,30 @@ def test_doctor_probe_calls_each_service_and_reports_it() -> None:
     # Find My must be read without pinging the user's hardware.
     services["devices"].__len__.assert_called_once()
     services["devices"].refresh.assert_not_called()
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_doctor_probe_skips_mail_without_usable_endpoint(malformed: bool) -> None:
+    """Missing Mail is harmless; malformed Mail still fails the map check."""
+    advertised = _advertised_webservices()
+    if malformed:
+        advertised["mccgateway"] = {}
+    else:
+        del advertised["mccgateway"]
+    fake_api, services = _probing_api(advertised)
+    services["mail"].folders.side_effect = AssertionError("Mail must not be probed")
+
+    result = _invoke(fake_api, "doctor", "--probe", output_format="json")
+    payload = json.loads(result.stdout)
+    probes = {item["service"]: item for item in payload["probes"]}
+
+    services["mail"].folders.assert_not_called()
+    services["calendar"].get_calendars.assert_called_once()
+    assert result.exit_code == int(malformed)
+    assert payload["ok"] is not malformed
+    assert probes["mail"]["status"] == "skipped"
+    assert probes["mail"]["is_failure"] is False
+    assert probes["calendar"]["status"] == "ok"
 
 
 def test_doctor_probe_fails_on_a_withdrawn_endpoint() -> None:

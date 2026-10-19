@@ -1,0 +1,18 @@
+{
+  "contentType": "multipart/alternative",
+  "events": [],
+  "guid": "message:INBOX/7",
+  "longHeader": "Subject: Synthetic message\r\n",
+  "parts": [
+    { "guid": "messagepart:INBOX/7-1.1", "content": "Synthetic plain text." },
+    { "guid": "messagepart:INBOX/7-1.2", "content": "<p>Synthetic HTML.</p>" }
+  ],
+  "sessionHeaders": {
+    "folder": "INBOX",
+    "modseq": 123,
+    "threadmodseq": 456,
+    "condstore": 1,
+    "qresync": 1,
+    "threadmode": 1
+  }
+}
