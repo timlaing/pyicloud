@@ -232,6 +232,44 @@ duplicates. The implemented library iterator matched the Sent baseline and CLI
 These live baselines fit within 1,000 records; larger-mailbox coverage currently
 comes from synthetic offline tests, not a live mailbox exceeding that size.
 
+## Offline Search Paging Candidate
+
+`pyicloud/services/mail/_search_pagination.py` contains a private state machine
+for hardening the date-based search candidate. It has no live adapter, exported
+symbol, service method, or CLI command. Existing bounded grouped search and
+mailbox enumeration are unchanged. All tests use synthetic in-memory metadata;
+no account data, captures, bodies, or binary assets are included.
+
+The source contract retains the same bound search, folder, non-deleted scope,
+and descending date order on every request. Ordinary pages continue strictly
+before an integer millisecond timestamp; boundary queries use the observed
+strict `gt(timestamp - 1)` / `lt(timestamp + 1)` bracket. Each page and its entire
+boundary bucket are validated before any of their metadata is yielded.
+
+Crucially, a short boundary response, absent continuation marker, or repeated
+identical response is not proof of exhaustion. `_SearchPage.boundary_exhausted`
+defaults to false. Only the closed-world test source can supply that evidence;
+no live HTTP adapter currently has verified grounds to do so. The candidate
+raises on unverified buckets, any continuation marker, raw buckets at the
+1,000-record ceiling (including duplicate-heavy responses), unsupported date
+precision/range, wrong scopes/order, conflicting metadata or identities, and
+changed or disappearing mailbox namespaces. It never silently truncates.
+
+The request budget counts ordinary, boundary, and empty-terminal requests.
+Earlier yielded metadata cannot be retracted on later failure. Detectable
+mutations such as a missing boundary member, a changed timestamp, or changed
+metadata fail before the affected page is yielded. Other changes can remain
+invisible: new matches above the cursor and disappearing older matches do not
+turn a live scan into an atomic snapshot. Synthetic tests explicitly model that
+limitation instead of claiming every concurrent change can be detected.
+
+Before exposing any search iterator publicly, establish how a real source can
+prove complete timestamp buckets, including tied and saturated buckets. Tests
+can verify enforcement of that contract, but cannot prove Apple's responses
+meet it. Do not satisfy the gate by setting the evidence flag for under-limit
+HTTP responses. Individual matching messages must remain distinct from the
+existing grouped search results.
+
 ## Synchronization and Failures
 
 `sessionHeaders` carry folder context, modification sequences and feature flags.
