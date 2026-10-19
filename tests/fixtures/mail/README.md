@@ -13,3 +13,7 @@ represent bounded snapshots, not a complete synchronization protocol.
 `appleThrid` within one folder. Its marker is synthetic and must not be treated
 as proof of completeness or followed automatically. The shape was verified
 with controlled read-only metadata queries; all record values are invented.
+
+`messages_uid_page_response.json` models a UID-ordered metadata page with equal
+dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
+an explicit empty terminal page; the marker is not a synchronization cursor.
