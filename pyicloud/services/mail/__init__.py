@@ -8,6 +8,7 @@ from .models import (
     MailPart,
     MailSearchHit,
     MailSearchPage,
+    MailThreadPage,
 )
 from .service import MailError, MailService
 
@@ -21,4 +22,5 @@ __all__ = [
     "MailSearchHit",
     "MailSearchPage",
     "MailService",
+    "MailThreadPage",
 ]

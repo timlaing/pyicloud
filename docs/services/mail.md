@@ -142,6 +142,40 @@ Results are grouped by thread, newest first, and are not interchangeable with
 `MailMessage` objects. A result count is not the number of matching individual
 messages. No cross-folder search or automatic result expansion is performed.
 
+## Thread Messages
+
+Expand a search-result thread ID into individual messages in the same folder:
+
+```python
+matches = api.mail.search(inbox, "example", field="subject", limit=50)
+if matches.results:
+    page = api.mail.thread_messages(inbox, matches.results[0].id, limit=50)
+    for message in page.messages:
+        print(message.id, message.uid, message.subject)
+```
+
+`thread_messages()` returns a `MailThreadPage` with `thread_id`, `messages`,
+`limit`, and `complete=False`. It fetches metadata only, including MIME part
+information, not bodies or attachments. Returned `MailMessage` objects retain
+their folder context and can be passed to the library's `body()` or
+`attachment()` methods explicitly.
+
+The thread ID is the opaque group ID from search, not a message ID or a subject
+line. Expansion includes non-deleted members of that thread in the **selected
+folder**, even if a member did not match the original search text. Messages in
+Sent, Archive, or another folder are not included automatically.
+
+Limits are 1 through 1,000, defaulting to 50; the request asks for newest-first
+metadata. Results are always incomplete snapshots. A short or empty response,
+an absent continuation marker, or a search hit's count does not establish a
+complete conversation. There is no automatic paging or cross-folder expansion.
+
+Use a folder from `folders()` with positive `uid_validity`. The service checks
+mailbox identity before and after the metadata request and raises `MailError`
+if the folder disappears or is recreated, or if returned identities, folder,
+thread, or response size violate the request. These checks do not make the
+result atomic against concurrent message changes.
+
 ## Attachments
 
 ```python
@@ -182,6 +216,7 @@ icloud mail folders --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail list --folder-id '<folder-id>' --all --limit 50 --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --limit 50 --format json
+icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
 icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
 ```
@@ -189,7 +224,10 @@ icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --outp
 Use exact folder IDs from `mail folders` and message IDs from `mail list`.
 JSON listings include MIME parts, attachment part IDs, and `complete: false`.
 Search returns **thread-group IDs**, which cannot be passed as message IDs to
-`body` or `download`. All six search fields described above are supported.
+`body` or `download`. Pass a thread ID to `mail thread` to retrieve bounded
+individual message metadata instead. Its JSON includes `thread_id`, `messages`,
+`limit`, and `complete: false`; text output also warns that the result is
+incomplete and folder-scoped. All six search fields described above are supported.
 
 `mail list --all` opts into UID enumeration; `--limit` then sets the **page
 size**, not the total number of messages. Successful JSON output has `messages`,
@@ -206,6 +244,10 @@ older messages. A missing match is an error, not an invitation to scan a mailbox
 For compatibility, supplying `--limit N` explicitly retains the earlier bounded
 lookup within the newest N folder messages (1 through 1,000). Omitting that flag
 uses exact lookup instead. Search IDs still identify threads, not messages.
+Exact lookup also retrieves older message IDs returned by `mail thread`; bounded
+lookups only apply when `--limit` is supplied explicitly. The library's returned
+`MailMessage` objects can be used for explicit body retrieval without another
+CLI lookup.
 
 Body output is escaped JSON data even in text mode: HTML is never rendered and
 remote content is never loaded. Folder and message tables display remote text

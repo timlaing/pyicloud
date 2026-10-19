@@ -8,6 +8,8 @@
 
 ::: pyicloud.services.mail.models.MailMessagePage
 
+::: pyicloud.services.mail.models.MailThreadPage
+
 ::: pyicloud.services.mail.models.MailSearchPage
 
 ::: pyicloud.services.mail.models.MailBody

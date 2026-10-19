@@ -212,6 +212,27 @@ must not be advertised as individual-message counts. Empty results are a
 successful `domainObjects: []` response. Captures do not establish exact-address,
 case-sensitivity, tokenization, phrase, or wildcard semantics for `textMatch`.
 
+### Folder-Scoped Thread Expansion Verification
+
+On 2026-10-19, saved search output was compared with message metadata and its
+group IDs matched `appleThrid` values. Proxyman was closed and the original
+`thread/list` request body was unavailable, so its payload was not guessed.
+Instead, controlled authenticated read-only checks verified the already used
+`message/list` query with an additional `eq` predicate on the `appleThrid`
+property, alongside the existing mailbox and `DELETED == false` predicates.
+
+One search-group ID expanded to two Inbox records and two Sent records, each
+matching an independent metadata listing for its own folder. A synthetic
+absent thread ID returned an empty result. Mailbox UID validity was unchanged;
+the baselines fit below 1,000 records. No bodies or mutations were requested.
+Raw requests, message records, and account identifiers remain outside Git.
+
+This establishes bounded, folder-scoped metadata expansion on one account,
+not the complete `thread/list` protocol or a cross-folder conversation API.
+Search counts describe matching grouped results and cannot establish the total
+number of thread members. Expansion must remain explicitly incomplete even for
+short/empty pages or when an opaque continuation marker is absent.
+
 ## Loading More Messages
 
 The Sent Messages capture demonstrates a two-stage listing strategy:
