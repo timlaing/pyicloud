@@ -225,9 +225,9 @@ class MailExpression(MailModel):
 class MailPredicate(MailModel):
     """Observed comparison and conjunction shape."""
 
-    type: Literal["eq", "textMatch"]
+    type: Literal["eq", "textMatch", "lt"]
     expression: MailExpression
-    value: str | bool
+    value: str | bool | int
     and_: list[MailPredicate] | None = Field(default=None, serialization_alias="and")
     or_: list[MailPredicate] | None = Field(default=None, serialization_alias="or")
 

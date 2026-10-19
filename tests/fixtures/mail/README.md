@@ -14,3 +14,7 @@ shapes derived from user-authorized browser captures on 2026-10-19. Preview
 identifiers, GUIDs, snippets, group IDs, timestamps, counts, and modification
 sequences are invented. Thread-filter results are groups, not per-message flag
 matches; the fixtures do not establish combined-filter or sync semantics.
+
+`messages_uid_page_response.json` models a UID-ordered metadata page with equal
+dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
+an explicit empty terminal page; the marker is not a synchronization cursor.

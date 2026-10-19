@@ -1,0 +1,17 @@
+{
+  "continuationMarker": "synthetic-marker-not-a-sync-token",
+  "domainObjects": [
+    {
+      "identifier": "synthetic-message-10",
+      "mboxRef": { "id": "10" },
+      "stateInternalDate": 1700000000.125,
+      "uid": 10
+    },
+    {
+      "identifier": "synthetic-message-9",
+      "mboxRef": { "id": "10" },
+      "stateInternalDate": 1700000000.125,
+      "uid": 9
+    }
+  ]
+}
