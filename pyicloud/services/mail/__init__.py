@@ -3,11 +3,18 @@
 from .models import (
     MailBody,
     MailFolder,
+    MailFolderSearchPage,
     MailMessage,
+    MailMessageExport,
     MailMessagePage,
+    MailMultiSearchPage,
     MailPart,
+    MailPreview,
     MailSearchHit,
     MailSearchPage,
+    MailThreadDigest,
+    MailThreadFilterPage,
+    MailThreadPage,
 )
 from .service import MailError, MailService
 
@@ -15,10 +22,17 @@ __all__ = [
     "MailBody",
     "MailError",
     "MailFolder",
+    "MailFolderSearchPage",
     "MailMessage",
+    "MailMessageExport",
     "MailMessagePage",
+    "MailMultiSearchPage",
     "MailPart",
+    "MailPreview",
     "MailSearchHit",
     "MailSearchPage",
     "MailService",
+    "MailThreadDigest",
+    "MailThreadFilterPage",
+    "MailThreadPage",
 ]

@@ -1,0 +1,14 @@
+{
+  "domainObjects": [
+    {
+      "identifier": "lookup-message-7",
+      "uid": 7,
+      "mboxRef": { "id": "10" },
+      "stateInternalDate": 1700000000,
+      "subject": "Synthetic older message",
+      "from": "sender@example.test",
+      "flags": 0,
+      "parts": [{ "partId": "1", "contentType": "text/plain", "attach": false }]
+    }
+  ]
+}

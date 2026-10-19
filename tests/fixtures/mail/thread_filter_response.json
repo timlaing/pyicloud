@@ -1,0 +1,17 @@
+{
+  "events": [],
+  "folderStatus": { "undeletedMessages": 3 },
+  "sessionHeaders": { "folder": "INBOX", "modseq": 123, "threadmodseq": 456 },
+  "threadList": [
+    {
+      "jsonType": "threadDigest",
+      "threadId": "synthetic-filter-thread",
+      "timestamp": 1700000000,
+      "count": 2,
+      "folderMessageCount": 1,
+      "subject": "Synthetic filtered group",
+      "preview": "Invented snippet."
+    }
+  ],
+  "totalThreadsReturned": 1
+}
