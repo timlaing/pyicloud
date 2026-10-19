@@ -111,8 +111,9 @@ def test_under_limit_bucket_requires_explicit_evidence(case: Case, count: int) -
         page(record(1)),
         page(*(record(i) for i in range(1, count + 1))),
     ]
+    iterator = scan(case)
     with pytest.raises(MailError, match="completeness is unverified"):
-        next(scan(case))
+        next(iterator)
 
 
 @pytest.mark.parametrize("evidence", [None, 1, "true", "false"])
@@ -120,8 +121,9 @@ def test_truthy_values_are_not_boundary_evidence(case: Case, evidence: Any) -> N
     """A future adapter must not mistake loosely typed response data for proof."""
     source, _ = case
     source.fetch.side_effect = [page(record(1)), page(record(1), proved=evidence)]
+    iterator = scan(case)
     with pytest.raises(MailError, match="completeness is unverified"):
-        next(scan(case))
+        next(iterator)
 
 
 def test_verified_999_record_tie_is_not_cut_to_the_page_size(case: Case) -> None:
@@ -143,8 +145,9 @@ def test_saturated_bucket_never_yields(
     source, _ = case
     records = [record(1) if duplicates else record(i) for i in range(1, 1001)]
     source.fetch.side_effect = [page(records[0]), page(*records, proved=proved)]
+    iterator = scan(case)
     with pytest.raises(MailError, match="1000-record ceiling"):
-        next(scan(case))
+        next(iterator)
 
 
 @pytest.mark.parametrize("boundary_request", [False, True])
@@ -156,8 +159,9 @@ def test_oversized_response_is_rejected(case: Case, boundary_request: bool) -> N
         if boundary_request
         else [page(record(1), record(1))]
     )
+    iterator = scan(case, page_size=1)
     with pytest.raises(MailError, match="exceeded"):
-        next(scan(case, page_size=1))
+        next(iterator)
 
 
 @pytest.mark.parametrize("marker", ["opaque", ""])
@@ -172,8 +176,9 @@ def test_unsupported_continuation_is_not_replayed(
         if phase == "bucket"
         else [page(*([] if phase == "empty" else [record(1)]), marker=marker)]
     )
+    iterator = scan(case)
     with pytest.raises(MailError, match="unsupported continuation"):
-        next(scan(case))
+        next(iterator)
 
 
 @pytest.mark.parametrize("milliseconds", [8999, 9001])
@@ -184,8 +189,9 @@ def test_bucket_scope_is_exact_not_date_equality(case: Case, milliseconds: int) 
         page(record(1)),
         page(record(1), record(2, milliseconds), proved=True),
     ]
+    iterator = scan(case)
     with pytest.raises(MailError, match="outside the boundary bucket"):
-        next(scan(case))
+        next(iterator)
 
 
 @pytest.mark.parametrize(
@@ -204,8 +210,9 @@ def test_invalid_whole_page_never_yields(
     """A later corrupt record invalidates earlier records in the same response."""
     source, _ = case
     source.fetch.return_value = page(*bad_records)
+    iterator = scan(case)
     with pytest.raises(MailError, match=reason):
-        next(scan(case))
+        next(iterator)
     source.fetch.assert_called_once()
 
 
@@ -218,8 +225,9 @@ def test_unsupported_dates_are_never_rounded(case: Case, phase: str, date: Any) 
     source.fetch.side_effect = (
         [page(bad)] if phase == "page" else [page(record(1)), page(bad, proved=True)]
     )
+    iterator = scan(case)
     with pytest.raises(MailError, match="date boundary|precision or range"):
-        next(scan(case))
+        next(iterator)
 
 
 def test_millisecond_date_is_preserved_exactly(case: Case) -> None:
@@ -265,8 +273,9 @@ def test_mailbox_changes_abort_at_every_check(
     )
     source.mailbox.side_effect = [*([folder] * check), changed]
     source.fetch.side_effect = [page(record(1)), page(record(1), proved=True), page()]
+    iterator = scan(case)
     with pytest.raises(MailError, match="mailbox identity changed"):
-        list(scan(case))
+        list(iterator)
 
 
 def test_safe_rename_uses_fresh_folder_context(case: Case) -> None:
@@ -284,8 +293,9 @@ def test_disappearing_boundary_member_fails(case: Case, proved: bool) -> None:
     """A vanished match cannot silently become a completed boundary."""
     source, _ = case
     source.fetch.side_effect = [page(record(1)), page(proved=proved)]
+    iterator = scan(case)
     with pytest.raises(MailError, match="unverified|membership changed"):
-        next(scan(case))
+        next(iterator)
 
 
 @pytest.mark.parametrize(
@@ -303,8 +313,9 @@ def test_page_to_bucket_mutation_is_not_hidden(
     """Shared identity, folder and metadata must stay consistent across reads."""
     source, _ = case
     source.fetch.side_effect = [page(record(1)), page(updated, proved=True)]
+    iterator = scan(case)
     with pytest.raises(MailError, match=reason):
-        next(scan(case))
+        next(iterator)
 
 
 @pytest.mark.parametrize("reuse", ["id", "uid"])
@@ -366,8 +377,9 @@ def test_transport_failure_is_not_completion(case: Case, phase: str) -> None:
     if phase == "later":
         prefix.append(page(record(1), proved=True))
     source.fetch.side_effect = [*prefix, PyiCloudConnectionException("offline")]
+    iterator = scan(case)
     with pytest.raises(PyiCloudConnectionException):
-        list(scan(case))
+        list(iterator)
 
 
 @pytest.mark.parametrize(
@@ -389,8 +401,9 @@ def test_invalid_options_do_not_touch_source(
 ) -> None:
     """Reject coercions and unsafe limits before reading any metadata."""
     source, _ = case
+    iterator = scan(case, **{option: value})
     with pytest.raises(ValueError):
-        list(scan(case, **{option: value}))
+        list(iterator)
     source.fetch.assert_not_called()
     source.mailbox.assert_not_called()
 
@@ -400,8 +413,9 @@ def test_unknown_uid_namespace_is_rejected(case: Case, validity: int | None) -> 
     """Date paging still binds message UIDs to a known mailbox namespace."""
     source, folder = case
     folder = folder.model_copy(update={"uid_validity": validity})
+    iterator = _iter_search_candidates(source, folder)
     with pytest.raises(ValueError, match="UID validity"):
-        list(_iter_search_candidates(source, folder))
+        list(iterator)
     source.fetch.assert_not_called()
     source.mailbox.assert_not_called()
 
