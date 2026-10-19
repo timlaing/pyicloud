@@ -58,3 +58,11 @@ ciphertext is not needed. Omitting the marker reproduces Apple's
 minimal synthetic publication envelopes using the remapped enum spelling sent
 by pyicloud. They contain only fake IDs, change tags, and an entitlement token
 placeholder. The same shapes exercise unpublishing by changing the flag to zero.
+
+`event_create_zone_response.json`, `event_create_details_response.json`, and
+`event_create_share_response.json` represent the three successful creation
+steps. They are synthetic, minimized envelopes derived from the browser
+capture shapes, not copies of account responses. Creation tests pin the
+serialized requests, including encrypted EventDetails fields, plain share
+previews, a token-only entitlement hint, and empty participant lists. The
+share's short GUID is a top-level `shortGUID`, not `stableUrl.shortGUID`.

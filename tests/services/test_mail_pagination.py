@@ -158,16 +158,18 @@ def test_invalid_pages_fail_before_yielding(
     """A contradictory page must not leak any of its records to callers."""
     service, session, _, folder = pagination
     session.post.return_value = response(records)
+    iterator = service.iter_messages(folder, page_size=3)
     with pytest.raises(MailError, match=message):
-        next(service.iter_messages(folder, page_size=3))
+        next(iterator)
 
 
 def test_excess_records_are_rejected(pagination: PaginationCase) -> None:
     """A server ignoring the requested size does not silently inflate the page."""
     service, session, _, folder = pagination
     session.post.return_value = response([record(10), record(9)])
+    iterator = service.iter_messages(folder, page_size=1)
     with pytest.raises(MailError, match="exceeded"):
-        list(service.iter_messages(folder, page_size=1))
+        list(iterator)
 
 
 @pytest.mark.parametrize("next_uid", [10, 11])
@@ -177,8 +179,9 @@ def test_non_advancing_boundary_is_rejected(
     """Reject repeated or restarted pages instead of looping or skipping mail."""
     service, session, _, folder = pagination
     session.post.side_effect = [response([record(10)]), response([record(next_uid)])]
+    iterator = service.iter_messages(folder, page_size=1)
     with pytest.raises(MailError, match="boundary"):
-        list(service.iter_messages(folder, page_size=1))
+        list(iterator)
     assert session.post.call_count == 2
 
 
@@ -189,8 +192,9 @@ def test_cross_page_identifier_reuse_is_rejected(pagination: PaginationCase) -> 
         response([record(10)]),
         response([record(9, identifier="synthetic-message-10")]),
     ]
+    iterator = service.iter_messages(folder, page_size=1)
     with pytest.raises(MailError, match="across UID pages"):
-        list(service.iter_messages(folder, page_size=1))
+        list(iterator)
 
 
 @pytest.mark.parametrize(
@@ -204,8 +208,9 @@ def test_changed_mailbox_aborts_enumeration(
     service, session, folders, folder = pagination
     session.post.return_value = response([record(10)])
     folders.side_effect = [[folder], replacement] if during_page else [replacement]
+    iterator = service.iter_messages(folder)
     with pytest.raises(MailError, match="identity changed"):
-        next(service.iter_messages(folder))
+        next(iterator)
     assert session.post.call_count == int(during_page)
 
 
@@ -216,8 +221,9 @@ def test_missing_mailbox_epoch_fails_without_http(
     """An unbound UID namespace must not be enumerated."""
     service, session, folders, folder = pagination
     unknown = folder.model_copy(update={"uid_validity": validity})
+    iterator = service.iter_messages(unknown)
     with pytest.raises(ValueError, match="UID validity"):
-        list(service.iter_messages(unknown))
+        list(iterator)
     session.post.assert_not_called()
     folders.assert_not_called()
 
@@ -228,8 +234,9 @@ def test_invalid_page_budget_fails_without_http(
 ) -> None:
     """Budgets are positive integers, not truth values or coerced strings."""
     service, session, folders, folder = pagination
+    iterator = service.iter_messages(folder, max_pages=value)
     with pytest.raises(ValueError, match="max_pages"):
-        list(service.iter_messages(folder, max_pages=value))
+        list(iterator)
     session.post.assert_not_called()
     folders.assert_not_called()
 
@@ -240,8 +247,9 @@ def test_invalid_page_size_fails_without_http(
 ) -> None:
     """Iterator page sizes retain the bounded API's validation."""
     service, session, _, folder = pagination
+    iterator = service.iter_messages(folder, page_size=size)
     with pytest.raises(ValueError, match="limit"):
-        list(service.iter_messages(folder, page_size=size))
+        list(iterator)
     session.post.assert_not_called()
 
 
@@ -265,8 +273,9 @@ def test_transport_failure_does_not_become_exhaustion(
         response([record(10)]),
         PyiCloudConnectionException("offline"),
     ]
+    iterator = service.iter_messages(folder)
     with pytest.raises(PyiCloudConnectionException):
-        list(service.iter_messages(folder))
+        list(iterator)
 
 
 def test_mailbox_rename_preserves_current_context(pagination: PaginationCase) -> None:

@@ -32,6 +32,7 @@ from pyicloud.exceptions import (
     PyiCloudFailedLoginException,
     PyiCloudServiceUnavailable,
 )
+from pyicloud.services.mail.service import validate_mail_endpoint
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance only
     from pyicloud.base import PyiCloudService
@@ -155,6 +156,11 @@ def _describe_known(
         )
 
     url = _entry_url(entry)
+    if key == "mccgateway" and url is not None:
+        try:
+            validate_mail_endpoint(url)
+        except ValueError:
+            url = None
     if url is None:
         # Deliberately says what the condition means rather than which
         # exception it produces: Apple advertising a key broken is a different

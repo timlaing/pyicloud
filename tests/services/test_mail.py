@@ -15,6 +15,7 @@ from pyicloud.exceptions import (
     PyiCloudConnectionException,
     PyiCloudException,
     PyiCloudServiceNotActivatedException,
+    PyiCloudServiceUnavailable,
 )
 from pyicloud.services.mail import (
     MailError,
@@ -140,18 +141,20 @@ def test_excess_results(
     data = load_fixture("mail", filename)
     data["domainObjects"] *= 2
     session.post.return_value = response(data)
-    with pytest.raises(MailError, match="exceeded"):
-        if method == "messages":
+    if method == "messages":
+        with pytest.raises(MailError, match="exceeded"):
             service.messages(folder, limit=1)
-        else:
+    else:
+        with pytest.raises(MailError, match="exceeded"):
             service.search(folder, "test", limit=1)
 
 
 def test_wrong_folder(service: MailService, session: MagicMock) -> None:
     """Do not bind one folder's UID to another folder."""
     session.post.return_value = response(load_fixture("mail", "messages_response.json"))
+    wrong = MailFolder(identifier="wrong", name="Other")
     with pytest.raises(MailError, match="another folder"):
-        service.messages(MailFolder(identifier="wrong", name="Other"))
+        service.messages(wrong)
 
 
 @pytest.mark.parametrize("field", ["all", "subject", "from", "to", "cc", "body"])
@@ -207,12 +210,54 @@ def test_body(service: MailService, session: MagicMock, message: MailMessage) ->
     assert session.post.call_args.args[0].endswith("/message/get")
 
 
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        "text/plain ; charset=UTF-8",
+        " text/html",
+        " Text/Plain ",
+        " TEXT/HTML ; charset=UTF-8 ",
+    ],
+)
+def test_body_normalizes_media_type_whitespace(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """Padded text types remain readable without selecting attachments."""
+    parts = [
+        MailPart(partId="1.1", contentType=content_type),
+        MailPart(partId="2", contentType=content_type, attach=True),
+        MailPart(partId="3", contentType="text/plain-extra"),
+    ]
+    session.post.return_value = response(load_fixture("mail", "body_response.json"))
+
+    service.body(message.model_copy(update={"parts": parts}))
+
+    query = session.post.call_args.kwargs["json"]
+    assert query["parts"] == ["1.1"]
+    assert query["dontMarkAsRead"] is True
+    assert session.post.call_count == 1
+
+
+@pytest.mark.parametrize("content_type", ["application/pdf", "text/plain-extra", " "])
+def test_body_still_rejects_unsupported_media_types(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """Whitespace normalization must not broaden the supported body types."""
+    parts = [MailPart(partId="1.1", contentType=content_type)]
+    selected = message.model_copy(update={"parts": parts})
+
+    with pytest.raises(ValueError, match="text body"):
+        service.body(selected)
+    session.post.assert_not_called()
+
+
 def test_no_body(
     service: MailService, session: MagicMock, message: MailMessage
 ) -> None:
     """Unsupported or attachment-only messages do not trigger a body request."""
+    empty = message.model_copy(update={"parts": []})
     with pytest.raises(ValueError, match="text body"):
-        service.body(message.model_copy(update={"parts": []}))
+        service.body(empty)
     session.post.assert_not_called()
 
 
@@ -296,11 +341,16 @@ def test_attachment_early_exit(
     service: MailService, session: MagicMock, message: MailMessage
 ) -> None:
     """Context exit closes a partially consumed response, including caller errors."""
-    result = response(None)
-    session.get.return_value = result
-    with pytest.raises(RuntimeError), service.attachment(message, "2") as chunks:
+
+    def consume_and_stop(chunks: Iterator[bytes]) -> None:
         assert next(chunks) == b"%PDF-"
         raise RuntimeError("caller stopped")
+
+    result = response(None)
+    session.get.return_value = result
+    attachment = service.attachment(message, "2")
+    with pytest.raises(RuntimeError), attachment as chunks:
+        consume_and_stop(chunks)
     result.close.assert_called_once()
 
 
@@ -317,6 +367,44 @@ def test_attachment_optional_metadata(
     ) as chunks:
         list(chunks)
     assert set(session.get.call_args.kwargs["params"]) == {"guid", "type"}
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    ["application/pdf", "application/pdf; x=y", " Application/PDF ; charset=UTF-8"],
+)
+def test_attachment_absent_type_metadata_accepts_the_real_type(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """With no advertised type there is nothing to match, only pages to reject."""
+    part = MailPart(partId="2", attach=True)
+    result = response(None)
+    result.headers = {"Content-Type": content_type}
+    session.get.return_value = result
+    with service.attachment(
+        message.model_copy(update={"parts": [part]}), "2"
+    ) as chunks:
+        assert b"".join(chunks) == b"%PDF-synthetic\n%%EOF"
+
+
+@pytest.mark.parametrize(
+    "content_type", ["", "text/html", "text/html ; charset=UTF-8", " Text/HTML ", " "]
+)
+def test_attachment_absent_type_metadata_still_rejects_pages(
+    service: MailService, session: MagicMock, message: MailMessage, content_type: str
+) -> None:
+    """An empty type or an HTML page is an error response, not attachment bytes."""
+    part = MailPart(partId="2", attach=True)
+    result = response(None)
+    result.headers = {"Content-Type": content_type}
+    session.get.return_value = result
+    with (
+        pytest.raises(MailError),
+        service.attachment(message.model_copy(update={"parts": [part]}), "2"),
+    ):
+        pytest.fail("must fail before yielding")
+    result.iter_content.assert_not_called()
+    result.close.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -423,8 +511,9 @@ def test_external_body_metadata(
     part = MailPart(
         partId="cloudpart:https://example.test/body", contentType="text/plain"
     )
+    external = message.model_copy(update={"parts": [part]})
     with pytest.raises(ValueError, match="no supported"):
-        service.body(message.model_copy(update={"parts": [part]}))
+        service.body(external)
     session.post.assert_not_called()
 
 
@@ -473,3 +562,30 @@ def test_missing_mail_service(pyicloud_service: PyiCloudService) -> None:
         pytest.raises(PyiCloudServiceNotActivatedException),
     ):
         _ = pyicloud_service.mail
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:pass@example.test",
+        "https://example.test/?dsid=1",
+        "https://example.test/#x",
+    ],
+)
+def test_unusable_mail_endpoint_is_not_a_bare_value_error(
+    pyicloud_service: PyiCloudService, url: str
+) -> None:
+    """A discovered URL Mail rejects surfaces a library exception, not ValueError.
+
+    get_webservice_url() validates less strictly than MailService, so an
+    advertised URL with credentials, a query, or a fragment reaches the
+    constructor and must not escape as a bare ValueError.
+    """
+    with (
+        patch.object(pyicloud_service, "get_webservice_url", return_value=url),
+        pytest.raises(PyiCloudServiceUnavailable) as caught,
+    ):
+        _ = pyicloud_service.mail
+    assert isinstance(caught.value, PyiCloudException)
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert pyicloud_service._mail is None

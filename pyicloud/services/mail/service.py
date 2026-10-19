@@ -64,6 +64,20 @@ class MailError(PyiCloudException):
     """An invalid response, incomplete enumeration, or failed attachment stream."""
 
 
+def validate_mail_endpoint(service_root: str) -> None:
+    """Require the same usable HTTPS root for service calls and diagnostics."""
+    parsed = urlsplit(service_root)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Mail requires a discovered HTTPS endpoint")
+
+
 def _limit(value: int) -> None:
     """Reject limits outside the supported bounded-query range."""
     if (
@@ -132,24 +146,14 @@ class MailService(BaseService):
 
     Bounded methods remain snapshots; only ``iter_messages`` opts into paging.
     No mutations, HTML rendering, or incremental synchronization are performed.
-    Session authentication failures
-    retain the library's existing exception types.
+    Session authentication failures retain the library's existing exception types.
     """
 
     def __init__(
         self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
     ) -> None:
         """Validate the discovered endpoint and copy session query parameters."""
-        parsed = urlsplit(service_root)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("Mail requires a discovered HTTPS endpoint")
+        validate_mail_endpoint(service_root)
         super().__init__(service_root.rstrip("/"), session, dict(params))
 
     def _post(
@@ -366,7 +370,7 @@ class MailService(BaseService):
             for part in message.parts
             if not part.is_attachment
             and re.fullmatch(MIME_PART_PATTERN, part.id)
-            and part.content_type.split(";", 1)[0].lower()
+            and part.content_type.split(";", 1)[0].strip().lower()
             in ("text/plain", "text/html")
         ]
         if not parts:
@@ -419,10 +423,25 @@ class MailService(BaseService):
             if response.status_code != 200:
                 raise MailError(f"Mail attachment returned HTTP {response.status_code}")
             content_type = (
-                response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+                response.headers
+                .get("Content-Type", "")
+                .split(";", 1)[0]
+                .strip()
+                .lower()
             )
-            expected = part.content_type.split(";", 1)[0].lower()
-            if content_type not in (expected, "application/octet-stream"):
+            expected = part.content_type.split(";", 1)[0].strip().lower()
+            if expected == "application/octet-stream":
+                # Missing contentType metadata defaults to octet-stream here,
+                # and the server may then answer with the real type instead of
+                # echoing the default, so there is nothing specific to match.
+                # Only reject what cannot be attachment bytes: an empty type
+                # or an HTML error page served with HTTP 200.
+                acceptable = bool(content_type) and content_type != "text/html"
+            else:
+                # A specifically advertised type must match, unless the server
+                # fell back to octet-stream.
+                acceptable = content_type in (expected, "application/octet-stream")
+            if not acceptable:
                 raise MailError("Mail attachment returned an unexpected content type")
             yield self._chunks(response.iter_content(chunk_size=65536))
         finally:
