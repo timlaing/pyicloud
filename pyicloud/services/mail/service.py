@@ -22,11 +22,13 @@ from pyicloud.services.mail.models import (
     MailFolder,
     MailMessage,
     MailMessagePage,
+    MailMessageRecord,
     MailOrder,
     MailPredicate,
     MailQuery,
     MailSearchPage,
     MailSessionHeaders,
+    MailThreadPage,
     MessageResponse,
     SearchResponse,
 )
@@ -103,6 +105,23 @@ def _folder_predicate(folder: MailFolder) -> MailPredicate:
             )
         ],
     )
+
+
+def _unique_uid_records(records: list[MailMessageRecord]) -> list[MailMessageRecord]:
+    """Deduplicate exact identities while rejecting contradictory UID mappings."""
+    by_uid: dict[int, MailMessageRecord] = {}
+    identifiers: set[str] = set()
+    for record in records:
+        existing = by_uid.get(record.uid)
+        if existing is not None:
+            if existing.id != record.id:
+                raise MailError("Mail returned conflicting identities for a UID")
+            continue
+        if record.id in identifiers:
+            raise MailError("Mail returned one message identifier for multiple UIDs")
+        by_uid[record.uid] = record
+        identifiers.add(record.id)
+    return list(by_uid.values())
 
 
 class MailService(BaseService):
@@ -200,6 +219,15 @@ class MailService(BaseService):
                 seen.add(record.id)
         return MailMessagePage(messages=messages, limit=limit)
 
+    def _checked_mailbox(self, folder: MailFolder) -> MailFolder:
+        """Reject a disappeared or recreated mailbox before exposing metadata."""
+        current = next((item for item in self.folders() if item.id == folder.id), None)
+        if current is None or current.uid_validity != folder.uid_validity:
+            raise MailError(
+                "Mailbox identity changed; refresh folders and restart the operation"
+            )
+        return current
+
     def search(
         self,
         folder: MailFolder,
@@ -249,6 +277,68 @@ class MailService(BaseService):
         if len(response.records) > limit:
             raise MailError("Mail exceeded the requested result limit")
         return MailSearchPage(results=response.records, limit=limit)
+
+    def thread_messages(
+        self, folder: MailFolder, thread_id: str, *, limit: int = 50
+    ) -> MailThreadPage:
+        """Read bounded metadata for a thread in one verified mailbox.
+
+        Accept thread-group IDs from search(), not message IDs. Only messages
+        in the selected folder are returned, including thread members that did
+        not match the original search text. Results always have complete=False:
+        neither short pages nor search counts establish conversation coverage.
+        No bodies, attachments, mutations, or further pages are requested.
+        """
+        _limit(limit)
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            raise ValueError("thread_id must be a non-empty string")
+        if folder.uid_validity is None or folder.uid_validity < 1:
+            raise ValueError(
+                "A positive mailbox UID validity is required; refresh folders"
+            )
+        current = self._checked_mailbox(folder)
+        predicate = _folder_predicate(current)
+        predicate = predicate.model_copy(
+            update={
+                "and_": [
+                    *(predicate.and_ or []),
+                    MailPredicate(
+                        type="eq",
+                        expression=MailExpression(
+                            type="property", property="appleThrid"
+                        ),
+                        value=thread_id,
+                    ),
+                ]
+            }
+        )
+        response = self._post(
+            "message/list",
+            MailQuery(
+                domain="email",
+                properties=_HEADER_PROPERTIES,
+                predicate=predicate,
+                limit=limit,
+                orderby=MailOrder(),
+            ),
+            MessageResponse,
+        )
+        current = self._checked_mailbox(folder)
+        if len(response.records) > limit:
+            raise MailError("Mail exceeded the requested result limit")
+        if any(
+            record.mailbox.id != folder.id or record.thread_id != thread_id
+            for record in response.records
+        ):
+            raise MailError("Mail returned a message from another thread or folder")
+        records = _unique_uid_records(response.records)
+        return MailThreadPage(
+            thread_id=thread_id,
+            messages=[
+                MailMessage(**record.model_dump(), folder=current) for record in records
+            ],
+            limit=limit,
+        )
 
     def body(self, message: MailMessage) -> MailBody:
         """Read advertised plain-text/HTML parts without marking the message read."""

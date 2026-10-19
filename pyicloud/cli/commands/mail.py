@@ -263,6 +263,52 @@ def mail_search(
     state.console.print("Incomplete snapshot; thread IDs are not message IDs.")
 
 
+@app.command("thread")
+def mail_thread(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    thread_id: str = typer.Argument(..., help="Thread-group ID from mail search."),
+    limit: LimitOption = 50,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Expand a thread into bounded message metadata in one folder, not bodies."""
+    if not thread_id.strip():
+        raise typer.BadParameter("Thread ID must not be empty.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        log_level=log_level,
+        output_format=output_format,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    payload = _mail_call(
+        api, lambda: mail.thread_messages(folder, thread_id, limit=limit)
+    )
+    if state.json_output:
+        state.write_json(payload)
+        return
+    _table(
+        state,
+        "Mail Thread (Bounded Folder Snapshot)",
+        ["Message ID", "From", "Subject"],
+        [(message.id, message.sender, message.subject) for message in payload.messages],
+    )
+    state.console.print(
+        "Incomplete snapshot; only messages in this folder are included."
+    )
+
+
 @app.command("body")
 def mail_body(
     ctx: typer.Context,

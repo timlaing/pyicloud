@@ -29,6 +29,7 @@ from pyicloud.services.mail.models import (
     MailMessagePage,
     MailSearchHit,
     MailSearchPage,
+    MailThreadPage,
 )
 
 
@@ -41,6 +42,7 @@ def mail_fixture() -> MagicMock:
         "uid": 7,
         "mailbox": {"id": folder.id},
         "folder": folder,
+        "appleThrid": "thread-1",
         "subject": "[bold]Literal subject[/bold]",
         "sender": "sender@example.test",
         "parts": [MailPart(partId="2", attach=True, fileName="../../remote.pdf")],
@@ -51,6 +53,9 @@ def mail_fixture() -> MagicMock:
     mail.search.return_value = MailSearchPage(
         results=[MailSearchHit(identifier="thread-1", subject="Example", count=1)],
         limit=50,
+    )
+    mail.thread_messages.return_value = MailThreadPage(
+        thread_id="thread-1", messages=[message], limit=50
     )
     mail.body.return_value = MailBody(
         guid="message-1",
@@ -89,7 +94,8 @@ def invoke(mail: MagicMock, *args: str) -> Result:
 
 
 @pytest.mark.parametrize(
-    "command", [[], ["--help"], ["body", "--help"], ["download", "--help"]]
+    "command",
+    [[], ["--help"], ["body", "--help"], ["download", "--help"], ["thread", "--help"]],
 )
 def test_mail_help_never_authenticates(command: list[str]) -> None:
     """Group and leaf help work without a session or any service calls."""
@@ -112,7 +118,10 @@ def test_mail_folders(mail: MagicMock, output_format: str) -> None:
         assert "INBOX" in result.stdout
 
 
-def test_mail_honors_shared_leaf_options(mail: MagicMock, output_dir: Path) -> None:
+@pytest.mark.parametrize("command", ["folders", "thread"])
+def test_mail_honors_shared_leaf_options(
+    mail: MagicMock, output_dir: Path, command: str
+) -> None:
     """Mail resolves the same account, network, and output options as other groups."""
     api = MagicMock()
     api.mail = mail
@@ -124,7 +133,12 @@ def test_mail_honors_shared_leaf_options(mail: MagicMock, output_dir: Path) -> N
             app,
             [
                 "mail",
-                "folders",
+                command,
+                *(
+                    ["thread-1", "--folder-id", "folder-1"]
+                    if command == "thread"
+                    else []
+                ),
                 "--username",
                 "selected@example.test",
                 "--session-dir",
@@ -148,7 +162,10 @@ def test_mail_honors_shared_leaf_options(mail: MagicMock, output_dir: Path) -> N
     assert state.https_proxy == "http://localhost:9090"
     assert state.no_verify_ssl is True
     assert state.log_level.value == "debug"
-    assert json.loads(result.stdout)[0]["id"] == "folder-1"
+    if command == "thread":
+        assert json.loads(result.stdout)["thread_id"] == "thread-1"
+    else:
+        assert json.loads(result.stdout)[0]["id"] == "folder-1"
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
@@ -222,7 +239,7 @@ def test_mail_body(mail: MagicMock, output_format: str) -> None:
     mail.body.assert_called_once_with(mail.messages.return_value.messages[0])
 
 
-@pytest.mark.parametrize("command", ["list", "search", "body", "download"])
+@pytest.mark.parametrize("command", ["list", "search", "body", "download", "thread"])
 @pytest.mark.parametrize("limit", ["0", "1001", "invalid"])
 def test_invalid_limits_fail_before_authentication(command: str, limit: str) -> None:
     """All bounded commands reject invalid limits before contacting iCloud."""
@@ -243,6 +260,7 @@ def test_invalid_limits_fail_before_authentication(command: str, limit: str) -> 
         ["search", "   ", "--folder-id", "folder-1"],
         ["search", "example", "--folder-id", "folder-1", "--field", "invalid"],
         ["list"],
+        ["thread", "   ", "--folder-id", "folder-1"],
     ],
 )
 def test_invalid_search_and_missing_folder_fail_early(args: list[str]) -> None:
@@ -251,6 +269,71 @@ def test_invalid_search_and_missing_folder_fail_early(args: list[str]) -> None:
         result = CliRunner().invoke(app, ["mail", *args])
     assert result.exit_code == 2
     get_api.assert_not_called()
+
+
+@pytest.mark.parametrize("output_format", ["text", "json"])
+def test_thread_metadata_returns_individual_ids(
+    mail: MagicMock, output_format: str
+) -> None:
+    """Thread expansion prints bounded metadata, with literal text and no bodies."""
+    mail.thread_messages.return_value = mail.thread_messages.return_value.model_copy(
+        update={"limit": 2}
+    )
+    result = invoke(
+        mail,
+        "thread",
+        "thread-1",
+        "--folder-id",
+        "folder-1",
+        "--limit",
+        "2",
+        "--format",
+        output_format,
+    )
+    assert result.exit_code == 0, result.exception
+    mail.thread_messages.assert_called_once_with(
+        mail.folders.return_value[0], "thread-1", limit=2
+    )
+    mail.messages.assert_not_called()
+    mail.body.assert_not_called()
+    mail.attachment.assert_not_called()
+    if output_format == "json":
+        payload = json.loads(result.stdout)
+        assert payload["thread_id"] == "thread-1"
+        assert payload["messages"][0]["id"] == "message-1"
+        assert payload["complete"] is False
+        assert payload["limit"] == 2
+    else:
+        assert "message-1" in result.stdout
+        assert "[bold]" in result.stdout
+        assert "Incomplete snapshot" in result.stdout
+
+
+def test_thread_default_limit_is_bounded(mail: MagicMock) -> None:
+    """The new leaf shares account/output options and defaults to at most 50 records."""
+    result = invoke(
+        mail, "thread", "thread-1", "--folder-id", "folder-1", "--format", "json"
+    )
+    assert result.exit_code == 0, result.exception
+    mail.thread_messages.assert_called_once_with(
+        mail.folders.return_value[0], "thread-1", limit=50
+    )
+
+
+def test_thread_unknown_folder_is_not_expanded(mail: MagicMock) -> None:
+    """A missing folder never causes implicit cross-folder expansion."""
+    result = invoke(mail, "thread", "thread-1", "--folder-id", "missing")
+    assert isinstance(result.exception, CLIAbort)
+    mail.thread_messages.assert_not_called()
+
+
+def test_thread_failure_is_user_facing(mail: MagicMock) -> None:
+    """An invalid scoped response aborts metadata output with a concise error."""
+    mail.thread_messages.side_effect = MailError("Mailbox identity changed")
+    result = invoke(mail, "thread", "thread-1", "--folder-id", "folder-1")
+    assert isinstance(result.exception, CLIAbort)
+    assert "Mailbox identity changed" in str(result.exception)
+    assert result.stdout == ""
 
 
 def test_unknown_folder_is_not_a_name_guess(mail: MagicMock) -> None:

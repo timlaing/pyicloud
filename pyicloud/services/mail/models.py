@@ -77,6 +77,12 @@ class MailMessagePage(MailModel):
     complete: Literal[False] = False
 
 
+class MailThreadPage(MailMessagePage):
+    """Bounded thread metadata in one folder, not a complete conversation."""
+
+    thread_id: Identifier
+
+
 class MailSearchHit(MailModel):
     """A thread-grouped match, not necessarily a single message."""
 
