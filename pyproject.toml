@@ -162,6 +162,11 @@ disable_error_code = ["metaclass", "misc", "type-arg"]
 
 [tool.pylint.main]
 jobs = 2
+# SMART_ALBUMS is a legitimate UPPERCASE class constant on the photo library
+# classes; tests rebind it on an instance to isolate state. Pylint's C0103
+# order-sensitively flags that rebind as a snake_case attribute, so exempt
+# the constant name explicitly.
+good-names = ["SMART_ALBUMS"]
 persistent = false
 extension-pkg-whitelist = "ciso8601"
 ignore-patterns = [
