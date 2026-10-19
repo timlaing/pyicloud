@@ -238,6 +238,41 @@ date-ordered text query with a UID boundary returned HTTP 500. Neither error
 means an empty result or completed scan. The observed browser search instead
 uses overlapping date-bounded lightweight matches and UID detail batches.
 
+### Search and Grouped-Filter Follow-Up
+
+Additional metadata-only checks on 2026-10-19 tested the general `geqs/query`
+endpoint, without changing the public API. Full-text matching with UID ordering
+returned HTTP 400 there too. Adding a strict lower-UID predicate returned HTTP
+500 both with normal date ordering and with no ordering. These failures do not
+establish a usable UID continuation strategy for search.
+
+An independent bounded comparison found 357 matching Sent messages and 275
+grouped search hits. The group IDs equalled the distinct `appleThrid` values in
+the matching messages. This confirms the distinction between individual matches
+and grouped results on this account; neither count proves general pagination.
+
+A strict older-date predicate matched the expected subset. However, date
+equality was not an exact timestamp discriminator: it returned two baseline
+records when only one had the selected timestamp. A separate one-millisecond
+date-window probe using `ge` and `lt` returned HTTP 400. The production predicate
+model was not extended for this probe. Do not assume date equality can exhaust
+timestamp ties or infer undocumented date precision from this small sample.
+
+Grouped-filter probes compared `THREAD_DIGEST` with `maxResults: 1` against
+`THREAD_ID_AND_DATE` with `maxResults: 1000`. Unread returned one group in both;
+flagged returned one digest but two lightweight groups. The digest IDs were
+subsets of the lightweight IDs. Neither response advertised a continuation
+field, demonstrating a truncated group response without a continuation token.
+Fresh session headers were used, not replayed as paging cursors. No active
+captured Mail request submitted a `continuationMarker` during this inspection.
+
+Search and grouped-filter enumeration therefore remain unimplemented. A safe
+next step requires verified boundary/tie semantics or a real continuation
+handshake, including behavior at the 1,000-result ceiling. Never treat missing
+markers, short pages, server errors, or change tokens as proof of exhaustion.
+All these follow-up checks excluded bodies, attachment downloads, and mutations;
+raw captures and account-specific metadata remain outside Git.
+
 ### Mailbox Loading
 
 The Sent Messages capture demonstrates a two-stage listing strategy:
