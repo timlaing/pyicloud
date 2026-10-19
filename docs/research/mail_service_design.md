@@ -214,6 +214,32 @@ short/empty pages or when an opaque continuation marker is absent.
 
 ## Loading More Messages
 
+### Scoped UID Verification
+
+Authorized metadata-only checks on 2026-10-19 combined descending UID ordering
+and strict lower-UID boundaries with an `appleThrid` equality predicate or a
+`flags` field predicate (`SEEN == false` or `FLAGGED == true`). Page size one
+returned two thread members, one unread message, and two flagged messages,
+respectively, followed by empty terminal pages. Each identity set matched an
+independent bounded query below its 1,000-record ceiling; mailbox UID validity
+was checked around reads. No bodies, attachment downloads, or mutations were
+requested. This is protocol evidence on one small account, not a large-mailbox
+snapshot guarantee. Offline tests cover large pages, timestamp ties, bad scopes,
+duplicates, changing membership, page errors, and explicit exhaustion.
+
+The public scoped iterators share the mailbox iterator's UID progress and safety
+checks. Their individual-message results must not be conflated with grouped
+search or filtered thread results. Flags can change while scanning, so UID-range
+exhaustion does not establish a single consistent view of matching messages.
+
+These predicates do not establish full-text search pagination: a read-only
+probe combining text matching with UID ordering returned HTTP 400, and a
+date-ordered text query with a UID boundary returned HTTP 500. Neither error
+means an empty result or completed scan. The observed browser search instead
+uses overlapping date-bounded lightweight matches and UID detail batches.
+
+### Mailbox Loading
+
 The Sent Messages capture demonstrates a two-stage listing strategy:
 
 1. Request detailed metadata with a limit of 50.

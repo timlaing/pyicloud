@@ -39,6 +39,7 @@ MAX_RESULTS = 1000
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
+MessageFilter = Literal["unread", "flagged"]
 _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
     "uid",
     "identifier",
@@ -146,7 +147,7 @@ def _uid_page(
 class MailService(BaseService):
     """Read-only Mail with bounded reads and explicit UID-based enumeration.
 
-    Bounded methods remain snapshots; only ``iter_messages`` opts into paging.
+    Bounded methods remain snapshots; only explicit iterators opt into paging.
     No mutations, HTML rendering, or incremental synchronization are performed.
     Session authentication failures retain the library's existing exception types.
     """
@@ -259,6 +260,71 @@ class MailService(BaseService):
         yielded records cannot be retracted after a later failure. No bodies,
         mutations, retries, or background prefetches are performed.
         """
+        yield from self._iter_messages(folder, page_size, max_pages)
+
+    def iter_thread_messages(
+        self,
+        folder: MailFolder,
+        thread_id: str,
+        *,
+        page_size: int = 50,
+        max_pages: int = 10000,
+    ) -> Iterator[MailMessage]:
+        """Exhaust one folder's thread members using checked descending UID pages.
+
+        Not a cross-folder conversation or an atomic snapshot. Only an empty
+        page establishes exhaustion; page budgets and failures raise. Earlier
+        yielded metadata cannot be retracted. No bodies or mutations are requested.
+        """
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            raise ValueError("thread_id must be a non-empty string")
+        match = MailPredicate(
+            type="eq",
+            expression=MailExpression(type="property", property="appleThrid"),
+            value=thread_id,
+        )
+        yield from self._iter_messages(
+            folder, page_size, max_pages, match=match, thread_id=thread_id
+        )
+
+    def iter_filtered_messages(
+        self,
+        folder: MailFolder,
+        *,
+        filter_by: MessageFilter,
+        page_size: int = 50,
+        max_pages: int = 10000,
+    ) -> Iterator[MailMessage]:
+        """Exhaust unread or flagged individual messages, not grouped threads.
+
+        Flags are evaluated by the server on each page. Changing flags can add
+        or remove matches during the scan; UID exhaustion is not a consistent
+        snapshot of filter membership. Budget exhaustion and errors raise.
+        No bodies, attachments, or mutations are requested.
+        """
+        if filter_by not in ("unread", "flagged"):
+            raise ValueError("filter_by must be 'unread' or 'flagged'")
+        match = MailPredicate(
+            type="eq",
+            expression=MailExpression(
+                type="fieldOf",
+                property="flags",
+                value="SEEN" if filter_by == "unread" else "FLAGGED",
+            ),
+            value=filter_by == "flagged",
+        )
+        yield from self._iter_messages(folder, page_size, max_pages, match=match)
+
+    def _iter_messages(
+        self,
+        folder: MailFolder,
+        page_size: int,
+        max_pages: int,
+        *,
+        match: MailPredicate | None = None,
+        thread_id: str | None = None,
+    ) -> Iterator[MailMessage]:
+        """Share UID progress, exhaustion and mailbox guards across read scopes."""
         _limit(page_size)
         if (
             isinstance(max_pages, bool)
@@ -275,6 +341,10 @@ class MailService(BaseService):
         seen: set[str] = set()
         for _ in range(max_pages):
             predicate = _folder_predicate(current)
+            if match is not None:
+                predicate = predicate.model_copy(
+                    update={"and_": [*(predicate.and_ or []), match]}
+                )
             if before is not None:
                 predicate = predicate.model_copy(
                     update={
@@ -304,6 +374,10 @@ class MailService(BaseService):
                 MessageResponse,
             )
             current = self._checked_mailbox(folder)
+            if thread_id is not None and any(
+                record.thread_id != thread_id for record in response.records
+            ):
+                raise MailError("Mail returned a message from another thread")
             records = _uid_page(response.records, current, before, page_size)
             if not records:
                 return

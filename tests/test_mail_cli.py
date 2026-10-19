@@ -96,7 +96,14 @@ def invoke(mail: MagicMock, *args: str) -> Result:
 
 @pytest.mark.parametrize(
     "command",
-    [[], ["--help"], ["body", "--help"], ["download", "--help"], ["thread", "--help"]],
+    [
+        [],
+        ["--help"],
+        ["body", "--help"],
+        ["download", "--help"],
+        ["thread", "--help"],
+        ["filter-messages", "--help"],
+    ],
 )
 def test_mail_help_never_authenticates(command: list[str]) -> None:
     """Group and leaf help work without a session or any service calls."""
@@ -223,7 +230,7 @@ def test_mail_list_all(mail: MagicMock, output_format: str) -> None:
         assert "complete" not in payload
     else:
         assert "UID range exhausted" in result.stdout
-        assert "not an atomic snapshot" in result.stdout
+        assert "not an atomic snapshot" in " ".join(result.stdout.split())
 
 
 def test_mail_list_all_failure_never_prints_success(mail: MagicMock) -> None:
@@ -375,6 +382,106 @@ def test_thread_unknown_folder_is_not_expanded(mail: MagicMock) -> None:
     result = invoke(mail, "thread", "thread-1", "--folder-id", "missing")
     assert isinstance(result.exception, CLIAbort)
     mail.thread_messages.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["thread", "unread", "flagged"])
+@pytest.mark.parametrize("output_format", ["json", "text"])
+def test_scoped_uid_cli(mail: MagicMock, command: str, output_format: str) -> None:
+    """Exhaust explicit scans and distinguish individual messages from groups."""
+    messages = mail.messages.return_value.messages
+    if command == "thread":
+        mail.iter_thread_messages.return_value = iter(messages)
+        args = ["thread", "thread-1", "--all", "--limit", "2"]
+    else:
+        mail.iter_filtered_messages.return_value = iter(messages)
+        args = ["filter-messages", "--filter", command, "--page-size", "2"]
+    result = invoke(
+        mail,
+        *args,
+        "--folder-id",
+        "folder-1",
+        "--max-pages",
+        "3",
+        "--format",
+        output_format,
+    )
+    assert result.exit_code == 0, result.exception
+    if command == "thread":
+        mail.iter_thread_messages.assert_called_once_with(
+            mail.folders.return_value[0], "thread-1", page_size=2, max_pages=3
+        )
+        mail.thread_messages.assert_not_called()
+    else:
+        mail.iter_filtered_messages.assert_called_once_with(
+            mail.folders.return_value[0], filter_by=command, page_size=2, max_pages=3
+        )
+    if output_format == "json":
+        payload = json.loads(result.stdout)
+        assert payload["exhausted"] is True
+        assert payload["page_size"] == 2
+        assert payload["messages"][0]["id"] == "message-1"
+        assert payload["thread_id" if command == "thread" else "filter_by"] == (
+            "thread-1" if command == "thread" else command
+        )
+        assert "complete" not in payload
+    else:
+        assert "UID range exhausted in this folder" in result.stdout
+        assert "not an atomic snapshot" in " ".join(result.stdout.split())
+    mail.body.assert_not_called()
+    mail.attachment.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["thread", "filter-messages"])
+@pytest.mark.parametrize("output_format", ["json", "text"])
+def test_scoped_cli_failure_never_publishes_partial_success(
+    mail: MagicMock, command: str, output_format: str
+) -> None:
+    """A later-page failure emits neither earlier metadata nor a success envelope."""
+
+    def broken() -> Iterator[MailMessage]:
+        yield mail.messages.return_value.messages[0]
+        raise MailError("Mail page budget exhausted; enumeration is incomplete")
+
+    mail.iter_thread_messages.return_value = broken()
+    mail.iter_filtered_messages.return_value = broken()
+    args = (
+        ["thread", "thread-1", "--all"]
+        if command == "thread"
+        else ["filter-messages", "--filter", "unread"]
+    )
+    result = invoke(mail, *args, "--folder-id", "folder-1", "--format", output_format)
+    assert result.exit_code != 0
+    assert "message-1" not in result.stdout
+    assert '"exhausted": true' not in result.stdout
+    assert "UID range exhausted" not in result.stdout
+    assert "incomplete" in str(result.exception)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["filter-messages", "--filter", "all"],
+        ["filter-messages"],
+        ["filter-messages", "--filter", "unread", "--page-size", "0"],
+        ["filter-messages", "--filter", "unread", "--max-pages", "0"],
+        ["thread", "thread-1", "--all", "--max-pages", "0"],
+    ],
+)
+def test_invalid_scoped_cli_options_do_not_authenticate(args: list[str]) -> None:
+    """Unsupported predicates and unsafe budgets fail before account access."""
+    with patch.object(CLIState, "get_api") as get_api:
+        result = CliRunner().invoke(app, ["mail", *args, "--folder-id", "folder-1"])
+    assert result.exit_code != 0
+    get_api.assert_not_called()
+
+
+def test_filter_messages_missing_folder_does_not_enumerate(mail: MagicMock) -> None:
+    """Only the exact selected folder may supply filtered message UIDs."""
+    result = invoke(
+        mail, "filter-messages", "--filter", "flagged", "--folder-id", "missing"
+    )
+    assert result.exit_code != 0
+    mail.iter_filtered_messages.assert_not_called()
 
 
 def test_thread_failure_is_user_facing(mail: MagicMock) -> None:
