@@ -341,12 +341,16 @@ def test_attachment_early_exit(
     service: MailService, session: MagicMock, message: MailMessage
 ) -> None:
     """Context exit closes a partially consumed response, including caller errors."""
+
+    def consume_and_stop(chunks: Iterator[bytes]) -> None:
+        assert next(chunks) == b"%PDF-"
+        raise RuntimeError("caller stopped")
+
     result = response(None)
     session.get.return_value = result
     attachment = service.attachment(message, "2")
     with pytest.raises(RuntimeError), attachment as chunks:
-        assert next(chunks) == b"%PDF-"
-        raise RuntimeError("caller stopped")
+        consume_and_stop(chunks)
     result.close.assert_called_once()
 
 
