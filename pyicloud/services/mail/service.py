@@ -36,6 +36,7 @@ from pyicloud.session import PyiCloudSession
 DEFAULT_TIMEOUT = (10.0, 60.0)
 MAX_RESULTS = 1000
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
+_MESSAGE_LIST = "message/list"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
@@ -215,7 +216,7 @@ class MailService(BaseService):
         """Read at most limit records, newest first; completeness is unknown."""
         _limit(limit)
         response = self._post(
-            "message/list",
+            _MESSAGE_LIST,
             MailQuery(
                 domain="email",
                 properties=_HEADER_PROPERTIES,
@@ -290,7 +291,7 @@ class MailService(BaseService):
             }
         )
         response = self._post(
-            "message/list",
+            _MESSAGE_LIST,
             MailQuery(
                 domain="email",
                 properties=_HEADER_PROPERTIES,
@@ -354,7 +355,7 @@ class MailService(BaseService):
                     }
                 )
             response = self._post(
-                "message/list",
+                _MESSAGE_LIST,
                 MailQuery(
                     domain="email",
                     properties=_HEADER_PROPERTIES,
