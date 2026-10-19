@@ -35,7 +35,9 @@ from pyicloud.services.mail.models import (
 @pytest.fixture(name="mail")
 def mail_fixture() -> MagicMock:
     """A folder-bound message and thread hit; no transport is available."""
-    folder = MailFolder(identifier="folder-1", name="INBOX", messageCount=1)
+    folder = MailFolder(
+        identifier="folder-1", name="INBOX", messageCount=1, uidValidity=123
+    )
     message = MailMessage.model_validate({
         "id": "message-1",
         "uid": 7,
@@ -235,6 +237,45 @@ def test_body_defaults_to_exact_lookup(mail: MagicMock, output_format: str) -> N
     mail.messages.assert_not_called()
     mail.body.assert_called_once_with(mail.message.return_value)
     assert json.loads(result.stdout)["parts"]
+
+
+@pytest.mark.parametrize("command", ["body", "download"])
+@pytest.mark.parametrize("uid_validity", [None, 0, -1])
+@pytest.mark.parametrize("limit", [None, 2])
+def test_missing_uid_validity_guides_explicit_bounded_lookup(
+    mail: MagicMock,
+    output_dir: Path,
+    command: str,
+    uid_validity: int | None,
+    limit: int | None,
+) -> None:
+    """Missing mailbox epochs require an explicit opt-in to bounded lookup."""
+    mail.folders.return_value = [
+        mail.folders.return_value[0].model_copy(update={"uid_validity": uid_validity})
+    ]
+    output = output_dir / "chosen.pdf"
+    args = [command, "message-1", "--folder-id", "folder-1"]
+    if command == "download":
+        args.extend(["--part-id", "2", "--output", str(output)])
+    if limit is not None:
+        args.extend(["--limit", str(limit)])
+    result = invoke(mail, *args)
+    mail.message.assert_not_called()
+    if limit is None:
+        assert isinstance(result.exception, CLIAbort)
+        assert "UID validity" in str(result.exception)
+        assert "--limit N" in str(result.exception)
+        mail.messages.assert_not_called()
+        mail.body.assert_not_called()
+        mail.attachment.assert_not_called()
+        assert not output.exists()
+    else:
+        assert result.exit_code == 0, result.exception
+        mail.messages.assert_called_once_with(mail.folders.return_value[0], limit=2)
+        if command == "download":
+            assert output.read_bytes() == b"%PDF-example"
+        else:
+            mail.body.assert_called_once_with(mail.messages.return_value.messages[0])
 
 
 def test_missing_exact_message_never_falls_back_to_scanning(mail: MagicMock) -> None:

@@ -97,6 +97,11 @@ def _message(
     """Resolve an exact message ID, preserving explicitly bounded legacy lookups."""
     folder = _folder(api, mail, folder_id)
     if limit is None:
+        if folder.uid_validity is None or folder.uid_validity < 1:
+            raise CLIAbort(
+                "Exact lookup needs a folder with UID validity. "
+                "Use --limit N to search the newest N folder messages."
+            )
         message = _mail_call(api, lambda: mail.message(folder, message_id))
         if message is not None:
             return cast(MailMessage, message)

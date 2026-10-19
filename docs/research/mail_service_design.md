@@ -105,7 +105,7 @@ a synthetic absent ID, and an absent UID returned empty `domainObjects` arrays.
 All five requests returned HTTP 200, and mailbox UID validity was unchanged.
 No bodies, flag changes, or other mutations were requested.
 
-This was a direct authenticated protocol check, not a new browser capture.
+This protocol check used an authenticated session, not a new browser capture.
 The original browser HAR was no longer available locally, and Proxyman was
 closed. The evidence establishes these exact metadata queries on one account,
 not arbitrary cross-folder identity stability. Raw requests, message metadata,
