@@ -41,6 +41,15 @@ LimitOption = Annotated[
         "--limit", min=1, max=1000, help="Maximum messages or thread hits to fetch."
     ),
 ]
+ListLimitOption = Annotated[
+    int,
+    typer.Option(
+        "--limit",
+        min=1,
+        max=1000,
+        help="Total messages to fetch; with --all, the per-request page size.",
+    ),
+]
 LookupLimitOption = Annotated[
     int,
     typer.Option(
@@ -177,7 +186,7 @@ def mail_folders(
 def mail_list(
     ctx: typer.Context,
     folder_id: FolderOption,
-    limit: LimitOption = 50,
+    limit: ListLimitOption = 50,
     all_messages: bool = typer.Option(
         False,
         "--all",
