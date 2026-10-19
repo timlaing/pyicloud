@@ -270,6 +270,69 @@ meet it. Do not satisfy the gate by setting the evidence flag for under-limit
 HTTP responses. Individual matching messages must remain distinct from the
 existing grouped search results.
 
+### Captured Browser Paging Logic
+
+A read-only inspection of the captured Mail browser bundle `2638Hotfix77`
+on 2026-10-19 found separate paging paths. The decoded bundle's SHA-256 is
+`3f2f88d6a331a8ee061d7888140d10ad6b7a8d411940ff66215450e75f6deaff`.
+The bundle and its HAR remain outside Git; no browser code or headers are
+included here. These are static observations about that version, not a verified
+server contract or evidence that every feature-flagged path was exercised.
+
+- The query builder selects strict limits for text, subject, and people search
+  tokens. That path uses a date offset and omits the supplied continuation
+  marker. The individual-message listing wrapper also forces strict limits.
+- Other query paths can request `strictLimit: false` and carry continuation
+  markers. The grouped-response parser distinguishes that mode from strict
+  limits: it uses marker absence rather than a short response to mark the
+  range exhausted. This does not establish a full-text continuation handshake.
+- The individual-message response parser treats a response shorter than the
+  requested limit as exhausted. Otherwise it retains the last record's date.
+  The next-range coordinator requests dates before that boundary plus one
+  millisecond, retaining overlap for deduplication.
+- When a returned range has the same upper and lower timestamp, the coordinator
+  retries with its maximum range size (1,000). If that still cannot advance, it
+  decreases the lower boundary by one millisecond. There is no bucket-completeness
+  proof in that fallback. With more matching records at the same timestamp than
+  the server returns, advancing this way could omit the remaining matches.
+
+The saved search capture contains 50 initial records and 308 lightweight records
+with one overlapping UID, followed by detail batches covering all 357 discovered
+UIDs. All 37 response envelopes contain only `domainObjects`; none provides a
+completeness count or continuation marker. No distinct discovered UIDs share a
+timestamp, so this capture cannot validate the tied-bucket case. Detail batches
+use UID membership without repeating the text predicate; they fetch already
+discovered matches and do not discover omitted matches.
+
+Therefore, do not use the browser's short-page assumption or timestamp-skipping
+fallback as evidence for `_SearchPage.boundary_exhausted`. Further investigation
+needs a server-backed completeness signal or a verified way to partition and
+exhaust a tied bucket without dropping matches. Ordinary scrolling of the same
+small, untied result set will not close that gap.
+
+### Finite UID Search Partition Probes
+
+Further read-only checks on 2026-10-19 tested whether known UIDs could partition
+full-text matching independently of date ties. An unrestricted, date-ordered
+individual-message search returned 357 records below its requested 1,000-record
+limit. The probes selected one known matching UID for equality and three known
+matching UIDs for membership, retained the same mailbox, non-deleted, and text
+predicates, and requested at most ten metadata records per restricted query.
+
+Both `message/list` and `geqs/query` rejected both `uid eq` and `uid in`
+combinations with HTTP 500. Mailbox UID validity was checked around successful
+reads; no message bodies, attachments, or mutations were requested. The UID-list
+payload used a private research envelope rather than widening the public query
+model. An initial attempt to construct membership with that public model failed
+local validation before submission and is not counted as a server rejection.
+
+These four failures do not prove that every possible UID/text combination is
+unsupported. They do establish that this tested finite-partition strategy cannot
+currently attest timestamp-bucket completeness. The successful unrestricted
+query is only a bounded baseline, not independent proof of exhaustive search.
+Do not translate HTTP errors into empty results, silently fall back to local
+substring matching, or enable a live adapter on the strength of these checks.
+
 ## Synchronization and Failures
 
 `sessionHeaders` carry folder context, modification sequences and feature flags.
