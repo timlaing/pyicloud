@@ -35,6 +35,7 @@ from pyicloud.session import PyiCloudSession
 
 DEFAULT_TIMEOUT = (10.0, 60.0)
 MAX_RESULTS = 1000
+_RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
@@ -128,7 +129,7 @@ def _uid_page(
 ) -> list[MailMessageRecord]:
     """Validate a whole UID page before any of its records can be yielded."""
     if len(records) > size:
-        raise MailError("Mail exceeded the requested result limit")
+        raise MailError(_RESULT_LIMIT_EXCEEDED)
     if any(record.mailbox.id != folder.id for record in records):
         raise MailError("Mail returned a message from another folder")
     if before is not None and any(record.uid >= before for record in records):
@@ -227,7 +228,7 @@ class MailService(BaseService):
         messages: list[MailMessage] = []
         seen: set[str] = set()
         if len(response.records) > limit:
-            raise MailError("Mail exceeded the requested result limit")
+            raise MailError(_RESULT_LIMIT_EXCEEDED)
         for record in response.records:
             if record.mailbox.id != folder.id:
                 raise MailError("Mail returned a message from another folder")
@@ -360,7 +361,7 @@ class MailService(BaseService):
             SearchResponse,
         )
         if len(response.records) > limit:
-            raise MailError("Mail exceeded the requested result limit")
+            raise MailError(_RESULT_LIMIT_EXCEEDED)
         return MailSearchPage(results=response.records, limit=limit)
 
     def body(self, message: MailMessage) -> MailBody:
