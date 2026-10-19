@@ -341,6 +341,53 @@ def mail_list(
     )
 
 
+@app.command("get")
+def mail_get(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str | None = typer.Argument(None, help=_MESSAGE_ID_HELP),
+    uid: Annotated[int | None, typer.Option("--uid", min=1)] = None,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Read exact folder-scoped metadata by message ID or UID, without bodies."""
+    if (message_id is None) == (uid is None):
+        raise typer.BadParameter("Supply exactly one message ID or --uid.")
+    if message_id is not None and not message_id.strip():
+        raise typer.BadParameter("Message ID must not be empty.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    payload = _mail_call(
+        api,
+        lambda: (
+            mail.message_by_uid(folder, uid)
+            if uid is not None
+            else mail.message(folder, cast(str, message_id))
+        ),
+    )
+    if payload is None:
+        raise CLIAbort("Message not found in this folder.")
+    if state.json_output:
+        state.write_json(payload)
+        return
+    print_json_text(state.console, payload)
+
+
 @app.command("search")
 def mail_search(
     ctx: typer.Context,
@@ -578,7 +625,7 @@ def mail_export(
         "--include-body",
         help="Explicitly fetch and include unrendered body data.",
     ),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -618,7 +665,7 @@ def mail_preview(
     ctx: typer.Context,
     folder_id: FolderOption,
     message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,

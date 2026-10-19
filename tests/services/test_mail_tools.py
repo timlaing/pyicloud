@@ -1,7 +1,8 @@
 """Offline cross-folder search and opt-in JSON export checks."""
 
+from collections.abc import Iterator
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from requests import Response
@@ -46,12 +47,15 @@ def folders_fixture() -> list[MailFolder]:
 
 
 @pytest.fixture(name="message")
-def message_fixture(folders: list[MailFolder]) -> MailMessage:
+def message_fixture(
+    folders: list[MailFolder], service: MailService
+) -> Iterator[MailMessage]:
     """Existing synthetic MIME metadata; no real mailbox content."""
     record = MessageResponse.model_validate(
         load_fixture("mail", "messages_response.json")
     ).records[0]
-    return MailMessage(**record.model_dump(), folder=folders[0])
+    with patch.object(service, "folders", return_value=folders):
+        yield MailMessage(**record.model_dump(), folder=folders[0])
 
 
 def test_search_folders_preserves_scope_and_bounded_thread_groups(
