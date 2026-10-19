@@ -67,6 +67,8 @@ LookupLimitOption = Annotated[
     ),
 ]
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
+_THREAD_ID_COLUMN = "Thread ID"
+_MESSAGE_ID_HELP = "Message ID from mail list."
 
 
 class SearchScope(str, Enum):
@@ -324,7 +326,7 @@ def mail_search(
     _table(
         state,
         "Mail Search (Thread Groups)",
-        ["Thread ID", "Subject", "Count"],
+        [_THREAD_ID_COLUMN, "Subject", "Count"],
         [(hit.id, hit.subject, hit.count) for hit in payload.results],
     )
     state.console.print("Incomplete snapshot; thread IDs are not message IDs.")
@@ -392,7 +394,7 @@ def mail_search_folders(
     _table(
         state,
         "Mail Search (Bounded Per Folder)",
-        ["Folder ID", "Folder", "Thread ID", "Subject"],
+        ["Folder ID", "Folder", _THREAD_ID_COLUMN, "Subject"],
         [
             (page.folder.id, page.folder.name, hit.id, hit.subject)
             for page in payload.pages
@@ -406,7 +408,7 @@ def mail_search_folders(
 def mail_export(
     ctx: typer.Context,
     folder_id: FolderOption,
-    message_id: str = typer.Argument(..., help="Message ID from mail list."),
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
     output: Path = typer.Option(..., "--output", help="New private JSON file."),
     include_body: bool = typer.Option(
         False,
@@ -452,7 +454,7 @@ def mail_export(
 def mail_preview(
     ctx: typer.Context,
     folder_id: FolderOption,
-    message_id: str = typer.Argument(..., help="Message ID from mail list."),
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
     limit: LookupLimitOption = 50,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -522,7 +524,7 @@ def mail_filter(
     _table(
         state,
         "Mail Filter (Bounded Thread Groups)",
-        ["Thread ID", "Subject", "Count"],
+        [_THREAD_ID_COLUMN, "Subject", "Count"],
         [(hit.id, hit.subject, hit.count) for hit in payload.results],
     )
     state.console.print(
@@ -534,7 +536,7 @@ def mail_filter(
 def mail_body(
     ctx: typer.Context,
     folder_id: FolderOption,
-    message_id: str = typer.Argument(..., help="Message ID from mail list."),
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
     limit: LookupLimitOption = 50,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
@@ -568,7 +570,7 @@ def mail_body(
 def mail_download(
     ctx: typer.Context,
     folder_id: FolderOption,
-    message_id: str = typer.Argument(..., help="Message ID from mail list."),
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
     part_id: str = typer.Option(
         ..., "--part-id", help="Attachment part ID from JSON metadata."
     ),

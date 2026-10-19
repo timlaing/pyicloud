@@ -59,7 +59,8 @@ def test_preview_uses_advertised_id_and_validates_scope(read_case: ReadCase) -> 
     result = service.preview(message)
     assert result is not None
     assert result.text == "Synthetic preview text."
-    assert result.message_id == message.id and result.uid == message.uid
+    assert result.message_id == message.id
+    assert result.uid == message.uid
     assert result.folder == message.folder
     assert result.text not in repr(result)
     assert folders.call_count == 2
@@ -99,8 +100,9 @@ def test_missing_preview_selector_is_never_guessed(
 ) -> None:
     """Missing metadata must not trigger an inferred selector or a body fallback."""
     service, session, folders, message = read_case
+    missing = message.model_copy(update={"preview_id": value})
     with pytest.raises(ValueError, match="preview ID"):
-        service.preview(message.model_copy(update={"preview_id": value}))
+        service.preview(missing)
     session.post.assert_not_called()
     folders.assert_not_called()
 
@@ -109,8 +111,9 @@ def test_preview_rejects_inconsistent_input_scope(read_case: ReadCase) -> None:
     """A caller cannot attach metadata from another mailbox to this folder."""
     service, session, _, message = read_case
     wrong = message.mailbox.model_copy(update={"id": "other"})
+    scoped = message.model_copy(update={"mailbox": wrong})
     with pytest.raises(ValueError, match="identities"):
-        service.preview(message.model_copy(update={"mailbox": wrong}))
+        service.preview(scoped)
     session.post.assert_not_called()
 
 
@@ -141,7 +144,8 @@ def test_filters_use_browser_threads_not_guessed_bits(
     service, session, folders, message = read_case
     result = service.filtered_threads(message.folder, filter_by, limit=3)
     assert result.filter_by == filter_by
-    assert result.complete is False and result.limit == 3
+    assert result.complete is False
+    assert result.limit == 3
     assert result.results[0].id == "synthetic-filter-thread"
     assert result.results[0].count == 2
     assert folders.call_count == 2
