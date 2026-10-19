@@ -141,18 +141,20 @@ def test_excess_results(
     data = load_fixture("mail", filename)
     data["domainObjects"] *= 2
     session.post.return_value = response(data)
-    with pytest.raises(MailError, match="exceeded"):
-        if method == "messages":
+    if method == "messages":
+        with pytest.raises(MailError, match="exceeded"):
             service.messages(folder, limit=1)
-        else:
+    else:
+        with pytest.raises(MailError, match="exceeded"):
             service.search(folder, "test", limit=1)
 
 
 def test_wrong_folder(service: MailService, session: MagicMock) -> None:
     """Do not bind one folder's UID to another folder."""
     session.post.return_value = response(load_fixture("mail", "messages_response.json"))
+    wrong = MailFolder(identifier="wrong", name="Other")
     with pytest.raises(MailError, match="another folder"):
-        service.messages(MailFolder(identifier="wrong", name="Other"))
+        service.messages(wrong)
 
 
 @pytest.mark.parametrize("field", ["all", "subject", "from", "to", "cc", "body"])
@@ -253,8 +255,9 @@ def test_no_body(
     service: MailService, session: MagicMock, message: MailMessage
 ) -> None:
     """Unsupported or attachment-only messages do not trigger a body request."""
+    empty = message.model_copy(update={"parts": []})
     with pytest.raises(ValueError, match="text body"):
-        service.body(message.model_copy(update={"parts": []}))
+        service.body(empty)
     session.post.assert_not_called()
 
 
@@ -340,7 +343,8 @@ def test_attachment_early_exit(
     """Context exit closes a partially consumed response, including caller errors."""
     result = response(None)
     session.get.return_value = result
-    with pytest.raises(RuntimeError), service.attachment(message, "2") as chunks:
+    attachment = service.attachment(message, "2")
+    with pytest.raises(RuntimeError), attachment as chunks:
         assert next(chunks) == b"%PDF-"
         raise RuntimeError("caller stopped")
     result.close.assert_called_once()
@@ -503,8 +507,9 @@ def test_external_body_metadata(
     part = MailPart(
         partId="cloudpart:https://example.test/body", contentType="text/plain"
     )
+    external = message.model_copy(update={"parts": [part]})
     with pytest.raises(ValueError, match="no supported"):
-        service.body(message.model_copy(update={"parts": [part]}))
+        service.body(external)
     session.post.assert_not_called()
 
 
