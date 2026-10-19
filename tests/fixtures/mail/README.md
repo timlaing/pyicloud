@@ -14,6 +14,10 @@ represent bounded snapshots, not a complete synchronization protocol.
 as proof of completeness or followed automatically. The shape was verified
 with controlled read-only metadata queries; all record values are invented.
 
+`message_lookup_response.json` models a single exact metadata result verified
+by controlled, read-only ID and UID queries. Its IDs and message fields are
+synthetic; it is not a copied account response.
+
 `messages_uid_page_response.json` models a UID-ordered metadata page with equal
 dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
 an explicit empty terminal page; the marker is not a synchronization cursor.

@@ -127,6 +127,7 @@ class MessageResponse(MailModel):
     """Required message query envelope."""
 
     records: list[MailMessageRecord] = Field(alias="domainObjects")
+    continuation_marker: str | None = Field(default=None, alias="continuationMarker")
 
 
 class SearchResponse(MailModel):
