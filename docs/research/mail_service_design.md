@@ -273,6 +273,40 @@ markers, short pages, server errors, or change tokens as proof of exhaustion.
 All these follow-up checks excluded bodies, attachment downloads, and mutations;
 raw captures and account-specific metadata remain outside Git.
 
+### Browser Date Ranges and Search Paging Candidate
+
+A later user capture distinguished literal text `Last week` from a recognized
+date-search token. The recognized range used two `stateInternalDate` predicates,
+strict `gt` and strict `lt`, with integer millisecond boundaries. Combining the
+range with unrestricted text matching returned the same observed date scope.
+This is different from the previously rejected `ge` probe; it does not require
+extending the production predicate model until a public date-search API exists.
+
+Bounded read-only probes using the captured `gt`/`lt` form partitioned 357
+matching Sent messages into 178 older and 179 newer-or-boundary records, each
+matching its independent baseline subset. An open bracket from one millisecond
+below an integer timestamp to one millisecond above it isolated the expected
+boundary record. Date equality alone is still not a reliable discriminator:
+an earlier sample included another record with a different timestamp.
+
+An exploratory scan then requested 25 date-ordered matches at a time, fetched
+each boundary timestamp bucket with the strict bracket, and continued strictly
+before that timestamp. Fourteen pages of 25, a page of seven, and an empty page
+yielded all 357 baseline identities without gaps. All 15 boundary buckets had
+one record. Mailbox identity was checked around reads; no opaque marker was
+replayed, and no bodies, attachment downloads, or mutations were requested.
+
+This verifies a candidate sequence on one account, not general search
+completeness. The data had no real timestamp ties. Before shipping, add tests
+for tied timestamps split across pages, server-side bucket truncation, saturated
+1,000-record buckets, unsupported timestamp precision, concurrent changes,
+identity conflicts, response-scope/order failures, and request-budget errors.
+The probe explicitly rejects saturated buckets rather than claiming exhaustion.
+An under-limit bucket alone must not be assumed complete without verified
+server behavior; larger or tied buckets still need continuation evidence.
+Individual matching messages must also remain distinct from the existing
+grouped search results. No public search-pagination API was added here.
+
 ### Mailbox Loading
 
 The Sent Messages capture demonstrates a two-stage listing strategy:
