@@ -30,11 +30,53 @@ Message UIDs are folder-local and must not be used with a different folder.
 `MailMessage` retains the folder context used to retrieve it. List results
 deduplicate repeated message identifiers within the response.
 
-**Listing and search are bounded snapshots, not complete enumerations.** Limits
+**`messages()` and search are bounded snapshots, not complete enumerations.** Limits
 must be integers from 1 through 1,000. Results have `complete=False` even when
 fewer records were returned: continuation and completeness are not established
 for every mailbox. No hidden requests fetch additional pages. This API is not
 suitable for a complete-mailbox backup.
+
+## Enumerating a Mailbox
+
+Opt into UID-based pagination explicitly:
+
+```python
+for message in api.mail.iter_messages(inbox, page_size=50, max_pages=10000):
+    print(message.id, message.uid)
+```
+
+The iterator requests metadata in descending **UID order**, which can differ
+from date order. Each subsequent page requests only UIDs strictly below the last
+UID of the previous page. Equal internal timestamps therefore do not create
+boundary gaps. Page sizes remain limited to 1 through 1,000, but the total number
+of messages is not limited to 1,000. No bodies or attachments are fetched.
+
+Only an empty response establishes exhaustion: neither a short page nor a
+missing continuation marker is sufficient. Exact repeated identities within a
+page are deduplicated. Inconsistent identities, wrong folders, ignored UID
+boundaries, or incorrect ordering raise `MailError` instead of silently dropping
+messages or looping. Server continuation markers are not synchronization tokens
+and are not needed by this UID-boundary strategy.
+
+Use a fresh folder from `folders()` with a positive `uid_validity`. The iterator
+checks the mailbox before the first request and after every page. A disappeared
+folder or changed UID validity aborts the scan so records from a recreated
+mailbox are not mixed into it. A rename within the same UID namespace updates
+the folder context on yielded messages. These checks require extra folder-list
+requests; pages are otherwise fetched lazily, with no background prefetching.
+
+`max_pages` is a positive request budget, including the final empty-page request.
+Exhausting it raises an error rather than returning a successful partial scan.
+An exception after earlier yielded records does not retract those records;
+callers needing all-or-nothing output must stage their results until iteration
+finishes. The iterator retains seen identifiers to detect cross-page conflicts.
+
+**This is a live enumeration, not an atomic snapshot or incremental sync.** New
+higher-UID messages arriving after the scan starts are outside its remaining
+range; messages deleted or moved during the scan may disappear. UID validity
+checks detect observed mailbox recreation, not every concurrent message change.
+Reaching an empty page does not prove a consistent point-in-time backup. The
+protocol remains experimental and was verified on one account.
 
 ## Bodies
 
@@ -109,6 +151,7 @@ the final command, just as with the other services.
 ```console
 icloud mail folders --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
+icloud mail list --folder-id '<folder-id>' --all --limit 50 --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --limit 50 --format json
 icloud mail body '<message-id>' --folder-id '<folder-id>' --limit 50 --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
@@ -118,6 +161,14 @@ Use exact folder IDs from `mail folders` and message IDs from `mail list`.
 JSON listings include MIME parts, attachment part IDs, and `complete: false`.
 Search returns **thread-group IDs**, which cannot be passed as message IDs to
 `body` or `download`. All six search fields described above are supported.
+
+`mail list --all` opts into UID enumeration; `--limit` then sets the **page
+size**, not the total number of messages. Successful JSON output has `messages`,
+`page_size`, and `exhausted: true`, rather than the bounded page's `complete`
+field. Output is printed only after enumeration succeeds; a later-page error
+does not emit a successful partial JSON result. This CLI mode holds the metadata
+in memory; use the library iterator for processing large mailboxes incrementally.
+It does not change the bounded lookup used by `body` and `download`.
 
 `list` and `search` default to a limit of 50, with a maximum of 1,000. `body` and
 `download` first look for the requested message within the newest `--limit`
