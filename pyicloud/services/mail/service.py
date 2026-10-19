@@ -20,20 +20,32 @@ from pyicloud.services.mail.models import (
     MailBodyRequest,
     MailExpression,
     MailFolder,
+    MailFolderSearchPage,
     MailMessage,
+    MailMessageExport,
     MailMessagePage,
+    MailMultiSearchPage,
     MailOrder,
     MailPredicate,
+    MailPreview,
+    MailPreviewRequest,
     MailQuery,
     MailSearchPage,
     MailSessionHeaders,
+    MailThreadFilter,
+    MailThreadFilterPage,
+    MailThreadFilterRequest,
     MessageResponse,
+    PreviewResponse,
     SearchResponse,
+    ThreadFilterResponse,
 )
 from pyicloud.session import PyiCloudSession
 
 DEFAULT_TIMEOUT = (10.0, 60.0)
 MAX_RESULTS = 1000
+MAX_SEARCH_FOLDERS = 20
+_RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
@@ -46,6 +58,7 @@ _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
     "rfc822Size",
     "hasAttachment",
     "parts",
+    "previewId",
     *[
         {
             "type": "fieldOf",
@@ -103,6 +116,16 @@ def _folder_predicate(folder: MailFolder) -> MailPredicate:
             )
         ],
     )
+
+
+def _search_fields(text: str, field: SearchField, limit: int) -> tuple[str, ...]:
+    """Validate a bounded text query before any request is sent."""
+    _limit(limit)
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("Search text must not be empty")
+    if field not in ("all", "subject", "from", "to", "cc", "body"):
+        raise ValueError("Unsupported search field")
+    return ("subject", "to", "from", "cc", "body") if field == "all" else (field,)
 
 
 class MailService(BaseService):
@@ -191,7 +214,7 @@ class MailService(BaseService):
         messages: list[MailMessage] = []
         seen: set[str] = set()
         if len(response.records) > limit:
-            raise MailError("Mail exceeded the requested result limit")
+            raise MailError(_RESULT_LIMIT_EXCEEDED)
         for record in response.records:
             if record.mailbox.id != folder.id:
                 raise MailError("Mail returned a message from another folder")
@@ -209,12 +232,7 @@ class MailService(BaseService):
         limit: int = 50,
     ) -> MailSearchPage:
         """Return bounded thread-grouped text matches within one folder."""
-        _limit(limit)
-        if not isinstance(text, str) or not text.strip():
-            raise ValueError("Search text must not be empty")
-        if field not in ("all", "subject", "from", "to", "cc", "body"):
-            raise ValueError("Unsupported search field")
-        fields = ("subject", "to", "from", "cc", "body") if field == "all" else (field,)
+        fields = _search_fields(text, field, limit)
         matches = [
             MailPredicate(
                 type="textMatch",
@@ -247,8 +265,139 @@ class MailService(BaseService):
             SearchResponse,
         )
         if len(response.records) > limit:
-            raise MailError("Mail exceeded the requested result limit")
+            raise MailError(_RESULT_LIMIT_EXCEEDED)
         return MailSearchPage(results=response.records, limit=limit)
+
+    def search_folders(
+        self,
+        folders: list[MailFolder],
+        text: str,
+        *,
+        field: SearchField = "all",
+        limit_per_folder: int = 50,
+    ) -> MailMultiSearchPage:
+        """Search 1 to 20 explicitly selected folders without hidden paging.
+
+        Results retain each folder's context and ordering. Thread IDs are not
+        deduplicated across folders, and counts do not count individual messages.
+        Failure in any folder raises instead of returning successful partial data.
+        This is not an atomic or globally ranked search.
+        """
+        _search_fields(text, field, limit_per_folder)
+        if not folders or len(folders) > MAX_SEARCH_FOLDERS:
+            raise ValueError(f"Select between 1 and {MAX_SEARCH_FOLDERS} folders")
+        if any(not isinstance(folder, MailFolder) for folder in folders):
+            raise ValueError("folders must contain MailFolder objects")
+        if len({folder.id for folder in folders}) != len(folders):
+            raise ValueError("Folder IDs must be unique")
+        pages = []
+        for folder in folders:
+            page = self.search(folder, text, field=field, limit=limit_per_folder)
+            pages.append(MailFolderSearchPage(**page.model_dump(), folder=folder))
+        return MailMultiSearchPage(pages=pages, limit_per_folder=limit_per_folder)
+
+    def export_message(
+        self, message: MailMessage, *, include_body: bool = False
+    ) -> MailMessageExport:
+        """Build JSON-serializable data, fetching bodies only by explicit opt-in.
+
+        This method writes no files, downloads no attachments, and does not mark
+        messages read. Body strings are untrusted data, never rendered HTML.
+        """
+        if not isinstance(include_body, bool):
+            raise ValueError("include_body must be a boolean")
+        return MailMessageExport(
+            message=message, body=self.body(message) if include_body else None
+        )
+
+    def _checked_mailbox(self, folder: MailFolder) -> MailFolder:
+        """Reject a disappeared or recreated mailbox before exposing metadata."""
+        if folder.uid_validity is None or folder.uid_validity < 1:
+            raise ValueError(
+                "A positive mailbox UID validity is required; refresh folders"
+            )
+        current = next((item for item in self.folders() if item.id == folder.id), None)
+        if current is None or current.uid_validity != folder.uid_validity:
+            raise MailError(
+                "Mailbox identity changed; refresh folders and restart the operation"
+            )
+        return current
+
+    def preview(self, message: MailMessage) -> MailPreview | None:
+        """Fetch an advertised snippet without opening a body or marking it read.
+
+        Missing preview IDs are not guessed. An empty response returns None;
+        an explicitly empty snippet remains a MailPreview with text="".
+        """
+        if message.preview_id is None or not message.preview_id.strip():
+            raise ValueError("Message has no advertised preview ID; refresh metadata")
+        if message.mailbox.id != message.folder.id:
+            raise ValueError("Message and folder identities do not match")
+        current = self._checked_mailbox(message.folder)
+        requested_folder = current.name
+        response = self._post(
+            "message/preview",
+            MailPreviewRequest(
+                folder=requested_folder,
+                previewIds=[message.preview_id],
+                session_headers=MailSessionHeaders(folder=requested_folder),
+            ),
+            PreviewResponse,
+            keep_nulls=True,
+        )
+        current = self._checked_mailbox(message.folder)
+        if response.context.folder != requested_folder or len(response.records) > 1:
+            raise MailError(
+                "Mail preview returned an ambiguous or wrong-folder response"
+            )
+        if not response.records:
+            return None
+        record = response.records[0]
+        if record.message_guid != f"{requested_folder}/{message.uid}":
+            raise MailError("Mail preview returned a different message")
+        return MailPreview(
+            message_id=message.id, folder=current, uid=message.uid, text=record.preview
+        )
+
+    def filtered_threads(
+        self, folder: MailFolder, filter_by: MailThreadFilter, *, limit: int = 50
+    ) -> MailThreadFilterPage:
+        """Read bounded Unread or Flagged thread groups using the browser protocol.
+
+        These are thread groups, not per-message flags or text search filters.
+        Filters are deliberately separate: combinations are not assumed to mean
+        logical AND. No bodies, mutations, paging, or sync-state replay occur.
+        """
+        _limit(limit)
+        if filter_by not in ("unread", "flagged"):
+            raise ValueError("filter_by must be unread or flagged")
+        current = self._checked_mailbox(folder)
+        requested_folder = current.name
+        key: Literal["unseen", "flagged"] = (
+            "unseen" if filter_by == "unread" else "flagged"
+        )
+        response = self._post(
+            "thread/search",
+            MailThreadFilterRequest(
+                maxResults=limit,
+                filters={key: True},
+                session_headers=MailSessionHeaders(folder=requested_folder),
+            ),
+            ThreadFilterResponse,
+            keep_nulls=True,
+        )
+        current = self._checked_mailbox(folder)
+        if response.context.folder != requested_folder:
+            raise MailError("Mail filter returned a different folder")
+        if len(response.records) > limit:
+            raise MailError(_RESULT_LIMIT_EXCEEDED)
+        if response.returned_count != len(response.records):
+            raise MailError("Mail filter returned an inconsistent thread count")
+        if len({record.id for record in response.records}) != len(response.records):
+            raise MailError("Mail filter returned duplicate thread identities")
+        return MailThreadFilterPage(
+            folder=current, filter_by=filter_by, results=response.records, limit=limit
+        )
 
     def body(self, message: MailMessage) -> MailBody:
         """Read advertised plain-text/HTML parts without marking the message read."""

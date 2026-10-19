@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
+from contextlib import contextmanager
 from enum import Enum
 import os
 from pathlib import Path
 from tempfile import mkstemp
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, BinaryIO, cast
 
 from rich.text import Text
 import typer
@@ -28,7 +29,13 @@ from pyicloud.cli.options import (
 )
 from pyicloud.cli.output import console_table, print_json_text
 from pyicloud.exceptions import PyiCloudException
-from pyicloud.services.mail import MailFolder, MailMessage, MailService
+from pyicloud.services.mail import (
+    MailFolder,
+    MailMessage,
+    MailMessageExport,
+    MailService,
+)
+from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
 app = typer.Typer(help="Read Mail folders, bounded messages, and attachments.")
 
@@ -62,6 +69,13 @@ class SearchScope(str, Enum):
     TO = "to"
     CC = "cc"
     BODY = "body"
+
+
+class ThreadFilter(str, Enum):
+    """Separate observed browser filters, without guessed combination semantics."""
+
+    UNREAD = "unread"
+    FLAGGED = "flagged"
 
 
 def _mail_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
@@ -116,26 +130,46 @@ def _table(
     state.console.print(table)
 
 
-def _download(
-    mail: MailService, message: MailMessage, part_id: str, output: Path
-) -> int:
-    """Stage private bytes beside the destination and publish without overwriting."""
-    size = 0
+@contextmanager
+def _private_output(output: Path) -> Generator[BinaryIO, None, None]:
+    """Publish a closed private staging file atomically, without overwriting."""
     descriptor, temporary_path = mkstemp(dir=output.parent, prefix=".pyicloud-mail-")
     try:
-        with (
-            os.fdopen(descriptor, "wb") as temporary,
-            mail.attachment(message, part_id) as chunks,
-        ):
-            for chunk in chunks:
-                size += temporary.write(chunk)
+        try:
+            temporary = os.fdopen(descriptor, "wb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+        with temporary:
+            yield temporary
         # A hard link publishes complete bytes atomically and refuses any
         # existing destination, including symlinks and files created mid-stream.
         # Close the staging handle first, including on Windows.
         os.link(temporary_path, output)
     finally:
         Path(temporary_path).unlink()
+
+
+def _download(
+    mail: MailService, message: MailMessage, part_id: str, output: Path
+) -> int:
+    """Stream an attachment into a private, non-overwriting destination."""
+    size = 0
+    with (
+        _private_output(output) as temporary,
+        mail.attachment(message, part_id) as chunks,
+    ):
+        for chunk in chunks:
+            size += temporary.write(chunk)
     return size
+
+
+def _write_export(payload: MailMessageExport, output: Path) -> int:
+    """Save UTF-8 JSON data; never treat message content as markup or paths."""
+    with _private_output(output) as temporary:
+        return temporary.write(
+            (payload.model_dump_json(indent=2) + "\n").encode("utf-8")
+        )
 
 
 @app.command("folders")
@@ -261,6 +295,206 @@ def mail_search(
         [(hit.id, hit.subject, hit.count) for hit in payload.results],
     )
     state.console.print("Incomplete snapshot; thread IDs are not message IDs.")
+
+
+@app.command("search-folders")
+def mail_search_folders(
+    ctx: typer.Context,
+    folder_ids: Annotated[
+        list[str],
+        typer.Option("--folder-id", help="Explicit folder ID; repeat for each folder."),
+    ],
+    query: str = typer.Argument(
+        ..., help="Text to search within each selected folder."
+    ),
+    field: SearchScope = typer.Option(SearchScope.ALL, "--field"),
+    limit_per_folder: Annotated[
+        int, typer.Option("--limit-per-folder", min=1, max=1000)
+    ] = 50,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Search selected folders separately; results are bounded thread groups."""
+    if not query.strip():
+        raise typer.BadParameter("Search text must not be empty.")
+    if (
+        not 1 <= len(folder_ids) <= MAX_SEARCH_FOLDERS
+        or any(not folder_id.strip() for folder_id in folder_ids)
+        or len(set(folder_ids)) != len(folder_ids)
+    ):
+        raise typer.BadParameter(
+            f"Select 1 to {MAX_SEARCH_FOLDERS} unique, non-empty folder IDs."
+        )
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    available = {folder.id: folder for folder in _mail_call(api, mail.folders)}
+    if any(folder_id not in available for folder_id in folder_ids):
+        raise CLIAbort("Mail folder not found. Use icloud mail folders for exact IDs.")
+    payload = _mail_call(
+        api,
+        lambda: mail.search_folders(
+            [available[folder_id] for folder_id in folder_ids],
+            query,
+            field=field.value,
+            limit_per_folder=limit_per_folder,
+        ),
+    )
+    if state.json_output:
+        state.write_json(payload)
+        return
+    _table(
+        state,
+        "Mail Search (Bounded Per Folder)",
+        ["Folder ID", "Folder", "Thread ID", "Subject"],
+        [
+            (page.folder.id, page.folder.name, hit.id, hit.subject)
+            for page in payload.pages
+            for hit in page.results
+        ],
+    )
+    state.console.print("Incomplete per-folder results; not globally ranked messages.")
+
+
+@app.command("export")
+def mail_export(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help="Message ID from mail list."),
+    output: Path = typer.Option(..., "--output", help="New private JSON file."),
+    include_body: bool = typer.Option(
+        False,
+        "--include-body",
+        help="Explicitly fetch and include unrendered body data.",
+    ),
+    limit: LookupLimitOption = 50,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Export selected message metadata to JSON, not raw MIME or a mailbox backup."""
+    if os.path.lexists(output):
+        raise CLIAbort("Destination already exists; choose a new --output path.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, limit)
+    payload = _mail_call(
+        api, lambda: mail.export_message(message, include_body=include_body)
+    )
+    size = _mail_call(api, lambda: _write_export(payload, output))
+    result = {"message_id": message.id, "path": str(output), "size": size}
+    if state.json_output:
+        state.write_json(result)
+        return
+    state.console.print(Text(str(output)))
+
+
+@app.command("preview")
+def mail_preview(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help="Message ID from mail list."),
+    limit: LookupLimitOption = 50,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Fetch an advertised snippet as data, without opening or rendering a body."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, limit)
+    payload = _mail_call(api, lambda: mail.preview(message))
+    if payload is None:
+        raise CLIAbort("Mail returned no preview for this message.")
+    if state.json_output:
+        state.write_json(payload)
+        return
+    print_json_text(state.console, payload)
+
+
+@app.command("filter")
+def mail_filter(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    filter_by: ThreadFilter = typer.Option(
+        ..., "--filter", help="One browser thread filter."
+    ),
+    limit: LimitOption = 50,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """List bounded Unread or Flagged thread groups, not per-message flag matches."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    payload = _mail_call(
+        api, lambda: mail.filtered_threads(folder, filter_by.value, limit=limit)
+    )
+    if state.json_output:
+        state.write_json(payload)
+        return
+    _table(
+        state,
+        "Mail Filter (Bounded Thread Groups)",
+        ["Thread ID", "Subject", "Count"],
+        [(hit.id, hit.subject, hit.count) for hit in payload.results],
+    )
+    state.console.print(
+        "Incomplete thread groups; not individual unread/flagged messages."
+    )
 
 
 @app.command("body")

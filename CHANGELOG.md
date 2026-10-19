@@ -17,6 +17,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add bounded search across explicitly selected Mail folders, preserving per-folder thread identity and incomplete-result semantics through the library and `icloud mail search-folders`.
+- Add versioned Mail message JSON export with metadata-only defaults, opt-in body data, and private non-overwriting output through `icloud mail export`.
+- Add Mail snippets using advertised preview IDs and separate Unread/Flagged browser thread filters through the library and `icloud mail preview` / `icloud mail filter`, with mailbox identity checks and explicit bounded thread-group semantics.
 - Add read-only `icloud mail` commands for folders, bounded message listings and thread-grouped search, body data, and attachment downloads to explicit non-overwriting paths.
 - Add experimental read-only `PyiCloudService.mail` support for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Complete mailbox enumeration, mutations, and incremental synchronization are not supported.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
