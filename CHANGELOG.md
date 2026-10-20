@@ -38,6 +38,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Simplify Mail Drop capability validation and centralize shared Mail error messages and MIME types without changing download behavior.
 - Redact capability-bearing Mail Drop URLs and cloud-part identifiers from serialized message metadata; select Mail Drop attachments by their 1-based position in the parts array instead of copying signed URLs into commands.
 - Use exact message-ID lookup by default for Mail CLI preview and export commands too; explicit `--limit N` retains the bounded newest-message lookup.
 - Use exact message-ID lookup by default for Mail CLI body and download commands; an explicit `--limit` retains the existing bounded newest-message lookup.
