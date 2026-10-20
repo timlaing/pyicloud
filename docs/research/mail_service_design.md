@@ -424,7 +424,7 @@ unsupported. They do establish that this tested finite-partition strategy cannot
 currently attest timestamp-bucket completeness. The successful unrestricted
 query is only a bounded baseline, not independent proof of exhaustive search.
 Do not translate HTTP errors into empty results, silently fall back to local
-substring matching, or enable a live adapter on the strength of these checks.
+substring matching, or enable a live adapter based on these checks.
 
 ## Synchronization and Failures
 
