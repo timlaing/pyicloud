@@ -22,18 +22,20 @@ class SyncResetRequired(ValueError):
     """The candidate cannot establish a safe, complete change batch."""
 
 
-class _Model(BaseModel):
+class SyncModel(BaseModel):
+    """Strict immutable data shared by the private synchronization candidate."""
+
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
 
 
-class ExistsEvent(_Model):
+class ExistsEvent(SyncModel):
     """A mailbox count hint, not a UID or an independently identified new message."""
 
     kind: Literal["exists"] = "exists"
     count: Number
 
 
-class MessageEvent(_Model):
+class MessageEvent(SyncModel):
     """A UID-addressed replacement flag set at a message modification sequence."""
 
     kind: Literal["message"] = "message"
@@ -43,7 +45,7 @@ class MessageEvent(_Model):
     flags: tuple[str, ...]
 
 
-class ArrivalEvent(_Model):
+class ArrivalEvent(SyncModel):
     """A newly announced message UID, without metadata or an individual counter."""
 
     kind: Literal["arrival"] = "arrival"
@@ -51,7 +53,7 @@ class ArrivalEvent(_Model):
     uid: UID
 
 
-class VanishedEvent(_Model):
+class VanishedEvent(SyncModel):
     """Inclusive UID ranges, kept compact instead of expanding untrusted sets."""
 
     kind: Literal["vanished"] = "vanished"
@@ -59,7 +61,7 @@ class VanishedEvent(_Model):
     earlier: bool = False
 
 
-class ThreadEvent(_Model):
+class ThreadEvent(SyncModel):
     """A separate thread update; its identifier is never a message UID."""
 
     kind: Literal["thread"] = "thread"
@@ -73,7 +75,7 @@ class ThreadEvent(_Model):
 ChangeEvent = ExistsEvent | ArrivalEvent | MessageEvent | VanishedEvent | ThreadEvent
 
 
-class SyncCheckpoint(_Model):
+class SyncCheckpoint(SyncModel):
     """Candidate scope and counters; not evidence of a completed baseline scan."""
 
     account: Identity = Field(repr=False)
@@ -84,7 +86,7 @@ class SyncCheckpoint(_Model):
     threadmodseq: Number
 
 
-class ChangeBatch(_Model):
+class ChangeBatch(SyncModel):
     """Validated candidate batch; checkpoint persistence is the caller's job."""
 
     checkpoint: SyncCheckpoint

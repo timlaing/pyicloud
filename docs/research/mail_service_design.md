@@ -570,6 +570,46 @@ were copied into tracked files. This capture verifies one arrival path; flag
 transitions, moves, deletions, reset handling, and the initial inventory handoff
 remain separate integration gates.
 
+### Private Inventory and State Candidate
+
+`_sync_inventory.py` introduces an offline-tested initial-inventory algorithm
+against a read-only source protocol, not a public service adapter. A complete,
+unfiltered enumeration must be bracketed by identical account/mailbox identity,
+path, UID validity, and message/thread counters. A changing observation discards
+the attempt and restarts within an explicit attempt budget. Incomplete reads,
+duplicate identities, and message-budget exhaustion raise rather than publishing
+a partial baseline. Account/mailbox identity stays pinned across retries. Folder
+recreation or rename requires a fresh stable scan, not merging old and new UIDs.
+
+This quiescent-window algorithm deliberately favors explicit failure on a busy
+mailbox over claiming a complete inventory. It depends on a future verified source
+whose counters cover every relevant change and whose iterator truly exhausts the
+mailbox. Counter stability alone is not proof that Apple's server reads form an
+atomic snapshot. A mutation after the final observation belongs to a later poll;
+its checkpoint must not be silently skipped. No automatic live adapter is exposed
+until the handoff, expiry, and server consistency assumptions are verified.
+
+`_sync_state.py` stores only folder-local UIDs, message/thread IDs, numeric flags,
+and the scoped checkpoint. Inventory replacement and checkpoint advancement share
+one SQLite transaction. Exceptions during enumeration/SQL execution or commit
+roll back both. A local monotonic revision and transaction-locked compare-and-swap
+reject competing writers even when their remote counters are equal. A coherent
+snapshot reader keeps records and checkpoint in the same transaction. Unsupported
+schema versions and structurally invalid checkpoints/records fail explicitly
+rather than appearing to be a fresh target. Same-namespace counter regression
+and account/mailbox switches are rejected; intentional baseline replacement can
+recover a new UID namespace.
+
+The private backend accepts a dedicated, caller-owned SQLite connection. It does
+not create or select filesystem paths, manage connection lifetime, encrypt a
+database, or establish file/sidecar permissions. A future CLI integration must
+provide bounded connection timeouts and secure private database creation before
+exposing persistence. Tests use real in-memory SQLite and private sandbox files
+to exercise restarts, two connections, injected commit failures, stale writers,
+and rollback after partial insertion. Message bodies, headers, credentials, and
+signed attachment links are not persistence fields. Incremental delta application,
+remote reset recovery, and an end-to-end public synchronization API remain absent.
+
 Mutation responses expose `notCreated`, `notUpdated`, and `notDestroyed` fields.
 No populated failure maps or HTTP failure examples were captured. Future writers
 must validate operation outcomes, distinguish uncertain submission outcomes,

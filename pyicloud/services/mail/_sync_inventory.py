@@ -1,0 +1,82 @@
+"""Private baseline algorithm; requires a verified, caller-supplied read source.
+
+Counter stability is a necessary handoff condition, not a claim that Apple's
+counter/history semantics have been fully verified. No live adapter or CLI is
+exposed yet. This stores only minimal metadata and never touches remote mail.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from typing import Protocol
+
+from pyicloud.services.mail._sync import SyncCheckpoint, SyncResetRequired
+from pyicloud.services.mail._sync_state import (
+    InventoryMessage,
+    SQLiteMailInventory,
+    StoredCheckpoint,
+)
+
+
+class InventorySource(Protocol):
+    """Read-only source with verified account, mailbox, and UID namespace context."""
+
+    def current_checkpoint(self) -> SyncCheckpoint:
+        """Read current counters without silently resetting an expired session."""
+
+    def iter_inventory(self) -> Iterator[InventoryMessage]:
+        """Exhaust unfiltered metadata, raising on incomplete or inconsistent scans."""
+
+
+def establish_inventory(
+    source: InventorySource,
+    state: SQLiteMailInventory,
+    *,
+    max_attempts: int = 3,
+    max_messages: int = 100000,
+) -> StoredCheckpoint:
+    """Publish only a bounded inventory bracketed by identical checkpoints.
+
+    Changed counters/namespace discard the whole attempt. Partial reads, exhausted
+    budgets, or local writer conflicts retain the previously committed inventory.
+    A later remote change belongs to the next poll, not this stored checkpoint.
+    """
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or value < 1
+        for value in (max_attempts, max_messages)
+    ):
+        raise ValueError("Mail inventory budgets must be positive integers")
+    expected = state.read_checkpoint()
+    scope = (
+        None
+        if expected is None
+        else (expected.checkpoint.account, expected.checkpoint.mailbox_id)
+    )
+    for _ in range(max_attempts):
+        before = source.current_checkpoint()
+        if scope is None:
+            scope = (before.account, before.mailbox_id)
+        if scope != (before.account, before.mailbox_id):
+            raise SyncResetRequired(
+                "Mail inventory source belongs to another account/mailbox"
+            )
+        messages: list[InventoryMessage] = []
+        uids: set[int] = set()
+        identifiers: set[str] = set()
+        for message in source.iter_inventory():
+            if len(messages) >= max_messages:
+                raise SyncResetRequired("Mail inventory exceeds the message budget")
+            if message.uid in uids or message.message_id in identifiers:
+                raise SyncResetRequired("Mail inventory returned duplicate identities")
+            messages.append(message)
+            uids.add(message.uid)
+            identifiers.add(message.message_id)
+        after = source.current_checkpoint()
+        if scope != (after.account, after.mailbox_id):
+            raise SyncResetRequired(
+                "Mail inventory source changed account/mailbox during scan"
+            )
+        if after != before:
+            continue
+        return state.replace_inventory(expected, after, messages)
+    raise SyncResetRequired("Mail changed during every inventory attempt; retry later")
