@@ -78,6 +78,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
+_EXPORT_DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
 
 class SearchScope(str, Enum):
@@ -643,7 +644,7 @@ def mail_export(
 ) -> None:
     """Export selected message metadata to JSON, not raw MIME or a mailbox backup."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,
@@ -685,7 +686,7 @@ def mail_export_eml(
 ) -> None:
     """Save original MIME bytes from Apple; never reconstruct or render the message."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,
@@ -846,7 +847,7 @@ def mail_download(
 ) -> None:
     """Save an ordinary attachment to an explicit path, without overwriting."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,

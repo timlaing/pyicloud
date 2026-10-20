@@ -49,6 +49,8 @@ MAX_RESULTS = 1000
 MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
+_UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
+_IDENTITIES_MISMATCH = "Message and folder identities do not match"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 MessageFilter = Literal["unread", "flagged"]
@@ -128,7 +130,7 @@ def _validate_uid_scan(folder: MailFolder, page_size: int, max_pages: int) -> No
     if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
         raise ValueError("max_pages must be a positive integer")
     if folder.uid_validity is None or folder.uid_validity < 1:
-        raise ValueError("A positive mailbox UID validity is required; refresh folders")
+        raise ValueError(_UID_VALIDITY_REQUIRED)
 
 
 def _uid_query(
@@ -327,9 +329,7 @@ class MailService(BaseService):
     ) -> MailMessage | None:
         """Validate an exact metadata response before binding a UID to a folder."""
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = self._checked_mailbox(folder)
         predicate = _folder_predicate(current)
         predicate = predicate.model_copy(
@@ -528,9 +528,7 @@ class MailService(BaseService):
         if not isinstance(thread_id, str) or not thread_id.strip():
             raise ValueError("thread_id must be a non-empty string")
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = self._checked_mailbox(folder)
         predicate = _folder_predicate(current)
         predicate = predicate.model_copy(
@@ -620,9 +618,7 @@ class MailService(BaseService):
     def _checked_mailbox(self, folder: MailFolder) -> MailFolder:
         """Reject a disappeared or recreated mailbox before exposing metadata."""
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = next((item for item in self.folders() if item.id == folder.id), None)
         if current is None or current.uid_validity != folder.uid_validity:
             raise MailError(
@@ -639,7 +635,7 @@ class MailService(BaseService):
         if message.preview_id is None or not message.preview_id.strip():
             raise ValueError("Message has no advertised preview ID; refresh metadata")
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_IDENTITIES_MISMATCH)
         current = self._checked_mailbox(message.folder)
         requested_folder = current.name
         response = self._post(
@@ -716,7 +712,7 @@ class MailService(BaseService):
     def _content_folder(self, message: MailMessage) -> MailFolder:
         """Guard known UID namespaces while preserving legacy bounded reads."""
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_IDENTITIES_MISMATCH)
         if message.folder.uid_validity is None:
             return message.folder
         return self._checked_mailbox(message.folder)
@@ -768,7 +764,7 @@ class MailService(BaseService):
         output as success. This is not a signed archival-integrity guarantee.
         """
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_IDENTITIES_MISMATCH)
         current = self._checked_mailbox(message.folder)
         response = self.session.get(
             f"{self.service_root}/mailws2/v1/message/download",
