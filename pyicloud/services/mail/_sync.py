@@ -174,11 +174,19 @@ def decode_events(values: list[str]) -> tuple[ChangeEvent, ...]:
 def validate_batch(
     previous: SyncCheckpoint, current: SyncCheckpoint, raw_events: list[str]
 ) -> ChangeBatch:
+    """Decode a wire batch, then validate its exact request scope and stride."""
+    return validate_decoded_batch(
+        previous, ChangeBatch(checkpoint=current, events=decode_events(raw_events))
+    )
+
+
+def validate_decoded_batch(previous: SyncCheckpoint, batch: ChangeBatch) -> ChangeBatch:
     """Reject mismatched scopes, counter regression, and unaccounted advancement.
 
     Each response must be paired with its exact request checkpoint. There is no
     push-event merging, persisted-state mutation, or implicit baseline creation.
     """
+    current, events = batch.checkpoint, batch.events
     identity = ("account", "mailbox_id", "folder", "uid_validity")
     if any(getattr(previous, key) != getattr(current, key) for key in identity):
         raise SyncResetRequired(
@@ -188,12 +196,13 @@ def validate_batch(
         raise SyncResetRequired(
             "Mail change counters regressed; inventory reset required"
         )
-    events = decode_events(raw_events)
     if not events and current != previous:
         raise SyncResetRequired(
             "Mail counters advanced without a supported change batch"
         )
     for event in events:
+        if isinstance(event, VanishedEvent) and current.modseq == previous.modseq:
+            raise SyncResetRequired("Mail removals have no advancing message counter")
         if isinstance(event, ArrivalEvent) and current.modseq == previous.modseq:
             raise SyncResetRequired("Mail arrival has no advancing message counter")
         if isinstance(event, MessageEvent) and not (
@@ -206,4 +215,4 @@ def validate_batch(
             previous.threadmodseq < event.modseq <= current.threadmodseq
         ):
             raise SyncResetRequired("Mail thread event is outside the requested stride")
-    return ChangeBatch(checkpoint=current, events=events)
+    return batch

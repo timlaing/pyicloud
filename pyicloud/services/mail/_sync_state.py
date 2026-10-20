@@ -114,6 +114,18 @@ class SQLiteMailInventory:
         with self._transaction():
             return self.read_checkpoint(), self.read_messages()
 
+    def _expect(self, expected: StoredCheckpoint | None) -> StoredCheckpoint | None:
+        actual = self.read_checkpoint()
+        if actual != expected:
+            raise StateConflict("Mail inventory changed during reconciliation")
+        return actual
+
+    def confirm_checkpoint(self, expected: StoredCheckpoint) -> StoredCheckpoint:
+        """Confirm a no-op poll without rewriting records or advancing revision."""
+        with self._transaction():
+            self._expect(expected)
+        return expected
+
     def replace_inventory(
         self,
         expected: StoredCheckpoint | None,
@@ -127,9 +139,7 @@ class SQLiteMailInventory:
         The revision prevents stale writers and equal-counter ABA overwrites.
         """
         with self._transaction():
-            actual = self.read_checkpoint()
-            if actual != expected:
-                raise StateConflict("Mail inventory changed during reconciliation")
+            actual = self._expect(expected)
             if actual is not None and (
                 actual.checkpoint.account != checkpoint.account
                 or actual.checkpoint.mailbox_id != checkpoint.mailbox_id

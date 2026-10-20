@@ -573,7 +573,7 @@ remain separate integration gates.
 ### Private Inventory and State Candidate
 
 `_sync_inventory.py` introduces an offline-tested initial-inventory algorithm
-against a read-only source protocol, not a public service adapter. A complete,
+against a read-only source protocol, not a public synchronization API. A complete,
 unfiltered enumeration must be bracketed by identical account/mailbox identity,
 path, UID validity, and message/thread counters. A changing observation discards
 the attempt and restarts within an explicit attempt budget. Incomplete reads,
@@ -586,8 +586,8 @@ mailbox over claiming a complete inventory. It depends on a future verified sour
 whose counters cover every relevant change and whose iterator truly exhausts the
 mailbox. Counter stability alone is not proof that Apple's server reads form an
 atomic snapshot. A mutation after the final observation belongs to a later poll;
-its checkpoint must not be silently skipped. No automatic live adapter is exposed
-until the handoff, expiry, and server consistency assumptions are verified.
+its checkpoint must not be silently skipped. No public synchronization API is
+exposed while handoff, expiry, and server consistency assumptions remain unverified.
 
 `_sync_state.py` stores only folder-local UIDs, message/thread IDs, numeric flags,
 and the scoped checkpoint. Inventory replacement and checkpoint advancement share
@@ -607,8 +607,85 @@ provide bounded connection timeouts and secure private database creation before
 exposing persistence. Tests use real in-memory SQLite and private sandbox files
 to exercise restarts, two connections, injected commit failures, stale writers,
 and rollback after partial insertion. Message bodies, headers, credentials, and
-signed attachment links are not persistence fields. Incremental delta application,
-remote reset recovery, and an end-to-end public synchronization API remain absent.
+signed attachment links are not persistence fields. The private reader and
+reconciler below use this backend; automatic remote reset recovery and a public
+synchronization API remain absent.
+
+### Private Live Reader and Incremental Reconciliation
+
+`_sync_reader.py` binds the source protocol to the existing authenticated Mail
+service. Account name and DSID form a hashed scope identifier; each read checks
+that identity and the discovered mailbox ID, path, and UID validity. Baseline
+observations send null counters, but delta polls replay exactly their supplied
+checkpoint. Both request types use the captured `event/list` protocol with
+bounded timeouts and no redirects. Unsupported envelopes, missing/null counters,
+changed feature flags, unknown events, and HTTP failures do not advance state.
+`MODSEQ_TOO_OLD` raises an explicit reset requirement and never retries with null
+counters. Authentication and connection exceptions retain their types. Returned
+responses, including exceptional API/auth responses, are closed.
+
+Complete inventories use `iter_messages()`, changed threads use
+`iter_thread_messages()`, and exact refreshes use `message_by_uid()`. These are
+read-only metadata operations, not body reads or bounded newest-N lookups. Numeric
+flags come from authoritative metadata rather than guessing integer bits from
+the event strings. Missing numeric flags are rejected as incomplete metadata.
+Plain count-only notifications cannot identify a new message on their own.
+By default they require an explicit inventory; a caller can opt into
+`allow_inventory_fallback=True` for one bounded, stable full scan. This path pins
+the original local revision too, and never triggers for expired/unknown history.
+
+`_sync_apply.py` reads a coherent local snapshot and validates the polled stride
+again. Changed threads are fully enumerated. Old members missing from a thread
+are checked by exact UID, since a thread reassignment is not a mailbox deletion.
+UID-addressed arrivals and flag updates are refreshed once. Compact, merged
+`VANISHED` ranges remove only local folder membership; a returned live record
+inside a removed range is treated as inconsistent. Duplicate identities, reused
+UIDs, incomplete iterators, and disagreement between complete-thread and exact
+lookups abort without publishing partial state.
+
+Message and logical lookup budgets are explicit; per-thread HTTP paging also uses
+the reader's configured page budget. A final fresh observation must equal the
+batch's ending checkpoint, or all staged metadata is discarded. Stable results
+reuse the backend's atomic inventory/checkpoint replacement and revision CAS.
+No-op polls instead confirm the existing revision transactionally without
+rewriting records. Local storage currently replaces the validated manifest as a
+whole; this is incremental remote reading/reconciliation, not an optimized SQL
+row-diff writer. Another writer's newer revision is never overwritten.
+
+These operations remain private and metadata-only. They do not implement push
+subscriptions, binary push framing, bodies/attachments synchronization, automatic
+expired-history rebuilding, cross-folder move correlation, or a public sync
+command. Synthetic tests cover change application and failure paths; live
+verification is recorded separately below. Server history retention, large event
+bursts without silent truncation, index consistency, and genuine live
+flag/move/deletion transitions remain important integration gates.
+
+#### Bounded Live Reader Verification (2026-10-20)
+
+The private reader established a stable ten-message Inbox inventory and then
+completed an unchanged incremental poll without rewriting local records/revision.
+A poll from the approved arrival capture's earlier counters encountered a plain
+count notification and was rejected in default mode, as designed. With the
+explicit full-inventory fallback enabled, the replay restored the captured arrival
+and matched a separate fresh, complete inventory at the same ending checkpoint.
+
+A second replay fed the actual captured two-event push batch to the reconciler,
+while retaining live exact/thread metadata reads and the real final checkpoint
+observation. This ran only because the captured ending counters still equaled
+the current mailbox's counters; the test did not relabel old events as current.
+The incrementally reconciled minimal inventory also matched the independent scan.
+Both replays seeded disposable in-memory state from current metadata with the
+captured arrival omitted. That is a targeted recovery example, **not** a recovered
+historical mailbox snapshot or a newly observed live delivery during the run.
+
+No body reads, attachment downloads, flag writes, moves, deletions, or sends were
+performed. Logs retained only counts, status, and generic safety reasons. No
+private capture contents were added to tracked fixtures. Two direct connection
+attempts timed out before reaching the sync reader; the successful checks used
+the already enabled local Proxyman proxy with TLS verification and the existing
+trusted CA bundle, without changing system settings. These small-mailbox checks
+do not verify large event bursts, history expiry, actual live removal/flag/move
+transitions, or unattended recovery behavior.
 
 Mutation responses expose `notCreated`, `notUpdated`, and `notDestroyed` fields.
 No populated failure maps or HTTP failure examples were captured. Future writers

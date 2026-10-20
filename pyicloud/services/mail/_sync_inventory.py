@@ -1,8 +1,8 @@
 """Private baseline algorithm; requires a verified, caller-supplied read source.
 
 Counter stability is a necessary handoff condition, not a claim that Apple's
-counter/history semantics have been fully verified. No live adapter or CLI is
-exposed yet. This stores only minimal metadata and never touches remote mail.
+counter/history semantics have been fully verified. The adapter is private; no
+public sync API or CLI is exposed. Only minimal metadata is stored locally.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from pyicloud.services.mail._sync import SyncCheckpoint, SyncResetRequired
 from pyicloud.services.mail._sync_state import (
     InventoryMessage,
     SQLiteMailInventory,
+    StateConflict,
     StoredCheckpoint,
 )
 
@@ -34,6 +35,7 @@ def establish_inventory(
     *,
     max_attempts: int = 3,
     max_messages: int = 100000,
+    expected_revision: StoredCheckpoint | None = None,
 ) -> StoredCheckpoint:
     """Publish only a bounded inventory bracketed by identical checkpoints.
 
@@ -47,6 +49,8 @@ def establish_inventory(
     ):
         raise ValueError("Mail inventory budgets must be positive integers")
     expected = state.read_checkpoint()
+    if expected_revision is not None and expected != expected_revision:
+        raise StateConflict("Mail inventory changed before baseline fallback")
     scope = (
         None
         if expected is None
