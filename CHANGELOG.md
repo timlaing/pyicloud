@@ -19,6 +19,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add explicit, size-bounded Mail Drop downloads through `MailService.mail_drop_attachment()` and `icloud mail download-maildrop`, using verified Apple capability URLs, isolated credential-free transport, mandatory content TLS verification, mailbox guards, and private non-overwriting output.
 - Add original MIME/EML streaming with `MailService.raw_message()` and private, non-overwriting `icloud mail export-eml` downloads, preserving Apple's returned message bytes without reconstruction or new dependencies and checking mailbox identity around retrieval.
 - Add `icloud mail get` for exact metadata-only lookup by message ID or folder-local UID, without scanning messages or fetching bodies.
 - Add explicit folder-scoped Mail thread-member and unread/flagged individual-message UID pagination through `iter_thread_messages()`, `iter_filtered_messages()`, `icloud mail thread --all`, and `icloud mail filter-messages`, with checked scopes, empty-page exhaustion, and explicit request-budget failures. Existing bounded thread and grouped search behavior is unchanged; live scans are not atomic snapshots.
@@ -36,6 +37,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Redact capability-bearing Mail Drop URLs and cloud-part identifiers from serialized message metadata; select Mail Drop attachments by their 1-based position in the parts array instead of copying signed URLs into commands.
 - Use exact message-ID lookup by default for Mail CLI preview and export commands too; explicit `--limit N` retains the bounded newest-message lookup.
 - Use exact message-ID lookup by default for Mail CLI body and download commands; an explicit `--limit` retains the existing bounded newest-message lookup.
 

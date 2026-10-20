@@ -24,12 +24,14 @@ server-side search. The current boundaries are:
 | Preview                            | `preview`                  | Advertised snippets only, with exact message lookup by default; no body fallback.                             |
 | Body data                          | `body`                     | Advertised plain-text/HTML parts only, without requesting a read-state change or rendering HTML.              |
 | Attachments                        | `download`                 | Ordinary numeric MIME parts only; no Mail Drop/external URLs; private non-overwriting output.                 |
+| Mail Drop attachments              | `download-maildrop`        | Explicit part selection, verified Apple host, isolated session, hard size limit; no redirects or renewal.     |
 | JSON export                        | `export`                   | Exact metadata selection by default; body data only by explicit opt-in; not raw MIME/EML or a mailbox backup. |
 | Original MIME/EML export           | `export-eml`               | Streams Apple's returned message bytes unchanged, with exact lookup and private non-overwriting output.       |
 
 Full-text search pagination remains a separate protocol-research blocker.
 Arbitrary external attachment downloads and incremental synchronization are
-not implemented. Do not infer support for those operations
+not implemented. Only the explicit, restricted Mail Drop path below is supported;
+do not infer support for arbitrary URLs or synchronization
 from the read commands above. There is no public exhaustive search iterator.
 Mail writes require separate implementation, review, and
 explicit authorization for any live mutation tests.
@@ -399,6 +401,50 @@ must handle partial files themselves or use the CLI's atomic publication. The
 stream is not a MIME validator, and private message bytes are untrusted data:
 do not automatically render HTML, execute attachments, or commit exports to Git.
 This is a single-message export, not synchronization or an atomic mailbox backup.
+
+## Mail Drop Attachments
+
+```sh
+icloud mail get '<message-id>' --folder-id '<folder-id>' --format json
+icloud mail download-maildrop '<message-id>' --folder-id '<folder-id>' --part-index 2 --output ./attachment.mov
+```
+
+Use the **1-based position in the full message `parts` array**, including body
+parts, and select an entry with `is_mail_drop: true`. This is a separate command:
+ordinary `download` remains restricted to numeric MIME part IDs. Do not copy a
+signed URL or a `cloudpart:` identifier into commands. Capability URLs are excluded
+from serialized metadata, and embedded cloud-part IDs are redacted. Raw Python
+attributes remain private capability data; do not log them.
+
+The default maximum is 100 MiB; explicitly set `--max-bytes` to authorize a larger
+download. Both advertised and streamed lengths are checked. Unknown or zero
+metadata sizes do not disable the hard limit. Truncation, inconsistent lengths,
+HTTP failures, unexpected MIME types/encoding, expired links, and final mailbox
+checks fail without publishing partial files. Files are private (`0600`) and
+non-overwriting; remote filenames are never local paths.
+
+The downloader accepts only observed HTTPS `cvws.icloud-content.com/B/` capability
+URLs for `com.apple.largeattachment` / `Apple-Webmail`, with known unexpired metadata
+and URL expiry. It does not follow redirects, renew links, republish attachments,
+or accept generic links from email HTML. Refresh message metadata if a link is
+expired; if that does not produce a valid link, retrieval remains unsupported.
+
+Content requests use a new HTTP session with no iCloud cookies, account auth,
+session parameters, referrer, netrc credentials, or inherited environment proxies.
+TLS verification is mandatory for content downloads, even if account requests
+use `--no-verify-ssl`. `REQUESTS_CA_BUNDLE` can select a trusted CA file. This
+restricted path may not work on networks requiring an explicit proxy.
+
+```python
+with api.mail.mail_drop_attachment(message, 2, max_bytes=104857600) as chunks:
+    downloaded_bytes = sum(len(chunk) for chunk in chunks)
+```
+
+Use the context manager even for partial reads. Earlier library yields cannot be
+retracted after a late length or mailbox failure; callers must manage partial
+outputs or use the CLI writer. The verified path is a single direct download,
+not range/resume support, an atomic message snapshot, or support for all Apple
+content hosts. It performs no upload, send, flag change, or republish operation.
 
 ## Attachments
 

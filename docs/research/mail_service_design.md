@@ -112,6 +112,36 @@ not arbitrary cross-folder identity stability. Raw requests, message metadata,
 and account identifiers remain outside Git. The implementation checks the
 mailbox epoch on both sides of lookup and rejects inconsistent responses.
 
+## Mail Drop Download Verification
+
+User-authorized metadata captures for a disposable MOV test message established
+`mailDropStreamingUrl`, `mailDropHeaderName`, millisecond `expirationDate`, and an
+opaque `cloudpart:` ID containing the signed URL. Metadata also included the
+ordinary filename, `video/quicktime` type, and the actual positive file size.
+The capability URL expiration agreed with the metadata to within one second.
+Refreshed metadata changed signature parameters but preserved the resource path.
+
+The browser made a direct GET to `cvws.icloud-content.com/B/...`, with no Cookie
+or Authorization header. The captured response was HTTP 200 `video/quicktime`,
+with a matching content length and byte-range advertisement. Range/resume support
+is not inferred from that advertisement and is not implemented here.
+
+A live read-only CLI test retrieved the same resource using fresh owned-session
+metadata and an independently created content session. The actual streamed byte
+count matched metadata and the browser capture, the output was private `0600`,
+selected message flags were unchanged, and the temporary file was removed.
+No captured credentials were replayed and no uploads, sends, flag writes, token
+creation, or republish endpoints were called.
+
+The implementation deliberately supports only the verified HTTPS host, path,
+container/zone parameters, expirations, and direct-response behavior. It enforces
+a hard byte budget, rejects redirects, isolates cookies/auth/netrc/proxy state,
+verifies TLS, and checks mailbox scope around content retrieval. It does not
+implement arbitrary external URLs, expired-link renewal, or a generic Mail Drop
+write client. The metadata HAR stays outside Git; the committed fixture is
+synthetic and contains no usable bearer links. Normal serialization redacts
+capability-bearing cloud-part IDs and excludes streaming URLs.
+
 ## Original MIME Download
 
 The previously captured browser JavaScript contains an EML URL builder targeting
