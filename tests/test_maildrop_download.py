@@ -41,7 +41,7 @@ def case_fixture() -> Iterator[Case]:
     with (
         patch.object(service, "folders", return_value=[folder]) as folders,
         patch("pyicloud.services.mail.service.Session", return_value=external),
-        patch.object(external, "get", return_value=response) as get,
+        patch.object(external, "send", return_value=response) as get,
         patch.object(external, "close", wraps=external.close) as close,
     ):
         yield service, owned, external, response, message, folders, get
@@ -118,13 +118,18 @@ def test_anonymous_transport_and_byte_preservation(
     assert external.auth is None and not external.cookies and not external.params
     assert "Authorization" not in external.headers and "Cookie" not in external.headers
     assert "Referer" not in external.headers
-    assert get.call_args.args == (message.parts[1].mail_drop_url,)
+    request = get.call_args.args[0]
+    assert request.method == "GET"
+    assert request.url == message.parts[1].mail_drop_url
+    assert request.headers["Accept-Encoding"] == "identity"
+    assert "Authorization" not in request.headers and "Cookie" not in request.headers
     assert get.call_args.kwargs == {
         "stream": True,
         "allow_redirects": False,
         "timeout": (10.0, 60.0),
         "verify": True,
-        "headers": {"Accept-Encoding": "identity"},
+        "proxies": {},
+        "cert": None,
     }
     assert folders.call_count == 3
     owned.get.assert_not_called()
@@ -139,6 +144,56 @@ def test_explicit_ca_bundle_keeps_tls_verification(
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", "/synthetic/ca.pem")
     assert consume(case) == b"movie"
     assert case[6].call_args.kwargs["verify"] == "/synthetic/ca.pem"
+
+
+@pytest.mark.parametrize("ca_bundle", [None, "/synthetic/ca.pem"])
+def test_cli_ssl_and_proxy_settings_cannot_override_download(
+    case: Case, output: Path, monkeypatch: Any, ca_bundle: str | None
+) -> None:
+    """Exercise the real CLI SSL context through preparation to the transport sink."""
+    if ca_bundle is None:
+        monkeypatch.delenv("REQUESTS_CA_BUNDLE", raising=False)
+    else:
+        monkeypatch.setenv("REQUESTS_CA_BUNDLE", ca_bundle)
+    monkeypatch.setenv("HTTPS_PROXY", "http://environment-proxy.invalid:8080")
+    api = MagicMock()
+    api.account_name = "user@example.test"
+    api.mail = case[0]
+    with (
+        patch.object(CLIState, "get_api", return_value=api),
+        patch.object(case[0], "message", return_value=case[4]),
+    ):
+        result = CliRunner().invoke(
+            app,
+            [
+                "mail",
+                "download-maildrop",
+                case[4].id,
+                "--folder-id",
+                "10",
+                "--part-index",
+                "2",
+                "--output",
+                str(output),
+                "--format",
+                "json",
+                "--no-verify-ssl",
+                "--http-proxy",
+                "http://cli-proxy.invalid:8080",
+                "--https-proxy",
+                "http://cli-proxy.invalid:8080",
+            ],
+        )
+    assert result.exit_code == 0, result.exception
+    assert output.read_bytes() == b"movie"
+    settings = case[6].call_args.kwargs
+    assert settings["verify"] == (ca_bundle or True)
+    assert settings["proxies"] == {}
+    assert settings["cert"] is None
+    assert settings["allow_redirects"] is False
+    request = case[6].call_args.args[0]
+    assert "Authorization" not in request.headers and "Cookie" not in request.headers
+    assert case[2].trust_env is False
 
 
 @pytest.mark.parametrize("mode", ["json", "text"])

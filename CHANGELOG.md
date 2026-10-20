@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
 - Accept observed flag-less NIL Mail thread invalidations through checked thread/UID metadata refreshes, without interpreting them as empty flags or permanent deletion.
 - Guard Mail body and attachment reads against observed mailbox recreation and path changes when UID validity is available; reject in-flight renames for path-selected preview/filter reads too, use the current folder name, and prevent failed downloads from being published.
 - Explain the explicit `--limit N` fallback when Mail CLI exact lookup cannot use a folder without positive UID validity; never silently broaden the lookup.

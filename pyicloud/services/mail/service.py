@@ -11,7 +11,7 @@ from typing import Any, Literal, TypeVar
 from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, ValidationError
-from requests import RequestException, Response, Session
+from requests import Request, RequestException, Response, Session
 
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
@@ -891,13 +891,18 @@ class MailService(BaseService):
         try:
             with Session() as download:
                 download.trust_env = False
-                response = download.get(
-                    url,
+                request = download.prepare_request(
+                    Request("GET", url, headers={"Accept-Encoding": "identity"})
+                )
+                # Send explicit settings without the CLI's class-wide environment merge.
+                response = download.send(
+                    request,
                     stream=True,
                     allow_redirects=False,
                     timeout=DEFAULT_TIMEOUT,
                     verify=os.environ.get("REQUESTS_CA_BUNDLE") or True,
-                    headers={"Accept-Encoding": "identity"},
+                    proxies={},
+                    cert=None,
                 )
                 try:
                     size = _mail_drop_response_size(response, part, max_bytes)
