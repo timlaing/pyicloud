@@ -19,6 +19,7 @@ from pyicloud.services.mail.models import (
     MailBody,
     MailBodyRequest,
     MailExpression,
+    MailFilteredThread,
     MailFolder,
     MailFolderSearchPage,
     MailMessage,
@@ -37,10 +38,12 @@ from pyicloud.services.mail.models import (
     MailThreadFilterPage,
     MailThreadFilterRequest,
     MailThreadPage,
+    MailThreadQuery,
     MessageResponse,
     PreviewResponse,
     SearchResponse,
     ThreadFilterResponse,
+    ThreadQueryResponse,
 )
 from pyicloud.session import PyiCloudSession
 
@@ -122,13 +125,61 @@ def _folder_predicate(folder: MailFolder) -> MailPredicate:
     )
 
 
-def _validate_uid_scan(folder: MailFolder, page_size: int, max_pages: int) -> None:
-    """Validate a UID scan before checking mailbox identity or reading metadata."""
+def _validate_scan(folder: MailFolder, page_size: int, max_pages: int) -> None:
+    """Validate a scan before checking mailbox identity or reading metadata."""
     _limit(page_size)
     if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
         raise ValueError("max_pages must be a positive integer")
     if folder.uid_validity is None or folder.uid_validity < 1:
         raise ValueError("A positive mailbox UID validity is required; refresh folders")
+
+
+def _filtered_thread_query(
+    folder: MailFolder, filter_by: MailThreadFilter, page_size: int
+) -> MailThreadQuery:
+    """Use browser-observed thread timestamps and projected boolean flag predicates."""
+    timestamp = MailExpression(property="tsMap", type="mapValueOf", value=folder.id)
+    return MailThreadQuery(
+        predicate=MailPredicate(
+            expression=timestamp,
+            type="ge",
+            value=0,
+            and_=[
+                MailPredicate(
+                    expression=MailExpression(
+                        property="flags",
+                        type="fieldOf",
+                        value="SEEN" if filter_by == "unread" else "FLAGGED",
+                    ),
+                    type="eq",
+                    value=filter_by == "flagged",
+                )
+            ],
+        ),
+        orderby=MailOrder(expressions=[timestamp], ascending=False),
+        limit=page_size,
+    )
+
+
+def _check_thread_page(
+    response: ThreadQueryResponse,
+    folder: MailFolder,
+    page_size: int,
+    seen: set[str],
+    markers: set[str],
+) -> None:
+    """Validate an entire cursor page before exposing any of its group identities."""
+    records = response.records
+    if len(records) > page_size:
+        raise MailError(_RESULT_LIMIT_EXCEEDED)
+    if any(folder.id not in record.timestamps for record in records):
+        raise MailError("Mail returned a thread from another folder")
+    ids = {record.id for record in records}
+    if len(ids) != len(records) or ids.intersection(seen):
+        raise MailError("Mail repeated a thread identifier; enumeration is incomplete")
+    marker = response.continuation_marker
+    if marker is not None and (not records or marker in markers):
+        raise MailError("Mail returned a non-progressing thread cursor")
 
 
 def _uid_query(
@@ -442,7 +493,7 @@ class MailService(BaseService):
         thread_id: str | None = None,
     ) -> Iterator[MailMessage]:
         """Share UID progress, exhaustion and mailbox guards across read scopes."""
-        _validate_uid_scan(folder, page_size, max_pages)
+        _validate_scan(folder, page_size, max_pages)
         current = self._checked_mailbox(folder)
         before: int | None = None
         seen: set[str] = set()
@@ -712,6 +763,52 @@ class MailService(BaseService):
         return MailThreadFilterPage(
             folder=current, filter_by=filter_by, results=response.records, limit=limit
         )
+
+    def iter_filtered_threads(
+        self,
+        folder: MailFolder,
+        *,
+        filter_by: MailThreadFilter,
+        page_size: int = 50,
+        max_pages: int = 10000,
+    ) -> Iterator[MailFilteredThread]:
+        """Follow checked cursors for lightweight Unread or Flagged thread groups.
+
+        This is not an atomic snapshot, full digest retrieval, or text search.
+        Only an empty marker-free response completes the scan. Missing or repeated
+        cursors, duplicates, inconsistent scope, and budget exhaustion raise rather
+        than silently truncate. Earlier yielded records cannot be retracted.
+        No content reads, retries, mutations, or persisted cursors are used.
+        """
+        _validate_scan(folder, page_size, max_pages)
+        if filter_by not in ("unread", "flagged"):
+            raise ValueError("filter_by must be 'unread' or 'flagged'")
+        query = _filtered_thread_query(folder, filter_by, page_size)
+        markers: set[str] = set()
+        seen: set[str] = set()
+        for _ in range(max_pages):
+            self._checked_mailbox(folder)
+            response = self._post("geqs/query", query, ThreadQueryResponse)
+            current = self._checked_mailbox(folder)
+            _check_thread_page(response, current, page_size, seen, markers)
+            if not response.records:
+                return
+            marker = response.continuation_marker
+            if marker is None:
+                raise MailError(
+                    "Mail omitted a thread cursor; enumeration is incomplete"
+                )
+            markers.add(marker)
+            seen.update(record.id for record in response.records)
+            query = query.model_copy(update={"continuation_marker": marker})
+            for record in response.records:
+                yield MailFilteredThread(
+                    id=record.id,
+                    folder=current,
+                    filter_by=filter_by,
+                    timestamp=record.timestamps[folder.id],
+                )
+        raise MailError("Mail page budget exhausted; enumeration is incomplete")
 
     def _content_folder(self, message: MailMessage) -> MailFolder:
         """Guard known UID namespaces while preserving legacy bounded reads."""
