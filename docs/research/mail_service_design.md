@@ -380,13 +380,13 @@ server contract or evidence that every feature-flagged path was exercised.
   limits: it uses marker absence rather than a short response to mark the
   range exhausted. This does not establish a full-text continuation handshake.
 - The individual-message response parser treats a response shorter than the
-  requested limit as exhausted. Otherwise it retains the last record's date.
+  requested limit as exhausted. Otherwise, it retains the last record's date.
   The next-range coordinator requests dates before that boundary plus one
   millisecond, retaining overlap for deduplication.
 - When a returned range has the same upper and lower timestamp, the coordinator
   retries with its maximum range size (1,000). If that still cannot advance, it
   decreases the lower boundary by one millisecond. There is no bucket-completeness
-  proof in that fallback. With more matching records at the same timestamp than
+  proof in that fallback. With more matching records at that timestamp than
   the server returns, advancing this way could omit the remaining matches.
 
 The saved search capture contains 50 initial records and 308 lightweight records
