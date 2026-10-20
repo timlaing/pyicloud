@@ -319,6 +319,37 @@ def test_existing_output_fails_before_authentication(
     assert output.read_bytes() == b"keep"
 
 
+def test_missing_uid_validity_never_advertises_limit(case: Case, output: Path) -> None:
+    """export-eml has no --limit option, so its hint must not suggest one."""
+    service, session, _, _, message = case
+    unverified = message.folder.model_copy(update={"uid_validity": None})
+    api = MagicMock()
+    api.account_name = "user@example.test"
+    api.mail = service
+    with (
+        patch.object(CLIState, "open"),
+        patch.object(CLIState, "get_api", return_value=api),
+        patch.object(service, "folders", return_value=[unverified]),
+    ):
+        result = CliRunner().invoke(
+            app,
+            [
+                "mail",
+                "export-eml",
+                message.id,
+                "--folder-id",
+                message.folder.id,
+                "--output",
+                str(output),
+            ],
+        )
+    assert result.exit_code != 0
+    error = str(result.exception)
+    assert "UID validity" in error
+    assert "--limit" not in error
+    session.get.assert_not_called()
+
+
 def test_destination_created_during_stream_is_not_overwritten(
     case: Case, output: Path
 ) -> None:
