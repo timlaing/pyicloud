@@ -1,0 +1,15 @@
+{
+  "apsTopic": "synthetic-mail-topic",
+  "mboxEvents": {
+    "INBOX": {
+      "prevModseq": 100,
+      "modseq": 101,
+      "prevThreadModseq": 200,
+      "threadModseq": 201,
+      "events": [
+        "* 5 EXISTS (UID 18)",
+        "* THREADUPDATE (synthetic-arrival-thread 1700000010000 201 FLAGS (\\Recent) NEW)"
+      ]
+    }
+  }
+}

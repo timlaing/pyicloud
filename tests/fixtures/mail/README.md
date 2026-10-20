@@ -32,3 +32,13 @@ matches; the fixtures do not establish combined-filter or sync semantics.
 `messages_uid_page_response.json` models a UID-ordered metadata page with equal
 dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
 an explicit empty terminal page; the marker is not a synchronization cursor.
+
+## Private Synchronization Candidate
+
+`sync_events_response.json` is synthetic metadata matching the structural forms
+of read-only change polls. Counters, IDs, timestamps, flags, and ranges are fake.
+It tests a private decoder, not end-to-end synchronization or a public sync API.
+
+`sync_arrival_push.json` uses the observed new-message push envelope and the
+UID-bearing `EXISTS` event form. All counters, IDs, timestamps, flags, and topic
+values are synthetic. It contains no binary push frames, tokens, or alert text.

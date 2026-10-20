@@ -492,6 +492,84 @@ comes from synthetic offline tests, not a live mailbox exceeding that size.
 Incremental synchronization requires its own parser, reset/recovery rules, and
 tests. It is outside the first release.
 
+### Private Change-Decoding Candidate (2026-10-20)
+
+Two bounded, read-only `event/list` calls were made using fresh authentication.
+The initial request sent null message and thread counters; its successful
+response included integer counters and 25 event strings. Replaying those returned
+counters produced an empty event list with unchanged counters. A second bounded
+probe confirmed these event shapes, with private values omitted:
+
+- `* <count> EXISTS`: a count notification, not a UID identifying a new message.
+- `* <sequence> FETCH (UID <uid> MODSEQ (<counter>) FLAGS (<flags>))`.
+- `* VANISHED <uid-range>`: removed message IDs, independent of sequence numbers.
+- `* THREADUPDATE (<thread-id> <timestamp> <counter> FLAGS (<flags>) NEW)`;
+  the trailing `NEW` was absent on some updates.
+
+The private `_sync.py` candidate decodes these distinct event types and validates
+request/response checkpoint scope and counter bounds. Synthetic fixtures and
+offline tests also exercise empty flags, `NIL` thread timestamps, `EARLIER`,
+multiple/reversed UID ranges, invalid input, and resource limits. Those additional
+variants are defensive candidate behavior, not claims of live verification.
+Unknown event shapes fail explicitly; no event is silently discarded. UID ranges
+remain compact even when they span billions of values. Errors do not echo raw
+events, and decoding performs no network or filesystem operations.
+
+This candidate is **not integrated into the public service or CLI**, and it does
+not persist or automatically advance checkpoints. Its checkpoint is not proof
+that a complete baseline inventory exists. Even a validated batch is not proof
+of historical completeness or a mailbox snapshot. Account identity, mailbox ID,
+path, and UID validity must come from verified caller context, and each response
+must be paired with the exact request that produced it.
+
+Remaining integration gates are a baseline/change-cursor handoff without a lost
+update window, metadata reconciliation for count notifications, transactional
+local application and checkpoint persistence, restart recovery, actual flag and
+removal transitions, folder moves/recreation, and expired-counter/reset responses
+such as `MODSEQ_TOO_OLD`. Push-event merging is not implemented. Do not replace
+these checks with a highest-UID scan or infer a move from one folder's tombstone.
+No synchronization completeness claim or Mail write operation follows from these
+probes. The user's first delayed Inbox appearance after switching folders was
+not correlated with a captured background notification.
+
+The implemented decoder subsequently accepted all 25 live bootstrap events and
+the empty follow-up poll. Logs retained only event counts, event kinds, and
+redacted structural templates; no raw event values were saved as fixtures.
+This verifies decoding against a real response, not the initial inventory
+handoff, a newly arriving message, or successful recovery from a missed batch.
+
+### New-Message Push Capture (2026-10-20)
+
+A subsequent user-created disposable email appeared in Inbox without navigating
+or refreshing. The approved, four-flow HAR contains one WebSocket connection and
+three successful `thread/list` responses. Its binary WebSocket frames include
+embedded JSON: a Mail change payload under `mboxEvents.INBOX`, followed by a
+separate notification payload under `mail`. This is capture analysis, not a
+production implementation of Apple's binary push framing.
+
+The change payload has `prevModseq`, `modseq`, `prevThreadModseq`,
+`threadModseq`, and two event strings. Both counters advance. Crucially, the
+new-message event is `* <count> EXISTS (UID <uid>)`, followed by a new thread
+update. The UID-bearing event must remain distinct from a count-only `EXISTS`
+hint and from `FETCH` flag updates. It contains no individual message counter or
+complete metadata. The candidate now decodes it as a separate arrival event and
+rejects a batch announcing an arrival without an advancing message counter.
+
+The later notification's thread ID matches the thread containing the exact test
+subject in all three `thread/list` responses. Their ending message/thread counters
+match the change push, and their event arrays are empty. The first of these
+requests begins about 1.5 seconds after the change frame. No `event/list` request
+is present in this browser capture. This establishes the captured push-to-thread
+retrieval sequence, not a requirement to implement a persistent WebSocket client
+instead of read-only polling.
+
+The private decoder was checked against the actual two-event payload with its
+advertised counter range, then a synthetic regression fixture was added. No raw
+binary frames, push tokens, account data, real IDs, alert text, or message metadata
+were copied into tracked files. This capture verifies one arrival path; flag
+transitions, moves, deletions, reset handling, and the initial inventory handoff
+remain separate integration gates.
+
 Mutation responses expose `notCreated`, `notUpdated`, and `notDestroyed` fields.
 No populated failure maps or HTTP failure examples were captured. Future writers
 must validate operation outcomes, distinguish uncertain submission outcomes,

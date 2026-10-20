@@ -43,6 +43,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Add a private, bounded Mail change-event decoder and checkpoint-validation candidate with synthetic fixtures and offline recovery guards; this does not enable incremental synchronization in the library or CLI.
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.
 
 ### Documentation
