@@ -43,6 +43,7 @@ def establish_inventory(
     max_attempts: int = 3,
     max_messages: int = 100000,
     expected_revision: StoredCheckpoint | None | _RevisionPolicy = _RevisionPolicy.ANY,
+    minimum_checkpoint: SyncCheckpoint | None = None,
 ) -> StoredCheckpoint:
     """Publish only a bounded inventory bracketed by identical checkpoints.
 
@@ -50,6 +51,7 @@ def establish_inventory(
     budgets, or local writer conflicts retain the previously committed inventory.
     A later remote change belongs to the next poll, not this stored checkpoint.
     An explicitly supplied None pins an empty store; omission reads its revision.
+    A fallback's minimum checkpoint forbids regression from an observed batch.
     """
     if any(
         isinstance(value, bool) or not isinstance(value, int) or value < 1
@@ -66,6 +68,17 @@ def establish_inventory(
     )
     for _ in range(max_attempts):
         before = source.current_checkpoint()
+        if minimum_checkpoint is not None and (
+            any(
+                getattr(before, field) != getattr(minimum_checkpoint, field)
+                for field in ("account", "mailbox_id", "folder", "uid_validity")
+            )
+            or before.modseq < minimum_checkpoint.modseq
+            or before.threadmodseq < minimum_checkpoint.threadmodseq
+        ):
+            raise SyncResetRequired(
+                "Mail inventory regressed from the observed change batch"
+            )
         if scope is None:
             scope = (before.account, before.mailbox_id)
         if scope != (before.account, before.mailbox_id):

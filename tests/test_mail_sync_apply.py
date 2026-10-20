@@ -131,6 +131,29 @@ def test_fallback_keeps_original_writer_revision(state: SQLiteMailInventory) -> 
     assert state.read_messages() == (message(9),)
 
 
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"modseq": 100},
+        {"threadmodseq": 199},
+        {"folder": "Renamed"},
+        {"uid_validity": 124},
+        {"account": "another"},
+        {"mailbox_id": "another"},
+    ],
+)
+def test_fallback_cannot_regress_from_observed_batch(
+    state: SQLiteMailInventory, changes: dict[str, Any]
+) -> None:
+    """A stable rescan is insufficient if it is older than the poll it replaces."""
+    old = seed(state)
+    source = Source(["* 3 EXISTS"])
+    source.observed = source.end.model_copy(update=changes)
+    with pytest.raises(SyncResetRequired, match="observed change batch"):
+        apply_incremental(source, state, allow_inventory_fallback=True)
+    assert state.read_checkpoint() == old
+
+
 def test_fallback_stability_budget_is_one_scan(state: SQLiteMailInventory) -> None:
     """Busy fallback inventories fail without advancing the original checkpoint."""
     old = seed(state)

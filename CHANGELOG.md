@@ -19,6 +19,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add experimental, read-only `icloud mail sync` for a one-shot folder-scoped metadata inventory on POSIX, with explicit private state storage, bounded requests, content-free summaries, and separate opt-ins for expired-history rebuilds and count-hint rescans. It neither downloads content nor modifies mail, and is not an atomic backup or watcher.
 - Add explicit, size-bounded Mail Drop downloads through `MailService.mail_drop_attachment()` and `icloud mail download-maildrop`, using verified Apple capability URLs, isolated credential-free transport, mandatory content TLS verification, mailbox guards, and private non-overwriting output.
 - Add original MIME/EML streaming with `MailService.raw_message()` and private, non-overwriting `icloud mail export-eml` downloads, preserving Apple's returned message bytes without reconstruction or new dependencies and checking mailbox identity around retrieval.
 - Add `icloud mail get` for exact metadata-only lookup by message ID or folder-local UID, without scanning messages or fetching bodies.
@@ -30,7 +31,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add Mail snippets using advertised preview IDs and separate Unread/Flagged browser thread filters through the library and `icloud mail preview` / `icloud mail filter`, with mailbox identity checks and explicit bounded thread-group semantics.
 - Add explicit `MailService.iter_messages()` UID-based mailbox enumeration and `icloud mail list --all`, with mailbox identity checks, validated paging boundaries, and explicit failure on incomplete scans. Default message listing and search remain bounded; enumeration is not an atomic snapshot or synchronization API.
 - Add read-only `icloud mail` commands for folders, bounded message listings and thread-grouped search, body data, and attachment downloads to explicit non-overwriting paths.
-- Add experimental read-only `PyiCloudService.mail` support for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Mutations and incremental synchronization are not supported.
+- Add experimental read-only `PyiCloudService.mail` support for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Mail mutations are not supported.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
@@ -43,10 +44,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
-- Add private POSIX Mail inventory storage with owner-only files, bounded locking, restart guards, and explicitly opted-in recovery for expired change history; public synchronization remains disabled.
-- Integrate the private Mail sync candidate with read-only polling and exact metadata readers, bounded incremental reconciliation, explicit history-reset failures, and atomic local checkpoint application; the public sync CLI remains disabled.
-- Add a private Mail baseline-inventory and transactional SQLite state candidate with bounded stable-counter scans, restart/rollback tests, namespace guards, and competing-writer protection; no public sync command is enabled.
-- Add a private, bounded Mail change-event decoder and checkpoint-validation candidate with synthetic fixtures and offline recovery guards; this does not enable incremental synchronization in the library or CLI.
+- Add private POSIX Mail inventory storage with owner-only files, bounded locking, restart guards, and explicitly opted-in recovery for expired change history.
+- Integrate the private Mail sync engine with read-only polling and exact metadata readers, bounded incremental reconciliation, explicit history-reset failures, and atomic local checkpoint application.
+- Add a private Mail baseline-inventory and transactional SQLite state backend with bounded stable-counter scans, restart/rollback tests, namespace guards, and competing-writer protection.
+- Add a private, bounded Mail change-event decoder and checkpoint-validation helper with synthetic fixtures and offline recovery guards.
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.
 
 ### Documentation

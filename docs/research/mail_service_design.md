@@ -643,7 +643,8 @@ whole scan succeeds. Incomplete scans, moving counters, budget exhaustion, or a
 competing local writer retain the previous state. Unknown events, malformed
 responses, authorization/transport failures, corruption, and other reset reasons
 never enter this recovery path. The separate count-hint inventory fallback
-remains opt-in too. These helpers are private and do not enable `mail sync`.
+remains opt-in too. These helpers remain private; the guarded CLI below delegates
+to them without exposing a new `MailService` synchronization API.
 
 ### Private Live Reader and Incremental Reconciliation
 
@@ -688,11 +689,25 @@ row-diff writer. Another writer's newer revision is never overwritten.
 
 These operations remain private and metadata-only. They do not implement push
 subscriptions, binary push framing, bodies/attachments synchronization, automatic
-expired-history rebuilding, cross-folder move correlation, or a public sync
-command. Synthetic tests cover change application and failure paths; live
+expired-history rebuilding, cross-folder move correlation, or a public Python sync
+API. Synthetic tests cover change application and failure paths; live
 verification is recorded separately below. Server history retention, large event
 bursts without silent truncation, index consistency, and genuine live
 flag/move/deletion transitions remain important integration gates.
+
+#### Guarded Metadata Sync CLI
+
+The experimental `mail sync` command now connects these private helpers to an
+explicit folder ID and private state directory on POSIX. It runs once and prints
+only a versioned summary after closing storage, without bodies, tokens, or event
+text. Local validation/locking precedes authentication. It defaults to failing
+on expired history and count-only notifications; independent `--rebuild-expired`
+and `--allow-inventory-fallback` switches permit bounded stable inventories for
+only those respective conditions. Count-hint scans also pin the observed batch's
+namespace and minimum counters, not just the saved local revision. Read timeout
+errors receive a safe connectivity hint rather than echoing possible signed URLs.
+No live mutation tests, push subscription, public library sync API, or completeness
+guarantee is implied by exposing this experimental metadata-only command.
 
 #### Bounded Live Reader Verification (2026-10-20)
 

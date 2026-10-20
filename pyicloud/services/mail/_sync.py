@@ -26,6 +26,10 @@ class SyncHistoryExpired(SyncResetRequired):
     """Apple explicitly rejected saved counters as older than retained history."""
 
 
+class SyncInventoryRequired(SyncResetRequired):
+    """A count-only change hint requires an explicitly authorized full scan."""
+
+
 class SyncModel(BaseModel):
     """Strict immutable data shared by the private synchronization candidate."""
 

@@ -17,6 +17,7 @@ from pyicloud.services.mail._sync import (
     ExistsEvent,
     MessageEvent,
     SyncCheckpoint,
+    SyncInventoryRequired,
     SyncResetRequired,
     ThreadEvent,
     VanishedEvent,
@@ -105,8 +106,11 @@ def apply_incremental(
                 max_attempts=1,
                 max_messages=max_messages,
                 expected_revision=expected,
+                minimum_checkpoint=batch.checkpoint,
             )
-        raise SyncResetRequired("Count-only Mail change requires an explicit inventory")
+        raise SyncInventoryRequired(
+            "Count-only Mail change requires an explicit inventory"
+        )
     original = {record.uid: record for record in stored}
     threads = {
         event.thread_id for event in batch.events if isinstance(event, ThreadEvent)
