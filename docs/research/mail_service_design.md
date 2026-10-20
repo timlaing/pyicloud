@@ -112,6 +112,40 @@ not arbitrary cross-folder identity stability. Raw requests, message metadata,
 and account identifiers remain outside Git. The implementation checks the
 mailbox epoch on both sides of lookup and rejects inconsistent responses.
 
+## Original MIME Download
+
+The previously captured browser JavaScript contains an EML URL builder targeting
+`mccgateway` at `GET mailws2/v1/message/download`, with `guid`, `dsid`, and
+`filename` query parameters. The browser prefixes its folder-local message GUID
+with `message:`. A controlled read-only request using the existing discovered
+gateway and authenticated session verified `message:<folder-name>/<uid>`; no
+browser cookies, captured credentials, or mutation endpoints were replayed.
+
+Apple returned HTTP 200 with `Content-Type: message/rfc822`. Python's standard
+`email.parser.BytesParser` parsed the in-memory response without MIME defects;
+the subject matched independently fetched metadata, and the decoded PDF attachment
+matched the ordinary attachment download byte-for-byte. The observed mailbox
+flags were unchanged. No private response bytes, headers, filenames, IDs, hashes,
+or account identifiers were saved in this research document or fixtures.
+
+An additional live check selected an existing unread message through the server's
+`SEEN: false` predicate, consumed its raw stream in memory, and repeated that
+independent unread query. The selected message remained unread and the complete
+observed unread-ID set was unchanged. A live CLI export of a separate multipart
+message also matched a second library stream byte-for-byte, used private `0600`
+permissions, and left no temporary output after cleanup. These checks requested
+no flag writes or other Mail mutations.
+
+This establishes a dedicated original-message response on one account, not
+byte identity with the sender's original wire transmission. The implementation
+streams Apple's returned message bytes unchanged instead of rebuilding MIME from
+the existing JSON body/header API. It requires a known mailbox UID namespace,
+checks it around retrieval, ignores remote filenames, rejects redirects and
+non-RFC822 media types, and uses the existing private atomic CLI file writer.
+No new dependency or MIME regeneration is needed. Other-account and unusual MIME
+coverage remains a compatibility consideration; no server-side snapshot or
+incremental-sync guarantee follows from this endpoint.
+
 ## Message Bodies and Read State
 
 `message/get` requests a UID and selected MIME part identifiers, with folder

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterable
-from contextlib import contextmanager
+from collections.abc import Callable, Generator, Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from enum import Enum
 import os
 from pathlib import Path
@@ -198,12 +198,19 @@ def _download(
     mail: MailService, message: MailMessage, part_id: str, output: Path
 ) -> int:
     """Stream an attachment into a private, non-overwriting destination."""
+    return _save_stream(lambda: mail.attachment(message, part_id), output)
+
+
+def _save_stream(
+    stream_factory: Callable[[], AbstractContextManager[Iterator[bytes]]], output: Path
+) -> int:
+    """Publish unchanged bytes only after the stream and its final guards succeed."""
     size = 0
     with (
         _private_output(output) as temporary,
-        mail.attachment(message, part_id) as chunks,
+        stream_factory() as stream,
     ):
-        for chunk in chunks:
+        for chunk in stream:
             size += temporary.write(chunk)
     return size
 
@@ -656,6 +663,47 @@ def mail_export(
     result = {"message_id": message.id, "path": str(output), "size": size}
     if state.json_output:
         state.write_json(result)
+        return
+    state.console.print(Text(str(output)))
+
+
+@app.command("export-eml")
+def mail_export_eml(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
+    output: Path = typer.Option(
+        ..., "--output", help="New private file for original EML bytes."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Save original MIME bytes from Apple; never reconstruct or render the message."""
+    if os.path.lexists(output):
+        raise CLIAbort("Destination already exists; choose a new --output path.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None)
+    size = _mail_call(
+        api, lambda: _save_stream(lambda: mail.raw_message(message), output)
+    )
+    payload = {"message_id": message.id, "path": str(output), "size": size}
+    if state.json_output:
+        state.write_json(payload)
         return
     state.console.print(Text(str(output)))
 
