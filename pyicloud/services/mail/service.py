@@ -52,6 +52,10 @@ MAX_RESULTS = 1000
 MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
+_BINARY_CONTENT_TYPE = "application/octet-stream"
+_HTML_CONTENT_TYPE = "text/html"
+_MESSAGE_SCOPE_MISMATCH = "Message and folder identities do not match"
+_UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 MessageFilter = Literal["unread", "flagged"]
@@ -97,6 +101,22 @@ def _validate_mail_drop(part: MailPart, max_bytes: int) -> str:
     url = part.mail_drop_url
     if not part.is_attachment or not url or not part.id.startswith("cloudpart:"):
         raise ValueError("Selected part is not a supported Mail Drop attachment")
+    expiry = _mail_drop_url_expiry(url)
+    if (
+        expiry <= time.time()
+        or part.mail_drop_expiration_ms is None
+        or part.mail_drop_expiration_ms <= time.time() * 1000
+    ):
+        raise MailError(
+            "Mail Drop link expired or has no known expiration; refresh metadata"
+        )
+    if part.size is not None and part.size > max_bytes:
+        raise MailError("Mail Drop attachment exceeds max_bytes")
+    return url
+
+
+def _mail_drop_url_expiry(url: str) -> int:
+    """Validate the capability's URL boundary and return its expiration."""
     if url != url.strip() or any(
         ord(character) < 32 or ord(character) == 127 for character in url
     ):
@@ -126,17 +146,7 @@ def _validate_mail_drop(part: MailPart, max_bytes: int) -> str:
     expiry = query["e"][0]
     if not expiry.isascii() or not expiry.isdigit():
         raise MailError("Invalid Mail Drop URL expiration")
-    if (
-        int(expiry) <= time.time()
-        or part.mail_drop_expiration_ms is None
-        or part.mail_drop_expiration_ms <= time.time() * 1000
-    ):
-        raise MailError(
-            "Mail Drop link expired or has no known expiration; refresh metadata"
-        )
-    if part.size is not None and part.size > max_bytes:
-        raise MailError("Mail Drop attachment exceeds max_bytes")
-    return url
+    return int(expiry)
 
 
 def _mail_drop_response_size(
@@ -150,12 +160,12 @@ def _mail_drop_response_size(
     if (
         not actual
         or (
-            expected == "application/octet-stream"
-            and actual in ("text/html", "application/json")
+            expected == _BINARY_CONTENT_TYPE
+            and actual in (_HTML_CONTENT_TYPE, "application/json")
         )
         or (
-            expected != "application/octet-stream"
-            and actual not in (expected, "application/octet-stream")
+            expected != _BINARY_CONTENT_TYPE
+            and actual not in (expected, _BINARY_CONTENT_TYPE)
         )
     ):
         raise MailError("Mail Drop download returned an unexpected content type")
@@ -241,7 +251,7 @@ def _validate_uid_scan(folder: MailFolder, page_size: int, max_pages: int) -> No
     if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
         raise ValueError("max_pages must be a positive integer")
     if folder.uid_validity is None or folder.uid_validity < 1:
-        raise ValueError("A positive mailbox UID validity is required; refresh folders")
+        raise ValueError(_UID_VALIDITY_REQUIRED)
 
 
 def _uid_query(
@@ -440,9 +450,7 @@ class MailService(BaseService):
     ) -> MailMessage | None:
         """Validate an exact metadata response before binding a UID to a folder."""
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = self._checked_mailbox(folder)
         predicate = _folder_predicate(current)
         predicate = predicate.model_copy(
@@ -641,9 +649,7 @@ class MailService(BaseService):
         if not isinstance(thread_id, str) or not thread_id.strip():
             raise ValueError("thread_id must be a non-empty string")
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = self._checked_mailbox(folder)
         predicate = _folder_predicate(current)
         predicate = predicate.model_copy(
@@ -731,9 +737,7 @@ class MailService(BaseService):
     def _checked_mailbox(self, folder: MailFolder) -> MailFolder:
         """Reject a disappeared or recreated mailbox before exposing metadata."""
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = next((item for item in self.folders() if item.id == folder.id), None)
         if current is None or current.uid_validity != folder.uid_validity:
             raise MailError(
@@ -750,7 +754,7 @@ class MailService(BaseService):
         if message.preview_id is None or not message.preview_id.strip():
             raise ValueError("Message has no advertised preview ID; refresh metadata")
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         current = self._checked_mailbox(message.folder)
         requested_folder = current.name
         response = self._post(
@@ -827,7 +831,7 @@ class MailService(BaseService):
     def _content_folder(self, message: MailMessage) -> MailFolder:
         """Guard known UID namespaces while preserving legacy bounded reads."""
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         if message.folder.uid_validity is None:
             return message.folder
         return self._checked_mailbox(message.folder)
@@ -848,7 +852,7 @@ class MailService(BaseService):
             if not part.is_attachment
             and re.fullmatch(MIME_PART_PATTERN, part.id)
             and part.content_type.split(";", 1)[0].strip().lower()
-            in ("text/plain", "text/html")
+            in ("text/plain", _HTML_CONTENT_TYPE)
         ]
         if not parts:
             raise ValueError("Message has no supported text body parts")
@@ -886,7 +890,7 @@ class MailService(BaseService):
         part = message.parts[part_index - 1]
         url = _validate_mail_drop(part, max_bytes)
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         current = self._checked_mailbox(message.folder)
         try:
             with Session() as download:
@@ -929,7 +933,7 @@ class MailService(BaseService):
         output as success. This is not a signed archival-integrity guarantee.
         """
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         current = self._checked_mailbox(message.folder)
         response = self.session.get(
             f"{self.service_root}/mailws2/v1/message/download",
@@ -1009,17 +1013,17 @@ class MailService(BaseService):
                 .lower()
             )
             expected = part.content_type.split(";", 1)[0].strip().lower()
-            if expected == "application/octet-stream":
+            if expected == _BINARY_CONTENT_TYPE:
                 # Missing contentType metadata defaults to octet-stream here,
                 # and the server may then answer with the real type instead of
                 # echoing the default, so there is nothing specific to match.
                 # Only reject what cannot be attachment bytes: an empty type
                 # or an HTML error page served with HTTP 200.
-                acceptable = bool(content_type) and content_type != "text/html"
+                acceptable = bool(content_type) and content_type != _HTML_CONTENT_TYPE
             else:
                 # A specifically advertised type must match, unless the server
                 # fell back to octet-stream.
-                acceptable = content_type in (expected, "application/octet-stream")
+                acceptable = content_type in (expected, _BINARY_CONTENT_TYPE)
             if not acceptable:
                 raise MailError("Mail attachment returned an unexpected content type")
             self._verify_content_folder(message, current)

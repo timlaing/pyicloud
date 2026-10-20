@@ -115,14 +115,18 @@ def test_anonymous_transport_and_byte_preservation(
     assert consume(case) == b"movie"
     _, owned, external, response, message, folders, get = case
     assert external.trust_env is False
-    assert external.auth is None and not external.cookies and not external.params
-    assert "Authorization" not in external.headers and "Cookie" not in external.headers
+    assert external.auth is None
+    assert not external.cookies
+    assert not external.params
+    assert "Authorization" not in external.headers
+    assert "Cookie" not in external.headers
     assert "Referer" not in external.headers
     request = get.call_args.args[0]
     assert request.method == "GET"
     assert request.url == message.parts[1].mail_drop_url
     assert request.headers["Accept-Encoding"] == "identity"
-    assert "Authorization" not in request.headers and "Cookie" not in request.headers
+    assert "Authorization" not in request.headers
+    assert "Cookie" not in request.headers
     assert get.call_args.kwargs == {
         "stream": True,
         "allow_redirects": False,
@@ -192,7 +196,8 @@ def test_cli_ssl_and_proxy_settings_cannot_override_download(
     assert settings["cert"] is None
     assert settings["allow_redirects"] is False
     request = case[6].call_args.args[0]
-    assert "Authorization" not in request.headers and "Cookie" not in request.headers
+    assert "Authorization" not in request.headers
+    assert "Cookie" not in request.headers
     assert case[2].trust_env is False
 
 
@@ -206,7 +211,8 @@ def test_cli_output_is_private_and_contains_no_capabilities(
     assert output.read_bytes() == b"movie"
     assert output.stat().st_mode & 0o777 == 0o600
     assert list(output.parent.iterdir()) == [output]
-    assert "cvws" not in result.stdout and "cloudpart:" not in result.stdout
+    assert "cvws" not in result.stdout
+    assert "cloudpart:" not in result.stdout
     if mode == "json":
         assert json.loads(result.stdout)["size"] == 5
 
@@ -425,13 +431,12 @@ def test_private_capabilities_survive_binding_but_not_json(case: Case) -> None:
     response.json.return_value = load_fixture("mail", "maildrop_message_response.json")
     owned.post.return_value = response
     selected = service.message(message.folder, message.id)
-    assert (
-        selected is not None
-        and selected.parts[1].mail_drop_url == message.parts[1].mail_drop_url
-    )
+    assert selected is not None
+    assert selected.parts[1].mail_drop_url == message.parts[1].mail_drop_url
     assert selected.parts[1].is_mail_drop is True
     payload = selected.model_dump_json()
-    assert "cvws" not in payload and "s=fake" not in payload
+    assert "cvws" not in payload
+    assert "s=fake" not in payload
     assert "cloudpart:<redacted>" in payload
     assert "cvws" not in repr(selected.parts[1])
     assert message.parts[0].model_dump(mode="json")["id"] == "1"
@@ -444,7 +449,8 @@ def test_help_and_invalid_options_are_offline() -> None:
         invalid = CliRunner().invoke(
             app, ["mail", "download-maildrop", "message", "--folder-id", "10"]
         )
-    assert help_result.exit_code == 0 and invalid.exit_code != 0
+    assert help_result.exit_code == 0
+    assert invalid.exit_code != 0
     get_api.assert_not_called()
 
 
