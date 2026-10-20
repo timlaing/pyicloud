@@ -600,16 +600,50 @@ rather than appearing to be a fresh target. Same-namespace counter regression
 and account/mailbox switches are rejected; intentional baseline replacement can
 recover a new UID namespace.
 
-The private backend accepts a dedicated, caller-owned SQLite connection. It does
-not create or select filesystem paths, manage connection lifetime, encrypt a
-database, or establish file/sidecar permissions. A future CLI integration must
-provide bounded connection timeouts and secure private database creation before
-exposing persistence. Tests use real in-memory SQLite and private sandbox files
+The private backend accepts a dedicated, caller-owned SQLite connection. The
+separate private storage opener described below provides file permissions and
+connection lifetime management; the backend itself neither selects filesystem
+paths nor encrypts databases. Tests use real in-memory SQLite and private sandbox files
 to exercise restarts, two connections, injected commit failures, stale writers,
 and rollback after partial insertion. Message bodies, headers, credentials, and
 signed attachment links are not persistence fields. The private reader and
-reconciler below use this backend; automatic remote reset recovery and a public
+reconciler below use this backend; implicit remote reset recovery and a public
 synchronization API remain absent.
+
+### Private File Storage and Explicit Expiry Recovery
+
+`_sync_storage.py` supplies a context-managed opener for an explicitly selected,
+dedicated POSIX directory. The parent must already exist and is canonicalized;
+its ancestors must be owned by the user or root and not writable by other users,
+except for root-owned sticky temporary directories. The final directory must be
+owned by the user with mode `0700`. Fixed database, journal, and lock names must
+be regular, owner-only `0600` files, with one hard link and no symlinks. Unsafe
+existing permissions, unknown directory entries, foreign databases, and corrupt
+databases are rejected rather than repaired, removed, or silently initialized.
+No process-wide umask is changed. There is no default state path or migration of
+older experimental databases without the inventory application identifier.
+
+A non-blocking advisory lock covers the complete session and is released on
+connection or caller failure. SQLite has a finite configurable lock timeout
+(default five seconds, maximum sixty), trusted schema execution disabled,
+in-memory temporary storage, and rollback-journal mode. Crash recovery uses
+SQLite's existing journal; it does not delete journal files first. The directory
+and database modes protect its sidecars too. Tests check a real worker crash,
+durable restart, rollback, lock contention, and unsafe path/file types. Same-user
+malicious processes, ACL overrides, network-filesystem locking semantics, and
+encryption at rest are outside this private POSIX-only boundary. A public CLI
+still requires a deliberate supported-platform policy.
+
+`_sync_refresh.py` establishes a new inventory or applies one incremental batch.
+Only Apple's explicit `MODSEQ_TOO_OLD` becomes `SyncHistoryExpired`. By default
+it propagates without a baseline read. An explicit `rebuild_expired=True` permits
+a bounded stable full replacement pinned to the original local revision and
+account/mailbox. Records and checkpoint are replaced together only after the
+whole scan succeeds. Incomplete scans, moving counters, budget exhaustion, or a
+competing local writer retain the previous state. Unknown events, malformed
+responses, authorization/transport failures, corruption, and other reset reasons
+never enter this recovery path. The separate count-hint inventory fallback
+remains opt-in too. These helpers are private and do not enable `mail sync`.
 
 ### Private Live Reader and Incremental Reconciliation
 

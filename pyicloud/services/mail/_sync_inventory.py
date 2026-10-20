@@ -8,6 +8,7 @@ public sync API or CLI is exposed. Only minimal metadata is stored locally.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from enum import Enum
 from typing import Protocol
 
 from pyicloud.services.mail._sync import SyncCheckpoint, SyncResetRequired
@@ -29,19 +30,26 @@ class InventorySource(Protocol):
         """Exhaust unfiltered metadata, raising on incomplete or inconsistent scans."""
 
 
+class _RevisionPolicy(Enum):
+    """Distinguish an omitted revision from an explicitly pinned empty store."""
+
+    ANY = "any"
+
+
 def establish_inventory(
     source: InventorySource,
     state: SQLiteMailInventory,
     *,
     max_attempts: int = 3,
     max_messages: int = 100000,
-    expected_revision: StoredCheckpoint | None = None,
+    expected_revision: StoredCheckpoint | None | _RevisionPolicy = _RevisionPolicy.ANY,
 ) -> StoredCheckpoint:
     """Publish only a bounded inventory bracketed by identical checkpoints.
 
     Changed counters/namespace discard the whole attempt. Partial reads, exhausted
     budgets, or local writer conflicts retain the previously committed inventory.
     A later remote change belongs to the next poll, not this stored checkpoint.
+    An explicitly supplied None pins an empty store; omission reads its revision.
     """
     if any(
         isinstance(value, bool) or not isinstance(value, int) or value < 1
@@ -49,7 +57,7 @@ def establish_inventory(
     ):
         raise ValueError("Mail inventory budgets must be positive integers")
     expected = state.read_checkpoint()
-    if expected_revision is not None and expected != expected_revision:
+    if expected_revision is not _RevisionPolicy.ANY and expected != expected_revision:
         raise StateConflict("Mail inventory changed before baseline fallback")
     scope = (
         None

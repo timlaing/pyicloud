@@ -12,7 +12,11 @@ from pyicloud.exceptions import (
     PyiCloudAuthRequiredException,
     PyiCloudConnectionException,
 )
-from pyicloud.services.mail._sync import SyncCheckpoint, SyncResetRequired
+from pyicloud.services.mail._sync import (
+    SyncCheckpoint,
+    SyncHistoryExpired,
+    SyncResetRequired,
+)
 from pyicloud.services.mail._sync_reader import MailSyncReader
 from pyicloud.services.mail.models import MailFolder, MailMessage
 from pyicloud.services.mail.service import MailService
@@ -130,7 +134,7 @@ def test_expired_history_never_retries_with_null_counters(case: Case) -> None:
         "errorCode": "MODSEQ_TOO_OLD",
         "private": "secret",
     }
-    with pytest.raises(SyncResetRequired, match="expired") as error:
+    with pytest.raises(SyncHistoryExpired, match="expired") as error:
         case.reader.poll_changes(checkpoint(case))
     assert "secret" not in str(error.value)
     case.session.post.assert_called_once()
@@ -143,7 +147,7 @@ def test_session_http_expiry_exception_translates_and_closes(case: Case) -> None
     case.session.post.side_effect = PyiCloudAPIResponseException(
         "synthetic", 400, case.response
     )
-    with pytest.raises(SyncResetRequired, match="expired"):
+    with pytest.raises(SyncHistoryExpired, match="expired"):
         case.reader.poll_changes(checkpoint(case))
     case.session.post.assert_called_once()
     case.response.close.assert_called_once()

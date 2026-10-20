@@ -22,6 +22,10 @@ class SyncResetRequired(ValueError):
     """The candidate cannot establish a safe, complete change batch."""
 
 
+class SyncHistoryExpired(SyncResetRequired):
+    """Apple explicitly rejected saved counters as older than retained history."""
+
+
 class SyncModel(BaseModel):
     """Strict immutable data shared by the private synchronization candidate."""
 

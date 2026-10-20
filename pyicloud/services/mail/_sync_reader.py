@@ -20,6 +20,7 @@ from pyicloud.services.mail._sync import (
     Identity,
     Number,
     SyncCheckpoint,
+    SyncHistoryExpired,
     SyncModel,
     SyncResetRequired,
     decode_events,
@@ -155,7 +156,7 @@ class MailSyncReader:
                 finally:
                     failed_response.close()
                 if expired:
-                    raise SyncResetRequired(
+                    raise SyncHistoryExpired(
                         "Mail change history expired; rebuild explicitly"
                     ) from None
             raise
@@ -165,7 +166,7 @@ class MailSyncReader:
             except ValueError:
                 raise SyncResetRequired("Mail poll returned invalid JSON") from None
             if _expired(data):
-                raise SyncResetRequired(
+                raise SyncHistoryExpired(
                     "Mail change history expired; rebuild explicitly"
                 )
             if response.status_code != 200:

@@ -43,6 +43,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Add private POSIX Mail inventory storage with owner-only files, bounded locking, restart guards, and explicitly opted-in recovery for expired change history; public synchronization remains disabled.
 - Integrate the private Mail sync candidate with read-only polling and exact metadata readers, bounded incremental reconciliation, explicit history-reset failures, and atomic local checkpoint application; the public sync CLI remains disabled.
 - Add a private Mail baseline-inventory and transactional SQLite state candidate with bounded stable-counter scans, restart/rollback tests, namespace guards, and competing-writer protection; no public sync command is enabled.
 - Add a private, bounded Mail change-event decoder and checkpoint-validation candidate with synthetic fixtures and offline recovery guards; this does not enable incremental synchronization in the library or CLI.
