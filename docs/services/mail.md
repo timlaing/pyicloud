@@ -465,11 +465,14 @@ creation; never use an untrusted attachment filename directly as a filesystem
 path. Partial local output is possible if the stream fails; the caller owns
 cleanup of any file it creates.
 
-Mail Drop and other external-link attachments can appear in metadata, but their
-downloads are not supported: selecting one raises `ValueError` before HTTP.
-Opaque part identifiers can contain sensitive external URLs; they are omitted
-from default representations but remain available through explicit attributes
-and serialization. Do not follow those URLs automatically.
+The ordinary `attachment()` method accepts numeric MIME parts only; selecting
+a Mail Drop or other external-link part raises `ValueError` before HTTP. Use
+the restricted `mail_drop_attachment()` method described above for supported
+Mail Drop parts. Other external-link downloads remain unsupported.
+Opaque part identifiers can contain sensitive external URLs. Mail Drop
+capability URLs are excluded from serialization, and serialized `cloudpart:`
+identifiers become `cloudpart:<redacted>`. Explicit attributes retain the
+private values internally; do not follow those URLs automatically.
 
 Metadata size can describe Base64-encoded content, while the stream contains
 decoded bytes. Do not decode those bytes again or equate the metadata size with
@@ -556,9 +559,11 @@ file beside the destination, then published without overwriting existing files
 or symlinks, even if they appear during the download. Failed streams remove their
 temporary bytes and leave the destination untouched. Publishing requires a
 filesystem that supports hard links; unsupported filesystems produce an error
-rather than falling back to an overwriting copy. Mail Drop and external-link
-downloads remain unsupported. Downloaded files are private email data; keep them
-outside repositories.
+rather than falling back to an overwriting copy. Ordinary `download` rejects
+Mail Drop and other external-link parts; use `download-maildrop` for the
+explicitly supported Mail Drop path. Other external-link downloads remain
+unsupported. Downloaded files are private email data; keep them outside
+repositories.
 
 Attachment reads guard known mailbox namespaces before the request, before
 yielding bytes, and when the stream context exits normally. A failed final

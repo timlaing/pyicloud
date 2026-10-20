@@ -436,8 +436,21 @@ def test_invalid_reconciliation_budgets(
     state: SQLiteMailInventory, option: str, value: Any
 ) -> None:
     """Budgets are checked before reading state or touching the remote service."""
-    with pytest.raises(ValueError):
-        apply_incremental(Source([]), state, **{option: value})
+    seed(state)
+    source = Source([])
+    with (
+        patch.object(
+            state, "read_snapshot", side_effect=AssertionError("unexpected state read")
+        ) as read_snapshot,
+        pytest.raises(
+            ValueError, match="^Mail reconciliation budgets must be positive integers$"
+        ),
+    ):
+        apply_incremental(source, state, **{option: value})
+    read_snapshot.assert_not_called()
+    assert not source.poll_calls
+    assert not source.uid_calls
+    assert not source.thread_calls
 
 
 def test_existing_inventory_over_budget_precedes_poll(

@@ -47,6 +47,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Verify invalid Mail reconciliation budgets fail with the specific validation error before reading inventory state or polling remote metadata.
 - Add private POSIX Mail inventory storage with owner-only files, bounded locking, restart guards, and explicitly opted-in recovery for expired change history.
 - Integrate the private Mail sync engine with read-only polling and exact metadata readers, bounded incremental reconciliation, explicit history-reset failures, and atomic local checkpoint application.
 - Add a private Mail baseline-inventory and transactional SQLite state backend with bounded stable-counter scans, restart/rollback tests, namespace guards, and competing-writer protection.
@@ -55,6 +56,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Documentation
 
+- Clarify the separate ordinary-attachment and Mail Drop download paths and capability redaction in serialized metadata.
 - Document the observed iCloud Mail HTTP protocol research and capture limitations.
 - Reconcile the Invites design document with the shipped reads, CLI, RSVP image downloads, and cancellation support; document the entitlement flow and remaining owner-write limitations (#434).
 
