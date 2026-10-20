@@ -20,6 +20,7 @@ from pyicloud.services.mail._sync import (
     SyncInventoryRequired,
     SyncResetRequired,
     ThreadEvent,
+    ThreadInvalidationEvent,
     VanishedEvent,
     validate_decoded_batch,
 )
@@ -113,7 +114,9 @@ def apply_incremental(
         )
     original = {record.uid: record for record in stored}
     threads = {
-        event.thread_id for event in batch.events if isinstance(event, ThreadEvent)
+        event.thread_id
+        for event in batch.events
+        if isinstance(event, (ThreadEvent, ThreadInvalidationEvent))
     }
     targets = {
         event.uid

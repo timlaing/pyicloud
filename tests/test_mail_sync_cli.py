@@ -22,6 +22,7 @@ from pyicloud.exceptions import (
 from pyicloud.services.mail import MailError, MailFolder, MailMessage, MailService
 from pyicloud.services.mail._sync_state import InventoryMessage, StoredCheckpoint
 from pyicloud.services.mail._sync_storage import open_inventory
+from tests.fixture_loader import load_fixture
 from tests.test_mail_sync_reader import envelope
 
 pytestmark = pytest.mark.skipif(os.name != "posix", reason="POSIX-only sync storage")
@@ -160,6 +161,29 @@ def test_initial_sync_is_private_content_free_and_read_only(
     else:
         assert "baseline" in result.stdout
         assert "Not an atomic snapshot or backup" in result.stdout
+
+
+def test_flag_free_invalidation_removes_only_verified_local_membership(
+    case: Case, directory: Path
+) -> None:
+    """The CLI consumes observed NIL invalidations without guessing remote flags."""
+    assert invoke(case, directory).exit_code == 0
+    wire = load_fixture("mail", "sync_thread_invalidation_response.json")
+    final = envelope()
+    final["sessionHeaders"].update(modseq=101, threadmodseq=201)
+    case.response.json.side_effect = [wire, final]
+    case.exact.return_value = None
+    with patch.object(
+        case.service, "iter_thread_messages", return_value=iter([])
+    ) as thread:
+        result = invoke(case, directory, "--format", "json")
+    assert result.exit_code == 0, result.exception
+    assert json.loads(result.stdout)["message_count"] == 0
+    assert not snapshot(directory)[1]
+    thread.assert_called_once_with(
+        case.folder, "synthetic-thread", page_size=50, max_pages=10000
+    )
+    case.exact.assert_called_once_with(case.folder, 7)
 
 
 def test_restart_replays_saved_checkpoint_without_rescan(

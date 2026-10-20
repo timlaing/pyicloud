@@ -12,6 +12,7 @@ from pyicloud.services.mail._sync import (
     SyncCheckpoint,
     SyncResetRequired,
     ThreadEvent,
+    ThreadInvalidationEvent,
     VanishedEvent,
     decode_events,
     validate_batch,
@@ -70,6 +71,18 @@ def test_empty_poll_and_empty_flags() -> None:
     assert not events[2].is_new
 
 
+def test_thread_invalidation_is_not_an_empty_flag_update() -> None:
+    """Observed flag-less NIL updates have their own narrowly typed meaning."""
+    fixture = load_fixture("mail", "sync_thread_invalidation_response.json")
+    batch = validate_batch(
+        checkpoint(), checkpoint(modseq=101, threadmodseq=201), fixture["events"]
+    )
+    assert batch.events[-1] == ThreadInvalidationEvent(
+        thread_id="synthetic-thread", modseq=201
+    )
+    assert not isinstance(batch.events[-1], ThreadEvent)
+
+
 def test_ranges_are_compact_and_reversed_bounds_are_normalized() -> None:
     """An enormous UID interval cannot allocate billions of entries."""
     assert decode_events(["* VANISHED (EARLIER) 4294967295:1,9"]) == (
@@ -126,6 +139,10 @@ def test_arrival_without_message_counter_advancement_requires_reset() -> None:
         "* 1 FETCH (UID 1 MODSEQ (0) FLAGS ())",
         '* 1 FETCH (UID 1 MODSEQ (1) FLAGS ("private-secret"))',
         "* THREADUPDATE (thread NIL 0 FLAGS ())",
+        "* THREADUPDATE (thread NIL 0)",
+        "* THREADUPDATE (thread 1700000000 201)",
+        "* THREADUPDATE (thread NIL 201 NEW)",
+        "* THREADUPDATE (thread NIL 201) trailing",
         "x" * 8193,
         None,
         1,
@@ -183,6 +200,8 @@ def test_advancement_without_events_is_not_a_complete_change_batch() -> None:
         "* 1 FETCH (UID 1 MODSEQ (106) FLAGS ())",
         "* THREADUPDATE (thread NIL 200 FLAGS ())",
         "* THREADUPDATE (thread NIL 206 FLAGS ())",
+        "* THREADUPDATE (thread NIL 200)",
+        "* THREADUPDATE (thread NIL 206)",
     ],
 )
 def test_event_outside_exact_request_stride_requires_reset(event: str) -> None:

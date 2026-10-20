@@ -80,7 +80,22 @@ class ThreadEvent(SyncModel):
     is_new: bool
 
 
-ChangeEvent = ExistsEvent | ArrivalEvent | MessageEvent | VanishedEvent | ThreadEvent
+class ThreadInvalidationEvent(SyncModel):
+    """A NIL update without flags; refresh membership, do not infer deletion."""
+
+    kind: Literal["thread-invalidation"] = "thread-invalidation"
+    thread_id: Identity = Field(repr=False)
+    modseq: PositiveNumber
+
+
+ChangeEvent = (
+    ExistsEvent
+    | ArrivalEvent
+    | MessageEvent
+    | VanishedEvent
+    | ThreadEvent
+    | ThreadInvalidationEvent
+)
 
 
 class SyncCheckpoint(SyncModel):
@@ -112,6 +127,9 @@ _THREAD = re.compile(
     r"FLAGS \(([^()]*)\)( NEW)?\)"
 )
 _FLAGS = re.compile(r"(?:\\?[A-Za-z0-9$_.-]+(?: \\?[A-Za-z0-9$_.-]+)*)?")
+_THREAD_INVALIDATION = re.compile(
+    r"\* THREADUPDATE \(([A-Za-z0-9+/=_-]+) NIL ([0-9]+)\)"
+)
 
 
 def _flags(value: str) -> tuple[str, ...]:
@@ -149,6 +167,8 @@ def _event(value: str) -> ChangeEvent:
             flags=_flags(match[4]),
             is_new=bool(match[5]),
         )
+    if match := _THREAD_INVALIDATION.fullmatch(value):
+        return ThreadInvalidationEvent(thread_id=match[1], modseq=int(match[2]))
     raise SyncResetRequired("Unsupported Mail change event; inventory reset required")
 
 
@@ -219,7 +239,7 @@ def validate_decoded_batch(previous: SyncCheckpoint, batch: ChangeBatch) -> Chan
             raise SyncResetRequired(
                 "Mail message event is outside the requested stride"
             )
-        if isinstance(event, ThreadEvent) and not (
+        if isinstance(event, (ThreadEvent, ThreadInvalidationEvent)) and not (
             previous.threadmodseq < event.modseq <= current.threadmodseq
         ):
             raise SyncResetRequired("Mail thread event is outside the requested stride")

@@ -742,6 +742,53 @@ must validate operation outcomes, distinguish uncertain submission outcomes,
 and avoid automatic retries of non-idempotent operations. These observations
 do not authorize implementing or exercising writers in the read-only phase.
 
+### Live Flag, Move, and Recoverable Deletion Verification (2026-10-21)
+
+A controlled test used one uniquely identified disposable development email and
+three existing folders: Inbox (ten messages), Testing (empty), and Trash (empty).
+Initial and subsequent scoped inventories were compared with separately scanned,
+stable-counter inventories. The mounted CLI ran against a reused authenticated
+service with real HTTP responses, not mocked data. A Python-side route allowlist
+restricted requests to metadata queries and change polling. Mail mutations were
+performed separately through the iCloud Mail browser UI. Verified TLS through
+the existing local proxy was retained; no system proxy/trust setting changed.
+
+Preflight uncovered a previously unsupported event form:
+`* THREADUPDATE (<thread-id> NIL <counter>)`, without `FLAGS`. This occurred in
+existing removal history even for empty folders. It now decodes to a distinct
+thread-invalidation event, not an empty replacement flag set or proof of global
+deletion. The reconciler refreshes the complete folder-local thread and checks
+missing old members by exact UID. Synthetic fixtures and tests cover this shape,
+malformed variants, out-of-stride counters, absence, and thread reassignment.
+
+The following live transitions matched fresh independent inventories:
+
+| UI action                    | Inbox | Testing | Trash | Read-side behavior                                     |
+| ---------------------------- | ----- | ------- | ----- | ------------------------------------------------------ |
+| Mark read, flag, then unflag | 10    | 0       | 0     | Each flag update applied incrementally, without rescan |
+| Move from Inbox to Testing   | 9     | 1       | 0     | Incremental source removal; destination count fallback |
+| Return from Testing to Inbox | 10    | 0       | 0     | Incremental source removal; destination count fallback |
+| Move from Inbox to Trash     | 9     | 0       | 1     | Incremental source removal; destination count fallback |
+| Restore from Trash to Inbox  | 10    | 0       | 0     | Incremental source removal; destination count fallback |
+
+Destination arrival polls supplied count-only notifications, so default sync
+refused to advance those inventories. The explicitly enabled, bounded stable
+inventory fallback then produced matching results. These tests do **not** prove
+that every move/arrival can be applied without a full scan. The disposable
+message's original numeric flags were restored and checked against the saved
+pre-test value. The initial browser context-menu return move did not complete;
+fresh listings detected that failure, and explicit selection plus the main Move
+toolbar completed the return. A browser auto-selection temporarily marked the
+next development email read during the Trash action. Its unread state was
+restored, and common non-target records matched their pre-action inventories.
+
+The test covered recoverable removal to Trash and restoration, **not permanent
+deletion or emptying Trash**. No mail was sent; the Python client performed no
+Mail mutations or content downloads. Private temporary state and sanitized local
+reports remain outside Git. This small, single-account verification does not
+establish cross-folder identity correlation, server history completeness, large
+event-burst safety, or exhaustive full-text search pagination.
+
 ## Proposed First Release and Verification
 
 The initial scope is endpoint discovery, folder listing, bounded message

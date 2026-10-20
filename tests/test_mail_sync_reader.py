@@ -20,6 +20,7 @@ from pyicloud.services.mail._sync import (
 from pyicloud.services.mail._sync_reader import MailSyncReader
 from pyicloud.services.mail.models import MailFolder, MailMessage
 from pyicloud.services.mail.service import MailService
+from tests.fixture_loader import load_fixture
 
 
 class Case(NamedTuple):
@@ -126,6 +127,17 @@ def test_incremental_poll_replays_exact_counters(case: Case) -> None:
     assert batch.events[0].kind == "arrival"
     headers = case.session.post.call_args.kwargs["json"]["sessionHeaders"]
     assert headers["modseq"] == 100 and headers["threadmodseq"] == 200
+
+
+def test_thread_invalidation_poll_is_validated(case: Case) -> None:
+    """A deletion-shaped event still uses the exact requested counter stride."""
+    case.response.json.return_value = load_fixture(
+        "mail", "sync_thread_invalidation_response.json"
+    )
+    batch = case.reader.poll_changes(checkpoint(case))
+    assert batch.events[-1].kind == "thread-invalidation"
+    assert batch.checkpoint == checkpoint(case, modseq=101, threadmodseq=201)
+    case.session.post.assert_called_once()
 
 
 def test_expired_history_never_retries_with_null_counters(case: Case) -> None:

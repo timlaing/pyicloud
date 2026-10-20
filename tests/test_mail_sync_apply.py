@@ -285,6 +285,30 @@ def test_compact_removal_ranges_do_not_expand(state: SQLiteMailInventory) -> Non
     assert state.read_messages() == ()
 
 
+@pytest.mark.parametrize("reassigned", [False, True])
+def test_flag_free_thread_invalidation_checks_current_membership(
+    state: SQLiteMailInventory, reassigned: bool
+) -> None:
+    """A NIL update refreshes the old thread and checks absent members by UID."""
+    seed(state)
+    moved = message(1, thread_id="another-thread")
+    source = Source(
+        ["* THREADUPDATE (thread-1 NIL 201)"],
+        end=checkpoint(modseq=101, threadmodseq=201),
+        threads={"thread-1": []},
+        records={1: moved if reassigned else None},
+    )
+    apply_incremental(source, state)
+    assert source.thread_calls == ["thread-1"]
+    assert source.uid_calls == [1]
+    expected = (
+        (moved, message(2, thread_id="thread-2"))
+        if reassigned
+        else (message(2, thread_id="thread-2"),)
+    )
+    assert state.read_messages() == expected
+
+
 def test_removal_ranges_merge_and_keep_gaps(state: SQLiteMailInventory) -> None:
     """Overlapping, adjacent, and disjoint ranges preserve unaffected UIDs."""
     seed(state, [message(uid) for uid in [1, 2, 4, 6, 11, 20, 21]])
