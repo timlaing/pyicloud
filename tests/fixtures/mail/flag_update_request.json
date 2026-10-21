@@ -1,0 +1,9 @@
+{
+  "batchUpdate": [
+    {
+      "ids": ["lookup-message-7"],
+      "patch": { "flags": { "set": ["seen"] } }
+    }
+  ],
+  "domain": "email"
+}
