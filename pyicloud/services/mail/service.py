@@ -54,6 +54,7 @@ _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
 _GEQS_QUERY = "geqs/query"
 _UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
+_IDENTITIES_MISMATCH = "Message and folder identities do not match"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 MessageFilter = Literal["unread", "flagged"]
@@ -686,7 +687,7 @@ class MailService(BaseService):
         if message.preview_id is None or not message.preview_id.strip():
             raise ValueError("Message has no advertised preview ID; refresh metadata")
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_IDENTITIES_MISMATCH)
         current = self._checked_mailbox(message.folder)
         requested_folder = current.name
         response = self._post(
@@ -809,7 +810,7 @@ class MailService(BaseService):
     def _content_folder(self, message: MailMessage) -> MailFolder:
         """Guard known UID namespaces while preserving legacy bounded reads."""
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_IDENTITIES_MISMATCH)
         if message.folder.uid_validity is None:
             return message.folder
         return self._checked_mailbox(message.folder)
