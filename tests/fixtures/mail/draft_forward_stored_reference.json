@@ -1,0 +1,10 @@
+{
+  "contentID": null,
+  "datatype": "text/plain",
+  "guid": "messagepart:Sent Messages/100-2.2",
+  "isMailDropThumbnail": false,
+  "mailDropExpirationDate": null,
+  "name": "original.txt",
+  "size": 106,
+  "url": "https://gateway.example.test/mailws2/v1/message/part?guid=messagepart%3ASent+Messages%2F100-2.2&name=original.txt&type=text%2Fplain&size=106"
+}

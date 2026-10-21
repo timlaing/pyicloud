@@ -1,0 +1,4 @@
+{
+  "destroy": ["message-to-delete"],
+  "domain": "email"
+}
