@@ -114,9 +114,13 @@ icloud mail mark '<message-id>' --folder-id '<folder-id>' --action unflag
 
 There is no default action, bulk selection, `--limit` fallback, implicit folder
 selection, or write attached to reading a message. Test on disposable messages
-first. Browser captures verified the four request/acknowledgement shapes and
-restoration on one disposable message; the implementation is tested offline and
-has not yet been smoke-tested with live library/CLI writes.
+first. Browser captures verified the four request/acknowledgement shapes.
+An authorized live smoke test then exercised library read/flag and mounted CLI
+unread/unflag writes over real HTTP on one disposable message. Independent
+named-flag queries verified every transition; a fresh-process final check
+confirmed the original flags and other Inbox records were unchanged. CLI tests
+reused a real authenticated service instance, not mocked HTTP responses. This
+single-account check does not verify all server failures or concurrent changes.
 
 ## Enumerating a Mailbox
 
