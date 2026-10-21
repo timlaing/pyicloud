@@ -97,8 +97,10 @@ MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
 _MESSAGE_SCOPE_MISMATCH = "Message and folder identities do not match"
+_UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
+MessageFilter = Literal["unread", "flagged"]
 _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
     "uid",
     "identifier",
@@ -214,6 +216,45 @@ def _folder_predicate(folder: MailFolder) -> MailPredicate:
     )
 
 
+def _validate_uid_scan(folder: MailFolder, page_size: int, max_pages: int) -> None:
+    """Validate a UID scan before checking mailbox identity or reading metadata."""
+    _limit(page_size)
+    if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
+        raise ValueError("max_pages must be a positive integer")
+    if folder.uid_validity is None or folder.uid_validity < 1:
+        raise ValueError(_UID_VALIDITY_REQUIRED)
+
+
+def _uid_query(
+    folder: MailFolder,
+    page_size: int,
+    before: int | None,
+    match: MailPredicate | None,
+) -> MailQuery:
+    """Retain the selected scope while adding a strict descending UID boundary."""
+    predicate = _folder_predicate(folder)
+    clauses = list(predicate.and_ or [])
+    if match is not None:
+        clauses.append(match)
+    if before is not None:
+        clauses.append(
+            MailPredicate(
+                type="lt",
+                expression=MailExpression(type="property", property="uid"),
+                value=before,
+            )
+        )
+    return MailQuery(
+        domain="email",
+        properties=_HEADER_PROPERTIES,
+        predicate=predicate.model_copy(update={"and_": clauses}),
+        limit=page_size,
+        orderby=MailOrder(
+            expressions=[MailExpression(type="property", property="uid")]
+        ),
+    )
+
+
 def _search_fields(text: str, field: SearchField, limit: int) -> tuple[str, ...]:
     """Validate a bounded text query before any request is sent."""
     _limit(limit)
@@ -265,7 +306,7 @@ __all__ = ["MailError", "MailService", "MailWriteRejected", "MailWriteUncertain"
 class MailService(BaseService):
     """Bounded Mail reads and explicit message and folder writes.
 
-    Bounded methods remain snapshots; only ``iter_messages`` opts into paging.
+    Bounded methods remain snapshots; only explicit iterators opt into paging.
     Reads never mutate mail. Folder, draft and ordinary upload writes are explicit.
     Sending, permanent message deletion, rendering, and sync are unsupported.
     Read-side authentication failures retain the library's existing exception types.
@@ -877,9 +918,7 @@ class MailService(BaseService):
     ) -> MailMessage | None:
         """Validate an exact metadata response before binding a UID to a folder."""
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = self._checked_mailbox(folder)
         predicate = _folder_predicate(current)
         predicate = predicate.model_copy(
@@ -927,51 +966,86 @@ class MailService(BaseService):
         yielded records cannot be retracted after a later failure. No bodies,
         mutations, retries, or background prefetches are performed.
         """
-        _limit(page_size)
-        if (
-            isinstance(max_pages, bool)
-            or not isinstance(max_pages, int)
-            or max_pages < 1
-        ):
-            raise ValueError("max_pages must be a positive integer")
-        if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+        yield from self._iter_messages(folder, page_size, max_pages)
+
+    def iter_thread_messages(
+        self,
+        folder: MailFolder,
+        thread_id: str,
+        *,
+        page_size: int = 50,
+        max_pages: int = 10000,
+    ) -> Iterator[MailMessage]:
+        """Exhaust one folder's thread members using checked descending UID pages.
+
+        Not a cross-folder conversation or an atomic snapshot. Only an empty
+        page establishes exhaustion; page budgets and failures raise. Earlier
+        yielded metadata cannot be retracted. No bodies or mutations are requested.
+        """
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            raise ValueError("thread_id must be a non-empty string")
+        match = MailPredicate(
+            type="eq",
+            expression=MailExpression(type="property", property="appleThrid"),
+            value=thread_id,
+        )
+        yield from self._iter_messages(
+            folder, page_size, max_pages, match=match, thread_id=thread_id
+        )
+
+    def iter_filtered_messages(
+        self,
+        folder: MailFolder,
+        *,
+        filter_by: MessageFilter,
+        page_size: int = 50,
+        max_pages: int = 10000,
+    ) -> Iterator[MailMessage]:
+        """Exhaust unread or flagged individual messages, not grouped threads.
+
+        Flags are evaluated by the server on each page. Changing flags can add
+        or remove matches during the scan; UID exhaustion is not a consistent
+        snapshot of filter membership. Budget exhaustion and errors raise.
+        No bodies, attachments, or mutations are requested.
+        """
+        if filter_by not in ("unread", "flagged"):
+            raise ValueError("filter_by must be 'unread' or 'flagged'")
+        match = MailPredicate(
+            type="eq",
+            expression=MailExpression(
+                type="fieldOf",
+                property="flags",
+                value="SEEN" if filter_by == "unread" else "FLAGGED",
+            ),
+            value=filter_by == "flagged",
+        )
+        yield from self._iter_messages(folder, page_size, max_pages, match=match)
+
+    def _iter_messages(
+        self,
+        folder: MailFolder,
+        page_size: int,
+        max_pages: int,
+        *,
+        match: MailPredicate | None = None,
+        thread_id: str | None = None,
+    ) -> Iterator[MailMessage]:
+        """Share UID progress, exhaustion and mailbox guards across read scopes."""
+        _validate_uid_scan(folder, page_size, max_pages)
         current = self._checked_mailbox(folder)
         before: int | None = None
         seen: set[str] = set()
         for _ in range(max_pages):
-            predicate = _folder_predicate(current)
-            if before is not None:
-                predicate = predicate.model_copy(
-                    update={
-                        "and_": [
-                            *(predicate.and_ or []),
-                            MailPredicate(
-                                type="lt",
-                                expression=MailExpression(
-                                    type="property", property="uid"
-                                ),
-                                value=before,
-                            ),
-                        ]
-                    }
-                )
             response = self._post(
                 _MESSAGE_LIST,
-                MailQuery(
-                    domain="email",
-                    properties=_HEADER_PROPERTIES,
-                    predicate=predicate,
-                    limit=page_size,
-                    orderby=MailOrder(
-                        expressions=[MailExpression(type="property", property="uid")]
-                    ),
-                ),
+                _uid_query(current, page_size, before, match),
                 MessageResponse,
             )
             current = self._checked_mailbox(folder)
+            if thread_id is not None and any(
+                record.thread_id != thread_id for record in response.records
+            ):
+                raise MailError("Mail returned a message from another thread")
             records = _uid_page(response.records, current, before, page_size)
             if not records:
                 return
@@ -1043,9 +1117,7 @@ class MailService(BaseService):
         if not isinstance(thread_id, str) or not thread_id.strip():
             raise ValueError("thread_id must be a non-empty string")
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = self._checked_mailbox(folder)
         predicate = _folder_predicate(current)
         predicate = predicate.model_copy(
@@ -1135,9 +1207,7 @@ class MailService(BaseService):
     def _checked_mailbox(self, folder: MailFolder) -> MailFolder:
         """Reject a disappeared or recreated mailbox before exposing metadata."""
         if folder.uid_validity is None or folder.uid_validity < 1:
-            raise ValueError(
-                "A positive mailbox UID validity is required; refresh folders"
-            )
+            raise ValueError(_UID_VALIDITY_REQUIRED)
         current = next((item for item in self.folders() if item.id == folder.id), None)
         if current is None or current.uid_validity != folder.uid_validity:
             raise MailError(

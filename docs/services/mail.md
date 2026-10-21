@@ -542,13 +542,55 @@ Sent, Archive, or another folder are not included automatically.
 Limits are 1 through 1,000, defaulting to 50; the request asks for newest-first
 metadata. Results are always incomplete snapshots. A short or empty response,
 an absent continuation marker, or a search hit's count does not establish a
-complete conversation. There is no automatic paging or cross-folder expansion.
+complete conversation. This bounded method does not automatically page or expand
+across folders.
 
 Use a folder from `folders()` with positive `uid_validity`. The service checks
 mailbox identity before and after the metadata request and raises `MailError`
 if the folder disappears or is recreated, or if returned identities, folder,
 thread, or response size violate the request. These checks do not make the
 result atomic against concurrent message changes.
+
+To explicitly enumerate that folder's thread members, use:
+
+```python
+for message in api.mail.iter_thread_messages(
+    inbox, matches.results[0].id, page_size=50, max_pages=10000
+):
+    print(message.id, message.uid)
+```
+
+Call this only when the search returned a hit. The iterator uses descending UID
+order, not date order, and continues through short pages until a verified empty
+page. It retains the thread, folder, and non-deleted predicates on every request
+and rejects records belonging to another thread before yielding any page data.
+It shares the mailbox iterator's identity checks and explicit page-budget errors.
+The budget includes the terminal empty request. Already yielded records cannot
+be retracted after a later failure. Exhaustion covers this live folder UID scan,
+not a complete cross-folder conversation or a consistent snapshot.
+
+## Individual-Message Filters
+
+```python
+for message in api.mail.iter_filtered_messages(
+    inbox, filter_by="unread", page_size=50, max_pages=10000
+):
+    print(message.id, message.uid)
+```
+
+`filter_by` must be `unread` or `flagged`. This explicitly paged API returns
+individual `MailMessage` objects, not thread groups. Each request applies the
+selected server-side flag predicate, excludes deleted messages, and advances by
+strictly decreasing UID. Page sizes are 1 through 1,000; budgets are positive
+integers and include the final empty request. Missing mailbox UID validity,
+inconsistent pages, identity changes, and exhausted budgets fail explicitly.
+
+Flags can change during iteration: a higher UID that starts matching after its
+range has been scanned can be missed, and a lower UID that stops matching can
+disappear. Even successful exhaustion is not a snapshot of filter membership.
+Neither iterator requests bodies, downloads attachments, or changes flags.
+There is no full-text search pagination or grouped-filter pagination implied by
+these methods; existing bounded search semantics are unchanged.
 
 ## Unread and Flagged Thread Groups
 
@@ -668,6 +710,9 @@ icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail list --folder-id '<folder-id>' --all --limit 50 --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --limit 50 --format json
 icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
+icloud mail thread '<thread-id>' --folder-id '<folder-id>' --all --limit 50 --max-pages 10000 --format json
+icloud mail filter-messages --folder-id '<folder-id>' --filter unread --page-size 50 --max-pages 10000 --format json
+icloud mail filter-messages --folder-id '<folder-id>' --filter flagged --format json
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
 icloud mail filter --folder-id '<folder-id>' --filter flagged --format json
@@ -694,6 +739,16 @@ does not emit a successful partial JSON result. This CLI mode holds the metadata
 in memory; use the library iterator for processing large mailboxes incrementally.
 It does not change the exact lookup default or explicit bounded fallback used
 by `body` and `download`.
+
+`mail thread --all` explicitly pages thread members in one folder; `--limit`
+becomes the page size, while omitting `--all` keeps bounded thread expansion.
+`mail filter-messages` always enumerates individual unread or flagged messages;
+it uses `--page-size`, not a total limit. Both accept `--max-pages` (default
+10,000). Successful JSON includes `messages`, `page_size`, `exhausted: true`,
+and either `thread_id` or `filter_by`, without a `complete` claim. Text output
+warns about concurrent changes. Both commands buffer metadata until the scan
+succeeds, so a later error prints no successful partial result. Use the library
+iterators for incremental processing without buffering the entire scan.
 
 `list` and `search` default to a limit of 50, with a maximum of 1,000. `body` and
 `download` use exact folder-scoped message-ID lookup by default, including for
