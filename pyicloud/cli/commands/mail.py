@@ -57,6 +57,15 @@ ListLimitOption = Annotated[
         help="Total messages to fetch; with --all, the per-request page size.",
     ),
 ]
+PageSizeOption = Annotated[
+    int, typer.Option("--page-size", min=1, max=1000, help="Messages per UID page.")
+]
+MaxPagesOption = Annotated[
+    int,
+    typer.Option(
+        "--max-pages", min=1, help="Request budget, including the empty final page."
+    ),
+]
 LookupLimitOption = Annotated[
     int | None,
     typer.Option(
@@ -80,6 +89,13 @@ class SearchScope(str, Enum):
     TO = "to"
     CC = "cc"
     BODY = "body"
+
+
+class MessageFilterScope(str, Enum):
+    """Individual-message predicates, separate from grouped thread filters."""
+
+    UNREAD = "unread"
+    FLAGGED = "flagged"
 
 
 class ThreadFilter(str, Enum):
@@ -207,6 +223,33 @@ def _write_export(payload: MailMessageExport, output: Path) -> int:
         return temporary.write(
             (payload.model_dump_json(indent=2) + "\n").encode("utf-8")
         )
+
+
+def _print_enumeration(
+    state: CLIState,
+    messages: list[MailMessage],
+    page_size: int,
+    scope: dict[str, Any],
+) -> None:
+    """Publish only fully consumed scans, never partial-success JSON."""
+    if state.json_output:
+        state.write_json({
+            **scope,
+            "messages": messages,
+            "page_size": page_size,
+            "exhausted": True,
+        })
+        return
+    _table(
+        state,
+        "Mail Messages (Scoped UID Enumeration)",
+        ["Message ID", "From", "Subject"],
+        [(message.id, message.sender, message.subject) for message in messages],
+    )
+    state.console.print(
+        "UID range exhausted in this folder; concurrent changes and flag changes "
+        "are not an atomic snapshot."
+    )
 
 
 @app.command("folders")
@@ -473,7 +516,11 @@ def mail_thread(
     ctx: typer.Context,
     folder_id: FolderOption,
     thread_id: str = typer.Argument(..., help="Thread-group ID from mail search."),
-    limit: LimitOption = 50,
+    limit: ListLimitOption = 50,
+    all_messages: bool = typer.Option(
+        False, "--all", help="Exhaust this folder's thread members with UID paging."
+    ),
+    max_pages: MaxPagesOption = 10000,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -482,7 +529,7 @@ def mail_thread(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
-    """Expand a thread into bounded message metadata in one folder, not bodies."""
+    """Read bounded thread metadata; --all opts into folder-scoped UID paging."""
     if not thread_id.strip():
         raise typer.BadParameter("Thread ID must not be empty.")
     store_command_options(
@@ -497,6 +544,17 @@ def mail_thread(
     )
     state, api, mail = _context(ctx)
     folder = _folder(api, mail, folder_id)
+    if all_messages:
+        messages = _mail_call(
+            api,
+            lambda: list(
+                mail.iter_thread_messages(
+                    folder, thread_id, page_size=limit, max_pages=max_pages
+                )
+            ),
+        )
+        _print_enumeration(state, messages, limit, {"thread_id": thread_id})
+        return
     payload = _mail_call(
         api, lambda: mail.thread_messages(folder, thread_id, limit=limit)
     )
@@ -512,6 +570,48 @@ def mail_thread(
     state.console.print(
         "Incomplete snapshot; only messages in this folder are included."
     )
+
+
+@app.command("filter-messages")
+def mail_filter_messages(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    filter_by: MessageFilterScope = typer.Option(..., "--filter"),
+    page_size: PageSizeOption = 50,
+    max_pages: MaxPagesOption = 10000,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Enumerate unread or flagged individual messages, not grouped threads."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    messages = _mail_call(
+        api,
+        lambda: list(
+            mail.iter_filtered_messages(
+                folder,
+                filter_by=filter_by.value,
+                page_size=page_size,
+                max_pages=max_pages,
+            )
+        ),
+    )
+    _print_enumeration(state, messages, page_size, {"filter_by": filter_by.value})
 
 
 @app.command("search-folders")
