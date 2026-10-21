@@ -8,6 +8,8 @@
 
 ::: pyicloud.services.mail.models.MailSender
 
+::: pyicloud.services.mail.models.MailDraft
+
 ::: pyicloud.services.mail.models.MailMessage
 
 ::: pyicloud.services.mail.models.MailFlagUpdate

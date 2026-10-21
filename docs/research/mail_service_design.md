@@ -9,8 +9,9 @@
 The ordinary-move library and CLI implementation uses the observations below.
 Folder management now implements the captured create, rename, and delete shapes
 with fresh identity guards and explicit irreversible-deletion confirmation.
-Draft observations remain evidence for subsequent work, not implemented draft
-APIs. The remaining work covers drafts,
+Recipient-free draft saves and recoverable discard now use these observed wire
+shapes with fresh sender/namespace checks and rotating-UID handles. The remaining
+work covers recipient-bearing drafts and attachment editing,
 sending/replies/forwarding with attachments, and permanent deletion. Live sends
 and permanent message deletion require separate authorization.
 
@@ -158,7 +159,8 @@ write retry, and distinct rejected/uncertain errors. The unnormalized session
 request path avoids response-status/authentication replay. The server has not
 provided a verified conditional-write token; preflight is not atomic with a
 concurrent move or flag change. Acknowledgements do not replace a fresh state read.
-Sending, drafts, moves, deletion, and bulk writes remain excluded.
+That initial flag-only implementation excluded sending, drafts, moves, deletion,
+and bulk writes; the later explicitly authorized additions are recorded above.
 
 ### Live Library and CLI Flag Verification (2026-10-21)
 
@@ -531,9 +533,9 @@ must validate operation outcomes, distinguish uncertain submission outcomes,
 and avoid automatic retries of non-idempotent operations. These observations
 do not authorize implementing or exercising writers in the read-only phase.
 
-## Proposed First Release and Verification
+## Original First-Release Proposal and Verification
 
-The initial scope is endpoint discovery, folder listing, bounded message
+The original read-only scope was endpoint discovery, folder listing, bounded message
 metadata listing, selected body retrieval, mailbox-scoped search, and streamed
 attachment downloads. It excludes sending, drafts, flag changes, moves, folder
 mutations, HTML rendering, and incremental synchronization. No dedicated Mail

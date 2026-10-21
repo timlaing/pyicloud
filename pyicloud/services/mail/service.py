@@ -13,6 +13,14 @@ from requests import RequestException
 
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
+from pyicloud.services.mail._draft_models import (
+    DraftCreateRequest,
+    DraftDiscardOperation,
+    DraftDiscardPatch,
+    DraftDiscardRequest,
+    DraftSaveResponse,
+)
+from pyicloud.services.mail._drafts import DRAFT_UNCERTAIN, DraftWriter
 from pyicloud.services.mail._flags import (
     FlagDelta,
     FlagIntent,
@@ -50,6 +58,7 @@ from pyicloud.services.mail.models import (
     FolderResponse,
     MailBody,
     MailBodyRequest,
+    MailDraft,
     MailExpression,
     MailFlagUpdate,
     MailFolder,
@@ -255,7 +264,7 @@ class MailService(BaseService):
     """Bounded Mail reads and explicit message and folder writes.
 
     Bounded methods remain snapshots; only ``iter_messages`` opts into paging.
-    Reads never mutate mail. Folder mutations require explicit calls too.
+    Reads never mutate mail. Folder and recipient-free draft writes are explicit.
     Sending, permanent message deletion, rendering, and sync are unsupported.
     Read-side authentication failures retain the library's existing exception types.
     """
@@ -372,6 +381,113 @@ class MailService(BaseService):
             return sender_identities(data, account_id)
         finally:
             response.close()
+
+    def create_draft(
+        self, *, sender: str, subject: str = "", text: str = "", html: str = ""
+    ) -> MailDraft:
+        """Create a recipient-free, attachment-free draft without sending it.
+
+        Select an enabled address from senders(). Plain-only input is escaped
+        into HTML because Apple treats HTML as canonical. Caller-supplied HTML
+        is not sanitized or rendered. Never blindly retry an uncertain save.
+        """
+        return self._draft_writer().save(sender, subject, text, html, None)
+
+    def edit_draft(
+        self, draft: MailDraft, *, subject: str, text: str, html: str
+    ) -> MailDraft:
+        """Replace all subject/body fields and return a new rotating-UID handle.
+
+        This currently refuses recipients and attachments rather than silently
+        erasing them. Fresh preflight is not an atomic conditional save.
+        """
+        if not isinstance(draft, MailDraft):
+            raise ValueError("A saved MailDraft handle is required")
+        return self._draft_writer().save(
+            draft.sender.address, subject, text, html, draft
+        )
+
+    def discard_draft(self, draft: MailDraft, trash: MailFolder) -> MailMoveUpdate:
+        """Move one verified recipient-free draft to the explicit Trash mailbox.
+
+        The captured browser operation also requests seen. This is not permanent
+        destruction. Contradictory success/error maps remain uncertain even when
+        the draft has moved; inspect both folders, never retry automatically.
+        """
+        writer = self._draft_writer()
+        current = writer.checked(draft)
+        enabled = self.senders()
+        if not any(
+            s.address.casefold() == draft.sender.address.casefold() for s in enabled
+        ):
+            raise MailError("Draft sender is no longer enabled")
+        self._move_folder(trash)
+        if trash.name != "Deleted Messages":
+            raise ValueError("Discard requires the discovered Deleted Messages mailbox")
+        request = DraftDiscardRequest(
+            batchUpdate=(
+                DraftDiscardOperation(
+                    ids=(current.id,),
+                    patch=DraftDiscardPatch(
+                        flags=FlagDelta(set=("seen",)),
+                        mboxRef=MailboxReplacement(replace=(trash.id,)),
+                    ),
+                ),
+            )
+        )
+        response = self._submit_update(
+            request, MoveResponse, "deleteMessagesGems", _MOVE_OUTCOME_UNKNOWN
+        )
+        _move_acknowledgement(response, str(self.params["dsid"]), current.id)
+        try:
+            self._draft_folder(current.folder)
+            if self.message_by_uid(current.folder, current.uid) is not None:
+                raise MailError("Discarded draft is still present")
+        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+            raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN) from exc
+        return MailMoveUpdate(
+            source_message_id=current.id,
+            source_folder_id=current.folder.id,
+            destination_folder_id=trash.id,
+        )
+
+    def _draft_writer(self) -> DraftWriter:
+        """Bind draft logic without introducing a second mutation transport."""
+        return DraftWriter(
+            self.senders,
+            self._draft_folder,
+            self.message_by_uid,
+            self.body,
+            self._submit_draft,
+            self.params.get("clientMasteringNumber", ""),
+        )
+
+    def _draft_folder(self, previous: MailFolder | None) -> MailFolder:
+        """The browser's canonical Drafts namespace must be current and selectable."""
+        matches = [f for f in self._mailbox_inventory() if f.name == "Drafts"]
+        if len(matches) != 1 or matches[0].flags != 0:
+            raise MailError("One selectable Drafts mailbox is required")
+        current = matches[0]
+        if previous is not None and (
+            previous.id != current.id
+            or previous.name != current.name
+            or previous.uid_validity != current.uid_validity
+        ):
+            raise MailError("Drafts mailbox identity changed; refresh before writing")
+        return MailFolder(
+            identifier=current.id, name=current.name, uidValidity=current.uid_validity
+        )
+
+    def _submit_draft(self, request: DraftCreateRequest) -> DraftSaveResponse:
+        """Save with the captured null context and without a fabricated intent."""
+        return self._submit_update(
+            request,
+            DraftSaveResponse,
+            None,
+            DRAFT_UNCERTAIN,
+            path="message/savedraft",
+            keep_nulls=True,
+        )
 
     def set_read(self, message: MailMessage, *, read: bool) -> MailFlagUpdate:
         """Set or clear only seen, after a fresh folder-local identity lookup.
@@ -614,18 +730,25 @@ class MailService(BaseService):
         self,
         request: BaseModel,
         response_type: type[ResponseModel],
-        intent: str,
+        intent: str | None,
         uncertain_message: str,
         *,
-        path: Literal["email/set", "mailbox/set"] = "email/set",
+        path: Literal["email/set", "mailbox/set", "message/savedraft"] = "email/set",
+        keep_nulls: bool = False,
     ) -> ResponseModel:
         """Do not normalize/replay authentication errors after submitting a write."""
+        params = dict(self.params)
+        params.pop("clientIntent", None)
+        if intent is not None:
+            params["clientIntent"] = intent
         try:
             response = self.session.request_raw(
                 "POST",
                 f"{self.service_root}/mailws2/v1/{path}",
-                params={**self.params, "clientIntent": intent},
-                json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+                params=params,
+                json=request.model_dump(
+                    mode="json", by_alias=True, exclude_none=not keep_nulls
+                ),
                 timeout=DEFAULT_TIMEOUT,
                 allow_redirects=False,
             )

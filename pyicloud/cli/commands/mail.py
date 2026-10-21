@@ -30,9 +30,11 @@ from pyicloud.cli.options import (
 from pyicloud.cli.output import console_table, print_json_text
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.mail import (
+    MailDraft,
     MailFolder,
     MailMessage,
     MailMessageExport,
+    MailSender,
     MailService,
 )
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
@@ -242,6 +244,224 @@ def mail_folders(
         ["ID", "Name", "Count"],
         [(folder.id, folder.name, folder.message_count) for folder in payload],
     )
+
+
+def _draft_input(path: Path | None) -> str:
+    """Read explicit local UTF-8 input without putting body text in shell arguments."""
+    if path is None:
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise CLIAbort(
+            "Draft input could not be read as UTF-8; no save submitted."
+        ) from exc
+
+
+def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
+    """Report the replacement identity, never echo draft body content."""
+    if state.json_output:
+        state.write_json(draft)
+    else:
+        _table(
+            state,
+            "Saved Mail Draft",
+            ["Message ID", "UID", "Folder ID"],
+            [
+                (
+                    draft.message.id,
+                    draft.message.uid,
+                    draft.message.folder.id,
+                )
+            ],
+        )
+
+
+@app.command("senders")
+def mail_senders(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Read enabled sender addresses; do not assume the login is a Mail address."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    result = _mail_call(api, mail.senders)
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Enabled Mail Senders",
+            ["Address", "Name"],
+            [(sender.address, sender.display_name) for sender in result],
+        )
+
+
+@app.command("create-draft")
+def mail_create_draft(
+    ctx: typer.Context,
+    sender: Annotated[
+        str, typer.Option("--sender", help="Enabled address from mail senders.")
+    ],
+    subject: Annotated[str, typer.Option("--subject")] = "",
+    text_file: Annotated[
+        Path | None,
+        typer.Option("--text-file", help="UTF-8 plain-text body; omitted means empty."),
+    ] = None,
+    html_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--html-file", help="UTF-8 HTML; omitted derives HTML from plain text."
+        ),
+    ] = None,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Save one recipient-free, attachment-free draft without sending it."""
+    text, html = _draft_input(text_file), _draft_input(html_file)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    result = _mail_call(
+        api,
+        lambda: mail.create_draft(sender=sender, subject=subject, text=text, html=html),
+    )
+    _draft_acknowledgement(state, result)
+
+
+@app.command("edit-draft")
+def mail_edit_draft(
+    ctx: typer.Context,
+    message_id: str,
+    folder_id: FolderOption,
+    sender: Annotated[
+        str, typer.Option("--sender", help="Current enabled draft sender.")
+    ],
+    subject: Annotated[
+        str, typer.Option("--subject", help="Full replacement subject.")
+    ],
+    text_file: Annotated[
+        Path,
+        typer.Option(
+            "--text-file", help="Full UTF-8 plain-text replacement; may be empty."
+        ),
+    ],
+    html_file: Annotated[
+        Path,
+        typer.Option(
+            "--html-file", help="UTF-8 HTML; empty derives HTML from plain text."
+        ),
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Replace one recipient-free draft; use its returned UID and message ID."""
+    text, html = _draft_input(text_file), _draft_input(html_file)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    draft = MailDraft(
+        message=_message(api, mail, folder_id, message_id, None),
+        sender=MailSender(address=sender),
+    )
+    result = _mail_call(
+        api, lambda: mail.edit_draft(draft, subject=subject, text=text, html=html)
+    )
+    _draft_acknowledgement(state, result)
+
+
+@app.command("discard-draft")
+def mail_discard_draft(
+    ctx: typer.Context,
+    message_id: str,
+    folder_id: FolderOption,
+    trash_id: Annotated[
+        str, typer.Option("--trash-id", help="Exact Deleted Messages folder ID.")
+    ],
+    sender: Annotated[
+        str, typer.Option("--sender", help="Current enabled draft sender.")
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Move only this recipient-free draft to Trash; request seen, never destroy."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    draft = MailDraft(
+        message=_message(api, mail, folder_id, message_id, None),
+        sender=MailSender(address=sender),
+    )
+    trash = _folder(api, mail, trash_id)
+    result = _mail_call(api, lambda: mail.discard_draft(draft, trash))
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Discarded Mail Draft",
+            ["Source Message ID", "Trash Folder ID"],
+            [
+                (
+                    result.source_message_id,
+                    result.destination_folder_id,
+                )
+            ],
+        )
 
 
 def _folder_acknowledgement(state: CLIState, folder: MailFolder) -> None:

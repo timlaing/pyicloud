@@ -16,6 +16,11 @@ and message identifiers and counters are invented; no raw captures or credential
 are included. Populated failure maps in tests are synthetic adversarial cases,
 not additional live protocol evidence for flag writes.
 
+`draft_save_response.json` is a synthetic recipient-free `message/savedraft`
+acknowledgement, not a send response or an idempotency key. Server mocks generate
+replacement UIDs; malformed/conflicting variants are robustness tests, not extra
+live protocol evidence. No draft bodies, real UIDs, or captured senders are stored.
+
 `sender_preferences_response.json` models only the sender-related account
 preference shape. Every name, domain, address, and account identifier is synthetic.
 Primary-address data was checked against a read-only live response; alias and

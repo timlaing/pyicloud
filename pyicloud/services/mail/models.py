@@ -78,6 +78,13 @@ class MailMessage(MailMessageRecord):
     folder: MailFolder
 
 
+class MailDraft(MailModel):
+    """A verified saved draft; every successful edit returns a replacement handle."""
+
+    message: MailMessage
+    sender: MailSender
+
+
 class MailFlagUpdate(MailModel):
     """One acknowledged flag patch; the input message's metadata is not mutated."""
 

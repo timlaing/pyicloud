@@ -1,7 +1,8 @@
-"""Experimental Mail reads and explicit single-message flag and move updates."""
+"""Experimental Mail reads and explicit message, draft, and folder writes."""
 
 from .models import (
     MailBody,
+    MailDraft,
     MailFlagUpdate,
     MailFolder,
     MailFolderDeletion,
@@ -24,6 +25,7 @@ from .service import MailError, MailService, MailWriteRejected, MailWriteUncerta
 
 __all__ = [
     "MailBody",
+    "MailDraft",
     "MailError",
     "MailFlagUpdate",
     "MailFolder",
