@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterable
-from contextlib import contextmanager
+from collections.abc import Callable, Generator, Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from enum import Enum
 import os
 from pathlib import Path
+import sqlite3
 from tempfile import mkstemp
-from typing import Annotated, Any, BinaryIO, cast
+from typing import Annotated, Any, BinaryIO, Literal, cast
 
+from requests import RequestException
 from rich.text import Text
 import typer
 
@@ -35,6 +38,10 @@ from pyicloud.services.mail import (
     MailMessageExport,
     MailService,
 )
+from pyicloud.services.mail._sync import SyncHistoryExpired, SyncInventoryRequired
+from pyicloud.services.mail._sync_reader import MailSyncReader
+from pyicloud.services.mail._sync_refresh import refresh_inventory
+from pyicloud.services.mail._sync_storage import open_inventory
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
 app = typer.Typer(help="Read Mail folders, bounded messages, and attachments.")
@@ -78,6 +85,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
+_DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
 
 class SearchScope(str, Enum):
@@ -105,10 +113,29 @@ class ThreadFilter(str, Enum):
     FLAGGED = "flagged"
 
 
+@dataclass(frozen=True)
+class _SyncSummary:
+    """Versioned, content-free CLI result; counters stay in the private database."""
+
+    folder_id: str
+    state_path: str
+    status: Literal["baseline", "unchanged", "updated"]
+    revision: int
+    message_count: int
+    format_version: Literal[1] = 1
+    metadata_only: Literal[True] = True
+    read_only: Literal[True] = True
+    atomic_snapshot: Literal[False] = False
+
+
 def _mail_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
     """Preserve shared authentication hints and translate expected Mail errors."""
     try:
         return service_call("Mail", fn, account_name=api.account_name)
+    except RequestException as err:
+        raise CLIAbort(
+            "Mail could not reach iCloud; retry after checking connectivity."
+        ) from err
     except (PyiCloudException, ValueError, OSError) as err:
         raise CLIAbort(f"Mail: {err}") from err
 
@@ -134,11 +161,18 @@ def _message(
     folder_id: str,
     message_id: str,
     limit: int | None,
+    *,
+    bounded_fallback: bool = True,
 ) -> MailMessage:
     """Resolve an exact message ID, preserving explicitly bounded legacy lookups."""
     folder = _folder(api, mail, folder_id)
     if limit is None:
         if folder.uid_validity is None or folder.uid_validity < 1:
+            if not bounded_fallback:
+                raise CLIAbort(
+                    "Exact lookup needs a folder with UID validity. "
+                    "Refresh folders with 'icloud mail folders' and retry."
+                )
             raise CLIAbort(
                 "Exact lookup needs a folder with UID validity. "
                 "Use --limit N to search the newest N folder messages."
@@ -198,12 +232,19 @@ def _download(
     mail: MailService, message: MailMessage, part_id: str, output: Path
 ) -> int:
     """Stream an attachment into a private, non-overwriting destination."""
+    return _save_stream(lambda: mail.attachment(message, part_id), output)
+
+
+def _save_stream(
+    stream_factory: Callable[[], AbstractContextManager[Iterator[bytes]]], output: Path
+) -> int:
+    """Publish unchanged bytes only after the stream and its final guards succeed."""
     size = 0
     with (
         _private_output(output) as temporary,
-        mail.attachment(message, part_id) as chunks,
+        stream_factory() as stream,
     ):
-        for chunk in chunks:
+        for chunk in stream:
             size += temporary.write(chunk)
     return size
 
@@ -338,6 +379,186 @@ def mail_list(
         "UID range exhausted; concurrent changes are not an atomic snapshot."
         if all_messages
         else "Incomplete snapshot; no additional pages were fetched."
+    )
+
+
+@app.command("get")
+def mail_get(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str | None = typer.Argument(None, help=_MESSAGE_ID_HELP),
+    uid: Annotated[int | None, typer.Option("--uid", min=1)] = None,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Read exact folder-scoped metadata by message ID or UID, without bodies."""
+    if (message_id is None) == (uid is None):
+        raise typer.BadParameter("Supply exactly one message ID or --uid.")
+    if message_id is not None and not message_id.strip():
+        raise typer.BadParameter("Message ID must not be empty.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    payload = _mail_call(
+        api,
+        lambda: (
+            mail.message_by_uid(folder, uid)
+            if uid is not None
+            else mail.message(folder, cast(str, message_id))
+        ),
+    )
+    if payload is None:
+        raise CLIAbort("Message not found in this folder.")
+    if state.json_output:
+        state.write_json(payload)
+        return
+    print_json_text(state.console, payload)
+
+
+@app.command("sync")
+def mail_sync(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    state_dir: Annotated[
+        Path,
+        typer.Option(
+            "--state-dir",
+            file_okay=False,
+            help="Private directory for one account/folder; parent must exist.",
+        ),
+    ],
+    page_size: PageSizeOption = 50,
+    max_pages: MaxPagesOption = 10000,
+    max_messages: Annotated[int, typer.Option("--max-messages", min=1)] = 100000,
+    max_lookups: Annotated[int, typer.Option("--max-lookups", min=1)] = 1000,
+    max_attempts: Annotated[int, typer.Option("--max-attempts", min=1)] = 3,
+    state_timeout: Annotated[
+        float,
+        typer.Option(
+            "--state-timeout", min=0.001, max=60, help="SQLite lock wait in seconds."
+        ),
+    ] = 5.0,
+    rebuild_expired: bool = typer.Option(
+        False,
+        "--rebuild-expired",
+        help="Allow a stable full rescan only for expired change history.",
+    ),
+    allow_inventory_fallback: bool = typer.Option(
+        False,
+        "--allow-inventory-fallback",
+        help="Allow one stable full rescan for count-only change hints.",
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Update a local metadata inventory once; never modify mail or download content.
+
+    Experimental, POSIX-only. This is not a mailbox backup, an atomic snapshot,
+    or a live watcher. Use a separate private state directory for each folder.
+    """
+    if not folder_id.strip():
+        raise typer.BadParameter("Folder ID must not be empty.")
+    if not 0 < state_timeout <= 60:
+        raise typer.BadParameter("State timeout must be finite and greater than zero.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    try:
+        # Hold a validated local store's lock before authentication or Mail reads.
+        with open_inventory(state_dir, timeout=state_timeout) as inventory:
+            state, api, mail = _context(ctx)
+            folder = _folder(api, mail, folder_id)
+
+            def synchronize() -> _SyncSummary:
+                previous = inventory.read_checkpoint()
+                reader = MailSyncReader(
+                    mail, folder, page_size=page_size, max_pages=max_pages
+                )
+                try:
+                    saved = refresh_inventory(
+                        reader,
+                        inventory,
+                        rebuild_expired=rebuild_expired,
+                        allow_inventory_fallback=allow_inventory_fallback,
+                        max_attempts=max_attempts,
+                        max_messages=max_messages,
+                        max_lookups=max_lookups,
+                    )
+                except SyncHistoryExpired as err:
+                    raise CLIAbort(
+                        "Mail change history expired; saved inventory retained. "
+                        "Rerun with --rebuild-expired to allow a complete "
+                        "metadata rescan."
+                    ) from err
+                except SyncInventoryRequired as err:
+                    raise CLIAbort(
+                        "Mail returned a count-only hint; saved inventory retained. "
+                        "Rerun with --allow-inventory-fallback to allow a complete "
+                        "metadata rescan."
+                    ) from err
+                return _SyncSummary(
+                    folder_id=folder.id,
+                    state_path=str(state_dir.resolve() / "inventory.sqlite3"),
+                    status="baseline"
+                    if previous is None
+                    else "unchanged"
+                    if previous == saved
+                    else "updated",
+                    revision=saved.revision,
+                    message_count=len(inventory.read_messages()),
+                )
+
+            payload = _mail_call(api, synchronize)
+    except sqlite3.Error as err:
+        raise CLIAbort(
+            "Mail sync state is unavailable or invalid. Check permissions and locks; "
+            "preserve the database and journal rather than deleting them."
+        ) from err
+    except (OSError, ValueError) as err:
+        raise CLIAbort(f"Mail sync: {err}") from err
+    if state.json_output:
+        state.write_json(payload)
+        return
+    _table(
+        state,
+        "Mail Metadata Inventory",
+        ["Field", "Value"],
+        [
+            ("Status", payload.status),
+            ("Folder ID", payload.folder_id),
+            ("Messages", payload.message_count),
+            ("Revision", payload.revision),
+            ("State", payload.state_path),
+        ],
+    )
+    state.console.print(
+        "Metadata only; mail was not modified. Not an atomic snapshot or backup."
     )
 
 
@@ -578,7 +799,7 @@ def mail_export(
         "--include-body",
         help="Explicitly fetch and include unrendered body data.",
     ),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -589,7 +810,7 @@ def mail_export(
 ) -> None:
     """Export selected message metadata to JSON, not raw MIME or a mailbox backup."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,
@@ -613,12 +834,103 @@ def mail_export(
     state.console.print(Text(str(output)))
 
 
+@app.command("download-maildrop")
+def mail_download_maildrop(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
+    part_index: int = typer.Option(
+        ..., "--part-index", min=1, help="1-based position in the message parts array."
+    ),
+    output: Path = typer.Option(
+        ..., "--output", help="New private destination; never a remote filename."
+    ),
+    max_bytes: int = typer.Option(
+        104857600, "--max-bytes", min=1, help="Hard byte limit; default 100 MiB."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Download a verified Mail Drop part without forwarding account credentials."""
+    if os.path.lexists(output):
+        raise CLIAbort(_DESTINATION_EXISTS)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None)
+    size = _mail_call(
+        api,
+        lambda: _save_stream(
+            lambda: mail.mail_drop_attachment(message, part_index, max_bytes=max_bytes),
+            output,
+        ),
+    )
+    if state.json_output:
+        state.write_json({"message_id": message.id, "path": str(output), "size": size})
+        return
+    state.console.print(Text(str(output)))
+
+
+@app.command("export-eml")
+def mail_export_eml(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
+    output: Path = typer.Option(
+        ..., "--output", help="New private file for original EML bytes."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Save original MIME bytes from Apple; never reconstruct or render the message."""
+    if os.path.lexists(output):
+        raise CLIAbort(_DESTINATION_EXISTS)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
+    size = _mail_call(
+        api, lambda: _save_stream(lambda: mail.raw_message(message), output)
+    )
+    payload = {"message_id": message.id, "path": str(output), "size": size}
+    if state.json_output:
+        state.write_json(payload)
+        return
+    state.console.print(Text(str(output)))
+
+
 @app.command("preview")
 def mail_preview(
     ctx: typer.Context,
     folder_id: FolderOption,
     message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -751,7 +1063,7 @@ def mail_download(
 ) -> None:
     """Save an ordinary attachment to an explicit path, without overwriting."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,

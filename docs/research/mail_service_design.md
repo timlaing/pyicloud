@@ -112,6 +112,70 @@ not arbitrary cross-folder identity stability. Raw requests, message metadata,
 and account identifiers remain outside Git. The implementation checks the
 mailbox epoch on both sides of lookup and rejects inconsistent responses.
 
+## Mail Drop Download Verification
+
+User-authorized metadata captures for a disposable MOV test message established
+`mailDropStreamingUrl`, `mailDropHeaderName`, millisecond `expirationDate`, and an
+opaque `cloudpart:` ID containing the signed URL. Metadata also included the
+ordinary filename, `video/quicktime` type, and the actual positive file size.
+The capability URL expiration agreed with the metadata to within one second.
+Refreshed metadata changed signature parameters but preserved the resource path.
+
+The browser made a direct GET to `cvws.icloud-content.com/B/...`, with no Cookie
+or Authorization header. The captured response was HTTP 200 `video/quicktime`,
+with a matching content length and byte-range advertisement. Range/resume support
+is not inferred from that advertisement and is not implemented here.
+
+A live read-only CLI test retrieved the same resource using fresh owned-session
+metadata and an independently created content session. The actual streamed byte
+count matched metadata and the browser capture, the output was private `0600`,
+selected message flags were unchanged, and the temporary file was removed.
+No captured credentials were replayed and no uploads, sends, flag writes, token
+creation, or republish endpoints were called.
+
+The implementation deliberately supports only the verified HTTPS host, path,
+container/zone parameters, expirations, and direct-response behavior. It enforces
+a hard byte budget, rejects redirects, isolates cookies/auth/netrc/proxy state,
+verifies TLS, and checks mailbox scope around content retrieval. It does not
+implement arbitrary external URLs, expired-link renewal, or a generic Mail Drop
+write client. The metadata HAR stays outside Git; the committed fixture is
+synthetic and contains no usable bearer links. Normal serialization redacts
+capability-bearing cloud-part IDs and excludes streaming URLs.
+
+## Original MIME Download
+
+The previously captured browser JavaScript contains an EML URL builder targeting
+`mccgateway` at `GET mailws2/v1/message/download`, with `guid`, `dsid`, and
+`filename` query parameters. The browser prefixes its folder-local message GUID
+with `message:`. A controlled read-only request using the existing discovered
+gateway and authenticated session verified `message:<folder-name>/<uid>`; no
+browser cookies, captured credentials, or mutation endpoints were replayed.
+
+Apple returned HTTP 200 with `Content-Type: message/rfc822`. Python's standard
+`email.parser.BytesParser` parsed the in-memory response without MIME defects;
+the subject matched independently fetched metadata, and the decoded PDF attachment
+matched the ordinary attachment download byte-for-byte. The observed mailbox
+flags were unchanged. No private response bytes, headers, filenames, IDs, hashes,
+or account identifiers were saved in this research document or fixtures.
+
+An additional live check selected an existing unread message through the server's
+`SEEN: false` predicate, consumed its raw stream in memory, and repeated that
+independent unread query. The selected message remained unread and the complete
+observed unread-ID set was unchanged. A live CLI export of a separate multipart
+message also matched a second library stream byte-for-byte, used private `0600`
+permissions, and left no temporary output after cleanup. These checks requested
+no flag writes or other Mail mutations.
+
+This establishes a dedicated original-message response on one account, not
+byte identity with the sender's original wire transmission. The implementation
+streams Apple's returned message bytes unchanged instead of rebuilding MIME from
+the existing JSON body/header API. It requires a known mailbox UID namespace,
+checks it around retrieval, ignores remote filenames, rejects redirects and
+non-RFC822 media types, and uses the existing private atomic CLI file writer.
+No new dependency or MIME regeneration is needed. Other-account and unusual MIME
+coverage remains a compatibility consideration; no server-side snapshot or
+incremental-sync guarantee follows from this endpoint.
+
 ## Message Bodies and Read State
 
 `message/get` requests a UID and selected MIME part identifiers, with folder
@@ -529,11 +593,302 @@ substring matching, or enable a live adapter based on these checks.
 Incremental synchronization requires its own parser, reset/recovery rules, and
 tests. It is outside the first release.
 
+### Private Change-Decoding Candidate (2026-10-20)
+
+Two bounded, read-only `event/list` calls were made using fresh authentication.
+The initial request sent null message and thread counters; its successful
+response included integer counters and 25 event strings. Replaying those returned
+counters produced an empty event list with unchanged counters. A second bounded
+probe confirmed these event shapes, with private values omitted:
+
+- `* <count> EXISTS`: a count notification, not a UID identifying a new message.
+- `* <sequence> FETCH (UID <uid> MODSEQ (<counter>) FLAGS (<flags>))`.
+- `* VANISHED <uid-range>`: removed message IDs, independent of sequence numbers.
+- `* THREADUPDATE (<thread-id> <timestamp> <counter> FLAGS (<flags>) NEW)`;
+  the trailing `NEW` was absent on some updates.
+
+The private `_sync.py` candidate decodes these distinct event types and validates
+request/response checkpoint scope and counter bounds. Synthetic fixtures and
+offline tests also exercise empty flags, `NIL` thread timestamps, `EARLIER`,
+multiple/reversed UID ranges, invalid input, and resource limits. Those additional
+variants are defensive candidate behavior, not claims of live verification.
+Unknown event shapes fail explicitly; no event is silently discarded. UID ranges
+remain compact even when they span billions of values. Errors do not echo raw
+events, and decoding performs no network or filesystem operations.
+
+This candidate is **not integrated into the public service or CLI**, and it does
+not persist or automatically advance checkpoints. Its checkpoint is not proof
+that a complete baseline inventory exists. Even a validated batch is not proof
+of historical completeness or a mailbox snapshot. Account identity, mailbox ID,
+path, and UID validity must come from verified caller context, and each response
+must be paired with the exact request that produced it.
+
+Remaining integration gates are a baseline/change-cursor handoff without a lost
+update window, metadata reconciliation for count notifications, transactional
+local application and checkpoint persistence, restart recovery, actual flag and
+removal transitions, folder moves/recreation, and expired-counter/reset responses
+such as `MODSEQ_TOO_OLD`. Push-event merging is not implemented. Do not replace
+these checks with a highest-UID scan or infer a move from one folder's tombstone.
+No synchronization completeness claim or Mail write operation follows from these
+probes. The user's first delayed Inbox appearance after switching folders was
+not correlated with a captured background notification.
+
+The implemented decoder subsequently accepted all 25 live bootstrap events and
+the empty follow-up poll. Logs retained only event counts, event kinds, and
+redacted structural templates; no raw event values were saved as fixtures.
+This verifies decoding against a real response, not the initial inventory
+handoff, a newly arriving message, or successful recovery from a missed batch.
+
+### New-Message Push Capture (2026-10-20)
+
+A subsequent user-created disposable email appeared in Inbox without navigating
+or refreshing. The approved, four-flow HAR contains one WebSocket connection and
+three successful `thread/list` responses. Its binary WebSocket frames include
+embedded JSON: a Mail change payload under `mboxEvents.INBOX`, followed by a
+separate notification payload under `mail`. This is capture analysis, not a
+production implementation of Apple's binary push framing.
+
+The change payload has `prevModseq`, `modseq`, `prevThreadModseq`,
+`threadModseq`, and two event strings. Both counters advance. Crucially, the
+new-message event is `* <count> EXISTS (UID <uid>)`, followed by a new thread
+update. The UID-bearing event must remain distinct from a count-only `EXISTS`
+hint and from `FETCH` flag updates. It contains no individual message counter or
+complete metadata. The candidate now decodes it as a separate arrival event and
+rejects a batch announcing an arrival without an advancing message counter.
+
+The later notification's thread ID matches the thread containing the exact test
+subject in all three `thread/list` responses. Their ending message/thread counters
+match the change push, and their event arrays are empty. The first of these
+requests begins about 1.5 seconds after the change frame. No `event/list` request
+is present in this browser capture. This establishes the captured push-to-thread
+retrieval sequence, not a requirement to implement a persistent WebSocket client
+instead of read-only polling.
+
+The private decoder was checked against the actual two-event payload with its
+advertised counter range, then a synthetic regression fixture was added. No raw
+binary frames, push tokens, account data, real IDs, alert text, or message metadata
+were copied into tracked files. This capture verifies one arrival path; flag
+transitions, moves, deletions, reset handling, and the initial inventory handoff
+remain separate integration gates.
+
+### Private Inventory and State Candidate
+
+`_sync_inventory.py` introduces an offline-tested initial-inventory algorithm
+against a read-only source protocol, not a public synchronization API. A complete,
+unfiltered enumeration must be bracketed by identical account/mailbox identity,
+path, UID validity, and message/thread counters. A changing observation discards
+the attempt and restarts within an explicit attempt budget. Incomplete reads,
+duplicate identities, and message-budget exhaustion raise rather than publishing
+a partial baseline. Account/mailbox identity stays pinned across retries. Folder
+recreation or rename requires a fresh stable scan, not merging old and new UIDs.
+
+This quiescent-window algorithm deliberately favors explicit failure on a busy
+mailbox over claiming a complete inventory. It depends on a future verified source
+whose counters cover every relevant change and whose iterator truly exhausts the
+mailbox. Counter stability alone is not proof that Apple's server reads form an
+atomic snapshot. A mutation after the final observation belongs to a later poll;
+its checkpoint must not be silently skipped. No public synchronization API is
+exposed while handoff, expiry, and server consistency assumptions remain unverified.
+
+`_sync_state.py` stores only folder-local UIDs, message/thread IDs, numeric flags,
+and the scoped checkpoint. Inventory replacement and checkpoint advancement share
+one SQLite transaction. Exceptions during enumeration/SQL execution or commit
+roll back both. A local monotonic revision and transaction-locked compare-and-swap
+reject competing writers even when their remote counters are equal. A coherent
+snapshot reader keeps records and checkpoint in the same transaction. Unsupported
+schema versions and structurally invalid checkpoints/records fail explicitly
+rather than appearing to be a fresh target. Same-namespace counter regression
+and account/mailbox switches are rejected; intentional baseline replacement can
+recover a new UID namespace.
+
+The private backend accepts a dedicated, caller-owned SQLite connection. The
+separate private storage opener described below provides file permissions and
+connection lifetime management; the backend itself neither selects filesystem
+paths nor encrypts databases. Tests use real in-memory SQLite and private sandbox files
+to exercise restarts, two connections, injected commit failures, stale writers,
+and rollback after partial insertion. Message bodies, headers, credentials, and
+signed attachment links are not persistence fields. The private reader and
+reconciler below use this backend; implicit remote reset recovery and a public
+synchronization API remain absent.
+
+### Private File Storage and Explicit Expiry Recovery
+
+`_sync_storage.py` supplies a context-managed opener for an explicitly selected,
+dedicated POSIX directory. The parent must already exist and is canonicalized;
+its ancestors must be owned by the user or root and not writable by other users,
+except for root-owned sticky temporary directories. The final directory must be
+owned by the user with mode `0700`. Fixed database, journal, and lock names must
+be regular, owner-only `0600` files, with one hard link and no symlinks. Unsafe
+existing permissions, unknown directory entries, foreign databases, and corrupt
+databases are rejected rather than repaired, removed, or silently initialized.
+No process-wide umask is changed. There is no default state path or migration of
+older experimental databases without the inventory application identifier.
+
+A non-blocking advisory lock covers the complete session and is released on
+connection or caller failure. SQLite has a finite configurable lock timeout
+(default five seconds, maximum sixty), trusted schema execution disabled,
+in-memory temporary storage, and rollback-journal mode. Crash recovery uses
+SQLite's existing journal; it does not delete journal files first. The directory
+and database modes protect its sidecars too. Tests check a real worker crash,
+durable restart, rollback, lock contention, and unsafe path/file types. Same-user
+malicious processes, ACL overrides, network-filesystem locking semantics, and
+encryption at rest are outside this private POSIX-only boundary. A public CLI
+still requires a deliberate supported-platform policy.
+
+`_sync_refresh.py` establishes a new inventory or applies one incremental batch.
+Only Apple's explicit `MODSEQ_TOO_OLD` becomes `SyncHistoryExpired`. By default
+it propagates without a baseline read. An explicit `rebuild_expired=True` permits
+a bounded stable full replacement pinned to the original local revision and
+account/mailbox. Records and checkpoint are replaced together only after the
+whole scan succeeds. Incomplete scans, moving counters, budget exhaustion, or a
+competing local writer retain the previous state. Unknown events, malformed
+responses, authorization/transport failures, corruption, and other reset reasons
+never enter this recovery path. The separate count-hint inventory fallback
+remains opt-in too. These helpers remain private; the guarded CLI below delegates
+to them without exposing a new `MailService` synchronization API.
+
+### Private Live Reader and Incremental Reconciliation
+
+`_sync_reader.py` binds the source protocol to the existing authenticated Mail
+service. Account name and DSID form a hashed scope identifier; each read checks
+that identity and the discovered mailbox ID, path, and UID validity. Baseline
+observations send null counters, but delta polls replay exactly their supplied
+checkpoint. Both request types use the captured `event/list` protocol with
+bounded timeouts and no redirects. Unsupported envelopes, missing/null counters,
+changed feature flags, unknown events, and HTTP failures do not advance state.
+`MODSEQ_TOO_OLD` raises an explicit reset requirement and never retries with null
+counters. Authentication and connection exceptions retain their types. Returned
+responses, including exceptional API/auth responses, are closed.
+
+Complete inventories use `iter_messages()`, changed threads use
+`iter_thread_messages()`, and exact refreshes use `message_by_uid()`. These are
+read-only metadata operations, not body reads or bounded newest-N lookups. Numeric
+flags come from authoritative metadata rather than guessing integer bits from
+the event strings. Missing numeric flags are rejected as incomplete metadata.
+Plain count-only notifications cannot identify a new message on their own.
+By default they require an explicit inventory; a caller can opt into
+`allow_inventory_fallback=True` for one bounded, stable full scan. This path pins
+the original local revision too, and never triggers for expired/unknown history.
+
+`_sync_apply.py` reads a coherent local snapshot and validates the polled stride
+again. Changed threads are fully enumerated. Old members missing from a thread
+are checked by exact UID, since a thread reassignment is not a mailbox deletion.
+UID-addressed arrivals and flag updates are refreshed once. Compact, merged
+`VANISHED` ranges remove only local folder membership; a returned live record
+inside a removed range is treated as inconsistent. Duplicate identities, reused
+UIDs, incomplete iterators, and disagreement between complete-thread and exact
+lookups abort without publishing partial state.
+
+Message and logical lookup budgets are explicit; per-thread HTTP paging also uses
+the reader's configured page budget. A final fresh observation must equal the
+batch's ending checkpoint, or all staged metadata is discarded. Stable results
+reuse the backend's atomic inventory/checkpoint replacement and revision CAS.
+No-op polls instead confirm the existing revision transactionally without
+rewriting records. Local storage currently replaces the validated manifest as a
+whole; this is incremental remote reading/reconciliation, not an optimized SQL
+row-diff writer. Another writer's newer revision is never overwritten.
+
+These operations remain private and metadata-only. They do not implement push
+subscriptions, binary push framing, bodies/attachments synchronization, automatic
+expired-history rebuilding, cross-folder move correlation, or a public Python sync
+API. Synthetic tests cover change application and failure paths; live
+verification is recorded separately below. Server history retention, large event
+bursts without silent truncation, index consistency, and genuine live
+flag/move/deletion transitions remain important integration gates.
+
+#### Guarded Metadata Sync CLI
+
+The experimental `mail sync` command now connects these private helpers to an
+explicit folder ID and private state directory on POSIX. It runs once and prints
+only a versioned summary after closing storage, without bodies, tokens, or event
+text. Local validation/locking precedes authentication. It defaults to failing
+on expired history and count-only notifications; independent `--rebuild-expired`
+and `--allow-inventory-fallback` switches permit bounded stable inventories for
+only those respective conditions. Count-hint scans also pin the observed batch's
+namespace and minimum counters, not just the saved local revision. Read timeout
+errors receive a safe connectivity hint rather than echoing possible signed URLs.
+No live mutation tests, push subscription, public library sync API, or completeness
+guarantee is implied by exposing this experimental metadata-only command.
+
+#### Bounded Live Reader Verification (2026-10-20)
+
+The private reader established a stable ten-message Inbox inventory and then
+completed an unchanged incremental poll without rewriting local records/revision.
+A poll from the approved arrival capture's earlier counters encountered a plain
+count notification and was rejected in default mode, as designed. With the
+explicit full-inventory fallback enabled, the replay restored the captured arrival
+and matched a separate fresh, complete inventory at the same ending checkpoint.
+
+A second replay fed the actual captured two-event push batch to the reconciler,
+while retaining live exact/thread metadata reads and the real final checkpoint
+observation. This ran only because the captured ending counters still equaled
+the current mailbox's counters; the test did not relabel old events as current.
+The incrementally reconciled minimal inventory also matched the independent scan.
+Both replays seeded disposable in-memory state from current metadata with the
+captured arrival omitted. That is a targeted recovery example, **not** a recovered
+historical mailbox snapshot or a newly observed live delivery during the run.
+
+No body reads, attachment downloads, flag writes, moves, deletions, or sends were
+performed. Logs retained only counts, status, and generic safety reasons. No
+private capture contents were added to tracked fixtures. Two direct connection
+attempts timed out before reaching the sync reader; the successful checks used
+the already enabled local Proxyman proxy with TLS verification and the existing
+trusted CA bundle, without changing system settings. These small-mailbox checks
+do not verify large event bursts, history expiry, actual live removal/flag/move
+transitions, or unattended recovery behavior.
+
 Mutation responses expose `notCreated`, `notUpdated`, and `notDestroyed` fields.
 No populated failure maps or HTTP failure examples were captured. Future writers
 must validate operation outcomes, distinguish uncertain submission outcomes,
 and avoid automatic retries of non-idempotent operations. These observations
 do not authorize implementing or exercising writers in the read-only phase.
+
+### Live Flag, Move, and Recoverable Deletion Verification (2026-10-21)
+
+A controlled test used one uniquely identified disposable development email and
+three existing folders: Inbox (ten messages), Testing (empty), and Trash (empty).
+Initial and subsequent scoped inventories were compared with separately scanned,
+stable-counter inventories. The mounted CLI ran against a reused authenticated
+service with real HTTP responses, not mocked data. A Python-side route allowlist
+restricted requests to metadata queries and change polling. Mail mutations were
+performed separately through the iCloud Mail browser UI. Verified TLS through
+the existing local proxy was retained; no system proxy/trust setting changed.
+
+Preflight uncovered a previously unsupported event form:
+`* THREADUPDATE (<thread-id> NIL <counter>)`, without `FLAGS`. This occurred in
+existing removal history even for empty folders. It now decodes to a distinct
+thread-invalidation event, not an empty replacement flag set or proof of global
+deletion. The reconciler refreshes the complete folder-local thread and checks
+missing old members by exact UID. Synthetic fixtures and tests cover this shape,
+malformed variants, out-of-stride counters, absence, and thread reassignment.
+
+The following live transitions matched fresh independent inventories:
+
+| UI action                    | Inbox | Testing | Trash | Read-side behavior                                     |
+| ---------------------------- | ----- | ------- | ----- | ------------------------------------------------------ |
+| Mark read, flag, then unflag | 10    | 0       | 0     | Each flag update applied incrementally, without rescan |
+| Move from Inbox to Testing   | 9     | 1       | 0     | Incremental source removal; destination count fallback |
+| Return from Testing to Inbox | 10    | 0       | 0     | Incremental source removal; destination count fallback |
+| Move from Inbox to Trash     | 9     | 0       | 1     | Incremental source removal; destination count fallback |
+| Restore from Trash to Inbox  | 10    | 0       | 0     | Incremental source removal; destination count fallback |
+
+Destination arrival polls supplied count-only notifications, so default sync
+refused to advance those inventories. The explicitly enabled, bounded stable
+inventory fallback then produced matching results. These tests do **not** prove
+that every move/arrival can be applied without a full scan. The disposable
+message's original numeric flags were restored and checked against the saved
+pre-test value. The initial browser context-menu return move did not complete;
+fresh listings detected that failure, and explicit selection plus the main Move
+toolbar completed the return. A browser auto-selection temporarily marked the
+next development email read during the Trash action. Its unread state was
+restored, and common non-target records matched their pre-action inventories.
+
+The test covered recoverable removal to Trash and restoration, **not permanent
+deletion or emptying Trash**. No mail was sent; the Python client performed no
+Mail mutations or content downloads. Private temporary state and sanitized local
+reports remain outside Git. This small, single-account verification does not
+establish cross-folder identity correlation, server history completeness, large
+event-burst safety, or exhaustive full-text search pagination.
 
 ## Proposed First Release and Verification
 

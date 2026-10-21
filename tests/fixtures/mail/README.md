@@ -5,6 +5,11 @@ Mail HTTP capture shapes. All identifiers, contacts, headers, dates, and message
 contents are invented. No raw captures, cookies, signed URLs, or binary files
 are included. Binary download tests use mocked bytes.
 
+`maildrop_message_response.json` models observed Mail Drop part metadata using
+invented IDs, filenames, future expirations, and deliberately fake URL signatures.
+No URL in the fixture is a usable capability. Tests use mocked byte streams and
+verify capability redaction, isolated transport, and explicit size/expiry checks.
+
 Load these fixtures through `tests.fixture_loader.load_fixture` so reads respect
 the test filesystem sandbox. Search results are thread-grouped; listing fixtures
 represent bounded snapshots, not a complete synchronization protocol.
@@ -27,3 +32,19 @@ matches; the fixtures do not establish combined-filter or sync semantics.
 `messages_uid_page_response.json` models a UID-ordered metadata page with equal
 dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
 an explicit empty terminal page; the marker is not a synchronization cursor.
+
+## Private Synchronization Candidate
+
+`sync_events_response.json` is synthetic metadata matching the structural forms
+of read-only change polls. Counters, IDs, timestamps, flags, and ranges are fake.
+It tests a private decoder, not end-to-end synchronization or a public sync API.
+
+`sync_arrival_push.json` uses the observed new-message push envelope and the
+UID-bearing `EXISTS` event form. All counters, IDs, timestamps, flags, and topic
+values are synthetic. It contains no binary push frames, tokens, or alert text.
+
+`sync_thread_invalidation_response.json` models the observed
+`THREADUPDATE (<id> NIL <counter>)` form without a `FLAGS` section, alongside a
+UID removal. All identifiers and counters are invented. The event invalidates
+folder-local membership; it is not proof of permanent deletion or an empty flag
+set. Tests refresh the thread and verify missing old members by exact UID.

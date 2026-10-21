@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
+import os
 import re
+import time
 from typing import Any, Literal, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, ValidationError
-from requests import RequestException
+from requests import Request, RequestException, Response, Session
 
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
@@ -27,6 +29,7 @@ from pyicloud.services.mail.models import (
     MailMessageRecord,
     MailMultiSearchPage,
     MailOrder,
+    MailPart,
     MailPredicate,
     MailPreview,
     MailPreviewRequest,
@@ -49,6 +52,10 @@ MAX_RESULTS = 1000
 MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
+_GEQS_QUERY = "geqs/query"
+_BINARY_CONTENT_TYPE = "application/octet-stream"
+_HTML_CONTENT_TYPE = "text/html"
+_MESSAGE_SCOPE_MISMATCH = "Message and folder identities do not match"
 _UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
@@ -79,6 +86,122 @@ _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
 
 class MailError(PyiCloudException):
     """An invalid response, incomplete enumeration, or failed attachment stream."""
+
+
+def _bind_message(record: MailMessageRecord, folder: MailFolder) -> MailMessage:
+    """Preserve private part capabilities internally, not through serialization."""
+    return MailMessage(
+        **record.model_dump(exclude={"parts"}), parts=record.parts, folder=folder
+    )
+
+
+def _validate_mail_drop(part: MailPart, max_bytes: int) -> str:
+    """Accept only observed, unexpired Apple large-attachment capabilities."""
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
+    url = part.mail_drop_url
+    if not part.is_attachment or not url or not part.id.startswith("cloudpart:"):
+        raise ValueError("Selected part is not a supported Mail Drop attachment")
+    expiry = _mail_drop_url_expiry(url)
+    if (
+        expiry <= time.time()
+        or part.mail_drop_expiration_ms is None
+        or part.mail_drop_expiration_ms <= time.time() * 1000
+    ):
+        raise MailError(
+            "Mail Drop link expired or has no known expiration; refresh metadata"
+        )
+    if part.size is not None and part.size > max_bytes:
+        raise MailError("Mail Drop attachment exceeds max_bytes")
+    return url
+
+
+def _mail_drop_url_expiry(url: str) -> int:
+    """Validate the capability's URL boundary and return its expiration."""
+    if url != url.strip() or any(
+        ord(character) < 32 or ord(character) == 127 for character in url
+    ):
+        raise MailError("Invalid Mail Drop download URL")
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError as err:
+        raise MailError("Invalid Mail Drop download URL") from err
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "cvws.icloud-content.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+        or parsed.fragment
+        or not parsed.path.startswith("/B/")
+    ):
+        raise MailError("Unsupported Mail Drop download URL")
+    query = parse_qs(parsed.query)
+    if (
+        query.get("ckc") != ["com.apple.largeattachment"]
+        or query.get("ckz") != ["Apple-Webmail"]
+        or any(len(query.get(key, [])) != 1 for key in ("e", "o", "a", "k", "s"))
+    ):
+        raise MailError("Invalid Mail Drop capability parameters")
+    expiry = query["e"][0]
+    if not expiry.isascii() or not expiry.isdigit():
+        raise MailError("Invalid Mail Drop URL expiration")
+    return int(expiry)
+
+
+def _mail_drop_response_size(
+    response: Response, part: MailPart, max_bytes: int
+) -> int | None:
+    """Validate response status, MIME type, encoding, and declared byte limits."""
+    if response.status_code != 200:
+        raise MailError(f"Mail Drop download returned HTTP {response.status_code}")
+    actual = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+    expected = part.content_type.split(";", 1)[0].strip().lower()
+    if (
+        not actual
+        or (
+            expected == _BINARY_CONTENT_TYPE
+            and actual in (_HTML_CONTENT_TYPE, "application/json")
+        )
+        or (
+            expected != _BINARY_CONTENT_TYPE
+            and actual not in (expected, _BINARY_CONTENT_TYPE)
+        )
+    ):
+        raise MailError("Mail Drop download returned an unexpected content type")
+    if (
+        response.headers.get("Content-Encoding", "identity").strip().lower()
+        != "identity"
+    ):
+        raise MailError("Mail Drop download returned unsupported content encoding")
+    length = response.headers.get("Content-Length")
+    if length is not None and (not length.isascii() or not length.isdigit()):
+        raise MailError("Invalid Mail Drop content length")
+    declared = int(length) if length is not None else None
+    expected_size = part.size if part.size else declared
+    if declared is not None and (
+        declared > max_bytes or (part.size and declared != part.size)
+    ):
+        raise MailError(
+            "Mail Drop content length exceeds budget or differs from metadata"
+        )
+    return expected_size
+
+
+def _mail_drop_chunks(
+    chunks: Iterator[bytes], max_bytes: int, expected_size: int | None
+) -> Iterator[bytes]:
+    """Enforce actual streamed size even without trustworthy advertised lengths."""
+    size = 0
+    for chunk in chunks:
+        size += len(chunk)
+        if size > max_bytes:
+            raise MailError("Mail Drop stream exceeds max_bytes")
+        if chunk:
+            yield chunk
+    if expected_size is not None and size != expected_size:
+        raise MailError("Mail Drop stream length differs from metadata or response")
 
 
 def validate_mail_endpoint(service_root: str) -> None:
@@ -257,7 +380,7 @@ class MailService(BaseService):
     def folders(self) -> list[MailFolder]:
         """List active folders and labels without reading message bodies."""
         result = self._post(
-            "geqs/query",
+            _GEQS_QUERY,
             MailQuery(
                 domain="mailbox",
                 include_labels=True,
@@ -298,7 +421,7 @@ class MailService(BaseService):
             if record.mailbox.id != folder.id:
                 raise MailError("Mail returned a message from another folder")
             if record.id not in seen:
-                messages.append(MailMessage(**record.model_dump(), folder=folder))
+                messages.append(_bind_message(record, folder))
                 seen.add(record.id)
         return MailMessagePage(messages=messages, limit=limit)
 
@@ -362,7 +485,7 @@ class MailService(BaseService):
         actual = record.id if field == "identifier" else record.uid
         if record.mailbox.id != folder.id or actual != value:
             raise MailError("Mail lookup returned a different message or folder")
-        return MailMessage(**record.model_dump(), folder=current)
+        return _bind_message(record, current)
 
     def iter_messages(
         self, folder: MailFolder, *, page_size: int = 50, max_pages: int = 10000
@@ -464,7 +587,7 @@ class MailService(BaseService):
             seen.update(record.id for record in records)
             before = records[-1].uid
             for record in records:
-                yield MailMessage(**record.model_dump(), folder=current)
+                yield _bind_message(record, current)
         raise MailError("Mail page budget exhausted; enumeration is incomplete")
 
     def search(
@@ -497,7 +620,7 @@ class MailService(BaseService):
             update={"and_": [*(predicate.and_ or []), match]}
         )
         response = self._post(
-            "geqs/query",
+            _GEQS_QUERY,
             MailQuery(
                 domain="email",
                 properties=["identifier", "subject", "preview", "count"],
@@ -566,9 +689,7 @@ class MailService(BaseService):
         records = _unique_uid_records(response.records)
         return MailThreadPage(
             thread_id=thread_id,
-            messages=[
-                MailMessage(**record.model_dump(), folder=current) for record in records
-            ],
+            messages=[_bind_message(record, current) for record in records],
             limit=limit,
         )
 
@@ -634,7 +755,7 @@ class MailService(BaseService):
         if message.preview_id is None or not message.preview_id.strip():
             raise ValueError("Message has no advertised preview ID; refresh metadata")
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         current = self._checked_mailbox(message.folder)
         requested_folder = current.name
         response = self._post(
@@ -648,7 +769,11 @@ class MailService(BaseService):
             keep_nulls=True,
         )
         current = self._checked_mailbox(message.folder)
-        if response.context.folder != requested_folder or len(response.records) > 1:
+        if (
+            current.name != requested_folder
+            or response.context.folder != requested_folder
+            or len(response.records) > 1
+        ):
             raise MailError(
                 "Mail preview returned an ambiguous or wrong-folder response"
             )
@@ -689,7 +814,10 @@ class MailService(BaseService):
             keep_nulls=True,
         )
         current = self._checked_mailbox(folder)
-        if response.context.folder != requested_folder:
+        if (
+            current.name != requested_folder
+            or response.context.folder != requested_folder
+        ):
             raise MailError("Mail filter returned a different folder")
         if len(response.records) > limit:
             raise MailError(_RESULT_LIMIT_EXCEEDED)
@@ -701,6 +829,22 @@ class MailService(BaseService):
             folder=current, filter_by=filter_by, results=response.records, limit=limit
         )
 
+    def _content_folder(self, message: MailMessage) -> MailFolder:
+        """Guard known UID namespaces while preserving legacy bounded reads."""
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
+        if message.folder.uid_validity is None:
+            return message.folder
+        return self._checked_mailbox(message.folder)
+
+    def _verify_content_folder(
+        self, message: MailMessage, requested: MailFolder
+    ) -> None:
+        """Reject a changed namespace or path before completing a content read."""
+        current = self._content_folder(message)
+        if current.name != requested.name:
+            raise MailError("Mail folder changed during content retrieval; retry")
+
     def body(self, message: MailMessage) -> MailBody:
         """Read advertised plain-text/HTML parts without marking the message read."""
         parts = [
@@ -709,20 +853,121 @@ class MailService(BaseService):
             if not part.is_attachment
             and re.fullmatch(MIME_PART_PATTERN, part.id)
             and part.content_type.split(";", 1)[0].strip().lower()
-            in ("text/plain", "text/html")
+            in ("text/plain", _HTML_CONTENT_TYPE)
         ]
         if not parts:
             raise ValueError("Message has no supported text body parts")
-        return self._post(
+        current = self._content_folder(message)
+        result = self._post(
             "message/get",
             MailBodyRequest(
                 uid=str(message.uid),
                 parts=parts,
-                session_headers=MailSessionHeaders(folder=message.folder.name),
+                session_headers=MailSessionHeaders(folder=current.name),
             ),
             MailBody,
             keep_nulls=True,
         )
+        self._verify_content_folder(message, current)
+        return result
+
+    @contextmanager
+    def mail_drop_attachment(
+        self, message: MailMessage, part_index: int, *, max_bytes: int = 104857600
+    ) -> Generator[Iterator[bytes], None, None]:
+        """Download one 1-based part using an isolated, credential-free session.
+
+        Supports the verified Apple host only. No redirects, netrc, inherited
+        cookies, account authentication, or environment proxies are used. TLS is
+        verified; REQUESTS_CA_BUNDLE may select a custom trusted CA bundle.
+        Library yields cannot be retracted after a late size or mailbox failure.
+        """
+        if (
+            isinstance(part_index, bool)
+            or not isinstance(part_index, int)
+            or not 1 <= part_index <= len(message.parts)
+        ):
+            raise ValueError("part_index must select a 1-based message part")
+        part = message.parts[part_index - 1]
+        url = _validate_mail_drop(part, max_bytes)
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
+        current = self._checked_mailbox(message.folder)
+        try:
+            with Session() as download:
+                download.trust_env = False
+                request = download.prepare_request(
+                    Request("GET", url, headers={"Accept-Encoding": "identity"})
+                )
+                # Send explicit settings without the CLI's class-wide environment merge.
+                response = download.send(
+                    request,
+                    stream=True,
+                    allow_redirects=False,
+                    timeout=DEFAULT_TIMEOUT,
+                    verify=os.environ.get("REQUESTS_CA_BUNDLE") or True,
+                    proxies={},
+                    cert=None,
+                )
+                try:
+                    size = _mail_drop_response_size(response, part, max_bytes)
+                    self._verify_content_folder(message, current)
+                    yield _mail_drop_chunks(
+                        response.iter_content(chunk_size=65536), max_bytes, size
+                    )
+                    self._verify_content_folder(message, current)
+                finally:
+                    response.close()
+        except RequestException as exc:
+            raise MailError("Mail Drop download or stream failed") from exc
+
+    @contextmanager
+    def raw_message(
+        self, message: MailMessage
+    ) -> Generator[Iterator[bytes], None, None]:
+        """Stream Apple's original message bytes without parsing or regenerating MIME.
+
+        Requires a verified mailbox UID namespace. Use as a context manager;
+        responses close on partial consumption or failure. No redirects, retries,
+        body reconstruction, or remote filenames are used. A final mailbox check
+        can fail after bytes have been yielded; consumers must not publish partial
+        output as success. This is not a signed archival-integrity guarantee.
+        """
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
+        current = self._checked_mailbox(message.folder)
+        response = self.session.get(
+            f"{self.service_root}/mailws2/v1/message/download",
+            params={
+                **self.params,
+                "guid": f"message:{current.name}/{message.uid}",
+                "filename": "message.eml",
+            },
+            stream=True,
+            timeout=DEFAULT_TIMEOUT,
+            allow_redirects=False,
+        )
+        try:
+            if response.status_code != 200:
+                raise MailError(
+                    f"Mail raw download returned HTTP {response.status_code}"
+                )
+            media_type = (
+                response.headers
+                .get("Content-Type", "")
+                .split(";", 1)[0]
+                .strip()
+                .lower()
+            )
+            if media_type != "message/rfc822":
+                raise MailError("Mail raw download returned an unexpected content type")
+            self._verify_content_folder(message, current)
+            yield self._chunks(
+                response.iter_content(chunk_size=65536), label="raw message"
+            )
+            self._verify_content_folder(message, current)
+        finally:
+            response.close()
 
     @contextmanager
     def attachment(
@@ -742,8 +987,9 @@ class MailService(BaseService):
             raise ValueError(
                 "External or Mail Drop attachment downloads are not supported"
             )
+        current = self._content_folder(message)
         query: dict[str, str | int] = {
-            "guid": f"messagepart:{message.folder.name}/{message.uid}-{part.id}",
+            "guid": f"messagepart:{current.name}/{message.uid}-{part.id}",
             "type": part.content_type,
         }
         if part.filename is not None:
@@ -768,29 +1014,33 @@ class MailService(BaseService):
                 .lower()
             )
             expected = part.content_type.split(";", 1)[0].strip().lower()
-            if expected == "application/octet-stream":
+            if expected == _BINARY_CONTENT_TYPE:
                 # Missing contentType metadata defaults to octet-stream here,
                 # and the server may then answer with the real type instead of
                 # echoing the default, so there is nothing specific to match.
                 # Only reject what cannot be attachment bytes: an empty type
                 # or an HTML error page served with HTTP 200.
-                acceptable = bool(content_type) and content_type != "text/html"
+                acceptable = bool(content_type) and content_type != _HTML_CONTENT_TYPE
             else:
                 # A specifically advertised type must match, unless the server
                 # fell back to octet-stream.
-                acceptable = content_type in (expected, "application/octet-stream")
+                acceptable = content_type in (expected, _BINARY_CONTENT_TYPE)
             if not acceptable:
                 raise MailError("Mail attachment returned an unexpected content type")
+            self._verify_content_folder(message, current)
             yield self._chunks(response.iter_content(chunk_size=65536))
+            self._verify_content_folder(message, current)
         finally:
             response.close()
 
     @staticmethod
-    def _chunks(chunks: Iterator[bytes]) -> Iterator[bytes]:
-        """Yield nonempty chunks and translate attachment transport failures."""
+    def _chunks(
+        chunks: Iterator[bytes], *, label: str = "attachment"
+    ) -> Iterator[bytes]:
+        """Yield nonempty chunks and translate download transport failures."""
         try:
             for chunk in chunks:
                 if chunk:
                     yield chunk
         except RequestException as exc:
-            raise MailError("Mail attachment stream failed") from exc
+            raise MailError(f"Mail {label} stream failed") from exc
