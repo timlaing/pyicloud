@@ -138,6 +138,15 @@ class MailFolderDeletion(MailModel):
     permanent: Literal[True] = True
 
 
+class MailMessageDeletion(MailModel):
+    """Acknowledged destruction of one Trash message, with no recovery promise."""
+
+    message_id: Identifier
+    folder_id: Identifier
+    uid: int = Field(strict=True, gt=0)
+    permanent: Literal[True] = True
+
+
 class MailMessagePage(MailModel):
     """A bounded snapshot, not a complete mailbox or a synchronization cursor."""
 

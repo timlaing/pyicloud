@@ -5,10 +5,51 @@ HTTP API. Read operations have been verified on one account. Explicit
 single-message read/unread, flag/unflag, and ordinary mailbox moves are available
 separately, alongside explicit folder management, draft saves, and ordinary draft
 attachment uploads and explicitly confirmed sending of saved drafts; ordinary
-reads never change flags. Mail Drop uploads, permanent message deletion, and
+reads never change flags. Mail Drop uploads and
 incremental synchronization are not supported.
 The `icloud mail` commands expose the same bounded API.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
+
+## Permanent Deletion
+
+**Permanent deletion is irreversible.** `delete_permanently()` destroys exactly
+one current message already in the discovered Trash (`Deleted Messages`) mailbox.
+It never moves a message to Trash first, selects the newest message, deletes a
+batch, or empties Trash. Use an explicit move or `discard_draft()` for recoverable
+Trash disposal instead.
+
+```python
+message = api.mail.message(trash_folder, chosen_message_id)
+if message is None:
+    raise ValueError("The selected message is no longer in Trash")
+acknowledgement = api.mail.delete_permanently(message, confirm=True)
+assert acknowledgement.permanent
+```
+
+The equivalent CLI command requires an exact message ID, its Trash folder ID,
+and explicit confirmation:
+
+```shell
+icloud mail delete-forever MESSAGE_ID --folder-id TRASH_FOLDER_ID --confirm --format json
+```
+
+Before writing, the service checks the account, fresh folder identity and UID
+validity, ordinary mailbox capabilities, and the exact message ID/UID. It accepts
+only the matching account's acknowledgement destroying that one ID, then checks
+that the target is absent by both UID and ID. The typed result is not a recovery
+token or proof of a consistent whole-mailbox snapshot.
+
+An explicit, unambiguous server rejection raises `MailWriteRejected`. A timeout,
+unexpected acknowledgement, or failed post-verification raises
+`MailWriteUncertain`: the message may already be gone. No automatic retry, purge,
+or fallback follows. Avoid concurrent moves or edits in other clients: preflight
+checks are not atomic, and interrupting the command does not undo a submitted
+deletion.
+
+A separately authorized live CLI test verified one disposable forward already
+in Trash: one destruction request, a matching acknowledgement, and subsequent
+target-only absence checks by UID and ID, without retries. This is single-account
+evidence, not a recovery or atomicity guarantee.
 
 ## Sending a Saved Draft
 
@@ -223,7 +264,8 @@ browser operation also requests the `seen` flag. Its source-only
 `MailMoveUpdate` does not supply a new destination UID or message ID. Conflicting
 success/error maps remain uncertain even if the draft moved; reconcile fresh
 Drafts/Trash metadata, do not retry automatically. These draft methods never
-permanently destroy a message; permanent message deletion remains unsupported.
+permanently destroy a message; that requires the separate, explicitly confirmed
+permanent-deletion operation.
 
 CLI body input comes from explicit local UTF-8 files rather than body text in
 shell arguments. `create-draft` defaults omitted bodies to empty strings;
