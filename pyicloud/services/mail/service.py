@@ -1,4 +1,4 @@
-"""Experimental, read-only iCloud Mail HTTP service."""
+"""Experimental Mail reads and explicit message and folder writes."""
 
 from __future__ import annotations
 
@@ -6,25 +6,80 @@ from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 import re
 from typing import Any, Literal, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 from requests import RequestException
 
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
+from pyicloud.services.mail._conversation_drafts import prepare_source
+from pyicloud.services.mail._draft_models import (
+    DraftCreateRequest,
+    DraftDiscardOperation,
+    DraftDiscardPatch,
+    DraftDiscardRequest,
+    DraftSaveResponse,
+)
+from pyicloud.services.mail._draft_uploads import (
+    attachment_references,
+    upload_attachment,
+)
+from pyicloud.services.mail._drafts import (
+    DRAFT_UNCERTAIN,
+    DraftWriter,
+    recipient_addresses,
+)
+from pyicloud.services.mail._flags import (
+    FlagDelta,
+    FlagIntent,
+    FlagOperation,
+    FlagPatch,
+    FlagRequest,
+    FlagResponse,
+    MailFlag,
+)
+from pyicloud.services.mail._folder_models import (
+    FolderIntent,
+    FolderRequest,
+)
+from pyicloud.services.mail._folder_models import (
+    FolderResponse as FolderMutationResponse,
+)
+from pyicloud.services.mail._folder_writes import FOLDER_UNCERTAIN, FolderWriter
+from pyicloud.services.mail._mailboxes import MailboxSnapshot, MailboxSnapshotResponse
+from pyicloud.services.mail._moves import (
+    MailboxReplacement,
+    MoveOperation,
+    MovePatch,
+    MoveRequest,
+    MoveResponse,
+)
+from pyicloud.services.mail._send_models import DraftSendRequest, DraftSendResponse
+from pyicloud.services.mail._senders import SenderPreferences, sender_identities
+from pyicloud.services.mail._write_models import known_rejection
+from pyicloud.services.mail.exceptions import (
+    MailError,
+    MailWriteRejected,
+    MailWriteUncertain,
+)
 from pyicloud.services.mail.models import (
     MIME_PART_PATTERN,
     FolderResponse,
     MailBody,
     MailBodyRequest,
+    MailDraft,
+    MailDraftAttachment,
     MailExpression,
+    MailFlagUpdate,
     MailFolder,
+    MailFolderDeletion,
     MailFolderSearchPage,
     MailMessage,
     MailMessageExport,
     MailMessagePage,
     MailMessageRecord,
+    MailMoveUpdate,
     MailMultiSearchPage,
     MailOrder,
     MailPredicate,
@@ -32,6 +87,8 @@ from pyicloud.services.mail.models import (
     MailPreviewRequest,
     MailQuery,
     MailSearchPage,
+    MailSender,
+    MailSendUpdate,
     MailSessionHeaders,
     MailThreadFilter,
     MailThreadFilterPage,
@@ -49,6 +106,7 @@ MAX_RESULTS = 1000
 MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
+_MESSAGE_SCOPE_MISMATCH = "Message and folder identities do not match"
 _UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
@@ -77,8 +135,53 @@ _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
 ]
 
 
-class MailError(PyiCloudException):
-    """An invalid response, incomplete enumeration, or failed attachment stream."""
+_FLAG_OUTCOME_UNKNOWN = (
+    "Mail flag update outcome is uncertain; refresh message metadata before "
+    "retrying. No automatic retry was performed."
+)
+_MOVE_OUTCOME_UNKNOWN = (
+    "Mail move outcome is uncertain; inspect both folders using fresh metadata "
+    "before retrying. Message IDs may change. No automatic retry was performed."
+)
+
+
+def _move_acknowledgement(
+    response: MoveResponse, account_id: str, message_id: str
+) -> None:
+    """Contradictory real-world move outcomes must never authorize a retry."""
+    if response.account_id != account_id or any((
+        response.created,
+        response.destroyed,
+        response.not_created,
+        response.not_destroyed,
+    )):
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+    if response.not_updated:
+        if not response.updated and known_rejection(response.not_updated, message_id):
+            raise MailWriteRejected("Mail rejected the move; refresh metadata.")
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+    if response.updated is None or set(response.updated) != {message_id}:
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+
+
+def _flag_acknowledgement(
+    response: FlagResponse, account_id: str, message_id: str
+) -> int:
+    """Require an exact account and message outcome without exposing server data."""
+    if response.account_id != account_id or any((
+        response.created,
+        response.destroyed,
+        response.not_created,
+        response.not_destroyed,
+    )):
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    if response.not_updated:
+        if not response.updated and known_rejection(response.not_updated, message_id):
+            raise MailWriteRejected("Mail rejected the flag update; refresh metadata.")
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    if response.updated is None or set(response.updated) != {message_id}:
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    return response.updated[message_id].modseq
 
 
 def validate_mail_endpoint(service_root: str) -> None:
@@ -207,20 +310,30 @@ def _uid_page(
     return unique
 
 
+__all__ = ["MailError", "MailService", "MailWriteRejected", "MailWriteUncertain"]
+
+
 class MailService(BaseService):
-    """Read-only Mail with bounded reads and explicit UID-based enumeration.
+    """Bounded Mail reads and explicit message and folder writes.
 
     Bounded methods remain snapshots; only explicit iterators opt into paging.
-    No mutations, HTML rendering, or incremental synchronization are performed.
-    Session authentication failures retain the library's existing exception types.
+    Reads never mutate mail. Folder, draft, ordinary upload and send writes are
+    explicit. Permanent message deletion, rendering and sync are unsupported.
+    Read-side authentication failures retain the library's existing exception types.
     """
 
     def __init__(
-        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+        self,
+        service_root: str,
+        session: PyiCloudSession,
+        params: dict[str, Any],
+        *,
+        settings_root: str | None = None,
     ) -> None:
         """Validate the discovered endpoint and copy session query parameters."""
         validate_mail_endpoint(service_root)
         super().__init__(service_root.rstrip("/"), session, dict(params))
+        self._settings_root = settings_root
 
     def _post(
         self,
@@ -275,6 +388,641 @@ class MailService(BaseService):
         if result.continuation_marker:
             raise MailError("Mail folder list requires unsupported continuation")
         return result.records
+
+    def senders(self) -> list[MailSender]:
+        """Read enabled primary, alias, and custom-domain sender addresses.
+
+        Use the authenticated account's discovered settings endpoint. A login
+        address is not necessarily a Mail address, so never infer one from it.
+        Disabled and inactive identities are not returned or silently enabled.
+        """
+        account_id = self.params.get("dsid")
+        if (
+            not isinstance(account_id, str)
+            or not account_id.isascii()
+            or not account_id.isdecimal()
+        ):
+            raise ValueError("A discovered decimal account identifier is required")
+        if self._settings_root is None:
+            raise MailError("Mail sender settings endpoint is unavailable")
+        root = self._settings_root.rstrip("/")
+        try:
+            validate_mail_endpoint(root)
+        except ValueError as exc:
+            raise MailError("Mail sender settings endpoint is unusable") from exc
+        response = self.session.get(
+            f"{root}/cc/mail/v1/account/{quote(account_id, safe='')}"
+            "/preference/web/all",
+            params={"userEntryPoint": "/mail/load"},
+            timeout=DEFAULT_TIMEOUT,
+            allow_redirects=False,
+        )
+        try:
+            if response.status_code != 200:
+                raise MailError("Mail sender discovery failed")
+            try:
+                payload = response.json()
+                if isinstance(payload, dict) and (
+                    payload.get("error") or payload.get("errors")
+                ):
+                    raise MailError("Mail sender discovery returned an error")
+                data = SenderPreferences.model_validate(
+                    payload, by_alias=True, by_name=False
+                )
+            except ValueError as exc:
+                raise MailError("Mail returned invalid sender preferences") from exc
+            return sender_identities(data, account_id)
+        finally:
+            response.close()
+
+    def upload_draft_attachment(
+        self,
+        data: bytes,
+        *,
+        filename: str,
+        content_type: str = "application/octet-stream",
+    ) -> MailDraftAttachment:
+        """Upload at most 25 MiB of attachment bytes, without saving or sending.
+
+        This creates a cached part, not a draft or a Mail Drop upload. An uncertain
+        outcome must not be retried blindly; automatic cache cleanup is unavailable.
+        """
+        return upload_attachment(
+            self.session, self.service_root, self.params, data, filename, content_type
+        )
+
+    def create_draft(
+        self,
+        *,
+        sender: str,
+        subject: str = "",
+        text: str = "",
+        html: str = "",
+        to: tuple[str, ...] = (),
+        cc: tuple[str, ...] = (),
+        bcc: tuple[str, ...] = (),
+        attachments: tuple[MailDraftAttachment, ...] = (),
+    ) -> MailDraft:
+        """Create a draft with explicit recipients and uploaded parts, without sending.
+
+        Select an enabled address from senders(). Plain-only input is escaped
+        into HTML because Apple treats HTML as canonical. Caller-supplied HTML
+        is not sanitized or rendered. Never blindly retry an uncertain save.
+        """
+        return self._draft_writer().save(
+            sender,
+            subject,
+            text,
+            html,
+            None,
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            attachments=attachments,
+        )
+
+    def create_reply_draft(
+        self,
+        message: MailMessage,
+        *,
+        sender: str,
+        to: tuple[str, ...],
+        text: str,
+        html: str = "",
+        cc: tuple[str, ...] = (),
+        bcc: tuple[str, ...] = (),
+        attachments: tuple[MailDraftAttachment, ...] = (),
+    ) -> MailDraft:
+        """Save a reply to an exact source, without inferring recipients or sending.
+
+        Supply the full desired body, including any quotes. Source attachments
+        are not copied into replies; explicit uploaded handles are supported.
+        """
+        DraftWriter.validate_inputs(sender, "", text, html)
+        for values in (to, cc, bcc):
+            recipient_addresses(values)
+        attachment_references(
+            attachments, self.service_root, self.params.get("dsid", "")
+        )
+        source = prepare_source(
+            message,
+            "reply",
+            self.message_by_uid,
+            self.body,
+            self.service_root,
+            self.params.get("dsid", ""),
+        )
+        subject = source.message.subject or ""
+        if not subject.casefold().startswith("re:"):
+            subject = "Re: " + subject
+        return self._draft_writer().save(
+            sender,
+            subject,
+            text,
+            html,
+            None,
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            attachments=attachments,
+            threading=source.threading,
+        )
+
+    def create_forward_draft(
+        self,
+        message: MailMessage,
+        *,
+        sender: str,
+        to: tuple[str, ...],
+        text: str,
+        html: str = "",
+        cc: tuple[str, ...] = (),
+        bcc: tuple[str, ...] = (),
+        attachments: tuple[MailDraftAttachment, ...] = (),
+        include_original_attachments: bool = True,
+    ) -> MailDraft:
+        """Save a forward with references and original ordinary attachments.
+
+        Supply the full desired body, including forwarded content. The source
+        must remain available while its stored attachment references are used.
+        No upload, implicit recipient selection, or sending occurs.
+        """
+        DraftWriter.validate_inputs(sender, "", text, html)
+        for values in (to, cc, bcc):
+            recipient_addresses(values)
+        attachment_references(
+            attachments, self.service_root, self.params.get("dsid", "")
+        )
+        source = prepare_source(
+            message,
+            "forward",
+            self.message_by_uid,
+            self.body,
+            self.service_root,
+            self.params.get("dsid", ""),
+            include_attachments=include_original_attachments,
+        )
+        subject = source.message.subject or ""
+        if not subject.casefold().startswith("fwd:"):
+            subject = "Fwd: " + subject
+        return self._draft_writer().save(
+            sender,
+            subject,
+            text,
+            html,
+            None,
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            attachments=source.attachments + attachments,
+            threading=source.threading,
+        )
+
+    def edit_draft(
+        self,
+        draft: MailDraft,
+        *,
+        subject: str,
+        text: str,
+        html: str,
+        to: tuple[str, ...] | None = None,
+        cc: tuple[str, ...] | None = None,
+        bcc: tuple[str, ...] | None = None,
+        attachments: tuple[MailDraftAttachment, ...] | None = None,
+    ) -> MailDraft:
+        """Replace all subject/body fields and return a new rotating-UID handle.
+
+        Omitted recipient/attachment arguments preserve the handle's expectations;
+        explicit empty tuples clear them. Forward versions Apple retains are
+        reported in retained_drafts, never silently deleted. Fresh preflight
+        is not an atomic save.
+        """
+        if not isinstance(draft, MailDraft):
+            raise ValueError("A saved MailDraft handle is required")
+        return self._draft_writer().save(
+            draft.sender.address,
+            subject,
+            text,
+            html,
+            draft,
+            to=draft.to if to is None else to,
+            cc=draft.cc if cc is None else cc,
+            bcc=draft.bcc if bcc is None else bcc,
+            attachments=draft.attachments if attachments is None else attachments,
+        )
+
+    def send_draft(self, draft: MailDraft, *, confirm: bool = False) -> MailSendUpdate:
+        """Immediately submit one saved draft, without scheduling or retrying.
+
+        Confirmation must be explicit. Fresh preflight cannot eliminate a race
+        with another editor. Success acknowledges Apple's submission, not SMTP
+        delivery; an uncertain outcome may already have sent the message.
+        """
+        if confirm is not True:
+            raise ValueError("Sending requires confirm=True")
+        if not isinstance(draft, MailDraft):
+            raise ValueError("A saved MailDraft handle is required")
+        recipients = [recipient_addresses(v) for v in (draft.to, draft.cc, draft.bcc)]
+        if not any(recipients):
+            raise ValueError("Sending requires at least one explicit recipient")
+        current = self._draft_writer().checked(draft)
+        if current.subject != draft.message.subject:
+            raise MailError("Draft subject changed; refresh before sending")
+        if not any(
+            s.address.casefold() == draft.sender.address.casefold()
+            for s in self.senders()
+        ):
+            raise MailError("Draft sender is no longer enabled")
+        uncertain = (
+            "Mail send outcome is uncertain; the message may already have been sent. "
+            "Inspect Drafts and Sent before any explicit retry."
+        )
+        self._submit_update(
+            DraftSendRequest(messageGuid=f"Drafts/{current.uid}"),
+            DraftSendResponse,
+            None,
+            uncertain,
+            path="draft/send",
+            keep_nulls=True,
+        )
+        try:
+            self._draft_folder(current.folder)
+            if self.message_by_uid(current.folder, current.uid) is not None:
+                raise MailError("Sent draft is still present")
+        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+            raise MailWriteUncertain(uncertain) from exc
+        return MailSendUpdate(
+            source_message_id=current.id,
+            source_folder_id=current.folder.id,
+            source_uid=current.uid,
+            retained_draft_ids=tuple(m.id for m in draft.retained_drafts),
+        )
+
+    def discard_draft(self, draft: MailDraft, trash: MailFolder) -> MailMoveUpdate:
+        """Move one verified draft to the explicit Trash mailbox.
+
+        The captured browser operation also requests seen. This is not permanent
+        destruction. Contradictory success/error maps remain uncertain even when
+        the draft has moved; inspect both folders, never retry automatically.
+        """
+        writer = self._draft_writer()
+        current = writer.checked(draft)
+        enabled = self.senders()
+        if not any(
+            s.address.casefold() == draft.sender.address.casefold() for s in enabled
+        ):
+            raise MailError("Draft sender is no longer enabled")
+        self._move_folder(trash)
+        if trash.name != "Deleted Messages":
+            raise ValueError("Discard requires the discovered Deleted Messages mailbox")
+        request = DraftDiscardRequest(
+            batchUpdate=(
+                DraftDiscardOperation(
+                    ids=(current.id,),
+                    patch=DraftDiscardPatch(
+                        flags=FlagDelta(set=("seen",)),
+                        mboxRef=MailboxReplacement(replace=(trash.id,)),
+                    ),
+                ),
+            )
+        )
+        response = self._submit_update(
+            request, MoveResponse, "deleteMessagesGems", _MOVE_OUTCOME_UNKNOWN
+        )
+        _move_acknowledgement(response, str(self.params["dsid"]), current.id)
+        try:
+            self._draft_folder(current.folder)
+            if self.message_by_uid(current.folder, current.uid) is not None:
+                raise MailError("Discarded draft is still present")
+        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+            raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN) from exc
+        return MailMoveUpdate(
+            source_message_id=current.id,
+            source_folder_id=current.folder.id,
+            destination_folder_id=trash.id,
+        )
+
+    def _draft_writer(self) -> DraftWriter:
+        """Bind draft logic without introducing a second mutation transport."""
+        return DraftWriter(
+            self.senders,
+            self._draft_folder,
+            self.message_by_uid,
+            self.body,
+            self._submit_draft,
+            self.params.get("clientMasteringNumber", ""),
+            self.service_root,
+            self.params.get("dsid", ""),
+        )
+
+    def _draft_folder(self, previous: MailFolder | None) -> MailFolder:
+        """The browser's canonical Drafts namespace must be current and selectable."""
+        matches = [f for f in self._mailbox_inventory() if f.name == "Drafts"]
+        if len(matches) != 1 or matches[0].flags != 0:
+            raise MailError("One selectable Drafts mailbox is required")
+        current = matches[0]
+        if previous is not None and (
+            previous.id != current.id
+            or previous.name != current.name
+            or previous.uid_validity != current.uid_validity
+        ):
+            raise MailError("Drafts mailbox identity changed; refresh before writing")
+        return MailFolder(
+            identifier=current.id, name=current.name, uidValidity=current.uid_validity
+        )
+
+    def _submit_draft(self, request: DraftCreateRequest) -> DraftSaveResponse:
+        """Save with the captured null context and without a fabricated intent."""
+        return self._submit_update(
+            request,
+            DraftSaveResponse,
+            None,
+            DRAFT_UNCERTAIN,
+            path="message/savedraft",
+            keep_nulls=True,
+        )
+
+    def set_read(self, message: MailMessage, *, read: bool) -> MailFlagUpdate:
+        """Set or clear only seen, after a fresh folder-local identity lookup.
+
+        The result acknowledges submission, not an atomic snapshot of later mail
+        state. A stale message is not mutated locally. An uncertain write must be
+        checked through fresh metadata before any explicit caller retry.
+        """
+        return self._set_flag(message, "seen", read)
+
+    def create_folder(
+        self, name: str, *, parent: MailFolder | None = None
+    ) -> MailFolder:
+        """Create one new leaf; preserve a discovered parent's encoded server path.
+
+        Names are user-visible Unicode, not pre-encoded wire strings. The result
+        retains the raw server name used by folders(). Never retry an uncertain
+        creation or automatically delete a possibly created folder.
+        """
+        return self._folder_writer().create(name, parent)
+
+    def rename_folder(self, folder: MailFolder, name: str) -> MailFolder:
+        """Rename one custom folder leaf and return verified fresh namespace data."""
+        return self._folder_writer().rename(folder, name)
+
+    def delete_folder(
+        self, folder: MailFolder, *, confirm: bool, allow_nonempty: bool = False
+    ) -> MailFolderDeletion:
+        """Permanently delete one custom folder, never move it to Trash.
+
+        confirm=True acknowledges irreversible deletion and racy preflight.
+        Observed messages require allow_nonempty=True; children are refused.
+        New mail or children can still arrive between checks and dispatch:
+        Apple exposes no verified atomic empty-folder precondition here.
+        """
+        return self._folder_writer().delete(
+            folder, confirm=confirm, allow_nonempty=allow_nonempty
+        )
+
+    def _folder_writer(self) -> FolderWriter:
+        """Bind folder operations to this account and the guarded HTTP transport."""
+        account_id = self.params.get("dsid")
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise ValueError("A discovered account identifier is required for writes")
+        return FolderWriter(
+            account_id,
+            self._mailbox_inventory,
+            self._submit_folder,
+            self._folder_has_mail,
+        )
+
+    def _submit_folder(
+        self, request: FolderRequest, intent: FolderIntent
+    ) -> FolderMutationResponse:
+        """Folder mutations use mailbox/set, never the message update endpoint."""
+        return self._submit_update(
+            request,
+            FolderMutationResponse,
+            intent,
+            FOLDER_UNCERTAIN,
+            path="mailbox/set",
+        )
+
+    def _folder_has_mail(self, folder: MailFolder) -> bool:
+        """Check one message, including deleted-flag records, without opening it."""
+        response = self._post(
+            _MESSAGE_LIST,
+            MailQuery(
+                domain="email",
+                limit=1,
+                properties=["identifier", "uid", "mboxRef"],
+                predicate=MailPredicate(
+                    type="eq",
+                    expression=MailExpression(property="mboxRef"),
+                    value=folder.id,
+                ),
+            ),
+            MessageResponse,
+        )
+        if len(response.records) > 1 or any(
+            item.mailbox.id != folder.id for item in response.records
+        ):
+            raise MailError("Folder emptiness query returned unexpected messages")
+        if response.continuation_marker and not response.records:
+            raise MailError("Folder emptiness could not be established")
+        return bool(response.records)
+
+    def set_flagged(self, message: MailMessage, *, flagged: bool) -> MailFlagUpdate:
+        """Set or clear only flagged; never replace other flags or retry writes."""
+        return self._set_flag(message, "flagged", flagged)
+
+    def move(self, message: MailMessage, destination: MailFolder) -> MailMoveUpdate:
+        """Move one message without changing flags or guessing its new identity.
+
+        Fresh capability checks reject labels, non-selectable folders, Junk, and
+        Drafts. Moving to Trash is recoverable mailbox movement, not permanent
+        deletion or the browser's mark-read-and-trash shortcut. Acknowledgements
+        refer to the old identifier only; fetch new destination metadata before
+        another write. No retry or compensating move is performed.
+        """
+        if not isinstance(destination, MailFolder):
+            raise ValueError("A discovered destination MailFolder is required")
+        validity = destination.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive destination UID validity is required")
+        if isinstance(message, MailMessage) and message.folder.id == destination.id:
+            raise ValueError("Source and destination folders must differ")
+        account_id = self._write_identity(message)
+        self._move_folder(message.folder)
+        self._move_folder(destination)
+        request = MoveRequest(
+            batchUpdate=(
+                MoveOperation(
+                    ids=(message.id,),
+                    patch=MovePatch(
+                        mboxRef=MailboxReplacement(replace=(destination.id,))
+                    ),
+                ),
+            )
+        )
+        response = self._submit_update(
+            request, MoveResponse, "moveMessagesGems", _MOVE_OUTCOME_UNKNOWN
+        )
+        _move_acknowledgement(response, account_id, message.id)
+        return MailMoveUpdate(
+            source_message_id=message.id,
+            source_folder_id=message.folder.id,
+            destination_folder_id=destination.id,
+        )
+
+    def _move_folder(self, folder: MailFolder) -> None:
+        """Require an exact current namespace and known ordinary-folder semantics."""
+        records = self._mailbox_inventory(folder)
+        if len(records) != 1:
+            raise MailError("Move requires one exact current mailbox")
+        current = records[0]
+        if (
+            current.id != folder.id
+            or current.uid_validity != folder.uid_validity
+            or current.name != folder.name
+        ):
+            raise MailError("Mailbox identity changed; refresh folders before moving")
+        # These are browser-defined server names, not translated UI labels.
+        # Only the captured zero-flag ordinary mailbox shape is supported.
+        if current.flags != 0 or current.name in {
+            "Junk",
+            "Drafts",
+            "/VIP",
+            "/REMIND_ME",
+        }:
+            raise MailError(
+                "Moves involving labels, Junk, Drafts, or non-selectable folders "
+                "are unsupported"
+            )
+
+    def _mailbox_inventory(
+        self, folder: MailFolder | None = None
+    ) -> list[MailboxSnapshot]:
+        """Read namespace/flag fields and refuse incomplete control inventories."""
+        active = MailPredicate(
+            type="eq",
+            expression=MailExpression(property="isMboxDeleted"),
+            value=False,
+        )
+        predicate = (
+            active
+            if folder is None
+            else MailPredicate(
+                type="eq",
+                expression=MailExpression(property="identifier"),
+                value=folder.id,
+                and_=[active],
+            )
+        )
+        result = self._post(
+            "geqs/query",
+            MailQuery(
+                domain="mailbox",
+                include_labels=True,
+                # Browser inventories omit limit; adding it introduces a marker
+                # even when the returned folder set is otherwise identical.
+                limit=None if folder is None else 2,
+                properties=["identifier", "uidValidity", "name", "flags"],
+                predicate=predicate,
+            ),
+            MailboxSnapshotResponse,
+        )
+        if result.continuation_marker or (
+            folder is None and len(result.records) >= MAX_RESULTS
+        ):
+            raise MailError(
+                "Mailbox inventory is incomplete; no folder mutation submitted"
+            )
+        if len({item.id for item in result.records}) != len(result.records):
+            raise MailError("Mailbox inventory contains duplicate identities")
+        return result.records
+
+    def _set_flag(
+        self, message: MailMessage, flag: MailFlag, enabled: bool
+    ) -> MailFlagUpdate:
+        """Validate caller inputs and current identity before one mutation."""
+        if not isinstance(enabled, bool):
+            raise ValueError("The requested flag state must be a boolean")
+        account_id = self._write_identity(message)
+        delta = FlagDelta(set=(flag,)) if enabled else FlagDelta(clear=(flag,))
+        request = FlagRequest(
+            batchUpdate=(
+                FlagOperation(ids=(message.id,), patch=FlagPatch(flags=delta)),
+            )
+        )
+        # Browser intent names describe unread/flagged, not the inverse seen bit.
+        setting = enabled if flag == "flagged" else not enabled
+        intent: FlagIntent = "setMessageFlag" if setting else "clearMessageFlag"
+        response = self._submit_update(
+            request, FlagResponse, intent, _FLAG_OUTCOME_UNKNOWN
+        )
+        counter = _flag_acknowledgement(response, account_id, message.id)
+        return MailFlagUpdate(
+            message_id=message.id, flag=flag, enabled=enabled, modseq=counter
+        )
+
+    def _write_identity(self, message: MailMessage) -> str:
+        """Resolve exact fresh source identity before constructing a mutation."""
+        if not isinstance(message, MailMessage):
+            raise ValueError("A folder-bound MailMessage is required")
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
+        validity = message.folder.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive mailbox UID validity is required for writes")
+        account_id = self.params.get("dsid")
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise ValueError("A discovered account identifier is required for writes")
+        current = self.message_by_uid(message.folder, message.uid)
+        if current is None or current.id != message.id:
+            raise MailError("Message identity changed; refresh metadata before writing")
+        return account_id
+
+    def _submit_update(
+        self,
+        request: BaseModel,
+        response_type: type[ResponseModel],
+        intent: str | None,
+        uncertain_message: str,
+        *,
+        path: Literal[
+            "email/set", "mailbox/set", "message/savedraft", "draft/send"
+        ] = "email/set",
+        keep_nulls: bool = False,
+    ) -> ResponseModel:
+        """Do not normalize/replay authentication errors after submitting a write."""
+        params = dict(self.params)
+        params.pop("clientIntent", None)
+        if intent is not None:
+            params["clientIntent"] = intent
+        try:
+            response = self.session.request_raw(
+                "POST",
+                f"{self.service_root}/mailws2/v1/{path}",
+                params=params,
+                json=request.model_dump(
+                    mode="json", by_alias=True, exclude_none=not keep_nulls
+                ),
+                timeout=DEFAULT_TIMEOUT,
+                allow_redirects=False,
+            )
+        except (PyiCloudException, RequestException, OSError) as exc:
+            raise MailWriteUncertain(uncertain_message) from exc
+        try:
+            if response.status_code != 200:
+                raise MailWriteUncertain(uncertain_message)
+            try:
+                return response_type.model_validate(
+                    response.json(), by_alias=True, by_name=False
+                )
+            except ValueError as exc:
+                raise MailWriteUncertain(uncertain_message) from exc
+        finally:
+            try:
+                response.close()
+            except (RequestException, OSError) as exc:
+                raise MailWriteUncertain(uncertain_message) from exc
 
     def messages(self, folder: MailFolder, *, limit: int = 50) -> MailMessagePage:
         """Read at most limit records, newest first; completeness is unknown."""
@@ -634,7 +1382,7 @@ class MailService(BaseService):
         if message.preview_id is None or not message.preview_id.strip():
             raise ValueError("Message has no advertised preview ID; refresh metadata")
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         current = self._checked_mailbox(message.folder)
         requested_folder = current.name
         response = self._post(
