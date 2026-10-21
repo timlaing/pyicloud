@@ -14,7 +14,14 @@ represent bounded snapshots, not a complete synchronization protocol.
 actions. Only named `seen` and `flagged` set/clear deltas were captured. Account
 and message identifiers and counters are invented; no raw captures or credentials
 are included. Populated failure maps in tests are synthetic adversarial cases,
-not additional live protocol evidence.
+not additional live protocol evidence for flag writes.
+
+`move_request.json` and `move_response.json` model captured ordinary mailbox-only
+moves: the acknowledgement is an empty object, not a flag-update counter.
+`move_conflicting_response.json` minimizes a real observed response containing
+both a success and a failure for the same source ID. All identifiers and account
+values are synthetic. That contradictory outcome requires fresh reconciliation,
+not an automatic retry or a claim that nothing changed.
 
 `thread_messages_response.json` models individual metadata records filtered by
 `appleThrid` within one folder. Its marker is synthetic and must not be treated

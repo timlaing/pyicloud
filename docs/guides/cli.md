@@ -87,6 +87,11 @@ bulk scan. See [Mail flag updates](../services/mail.md#explicit-message-flag-upd
 for identity guards and uncertain outcomes. Refresh metadata before deciding
 whether to retry a failed or interrupted write.
 
+Use `icloud mail move '<message-id>' --folder-id '<source-id>' --destination-id
+'<destination-id>'` for an explicit mailbox-only move. See
+[Mail moves](../services/mail.md#explicit-message-moves) for folder restrictions,
+Trash/restore, changing message IDs, and uncertain outcomes.
+
 If you would like to delete a password stored in your system keyring,
 use the dedicated keyring subcommand:
 

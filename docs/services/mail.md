@@ -2,9 +2,9 @@
 
 Mail support is **experimental**, using the iCloud web interface's undocumented
 HTTP API. Read operations have been verified on one account. Explicit
-single-message read/unread and flag/unflag writes are available separately;
-ordinary reads never change flags. Sending, drafts, folder changes,
-moving/deleting messages, and incremental synchronization are not supported.
+single-message read/unread, flag/unflag, and ordinary mailbox moves are available
+separately; ordinary reads never change flags. Sending, drafts, folder changes,
+permanent message deletion, and incremental synchronization are not supported.
 The `icloud mail` commands expose the same bounded API.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
 
@@ -66,6 +66,63 @@ UIDs are local to a mailbox incarnation. When saving a UID, retain its folder ID
 and UID validity; never attach an old UID to a newly recreated mailbox's UID
 validity. These checks protect the lookup, not every later operation: a message
 may still be moved or deleted after it is returned.
+
+## Explicit Message Moves
+
+`MailService.move(message, destination)` moves one exact folder-bound message.
+Use fresh `MailFolder` objects from `folders()` and exact metadata lookup:
+
+```python
+folders = api.mail.folders()
+source = next(folder for folder in folders if folder.id == source_folder_id)
+destination = next(folder for folder in folders if folder.id == destination_folder_id)
+message = api.mail.message(source, message_id)
+if message is not None:
+    acknowledgement = api.mail.move(message, destination)
+```
+
+```console
+icloud mail move '<message-id>' --folder-id '<source-id>' --destination-id '<destination-id>' --format json
+```
+
+Both folder IDs are explicit; there is no implicit destination, newest-message
+scan, bulk move, or automatic retry. Fresh metadata must identify the source
+message and both mailbox namespaces. Capability queries use the browser-observed
+`name` and integer `flags` properties. Only zero-flag ordinary folders are
+supported; nonzero or missing flags fail closed without guessing individual bit
+meanings. The browser's canonical server names `Junk`, `Drafts`, `/VIP`, and
+`/REMIND_ME` are rejected, independently of translated display labels. Junk and
+Drafts have additional write semantics that are not implemented here.
+
+The submitted patch changes only mailbox membership. It does not explicitly
+change read/unread or flagged state. Apple may update internal metadata flags
+and assigns a new folder-local UID; the message identifier can also change.
+`MailMoveUpdate` contains only `source_message_id`, `source_folder_id`, and
+`destination_folder_id`. It acknowledges the submitted old ID, **not** the new
+destination identity or current state. Never reuse the old `MailMessage` for a
+second write. Refresh destination metadata and independently verify identity;
+subjects alone are not unique identifiers.
+
+Moving to a verified Trash folder is recoverable movement. Restoring means an
+explicit move from Trash to the intended destination. No permanent deletion
+endpoint is called, even when the source is Trash. This differs from the
+browser's Trash shortcut, which also requests a read-state change. Archive can
+likewise be an explicit ordinary-folder destination.
+
+An exact failure without successes raises `MailWriteRejected`. Timeouts,
+malformed acknowledgements, wrong accounts or IDs, late response failures, or
+contradictory success/failure entries raise `MailWriteUncertain`. The latter
+contradiction was observed in a real Trash response even though the message
+actually moved. Inspect both folders before deciding whether to retry; never
+assume an exception means nothing happened. Preflight is not an atomic
+conditional write, and no compensating move or POST retry is performed. Custom
+transport adapters must not retry mutation POSTs.
+
+An authorized live test exercised two library moves and two mounted CLI moves,
+restoring one disposable message to Inbox. Fresh metadata verified every
+destination and unread/unflagged state; other observed records in the three
+small test folders were unchanged. Exactly four mailbox-only writes occurred,
+without retries. This does not establish atomicity or large-folder guarantees.
 
 ## Explicit Message Flag Updates
 

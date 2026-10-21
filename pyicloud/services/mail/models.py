@@ -1,4 +1,4 @@
-"""Typed Mail envelopes, bounded read results, and flag acknowledgements."""
+"""Typed Mail envelopes, bounded read results, and write acknowledgements."""
 
 from __future__ import annotations
 
@@ -78,6 +78,14 @@ class MailFlagUpdate(MailModel):
     flag: Literal["seen", "flagged"]
     enabled: bool = Field(strict=True)
     modseq: int = Field(strict=True, gt=0)
+
+
+class MailMoveUpdate(MailModel):
+    """Source acknowledgement only; fresh destination metadata is required."""
+
+    source_message_id: Identifier
+    source_folder_id: Identifier
+    destination_folder_id: Identifier
 
 
 class MailMessagePage(MailModel):

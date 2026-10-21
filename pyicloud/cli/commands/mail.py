@@ -1,4 +1,4 @@
-"""Mail reads and explicit single-message flag commands."""
+"""Mail reads and explicit single-message flag and move commands."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from pyicloud.services.mail import (
 )
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
-app = typer.Typer(help="Read Mail and explicitly update individual message flags.")
+app = typer.Typer(help="Read Mail and explicitly mark or move individual messages.")
 
 FolderOption = Annotated[
     str, typer.Option("--folder-id", help="Exact folder ID from mail folders.")
@@ -296,6 +296,61 @@ def mail_mark(
             "Mail Flag Acknowledgement",
             ["Message ID", "Flag", "Enabled", "Modseq"],
             [(result.message_id, result.flag, result.enabled, result.modseq)],
+        )
+
+
+@app.command("move")
+def mail_move(
+    ctx: typer.Context,
+    message_id: Annotated[str, typer.Argument(help=_MESSAGE_ID_HELP)],
+    folder_id: FolderOption,
+    destination_id: Annotated[
+        str, typer.Option("--destination-id", help="Exact destination folder ID.")
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Move one exact message, preserving flags; never retry an uncertain write.
+
+    Trash is a move destination, not permanent deletion. Junk and Drafts moves
+    are unsupported. IDs can change: refresh destination metadata afterward.
+    """
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    source = _folder(api, mail, folder_id)
+    destination = _folder(api, mail, destination_id)
+    message = _mail_call(api, lambda: mail.message(source, message_id))
+    if message is None:
+        raise CLIAbort("Message not found in this folder; no move submitted.")
+    result = _mail_call(api, lambda: mail.move(message, destination))
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Mail Move Acknowledgement",
+            ["Source Message ID", "Source Folder ID", "Destination Folder ID"],
+            [
+                (
+                    result.source_message_id,
+                    result.source_folder_id,
+                    result.destination_folder_id,
+                )
+            ],
         )
 
 
