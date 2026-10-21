@@ -286,6 +286,101 @@ one account, not every MIME structure or a globally atomic mail snapshot.
 
 ## Loading More Messages
 
+### Scoped UID Verification
+
+Authorized metadata-only checks on 2026-10-19 combined descending UID ordering
+and strict lower-UID boundaries with an `appleThrid` equality predicate or a
+`flags` field predicate (`SEEN == false` or `FLAGGED == true`). Page size one
+returned two thread members, one unread message, and two flagged messages,
+respectively, followed by empty terminal pages. Each identity set matched an
+independent bounded query below its 1,000-record ceiling; mailbox UID validity
+was checked around reads. No bodies, attachment downloads, or mutations were
+requested. This is protocol evidence on one small account, not a large-mailbox
+snapshot guarantee. Offline tests cover large pages, timestamp ties, bad scopes,
+duplicates, changing membership, page errors, and explicit exhaustion.
+
+The public scoped iterators share the mailbox iterator's UID progress and safety
+checks. Their individual-message results must not be conflated with grouped
+search or filtered thread results. Flags can change while scanning, so UID-range
+exhaustion does not establish a single consistent view of matching messages.
+
+These predicates do not establish full-text search pagination: a read-only
+probe combining text matching with UID ordering returned HTTP 400, and a
+date-ordered text query with a UID boundary returned HTTP 500. Neither error
+means an empty result or completed scan. The observed browser search instead
+uses overlapping date-bounded lightweight matches and UID detail batches.
+
+### Search and Grouped-Filter Follow-Up
+
+Additional metadata-only checks on 2026-10-19 tested the general `geqs/query`
+endpoint, without changing the public API. Full-text matching with UID ordering
+returned HTTP 400 there too. Adding a strict lower-UID predicate returned HTTP
+500 both with normal date ordering and with no ordering. These failures do not
+establish a usable UID continuation strategy for search.
+
+An independent bounded comparison found 357 matching Sent messages and 275
+grouped search hits. The group IDs equalled the distinct `appleThrid` values in
+the matching messages. This confirms the distinction between individual matches
+and grouped results on this account; neither count proves general pagination.
+
+A strict older-date predicate matched the expected subset. However, date
+equality was not an exact timestamp discriminator: it returned two baseline
+records when only one had the selected timestamp. A separate one-millisecond
+date-window probe using `ge` and `lt` returned HTTP 400. The production predicate
+model was not extended for this probe. Do not assume date equality can exhaust
+timestamp ties or infer undocumented date precision from this small sample.
+
+Grouped-filter probes compared `THREAD_DIGEST` with `maxResults: 1` against
+`THREAD_ID_AND_DATE` with `maxResults: 1000`. Unread returned one group in both;
+flagged returned one digest but two lightweight groups. The digest IDs were
+subsets of the lightweight IDs. Neither response advertised a continuation
+field, demonstrating a truncated group response without a continuation token.
+Fresh session headers were used, not replayed as paging cursors. No active
+captured Mail request submitted a `continuationMarker` during this inspection.
+
+Search and grouped-filter enumeration therefore remain unimplemented. A safe
+next step requires verified boundary/tie semantics or a real continuation
+handshake, including behavior at the 1,000-result ceiling. Never treat missing
+markers, short pages, server errors, or change tokens as proof of exhaustion.
+All these follow-up checks excluded bodies, attachment downloads, and mutations;
+raw captures and account-specific metadata remain outside Git.
+
+### Browser Date Ranges and Search Paging Candidate
+
+A later user capture distinguished literal text `Last week` from a recognized
+date-search token. The recognized range used two `stateInternalDate` predicates,
+strict `gt` and strict `lt`, with integer millisecond boundaries. Combining the
+range with unrestricted text matching returned the same observed date scope.
+This is different from the previously rejected `ge` probe; it does not require
+extending the production predicate model until a public date-search API exists.
+
+Bounded read-only probes using the captured `gt`/`lt` form partitioned 357
+matching Sent messages into 178 older and 179 newer-or-boundary records, each
+matching its independent baseline subset. An open bracket from one millisecond
+below an integer timestamp to one millisecond above it isolated the expected
+boundary record. Date equality alone is still not a reliable discriminator:
+an earlier sample included another record with a different timestamp.
+
+An exploratory scan then requested 25 date-ordered matches at a time, fetched
+each boundary timestamp bucket with the strict bracket, and continued strictly
+before that timestamp. Fourteen pages of 25, a page of seven, and an empty page
+yielded all 357 baseline identities without gaps. All 15 boundary buckets had
+one record. Mailbox identity was checked around reads; no opaque marker was
+replayed, and no bodies, attachment downloads, or mutations were requested.
+
+This verifies a candidate sequence on one account, not general search
+completeness. The data had no real timestamp ties. Before shipping, add tests
+for tied timestamps split across pages, server-side bucket truncation, saturated
+1,000-record buckets, unsupported timestamp precision, concurrent changes,
+identity conflicts, response-scope/order failures, and request-budget errors.
+The probe explicitly rejects saturated buckets rather than claiming exhaustion.
+An under-limit bucket alone must not be assumed complete without verified
+server behavior; larger or tied buckets still need continuation evidence.
+Individual matching messages must also remain distinct from the existing
+grouped search results. No public search-pagination API was added here.
+
+### Mailbox Loading
+
 The Sent Messages capture demonstrates a two-stage listing strategy:
 
 1. Request detailed metadata with a limit of 50.
