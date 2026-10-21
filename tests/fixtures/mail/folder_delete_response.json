@@ -1,0 +1,11 @@
+{
+  "accountId": "synthetic-account",
+  "created": null,
+  "destroyed": ["20"],
+  "newState": null,
+  "notCreated": null,
+  "notDestroyed": null,
+  "notUpdated": null,
+  "oldState": null,
+  "updated": null
+}

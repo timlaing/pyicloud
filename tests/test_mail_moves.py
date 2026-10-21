@@ -333,3 +333,13 @@ def test_move_cli_requires_explicit_destination() -> None:
     result = CliRunner().invoke(app, ["mail", "move", "id", "--folder-id", "10"])
     assert result.exit_code != 0
     assert "destination-id" in result.output
+
+
+@pytest.mark.parametrize("failure", [None, False, 0, "denied", [], {}, {"reason": 1}])
+def test_malformed_move_rejection_is_uncertain(case: MoveCase, failure: Any) -> None:
+    """A malformed per-key failure cannot establish a definite no-write result."""
+    case.response.json.return_value["updated"] = None
+    case.response.json.return_value["notUpdated"] = {case.message.id: failure}
+    with pytest.raises(MailWriteUncertain):
+        case.service.move(case.message, case.destination)
+    case.session.request_raw.assert_called_once()

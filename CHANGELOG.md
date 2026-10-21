@@ -18,6 +18,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add explicit Mail folder creation, leaf renaming, and confirmed irreversible deletion through the library and CLI, with Unicode name encoding, fresh identity checks, collision/system-folder protection, and no automatic mutation retries. Empty-folder preflight is not atomic; new arrivals can race deletion.
 - Add explicit single-message Mail moves through `MailService.move()` and `icloud mail move`, with fresh mailbox guards, mailbox-only patches, source-only acknowledgements, and no automatic retries. Trash/restore use explicit folder destinations; Junk, Drafts, labels, and nonzero-flag folders remain unsupported.
 - Add explicit single-message Mail read/unread and flag/unflag updates through `set_read()`, `set_flagged()`, and `icloud mail mark`, with fresh identity checks, targeted named-flag patches, typed acknowledgements, and distinct rejected/uncertain outcomes without automatic write retries.
 - Add exact folder-scoped Mail metadata lookup by message ID or UID, with mailbox UID-validity checks and explicit missing-message results.

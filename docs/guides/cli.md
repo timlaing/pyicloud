@@ -53,6 +53,8 @@ icloud calendar events --username jappleseed@apple.com --period week
 icloud contacts me --username jappleseed@apple.com
 icloud drive list /Documents --username jappleseed@apple.com
 icloud mail folders --format json
+icloud mail create-folder Research --format json
+icloud mail rename-folder Reference --folder-id '<folder-id>' --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --format json
 icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json

@@ -414,3 +414,15 @@ def test_cli_help_and_invalid_selectors_are_offline(args: list[str]) -> None:
         result = CliRunner().invoke(app, ["mail", "mark", *args])
     assert result.exit_code == (0 if args == ["--help"] else 2)
     get_api.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [None, False, 0, "denied", [], {}, {"reason": 1}])
+def test_malformed_per_message_rejection_is_uncertain(
+    case: FlagCase, failure: Any
+) -> None:
+    """Malformed failure-map values must not imply that a retry is safe."""
+    case.response.json.return_value["updated"] = None
+    case.response.json.return_value["notUpdated"] = {case.message.id: failure}
+    with pytest.raises(MailWriteUncertain, match="uncertain"):
+        change(case)
+    case.session.request_raw.assert_called_once()
