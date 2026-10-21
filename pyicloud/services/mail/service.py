@@ -1,4 +1,4 @@
-"""Experimental, read-only iCloud Mail HTTP service."""
+"""Experimental Mail reads and explicit single-message flag and move writes."""
 
 from __future__ import annotations
 
@@ -13,18 +13,37 @@ from requests import RequestException
 
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
+from pyicloud.services.mail._flags import (
+    FlagDelta,
+    FlagIntent,
+    FlagOperation,
+    FlagPatch,
+    FlagRequest,
+    FlagResponse,
+    MailFlag,
+)
+from pyicloud.services.mail._moves import (
+    MailboxReplacement,
+    MoveFolderResponse,
+    MoveOperation,
+    MovePatch,
+    MoveRequest,
+    MoveResponse,
+)
 from pyicloud.services.mail.models import (
     MIME_PART_PATTERN,
     FolderResponse,
     MailBody,
     MailBodyRequest,
     MailExpression,
+    MailFlagUpdate,
     MailFolder,
     MailFolderSearchPage,
     MailMessage,
     MailMessageExport,
     MailMessagePage,
     MailMessageRecord,
+    MailMoveUpdate,
     MailMultiSearchPage,
     MailOrder,
     MailPredicate,
@@ -49,6 +68,7 @@ MAX_RESULTS = 1000
 MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
+_MESSAGE_SCOPE_MISMATCH = "Message and folder identities do not match"
 _UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
@@ -79,6 +99,63 @@ _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
 
 class MailError(PyiCloudException):
     """An invalid response, incomplete enumeration, or failed attachment stream."""
+
+
+class MailWriteRejected(MailError):
+    """The server explicitly rejected the one requested update."""
+
+
+class MailWriteUncertain(MailError):
+    """A submitted write could not be confirmed; inspect state before retrying."""
+
+
+_FLAG_OUTCOME_UNKNOWN = (
+    "Mail flag update outcome is uncertain; refresh message metadata before "
+    "retrying. No automatic retry was performed."
+)
+_MOVE_OUTCOME_UNKNOWN = (
+    "Mail move outcome is uncertain; inspect both folders using fresh metadata "
+    "before retrying. Message IDs may change. No automatic retry was performed."
+)
+
+
+def _move_acknowledgement(
+    response: MoveResponse, account_id: str, message_id: str
+) -> None:
+    """Contradictory real-world move outcomes must never authorize a retry."""
+    if response.account_id != account_id or any((
+        response.created,
+        response.destroyed,
+        response.not_created,
+        response.not_destroyed,
+    )):
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+    if response.not_updated:
+        if set(response.not_updated) == {message_id} and not response.updated:
+            raise MailWriteRejected("Mail rejected the move; refresh metadata.")
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+    if response.updated is None or set(response.updated) != {message_id}:
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+
+
+def _flag_acknowledgement(
+    response: FlagResponse, account_id: str, message_id: str
+) -> int:
+    """Require an exact account and message outcome without exposing server data."""
+    if response.account_id != account_id or any((
+        response.created,
+        response.destroyed,
+        response.not_created,
+        response.not_destroyed,
+    )):
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    if response.not_updated:
+        if set(response.not_updated) == {message_id} and not response.updated:
+            raise MailWriteRejected("Mail rejected the flag update; refresh metadata.")
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    if response.updated is None or set(response.updated) != {message_id}:
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    return response.updated[message_id].modseq
 
 
 def validate_mail_endpoint(service_root: str) -> None:
@@ -208,11 +285,12 @@ def _uid_page(
 
 
 class MailService(BaseService):
-    """Read-only Mail with bounded reads and explicit UID-based enumeration.
+    """Bounded Mail reads and explicit single-message flag and move writes.
 
     Bounded methods remain snapshots; only explicit iterators opt into paging.
-    No mutations, HTML rendering, or incremental synchronization are performed.
-    Session authentication failures retain the library's existing exception types.
+    Reads never mutate mail. Flag changes and mailbox-only moves are explicit.
+    Sending, permanent deletion, HTML rendering, and synchronization are unsupported.
+    Read-side authentication failures retain the library's existing exception types.
     """
 
     def __init__(
@@ -275,6 +353,177 @@ class MailService(BaseService):
         if result.continuation_marker:
             raise MailError("Mail folder list requires unsupported continuation")
         return result.records
+
+    def set_read(self, message: MailMessage, *, read: bool) -> MailFlagUpdate:
+        """Set or clear only seen, after a fresh folder-local identity lookup.
+
+        The result acknowledges submission, not an atomic snapshot of later mail
+        state. A stale message is not mutated locally. An uncertain write must be
+        checked through fresh metadata before any explicit caller retry.
+        """
+        return self._set_flag(message, "seen", read)
+
+    def set_flagged(self, message: MailMessage, *, flagged: bool) -> MailFlagUpdate:
+        """Set or clear only flagged; never replace other flags or retry writes."""
+        return self._set_flag(message, "flagged", flagged)
+
+    def move(self, message: MailMessage, destination: MailFolder) -> MailMoveUpdate:
+        """Move one message without changing flags or guessing its new identity.
+
+        Fresh capability checks reject labels, non-selectable folders, Junk, and
+        Drafts. Moving to Trash is recoverable mailbox movement, not permanent
+        deletion or the browser's mark-read-and-trash shortcut. Acknowledgements
+        refer to the old identifier only; fetch new destination metadata before
+        another write. No retry or compensating move is performed.
+        """
+        if not isinstance(destination, MailFolder):
+            raise ValueError("A discovered destination MailFolder is required")
+        validity = destination.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive destination UID validity is required")
+        if isinstance(message, MailMessage) and message.folder.id == destination.id:
+            raise ValueError("Source and destination folders must differ")
+        account_id = self._write_identity(message)
+        self._move_folder(message.folder)
+        self._move_folder(destination)
+        request = MoveRequest(
+            batchUpdate=(
+                MoveOperation(
+                    ids=(message.id,),
+                    patch=MovePatch(
+                        mboxRef=MailboxReplacement(replace=(destination.id,))
+                    ),
+                ),
+            )
+        )
+        response = self._submit_update(
+            request, MoveResponse, "moveMessagesGems", _MOVE_OUTCOME_UNKNOWN
+        )
+        _move_acknowledgement(response, account_id, message.id)
+        return MailMoveUpdate(
+            source_message_id=message.id,
+            source_folder_id=message.folder.id,
+            destination_folder_id=destination.id,
+        )
+
+    def _move_folder(self, folder: MailFolder) -> None:
+        """Require an exact current namespace and known ordinary-folder semantics."""
+        result = self._post(
+            "geqs/query",
+            MailQuery(
+                domain="mailbox",
+                include_labels=True,
+                limit=2,
+                properties=["identifier", "uidValidity", "name", "flags"],
+                predicate=MailPredicate(
+                    type="eq",
+                    expression=MailExpression(property="identifier"),
+                    value=folder.id,
+                    and_=[
+                        MailPredicate(
+                            type="eq",
+                            expression=MailExpression(property="isMboxDeleted"),
+                            value=False,
+                        )
+                    ],
+                ),
+            ),
+            MoveFolderResponse,
+        )
+        if result.continuation_marker or len(result.records) != 1:
+            raise MailError("Move requires one exact current mailbox")
+        current = result.records[0]
+        if (
+            current.id != folder.id
+            or current.uid_validity != folder.uid_validity
+            or current.name != folder.name
+        ):
+            raise MailError("Mailbox identity changed; refresh folders before moving")
+        # These are browser-defined server names, not translated UI labels.
+        # Only the captured zero-flag ordinary mailbox shape is supported.
+        if current.flags != 0 or current.name in {
+            "Junk",
+            "Drafts",
+            "/VIP",
+            "/REMIND_ME",
+        }:
+            raise MailError(
+                "Moves involving labels, Junk, Drafts, or non-selectable folders "
+                "are unsupported"
+            )
+
+    def _set_flag(
+        self, message: MailMessage, flag: MailFlag, enabled: bool
+    ) -> MailFlagUpdate:
+        """Validate caller inputs and current identity before one mutation."""
+        if not isinstance(enabled, bool):
+            raise ValueError("The requested flag state must be a boolean")
+        account_id = self._write_identity(message)
+        delta = FlagDelta(set=(flag,)) if enabled else FlagDelta(clear=(flag,))
+        request = FlagRequest(
+            batchUpdate=(
+                FlagOperation(ids=(message.id,), patch=FlagPatch(flags=delta)),
+            )
+        )
+        # Browser intent names describe unread/flagged, not the inverse seen bit.
+        setting = enabled if flag == "flagged" else not enabled
+        intent: FlagIntent = "setMessageFlag" if setting else "clearMessageFlag"
+        response = self._submit_update(
+            request, FlagResponse, intent, _FLAG_OUTCOME_UNKNOWN
+        )
+        counter = _flag_acknowledgement(response, account_id, message.id)
+        return MailFlagUpdate(
+            message_id=message.id, flag=flag, enabled=enabled, modseq=counter
+        )
+
+    def _write_identity(self, message: MailMessage) -> str:
+        """Resolve exact fresh source identity before constructing a mutation."""
+        if not isinstance(message, MailMessage):
+            raise ValueError("A folder-bound MailMessage is required")
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
+        validity = message.folder.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive mailbox UID validity is required for writes")
+        account_id = self.params.get("dsid")
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise ValueError("A discovered account identifier is required for writes")
+        current = self.message_by_uid(message.folder, message.uid)
+        if current is None or current.id != message.id:
+            raise MailError("Message identity changed; refresh metadata before writing")
+        return account_id
+
+    def _submit_update(
+        self,
+        request: BaseModel,
+        response_type: type[ResponseModel],
+        intent: str,
+        uncertain_message: str,
+    ) -> ResponseModel:
+        """Do not normalize/replay authentication errors after submitting a write."""
+        try:
+            response = self.session.request_raw(
+                "POST",
+                f"{self.service_root}/mailws2/v1/email/set",
+                params={**self.params, "clientIntent": intent},
+                json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+                timeout=DEFAULT_TIMEOUT,
+                allow_redirects=False,
+            )
+        except (PyiCloudException, RequestException, OSError) as exc:
+            raise MailWriteUncertain(uncertain_message) from exc
+        try:
+            if response.status_code != 200:
+                raise MailWriteUncertain(uncertain_message)
+            try:
+                return response_type.model_validate(response.json())
+            except ValueError as exc:
+                raise MailWriteUncertain(uncertain_message) from exc
+        finally:
+            try:
+                response.close()
+            except (RequestException, OSError) as exc:
+                raise MailWriteUncertain(uncertain_message) from exc
 
     def messages(self, folder: MailFolder, *, limit: int = 50) -> MailMessagePage:
         """Read at most limit records, newest first; completeness is unknown."""
@@ -634,7 +883,7 @@ class MailService(BaseService):
         if message.preview_id is None or not message.preview_id.strip():
             raise ValueError("Message has no advertised preview ID; refresh metadata")
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         current = self._checked_mailbox(message.folder)
         requested_folder = current.name
         response = self._post(

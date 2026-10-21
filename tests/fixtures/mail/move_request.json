@@ -1,0 +1,9 @@
+{
+  "batchUpdate": [
+    {
+      "ids": ["lookup-message-7"],
+      "patch": { "mboxRef": { "replace": ["20"] } }
+    }
+  ],
+  "domain": "email"
+}
