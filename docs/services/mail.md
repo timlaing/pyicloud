@@ -3,21 +3,26 @@
 Mail support is **experimental**, using the iCloud web interface's undocumented
 HTTP API. Read operations have been verified on one account. Explicit
 single-message read/unread, flag/unflag, and ordinary mailbox moves are available
-separately, alongside explicit folder management and recipient-free draft saves;
-ordinary reads never change flags. Sending, recipient/attachment draft editing,
+separately, alongside explicit folder management, draft saves, and ordinary draft
+attachment uploads; ordinary reads never change flags. Sending, Mail Drop uploads,
 permanent message deletion, and incremental synchronization are not supported.
 The `icloud mail` commands expose the same bounded API.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
 
-## Recipient-Free Drafts
+## Drafts and Ordinary Attachments
 
-Draft creation and full replacement editing currently support **no recipients and
-no attachments**. Select an enabled address with `api.mail.senders()`; the login
-address is not a substitute:
+Select an enabled address with `api.mail.senders()`; the login address is not a
+substitute. Recipient tuples support one individual mailbox address per string,
+with optional display names; named address groups are not supported. Drafts are
+saved, **never sent**, even when they have recipients:
 
 ```python
 draft = api.mail.create_draft(
-    sender=chosen_address, subject="Working copy", text="First version", html=""
+    sender=chosen_address,
+    subject="Working copy",
+    text="First version",
+    html="",
+    to=("recipient@example.test",),
 )
 draft = api.mail.edit_draft(
     draft, subject="Revised working copy", text="Revised version", html=""
@@ -25,19 +30,60 @@ draft = api.mail.edit_draft(
 ```
 
 Every successful save returns a **new `MailDraft` handle**, containing fresh
-`message` metadata and a verified `sender`. Apple rotates the folder-local UID
+`message` metadata, a verified `sender`, explicit `to` / `cc` / `bcc` tuples, and
+account-bound attachment handles. Apple rotates the folder-local UID
 on save; the old UID/message ID must not be reused. Editing replaces all three
 subject/plain-text/HTML fields, so every replacement argument is required.
 Apple treats HTML as the canonical body: plain-only input is converted to safely
 escaped HTML, preserving line breaks, so empty HTML cannot silently discard it.
 Caller-supplied HTML is not sanitized or rendered. The two inputs do not guarantee
 independently preserved MIME alternatives. These methods do not send
-mail, upload attachments, enable addresses, or use Hide My Email.
+mail, implicitly upload files, enable addresses, or use Hide My Email.
+
+Upload ordinary attachment bytes in a **separate explicit write**, then include
+the returned handle in a save:
+
+```python
+attachment = api.mail.upload_draft_attachment(
+    b"Synthetic attachment content.\n",
+    filename="synthetic.txt",
+    content_type="text/plain",
+)
+draft = api.mail.create_draft(
+    sender=chosen_address,
+    to=("recipient@example.test",),
+    subject="Working copy",
+    text="Attached test content",
+    attachments=(attachment,),
+)
+```
+
+The uploader imposes a local **25 MiB per-file limit**, not a claim about Apple's
+account quota. It accepts bytes, a control-free basename, and a bare MIME type,
+not a URL, multipart body, Mail Drop item, or remote-fetch instruction. It uses a
+bounded timeout and never follows redirects or automatically retries. The reply
+must echo the submitted upload UUID, filename, byte size and MIME type. Part
+URLs must match the discovered gateway, exact part endpoint and cached identity.
+An interrupted upload may have created cached state; there is no automatic
+cleanup. Cached references may expire, and upload success does not save a draft.
+
+Edits **preserve** the saved handle's recipients and attachments when their
+arguments are omitted. Supplying a tuple replaces that entire role/list; an
+explicit empty tuple clears it. A full subject/plain-text/HTML replacement is
+still required. Persist the most recent returned handle, including any attachment
+identity mappings; do not reuse an earlier draft or pre-save attachment handle.
+Duplicate attachment filenames or cached IDs are refused. Ordinary upload
+support does not enable inline images, existing arbitrary attachment imports,
+or Mail Drop uploads.
 
 Before editing, fresh UID, message ID, Drafts namespace, sender, body identity,
-headers, and attachment metadata are checked. Existing recipient headers,
-attachments, unknown attachment status, stale handles, and unsupported body
-metadata fail before dispatch instead of silently erasing data. These checks
+headers, and attachment metadata are checked against the saved handle. Extra or
+changed recipients/attachments, unknown attachment status, stale handles, and
+unsupported body metadata fail before dispatch instead of silently erasing data.
+To/Cc/Bcc headers are checked again after a recipient-bearing save. A missing Bcc
+header cannot be assumed to prove a successful Bcc save. Attachment mappings
+must be complete, unique and reusable; an unsupported mapping remains uncertain.
+These checks
 are **not atomic conditional writes**: another client can still change the
 draft between inspection and submission. A failed post-save read or unverified
 acknowledgement raises `MailWriteUncertain`; inspect Drafts before any explicit
@@ -56,9 +102,8 @@ draft there; it does **not** permanently destroy it or empty Trash. The captured
 browser operation also requests the `seen` flag. Its source-only
 `MailMoveUpdate` does not supply a new destination UID or message ID. Conflicting
 success/error maps remain uncertain even if the draft moved; reconcile fresh
-Drafts/Trash metadata, do not retry automatically. Sending, nonempty-recipient
-drafts, attachment editing, and permanent message destruction remain separate
-work, not supported by these methods yet.
+Drafts/Trash metadata, do not retry automatically. Sending and permanent message
+destruction remain separate work, not supported by these methods.
 
 CLI body input comes from explicit local UTF-8 files rather than body text in
 shell arguments. `create-draft` defaults omitted bodies to empty strings;
@@ -71,6 +116,28 @@ icloud mail create-draft --sender '<enabled-address>' --subject 'Working copy' -
 icloud mail edit-draft '<current-message-id>' --folder-id '<drafts-id>' --sender '<enabled-address>' --subject 'Revised copy' --text-file ./body.txt --html-file ./empty.html --format json
 icloud mail discard-draft '<current-message-id>' --folder-id '<drafts-id>' --sender '<enabled-address>' --trash-id '<trash-id>' --format json
 ```
+
+For recipient/attachment drafts, save JSON output privately and supply it to the
+next edit/discard using `--draft-state`. The state cannot override the explicit
+message ID, folder ID, or sender. Without it, addressed or attached drafts are
+refused rather than silently cleared. For example (replace the IDs after each
+successful save):
+
+```sh
+umask 077
+icloud mail upload-draft-attachment --file ./synthetic.txt --content-type text/plain --format json > attachment.json
+icloud mail create-draft --sender '<enabled-address>' --to recipient@example.test --attachment-state ./attachment.json --subject 'Working copy' --format json > draft.json
+icloud mail edit-draft '<current-message-id>' --folder-id '<drafts-id>' --sender '<enabled-address>' --draft-state ./draft.json --subject 'Revised copy' --text-file ./body.txt --html-file ./empty.html --format json > next-draft.json
+```
+
+Repeat `--to`, `--cc`, `--bcc`, or `--attachment-state` for multiple entries.
+On edits, omitted options preserve saved expectations. Use `--clear-recipients`
+or `--clear-attachments` for intentional removal; they cannot be combined with
+replacement values. Body files remain mandatory for edits. State inputs are
+bounded to 128 KiB and validated before authentication. The upload command reads
+at most 25 MiB plus one byte to reject oversized local files. JSON handles contain
+private addresses and cached-part references; keep them outside version control
+and do not overwrite an input handle through shell redirection before reading it.
 
 No command implicitly chooses the newest draft, a sender, or a Trash destination.
 Save output reports replacement metadata, never the body text. Invalid local
@@ -88,7 +155,21 @@ success/error maps and correctly raised `MailWriteUncertain`, without retry.
 Fresh reads verified the draft absent from Drafts and present in Trash, with
 other observed mail unchanged during the edit/discard stages. No message was
 sent or permanently deleted. This is one-account evidence, not an atomicity or
-recipient/attachment editing guarantee.
+recipient/attachment editing guarantee. A subsequent authorized **browser**
+capture verified a recipient-bearing draft with one tiny ordinary text upload,
+the saved attachment reference and response mapping, and recoverable Trash
+cleanup. A subsequent implementation test used exactly four writes: a mounted-CLI
+upload, library draft creation addressed only to the authorized test address,
+one mounted-CLI edit preserving recipients/attachments, and library Trash discard.
+Fresh reads verified the created attachment bytes, edited body, rotating UID,
+preserved recipient and attachment metadata, and recoverable Trash location.
+Discard again reported an uncertain outcome without retry; fresh source and
+destination observations verified the move. Other observed metadata in Drafts,
+Trash, Sent, and Inbox was unchanged. The edited body and attachment bytes were
+also verified again in Trash, using only read requests after the four-write
+lifecycle. No message was sent or permanently deleted.
+This proves one recipient and an ordinary tiny text attachment on one account;
+Cc/Bcc and other attachment types have offline coverage, not equivalent live proof.
 
 ## Sender Identities
 

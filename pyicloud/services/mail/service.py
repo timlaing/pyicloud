@@ -20,6 +20,7 @@ from pyicloud.services.mail._draft_models import (
     DraftDiscardRequest,
     DraftSaveResponse,
 )
+from pyicloud.services.mail._draft_uploads import upload_attachment
 from pyicloud.services.mail._drafts import DRAFT_UNCERTAIN, DraftWriter
 from pyicloud.services.mail._flags import (
     FlagDelta,
@@ -59,6 +60,7 @@ from pyicloud.services.mail.models import (
     MailBody,
     MailBodyRequest,
     MailDraft,
+    MailDraftAttachment,
     MailExpression,
     MailFlagUpdate,
     MailFolder,
@@ -264,7 +266,7 @@ class MailService(BaseService):
     """Bounded Mail reads and explicit message and folder writes.
 
     Bounded methods remain snapshots; only ``iter_messages`` opts into paging.
-    Reads never mutate mail. Folder and recipient-free draft writes are explicit.
+    Reads never mutate mail. Folder, draft and ordinary upload writes are explicit.
     Sending, permanent message deletion, rendering, and sync are unsupported.
     Read-side authentication failures retain the library's existing exception types.
     """
@@ -382,33 +384,85 @@ class MailService(BaseService):
         finally:
             response.close()
 
+    def upload_draft_attachment(
+        self,
+        data: bytes,
+        *,
+        filename: str,
+        content_type: str = "application/octet-stream",
+    ) -> MailDraftAttachment:
+        """Upload at most 25 MiB of attachment bytes, without saving or sending.
+
+        This creates a cached part, not a draft or a Mail Drop upload. An uncertain
+        outcome must not be retried blindly; automatic cache cleanup is unavailable.
+        """
+        return upload_attachment(
+            self.session, self.service_root, self.params, data, filename, content_type
+        )
+
     def create_draft(
-        self, *, sender: str, subject: str = "", text: str = "", html: str = ""
+        self,
+        *,
+        sender: str,
+        subject: str = "",
+        text: str = "",
+        html: str = "",
+        to: tuple[str, ...] = (),
+        cc: tuple[str, ...] = (),
+        bcc: tuple[str, ...] = (),
+        attachments: tuple[MailDraftAttachment, ...] = (),
     ) -> MailDraft:
-        """Create a recipient-free, attachment-free draft without sending it.
+        """Create a draft with explicit recipients and uploaded parts, without sending.
 
         Select an enabled address from senders(). Plain-only input is escaped
         into HTML because Apple treats HTML as canonical. Caller-supplied HTML
         is not sanitized or rendered. Never blindly retry an uncertain save.
         """
-        return self._draft_writer().save(sender, subject, text, html, None)
+        return self._draft_writer().save(
+            sender,
+            subject,
+            text,
+            html,
+            None,
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            attachments=attachments,
+        )
 
     def edit_draft(
-        self, draft: MailDraft, *, subject: str, text: str, html: str
+        self,
+        draft: MailDraft,
+        *,
+        subject: str,
+        text: str,
+        html: str,
+        to: tuple[str, ...] | None = None,
+        cc: tuple[str, ...] | None = None,
+        bcc: tuple[str, ...] | None = None,
+        attachments: tuple[MailDraftAttachment, ...] | None = None,
     ) -> MailDraft:
         """Replace all subject/body fields and return a new rotating-UID handle.
 
-        This currently refuses recipients and attachments rather than silently
-        erasing them. Fresh preflight is not an atomic conditional save.
+        Omitted recipient/attachment arguments preserve the handle's expectations;
+        explicit empty tuples clear them. Fresh preflight is not an atomic save.
         """
         if not isinstance(draft, MailDraft):
             raise ValueError("A saved MailDraft handle is required")
         return self._draft_writer().save(
-            draft.sender.address, subject, text, html, draft
+            draft.sender.address,
+            subject,
+            text,
+            html,
+            draft,
+            to=draft.to if to is None else to,
+            cc=draft.cc if cc is None else cc,
+            bcc=draft.bcc if bcc is None else bcc,
+            attachments=draft.attachments if attachments is None else attachments,
         )
 
     def discard_draft(self, draft: MailDraft, trash: MailFolder) -> MailMoveUpdate:
-        """Move one verified recipient-free draft to the explicit Trash mailbox.
+        """Move one verified draft to the explicit Trash mailbox.
 
         The captured browser operation also requests seen. This is not permanent
         destruction. Contradictory success/error maps remain uncertain even when
@@ -460,6 +514,8 @@ class MailService(BaseService):
             self.body,
             self._submit_draft,
             self.params.get("clientMasteringNumber", ""),
+            self.service_root,
+            self.params.get("dsid", ""),
         )
 
     def _draft_folder(self, previous: MailFolder | None) -> MailFolder:

@@ -8,14 +8,23 @@ from email.headerregistry import Address
 from email.parser import Parser
 from email.utils import formatdate
 from html import escape
+from urllib.parse import urlencode
 
 from requests import RequestException
 
 from pyicloud.exceptions import PyiCloudException
 
 from ._draft_models import DraftCreateRequest, DraftEditRequest, DraftSaveResponse
+from ._draft_uploads import attachment_references
 from .exceptions import MailError, MailWriteUncertain
-from .models import MailBody, MailDraft, MailFolder, MailMessage, MailSender
+from .models import (
+    MailBody,
+    MailDraft,
+    MailDraftAttachment,
+    MailFolder,
+    MailMessage,
+    MailSender,
+)
 
 DRAFT_UNCERTAIN = (
     "Mail draft save outcome is uncertain; inspect Drafts before retrying. "
@@ -47,6 +56,68 @@ def header_sender(value: str) -> str:
     return address
 
 
+def recipient_addresses(values: tuple[str, ...]) -> tuple[str, ...]:
+    """Validate one mailbox per explicit recipient, without groups or injection."""
+    if not isinstance(values, tuple):
+        raise ValueError("Recipients must be a tuple of address strings")
+    result: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            raise ValueError("Recipients must be address strings")
+        try:
+            value.encode("utf-8")
+            address = header_sender(value)
+            parsed = Address(addr_spec=address)
+        except (MailError, UnicodeError, ValueError) as exc:
+            raise ValueError("Invalid draft recipient") from exc
+        if not parsed.domain or not parsed.username or ":" in value:
+            raise ValueError("Draft recipients require individual mailbox addresses")
+        result.append(parsed.username + "@" + parsed.domain.casefold())
+    return tuple(result)
+
+
+def checked_recipients(body: MailBody, draft: MailDraft) -> None:
+    """Compare fresh headers with the handle, including Bcc and Resent guards."""
+    headers = Parser(policy=policy.default).parsestr(body.headers, headersonly=True)
+    if headers.defects or any(
+        value.strip()
+        for name in ("Resent-To", "Resent-Cc", "Resent-Bcc")
+        for value in headers.get_all(name, [])
+    ):
+        raise MailError("Draft headers are malformed or contain Resent recipients")
+    for name, expected in (("To", draft.to), ("Cc", draft.cc), ("Bcc", draft.bcc)):
+        values = headers.get_all(name, [])
+        if len(values) > 1:
+            raise MailError("Duplicate draft recipient headers")
+        actual = values[0] if values else None
+        if actual is not None and (
+            actual.defects or any(g.display_name is not None for g in actual.groups)
+        ):
+            raise MailError("Draft recipient headers are malformed or grouped")
+        addresses = (
+            ()
+            if actual is None
+            else tuple(a.username + "@" + a.domain.casefold() for a in actual.addresses)
+        )
+        if addresses != recipient_addresses(expected):
+            raise MailError("Draft recipient state changed; refresh before writing")
+
+
+def checked_attachments(message: MailMessage, draft: MailDraft) -> None:
+    """Do not clear unrecognized attachments during a full replacement save."""
+    parts = [p for p in message.parts if p.is_attachment]
+    if message.has_attachment is not bool(draft.attachments) or len(parts) != len(
+        draft.attachments
+    ):
+        raise MailError("Draft attachment state does not match the saved handle")
+    expected = sorted(
+        (a.reference.name, a.reference.datatype) for a in draft.attachments
+    )
+    actual = sorted((p.filename or "", p.content_type) for p in parts)
+    if actual != expected:
+        raise MailError("Draft attachment metadata changed; refresh before writing")
+
+
 @dataclass(frozen=True)
 class DraftWriter:
     """Keep identity/body validation separate from authenticated HTTP transport."""
@@ -57,6 +128,8 @@ class DraftWriter:
     body: Callable[[MailMessage], MailBody]
     submit: Callable[[DraftCreateRequest], DraftSaveResponse]
     client_build: str
+    service_root: str
+    account_id: str
 
     def checked(self, draft: MailDraft) -> MailMessage:
         """Verify the exact current draft and refuse destructive full replacements."""
@@ -66,24 +139,17 @@ class DraftWriter:
         current = self.lookup(folder, draft.message.uid)
         if current is None or current.id != draft.message.id:
             raise MailError("Draft identity changed; refresh before writing")
-        if current.has_attachment is not False or any(
-            p.is_attachment for p in current.parts
-        ):
-            raise MailError(
-                "Drafts with attachments are not supported by this operation"
-            )
+        attachment_references(draft.attachments, self.service_root, self.account_id)
+        checked_attachments(current, draft)
+        if [p for p in current.parts if p.is_attachment] != [
+            p for p in draft.message.parts if p.is_attachment
+        ]:
+            raise MailError("Draft attachment parts changed; refresh before writing")
         body = self.body(current)
         if body.guid != f"message:Drafts/{current.uid}":
             raise MailError("Draft body belongs to a different identity")
         headers = Parser(policy=policy.default).parsestr(body.headers, headersonly=True)
-        if headers.defects or any(
-            value.strip()
-            for name in ("To", "Cc", "Bcc", "Resent-To", "Resent-Cc", "Resent-Bcc")
-            for value in headers.get_all(name, [])
-        ):
-            raise MailError(
-                "Only recipient-free drafts are supported by this operation"
-            )
+        checked_recipients(body, draft)
         sender_headers = headers.get_all("From", [])
         if (
             len(sender_headers) != 1
@@ -99,10 +165,25 @@ class DraftWriter:
         return current
 
     def save(
-        self, sender: str, subject: str, text: str, html: str, draft: MailDraft | None
+        self,
+        sender: str,
+        subject: str,
+        text: str,
+        html: str,
+        draft: MailDraft | None,
+        *,
+        to: tuple[str, ...] = (),
+        cc: tuple[str, ...] = (),
+        bcc: tuple[str, ...] = (),
+        attachments: tuple[MailDraftAttachment, ...] = (),
     ) -> MailDraft:
-        """Save a full recipient-free replacement and return the new UID handle."""
+        """Save explicit content and return verified replacement identities."""
         self._inputs(sender, subject, text, html)
+        for values in (to, cc, bcc):
+            recipient_addresses(values)
+        references = attachment_references(
+            attachments, self.service_root, self.account_id
+        )
         # Apple treats HTML as canonical and discards textBody when HTML is
         # empty. Preserve plain-only input as escaped text, never raw markup.
         if text and not html:
@@ -131,6 +212,10 @@ class DraftWriter:
             "textBody": text,
             "htmlBody": html,
             "webmailClientBuild": self.client_build,
+            "to": list(to),
+            "cc": list(cc),
+            "bcc": list(bcc),
+            "attachments": [r.model_dump(by_alias=True) for r in references],
         }
         request = (
             DraftCreateRequest.model_validate(common)
@@ -142,6 +227,7 @@ class DraftWriter:
         )
         response = self.submit(request)
         try:
+            remapped = self._remap_attachments(attachments, response)
             uid = int(response.uid)
             if previous is not None and uid == previous.uid:
                 raise MailError("Draft save did not rotate the UID")
@@ -159,9 +245,62 @@ class DraftWriter:
                 and self.lookup(current_folder, previous.uid) is not None
             ):
                 raise MailError("The previous draft UID is still present")
-            return MailDraft(message=current, sender=verified)
+            saved = MailDraft(
+                message=current,
+                sender=verified,
+                to=to,
+                cc=cc,
+                bcc=bcc,
+                attachments=remapped,
+            )
+            checked_attachments(current, saved)
+            if to or cc or bcc:
+                body = self.body(current)
+                if body.guid != f"message:Drafts/{current.uid}":
+                    raise MailError("Saved draft body belongs to a different identity")
+                checked_recipients(body, saved)
+            return saved
         except (PyiCloudException, RequestException, OSError, ValueError) as exc:
             raise MailWriteUncertain(DRAFT_UNCERTAIN) from exc
+
+    def _remap_attachments(
+        self, attachments: tuple[MailDraftAttachment, ...], response: DraftSaveResponse
+    ) -> tuple[MailDraftAttachment, ...]:
+        """Require a complete one-to-one mapping before returning reusable handles."""
+        mappings = response.attachments or []
+        if len(mappings) != len(attachments) or len({
+            m.request_guid for m in mappings
+        }) != len(mappings):
+            raise MailError("Draft attachment mappings are incomplete or unexpected")
+        result = []
+        for attachment in attachments:
+            reference = attachment.reference
+            matches = [m for m in mappings if m.request_guid == reference.guid]
+            if len(matches) != 1 or not matches[0].new_guid:
+                raise MailError("Draft attachment mapping has no verified new identity")
+            mapping = matches[0]
+            fields = reference.model_dump(by_alias=True)
+            fields.update({
+                "guid": mapping.new_guid,
+                "contentID": mapping.content_id or mapping.new_guid,
+                "url": self.service_root.rstrip("/")
+                + "/mailws2/v1/message/part?"
+                + urlencode({
+                    "guid": mapping.new_guid,
+                    "code": "base64",
+                    "name": reference.name,
+                    "type": reference.datatype,
+                }),
+            })
+            result.append(
+                MailDraftAttachment(
+                    account_id=self.account_id,
+                    service_root=self.service_root,
+                    reference=type(reference).model_validate(fields),
+                )
+            )
+        attachment_references(tuple(result), self.service_root, self.account_id)
+        return tuple(result)
 
     @staticmethod
     def _inputs(sender: str, subject: str, text: str, html: str) -> None:

@@ -3,6 +3,7 @@
 from .models import (
     MailBody,
     MailDraft,
+    MailDraftAttachment,
     MailFlagUpdate,
     MailFolder,
     MailFolderDeletion,
@@ -26,6 +27,7 @@ from .service import MailError, MailService, MailWriteRejected, MailWriteUncerta
 __all__ = [
     "MailBody",
     "MailDraft",
+    "MailDraftAttachment",
     "MailError",
     "MailFlagUpdate",
     "MailFolder",

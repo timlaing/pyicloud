@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Treat unexpected attachment identity mappings on an attachment-free Mail draft save as an uncertain outcome instead of accepting unrequested attachment effects.
 - Explain the explicit `--limit N` fallback when Mail CLI exact lookup cannot use a folder without positive UID validity; never silently broaden the lookup.
 - Accept whitespace-padded plain-text and HTML body media types without changing the supported types or marking messages read.
 - Reject whitespace-padded HTML attachment responses and report advertised Mail endpoints with credentials, query strings, or fragments as malformed in diagnostics.
@@ -18,6 +19,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Extend Mail drafts with explicit To/Cc/Bcc recipients and account-bound ordinary attachment handles, preserving them by default during edits. Add bounded raw-byte uploads, attachment identity remapping, private CLI state inputs, and explicit clear options; sending and Mail Drop uploads remain unsupported.
 - Add explicit recipient-free, attachment-free Mail draft creation, full subject/body replacement, and recoverable Trash discard through the library and CLI, with verified senders, fresh draft identity checks, rotating-UID handles, UTF-8 file input, and no automatic write retries. Sending and permanent message destruction remain unsupported.
 - Add read-only Mail sender discovery from authenticated account preferences, excluding inactive and disabled identities instead of inferring a sender from the Apple login address.
 - Add explicit Mail folder creation, leaf renaming, and confirmed irreversible deletion through the library and CLI, with Unicode name encoding, fresh identity checks, collision/system-folder protection, and no automatic mutation retries. Empty-folder preflight is not atomic; new arrivals can race deletion.
@@ -41,6 +43,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Add synthetic ordinary Mail draft-upload, attachment-reference, and attachment-remapping fixtures with strict offline protocol validation. These do not enable attachment uploads or sending by themselves.
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.
 
 ### Documentation
