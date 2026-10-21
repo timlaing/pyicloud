@@ -4,6 +4,7 @@
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
+from unittest.mock import call as mock_call
 
 from pydantic import ValidationError
 import pytest
@@ -548,7 +549,7 @@ def test_mail_property(pyicloud_service: PyiCloudService) -> None:
         mail = pyicloud_service.mail
         assert isinstance(mail, MailService)
         assert pyicloud_service.mail is mail
-        discover.assert_called_once_with("mccgateway")
+        assert discover.call_args_list == [mock_call("mccgateway"), mock_call("mcc")]
 
 
 def test_missing_mail_service(pyicloud_service: PyiCloudService) -> None:
@@ -562,6 +563,23 @@ def test_missing_mail_service(pyicloud_service: PyiCloudService) -> None:
         pytest.raises(PyiCloudServiceNotActivatedException),
     ):
         _ = pyicloud_service.mail
+
+
+def test_missing_optional_sender_settings_keeps_mail_available(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """The additional settings host is not required for existing Mail reads."""
+    with patch.object(
+        pyicloud_service,
+        "get_webservice_url",
+        side_effect=[
+            "https://example.test",
+            PyiCloudServiceNotActivatedException("mcc"),
+        ],
+    ):
+        mail = pyicloud_service.mail
+    assert isinstance(mail, MailService)
+    assert mail._settings_root is None
 
 
 @pytest.mark.parametrize(

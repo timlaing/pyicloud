@@ -1795,10 +1795,15 @@ class PyiCloudService:
         if self._mail is None:
             service_root: str = self.get_webservice_url("mccgateway")
             try:
+                settings_root = self.get_webservice_url("mcc")
+            except PyiCloudServiceNotActivatedException:
+                settings_root = None
+            try:
                 self._mail = MailService(
                     service_root=service_root,
                     session=self.session,
                     params=self.params,
+                    settings_root=settings_root,
                 )
             except ValueError as error:
                 # A discovered URL Mail's stricter validation rejects (query,

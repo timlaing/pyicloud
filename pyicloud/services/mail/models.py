@@ -27,6 +27,13 @@ class MailFolder(MailModel):
     message_count: int | None = Field(default=None, alias="messageCount")
 
 
+class MailSender(MailModel):
+    """An address explicitly enabled by the authenticated Mail account."""
+
+    address: Identifier = Field(repr=False)
+    display_name: str = Field(default="", repr=False)
+
+
 class MailPart(MailModel):
     """MIME metadata; size can describe the encoded representation."""
 

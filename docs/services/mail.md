@@ -8,6 +8,17 @@ permanent message deletion, and incremental synchronization are not supported.
 The `icloud mail` commands expose the same bounded API.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
 
+## Sender Identities
+
+`api.mail.senders()` reads enabled sender addresses from the authenticated
+account's discovered Mail settings endpoint. Each `MailSender` has `address` and
+`display_name`. The Apple login address is not assumed to be a Mail address.
+Inactive aliases and addresses without explicit sending permission are excluded;
+no account preference is changed. A malformed, ambiguous, or wrong-account
+response raises `MailError` rather than choosing or enabling an address.
+These reads do not create drafts or send mail. Other returned account preferences
+are neither exposed through these models nor persisted.
+
 ## Explicit Folder Management
 
 Create and rename one custom folder at a time:

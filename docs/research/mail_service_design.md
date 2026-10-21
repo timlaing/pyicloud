@@ -7,8 +7,10 @@
 ### Additional Write Investigation (2026-10-21)
 
 The ordinary-move library and CLI implementation uses the observations below.
-Folder management and draft observations are evidence for subsequent work, not
-implemented public APIs. The remaining work covers folder management, drafts,
+Folder management now implements the captured create, rename, and delete shapes
+with fresh identity guards and explicit irreversible-deletion confirmation.
+Draft observations remain evidence for subsequent work, not implemented draft
+APIs. The remaining work covers drafts,
 sending/replies/forwarding with attachments, and permanent deletion. Live sends
 and permanent message deletion require separate authorization.
 
@@ -67,6 +69,18 @@ contained a decimal-string `uid`. Each successful save returned a new UID,
 including automatic saves while typing. Do not guess an idempotency key or
 reuse the previous draft reference after a successful save. The sender and
 client build must come from verified account/client context, not capture values.
+
+The captured browser reads sender preferences with a GET to its discovered `mcc`
+root, `cc/mail/v1/account/<discovered-dsid>/preference/web/all`, using
+`userEntryPoint=/mail/load`. A metadata-only probe confirmed the `account` object
+with `dsId`, `emailId`, `fullName`, `supportedDomains`, `aliases`, and
+`customDomains`. Domains explicitly advertise `allowSendFrom`; aliases also
+advertise `isActive` in the browser's declared schema. `MailService.senders()`
+now validates that projection, matches the account ID, and returns only explicitly
+enabled identities. A fresh public-API probe returned the same enabled primary
+address as the raw preferences projection without printing its value. No writes
+were made. Alias/custom-domain tests are synthetic, based on browser-declared
+shapes; this account had neither, so their live behavior remains unverified.
 
 After action-time confirmation to discard only this test draft, the list's
 Trash command issued the same mark-read-and-move patch as ordinary message

@@ -6,7 +6,7 @@ from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 import re
 from typing import Any, Literal, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from pydantic import BaseModel, ValidationError
 from requests import RequestException
@@ -38,6 +38,7 @@ from pyicloud.services.mail._moves import (
     MoveRequest,
     MoveResponse,
 )
+from pyicloud.services.mail._senders import SenderPreferences, sender_identities
 from pyicloud.services.mail._write_models import known_rejection
 from pyicloud.services.mail.exceptions import (
     MailError,
@@ -66,6 +67,7 @@ from pyicloud.services.mail.models import (
     MailPreviewRequest,
     MailQuery,
     MailSearchPage,
+    MailSender,
     MailSessionHeaders,
     MailThreadFilter,
     MailThreadFilterPage,
@@ -259,11 +261,17 @@ class MailService(BaseService):
     """
 
     def __init__(
-        self, service_root: str, session: PyiCloudSession, params: dict[str, Any]
+        self,
+        service_root: str,
+        session: PyiCloudSession,
+        params: dict[str, Any],
+        *,
+        settings_root: str | None = None,
     ) -> None:
         """Validate the discovered endpoint and copy session query parameters."""
         validate_mail_endpoint(service_root)
         super().__init__(service_root.rstrip("/"), session, dict(params))
+        self._settings_root = settings_root
 
     def _post(
         self,
@@ -318,6 +326,52 @@ class MailService(BaseService):
         if result.continuation_marker:
             raise MailError("Mail folder list requires unsupported continuation")
         return result.records
+
+    def senders(self) -> list[MailSender]:
+        """Read enabled primary, alias, and custom-domain sender addresses.
+
+        Use the authenticated account's discovered settings endpoint. A login
+        address is not necessarily a Mail address, so never infer one from it.
+        Disabled and inactive identities are not returned or silently enabled.
+        """
+        account_id = self.params.get("dsid")
+        if (
+            not isinstance(account_id, str)
+            or not account_id.isascii()
+            or not account_id.isdecimal()
+        ):
+            raise ValueError("A discovered decimal account identifier is required")
+        if self._settings_root is None:
+            raise MailError("Mail sender settings endpoint is unavailable")
+        root = self._settings_root.rstrip("/")
+        try:
+            validate_mail_endpoint(root)
+        except ValueError as exc:
+            raise MailError("Mail sender settings endpoint is unusable") from exc
+        response = self.session.get(
+            f"{root}/cc/mail/v1/account/{quote(account_id, safe='')}"
+            "/preference/web/all",
+            params={"userEntryPoint": "/mail/load"},
+            timeout=DEFAULT_TIMEOUT,
+            allow_redirects=False,
+        )
+        try:
+            if response.status_code != 200:
+                raise MailError("Mail sender discovery failed")
+            try:
+                payload = response.json()
+                if isinstance(payload, dict) and (
+                    payload.get("error") or payload.get("errors")
+                ):
+                    raise MailError("Mail sender discovery returned an error")
+                data = SenderPreferences.model_validate(
+                    payload, by_alias=True, by_name=False
+                )
+            except ValueError as exc:
+                raise MailError("Mail returned invalid sender preferences") from exc
+            return sender_identities(data, account_id)
+        finally:
+            response.close()
 
     def set_read(self, message: MailMessage, *, read: bool) -> MailFlagUpdate:
         """Set or clear only seen, after a fresh folder-local identity lookup.
