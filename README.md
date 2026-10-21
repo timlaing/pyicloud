@@ -89,7 +89,7 @@ It is also published, with a generated API reference, at
 - **[File Storage (Drive)](https://github.com/timlaing/pyicloud/blob/main/docs/services/drive.md)** — iCloud Drive and the legacy Ubiquity API
 - **[Photos](https://github.com/timlaing/pyicloud/blob/main/docs/services/photos.md)** — browse, sync, upload, and modify the photo library
 - **[Hide My Email](https://github.com/timlaing/pyicloud/blob/main/docs/services/hidemyemail.md)** — generate and manage email aliases
-- **[Mail](https://github.com/timlaing/pyicloud/blob/main/docs/services/mail.md)** — experimental folder and message reads, bounded searches, previews, filters, private JSON export, UID enumeration, bodies and attachments; explicit flag updates, message moves, and folder creation, renaming, and confirmed irreversible deletion through the library and CLI
+- **[Mail](https://github.com/timlaing/pyicloud/blob/main/docs/services/mail.md)** — experimental folder and message reads, bounded searches, previews, filters, private JSON export, mailbox/thread/flag-filter UID enumeration, bodies and attachments; explicit flag updates, message moves, and folder creation, renaming, and confirmed irreversible deletion through the library and CLI
 - **[Reminders](https://github.com/timlaing/pyicloud/blob/main/docs/services/reminders.md)** — lists, reminders, alarms, tags, and attachments
 - **[Notes](https://github.com/timlaing/pyicloud/blob/main/docs/services/notes.md)** — folders, note rendering, and HTML export
 - **[Invites](https://github.com/timlaing/pyicloud/blob/main/docs/services/invites.md)** — read events and respond to invitations
