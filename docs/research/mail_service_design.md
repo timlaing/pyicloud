@@ -144,7 +144,8 @@ write retry, and distinct rejected/uncertain errors. The unnormalized session
 request path avoids response-status/authentication replay. The server has not
 provided a verified conditional-write token; preflight is not atomic with a
 concurrent move or flag change. Acknowledgements do not replace a fresh state read.
-Sending, drafts, moves, deletion, and bulk writes remain excluded.
+That initial flag-only implementation excluded sending, drafts, moves, deletion,
+and bulk writes; the later explicitly authorized additions are recorded above.
 
 ### Live Library and CLI Flag Verification (2026-10-21)
 
