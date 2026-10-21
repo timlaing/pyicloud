@@ -49,6 +49,7 @@ MAX_RESULTS = 1000
 MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
+_GEQS_QUERY = "geqs/query"
 _UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
 _IDENTITIES_MISMATCH = "Message and folder identities do not match"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
@@ -258,7 +259,7 @@ class MailService(BaseService):
     def folders(self) -> list[MailFolder]:
         """List active folders and labels without reading message bodies."""
         result = self._post(
-            "geqs/query",
+            _GEQS_QUERY,
             MailQuery(
                 domain="mailbox",
                 include_labels=True,
@@ -498,7 +499,7 @@ class MailService(BaseService):
             update={"and_": [*(predicate.and_ or []), match]}
         )
         response = self._post(
-            "geqs/query",
+            _GEQS_QUERY,
             MailQuery(
                 domain="email",
                 properties=["identifier", "subject", "preview", "count"],
