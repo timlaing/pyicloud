@@ -608,8 +608,8 @@ outside repositories.
 
 `MailError`, a `PyiCloudException`, reports malformed Mail responses, unexpected
 attachment content types, and stream failures. Read-side authentication and
-connection exceptions retain their existing library types. Submitted flag writes
-instead use the rejected/uncertain errors described above. There are no
+connection exceptions retain their existing library types. Submitted Mail writes
+use the rejected/uncertain errors described above. There are no
 automatic service-level retries; a caller may inspect chained causes.
 
 Bodies, subjects, addresses, previews, and filenames are omitted from the models'

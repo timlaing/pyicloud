@@ -6,11 +6,11 @@
 
 ### Additional Write Investigation (2026-10-21)
 
-The ordinary-move library and CLI implementation uses the observations below.
-Folder management and draft observations are evidence for subsequent work, not
-implemented public APIs. The remaining work covers folder management, drafts,
-sending/replies/forwarding with attachments, and permanent deletion. Live sends
-and permanent message deletion require separate authorization.
+The ordinary-move and folder-management library and CLI implementations use the
+observations below. Draft observations are evidence for subsequent work, not
+implemented public APIs. The remaining work covers drafts,
+sending/replies/forwarding with attachments, and permanent single-message deletion.
+Live sends and permanent message deletion require separate authorization.
 
 An authorized browser test moved one uniquely identified disposable message
 from Inbox to an existing empty testing folder and back, then used Trash and
@@ -144,7 +144,8 @@ write retry, and distinct rejected/uncertain errors. The unnormalized session
 request path avoids response-status/authentication replay. The server has not
 provided a verified conditional-write token; preflight is not atomic with a
 concurrent move or flag change. Acknowledgements do not replace a fresh state read.
-Sending, drafts, moves, deletion, and bulk writes remain excluded.
+That initial flag-only implementation excluded sending, drafts, moves, deletion,
+and bulk writes; the later explicitly authorized additions are recorded above.
 
 ### Live Library and CLI Flag Verification (2026-10-21)
 
