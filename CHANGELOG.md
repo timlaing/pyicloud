@@ -47,12 +47,14 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Verify Mail sync help stays offline and exposes its options in both plain and ANSI-colored output.
 - Verify invalid Mail reconciliation budgets fail with the specific validation error before reading inventory state or polling remote metadata.
 - Add private POSIX Mail inventory storage with owner-only files, bounded locking, restart guards, and explicitly opted-in recovery for expired change history.
 - Integrate the private Mail sync engine with read-only polling and exact metadata readers, bounded incremental reconciliation, explicit history-reset failures, and atomic local checkpoint application.
 - Add a private Mail baseline-inventory and transactional SQLite state backend with bounded stable-counter scans, restart/rollback tests, namespace guards, and competing-writer protection.
 - Add a private, bounded Mail change-event decoder and checkpoint-validation helper with synthetic fixtures and offline recovery guards.
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.
+- Harden a private Mail date-search pagination candidate with offline cases for timestamp ties, saturated boundary buckets, concurrent changes, identity failures, and request budgets. This does not add public search pagination or infer boundary completeness from short responses.
 
 ### Documentation
 

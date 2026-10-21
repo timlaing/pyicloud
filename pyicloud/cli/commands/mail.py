@@ -161,11 +161,18 @@ def _message(
     folder_id: str,
     message_id: str,
     limit: int | None,
+    *,
+    bounded_fallback: bool = True,
 ) -> MailMessage:
     """Resolve an exact message ID, preserving explicitly bounded legacy lookups."""
     folder = _folder(api, mail, folder_id)
     if limit is None:
         if folder.uid_validity is None or folder.uid_validity < 1:
+            if not bounded_fallback:
+                raise CLIAbort(
+                    "Exact lookup needs a folder with UID validity. "
+                    "Refresh folders with 'icloud mail folders' and retry."
+                )
             raise CLIAbort(
                 "Exact lookup needs a folder with UID validity. "
                 "Use --limit N to search the newest N folder messages."
@@ -907,7 +914,7 @@ def mail_export_eml(
         log_level=log_level,
     )
     state, api, mail = _context(ctx)
-    message = _message(api, mail, folder_id, message_id, None)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
     size = _mail_call(
         api, lambda: _save_stream(lambda: mail.raw_message(message), output)
     )

@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory, gettempdir
 from typing import Any, NamedTuple
 from unittest.mock import MagicMock, patch
 
+from click import unstyle
 import pytest
 from requests import ReadTimeout, Response
 from typer.testing import CliRunner, Result
@@ -315,13 +316,26 @@ def test_invalid_options_never_authenticate(args: list[str], directory: Path) ->
     get_api.assert_not_called()
 
 
-def test_help_is_offline() -> None:
+@pytest.mark.parametrize("color", [False, True])
+def test_help_is_offline(color: bool) -> None:
     """The experimental boundary and recovery options must be discoverable offline."""
-    with patch.object(CLIState, "get_api") as get_api:
-        result = CliRunner().invoke(app, ["mail", "sync", "--help"])
+    with (
+        patch.object(CLIState, "get_api") as get_api,
+        patch("typer.rich_utils.FORCE_TERMINAL", color),
+        patch("typer.rich_utils.COLOR_SYSTEM", "standard" if color else None),
+    ):
+        result = CliRunner().invoke(
+            app,
+            ["mail", "sync", "--help"],
+            color=color,
+        )
     assert result.exit_code == 0
-    assert "POSIX-only" in result.stdout
-    assert "--state-dir" in result.stdout
+    output = unstyle(result.stdout)
+    assert "POSIX-only" in output
+    assert "--state-dir" in output
+    assert "--rebuild-expired" in output
+    if color:
+        assert "\x1b[" in result.stdout
     get_api.assert_not_called()
 
 
