@@ -1,10 +1,169 @@
 # Mail
 
-Mail support is **experimental and read-only**, using the iCloud web interface's
-undocumented HTTP API. It has been verified on one account. Sending, drafts,
-folder changes, flag updates, moving/deleting messages, and incremental synchronization
-are not supported. The read-only `icloud mail` commands expose the same bounded API.
+Mail support is **experimental**, using the iCloud web interface's undocumented
+HTTP API. Read operations have been verified on one account. Explicit
+single-message read/unread, flag/unflag, and ordinary mailbox moves are available
+separately, alongside explicit folder management and recipient-free draft saves;
+ordinary reads never change flags. Sending, recipient/attachment draft editing,
+permanent message deletion, and incremental synchronization are not supported.
+The `icloud mail` commands expose the same bounded API.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
+
+## Recipient-Free Drafts
+
+Draft creation and full replacement editing currently support **no recipients and
+no attachments**. Select an enabled address with `api.mail.senders()`; the login
+address is not a substitute:
+
+```python
+draft = api.mail.create_draft(
+    sender=chosen_address, subject="Working copy", text="First version", html=""
+)
+draft = api.mail.edit_draft(
+    draft, subject="Revised working copy", text="Revised version", html=""
+)
+```
+
+Every successful save returns a **new `MailDraft` handle**, containing fresh
+`message` metadata and a verified `sender`. Apple rotates the folder-local UID
+on save; the old UID/message ID must not be reused. Editing replaces all three
+subject/plain-text/HTML fields, so every replacement argument is required.
+Apple treats HTML as the canonical body: plain-only input is converted to safely
+escaped HTML, preserving line breaks, so empty HTML cannot silently discard it.
+Caller-supplied HTML is not sanitized or rendered. The two inputs do not guarantee
+independently preserved MIME alternatives. These methods do not send
+mail, upload attachments, enable addresses, or use Hide My Email.
+
+Before editing, fresh UID, message ID, Drafts namespace, sender, body identity,
+headers, and attachment metadata are checked. Existing recipient headers,
+attachments, unknown attachment status, stale handles, and unsupported body
+metadata fail before dispatch instead of silently erasing data. These checks
+are **not atomic conditional writes**: another client can still change the
+draft between inspection and submission. A failed post-save read or unverified
+acknowledgement raises `MailWriteUncertain`; inspect Drafts before any explicit
+retry, because the save may have succeeded and rotated the UID. There are no
+automatic retries or cleanup deletions.
+
+To discard this draft, select the exact discovered Trash folder ID yourself:
+
+```python
+trash = next(folder for folder in api.mail.folders() if folder.id == chosen_trash_id)
+acknowledgement = api.mail.discard_draft(draft, trash)
+```
+
+Discard requires the canonical `Deleted Messages` mailbox and moves only this
+draft there; it does **not** permanently destroy it or empty Trash. The captured
+browser operation also requests the `seen` flag. Its source-only
+`MailMoveUpdate` does not supply a new destination UID or message ID. Conflicting
+success/error maps remain uncertain even if the draft moved; reconcile fresh
+Drafts/Trash metadata, do not retry automatically. Sending, nonempty-recipient
+drafts, attachment editing, and permanent message destruction remain separate
+work, not supported by these methods yet.
+
+CLI body input comes from explicit local UTF-8 files rather than body text in
+shell arguments. `create-draft` defaults omitted bodies to empty strings;
+`edit-draft` requires **both** body files. An empty HTML file derives HTML from
+nonempty plain text; use two empty files to clear the body:
+
+```text
+icloud mail senders --format json
+icloud mail create-draft --sender '<enabled-address>' --subject 'Working copy' --text-file ./body.txt --format json
+icloud mail edit-draft '<current-message-id>' --folder-id '<drafts-id>' --sender '<enabled-address>' --subject 'Revised copy' --text-file ./body.txt --html-file ./empty.html --format json
+icloud mail discard-draft '<current-message-id>' --folder-id '<drafts-id>' --sender '<enabled-address>' --trash-id '<trash-id>' --format json
+```
+
+No command implicitly chooses the newest draft, a sender, or a Trash destination.
+Save output reports replacement metadata, never the body text. Invalid local
+file inputs fail before authentication or submission. The client build comes
+from the authenticated session, not a captured browser constant.
+
+An authorized live test used exactly three writes on one new recipient-free
+draft: creation, one mounted-CLI edit, and discard. The first request exposed
+Apple's HTML-canonical behavior: nonempty plain text with empty HTML saved an
+empty body. Before the edit, the shared save builder was corrected to supply
+escaped HTML for plain-only input; fresh body retrieval verified the edited text
+and UID rotation. Both create/edit request paths have regression tests for the
+fix, but no second live create was performed. Discard returned contradictory
+success/error maps and correctly raised `MailWriteUncertain`, without retry.
+Fresh reads verified the draft absent from Drafts and present in Trash, with
+other observed mail unchanged during the edit/discard stages. No message was
+sent or permanently deleted. This is one-account evidence, not an atomicity or
+recipient/attachment editing guarantee.
+
+## Sender Identities
+
+`api.mail.senders()` reads enabled sender addresses from the authenticated
+account's discovered Mail settings endpoint. Each `MailSender` has `address` and
+`display_name`. The Apple login address is not assumed to be a Mail address.
+Inactive aliases and addresses without explicit sending permission are excluded;
+no account preference is changed. A malformed, ambiguous, or wrong-account
+response raises `MailError` rather than choosing or enabling an address.
+These reads do not create drafts or send mail. Other returned account preferences
+are neither exposed through these models nor persisted.
+
+## Explicit Folder Management
+
+Create and rename one custom folder at a time:
+
+```python
+folder = api.mail.create_folder("Research")
+folder = api.mail.rename_folder(folder, "Reference")
+# Optional nesting uses a discovered parent, not a slash-separated name:
+child = api.mail.create_folder("Examples", parent=folder)
+```
+
+Names are Unicode leaf names, encoded using the browser's
+[modified UTF-7 convention](https://www.rfc-editor.org/rfc/rfc3501#section-5.1.3).
+Returned `MailFolder.name` remains the raw server path, as in `folders()`;
+do not feed an encoded path back as a new leaf name. Parent paths are preserved,
+not encoded twice. Names cannot contain `/`, `?`, `*`, `%`, controls, or start
+with `#`; the full encoded path is limited to 512 characters. System mailbox
+names, labels, virtual folders, collisions, and unknown folder flags are refused.
+Renaming and deletion refuse folders with children: no recursive operation is
+implicit. Renaming stays within the current parent.
+
+```text
+icloud mail create-folder Research --format json
+icloud mail rename-folder Reference --folder-id '<id>' --format json
+icloud mail create-folder Examples --parent-id '<id>' --format json
+```
+
+**Folder deletion is irreversible and may permanently delete its messages.**
+Delete children separately first. The library requires `confirm=True`; the CLI
+requires repeating the exact folder ID:
+
+```python
+acknowledgement = api.mail.delete_folder(folder, confirm=True)
+```
+
+```text
+icloud mail delete-folder --folder-id '<id>' --confirm-folder-id '<id>' --format json
+```
+
+By default, deletion refuses a folder observed to contain messages, including
+deleted-flag messages. `allow_nonempty=True` (CLI `--allow-nonempty`) explicitly
+permits deleting an observed nonempty folder. **The emptiness and child checks
+are not atomic**: new mail or children arriving after inspection can still be
+deleted. Confirmation acknowledges that risk even without the nonempty option.
+There is no verified server-side empty-only delete condition or recovery promise.
+
+Each operation checks fresh ID, name, UID validity, and flags before submission,
+then verifies the result through a fresh folder listing. `MailFolderDeletion`
+reports the folder ID and `permanent: true`, not a count of deleted messages.
+`MailWriteRejected` means a matching structured rejection without success;
+`MailWriteUncertain` means success could not be established, including a failed
+post-write read or conflicting outcomes. Refresh before deciding what to do:
+there are no automatic retries, compensating operations, or cleanup deletions.
+Folder inventories requiring continuation or reaching the 1,000-record bound
+are refused rather than treated as complete.
+
+An authorized one-account live test created one Unicode-named disposable folder,
+renamed it through the mounted CLI, verified it empty, and deleted it: exactly
+three writes without retries. Fresh inventory confirmed its absence and unchanged
+identities of other folders. The browser-shaped inventory omits `limit`: a
+read-only comparison returned the same 46 folders without a marker when omitted,
+but with a marker when `limit: 1000` was supplied. Neither observation establishes
+atomicity, large-account completeness, or nonempty deletion behavior.
 
 ## Folders and Messages
 
@@ -64,6 +223,118 @@ UIDs are local to a mailbox incarnation. When saving a UID, retain its folder ID
 and UID validity; never attach an old UID to a newly recreated mailbox's UID
 validity. These checks protect the lookup, not every later operation: a message
 may still be moved or deleted after it is returned.
+
+## Explicit Message Moves
+
+`MailService.move(message, destination)` moves one exact folder-bound message.
+Use fresh `MailFolder` objects from `folders()` and exact metadata lookup:
+
+```python
+folders = api.mail.folders()
+source = next(folder for folder in folders if folder.id == source_folder_id)
+destination = next(folder for folder in folders if folder.id == destination_folder_id)
+message = api.mail.message(source, message_id)
+if message is not None:
+    acknowledgement = api.mail.move(message, destination)
+```
+
+```console
+icloud mail move '<message-id>' --folder-id '<source-id>' --destination-id '<destination-id>' --format json
+```
+
+Both folder IDs are explicit; there is no implicit destination, newest-message
+scan, bulk move, or automatic retry. Fresh metadata must identify the source
+message and both mailbox namespaces. Capability queries use the browser-observed
+`name` and integer `flags` properties. Only zero-flag ordinary folders are
+supported; nonzero or missing flags fail closed without guessing individual bit
+meanings. The browser's canonical server names `Junk`, `Drafts`, `/VIP`, and
+`/REMIND_ME` are rejected, independently of translated display labels. Junk and
+Drafts have additional write semantics that are not implemented here.
+
+The submitted patch changes only mailbox membership. It does not explicitly
+change read/unread or flagged state. Apple may update internal metadata flags
+and assigns a new folder-local UID; the message identifier can also change.
+`MailMoveUpdate` contains only `source_message_id`, `source_folder_id`, and
+`destination_folder_id`. It acknowledges the submitted old ID, **not** the new
+destination identity or current state. Never reuse the old `MailMessage` for a
+second write. Refresh destination metadata and independently verify identity;
+subjects alone are not unique identifiers.
+
+Moving to a verified Trash folder is recoverable movement. Restoring means an
+explicit move from Trash to the intended destination. No permanent deletion
+endpoint is called, even when the source is Trash. This differs from the
+browser's Trash shortcut, which also requests a read-state change. Archive can
+likewise be an explicit ordinary-folder destination.
+
+An exact failure without successes raises `MailWriteRejected`. Timeouts,
+malformed acknowledgements, wrong accounts or IDs, late response failures, or
+contradictory success/failure entries raise `MailWriteUncertain`. The latter
+contradiction was observed in a real Trash response even though the message
+actually moved. Inspect both folders before deciding whether to retry; never
+assume an exception means nothing happened. Preflight is not an atomic
+conditional write, and no compensating move or POST retry is performed. Custom
+transport adapters must not retry mutation POSTs.
+
+An authorized live test exercised two library moves and two mounted CLI moves,
+restoring one disposable message to Inbox. Fresh metadata verified every
+destination and unread/unflagged state; other observed records in the three
+small test folders were unchanged. Exactly four mailbox-only writes occurred,
+without retries. This does not establish atomicity or large-folder guarantees.
+
+## Explicit Message Flag Updates
+
+These are **writes**, not read options. Use a message returned by an exact
+folder-scoped lookup, never a thread/search identifier or a guessed UID:
+
+```python
+message = api.mail.message(inbox, "<message-id>")
+if message is not None:
+    acknowledgement = api.mail.set_read(message, read=True)
+    # read=False marks it unread. These are separate, explicit operations:
+    acknowledgement = api.mail.set_flagged(message, flagged=True)
+    # flagged=False removes the flag.
+```
+
+The boolean keyword is required. Each call changes only `seen` or `flagged`
+through an observed named-bit patch, without replacing any other flags. The
+service requires known positive mailbox UID validity and the discovered account
+identifier, then re-reads the exact UID and checks its message ID before writing.
+Missing, moved, mismatched, or recreated identities fail before submission. These
+checks are not a server-side conditional transaction: a concurrent move, deletion,
+or flag change can still race the request. A rename does not change a message ID.
+
+`MailFlagUpdate` contains `message_id`, `flag`, `enabled`, and the acknowledged
+`modseq`. It is a server acknowledgement, not a current-state snapshot or sync
+token. The input message remains unchanged; refresh metadata after writing.
+Only one message is submitted, and every outcome field and acknowledgement
+identity is checked. Unknown response fields or malformed envelopes fail closed.
+
+`MailWriteRejected` means the server explicitly rejected this one update.
+`MailWriteUncertain` means submission could not be confirmed, including timeouts,
+non-200 responses, mismatched results, or late response failures. **The write may
+already have taken effect. Refresh metadata before deciding whether to retry.**
+Both inherit `MailError`. Server failure details and account IDs are not printed
+in these errors. No automatic retry or authentication replay is performed by the
+write path. Custom transport adapters must not be configured to retry POST writes.
+
+The CLI requires an exact folder ID, individual message ID, and action:
+
+```console
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action read --format json
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action unread
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action flag
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action unflag
+```
+
+There is no default action, bulk selection, `--limit` fallback, implicit folder
+selection, or write attached to reading a message. Test on disposable messages
+first. Browser captures verified the four request/acknowledgement shapes.
+An authorized live smoke test then exercised library read/flag and mounted CLI
+unread/unflag writes over real HTTP on one disposable message. Independent
+named-flag queries verified every transition; a fresh-process final check
+confirmed the original flags and other Inbox records were unchanged. CLI tests
+reused a real authenticated service instance, not mocked HTTP responses. This
+single-account check does not verify all server failures or concurrent changes.
 
 ## Enumerating a Mailbox
 
@@ -429,8 +700,9 @@ outside repositories.
 ## Errors and Privacy
 
 `MailError`, a `PyiCloudException`, reports malformed Mail responses, unexpected
-attachment content types, and stream failures. Session authentication and
-connection exceptions retain their existing library types. There are no
+attachment content types, and stream failures. Read-side authentication and
+connection exceptions retain their existing library types. Submitted Mail writes
+use the rejected/uncertain errors described above. There are no
 automatic service-level retries; a caller may inspect chained causes.
 
 Bodies, subjects, addresses, previews, and filenames are omitted from the models'

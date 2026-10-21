@@ -1,4 +1,4 @@
-"""Read-only commands for the experimental Mail service."""
+"""Mail reads and explicit message and folder mutation commands."""
 
 from __future__ import annotations
 
@@ -30,14 +30,16 @@ from pyicloud.cli.options import (
 from pyicloud.cli.output import console_table, print_json_text
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.mail import (
+    MailDraft,
     MailFolder,
     MailMessage,
     MailMessageExport,
+    MailSender,
     MailService,
 )
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
-app = typer.Typer(help="Read Mail folders, bounded messages, and attachments.")
+app = typer.Typer(help="Read Mail and explicitly change messages or folders.")
 
 FolderOption = Annotated[
     str, typer.Option("--folder-id", help="Exact folder ID from mail folders.")
@@ -103,6 +105,15 @@ class ThreadFilter(str, Enum):
 
     UNREAD = "unread"
     FLAGGED = "flagged"
+
+
+class FlagAction(str, Enum):
+    """One explicit reversible action; no implicit default or bulk selector."""
+
+    READ = "read"
+    UNREAD = "unread"
+    FLAG = "flag"
+    UNFLAG = "unflag"
 
 
 def _mail_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
@@ -276,6 +287,474 @@ def mail_folders(
         ["ID", "Name", "Count"],
         [(folder.id, folder.name, folder.message_count) for folder in payload],
     )
+
+
+def _draft_input(path: Path | None) -> str:
+    """Read explicit local UTF-8 input without putting body text in shell arguments."""
+    if path is None:
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise CLIAbort(
+            "Draft input could not be read as UTF-8; no save submitted."
+        ) from exc
+
+
+def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
+    """Report the replacement identity, never echo draft body content."""
+    if state.json_output:
+        state.write_json(draft)
+    else:
+        _table(
+            state,
+            "Saved Mail Draft",
+            ["Message ID", "UID", "Folder ID"],
+            [
+                (
+                    draft.message.id,
+                    draft.message.uid,
+                    draft.message.folder.id,
+                )
+            ],
+        )
+
+
+@app.command("senders")
+def mail_senders(
+    ctx: typer.Context,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Read enabled sender addresses; do not assume the login is a Mail address."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    result = _mail_call(api, mail.senders)
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Enabled Mail Senders",
+            ["Address", "Name"],
+            [(sender.address, sender.display_name) for sender in result],
+        )
+
+
+@app.command("create-draft")
+def mail_create_draft(
+    ctx: typer.Context,
+    sender: Annotated[
+        str, typer.Option("--sender", help="Enabled address from mail senders.")
+    ],
+    subject: Annotated[str, typer.Option("--subject")] = "",
+    text_file: Annotated[
+        Path | None,
+        typer.Option("--text-file", help="UTF-8 plain-text body; omitted means empty."),
+    ] = None,
+    html_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--html-file", help="UTF-8 HTML; omitted derives HTML from plain text."
+        ),
+    ] = None,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Save one recipient-free, attachment-free draft without sending it."""
+    text, html = _draft_input(text_file), _draft_input(html_file)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    result = _mail_call(
+        api,
+        lambda: mail.create_draft(sender=sender, subject=subject, text=text, html=html),
+    )
+    _draft_acknowledgement(state, result)
+
+
+@app.command("edit-draft")
+def mail_edit_draft(
+    ctx: typer.Context,
+    message_id: str,
+    folder_id: FolderOption,
+    sender: Annotated[
+        str, typer.Option("--sender", help="Current enabled draft sender.")
+    ],
+    subject: Annotated[
+        str, typer.Option("--subject", help="Full replacement subject.")
+    ],
+    text_file: Annotated[
+        Path,
+        typer.Option(
+            "--text-file", help="Full UTF-8 plain-text replacement; may be empty."
+        ),
+    ],
+    html_file: Annotated[
+        Path,
+        typer.Option(
+            "--html-file", help="UTF-8 HTML; empty derives HTML from plain text."
+        ),
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Replace one recipient-free draft; use its returned UID and message ID."""
+    text, html = _draft_input(text_file), _draft_input(html_file)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    draft = MailDraft(
+        message=_message(api, mail, folder_id, message_id, None),
+        sender=MailSender(address=sender),
+    )
+    result = _mail_call(
+        api, lambda: mail.edit_draft(draft, subject=subject, text=text, html=html)
+    )
+    _draft_acknowledgement(state, result)
+
+
+@app.command("discard-draft")
+def mail_discard_draft(
+    ctx: typer.Context,
+    message_id: str,
+    folder_id: FolderOption,
+    trash_id: Annotated[
+        str, typer.Option("--trash-id", help="Exact Deleted Messages folder ID.")
+    ],
+    sender: Annotated[
+        str, typer.Option("--sender", help="Current enabled draft sender.")
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Move only this recipient-free draft to Trash; request seen, never destroy."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    draft = MailDraft(
+        message=_message(api, mail, folder_id, message_id, None),
+        sender=MailSender(address=sender),
+    )
+    trash = _folder(api, mail, trash_id)
+    result = _mail_call(api, lambda: mail.discard_draft(draft, trash))
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Discarded Mail Draft",
+            ["Source Message ID", "Trash Folder ID"],
+            [
+                (
+                    result.source_message_id,
+                    result.destination_folder_id,
+                )
+            ],
+        )
+
+
+def _folder_acknowledgement(state: CLIState, folder: MailFolder) -> None:
+    """Keep user-visible folder results distinct from mutation failure maps."""
+    if state.json_output:
+        state.write_json(folder)
+    else:
+        _table(
+            state,
+            "Mail Folder",
+            ["ID", "Server Path", "UID Validity"],
+            [(folder.id, folder.name, folder.uid_validity)],
+        )
+
+
+@app.command("create-folder")
+def mail_create_folder(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="New Unicode leaf name, not a path.")],
+    parent_id: Annotated[
+        str | None, typer.Option("--parent-id", help="Optional exact parent folder ID.")
+    ] = None,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Create one custom folder without overwriting or retrying uncertain writes."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    parent = None if parent_id is None else _folder(api, mail, parent_id)
+    result = _mail_call(api, lambda: mail.create_folder(name, parent=parent))
+    _folder_acknowledgement(state, result)
+
+
+@app.command("rename-folder")
+def mail_rename_folder(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Replacement Unicode leaf name.")],
+    folder_id: FolderOption,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Rename one exact custom folder within its current parent namespace."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    result = _mail_call(api, lambda: mail.rename_folder(folder, name))
+    _folder_acknowledgement(state, result)
+
+
+@app.command("delete-folder")
+def mail_delete_folder(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    confirm_folder_id: Annotated[
+        str,
+        typer.Option(
+            "--confirm-folder-id",
+            help=(
+                "Repeat the exact ID to confirm irreversible deletion "
+                "and racy emptiness checks."
+            ),
+        ),
+    ],
+    allow_nonempty: Annotated[
+        bool,
+        typer.Option(
+            "--allow-nonempty",
+            help="Also permit permanent deletion of messages observed in this folder.",
+        ),
+    ] = False,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Permanently delete one custom folder; no child-tree cascade is supported.
+
+    This does not move the folder to Trash. New mail can race the emptiness
+    check; confirming the ID explicitly acknowledges that irreversible risk.
+    """
+    if folder_id != confirm_folder_id:
+        raise CLIAbort(
+            "Confirmation does not match the folder ID; no deletion submitted."
+        )
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    result = _mail_call(
+        api,
+        lambda: mail.delete_folder(folder, confirm=True, allow_nonempty=allow_nonempty),
+    )
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Permanent Mail Folder Deletion",
+            ["Folder ID", "Permanent"],
+            [(result.folder_id, result.permanent)],
+        )
+
+
+@app.command("mark")
+def mail_mark(
+    ctx: typer.Context,
+    message_id: Annotated[str, typer.Argument(help=_MESSAGE_ID_HELP)],
+    folder_id: FolderOption,
+    action: Annotated[
+        FlagAction, typer.Option("--action", help="Required flag change.")
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Explicitly mark one exact message read/unread or flag/unflag it.
+
+    No scans or automatic retries. An uncertain outcome requires fresh metadata
+    before an explicit retry; the acknowledgement is not a current-state snapshot.
+    """
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    message = _mail_call(api, lambda: mail.message(folder, message_id))
+    if message is None:
+        raise CLIAbort("Message not found in this folder; no flag update submitted.")
+    if action in (FlagAction.READ, FlagAction.UNREAD):
+        result = _mail_call(
+            api, lambda: mail.set_read(message, read=action is FlagAction.READ)
+        )
+    else:
+        result = _mail_call(
+            api, lambda: mail.set_flagged(message, flagged=action is FlagAction.FLAG)
+        )
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Mail Flag Acknowledgement",
+            ["Message ID", "Flag", "Enabled", "Modseq"],
+            [(result.message_id, result.flag, result.enabled, result.modseq)],
+        )
+
+
+@app.command("move")
+def mail_move(
+    ctx: typer.Context,
+    message_id: Annotated[str, typer.Argument(help=_MESSAGE_ID_HELP)],
+    folder_id: FolderOption,
+    destination_id: Annotated[
+        str, typer.Option("--destination-id", help="Exact destination folder ID.")
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Move one exact message, preserving flags; never retry an uncertain write.
+
+    Trash is a move destination, not permanent deletion. Junk and Drafts moves
+    are unsupported. IDs can change: refresh destination metadata afterward.
+    """
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    source = _folder(api, mail, folder_id)
+    destination = _folder(api, mail, destination_id)
+    message = _mail_call(api, lambda: mail.message(source, message_id))
+    if message is None:
+        raise CLIAbort("Message not found in this folder; no move submitted.")
+    result = _mail_call(api, lambda: mail.move(message, destination))
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Mail Move Acknowledgement",
+            ["Source Message ID", "Source Folder ID", "Destination Folder ID"],
+            [
+                (
+                    result.source_message_id,
+                    result.source_folder_id,
+                    result.destination_folder_id,
+                )
+            ],
+        )
 
 
 @app.command("list")

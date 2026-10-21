@@ -53,6 +53,9 @@ icloud calendar events --username jappleseed@apple.com --period week
 icloud contacts me --username jappleseed@apple.com
 icloud drive list /Documents --username jappleseed@apple.com
 icloud mail folders --format json
+icloud mail senders --format json
+icloud mail create-folder Research --format json
+icloud mail rename-folder Reference --folder-id '<folder-id>' --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --format json
 icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
@@ -79,6 +82,18 @@ icloud auth logout --keep-trusted --all-sessions
 icloud auth logout --remove-keyring
 icloud auth keyring delete --username jappleseed@apple.com
 ```
+
+Mail also supports explicit single-message **writes**, separate from all reads:
+`icloud mail mark '<message-id>' --folder-id '<folder-id>' --action read`.
+Actions are `read`, `unread`, `flag`, and `unflag`; there is no default action or
+bulk scan. See [Mail flag updates](../services/mail.md#explicit-message-flag-updates)
+for identity guards and uncertain outcomes. Refresh metadata before deciding
+whether to retry a failed or interrupted write.
+
+Use `icloud mail move '<message-id>' --folder-id '<source-id>' --destination-id
+'<destination-id>'` for an explicit mailbox-only move. See
+[Mail moves](../services/mail.md#explicit-message-moves) for folder restrictions,
+Trash/restore, changing message IDs, and uncertain outcomes.
 
 If you would like to delete a password stored in your system keyring,
 use the dedicated keyring subcommand:
