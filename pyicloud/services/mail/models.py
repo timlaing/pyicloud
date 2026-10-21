@@ -1,4 +1,4 @@
-"""Typed Mail envelopes and bounded read results."""
+"""Typed Mail envelopes, bounded read results, and write acknowledgements."""
 
 from __future__ import annotations
 
@@ -69,6 +69,30 @@ class MailMessage(MailMessageRecord):
     """A message bound to the folder context used when it was fetched."""
 
     folder: MailFolder
+
+
+class MailFlagUpdate(MailModel):
+    """One acknowledged flag patch; the input message's metadata is not mutated."""
+
+    message_id: Identifier
+    flag: Literal["seen", "flagged"]
+    enabled: bool = Field(strict=True)
+    modseq: int = Field(strict=True, gt=0)
+
+
+class MailMoveUpdate(MailModel):
+    """Source acknowledgement only; fresh destination metadata is required."""
+
+    source_message_id: Identifier
+    source_folder_id: Identifier
+    destination_folder_id: Identifier
+
+
+class MailFolderDeletion(MailModel):
+    """An acknowledged permanent folder deletion, not a move to Trash."""
+
+    folder_id: Identifier
+    permanent: Literal[True] = True
 
 
 class MailMessagePage(MailModel):

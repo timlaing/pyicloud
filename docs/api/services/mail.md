@@ -4,7 +4,17 @@
 
 ::: pyicloud.services.mail.models.MailFolder
 
+::: pyicloud.services.mail.models.MailFolderDeletion
+
 ::: pyicloud.services.mail.models.MailMessage
+
+::: pyicloud.services.mail.models.MailFlagUpdate
+
+::: pyicloud.services.mail.models.MailMoveUpdate
+
+::: pyicloud.services.mail.service.MailWriteRejected
+
+::: pyicloud.services.mail.service.MailWriteUncertain
 
 ::: pyicloud.services.mail.models.MailMessagePage
 

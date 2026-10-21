@@ -1,0 +1,20 @@
+{
+  "accountId": "synthetic-account",
+  "created": {
+    "mailbox": {
+      "id": "new-folder",
+      "identifier": "new-folder",
+      "name": "Created",
+      "uidValidity": 5679,
+      "flags": 0,
+      "isMboxDeleted": false
+    }
+  },
+  "destroyed": null,
+  "newState": null,
+  "notCreated": null,
+  "notDestroyed": null,
+  "notUpdated": null,
+  "oldState": null,
+  "updated": null
+}
