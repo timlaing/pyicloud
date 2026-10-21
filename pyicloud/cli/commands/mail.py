@@ -315,12 +315,13 @@ def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
         _table(
             state,
             "Saved Mail Draft",
-            ["Message ID", "UID", "Folder ID"],
+            ["Message ID", "UID", "Folder ID", "Retained Prior Draft IDs"],
             [
                 (
                     draft.message.id,
                     draft.message.uid,
                     draft.message.folder.id,
+                    ", ".join(m.id for m in draft.retained_drafts) or "-",
                 )
             ],
         )
@@ -537,6 +538,78 @@ def mail_create_draft(
     _draft_acknowledgement(state, result)
 
 
+@app.command("reply-draft")
+@app.command("forward-draft")
+def mail_conversation_draft(
+    ctx: typer.Context,
+    message_id: str,
+    folder_id: FolderOption,
+    sender: Annotated[str, typer.Option("--sender", help="Explicit enabled sender.")],
+    to: Annotated[
+        list[str], typer.Option("--to", help="Explicit recipients; repeat as needed.")
+    ],
+    text_file: Annotated[
+        Path,
+        typer.Option(
+            "--text-file", help="Full UTF-8 body, including any quoted content."
+        ),
+    ],
+    html_file: Annotated[Path | None, typer.Option("--html-file")] = None,
+    cc: Annotated[list[str] | None, typer.Option("--cc")] = None,
+    bcc: Annotated[list[str] | None, typer.Option("--bcc")] = None,
+    attachment_state: Annotated[
+        list[Path] | None, typer.Option("--attachment-state")
+    ] = None,
+    omit_original_attachments: Annotated[
+        bool,
+        typer.Option(
+            "--omit-original-attachments",
+            help="Forward only: explicitly omit source attachments.",
+        ),
+    ] = False,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Save a reply/forward to an exact source; never infer recipients or send."""
+    forward = ctx.info_name == "forward-draft"
+    if omit_original_attachments and not forward:
+        raise CLIAbort("--omit-original-attachments is only valid for forwards.")
+    text, html = _draft_input(text_file), _draft_input(html_file)
+    recipients = [_recipient_option(v) or () for v in (to, cc, bcc)]
+    attachments = _attachment_states(attachment_state)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None)
+    options: dict[str, Any] = {
+        "sender": sender,
+        "to": recipients[0],
+        "cc": recipients[1],
+        "bcc": recipients[2],
+        "text": text,
+        "html": html,
+        "attachments": attachments,
+    }
+    if forward:
+        options["include_original_attachments"] = not omit_original_attachments
+    method = mail.create_forward_draft if forward else mail.create_reply_draft
+    result = _mail_call(api, lambda: method(message, **options))
+    _draft_acknowledgement(state, result)
+
+
 @app.command("edit-draft")
 def mail_edit_draft(
     ctx: typer.Context,
@@ -636,6 +709,61 @@ def mail_edit_draft(
         ),
     )
     _draft_acknowledgement(state, result)
+
+
+@app.command("send-draft")
+def mail_send_draft(
+    ctx: typer.Context,
+    message_id: str,
+    folder_id: FolderOption,
+    sender: Annotated[str, typer.Option("--sender", help="Current enabled sender.")],
+    draft_state: Annotated[
+        Path, typer.Option("--draft-state", help="Last successful draft JSON handle.")
+    ],
+    confirm: Annotated[
+        bool, typer.Option("--confirm", help="Send now, without an Undo Send delay.")
+    ] = False,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Immediately send one explicit saved draft; never retry automatically."""
+    if not confirm:
+        raise CLIAbort("Sending requires --confirm; no write submitted.")
+    draft = _saved_draft(draft_state, message_id, folder_id, sender)
+    if draft is None:
+        raise CLIAbort("Sending requires a saved draft state; no write submitted.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    result = _mail_call(api, lambda: mail.send_draft(draft, confirm=True))
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Mail Send Acknowledged (Delivery Not Confirmed)",
+            ["Source Message ID", "Drafts Folder ID", "Retained Draft IDs (Not Sent)"],
+            [
+                (
+                    result.source_message_id,
+                    result.source_folder_id,
+                    ", ".join(result.retained_draft_ids) or "-",
+                )
+            ],
+        )
 
 
 @app.command("discard-draft")

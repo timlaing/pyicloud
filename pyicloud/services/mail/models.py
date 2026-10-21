@@ -6,7 +6,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ._draft_models import DraftAttachmentReference
+from ._draft_models import DraftAttachmentReference, DraftStoredReference
+from ._thread_models import MailDraftThreading
 
 Identifier = Annotated[str, Field(strict=True, min_length=1)]
 MIME_PART_PATTERN = r"^[0-9]+(?:\.[0-9]+)*$"
@@ -89,14 +90,17 @@ class MailDraft(MailModel):
     cc: tuple[str, ...] = Field(default=(), repr=False)
     bcc: tuple[str, ...] = Field(default=(), repr=False)
     attachments: tuple[MailDraftAttachment, ...] = Field(default=(), repr=False)
+    threading: MailDraftThreading | None = Field(default=None, repr=False)
+    retained_drafts: tuple[MailMessage, ...] = Field(default=(), repr=False)
 
 
 class MailDraftAttachment(MailModel):
-    """One ordinary cached upload bound to its account and discovered gateway."""
+    """An ordinary cached or source-bound part scoped to its account/gateway."""
 
     account_id: Identifier = Field(repr=False)
     service_root: Identifier = Field(repr=False)
-    reference: DraftAttachmentReference = Field(repr=False)
+    reference: DraftAttachmentReference | DraftStoredReference = Field(repr=False)
+    source_message: MailMessage | None = Field(default=None, repr=False)
 
 
 class MailFlagUpdate(MailModel):
@@ -114,6 +118,17 @@ class MailMoveUpdate(MailModel):
     source_message_id: Identifier
     source_folder_id: Identifier
     destination_folder_id: Identifier
+
+
+class MailSendUpdate(MailModel):
+    """Apple accepted a send and consumed its draft, not confirmed delivery."""
+
+    source_message_id: Identifier
+    source_folder_id: Identifier
+    source_uid: int = Field(strict=True, gt=0)
+    acknowledged: Literal[True] = True
+    delivery_confirmed: Literal[False] = False
+    retained_draft_ids: tuple[Identifier, ...] = ()
 
 
 class MailFolderDeletion(MailModel):

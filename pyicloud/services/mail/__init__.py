@@ -1,5 +1,6 @@
 """Experimental Mail reads and explicit message, draft, and folder writes."""
 
+from ._thread_models import MailDraftThreading
 from .models import (
     MailBody,
     MailDraft,
@@ -18,6 +19,7 @@ from .models import (
     MailSearchHit,
     MailSearchPage,
     MailSender,
+    MailSendUpdate,
     MailThreadDigest,
     MailThreadFilterPage,
     MailThreadPage,
@@ -28,6 +30,7 @@ __all__ = [
     "MailBody",
     "MailDraft",
     "MailDraftAttachment",
+    "MailDraftThreading",
     "MailError",
     "MailFlagUpdate",
     "MailFolder",
@@ -43,6 +46,7 @@ __all__ = [
     "MailSearchHit",
     "MailSearchPage",
     "MailSender",
+    "MailSendUpdate",
     "MailService",
     "MailThreadDigest",
     "MailThreadFilterPage",

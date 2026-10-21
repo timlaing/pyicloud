@@ -13,6 +13,7 @@ from requests import RequestException
 
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
+from pyicloud.services.mail._conversation_drafts import prepare_source
 from pyicloud.services.mail._draft_models import (
     DraftCreateRequest,
     DraftDiscardOperation,
@@ -20,8 +21,15 @@ from pyicloud.services.mail._draft_models import (
     DraftDiscardRequest,
     DraftSaveResponse,
 )
-from pyicloud.services.mail._draft_uploads import upload_attachment
-from pyicloud.services.mail._drafts import DRAFT_UNCERTAIN, DraftWriter
+from pyicloud.services.mail._draft_uploads import (
+    attachment_references,
+    upload_attachment,
+)
+from pyicloud.services.mail._drafts import (
+    DRAFT_UNCERTAIN,
+    DraftWriter,
+    recipient_addresses,
+)
 from pyicloud.services.mail._flags import (
     FlagDelta,
     FlagIntent,
@@ -47,6 +55,7 @@ from pyicloud.services.mail._moves import (
     MoveRequest,
     MoveResponse,
 )
+from pyicloud.services.mail._send_models import DraftSendRequest, DraftSendResponse
 from pyicloud.services.mail._senders import SenderPreferences, sender_identities
 from pyicloud.services.mail._write_models import known_rejection
 from pyicloud.services.mail.exceptions import (
@@ -79,6 +88,7 @@ from pyicloud.services.mail.models import (
     MailQuery,
     MailSearchPage,
     MailSender,
+    MailSendUpdate,
     MailSessionHeaders,
     MailThreadFilter,
     MailThreadFilterPage,
@@ -307,8 +317,8 @@ class MailService(BaseService):
     """Bounded Mail reads and explicit message and folder writes.
 
     Bounded methods remain snapshots; only explicit iterators opt into paging.
-    Reads never mutate mail. Folder, draft and ordinary upload writes are explicit.
-    Sending, permanent message deletion, rendering, and sync are unsupported.
+    Reads never mutate mail. Folder, draft, ordinary upload and send writes are
+    explicit. Permanent message deletion, rendering and sync are unsupported.
     Read-side authentication failures retain the library's existing exception types.
     """
 
@@ -471,6 +481,103 @@ class MailService(BaseService):
             attachments=attachments,
         )
 
+    def create_reply_draft(
+        self,
+        message: MailMessage,
+        *,
+        sender: str,
+        to: tuple[str, ...],
+        text: str,
+        html: str = "",
+        cc: tuple[str, ...] = (),
+        bcc: tuple[str, ...] = (),
+        attachments: tuple[MailDraftAttachment, ...] = (),
+    ) -> MailDraft:
+        """Save a reply to an exact source, without inferring recipients or sending.
+
+        Supply the full desired body, including any quotes. Source attachments
+        are not copied into replies; explicit uploaded handles are supported.
+        """
+        DraftWriter.validate_inputs(sender, "", text, html)
+        for values in (to, cc, bcc):
+            recipient_addresses(values)
+        attachment_references(
+            attachments, self.service_root, self.params.get("dsid", "")
+        )
+        source = prepare_source(
+            message,
+            "reply",
+            self.message_by_uid,
+            self.body,
+            self.service_root,
+            self.params.get("dsid", ""),
+        )
+        subject = source.message.subject or ""
+        if not subject.casefold().startswith("re:"):
+            subject = "Re: " + subject
+        return self._draft_writer().save(
+            sender,
+            subject,
+            text,
+            html,
+            None,
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            attachments=attachments,
+            threading=source.threading,
+        )
+
+    def create_forward_draft(
+        self,
+        message: MailMessage,
+        *,
+        sender: str,
+        to: tuple[str, ...],
+        text: str,
+        html: str = "",
+        cc: tuple[str, ...] = (),
+        bcc: tuple[str, ...] = (),
+        attachments: tuple[MailDraftAttachment, ...] = (),
+        include_original_attachments: bool = True,
+    ) -> MailDraft:
+        """Save a forward with references and original ordinary attachments.
+
+        Supply the full desired body, including forwarded content. The source
+        must remain available while its stored attachment references are used.
+        No upload, implicit recipient selection, or sending occurs.
+        """
+        DraftWriter.validate_inputs(sender, "", text, html)
+        for values in (to, cc, bcc):
+            recipient_addresses(values)
+        attachment_references(
+            attachments, self.service_root, self.params.get("dsid", "")
+        )
+        source = prepare_source(
+            message,
+            "forward",
+            self.message_by_uid,
+            self.body,
+            self.service_root,
+            self.params.get("dsid", ""),
+            include_attachments=include_original_attachments,
+        )
+        subject = source.message.subject or ""
+        if not subject.casefold().startswith("fwd:"):
+            subject = "Fwd: " + subject
+        return self._draft_writer().save(
+            sender,
+            subject,
+            text,
+            html,
+            None,
+            to=to,
+            cc=cc,
+            bcc=bcc,
+            attachments=source.attachments + attachments,
+            threading=source.threading,
+        )
+
     def edit_draft(
         self,
         draft: MailDraft,
@@ -486,7 +593,9 @@ class MailService(BaseService):
         """Replace all subject/body fields and return a new rotating-UID handle.
 
         Omitted recipient/attachment arguments preserve the handle's expectations;
-        explicit empty tuples clear them. Fresh preflight is not an atomic save.
+        explicit empty tuples clear them. Forward versions Apple retains are
+        reported in retained_drafts, never silently deleted. Fresh preflight
+        is not an atomic save.
         """
         if not isinstance(draft, MailDraft):
             raise ValueError("A saved MailDraft handle is required")
@@ -500,6 +609,53 @@ class MailService(BaseService):
             cc=draft.cc if cc is None else cc,
             bcc=draft.bcc if bcc is None else bcc,
             attachments=draft.attachments if attachments is None else attachments,
+        )
+
+    def send_draft(self, draft: MailDraft, *, confirm: bool = False) -> MailSendUpdate:
+        """Immediately submit one saved draft, without scheduling or retrying.
+
+        Confirmation must be explicit. Fresh preflight cannot eliminate a race
+        with another editor. Success acknowledges Apple's submission, not SMTP
+        delivery; an uncertain outcome may already have sent the message.
+        """
+        if confirm is not True:
+            raise ValueError("Sending requires confirm=True")
+        if not isinstance(draft, MailDraft):
+            raise ValueError("A saved MailDraft handle is required")
+        recipients = [recipient_addresses(v) for v in (draft.to, draft.cc, draft.bcc)]
+        if not any(recipients):
+            raise ValueError("Sending requires at least one explicit recipient")
+        current = self._draft_writer().checked(draft)
+        if current.subject != draft.message.subject:
+            raise MailError("Draft subject changed; refresh before sending")
+        if not any(
+            s.address.casefold() == draft.sender.address.casefold()
+            for s in self.senders()
+        ):
+            raise MailError("Draft sender is no longer enabled")
+        uncertain = (
+            "Mail send outcome is uncertain; the message may already have been sent. "
+            "Inspect Drafts and Sent before any explicit retry."
+        )
+        self._submit_update(
+            DraftSendRequest(messageGuid=f"Drafts/{current.uid}"),
+            DraftSendResponse,
+            None,
+            uncertain,
+            path="draft/send",
+            keep_nulls=True,
+        )
+        try:
+            self._draft_folder(current.folder)
+            if self.message_by_uid(current.folder, current.uid) is not None:
+                raise MailError("Sent draft is still present")
+        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+            raise MailWriteUncertain(uncertain) from exc
+        return MailSendUpdate(
+            source_message_id=current.id,
+            source_folder_id=current.folder.id,
+            source_uid=current.uid,
+            retained_draft_ids=tuple(m.id for m in draft.retained_drafts),
         )
 
     def discard_draft(self, draft: MailDraft, trash: MailFolder) -> MailMoveUpdate:
@@ -830,7 +986,9 @@ class MailService(BaseService):
         intent: str | None,
         uncertain_message: str,
         *,
-        path: Literal["email/set", "mailbox/set", "message/savedraft"] = "email/set",
+        path: Literal[
+            "email/set", "mailbox/set", "message/savedraft", "draft/send"
+        ] = "email/set",
         keep_nulls: bool = False,
     ) -> ResponseModel:
         """Do not normalize/replay authentication errors after submitting a write."""

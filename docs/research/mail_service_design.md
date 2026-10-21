@@ -12,9 +12,73 @@ with fresh identity guards and explicit irreversible-deletion confirmation.
 Draft saves and recoverable discard now use these observed wire shapes with
 fresh sender/namespace checks and rotating-UID handles. Recipient-bearing drafts
 and ordinary attachment uploads/edit preservation are implemented and verified
-as described below. Remaining work includes sending/replies/forwarding with
-attachments, Mail Drop uploads, and permanent deletion. Live sends
-and permanent message deletion require separate authorization.
+as described below. Guarded final sending of saved drafts now has offline
+and live coverage. Reply/forward draft creation now has offline implementation
+coverage, including retained threading, cached uploads and source-bound ordinary
+forward attachments. Live tests verified reply creation/edit/Trash reconciliation
+and forward creation/edit/retention reporting/Trash reconciliation, with exact
+attachment bytes preserved. Mail Drop uploads and permanent message deletion
+remain unsupported. Additional live sends and permanent
+message deletion require separate authorization.
+
+Three authorized browser sends on 2026-10-21 verified new/reply/forward submission
+with disposable text, one ordinary text attachment, and a single controlled
+recipient. Each used `schedule/create` with a 15-second delay, then `draft/send`
+with `messageGuid: Drafts/<uid>` and null-context session headers. The final
+response named Drafts, supplied a positive modification counter, reset capability
+fields to zero, and contained one `* <sequence> EXPUNGE` event. A read-only fresh
+Sent lookup found all three synthetic subjects, the expected recipient and an
+attachment. This proves acknowledgement and Sent-copy presence, not SMTP delivery
+or live direct sending without the scheduling step. No additional sends are
+authorized by that exhausted three-send approval.
+
+A separate bounded implementation approval subsequently verified direct sending
+without scheduling. The test performed exactly three writes: a tiny synthetic
+ordinary attachment upload, draft creation to the one controlled recipient, and
+one mounted-CLI `send-draft --confirm`. The public service accepted the observed
+acknowledgement and verified the source draft absent. Fresh Sent metadata and
+read-only body/attachment downloads verified one matching copy, recipient, body,
+and exact attachment bytes. Other observed metadata in Inbox, Drafts, Trash and
+Sent was unchanged. No retries, reply/forward sends, or permanent deletion were
+performed. The three-write, one-email approval is exhausted. SMTP delivery was
+not independently checked. Private local audit files remain outside Git.
+
+Reply savedraft requests used `mode: reply`, `headerInReplyTo` and
+`headerReferences` as arrays of strings. Forward requests used `mode: forward`
+and a references array, without In-Reply-To. The forward retained a source
+`messagepart:` attachment reference with null content ID and an encoded MIME
+size; its save returned only a UID, with no cached-upload mapping array. These
+are distinct from cached upload handles and must not be guessed or silently
+stripped by reply/forward support. The implementation distinguishes cached and
+stored references, retains a typed threading context in saved handles, and
+checks fresh source metadata before reusing stored parts. It accepts explicit
+full body content and recipients rather than inferring reply-all or quoting
+private text automatically. No real identifiers, bodies,
+recipient addresses, or signed URLs are included in tracked protocol evidence.
+
+The first authorized seven-write threaded-draft test stopped after its sixth
+write: forward edit returned a valid new UID but left the previous UID present.
+The guard raised an uncertain outcome without retrying or discarding either
+version. Fresh read-only checks verified both distinct records and the edited
+version's recipients, references, body and exact original attachment bytes.
+Checking exact UIDs from the earlier browser test also found both intermediate
+forward versions still in Drafts, while the final sent version was absent.
+Thus retention also occurs in Apple's own browser, not only in this client.
+The implementation now reports retained versions explicitly in `MailDraft` and
+send acknowledgements, without silently deleting or sending them. The stricter
+old-UID absence rule remains for ordinary drafts and replies. The stopped
+lifecycle must never be rerun wholesale.
+
+A separately approved six-write test moved only those two new forward copies
+to Trash, created/edited one new forward with its original stored attachment,
+verified the returned retained-version ID/UID against fresh metadata, and moved
+both new versions to Trash. Source absence and destination body/header/attachment
+integrity were verified after each move. All four moves returned contradictory
+acknowledgements that were reconciled read-only; no write was retried. Other
+observed Inbox, Drafts, Trash and Sent metadata was unchanged. No email was sent,
+uploaded or permanently deleted during this six-write test. The two historical
+browser intermediate drafts were outside the cleanup scope and remain untouched.
+The separate six-write approval is exhausted.
 
 An authorized browser test moved one uniquely identified disposable message
 from Inbox to an existing empty testing folder and back, then used Trash and
@@ -171,7 +235,7 @@ Trash command issued the same mark-read-and-move patch as ordinary message
 Trash, including the contradictory outcome shape. The draft disappeared from
 Drafts, restoring the original five-draft count. No `destroy` request or send was
 issued; do not describe this capture as permanent draft deletion. The discarded
-test draft can remain recoverable in Trash. Permanent deletion remains untested.
+test draft can remain recoverable in Trash. Permanent deletion remains untested in this implementation.
 
 A read-only implementation probe established that `geqs/query` ignores the
 `noSelect`, `labelMailbox`, and `specialUse...` properties returned by
