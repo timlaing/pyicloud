@@ -1,9 +1,11 @@
 # Mail
 
-Mail support is **experimental and read-only**, using the iCloud web interface's
-undocumented HTTP API. It has been verified on one account. Sending, drafts,
-folder changes, flag updates, moving/deleting messages, and incremental synchronization
-are not supported. The read-only `icloud mail` commands expose the same bounded API.
+Mail support is **experimental**, using the iCloud web interface's undocumented
+HTTP API. Read operations have been verified on one account. Explicit
+single-message read/unread and flag/unflag writes are available separately;
+ordinary reads never change flags. Sending, drafts, folder changes,
+moving/deleting messages, and incremental synchronization are not supported.
+The `icloud mail` commands expose the same bounded API.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
 
 ## Folders and Messages
@@ -64,6 +66,57 @@ UIDs are local to a mailbox incarnation. When saving a UID, retain its folder ID
 and UID validity; never attach an old UID to a newly recreated mailbox's UID
 validity. These checks protect the lookup, not every later operation: a message
 may still be moved or deleted after it is returned.
+
+## Explicit Message Flag Updates
+
+These are **writes**, not read options. Use a message returned by an exact
+folder-scoped lookup, never a thread/search identifier or a guessed UID:
+
+```python
+message = api.mail.message(inbox, "<message-id>")
+if message is not None:
+    acknowledgement = api.mail.set_read(message, read=True)
+    # read=False marks it unread. These are separate, explicit operations:
+    acknowledgement = api.mail.set_flagged(message, flagged=True)
+    # flagged=False removes the flag.
+```
+
+The boolean keyword is required. Each call changes only `seen` or `flagged`
+through an observed named-bit patch, without replacing any other flags. The
+service requires known positive mailbox UID validity and the discovered account
+identifier, then re-reads the exact UID and checks its message ID before writing.
+Missing, moved, mismatched, or recreated identities fail before submission. These
+checks are not a server-side conditional transaction: a concurrent move, deletion,
+or flag change can still race the request. A rename does not change a message ID.
+
+`MailFlagUpdate` contains `message_id`, `flag`, `enabled`, and the acknowledged
+`modseq`. It is a server acknowledgement, not a current-state snapshot or sync
+token. The input message remains unchanged; refresh metadata after writing.
+Only one message is submitted, and every outcome field and acknowledgement
+identity is checked. Unknown response fields or malformed envelopes fail closed.
+
+`MailWriteRejected` means the server explicitly rejected this one update.
+`MailWriteUncertain` means submission could not be confirmed, including timeouts,
+non-200 responses, mismatched results, or late response failures. **The write may
+already have taken effect. Refresh metadata before deciding whether to retry.**
+Both inherit `MailError`. Server failure details and account IDs are not printed
+in these errors. No automatic retry or authentication replay is performed by the
+write path. Custom transport adapters must not be configured to retry POST writes.
+
+The CLI requires an exact folder ID, individual message ID, and action:
+
+```console
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action read --format json
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action unread
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action flag
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action unflag
+```
+
+There is no default action, bulk selection, `--limit` fallback, implicit folder
+selection, or write attached to reading a message. Test on disposable messages
+first. Browser captures verified the four request/acknowledgement shapes and
+restoration on one disposable message; the implementation is tested offline and
+has not yet been smoke-tested with live library/CLI writes.
 
 ## Enumerating a Mailbox
 
@@ -374,8 +427,9 @@ outside repositories.
 ## Errors and Privacy
 
 `MailError`, a `PyiCloudException`, reports malformed Mail responses, unexpected
-attachment content types, and stream failures. Session authentication and
-connection exceptions retain their existing library types. There are no
+attachment content types, and stream failures. Read-side authentication and
+connection exceptions retain their existing library types. Submitted flag writes
+instead use the rejected/uncertain errors described above. There are no
 automatic service-level retries; a caller may inspect chained causes.
 
 Bodies, subjects, addresses, previews, and filenames are omitted from the models'

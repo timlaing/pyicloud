@@ -4,8 +4,38 @@
 
 ## Status and Evidence
 
-Reviewed on 2026-10-17 against upstream `ace0096`. This branch implements the
-bounded, read-only first release described below. This document records protocol
+### Explicit Single-Message Flag Writes (2026-10-21)
+
+Four authorized browser actions on one disposable email captured `POST email/set`
+with `domain: email` and one `batchUpdate` entry. Each operation supplies one
+message ID and `patch.flags.set` or `patch.flags.clear` containing only `seen` or
+`flagged`. This is a delta, not replacement of the integer metadata bitmask.
+The query's `clientIntent` was `clearMessageFlag` for read and unflag, and
+`setMessageFlag` for unread and flag. Preserve that observed mapping rather than
+equating intent names to the inverse `seen` bit.
+Every response acknowledged exactly that same ID in `updated`, with an increasing
+positive `modseq`. The response account matched the request's discovered `dsid`.
+`created`, `destroyed`, `notCreated`, `notUpdated`, `notDestroyed`, `oldState`, and
+`newState` were null. Populated failures and malformed responses are synthetic
+offline cases, not additional live observations.
+
+The disposable message was restored unread and unflagged, then checked after a
+fresh page load; the mailbox still showed ten messages and three unread. No move,
+deletion, send, or attachment action was performed. An initial stale-page attempt
+produced no captured mutation or persistent state change; refreshing resolved it.
+No raw capture exports, private IDs, credentials, or message contents are tracked.
+
+This branch adds explicit library/CLI flag writes separately from ordinary reads,
+with exact UID/message preflight, scoped account acknowledgements, no automatic
+write retry, and distinct rejected/uncertain errors. The unnormalized session
+request path avoids response-status/authentication replay. The server has not
+provided a verified conditional-write token; preflight is not atomic with a
+concurrent move or flag change. Acknowledgements do not replace a fresh state read.
+Live library/CLI writes remain untested; only the browser actions were authorized
+and exercised. Sending, drafts, moves, deletion, and bulk writes remain excluded.
+
+The original bounded, read-only baseline was reviewed on 2026-10-17 against
+upstream `ace0096`; explicit flag writes are described above. This document records protocol
 observations and limitations, not an Apple protocol specification. See the
 [Mail guide](../services/mail.md) for the experimental public API.
 

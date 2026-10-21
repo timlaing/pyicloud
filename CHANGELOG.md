@@ -18,6 +18,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add explicit single-message Mail read/unread and flag/unflag updates through `set_read()`, `set_flagged()`, and `icloud mail mark`, with fresh identity checks, targeted named-flag patches, typed acknowledgements, and distinct rejected/uncertain outcomes without automatic write retries.
 - Add exact folder-scoped Mail metadata lookup by message ID or UID, with mailbox UID-validity checks and explicit missing-message results.
 - Add bounded, folder-scoped Mail thread expansion through `MailService.thread_messages()` and `icloud mail thread`, returning individual message metadata with explicit incomplete-result semantics and mailbox identity checks.
 - Add bounded search across explicitly selected Mail folders, preserving per-folder thread identity and incomplete-result semantics through the library and `icloud mail search-folders`.
@@ -25,7 +26,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add Mail snippets using advertised preview IDs and separate Unread/Flagged browser thread filters through the library and `icloud mail preview` / `icloud mail filter`, with mailbox identity checks and explicit bounded thread-group semantics.
 - Add explicit `MailService.iter_messages()` UID-based mailbox enumeration and `icloud mail list --all`, with mailbox identity checks, validated paging boundaries, and explicit failure on incomplete scans. Default message listing and search remain bounded; enumeration is not an atomic snapshot or synchronization API.
 - Add read-only `icloud mail` commands for folders, bounded message listings and thread-grouped search, body data, and attachment downloads to explicit non-overwriting paths.
-- Add experimental read-only `PyiCloudService.mail` support for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Mutations and incremental synchronization are not supported.
+- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Flag writes are separate explicit operations; sending, moves, deletion, and incremental synchronization remain unsupported.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).

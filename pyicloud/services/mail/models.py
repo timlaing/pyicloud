@@ -1,4 +1,4 @@
-"""Typed Mail envelopes and bounded read results."""
+"""Typed Mail envelopes, bounded read results, and flag acknowledgements."""
 
 from __future__ import annotations
 
@@ -69,6 +69,15 @@ class MailMessage(MailMessageRecord):
     """A message bound to the folder context used when it was fetched."""
 
     folder: MailFolder
+
+
+class MailFlagUpdate(MailModel):
+    """One acknowledged flag patch; the input message's metadata is not mutated."""
+
+    message_id: Identifier
+    flag: Literal["seen", "flagged"]
+    enabled: bool = Field(strict=True)
+    modseq: int = Field(strict=True, gt=0)
 
 
 class MailMessagePage(MailModel):
