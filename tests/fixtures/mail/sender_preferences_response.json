@@ -1,0 +1,41 @@
+{
+  "account": {
+    "dsId": "12345",
+    "emailId": "primary",
+    "fullName": "Synthetic User",
+    "supportedDomains": [
+      { "domain": "example.test", "allowSendFrom": true },
+      { "domain": "disabled.example.test", "allowSendFrom": false }
+    ],
+    "aliases": [
+      {
+        "emailId": "alias",
+        "fullName": "Synthetic Alias",
+        "isActive": true,
+        "supportedDomains": [
+          { "domain": "example.test", "allowSendFrom": true }
+        ]
+      },
+      {
+        "emailId": "inactive",
+        "isActive": false,
+        "supportedDomains": [
+          { "domain": "example.test", "allowSendFrom": true }
+        ]
+      }
+    ],
+    "customDomains": [
+      {
+        "emailId": "custom",
+        "domain": "custom.example.test",
+        "allowSendFrom": true
+      },
+      {
+        "emailId": "disabled",
+        "domain": "custom.example.test",
+        "allowSendFrom": false
+      }
+    ]
+  },
+  "sharedPreference": { "sendMailFromAddress": "primary@example.test" }
+}

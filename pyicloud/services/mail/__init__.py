@@ -1,38 +1,52 @@
-"""Experimental read-only iCloud Mail service."""
+"""Experimental Mail reads and explicit message, draft, and folder writes."""
 
 from .models import (
     MailBody,
+    MailDraft,
+    MailDraftAttachment,
+    MailFlagUpdate,
     MailFolder,
+    MailFolderDeletion,
     MailFolderSearchPage,
     MailMessage,
     MailMessageExport,
     MailMessagePage,
+    MailMoveUpdate,
     MailMultiSearchPage,
     MailPart,
     MailPreview,
     MailSearchHit,
     MailSearchPage,
+    MailSender,
     MailThreadDigest,
     MailThreadFilterPage,
     MailThreadPage,
 )
-from .service import MailError, MailService
+from .service import MailError, MailService, MailWriteRejected, MailWriteUncertain
 
 __all__ = [
     "MailBody",
+    "MailDraft",
+    "MailDraftAttachment",
     "MailError",
+    "MailFlagUpdate",
     "MailFolder",
+    "MailFolderDeletion",
     "MailFolderSearchPage",
     "MailMessage",
     "MailMessageExport",
     "MailMessagePage",
+    "MailMoveUpdate",
     "MailMultiSearchPage",
     "MailPart",
     "MailPreview",
     "MailSearchHit",
     "MailSearchPage",
+    "MailSender",
     "MailService",
     "MailThreadDigest",
     "MailThreadFilterPage",
     "MailThreadPage",
+    "MailWriteRejected",
+    "MailWriteUncertain",
 ]

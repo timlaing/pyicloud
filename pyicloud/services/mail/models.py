@@ -1,10 +1,12 @@
-"""Typed Mail envelopes and bounded read results."""
+"""Typed Mail envelopes, bounded read results, and write acknowledgements."""
 
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from ._draft_models import DraftAttachmentReference
 
 Identifier = Annotated[str, Field(strict=True, min_length=1)]
 MIME_PART_PATTERN = r"^[0-9]+(?:\.[0-9]+)*$"
@@ -25,6 +27,13 @@ class MailFolder(MailModel):
     name: Identifier
     uid_validity: int | None = Field(default=None, alias="uidValidity")
     message_count: int | None = Field(default=None, alias="messageCount")
+
+
+class MailSender(MailModel):
+    """An address explicitly enabled by the authenticated Mail account."""
+
+    address: Identifier = Field(repr=False)
+    display_name: str = Field(default="", repr=False)
 
 
 class MailPart(MailModel):
@@ -69,6 +78,49 @@ class MailMessage(MailMessageRecord):
     """A message bound to the folder context used when it was fetched."""
 
     folder: MailFolder
+
+
+class MailDraft(MailModel):
+    """A verified saved draft; every successful edit returns a replacement handle."""
+
+    message: MailMessage
+    sender: MailSender
+    to: tuple[str, ...] = Field(default=(), repr=False)
+    cc: tuple[str, ...] = Field(default=(), repr=False)
+    bcc: tuple[str, ...] = Field(default=(), repr=False)
+    attachments: tuple[MailDraftAttachment, ...] = Field(default=(), repr=False)
+
+
+class MailDraftAttachment(MailModel):
+    """One ordinary cached upload bound to its account and discovered gateway."""
+
+    account_id: Identifier = Field(repr=False)
+    service_root: Identifier = Field(repr=False)
+    reference: DraftAttachmentReference = Field(repr=False)
+
+
+class MailFlagUpdate(MailModel):
+    """One acknowledged flag patch; the input message's metadata is not mutated."""
+
+    message_id: Identifier
+    flag: Literal["seen", "flagged"]
+    enabled: bool = Field(strict=True)
+    modseq: int = Field(strict=True, gt=0)
+
+
+class MailMoveUpdate(MailModel):
+    """Source acknowledgement only; fresh destination metadata is required."""
+
+    source_message_id: Identifier
+    source_folder_id: Identifier
+    destination_folder_id: Identifier
+
+
+class MailFolderDeletion(MailModel):
+    """An acknowledged permanent folder deletion, not a move to Trash."""
+
+    folder_id: Identifier
+    permanent: Literal[True] = True
 
 
 class MailMessagePage(MailModel):

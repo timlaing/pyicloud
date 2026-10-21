@@ -1,11 +1,288 @@
 # Mail Service Investigation
 
-<!-- cspell:words geqs mailws mccgateway messagepart savedraft thrid -->
+<!-- cspell:words cachedpart geqs mailws mccgateway messagepart savedraft thrid -->
 
 ## Status and Evidence
 
-Reviewed on 2026-10-17 against upstream `ace0096`. This branch implements the
-bounded, read-only first release described below. This document records protocol
+### Additional Write Investigation (2026-10-21)
+
+The ordinary-move library and CLI implementation uses the observations below.
+Folder management now implements the captured create, rename, and delete shapes
+with fresh identity guards and explicit irreversible-deletion confirmation.
+Draft saves and recoverable discard now use these observed wire shapes with
+fresh sender/namespace checks and rotating-UID handles. Recipient-bearing drafts
+and ordinary attachment uploads/edit preservation are implemented and verified
+as described below. Remaining work includes sending/replies/forwarding with
+attachments, Mail Drop uploads, and permanent deletion. Live sends
+and permanent message deletion require separate authorization.
+
+An authorized browser test moved one uniquely identified disposable message
+from Inbox to an existing empty testing folder and back, then used Trash and
+restored it to Inbox. The restored message was unread/unflagged, Inbox again
+showed ten messages and three unread, and both test destinations were empty.
+No message was opened or permanently deleted during these actions.
+
+Ordinary moves used `email/set`, `clientIntent: moveMessagesGems`, and exactly
+one `batchUpdate` operation. Its patch was only
+`mboxRef: {replace: [destinationId]}`. Successful responses acknowledged the
+submitted source identifier in `updated` with an **empty object**, unlike flag
+writes' positive counter. Do not require or invent a counter for move results.
+Fresh metadata after a move can have a different message identifier and local
+UID. An acknowledgement does not establish the new destination identity, and
+the old `MailMessage` must not be reused for a subsequent mutation.
+
+The browser Trash command used `clientIntent: deleteMessagesGems` and added
+`flags: {set: [seen]}` to the mailbox replacement. One real response contained
+both `updated: {sourceId: {}}` and `notUpdated: {sourceId: {type: unknown,
+description: ...}}`. This is an uncertain outcome, not success or an unambiguous
+rejection. The request was not replayed. A fresh page load found the disposable
+message in Trash, still unread; a fresh move restored it to Inbox. Offline tests
+must retain this contradictory-outcome case and never automatically retry it.
+
+The browser occasionally retained stale metadata immediately after a move.
+An initial move-back interaction produced no captured mutation; a page reload
+and fresh selection enabled restoration. UI disappearance and HTTP 200 alone
+are not sufficient verification of write outcomes.
+
+The previously captured browser JavaScript also shows additional spam-flag
+changes for moves into or out of Junk. Do not silently equate those operations
+with an ordinary mailbox-only move or guess localized system-folder names.
+
+Creating one uniquely named disposable folder used `mailbox/set`,
+`clientIntent: gemsCreateMailbox`, and
+`{domain: mailbox, create: {mailbox: {name: requestedName}}}`. Its response
+contained the created folder under the caller key `mailbox`, including actual
+server identity, name, UID validity, counts, and system-folder boolean fields.
+Renaming that same empty folder used `clientIntent: renameMailboxGems` and
+`{domain: mailbox, update: {folderId: {name: newName}}}`. Its acknowledgement
+was `updated: {folderId: null}`. Do not apply the flag or move acknowledgement
+schema to folder operations. After a separate action-time confirmation, deleting
+the verified empty test folder used `clientIntent: deleteMailboxGems` and
+`{domain: mailbox, destroy: [folderId]}`. The response's `destroyed` array
+contained exactly that folder ID; all other outcome maps were null. The folder
+was absent afterward and the original message remained in Inbox.
+
+A recipient-free draft was created, saved, reopened, edited, and saved again.
+`message/savedraft` requests contained `date`, `from`, empty `to`/`cc`/`bcc`
+arrays, `subject`, `textBody`, `htmlBody`, empty `attachments`,
+`webmailClientBuild`, `isHME: false`, and session headers with null folder and
+counters. An update supplied `draftGuid: Drafts/previousUid`; successful replies
+contained a decimal-string `uid`. Each successful save returned a new UID,
+including automatic saves while typing. Do not guess an idempotency key or
+reuse the previous draft reference after a successful save. The sender and
+client build must come from verified account/client context, not capture values.
+
+#### Recipient and Attachment Investigation
+
+A separately authorized browser draft addressed to one controlled test address
+confirmed a nonempty `to` array of address strings in `message/savedraft`.
+The browser saved the synthetic subject and body successfully and rotated the
+draft UID. The `cc`, `bcc`, and `attachments` arrays were empty in that captured
+request. This confirms recipient serialization, not delivery: no send was
+requested or performed. After a native file-picker timeout and user-assisted
+selection, the browser uploaded exactly one 77-byte synthetic text file.
+
+The live upload confirmed `POST mailws2/v1/message/part`, `X-id` (a UUID),
+`X-type`, `X-size`, and `X-name` query parameters, a `text/plain` content type,
+and the raw text bytes as the body. Its successful modern response contained
+`uid` matching the submitted UUID and `messagePart` with a `cachedpart:` UUID,
+relative part URL, byte size, MIME type, base64 encoding, and filename. The
+subsequent draft save supplied the absolute same-gateway part URL and cached
+identity in both `guid` and `contentID`, with null expiration and a false Mail
+Drop thumbnail flag. Its reply rotated the draft UID and returned an attachment
+mapping with equal `requestGuid` and `newGuid`. Saving on composer close returned
+another new UID with the same attachment mapping.
+
+After closing and saving that exact composer, a fresh Drafts view showed six
+messages and the unique synthetic subject with its attachment indicator. The
+list's Trash action moved only that selected draft: Drafts returned to five
+messages, and Trash visibly contained the same synthetic subject and attachment.
+The captured mutation was a mark-seen mailbox replacement, not `destroy`.
+No email was sent, no permanent deletion was performed, and no other draft was
+edited. As with the earlier discard, HTTP 207 is not a clean success envelope;
+fresh source and destination observations verified the recoverable final state.
+
+Offline inspection of the already captured browser JavaScript supplies the
+following supporting implementation leads (only the ordinary modern path above
+has live upload evidence):
+
+- The draft serializer maps `to`, `cc`, and `bcc` to arrays of formatted address
+  strings. Existing draft references still use `Drafts/previousUid`.
+- Its attachment projection includes `guid`, `name`, `url`, `contentID`, `size`,
+  `mailDropExpirationDate`, `isMailDropThumbnail`, and `datatype`. A cached-part
+  identifier may also supply `contentID`. Mail Drop and ordinary uploads must
+  not be conflated.
+- The legacy upload helper posts a local file body to `wm/messagepart`, with
+  `X-id`, `X-type`, `X-size`, and `X-name` query parameters, and `X-channel`,
+  `Content-Type`, `X-File-Name`, and `X-File-Size` headers. It labels the content
+  multipart, but the code alone does not establish the actual wire encoding.
+  The helper also supports remote URLs; that is a separate capability, not
+  authorization to fetch caller-supplied URLs.
+- Its declared upload response contains `status`, `uid`, `url`, and `msgPart`;
+  the part includes `type`, `guid`, `datatype`, `encoding`, `name`, `filename`,
+  `url`, and `size`.
+- A distinct modern helper posts to `mailws2/v1/message/part` on the discovered
+  gateway. It uses the same `X-id`, `X-type`, `X-size`, and `X-name` query
+  parameters and a local file body, but does not set the legacy helper's
+  multipart headers in that function. Its response is instead `{uid,
+messagePart}`, with `guid`, `datatype`, `encoding`, `name`, `url`, and `size`
+  inside `messagePart`. Do not accept the legacy envelope as a modern reply.
+- The draft-save response schema permits an optional `attachments` array with
+  `requestGuid` and optional `newGuid` / `contentId`. Ignoring this remapping
+  could leave an edit with stale attachment identities after UID rotation.
+
+Implementation must follow the matched modern upload and draft-save captures,
+not just whichever helper is easiest to call. Do not copy the legacy route,
+disable timeouts, trust arbitrary attachment URLs, or silently discard existing
+recipients/attachments merely because a code path exists in the bundle. Keep
+raw captures, signed URLs, and account-specific identifiers out of fixtures.
+
+The library and mounted CLI implementation was then exercised under a separate
+four-write approval: one ordinary synthetic text upload, one new draft addressed
+only to the controlled test address, one edit preserving both, and one recoverable
+Trash discard. The upload, create and edit returned verified handles; the draft
+UID rotated and the original UID disappeared. A streamed download of the created
+attachment matched the original synthetic bytes, and fresh body reads confirmed
+the edited text and expected recipient. The discard returned contradictory maps,
+so the client raised an uncertain-outcome error without retry. Fresh listings
+found exactly one matching test draft in Trash and none in Drafts, with other
+observed ID/UID/flag/subject projections unchanged in Drafts, Trash, Sent and Inbox.
+No send or permanent deletion was attempted. Afterward, read-only checks also
+verified the edited text and exact attachment bytes on the recovered Trash
+identity; no additional mutation was required. The earlier native file-picker
+failure and a local pre-dispatch harness assertion did not consume live writes;
+the audit manifest records exactly four submitted mutations. Cc/Bcc, multiple
+attachments and other MIME types remain offline-tested rather than live-proven.
+
+The captured browser reads sender preferences with a GET to its discovered `mcc`
+root, `cc/mail/v1/account/<discovered-dsid>/preference/web/all`, using
+`userEntryPoint=/mail/load`. A metadata-only probe confirmed the `account` object
+with `dsId`, `emailId`, `fullName`, `supportedDomains`, `aliases`, and
+`customDomains`. Domains explicitly advertise `allowSendFrom`; aliases also
+advertise `isActive` in the browser's declared schema. `MailService.senders()`
+now validates that projection, matches the account ID, and returns only explicitly
+enabled identities. A fresh public-API probe returned the same enabled primary
+address as the raw preferences projection without printing its value. No writes
+were made. Alias/custom-domain tests are synthetic, based on browser-declared
+shapes; this account had neither, so their live behavior remains unverified.
+
+After action-time confirmation to discard only this test draft, the list's
+Trash command issued the same mark-read-and-move patch as ordinary message
+Trash, including the contradictory outcome shape. The draft disappeared from
+Drafts, restoring the original five-draft count. No `destroy` request or send was
+issued; do not describe this capture as permanent draft deletion. The discarded
+test draft can remain recoverable in Trash. Permanent deletion remains untested.
+
+A read-only implementation probe established that `geqs/query` ignores the
+`noSelect`, `labelMailbox`, and `specialUse...` properties returned by
+`mailbox/set`; it omitted those fields. The browser's actual folder query uses
+`identifier`, `name`, `uidValidity`, and integer `flags`. Preflight now requires
+that captured shape and accepts only zero flags, without inventing flag bits.
+The captured JavaScript maps canonical server names `Drafts` and `Junk` to
+special roles independently of translated labels. Those names and virtual
+mailboxes are excluded. A repeat metadata-only probe validated Inbox, Testing,
+and Trash preflight and independently confirmed the restored disposable message
+was neither seen nor flagged. The numeric message flags were not assumed to be
+zero: mailbox moves can change internal metadata bits.
+
+A subsequent, separately authorized implementation smoke test performed exactly
+four mailbox-only writes: library Inbox-to-Testing, mounted CLI Testing-to-Inbox,
+library Inbox-to-Trash, and mounted CLI Trash-to-Inbox. All four returned exact
+source acknowledgements with no failure entries. Fresh folder listings and
+bounded metadata snapshots after every write located the unique disposable
+message only in the expected destination, matching its original header/date/size
+signature despite changed IDs and UIDs. Named `SEEN` and `FLAGGED` queries
+confirmed unread/unflagged state throughout. Other observed records in all three
+folders retained their IDs, UIDs, numeric flags, and metadata signatures. A fresh
+read-only process subsequently verified restoration independently.
+
+The test transport permitted metadata queries and only one exact mailbox-only
+payload per stage. Attempts were persisted before dispatch to prevent replay;
+no flag patches, bodies, attachments, sends, or permanent deletions were allowed.
+Private manifests stayed outside Git. The mounted CLI used real parsing,
+lookups, move methods, HTTP, and JSON output while reusing the authenticated API
+under its outer SSL context. TLS verification remained enabled. These are
+single-account, small-folder happy-path observations, not evidence of atomic
+preflight, large-folder completeness, or universal server behavior. Synthetic
+offline tests cover rejected, uncertain, malformed, and contradictory outcomes.
+
+All request and response examples above are structural descriptions. Account
+identifiers, cookies, real message/folder IDs, and raw captures remain untracked.
+Synthetic fixtures must use fake stable values. Each new public operation needs
+strict input validation, exact fresh scope checks, one non-replayed dispatch,
+operation-specific acknowledgement validation, rejected/uncertain outcomes,
+offline transport/failure/CLI tests, documentation, and independently checked
+live state where authorized. Preserve the existing separation between reads
+and explicit writes.
+
+### Explicit Single-Message Flag Writes (2026-10-21)
+
+Four authorized browser actions on one disposable email captured `POST email/set`
+with `domain: email` and one `batchUpdate` entry. Each operation supplies one
+message ID and `patch.flags.set` or `patch.flags.clear` containing only `seen` or
+`flagged`. This is a delta, not replacement of the integer metadata bitmask.
+The query's `clientIntent` was `clearMessageFlag` for read and unflag, and
+`setMessageFlag` for unread and flag. Preserve that observed mapping rather than
+equating intent names to the inverse `seen` bit.
+Every response acknowledged exactly that same ID in `updated`, with an increasing
+positive `modseq`. The response account matched the request's discovered `dsid`.
+`created`, `destroyed`, `notCreated`, `notUpdated`, `notDestroyed`, `oldState`, and
+`newState` were null. Populated failures and malformed responses are synthetic
+offline cases, not additional live observations.
+
+The disposable message was restored unread and unflagged, then checked after a
+fresh page load; the mailbox still showed ten messages and three unread. No move,
+deletion, send, or attachment action was performed. An initial stale-page attempt
+produced no captured mutation or persistent state change; refreshing resolved it.
+No raw capture exports, private IDs, credentials, or message contents are tracked.
+
+This branch adds explicit library/CLI flag writes separately from ordinary reads,
+with exact UID/message preflight, scoped account acknowledgements, no automatic
+write retry, and distinct rejected/uncertain errors. The unnormalized session
+request path avoids response-status/authentication replay. The server has not
+provided a verified conditional-write token; preflight is not atomic with a
+concurrent move or flag change. Acknowledgements do not replace a fresh state read.
+That initial flag-only implementation excluded sending, drafts, moves, deletion,
+and bulk writes; the later explicitly authorized additions are recorded above.
+
+### Live Library and CLI Flag Verification (2026-10-21)
+
+A separately authorized live smoke test used the committed flag implementation
+against one uniquely identified disposable Inbox message, originally unread and
+unflagged. Four sequential stages each submitted exactly one guarded `email/set`
+request: library `set_read(read=True)`, mounted CLI `mark --action unread`, library
+`set_flagged(flagged=True)`, and mounted CLI `mark --action unflag`.
+
+Each response acknowledged only the exact intended ID with an increasing counter.
+Independent, exact message-ID queries using the server's named `SEEN` and
+`FLAGGED` predicates confirmed every requested transition. These checks did not
+infer numeric flag bits or merely trust HTTP 200. Fresh bounded UID scans after
+each write found no change to the other Inbox message IDs, UIDs, or numeric flags;
+the message count stayed ten. A final fresh-process read-only check confirmed the
+target remained unread/unflagged with its exact original numeric flags restored.
+
+The mounted CLI exercised real parsing, exact message lookup, service writes,
+and JSON acknowledgement output. Only account acquisition and context opening
+were patched to reuse an already authenticated real service instance under the
+outer CLI SSL context; HTTP responses and service methods were not mocked. The
+existing local proxy and trusted CA bundle were used without disabling TLS
+verification or changing system settings. No captured credentials were replayed.
+
+A transport guard permitted only metadata routes and one exact flag-only payload
+per stage. Attempted submissions were recorded before dispatch; failed or
+uncertain stages could not be silently replayed. No retries, message bodies,
+attachment downloads, sends, moves, deletions, or folder writes occurred. Private
+identities, original metadata, and local reports stayed outside Git. No HAR was
+exported for this smoke test.
+
+This verifies the four happy-path transitions on one small mailbox/account, not
+all failure maps, concurrent writes, custom retry adapters, other accounts, or an
+unattended standalone CLI authentication flow. The offline rejection, uncertainty,
+identity, and no-replay tests remain necessary; the live test does not establish
+server-side atomicity or a universal protocol guarantee.
+
+The original bounded, read-only baseline was reviewed on 2026-10-17 against
+upstream `ace0096`; explicit flag writes are described above. This document records protocol
 observations and limitations, not an Apple protocol specification. See the
 [Mail guide](../services/mail.md) for the experimental public API.
 
@@ -535,9 +812,9 @@ must validate operation outcomes, distinguish uncertain submission outcomes,
 and avoid automatic retries of non-idempotent operations. These observations
 do not authorize implementing or exercising writers in the read-only phase.
 
-## Proposed First Release and Verification
+## Original First-Release Proposal and Verification
 
-The initial scope is endpoint discovery, folder listing, bounded message
+The original read-only scope was endpoint discovery, folder listing, bounded message
 metadata listing, selected body retrieval, mailbox-scoped search, and streamed
 attachment downloads. It excludes sending, drafts, flag changes, moves, folder
 mutations, HTML rendering, and incremental synchronization. No dedicated Mail
