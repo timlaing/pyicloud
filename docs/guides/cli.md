@@ -64,6 +64,7 @@ icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./messa
 icloud mail download-maildrop '<message-id>' --folder-id '<folder-id>' --part-index 2 --output ./attachment.mov --max-bytes 104857600
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
+icloud mail filter-threads --folder-id '<folder-id>' --filter flagged --page-size 50 --format json
 icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
 icloud photos libraries --username jappleseed@apple.com

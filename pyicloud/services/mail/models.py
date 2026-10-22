@@ -194,6 +194,33 @@ class MailThreadFilterPage(MailModel):
     complete: Literal[False] = False
 
 
+class MailFilteredThread(MailModel):
+    """Lightweight filtered group identity, not a digest or a message."""
+
+    id: Identifier
+    folder: MailFolder
+    filter_by: MailThreadFilter
+    timestamp: float = Field(allow_inf_nan=False, ge=0)
+
+
+class ThreadQueryRecord(MailModel):
+    """Thread-domain metadata with independently checked folder membership."""
+
+    id: Identifier = Field(alias="identifier", pattern=r"\S")
+    timestamps: dict[
+        str, Annotated[float, Field(strict=True, allow_inf_nan=False, ge=0)]
+    ] = Field(alias="tsMap", repr=False)
+
+
+class ThreadQueryResponse(MailModel):
+    """Opaque continuation belongs only to the exact originating query."""
+
+    records: list[ThreadQueryRecord] = Field(alias="domainObjects")
+    continuation_marker: Annotated[str, Field(strict=True, pattern=r"\S")] | None = (
+        Field(default=None, alias="continuationMarker", repr=False)
+    )
+
+
 class MailReadContext(MailModel):
     """Response scope only; modification sequences are not persisted or replayed."""
 
@@ -246,14 +273,14 @@ class MailExpression(MailModel):
     """A property or header/body projection in a query predicate."""
 
     property: str
-    type: Literal["property", "fieldOf"] | None = None
+    type: Literal["property", "fieldOf", "mapValueOf"] | None = None
     value: str | None = None
 
 
 class MailPredicate(MailModel):
     """Observed comparison and conjunction shape."""
 
-    type: Literal["eq", "textMatch", "lt"]
+    type: Literal["eq", "textMatch", "lt", "ge"]
     expression: MailExpression
     value: str | bool | int
     and_: list[MailPredicate] | None = Field(default=None, serialization_alias="and")
@@ -283,6 +310,22 @@ class MailQuery(MailModel):
     )
     collapse_on: str | None = Field(default=None, serialization_alias="collapseOn")
     orderby: MailOrder | None = None
+
+
+class MailThreadQuery(MailModel):
+    """Thread-domain cursor query; never a full-text search or sync request."""
+
+    domain: Literal["thread"] = "thread"
+    properties: list[str] = Field(default_factory=lambda: ["identifier", "tsMap"])
+    predicate: MailPredicate
+    orderby: MailOrder
+    limit: int = Field(ge=1, le=1000)
+    strict_limit: Literal[False] = Field(
+        default=False, serialization_alias="strictLimit"
+    )
+    continuation_marker: str | None = Field(
+        default=None, serialization_alias="continuationMarker", repr=False
+    )
 
 
 class MailSessionHeaders(MailModel):

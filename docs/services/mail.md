@@ -20,7 +20,8 @@ server-side search. The current boundaries are:
 | Thread members                     | `thread`, `thread --all`   | Bounded metadata or UID enumeration within the selected folder, not a cross-folder conversation.              |
 | Individual unread/flagged messages | `filter-messages`          | Explicit UID enumeration; changing flags can change membership during the scan.                               |
 | Text search                        | `search`, `search-folders` | Bounded thread groups; exhaustive full-text search is not established.                                        |
-| Unread/flagged thread groups       | `filter`                   | Bounded browser groups; grouped-filter pagination is not established.                                         |
+| Unread/flagged thread groups       | `filter`                   | Bounded browser digests, without automatic pagination.                                                        |
+| Unread/flagged thread identities   | `filter-threads`           | Explicit cursor enumeration of IDs and folder timestamps; no digests, bodies, or atomic snapshot.             |
 | Preview                            | `preview`                  | Advertised snippets only, with exact message lookup by default; no body fallback.                             |
 | Body data                          | `body`                     | Advertised plain-text/HTML parts only, without requesting a read-state change or rendering HTML.              |
 | Attachments                        | `download`                 | Ordinary numeric MIME parts only; no Mail Drop/external URLs; private non-overwriting output.                 |
@@ -315,6 +316,36 @@ Filters cannot be combined through this API. In the observed browser capture,
 Unread plus Flagged returned the union of the separately filtered groups,
 not their intersection; arbitrary combinations are not assumed to mean AND.
 
+### Enumerating Filtered Thread Identities
+
+```python
+for thread in api.mail.iter_filtered_threads(
+    inbox, filter_by="flagged", page_size=50, max_pages=10000
+):
+    print(thread.id, thread.timestamp)
+```
+
+This separate API returns lightweight `MailFilteredThread` identities and the
+selected folder's Unix timestamps in milliseconds, **not full digests**, previews, counts, or individual
+messages. The `filter-threads` CLI command exposes the same scan. It uses the
+observed thread-domain query with an opaque continuation marker and an unchanged
+folder-ID/flag predicate on every page, rather than advancing timestamp boundaries.
+Filters remain separate; there is no combined-filter or text-search mode.
+
+Only an empty, marker-free response completes enumeration. A short page is not
+terminal. A nonempty page without a marker, an empty page with a marker, repeated
+markers or identities, oversized or wrong-folder pages, mailbox disappearance or
+recreation, malformed responses, and spent request budgets raise errors. No
+automatic retries or cursor persistence occur. Page sizes are 1 through 1,000;
+budgets include the terminal request. Positive mailbox UID validity is required.
+
+Successful exhaustion means the server's live cursor was exhausted, **not an
+atomic snapshot**: concurrent flag changes or new mail can change membership.
+Earlier library yields cannot be retracted if a later request fails. The CLI
+buffers results until the entire scan succeeds and reports `exhausted: true`
+with `snapshot: false`; it prints no partial success data on failure. Stable
+folder renames use the same folder ID. No bodies or snippets are requested.
+
 ## Searching Selected Folders
 
 ```python
@@ -498,6 +529,7 @@ icloud mail filter-messages --folder-id '<folder-id>' --filter flagged --format 
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
 icloud mail filter --folder-id '<folder-id>' --filter flagged --format json
+icloud mail filter-threads --folder-id '<folder-id>' --filter flagged --page-size 50 --max-pages 10000 --format json
 icloud mail search-folders example --folder-id '<inbox-id>' --folder-id '<sent-id>' --limit-per-folder 50 --format json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
 icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./message.eml

@@ -58,7 +58,7 @@ ListLimitOption = Annotated[
     ),
 ]
 PageSizeOption = Annotated[
-    int, typer.Option("--page-size", min=1, max=1000, help="Messages per UID page.")
+    int, typer.Option("--page-size", min=1, max=1000, help="Records per page.")
 ]
 MaxPagesOption = Annotated[
     int,
@@ -845,6 +845,65 @@ def mail_filter(
     )
     state.console.print(
         "Incomplete thread groups; not individual unread/flagged messages."
+    )
+
+
+@app.command("filter-threads")
+def mail_filter_threads(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    filter_by: ThreadFilter = typer.Option(..., "--filter"),
+    page_size: PageSizeOption = 50,
+    max_pages: MaxPagesOption = 10000,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Page filtered thread IDs and timestamps, not digests or individual messages."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    threads = _mail_call(
+        api,
+        lambda: list(
+            mail.iter_filtered_threads(
+                folder,
+                filter_by=filter_by.value,
+                page_size=page_size,
+                max_pages=max_pages,
+            )
+        ),
+    )
+    if state.json_output:
+        state.write_json({
+            "threads": threads,
+            "filter_by": filter_by.value,
+            "page_size": page_size,
+            "exhausted": True,
+            "snapshot": False,
+        })
+        return
+    _table(
+        state,
+        "Mail Filtered Thread IDs (Cursor Enumeration)",
+        [_THREAD_ID_COLUMN, "Timestamp"],
+        [(thread.id, thread.timestamp) for thread in threads],
+    )
+    state.console.print(
+        "Cursor exhausted; live thread identities, not a snapshot or digests."
     )
 
 
