@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
 - Guard Mail body and attachment reads against observed mailbox recreation and path changes when UID validity is available; reject in-flight renames for path-selected preview/filter reads too, use the current folder name, and prevent failed downloads from being published.
 - Explain the explicit `--limit N` fallback when Mail CLI exact lookup cannot use a folder without positive UID validity; never silently broaden the lookup.
 - Accept whitespace-padded plain-text and HTML body media types without changing the supported types or marking messages read.
@@ -19,6 +20,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add explicit, size-bounded Mail Drop downloads through `MailService.mail_drop_attachment()` and `icloud mail download-maildrop`, using verified Apple capability URLs, isolated credential-free transport, mandatory content TLS verification, mailbox guards, and private non-overwriting output.
 - Add explicit cursor enumeration of unread/flagged thread identities through `MailService.iter_filtered_threads()` and `icloud mail filter-threads`, with checked mailbox scope, typed metadata, empty terminal responses, and explicit failures on incomplete or non-progressing scans. Bounded thread digests and full-text search remain unchanged.
 - Add original MIME/EML streaming with `MailService.raw_message()` and private, non-overwriting `icloud mail export-eml` downloads, preserving Apple's returned message bytes without reconstruction or new dependencies and checking mailbox identity around retrieval.
 - Add `icloud mail get` for exact metadata-only lookup by message ID or folder-local UID, without scanning messages or fetching bodies.
@@ -37,6 +39,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Simplify Mail Drop capability validation and centralize shared Mail error messages and MIME types without changing download behavior.
+- Redact capability-bearing Mail Drop URLs and cloud-part identifiers from serialized message metadata; select Mail Drop attachments by their 1-based position in the parts array instead of copying signed URLs into commands.
 - Use exact message-ID lookup by default for Mail CLI preview and export commands too; explicit `--limit N` retains the bounded newest-message lookup.
 - Use exact message-ID lookup by default for Mail CLI body and download commands; an explicit `--limit` retains the existing bounded newest-message lookup.
 
@@ -47,6 +51,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Documentation
 
+- Clarify the separate ordinary-attachment and Mail Drop download paths and capability redaction in serialized metadata.
 - Document the observed iCloud Mail HTTP protocol research and capture limitations.
 - Reconcile the Invites design document with the shipped reads, CLI, RSVP image downloads, and cancellation support; document the entitlement flow and remaining owner-write limitations (#434).
 
