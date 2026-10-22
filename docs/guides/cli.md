@@ -60,6 +60,7 @@ icloud mail search example --folder-id '<folder-id>' --field subject --format js
 icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
 icloud mail search-folders example --folder-id '<first-id>' --folder-id '<second-id>' --format json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
+icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./message.eml
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
 icloud mail filter-threads --folder-id '<folder-id>' --filter flagged --page-size 50 --format json
