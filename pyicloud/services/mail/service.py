@@ -753,6 +753,54 @@ class MailService(BaseService):
         return result
 
     @contextmanager
+    def raw_message(
+        self, message: MailMessage
+    ) -> Generator[Iterator[bytes], None, None]:
+        """Stream Apple's original message bytes without parsing or regenerating MIME.
+
+        Requires a verified mailbox UID namespace. Use as a context manager;
+        responses close on partial consumption or failure. No redirects, retries,
+        body reconstruction, or remote filenames are used. A final mailbox check
+        can fail after bytes have been yielded; consumers must not publish partial
+        output as success. This is not a signed archival-integrity guarantee.
+        """
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_IDENTITIES_MISMATCH)
+        current = self._checked_mailbox(message.folder)
+        response = self.session.get(
+            f"{self.service_root}/mailws2/v1/message/download",
+            params={
+                **self.params,
+                "guid": f"message:{current.name}/{message.uid}",
+                "filename": "message.eml",
+            },
+            stream=True,
+            timeout=DEFAULT_TIMEOUT,
+            allow_redirects=False,
+        )
+        try:
+            if response.status_code != 200:
+                raise MailError(
+                    f"Mail raw download returned HTTP {response.status_code}"
+                )
+            media_type = (
+                response.headers
+                .get("Content-Type", "")
+                .split(";", 1)[0]
+                .strip()
+                .lower()
+            )
+            if media_type != "message/rfc822":
+                raise MailError("Mail raw download returned an unexpected content type")
+            self._verify_content_folder(message, current)
+            yield self._chunks(
+                response.iter_content(chunk_size=65536), label="raw message"
+            )
+            self._verify_content_folder(message, current)
+        finally:
+            response.close()
+
+    @contextmanager
     def attachment(
         self, message: MailMessage, part_id: str
     ) -> Generator[Iterator[bytes], None, None]:
@@ -817,11 +865,13 @@ class MailService(BaseService):
             response.close()
 
     @staticmethod
-    def _chunks(chunks: Iterator[bytes]) -> Iterator[bytes]:
-        """Yield nonempty chunks and translate attachment transport failures."""
+    def _chunks(
+        chunks: Iterator[bytes], *, label: str = "attachment"
+    ) -> Iterator[bytes]:
+        """Yield nonempty chunks and translate download transport failures."""
         try:
             for chunk in chunks:
                 if chunk:
                     yield chunk
         except RequestException as exc:
-            raise MailError("Mail attachment stream failed") from exc
+            raise MailError(f"Mail {label} stream failed") from exc

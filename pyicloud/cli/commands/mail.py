@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterable
-from contextlib import contextmanager
+from collections.abc import Callable, Generator, Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from enum import Enum
 import os
 from pathlib import Path
@@ -78,6 +78,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
+_EXPORT_DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
 
 class SearchScope(str, Enum):
@@ -134,11 +135,18 @@ def _message(
     folder_id: str,
     message_id: str,
     limit: int | None,
+    *,
+    bounded_fallback: bool = True,
 ) -> MailMessage:
     """Resolve an exact message ID, preserving explicitly bounded legacy lookups."""
     folder = _folder(api, mail, folder_id)
     if limit is None:
         if folder.uid_validity is None or folder.uid_validity < 1:
+            if not bounded_fallback:
+                raise CLIAbort(
+                    "Exact lookup needs a folder with UID validity. "
+                    "Refresh folders with 'icloud mail folders' and retry."
+                )
             raise CLIAbort(
                 "Exact lookup needs a folder with UID validity. "
                 "Use --limit N to search the newest N folder messages."
@@ -198,12 +206,19 @@ def _download(
     mail: MailService, message: MailMessage, part_id: str, output: Path
 ) -> int:
     """Stream an attachment into a private, non-overwriting destination."""
+    return _save_stream(lambda: mail.attachment(message, part_id), output)
+
+
+def _save_stream(
+    stream_factory: Callable[[], AbstractContextManager[Iterator[bytes]]], output: Path
+) -> int:
+    """Publish unchanged bytes only after the stream and its final guards succeed."""
     size = 0
     with (
         _private_output(output) as temporary,
-        mail.attachment(message, part_id) as chunks,
+        stream_factory() as stream,
     ):
-        for chunk in chunks:
+        for chunk in stream:
             size += temporary.write(chunk)
     return size
 
@@ -636,7 +651,7 @@ def mail_export(
 ) -> None:
     """Export selected message metadata to JSON, not raw MIME or a mailbox backup."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,
@@ -656,6 +671,47 @@ def mail_export(
     result = {"message_id": message.id, "path": str(output), "size": size}
     if state.json_output:
         state.write_json(result)
+        return
+    state.console.print(Text(str(output)))
+
+
+@app.command("export-eml")
+def mail_export_eml(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
+    output: Path = typer.Option(
+        ..., "--output", help="New private file for original EML bytes."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Save original MIME bytes from Apple; never reconstruct or render the message."""
+    if os.path.lexists(output):
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
+    size = _mail_call(
+        api, lambda: _save_stream(lambda: mail.raw_message(message), output)
+    )
+    payload = {"message_id": message.id, "path": str(output), "size": size}
+    if state.json_output:
+        state.write_json(payload)
         return
     state.console.print(Text(str(output)))
 
@@ -798,7 +854,7 @@ def mail_download(
 ) -> None:
     """Save an ordinary attachment to an explicit path, without overwriting."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,

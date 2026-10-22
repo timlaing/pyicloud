@@ -25,10 +25,11 @@ server-side search. The current boundaries are:
 | Body data                          | `body`                     | Advertised plain-text/HTML parts only, without requesting a read-state change or rendering HTML.              |
 | Attachments                        | `download`                 | Ordinary numeric MIME parts only; no Mail Drop/external URLs; private non-overwriting output.                 |
 | JSON export                        | `export`                   | Exact metadata selection by default; body data only by explicit opt-in; not raw MIME/EML or a mailbox backup. |
+| Original MIME/EML export           | `export-eml`               | Streams Apple's returned message bytes unchanged, with exact lookup and private non-overwriting output.       |
 
-Full-text search pagination remains a separate protocol-research blocker. Raw
-MIME/EML retrieval, arbitrary external attachment downloads, and incremental
-synchronization are not implemented. Do not infer support for those operations
+Full-text search pagination remains a separate protocol-research blocker.
+Arbitrary external attachment downloads and incremental synchronization are
+not implemented. Do not infer support for those operations
 from the read commands above. There is no public exhaustive search iterator.
 Mail writes require separate implementation, review, and
 explicit authorization for any live mutation tests.
@@ -363,6 +364,42 @@ This format is **not raw MIME/EML, an atomic message snapshot, or a mailbox
 backup**. Message changes between metadata and body reads remain possible.
 Keep exports outside Git: they contain private mail data even without bodies.
 
+## Original MIME/EML Export
+
+```sh
+icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./message.eml
+```
+
+Unlike JSON export, this downloads the original MIME bytes returned by Apple's
+dedicated message-download endpoint. Headers, folding, MIME boundaries, transfer
+encodings, line endings, and embedded attachments are not parsed and regenerated.
+No additional Python package is needed. It preserves the bytes Apple serves,
+not a cryptographic guarantee of exactly what the sender originally transmitted.
+
+The command uses exact message-ID lookup and requires known positive mailbox UID
+validity; it has no bounded-scan fallback. It creates a private `0600` staging
+file and publishes to the explicitly chosen path only after the stream and final
+mailbox checks succeed. Existing files and symlinks are never overwritten, even
+if the destination appears during the download. Remote filenames and message
+subjects are not used as local paths. Only an HTTP 200 `message/rfc822` response
+is accepted; redirects, HTML, JSON, and unspecified binary types are rejected.
+
+Library callers can consume the original byte stream directly:
+
+```python
+with api.mail.raw_message(message) as chunks:
+    byte_count = sum(len(chunk) for chunk in chunks)
+```
+
+Always use the context manager, including when consuming only part of a message.
+The response closes on early exit and failure. An observed mailbox recreation or
+in-flight path change raises; a stable rename before download uses the refreshed
+path. Earlier library yields cannot be retracted after a late failure, so callers
+must handle partial files themselves or use the CLI's atomic publication. The
+stream is not a MIME validator, and private message bytes are untrusted data:
+do not automatically render HTML, execute attachments, or commit exports to Git.
+This is a single-message export, not synchronization or an atomic mailbox backup.
+
 ## Attachments
 
 ```python
@@ -414,6 +451,7 @@ icloud mail filter --folder-id '<folder-id>' --filter unread --format json
 icloud mail filter --folder-id '<folder-id>' --filter flagged --format json
 icloud mail search-folders example --folder-id '<inbox-id>' --folder-id '<sent-id>' --limit-per-folder 50 --format json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
+icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./message.eml
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message-with-body.json --include-body
 icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
