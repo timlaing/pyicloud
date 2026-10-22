@@ -19,6 +19,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add explicit cursor enumeration of unread/flagged thread identities through `MailService.iter_filtered_threads()` and `icloud mail filter-threads`, with checked mailbox scope, typed metadata, empty terminal responses, and explicit failures on incomplete or non-progressing scans. Bounded thread digests and full-text search remain unchanged.
 - Add original MIME/EML streaming with `MailService.raw_message()` and private, non-overwriting `icloud mail export-eml` downloads, preserving Apple's returned message bytes without reconstruction or new dependencies and checking mailbox identity around retrieval.
 - Add `icloud mail get` for exact metadata-only lookup by message ID or folder-local UID, without scanning messages or fetching bodies.
 - Add explicit folder-scoped Mail thread-member and unread/flagged individual-message UID pagination through `iter_thread_messages()`, `iter_filtered_messages()`, `icloud mail thread --all`, and `icloud mail filter-messages`, with checked scopes, empty-page exhaustion, and explicit request-budget failures. Existing bounded thread and grouped search behavior is unchanged; live scans are not atomic snapshots.

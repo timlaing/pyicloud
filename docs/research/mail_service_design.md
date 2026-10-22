@@ -372,12 +372,44 @@ field, demonstrating a truncated group response without a continuation token.
 Fresh session headers were used, not replayed as paging cursors. No active
 captured Mail request submitted a `continuationMarker` during this inspection.
 
-Search and grouped-filter enumeration therefore remain unimplemented. A safe
-next step requires verified boundary/tie semantics or a real continuation
+These checks did not establish search or grouped-filter enumeration. A safe
+implementation needs verified boundary/tie semantics or a real continuation
 handshake, including behavior at the 1,000-result ceiling. Never treat missing
 markers, short pages, server errors, or change tokens as proof of exhaustion.
 All these follow-up checks excluded bodies, attachment downloads, and mutations;
 raw captures and account-specific metadata remain outside Git.
+
+### Thread-Domain Grouped-Filter Continuation
+
+Further inspection of the same captured browser JavaScript identified a separate
+`geqs/query` path using domain `thread`, properties `identifier` and `tsMap`, and
+folder-specific `mapValueOf` expressions for the timestamp predicate and ordering.
+The browser translates Unread and Flagged into `fieldOf` expressions on `flags`,
+compared with boolean equality for `SEEN: false` and `FLAGGED: true`, respectively.
+The browser's internal `hasFlag` names are not the serialized query operators.
+
+A bounded read-only probe with `strictLimit: false` and limit one returned a
+continuation marker. Replaying it with the same folder and filter advanced:
+Flagged returned one record, another record, then an empty marker-free page;
+Unread returned one record, then an empty marker-free page. Both identifier sets
+matched independent bounded `thread/search` comparisons. No duplicate identities
+or repeated markers were observed, and each record included the selected folder
+in its timestamp map. Mailbox identity was checked around every query. No content
+reads or mutations were requested, and no private identifiers or markers are
+included here.
+
+This is small-sample protocol evidence, not proof of large-mailbox completeness.
+The separate `iter_filtered_threads()` adapter uses typed responses, folder and
+mailbox checks on every page, repeated-marker and duplicate rejection, explicit
+request-budget failures, and empty marker-free terminal responses. Offline tests
+cover more than 1,000 identities with equal timestamps and failure cases. The
+adapter returns lightweight IDs and timestamps only; full digest retrieval is
+not implemented. Projecting individual thread flag fields did not return usable
+boolean values in the probe, so the adapter does not invent a flag-bit decoder
+or claim client-side verification of filter membership. It retains the exact
+server-side predicate across requests. This does not establish continuation for
+full-text search or an atomic snapshot under concurrent changes. The existing
+bounded digest command remains unchanged.
 
 ### Browser Date Ranges and Search Paging Candidate
 
