@@ -49,7 +49,9 @@ MAX_RESULTS = 1000
 MAX_SEARCH_FOLDERS = 20
 _RESULT_LIMIT_EXCEEDED = "Mail exceeded the requested result limit"
 _MESSAGE_LIST = "message/list"
+_GEQS_QUERY = "geqs/query"
 _UID_VALIDITY_REQUIRED = "A positive mailbox UID validity is required; refresh folders"
+_IDENTITIES_MISMATCH = "Message and folder identities do not match"
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 SearchField = Literal["all", "subject", "from", "to", "cc", "body"]
 MessageFilter = Literal["unread", "flagged"]
@@ -257,7 +259,7 @@ class MailService(BaseService):
     def folders(self) -> list[MailFolder]:
         """List active folders and labels without reading message bodies."""
         result = self._post(
-            "geqs/query",
+            _GEQS_QUERY,
             MailQuery(
                 domain="mailbox",
                 include_labels=True,
@@ -497,7 +499,7 @@ class MailService(BaseService):
             update={"and_": [*(predicate.and_ or []), match]}
         )
         response = self._post(
-            "geqs/query",
+            _GEQS_QUERY,
             MailQuery(
                 domain="email",
                 properties=["identifier", "subject", "preview", "count"],
@@ -634,7 +636,7 @@ class MailService(BaseService):
         if message.preview_id is None or not message.preview_id.strip():
             raise ValueError("Message has no advertised preview ID; refresh metadata")
         if message.mailbox.id != message.folder.id:
-            raise ValueError("Message and folder identities do not match")
+            raise ValueError(_IDENTITIES_MISMATCH)
         current = self._checked_mailbox(message.folder)
         requested_folder = current.name
         response = self._post(
@@ -648,7 +650,11 @@ class MailService(BaseService):
             keep_nulls=True,
         )
         current = self._checked_mailbox(message.folder)
-        if response.context.folder != requested_folder or len(response.records) > 1:
+        if (
+            current.name != requested_folder
+            or response.context.folder != requested_folder
+            or len(response.records) > 1
+        ):
             raise MailError(
                 "Mail preview returned an ambiguous or wrong-folder response"
             )
@@ -689,7 +695,10 @@ class MailService(BaseService):
             keep_nulls=True,
         )
         current = self._checked_mailbox(folder)
-        if response.context.folder != requested_folder:
+        if (
+            current.name != requested_folder
+            or response.context.folder != requested_folder
+        ):
             raise MailError("Mail filter returned a different folder")
         if len(response.records) > limit:
             raise MailError(_RESULT_LIMIT_EXCEEDED)
@@ -700,6 +709,22 @@ class MailService(BaseService):
         return MailThreadFilterPage(
             folder=current, filter_by=filter_by, results=response.records, limit=limit
         )
+
+    def _content_folder(self, message: MailMessage) -> MailFolder:
+        """Guard known UID namespaces while preserving legacy bounded reads."""
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_IDENTITIES_MISMATCH)
+        if message.folder.uid_validity is None:
+            return message.folder
+        return self._checked_mailbox(message.folder)
+
+    def _verify_content_folder(
+        self, message: MailMessage, requested: MailFolder
+    ) -> None:
+        """Reject a changed namespace or path before completing a content read."""
+        current = self._content_folder(message)
+        if current.name != requested.name:
+            raise MailError("Mail folder changed during content retrieval; retry")
 
     def body(self, message: MailMessage) -> MailBody:
         """Read advertised plain-text/HTML parts without marking the message read."""
@@ -713,16 +738,19 @@ class MailService(BaseService):
         ]
         if not parts:
             raise ValueError("Message has no supported text body parts")
-        return self._post(
+        current = self._content_folder(message)
+        result = self._post(
             "message/get",
             MailBodyRequest(
                 uid=str(message.uid),
                 parts=parts,
-                session_headers=MailSessionHeaders(folder=message.folder.name),
+                session_headers=MailSessionHeaders(folder=current.name),
             ),
             MailBody,
             keep_nulls=True,
         )
+        self._verify_content_folder(message, current)
+        return result
 
     @contextmanager
     def attachment(
@@ -742,8 +770,9 @@ class MailService(BaseService):
             raise ValueError(
                 "External or Mail Drop attachment downloads are not supported"
             )
+        current = self._content_folder(message)
         query: dict[str, str | int] = {
-            "guid": f"messagepart:{message.folder.name}/{message.uid}-{part.id}",
+            "guid": f"messagepart:{current.name}/{message.uid}-{part.id}",
             "type": part.content_type,
         }
         if part.filename is not None:
@@ -781,7 +810,9 @@ class MailService(BaseService):
                 acceptable = content_type in (expected, "application/octet-stream")
             if not acceptable:
                 raise MailError("Mail attachment returned an unexpected content type")
+            self._verify_content_folder(message, current)
             yield self._chunks(response.iter_content(chunk_size=65536))
+            self._verify_content_folder(message, current)
         finally:
             response.close()
 

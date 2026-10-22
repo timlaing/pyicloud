@@ -48,12 +48,15 @@ def mail_folder_fixture() -> MailFolder:
 
 
 @pytest.fixture(name="message")
-def mail_message_fixture(folder: MailFolder) -> MailMessage:
+def mail_message_fixture(
+    folder: MailFolder, service: MailService
+) -> Iterator[MailMessage]:
     """A message with advertised plain, HTML, and attachment parts."""
     record = MessageResponse.model_validate(
         load_fixture("mail", "messages_response.json")
     ).records[0]
-    return MailMessage(**record.model_dump(), folder=folder)
+    with patch.object(service, "folders", return_value=[folder]):
+        yield MailMessage(**record.model_dump(), folder=folder)
 
 
 def response(data: Any, *, status: int = 200) -> MagicMock:
