@@ -54,12 +54,16 @@ icloud contacts me --username jappleseed@apple.com
 icloud drive list /Documents --username jappleseed@apple.com
 icloud mail folders --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
+icloud mail get '<message-id>' --folder-id '<folder-id>' --format json
+icloud mail get --uid 7 --folder-id '<folder-id>' --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --format json
 icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
 icloud mail search-folders example --folder-id '<first-id>' --folder-id '<second-id>' --format json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
+icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./message.eml
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
+icloud mail filter-threads --folder-id '<folder-id>' --filter flagged --page-size 50 --format json
 icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
 icloud photos libraries --username jappleseed@apple.com

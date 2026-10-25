@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterable
-from contextlib import contextmanager
+from collections.abc import Callable, Generator, Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from enum import Enum
 import os
 from pathlib import Path
@@ -57,6 +57,15 @@ ListLimitOption = Annotated[
         help="Total messages to fetch; with --all, the per-request page size.",
     ),
 ]
+PageSizeOption = Annotated[
+    int, typer.Option("--page-size", min=1, max=1000, help="Records per page.")
+]
+MaxPagesOption = Annotated[
+    int,
+    typer.Option(
+        "--max-pages", min=1, help="Request budget, including the empty final page."
+    ),
+]
 LookupLimitOption = Annotated[
     int | None,
     typer.Option(
@@ -69,6 +78,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
+_EXPORT_DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
 
 class SearchScope(str, Enum):
@@ -80,6 +90,13 @@ class SearchScope(str, Enum):
     TO = "to"
     CC = "cc"
     BODY = "body"
+
+
+class MessageFilterScope(str, Enum):
+    """Individual-message predicates, separate from grouped thread filters."""
+
+    UNREAD = "unread"
+    FLAGGED = "flagged"
 
 
 class ThreadFilter(str, Enum):
@@ -118,11 +135,18 @@ def _message(
     folder_id: str,
     message_id: str,
     limit: int | None,
+    *,
+    bounded_fallback: bool = True,
 ) -> MailMessage:
     """Resolve an exact message ID, preserving explicitly bounded legacy lookups."""
     folder = _folder(api, mail, folder_id)
     if limit is None:
         if folder.uid_validity is None or folder.uid_validity < 1:
+            if not bounded_fallback:
+                raise CLIAbort(
+                    "Exact lookup needs a folder with UID validity. "
+                    "Refresh folders with 'icloud mail folders' and retry."
+                )
             raise CLIAbort(
                 "Exact lookup needs a folder with UID validity. "
                 "Use --limit N to search the newest N folder messages."
@@ -182,12 +206,19 @@ def _download(
     mail: MailService, message: MailMessage, part_id: str, output: Path
 ) -> int:
     """Stream an attachment into a private, non-overwriting destination."""
+    return _save_stream(lambda: mail.attachment(message, part_id), output)
+
+
+def _save_stream(
+    stream_factory: Callable[[], AbstractContextManager[Iterator[bytes]]], output: Path
+) -> int:
+    """Publish unchanged bytes only after the stream and its final guards succeed."""
     size = 0
     with (
         _private_output(output) as temporary,
-        mail.attachment(message, part_id) as chunks,
+        stream_factory() as stream,
     ):
-        for chunk in chunks:
+        for chunk in stream:
             size += temporary.write(chunk)
     return size
 
@@ -198,6 +229,33 @@ def _write_export(payload: MailMessageExport, output: Path) -> int:
         return temporary.write(
             (payload.model_dump_json(indent=2) + "\n").encode("utf-8")
         )
+
+
+def _print_enumeration(
+    state: CLIState,
+    messages: list[MailMessage],
+    page_size: int,
+    scope: dict[str, Any],
+) -> None:
+    """Publish only fully consumed scans, never partial-success JSON."""
+    if state.json_output:
+        state.write_json({
+            **scope,
+            "messages": messages,
+            "page_size": page_size,
+            "exhausted": True,
+        })
+        return
+    _table(
+        state,
+        "Mail Messages (Scoped UID Enumeration)",
+        ["Message ID", "From", "Subject"],
+        [(message.id, message.sender, message.subject) for message in messages],
+    )
+    state.console.print(
+        "UID range exhausted in this folder; concurrent changes and flag changes "
+        "are not an atomic snapshot."
+    )
 
 
 @app.command("folders")
@@ -298,6 +356,53 @@ def mail_list(
     )
 
 
+@app.command("get")
+def mail_get(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str | None = typer.Argument(None, help=_MESSAGE_ID_HELP),
+    uid: Annotated[int | None, typer.Option("--uid", min=1)] = None,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Read exact folder-scoped metadata by message ID or UID, without bodies."""
+    if (message_id is None) == (uid is None):
+        raise typer.BadParameter("Supply exactly one message ID or --uid.")
+    if message_id is not None and not message_id.strip():
+        raise typer.BadParameter("Message ID must not be empty.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    payload = _mail_call(
+        api,
+        lambda: (
+            mail.message_by_uid(folder, uid)
+            if uid is not None
+            else mail.message(folder, cast(str, message_id))
+        ),
+    )
+    if payload is None:
+        raise CLIAbort("Message not found in this folder.")
+    if state.json_output:
+        state.write_json(payload)
+        return
+    print_json_text(state.console, payload)
+
+
 @app.command("search")
 def mail_search(
     ctx: typer.Context,
@@ -354,7 +459,11 @@ def mail_thread(
     ctx: typer.Context,
     folder_id: FolderOption,
     thread_id: str = typer.Argument(..., help="Thread-group ID from mail search."),
-    limit: LimitOption = 50,
+    limit: ListLimitOption = 50,
+    all_messages: bool = typer.Option(
+        False, "--all", help="Exhaust this folder's thread members with UID paging."
+    ),
+    max_pages: MaxPagesOption = 10000,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -363,7 +472,7 @@ def mail_thread(
     output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
     log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
-    """Expand a thread into bounded message metadata in one folder, not bodies."""
+    """Read bounded thread metadata; --all opts into folder-scoped UID paging."""
     if not thread_id.strip():
         raise typer.BadParameter("Thread ID must not be empty.")
     store_command_options(
@@ -378,6 +487,17 @@ def mail_thread(
     )
     state, api, mail = _context(ctx)
     folder = _folder(api, mail, folder_id)
+    if all_messages:
+        messages = _mail_call(
+            api,
+            lambda: list(
+                mail.iter_thread_messages(
+                    folder, thread_id, page_size=limit, max_pages=max_pages
+                )
+            ),
+        )
+        _print_enumeration(state, messages, limit, {"thread_id": thread_id})
+        return
     payload = _mail_call(
         api, lambda: mail.thread_messages(folder, thread_id, limit=limit)
     )
@@ -393,6 +513,48 @@ def mail_thread(
     state.console.print(
         "Incomplete snapshot; only messages in this folder are included."
     )
+
+
+@app.command("filter-messages")
+def mail_filter_messages(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    filter_by: MessageFilterScope = typer.Option(..., "--filter"),
+    page_size: PageSizeOption = 50,
+    max_pages: MaxPagesOption = 10000,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Enumerate unread or flagged individual messages, not grouped threads."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    messages = _mail_call(
+        api,
+        lambda: list(
+            mail.iter_filtered_messages(
+                folder,
+                filter_by=filter_by.value,
+                page_size=page_size,
+                max_pages=max_pages,
+            )
+        ),
+    )
+    _print_enumeration(state, messages, page_size, {"filter_by": filter_by.value})
 
 
 @app.command("search-folders")
@@ -478,7 +640,7 @@ def mail_export(
         "--include-body",
         help="Explicitly fetch and include unrendered body data.",
     ),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -489,7 +651,7 @@ def mail_export(
 ) -> None:
     """Export selected message metadata to JSON, not raw MIME or a mailbox backup."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,
@@ -513,12 +675,53 @@ def mail_export(
     state.console.print(Text(str(output)))
 
 
+@app.command("export-eml")
+def mail_export_eml(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
+    output: Path = typer.Option(
+        ..., "--output", help="New private file for original EML bytes."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Save original MIME bytes from Apple; never reconstruct or render the message."""
+    if os.path.lexists(output):
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
+    size = _mail_call(
+        api, lambda: _save_stream(lambda: mail.raw_message(message), output)
+    )
+    payload = {"message_id": message.id, "path": str(output), "size": size}
+    if state.json_output:
+        state.write_json(payload)
+        return
+    state.console.print(Text(str(output)))
+
+
 @app.command("preview")
 def mail_preview(
     ctx: typer.Context,
     folder_id: FolderOption,
     message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -595,6 +798,65 @@ def mail_filter(
     )
 
 
+@app.command("filter-threads")
+def mail_filter_threads(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    filter_by: ThreadFilter = typer.Option(..., "--filter"),
+    page_size: PageSizeOption = 50,
+    max_pages: MaxPagesOption = 10000,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Page filtered thread IDs and timestamps, not digests or individual messages."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    threads = _mail_call(
+        api,
+        lambda: list(
+            mail.iter_filtered_threads(
+                folder,
+                filter_by=filter_by.value,
+                page_size=page_size,
+                max_pages=max_pages,
+            )
+        ),
+    )
+    if state.json_output:
+        state.write_json({
+            "threads": threads,
+            "filter_by": filter_by.value,
+            "page_size": page_size,
+            "exhausted": True,
+            "snapshot": False,
+        })
+        return
+    _table(
+        state,
+        "Mail Filtered Thread IDs (Cursor Enumeration)",
+        [_THREAD_ID_COLUMN, "Timestamp"],
+        [(thread.id, thread.timestamp) for thread in threads],
+    )
+    state.console.print(
+        "Cursor exhausted; live thread identities, not a snapshot or digests."
+    )
+
+
 @app.command("body")
 def mail_body(
     ctx: typer.Context,
@@ -651,7 +913,7 @@ def mail_download(
 ) -> None:
     """Save an ordinary attachment to an explicit path, without overwriting."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,

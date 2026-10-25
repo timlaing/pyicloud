@@ -27,3 +27,9 @@ matches; the fixtures do not establish combined-filter or sync semantics.
 `messages_uid_page_response.json` models a UID-ordered metadata page with equal
 dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
 an explicit empty terminal page; the marker is not a synchronization cursor.
+
+`thread_query_page_response.json` models the thread-domain `geqs/query` cursor
+shape verified by bounded read-only queries. It contains only invented group IDs,
+folder timestamps, and a synthetic cursor; it is not a full digest response.
+Tests replay cursors with unchanged predicates and require a separate empty,
+marker-free terminal response. No real cursor or account data is included.

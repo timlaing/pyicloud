@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Guard Mail body and attachment reads against observed mailbox recreation and path changes when UID validity is available; reject in-flight renames for path-selected preview/filter reads too, use the current folder name, and prevent failed downloads from being published.
 - Explain the explicit `--limit N` fallback when Mail CLI exact lookup cannot use a folder without positive UID validity; never silently broaden the lookup.
 - Accept whitespace-padded plain-text and HTML body media types without changing the supported types or marking messages read.
 - Reject whitespace-padded HTML attachment responses and report advertised Mail endpoints with credentials, query strings, or fragments as malformed in diagnostics.
@@ -18,6 +19,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add explicit cursor enumeration of unread/flagged thread identities through `MailService.iter_filtered_threads()` and `icloud mail filter-threads`, with checked mailbox scope, typed metadata, empty terminal responses, and explicit failures on incomplete or non-progressing scans. Bounded thread digests and full-text search remain unchanged.
+- Add original MIME/EML streaming with `MailService.raw_message()` and private, non-overwriting `icloud mail export-eml` downloads, preserving Apple's returned message bytes without reconstruction or new dependencies and checking mailbox identity around retrieval.
+- Add `icloud mail get` for exact metadata-only lookup by message ID or folder-local UID, without scanning messages or fetching bodies.
+- Add explicit folder-scoped Mail thread-member and unread/flagged individual-message UID pagination through `iter_thread_messages()`, `iter_filtered_messages()`, `icloud mail thread --all`, and `icloud mail filter-messages`, with checked scopes, empty-page exhaustion, and explicit request-budget failures. Existing bounded thread and grouped search behavior is unchanged; live scans are not atomic snapshots.
 - Add exact folder-scoped Mail metadata lookup by message ID or UID, with mailbox UID-validity checks and explicit missing-message results.
 - Add bounded, folder-scoped Mail thread expansion through `MailService.thread_messages()` and `icloud mail thread`, returning individual message metadata with explicit incomplete-result semantics and mailbox identity checks.
 - Add bounded search across explicitly selected Mail folders, preserving per-folder thread identity and incomplete-result semantics through the library and `icloud mail search-folders`.
@@ -32,11 +37,13 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Use exact message-ID lookup by default for Mail CLI preview and export commands too; explicit `--limit N` retains the bounded newest-message lookup.
 - Use exact message-ID lookup by default for Mail CLI body and download commands; an explicit `--limit` retains the existing bounded newest-message lookup.
 
 ### Tests
 
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.
+- Harden a private Mail date-search pagination candidate with offline cases for timestamp ties, saturated boundary buckets, concurrent changes, identity failures, and request budgets. This does not add public search pagination or infer boundary completeness from short responses.
 
 ### Documentation
 

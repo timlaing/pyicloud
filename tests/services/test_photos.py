@@ -303,11 +303,11 @@ def test_fetch_folders(mock_photos_service: MagicMock) -> None:
         zone_id={"zoneName": "PrimarySync"},
         upload_url="https://upload.example.com",
     )
-    library.SMART_ALBUMS = {}
-    albums: AlbumContainer = library.albums
+    with patch.object(library, "SMART_ALBUMS", {}):
+        albums: AlbumContainer = library.albums
 
-    assert len(albums) == 1
-    assert albums[0].name == "folder1"
+        assert len(albums) == 1
+        assert albums[0].name == "folder1"
 
 
 def test_get_albums(mock_photos_service: MagicMock) -> None:

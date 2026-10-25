@@ -34,8 +34,8 @@ def mail_fixture() -> MagicMock:
     """Synthetic bounded metadata and untrusted body data; no HTTP calls."""
     mail = MagicMock(spec=MailService)
     folders = [
-        MailFolder(identifier="10", name="[bold]INBOX[/bold]"),
-        MailFolder(identifier="20", name="Sent"),
+        MailFolder(identifier="10", name="[bold]INBOX[/bold]", uidValidity=1234),
+        MailFolder(identifier="20", name="Sent", uidValidity=5678),
     ]
     mail.folders.return_value = folders
     message = MailMessage.model_validate({
@@ -46,6 +46,8 @@ def mail_fixture() -> MagicMock:
         "subject": "private subject",
     })
     mail.messages.return_value = MailMessagePage(messages=[message], limit=50)
+    mail.message.return_value = message
+    mail.message_by_uid.return_value = message
     mail.preview.return_value = MailPreview(
         message_id=message.id,
         folder=folders[0],
