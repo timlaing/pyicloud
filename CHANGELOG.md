@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Accept a valid SMS two-factor code that Apple answers with HTTP 412 and a repair session, continuing to session trust instead of reporting an incorrect code.
 - Guard Mail body and attachment reads against observed mailbox recreation and path changes when UID validity is available; reject in-flight renames for path-selected preview/filter reads too, use the current folder name, and prevent failed downloads from being published.
 - Explain the explicit `--limit N` fallback when Mail CLI exact lookup cannot use a folder without positive UID validity; never silently broaden the lookup.
 - Accept whitespace-padded plain-text and HTML body media types without changing the supported types or marking messages read.
