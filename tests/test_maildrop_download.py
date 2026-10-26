@@ -522,12 +522,14 @@ def test_missing_uid_validity_advertises_refresh_not_limit(
 
 def test_caller_exceptions_are_not_reclassified(case: Case) -> None:
     """A RequestException raised by the caller inside the block stays unchanged."""
-    with (
-        pytest.raises(ReadTimeout, match="caller-owned"),
-        case[0].mail_drop_attachment(case[4], 2) as chunks,
-    ):
-        assert next(chunks) == b"mo"
-        raise ReadTimeout("caller-owned")
+
+    def exercise() -> None:
+        with case[0].mail_drop_attachment(case[4], 2) as chunks:
+            assert next(chunks) == b"mo"
+            raise ReadTimeout("caller-owned")
+
+    with pytest.raises(ReadTimeout, match="caller-owned"):
+        exercise()
 
 
 @pytest.mark.parametrize("phase", ["send", "stream"])
