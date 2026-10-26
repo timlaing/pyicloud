@@ -16,6 +16,7 @@ from pyicloud.services.mail._search_pagination import (
     _SearchWindow,
 )
 from pyicloud.services.mail.models import MailMessageRecord
+from tests.fixture_loader import load_fixture
 
 Case = tuple[MagicMock, MailFolder]
 
@@ -480,3 +481,25 @@ def test_new_matches_above_cursor_are_not_claimed_as_a_snapshot(case: Case) -> N
     source.fetch.side_effect = fetch
     assert [m.uid for m in scan(case, page_size=1)] == [2]
     assert {r.uid for r in memory.records} == {3}
+
+
+def test_mail_drop_capabilities_survive_record_binding(case: Case) -> None:
+    """Yields keep private part capabilities; only serialization redacts them."""
+    source, _ = case
+    parts = load_fixture("mail", "maildrop_message_response.json")["domainObjects"][0][
+        "parts"
+    ]
+    source.fetch.side_effect = [
+        page(record(2, parts=parts)),
+        page(record(2, parts=parts), proved=True),
+        page(),
+    ]
+    part = list(scan(case, page_size=1))[0].parts[1]
+    assert part.is_mail_drop is True
+    assert part.mail_drop_url is not None
+    assert part.id.startswith("cloudpart:https://")
+    payload = part.model_dump_json()
+    assert "cvws" not in payload
+    assert "s=fake" not in payload
+    assert '"id":"cloudpart:<redacted>"' in payload
+    assert '"is_mail_drop":true' in payload

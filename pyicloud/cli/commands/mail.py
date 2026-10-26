@@ -78,7 +78,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
-_EXPORT_DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
+_DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
 
 class SearchScope(str, Enum):
@@ -651,7 +651,7 @@ def mail_export(
 ) -> None:
     """Export selected message metadata to JSON, not raw MIME or a mailbox backup."""
     if os.path.lexists(output):
-        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
+        raise CLIAbort(_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,
@@ -675,6 +675,56 @@ def mail_export(
     state.console.print(Text(str(output)))
 
 
+@app.command("download-maildrop")
+def mail_download_maildrop(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
+    part_index: int = typer.Option(
+        ..., "--part-index", min=1, help="1-based position in the message parts array."
+    ),
+    output: Path = typer.Option(
+        ..., "--output", help="New private destination; never a remote filename."
+    ),
+    max_bytes: int = typer.Option(
+        104857600, "--max-bytes", min=1, help="Hard byte limit; default 100 MiB."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Download a verified Mail Drop part without forwarding account credentials."""
+    if os.path.lexists(output):
+        raise CLIAbort(_DESTINATION_EXISTS)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
+    size = _mail_call(
+        api,
+        lambda: _save_stream(
+            lambda: mail.mail_drop_attachment(message, part_index, max_bytes=max_bytes),
+            output,
+        ),
+    )
+    if state.json_output:
+        state.write_json({"message_id": message.id, "path": str(output), "size": size})
+        return
+    state.console.print(Text(str(output)))
+
+
 @app.command("export-eml")
 def mail_export_eml(
     ctx: typer.Context,
@@ -693,7 +743,7 @@ def mail_export_eml(
 ) -> None:
     """Save original MIME bytes from Apple; never reconstruct or render the message."""
     if os.path.lexists(output):
-        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
+        raise CLIAbort(_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,
@@ -913,7 +963,7 @@ def mail_download(
 ) -> None:
     """Save an ordinary attachment to an explicit path, without overwriting."""
     if os.path.lexists(output):
-        raise CLIAbort(_EXPORT_DESTINATION_EXISTS)
+        raise CLIAbort(_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,

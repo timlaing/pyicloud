@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer
 
 Identifier = Annotated[str, Field(strict=True, min_length=1)]
 MIME_PART_PATTERN = r"^[0-9]+(?:\.[0-9]+)*$"
@@ -36,6 +36,27 @@ class MailPart(MailModel):
     size: int | None = Field(default=None, ge=0)
     filename: str | None = Field(default=None, alias="fileName", repr=False)
     is_attachment: bool = Field(default=False, alias="attach")
+    mail_drop_url: str | None = Field(
+        default=None, alias="mailDropStreamingUrl", exclude=True, repr=False
+    )
+    mail_drop_expiration_ms: float | None = Field(
+        default=None, alias="expirationDate", ge=0, allow_inf_nan=False
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_mail_drop(self) -> bool:
+        """Identify Mail Drop metadata without exposing its bearer URL."""
+        return bool(self.mail_drop_url)
+
+    @field_serializer("id")
+    def safe_part_id(self, value: str) -> str:
+        """Cloud-part identifiers embed signed URLs; keep them out of JSON output."""
+        return (
+            "cloudpart:<redacted>"
+            if self.is_mail_drop or value.startswith("cloudpart:")
+            else value
+        )
 
 
 class MailboxReference(MailModel):
