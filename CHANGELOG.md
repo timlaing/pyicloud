@@ -11,6 +11,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Fixed
 
 - Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
+- Preserve Mail Drop capability metadata for search-pagination messages, keep caller exceptions unchanged through `mail_drop_attachment()`, name the Mail Drop transport failure class instead of a generic message, and stop suggesting a nonexistent `--limit` option when a `download-maildrop` folder lacks UID validity.
 - Accept a valid SMS two-factor code that Apple answers with HTTP 412 and a repair session, continuing to session trust instead of reporting an incorrect code.
 - Guard Mail body and attachment reads against observed mailbox recreation and path changes when UID validity is available; reject in-flight renames for path-selected preview/filter reads too, use the current folder name, and prevent failed downloads from being published.
 - Explain the explicit `--limit N` fallback when Mail CLI exact lookup cannot use a folder without positive UID validity; never silently broaden the lookup.

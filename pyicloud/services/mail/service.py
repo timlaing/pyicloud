@@ -192,17 +192,27 @@ def _mail_drop_response_size(
     return expected_size
 
 
+def _mail_drop_transport_error(exc: RequestException) -> MailError:
+    """Carry the failure class only; request messages embed the signed URL."""
+    return MailError(f"Mail Drop download or stream failed ({type(exc).__name__})")
+
+
 def _mail_drop_chunks(
     chunks: Iterator[bytes], max_bytes: int, expected_size: int | None
 ) -> Iterator[bytes]:
     """Enforce actual streamed size even without trustworthy advertised lengths."""
     size = 0
-    for chunk in chunks:
-        size += len(chunk)
-        if size > max_bytes:
-            raise MailError("Mail Drop stream exceeds max_bytes")
-        if chunk:
-            yield chunk
+    try:
+        for chunk in chunks:
+            size += len(chunk)
+            if size > max_bytes:
+                raise MailError("Mail Drop stream exceeds max_bytes")
+            if chunk:
+                yield chunk
+    except RequestException as exc:
+        # Only iter_content failures originate here; caller exceptions never
+        # enter this generator, so they are not reclassified.
+        raise _mail_drop_transport_error(exc) from exc
     if expected_size is not None and size != expected_size:
         raise MailError("Mail Drop stream length differs from metadata or response")
 
@@ -990,13 +1000,13 @@ class MailService(BaseService):
         if message.mailbox.id != message.folder.id:
             raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         current = self._checked_mailbox(message.folder)
-        try:
-            with Session() as download:
-                download.trust_env = False
-                request = download.prepare_request(
-                    Request("GET", url, headers={"Accept-Encoding": "identity"})
-                )
-                # Send explicit settings without the CLI's class-wide environment merge.
+        with Session() as download:
+            download.trust_env = False
+            request = download.prepare_request(
+                Request("GET", url, headers={"Accept-Encoding": "identity"})
+            )
+            # Send explicit settings without the CLI's class-wide environment merge.
+            try:
                 response = download.send(
                     request,
                     stream=True,
@@ -1006,17 +1016,17 @@ class MailService(BaseService):
                     proxies={},
                     cert=None,
                 )
-                try:
-                    size = _mail_drop_response_size(response, part, max_bytes)
-                    self._verify_content_folder(message, current)
-                    yield _mail_drop_chunks(
-                        response.iter_content(chunk_size=65536), max_bytes, size
-                    )
-                    self._verify_content_folder(message, current)
-                finally:
-                    response.close()
-        except RequestException as exc:
-            raise MailError("Mail Drop download or stream failed") from exc
+            except RequestException as exc:
+                raise _mail_drop_transport_error(exc) from exc
+            try:
+                size = _mail_drop_response_size(response, part, max_bytes)
+                self._verify_content_folder(message, current)
+                yield _mail_drop_chunks(
+                    response.iter_content(chunk_size=65536), max_bytes, size
+                )
+                self._verify_content_folder(message, current)
+            finally:
+                response.close()
 
     @contextmanager
     def raw_message(

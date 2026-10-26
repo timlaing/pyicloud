@@ -711,7 +711,7 @@ def mail_download_maildrop(
         log_level=log_level,
     )
     state, api, mail = _context(ctx)
-    message = _message(api, mail, folder_id, message_id, None)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
     size = _mail_call(
         api,
         lambda: _save_stream(

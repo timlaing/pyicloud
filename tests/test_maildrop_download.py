@@ -484,3 +484,68 @@ def test_connection_failure_does_not_print_signed_url(case: Case, output: Path) 
     assert result.exit_code != 0
     assert "signed-secret" not in result.stdout
     assert not list(output.parent.iterdir())
+
+
+def test_missing_uid_validity_advertises_refresh_not_limit(
+    case: Case, output: Path
+) -> None:
+    """download-maildrop has no --limit option, so never direct users to it."""
+    unvalidated = case[4].folder.model_copy(update={"uid_validity": None})
+    case[5].return_value = [unvalidated]
+    api = MagicMock()
+    api.account_name = "user@example.test"
+    api.mail = case[0]
+    with patch.object(CLIState, "get_api", return_value=api):
+        result = CliRunner().invoke(
+            app,
+            [
+                "mail",
+                "download-maildrop",
+                case[4].id,
+                "--folder-id",
+                "10",
+                "--part-index",
+                "2",
+                "--output",
+                str(output),
+                "--format",
+                "json",
+            ],
+        )
+    assert result.exit_code != 0
+    assert result.exception is not None
+    failure = result.exception.args[0]
+    assert "--limit" not in failure
+    assert "icloud mail folders" in failure
+    assert not list(output.parent.iterdir())
+
+
+def test_caller_exceptions_are_not_reclassified(case: Case) -> None:
+    """A RequestException raised by the caller inside the block stays unchanged."""
+    with (
+        pytest.raises(ReadTimeout, match="caller-owned"),
+        case[0].mail_drop_attachment(case[4], 2) as chunks,
+    ):
+        assert next(chunks) == b"mo"
+        raise ReadTimeout("caller-owned")
+
+
+@pytest.mark.parametrize("phase", ["send", "stream"])
+def test_transport_failures_name_the_class_without_the_url(
+    case: Case, phase: str
+) -> None:
+    """The message carries the failure class; the signed URL stays chained only."""
+    if phase == "send":
+        case[6].side_effect = ReadTimeout("https://signed-secret.invalid")
+    else:
+
+        def broken() -> Iterator[bytes]:
+            yield b"mo"
+            raise ReadTimeout("https://signed-secret.invalid")
+
+        case[3].iter_content.return_value = broken()
+    with pytest.raises(MailError) as caught:
+        consume(case)
+    assert "(ReadTimeout)" in str(caught.value)
+    assert "signed-secret" not in str(caught.value)
+    assert isinstance(caught.value.__cause__, ReadTimeout)
