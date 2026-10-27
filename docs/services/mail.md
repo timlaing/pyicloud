@@ -366,6 +366,37 @@ read-only comparison returned the same 46 folders without a marker when omitted,
 but with a marker when `limit: 1000` was supplied. Neither observation establishes
 atomicity, large-account completeness, or nonempty deletion behavior.
 
+## Read-Operation Status
+
+The supported read commands are deliberately narrower than every feature of
+the Mail website. "Supported" does not imply an atomic backup or unbounded
+server-side search. The current boundaries are:
+
+| Operation                          | CLI                        | Coverage and limits                                                                                           |
+| ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Folder metadata                    | `folders`                  | Lists active folders; fails on unsupported continuation rather than silently truncating.                      |
+| Exact message metadata             | `get`                      | Select one message ID or folder-local UID, with mailbox identity checks; no content reads.                    |
+| Message listing                    | `list`, `list --all`       | Bounded date-ordered listing or explicit UID enumeration, not an atomic snapshot.                             |
+| Thread members                     | `thread`, `thread --all`   | Bounded metadata or UID enumeration within the selected folder, not a cross-folder conversation.              |
+| Individual unread/flagged messages | `filter-messages`          | Explicit UID enumeration; changing flags can change membership during the scan.                               |
+| Text search                        | `search`, `search-folders` | Bounded thread groups; exhaustive full-text search is not established.                                        |
+| Unread/flagged thread groups       | `filter`                   | Bounded browser digests, without automatic pagination.                                                        |
+| Unread/flagged thread identities   | `filter-threads`           | Explicit cursor enumeration of IDs and folder timestamps; no digests, bodies, or atomic snapshot.             |
+| Preview                            | `preview`                  | Advertised snippets only, with exact message lookup by default; no body fallback.                             |
+| Body data                          | `body`                     | Advertised plain-text/HTML parts only, without requesting a read-state change or rendering HTML.              |
+| Attachments                        | `download`                 | Ordinary numeric MIME parts only; no Mail Drop/external URLs; private non-overwriting output.                 |
+| Mail Drop attachments              | `download-maildrop`        | Explicit part selection, verified Apple host, isolated session, hard size limit; no redirects or renewal.     |
+| JSON export                        | `export`                   | Exact metadata selection by default; body data only by explicit opt-in; not raw MIME/EML or a mailbox backup. |
+| Original MIME/EML export           | `export-eml`               | Streams Apple's returned message bytes unchanged, with exact lookup and private non-overwriting output.       |
+
+Full-text search pagination remains a separate protocol-research blocker.
+Arbitrary external attachment downloads and incremental synchronization are
+not implemented. Only the explicit, restricted Mail Drop path below is supported;
+do not infer support for arbitrary URLs or synchronization
+from the read commands above. There is no public exhaustive search iterator.
+Mail writes require separate implementation, review, and
+explicit authorization for any live mutation tests.
+
 ## Folders and Messages
 
 Use your normal authenticated `PyiCloudService` instance. The service discovers
@@ -409,6 +440,13 @@ if message is not None:
 message = api.mail.message_by_uid(inbox, 7)
 ```
 
+The metadata-only CLI equivalent accepts exactly one message ID or UID:
+
+```sh
+icloud mail get '<message-id>' --folder-id '<folder-id>' --format json
+icloud mail get --uid 7 --folder-id '<folder-id>' --format json
+```
+
 Both methods return `None` when the exact non-deleted message is absent from
 the specified folder. They retrieve metadata only, not bodies or attachments.
 There is no newest-message limit or fallback scan. Use an individual message
@@ -422,8 +460,9 @@ the returned message's folder context.
 
 UIDs are local to a mailbox incarnation. When saving a UID, retain its folder ID
 and UID validity; never attach an old UID to a newly recreated mailbox's UID
-validity. These checks protect the lookup, not every later operation: a message
-may still be moved or deleted after it is returned.
+validity. Lookup checks cannot make subsequent reads atomic: a message may still
+be moved or deleted after it is returned. Content reads add their own namespace
+checks when UID validity is known, as described below.
 
 ## Explicit Message Moves
 
@@ -448,8 +487,9 @@ scan, bulk move, or automatic retry. Fresh metadata must identify the source
 message and both mailbox namespaces. Capability queries use the browser-observed
 `name` and integer `flags` properties. Only zero-flag ordinary folders are
 supported; nonzero or missing flags fail closed without guessing individual bit
-meanings. The browser's canonical server names `Junk`, `Drafts`, `/VIP`, and
-`/REMIND_ME` are rejected, independently of translated display labels. Junk and
+meanings. The browser's canonical server names `Junk` and `Drafts`, and every
+`$category$_`- or `/`-prefixed label or virtual path, are rejected independently
+of translated display labels, even with zero flags. Junk and
 Drafts have additional write semantics that are not implemented here.
 
 The submitted patch changes only mailbox membership. It does not explicitly
@@ -593,6 +633,14 @@ Body retrieval requests the advertised plain-text and HTML parts with
 by the browser. Messages without supported text parts raise `ValueError`.
 Reading a message in the browser separately may still change its read status.
 
+When the message's folder has UID validity, body reads recheck that namespace
+before and after the content request. A stable rename uses the current folder
+name; an observed recreation, disappearance, or rename during the request fails
+instead of returning a successful body result. These checks add folder-list
+requests and do not create an atomic snapshot. Legacy metadata without UID
+validity retains the existing bounded-read behavior but cannot provide these
+namespace checks; refresh folder metadata whenever possible.
+
 Headers and HTML are untrusted data. This API does not render or sanitize HTML,
 run scripts, load remote images, or execute attachments. Never insert returned
 HTML into a privileged browser context without appropriate sanitization.
@@ -615,7 +663,10 @@ The folder must have positive UID validity. Mailbox identity is checked before
 and after the request, and the returned folder and message GUID must match.
 Ambiguous or mismatched replies raise `MailError`. These checks do not make the
 request atomic against every concurrent message change. No synchronization
-state is retained. Preview strings are untrusted data: the CLI prints escaped
+state is retained. A stable pre-request rename uses the current folder path;
+a rename observed during the request fails because that path may have been
+reassigned. The same path guard applies to grouped thread filters.
+Preview strings are untrusted data: the CLI prints escaped
 JSON even in text mode, never HTML. Retrieval does not request a read-state
 mutation; opening a message separately in the browser may change its read state.
 
@@ -738,6 +789,36 @@ Filters cannot be combined through this API. In the observed browser capture,
 Unread plus Flagged returned the union of the separately filtered groups,
 not their intersection; arbitrary combinations are not assumed to mean AND.
 
+### Enumerating Filtered Thread Identities
+
+```python
+for thread in api.mail.iter_filtered_threads(
+    inbox, filter_by="flagged", page_size=50, max_pages=10000
+):
+    print(thread.id, thread.timestamp)
+```
+
+This separate API returns lightweight `MailFilteredThread` identities and the
+selected folder's Unix timestamps in milliseconds, **not full digests**, previews, counts, or individual
+messages. The `filter-threads` CLI command exposes the same scan. It uses the
+observed thread-domain query with an opaque continuation marker and an unchanged
+folder-ID/flag predicate on every page, rather than advancing timestamp boundaries.
+Filters remain separate; there is no combined-filter or text-search mode.
+
+Only an empty, marker-free response completes enumeration. A short page is not
+terminal. A nonempty page without a marker, an empty page with a marker, repeated
+markers or identities, oversized or wrong-folder pages, mailbox disappearance or
+recreation, malformed responses, and spent request budgets raise errors. No
+automatic retries or cursor persistence occur. Page sizes are 1 through 1,000;
+budgets include the terminal request. Positive mailbox UID validity is required.
+
+Successful exhaustion means the server's live cursor was exhausted, **not an
+atomic snapshot**: concurrent flag changes or new mail can change membership.
+Earlier library yields cannot be retracted if a later request fails. The CLI
+buffers results until the entire scan succeeds and reports `exhausted: true`
+with `snapshot: false`; it prints no partial success data on failure. Stable
+folder renames use the same folder ID. No bodies or snippets are requested.
+
 ## Searching Selected Folders
 
 ```python
@@ -789,6 +870,86 @@ This format is **not raw MIME/EML, an atomic message snapshot, or a mailbox
 backup**. Message changes between metadata and body reads remain possible.
 Keep exports outside Git: they contain private mail data even without bodies.
 
+## Original MIME/EML Export
+
+```sh
+icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./message.eml
+```
+
+Unlike JSON export, this downloads the original MIME bytes returned by Apple's
+dedicated message-download endpoint. Headers, folding, MIME boundaries, transfer
+encodings, line endings, and embedded attachments are not parsed and regenerated.
+No additional Python package is needed. It preserves the bytes Apple serves,
+not a cryptographic guarantee of exactly what the sender originally transmitted.
+
+The command uses exact message-ID lookup and requires known positive mailbox UID
+validity; it has no bounded-scan fallback. It creates a private `0600` staging
+file and publishes to the explicitly chosen path only after the stream and final
+mailbox checks succeed. Existing files and symlinks are never overwritten, even
+if the destination appears during the download. Remote filenames and message
+subjects are not used as local paths. Only an HTTP 200 `message/rfc822` response
+is accepted; redirects, HTML, JSON, and unspecified binary types are rejected.
+
+Library callers can consume the original byte stream directly:
+
+```python
+with api.mail.raw_message(message) as chunks:
+    byte_count = sum(len(chunk) for chunk in chunks)
+```
+
+Always use the context manager, including when consuming only part of a message.
+The response closes on early exit and failure. An observed mailbox recreation or
+in-flight path change raises; a stable rename before download uses the refreshed
+path. Earlier library yields cannot be retracted after a late failure, so callers
+must handle partial files themselves or use the CLI's atomic publication. The
+stream is not a MIME validator, and private message bytes are untrusted data:
+do not automatically render HTML, execute attachments, or commit exports to Git.
+This is a single-message export, not synchronization or an atomic mailbox backup.
+
+## Mail Drop Attachments
+
+```sh
+icloud mail get '<message-id>' --folder-id '<folder-id>' --format json
+icloud mail download-maildrop '<message-id>' --folder-id '<folder-id>' --part-index 2 --output ./attachment.mov
+```
+
+Use the **1-based position in the full message `parts` array**, including body
+parts, and select an entry with `is_mail_drop: true`. This is a separate command:
+ordinary `download` remains restricted to numeric MIME part IDs. Do not copy a
+signed URL or a `cloudpart:` identifier into commands. Capability URLs are excluded
+from serialized metadata, and embedded cloud-part IDs are redacted. Raw Python
+attributes remain private capability data; do not log them.
+
+The default maximum is 100 MiB; explicitly set `--max-bytes` to authorize a larger
+download. Both advertised and streamed lengths are checked. Unknown or zero
+metadata sizes do not disable the hard limit. Truncation, inconsistent lengths,
+HTTP failures, unexpected MIME types/encoding, expired links, and final mailbox
+checks fail without publishing partial files. Files are private (`0600`) and
+non-overwriting; remote filenames are never local paths.
+
+The downloader accepts only observed HTTPS `cvws.icloud-content.com/B/` capability
+URLs for `com.apple.largeattachment` / `Apple-Webmail`, with known unexpired metadata
+and URL expiry. It does not follow redirects, renew links, republish attachments,
+or accept generic links from email HTML. Refresh message metadata if a link is
+expired; if that does not produce a valid link, retrieval remains unsupported.
+
+Content requests use a new HTTP session with no iCloud cookies, account auth,
+session parameters, referrer, netrc credentials, or inherited environment proxies.
+TLS verification is mandatory for content downloads, even if account requests
+use `--no-verify-ssl`. `REQUESTS_CA_BUNDLE` can select a trusted CA file. This
+restricted path may not work on networks requiring an explicit proxy.
+
+```python
+with api.mail.mail_drop_attachment(message, 2, max_bytes=104857600) as chunks:
+    downloaded_bytes = sum(len(chunk) for chunk in chunks)
+```
+
+Use the context manager even for partial reads. Earlier library yields cannot be
+retracted after a late length or mailbox failure; callers must manage partial
+outputs or use the CLI writer. The verified path is a single direct download,
+not range/resume support, an atomic message snapshot, or support for all Apple
+content hosts. It performs no upload, send, flag change, or republish operation.
+
 ## Attachments
 
 ```python
@@ -806,11 +967,14 @@ creation; never use an untrusted attachment filename directly as a filesystem
 path. Partial local output is possible if the stream fails; the caller owns
 cleanup of any file it creates.
 
-Mail Drop and other external-link attachments can appear in metadata, but their
-downloads are not supported: selecting one raises `ValueError` before HTTP.
-Opaque part identifiers can contain sensitive external URLs; they are omitted
-from default representations but remain available through explicit attributes
-and serialization. Do not follow those URLs automatically.
+The ordinary `attachment()` method accepts numeric MIME parts only; selecting
+a Mail Drop or other external-link part raises `ValueError` before HTTP. Use
+the restricted `mail_drop_attachment()` method described above for supported
+Mail Drop parts. Other external-link downloads remain unsupported.
+Opaque part identifiers can contain sensitive external URLs. Mail Drop
+capability URLs are excluded from serialization, and serialized `cloudpart:`
+identifiers become `cloudpart:<redacted>`. Explicit attributes retain the
+private values internally; do not follow those URLs automatically.
 
 Metadata size can describe Base64-encoded content, while the stream contains
 decoded bytes. Do not decode those bytes again or equate the metadata size with
@@ -828,6 +992,8 @@ the final command, just as with the other services.
 icloud mail folders --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail list --folder-id '<folder-id>' --all --limit 50 --format json
+icloud mail get '<message-id>' --folder-id '<folder-id>' --format json
+icloud mail get --uid 7 --folder-id '<folder-id>' --format json
 icloud mail search example --folder-id '<folder-id>' --field subject --limit 50 --format json
 icloud mail thread '<thread-id>' --folder-id '<folder-id>' --limit 50 --format json
 icloud mail thread '<thread-id>' --folder-id '<folder-id>' --all --limit 50 --max-pages 10000 --format json
@@ -836,8 +1002,10 @@ icloud mail filter-messages --folder-id '<folder-id>' --filter flagged --format 
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
 icloud mail filter --folder-id '<folder-id>' --filter flagged --format json
+icloud mail filter-threads --folder-id '<folder-id>' --filter flagged --page-size 50 --max-pages 10000 --format json
 icloud mail search-folders example --folder-id '<inbox-id>' --folder-id '<sent-id>' --limit-per-folder 50 --format json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
+icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./message.eml
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message-with-body.json --include-body
 icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
@@ -870,8 +1038,8 @@ warns about concurrent changes. Both commands buffer metadata until the scan
 succeeds, so a later error prints no successful partial result. Use the library
 iterators for incremental processing without buffering the entire scan.
 
-`list` and `search` default to a limit of 50, with a maximum of 1,000. `body` and
-`download` use exact folder-scoped message-ID lookup by default, including for
+`list` and `search` default to a limit of 50, with a maximum of 1,000. `body`,
+`download`, `preview`, and `export` use exact folder-scoped message-ID lookup by default, including for
 older messages. A missing match is an error, not an invitation to scan a mailbox.
 For compatibility, supplying `--limit N` explicitly retains the earlier bounded
 lookup within the newest N folder messages (1 through 1,000). Omitting that flag
@@ -879,9 +1047,9 @@ uses exact lookup instead. Search IDs still identify threads, not messages.
 Exact lookup also retrieves older message IDs returned by `mail thread`; bounded
 lookups only apply when `--limit` is supplied explicitly. The library's returned
 `MailMessage` objects can be used for explicit body retrieval without another
-CLI lookup. `export` and `preview` instead default to a bounded lookup of the
-newest 50 messages and accept the same explicit `--limit` option. Export writes
-the explicitly selected message, not the whole listing.
+CLI lookup. Export writes the explicitly selected message, not the whole listing.
+`get` is always exact: it accepts one message ID or `--uid`, requires known UID
+validity, never scans, and never retrieves bodies, previews, or attachments.
 
 Body output is escaped JSON data even in text mode: HTML is never rendered and
 remote content is never loaded. Folder and message tables display remote text
@@ -894,9 +1062,19 @@ file beside the destination, then published without overwriting existing files
 or symlinks, even if they appear during the download. Failed streams remove their
 temporary bytes and leave the destination untouched. Publishing requires a
 filesystem that supports hard links; unsupported filesystems produce an error
-rather than falling back to an overwriting copy. Mail Drop and external-link
-downloads remain unsupported. Downloaded files are private email data; keep them
-outside repositories.
+rather than falling back to an overwriting copy. Ordinary `download` rejects
+Mail Drop and other external-link parts; use `download-maildrop` for the
+explicitly supported Mail Drop path. Other external-link downloads remain
+unsupported. Downloaded files are private email data; keep them outside
+repositories.
+
+Attachment reads guard known mailbox namespaces before the request, before
+yielding bytes, and when the stream context exits normally. A failed final
+check prevents the CLI from publishing its staged file. Library callers may
+already have consumed bytes before a later failure; those bytes cannot be
+retracted. A stable rename uses the current folder path. As with bodies, legacy
+metadata without UID validity cannot provide namespace checks, and no stream
+is an atomic snapshot of concurrent mailbox changes.
 
 ## Errors and Privacy
 

@@ -453,6 +453,70 @@ not arbitrary cross-folder identity stability. Raw requests, message metadata,
 and account identifiers remain outside Git. The implementation checks the
 mailbox epoch on both sides of lookup and rejects inconsistent responses.
 
+## Mail Drop Download Verification
+
+User-authorized metadata captures for a disposable MOV test message established
+`mailDropStreamingUrl`, `mailDropHeaderName`, millisecond `expirationDate`, and an
+opaque `cloudpart:` ID containing the signed URL. Metadata also included the
+ordinary filename, `video/quicktime` type, and the actual positive file size.
+The capability URL expiration agreed with the metadata to within one second.
+Refreshed metadata changed signature parameters but preserved the resource path.
+
+The browser made a direct GET to `cvws.icloud-content.com/B/...`, with no Cookie
+or Authorization header. The captured response was HTTP 200 `video/quicktime`,
+with a matching content length and byte-range advertisement. Range/resume support
+is not inferred from that advertisement and is not implemented here.
+
+A live read-only CLI test retrieved the same resource using fresh owned-session
+metadata and an independently created content session. The actual streamed byte
+count matched metadata and the browser capture, the output was private `0600`,
+selected message flags were unchanged, and the temporary file was removed.
+No captured credentials were replayed and no uploads, sends, flag writes, token
+creation, or republish endpoints were called.
+
+The implementation deliberately supports only the verified HTTPS host, path,
+container/zone parameters, expirations, and direct-response behavior. It enforces
+a hard byte budget, rejects redirects, isolates cookies/auth/netrc/proxy state,
+verifies TLS, and checks mailbox scope around content retrieval. It does not
+implement arbitrary external URLs, expired-link renewal, or a generic Mail Drop
+write client. The metadata HAR stays outside Git; the committed fixture is
+synthetic and contains no usable bearer links. Normal serialization redacts
+capability-bearing cloud-part IDs and excludes streaming URLs.
+
+## Original MIME Download
+
+The previously captured browser JavaScript contains an EML URL builder targeting
+`mccgateway` at `GET mailws2/v1/message/download`, with `guid`, `dsid`, and
+`filename` query parameters. The browser prefixes its folder-local message GUID
+with `message:`. A controlled read-only request using the existing discovered
+gateway and authenticated session verified `message:<folder-name>/<uid>`; no
+browser cookies, captured credentials, or mutation endpoints were replayed.
+
+Apple returned HTTP 200 with `Content-Type: message/rfc822`. Python's standard
+`email.parser.BytesParser` parsed the in-memory response without MIME defects;
+the subject matched independently fetched metadata, and the decoded PDF attachment
+matched the ordinary attachment download byte-for-byte. The observed mailbox
+flags were unchanged. No private response bytes, headers, filenames, IDs, hashes,
+or account identifiers were saved in this research document or fixtures.
+
+An additional live check selected an existing unread message through the server's
+`SEEN: false` predicate, consumed its raw stream in memory, and repeated that
+independent unread query. The selected message remained unread and the complete
+observed unread-ID set was unchanged. A live CLI export of a separate multipart
+message also matched a second library stream byte-for-byte, used private `0600`
+permissions, and left no temporary output after cleanup. These checks requested
+no flag writes or other Mail mutations.
+
+This establishes a dedicated original-message response on one account, not
+byte identity with the sender's original wire transmission. The implementation
+streams Apple's returned message bytes unchanged instead of rebuilding MIME from
+the existing JSON body/header API. It requires a known mailbox UID namespace,
+checks it around retrieval, ignores remote filenames, rejects redirects and
+non-RFC822 media types, and uses the existing private atomic CLI file writer.
+No new dependency or MIME regeneration is needed. Other-account and unusual MIME
+coverage remains a compatibility consideration; no server-side snapshot or
+incremental-sync guarantee follows from this endpoint.
+
 ## Message Bodies and Read State
 
 `message/get` requests a UID and selected MIME part identifiers, with folder
@@ -679,12 +743,44 @@ field, demonstrating a truncated group response without a continuation token.
 Fresh session headers were used, not replayed as paging cursors. No active
 captured Mail request submitted a `continuationMarker` during this inspection.
 
-Search and grouped-filter enumeration therefore remain unimplemented. A safe
-next step requires verified boundary/tie semantics or a real continuation
+These checks did not establish search or grouped-filter enumeration. A safe
+implementation needs verified boundary/tie semantics or a real continuation
 handshake, including behavior at the 1,000-result ceiling. Never treat missing
 markers, short pages, server errors, or change tokens as proof of exhaustion.
 All these follow-up checks excluded bodies, attachment downloads, and mutations;
 raw captures and account-specific metadata remain outside Git.
+
+### Thread-Domain Grouped-Filter Continuation
+
+Further inspection of the same captured browser JavaScript identified a separate
+`geqs/query` path using domain `thread`, properties `identifier` and `tsMap`, and
+folder-specific `mapValueOf` expressions for the timestamp predicate and ordering.
+The browser translates Unread and Flagged into `fieldOf` expressions on `flags`,
+compared with boolean equality for `SEEN: false` and `FLAGGED: true`, respectively.
+The browser's internal `hasFlag` names are not the serialized query operators.
+
+A bounded read-only probe with `strictLimit: false` and limit one returned a
+continuation marker. Replaying it with the same folder and filter advanced:
+Flagged returned one record, another record, then an empty marker-free page;
+Unread returned one record, then an empty marker-free page. Both identifier sets
+matched independent bounded `thread/search` comparisons. No duplicate identities
+or repeated markers were observed, and each record included the selected folder
+in its timestamp map. Mailbox identity was checked around every query. No content
+reads or mutations were requested, and no private identifiers or markers are
+included here.
+
+This is small-sample protocol evidence, not proof of large-mailbox completeness.
+The separate `iter_filtered_threads()` adapter uses typed responses, folder and
+mailbox checks on every page, repeated-marker and duplicate rejection, explicit
+request-budget failures, and empty marker-free terminal responses. Offline tests
+cover more than 1,000 identities with equal timestamps and failure cases. The
+adapter returns lightweight IDs and timestamps only; full digest retrieval is
+not implemented. Projecting individual thread flag fields did not return usable
+boolean values in the probe, so the adapter does not invent a flag-bit decoder
+or claim client-side verification of filter membership. It retains the exact
+server-side predicate across requests. This does not establish continuation for
+full-text search or an atomic snapshot under concurrent changes. The existing
+bounded digest command remains unchanged.
 
 ### Browser Date Ranges and Search Paging Candidate
 
