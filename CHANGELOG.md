@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Treat a move or flag per-message failure whose value is not a structured reason as `MailWriteUncertain` instead of `MailWriteRejected`, so malformed rejection maps never imply that a retry is safe.
 - Reject reserved label and virtual mailbox name prefixes during message moves even when their advertised flags are zero.
 - Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
 - Preserve Mail Drop capability metadata for search-pagination messages, keep caller exceptions unchanged through `mail_drop_attachment()`, name the Mail Drop transport failure class instead of a generic message, and stop suggesting a nonexistent `--limit` option when a `download-maildrop` folder lacks UID validity.

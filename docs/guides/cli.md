@@ -55,6 +55,7 @@ icloud drive list /Documents --username jappleseed@apple.com
 icloud mail folders --format json
 icloud mail create-folder Research --format json
 icloud mail rename-folder Reference --folder-id '<folder-id>' --format json
+icloud mail delete-folder --folder-id '<folder-id>' --confirm-folder-id '<folder-id>' --format json
 icloud mail list --folder-id '<folder-id>' --limit 50 --format json
 icloud mail get '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail get --uid 7 --folder-id '<folder-id>' --format json
