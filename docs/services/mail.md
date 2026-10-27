@@ -726,8 +726,12 @@ is an atomic snapshot of concurrent mailbox changes.
 for one explicitly selected folder. The first successful run establishes an
 inventory; later runs replay its saved counters and reconcile changes. It stores
 only folder-local UIDs, message/thread IDs, numeric flags, scoped counters, and a
-local revision. It never downloads message bodies, headers, previews, attachments,
-or MIME data, and never changes remote flags, sends, moves, or deletes mail.
+local revision. Metadata queries also receive `From`, `To`, `Cc`, and `Subject`
+header values, MIME-part metadata (including any Mail Drop capabilities Apple
+returns), and preview identifiers. These additional values are discarded rather
+than persisted in the inventory or printed in normal CLI output. The command
+does not fetch message bodies, preview text, attachment content, or raw MIME
+messages, and never changes remote flags, sends, moves, or deletes mail.
 This is not a live watcher, atomic snapshot, full-mailbox archive, or cross-folder
 move/deletion feed. The underlying web protocol remains experimental; server
 history completeness and large event bursts are not fully verified.

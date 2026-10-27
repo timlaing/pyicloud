@@ -64,6 +64,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Documentation
 
+- Clarify that Mail sync receives header and part metadata but discards it rather than persisting it or including it in normal CLI output; message content is not fetched.
 - Clarify the separate ordinary-attachment and Mail Drop download paths and capability redaction in serialized metadata.
 - Document the observed iCloud Mail HTTP protocol research and capture limitations.
 - Reconcile the Invites design document with the shipped reads, CLI, RSVP image downloads, and cancellation support; document the entitlement flow and remaining owner-write limitations (#434).
