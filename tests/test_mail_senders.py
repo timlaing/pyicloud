@@ -197,7 +197,9 @@ def test_missing_settings_endpoint_preserves_ordinary_reads(case: Any) -> None:
 def test_sender_settings_inventory_is_optional() -> None:
     """Missing sender settings should not fail ordinary account diagnostics."""
     entry = webservice("mcc")
-    assert entry is not None and entry.powers == ("mail",) and not entry.required
+    assert entry is not None
+    assert entry.powers == ("mail",)
+    assert not entry.required
 
 
 def test_numeric_account_and_alias_display_name_fallback(case: Any) -> None:

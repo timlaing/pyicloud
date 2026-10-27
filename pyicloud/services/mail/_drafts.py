@@ -9,8 +9,6 @@ from email.parser import Parser
 from email.utils import formatdate
 from html import escape
 
-from requests import RequestException
-
 from pyicloud.exceptions import PyiCloudException
 
 from ._draft_models import DraftCreateRequest, DraftEditRequest, DraftSaveResponse
@@ -141,6 +139,17 @@ class DraftWriter:
             })
         )
         response = self.submit(request)
+        return self._saved_draft(response, previous, folder, subject, verified)
+
+    def _saved_draft(
+        self,
+        response: DraftSaveResponse,
+        previous: MailMessage | None,
+        folder: MailFolder,
+        subject: str,
+        verified: MailSender,
+    ) -> MailDraft:
+        """Keep every post-dispatch verification failure explicitly uncertain."""
         try:
             uid = int(response.uid)
             if previous is not None and uid == previous.uid:
@@ -160,7 +169,7 @@ class DraftWriter:
             ):
                 raise MailError("The previous draft UID is still present")
             return MailDraft(message=current, sender=verified)
-        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+        except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(DRAFT_UNCERTAIN) from exc
 
     @staticmethod
