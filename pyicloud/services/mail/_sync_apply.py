@@ -7,8 +7,10 @@ Failures do not publish this worker's partial state. No remote mutations occur.
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from bisect import bisect_right
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from pyicloud.services.mail._sync import (
@@ -41,8 +43,10 @@ class IncrementalSource(InventorySource, Protocol):
     def iter_thread_inventory(self, thread_id: str) -> Iterator[InventoryMessage]:
         """Exhaust one changed thread's current, non-deleted folder membership."""
 
+    @abstractmethod
     def message_by_uid(self, uid: int) -> InventoryMessage | None:
         """Read an exact UID, or prove its absence in the pinned namespace."""
+        ...
 
 
 def _removed(batch: ChangeBatch) -> Callable[[int], bool]:
@@ -65,6 +69,66 @@ def _removed(batch: ChangeBatch) -> Callable[[int], bool]:
         return index >= 0 and uid <= merged[index][1]
 
     return contains
+
+
+@dataclass
+class _Reconciliation:
+    """Keep one batch's bounded refresh bookkeeping separate from publication."""
+
+    source: IncrementalSource
+    original: dict[int, InventoryMessage]
+    threads: set[str]
+    removed: Callable[[int], bool]
+    records: dict[int, InventoryMessage]
+    max_messages: int
+    max_lookups: int
+    refreshed: set[int] = field(default_factory=set)
+    lookups: int = 0
+    fetched: int = 0
+
+    def accept(self, record: InventoryMessage) -> None:
+        """Reject conflicting identities before staging a refreshed record."""
+        self.fetched += 1
+        if (
+            self.fetched > self.max_messages
+            or len(self.records) + (record.uid not in self.records) > self.max_messages
+        ):
+            raise SyncResetRequired("Mail metadata exceeds the reconciliation budget")
+        if record.uid in self.refreshed or self.removed(record.uid):
+            raise SyncResetRequired(
+                "Mail metadata conflicts with thread membership or removals"
+            )
+        old = self.original.get(record.uid)
+        if old is not None and old.message_id != record.message_id:
+            raise SyncResetRequired("Mail reused a UID in the same namespace")
+        self.records[record.uid] = record
+        self.refreshed.add(record.uid)
+
+    def _count_lookup(self) -> None:
+        self.lookups += 1
+        if self.lookups > self.max_lookups:
+            raise SyncResetRequired("Mail reconciliation exhausted its lookup budget")
+
+    def refresh_threads(self) -> None:
+        """Complete each invalidated thread before considering individual UIDs."""
+        for thread_id in sorted(self.threads):
+            self._count_lookup()
+            for record in self.source.iter_thread_inventory(thread_id):
+                if record.thread_id != thread_id:
+                    raise SyncResetRequired("Mail returned another thread's metadata")
+                self.accept(record)
+
+    def refresh_uids(self, targets: set[int]) -> None:
+        """Refresh only targets not already returned by a complete thread lookup."""
+        for uid in sorted(targets - self.refreshed):
+            self._count_lookup()
+            found = self.source.message_by_uid(uid)
+            if found is None:
+                self.records.pop(uid, None)
+                continue
+            if found.uid != uid or found.thread_id in self.threads:
+                raise SyncResetRequired("Mail UID and complete-thread lookups disagree")
+            self.accept(found)
 
 
 def apply_incremental(
@@ -112,7 +176,22 @@ def apply_incremental(
         raise SyncInventoryRequired(
             "Count-only Mail change requires an explicit inventory"
         )
-    original = {record.uid: record for record in stored}
+    records = _reconcile_batch(source, stored, batch, max_messages, max_lookups)
+    if source.current_checkpoint() != batch.checkpoint:
+        raise SyncResetRequired(
+            "Mail changed during reconciliation; checkpoint retained"
+        )
+    return state.replace_inventory(expected, batch.checkpoint, records.values())
+
+
+def _reconcile_batch(
+    source: IncrementalSource,
+    stored: tuple[InventoryMessage, ...],
+    batch: ChangeBatch,
+    max_messages: int,
+    max_lookups: int,
+) -> dict[int, InventoryMessage]:
+    """Stage bounded, identity-checked refreshes without committing any state."""
     threads = {
         event.thread_id
         for event in batch.events
@@ -130,51 +209,17 @@ def apply_incremental(
         for record in stored
         if record.thread_id not in threads and not removed(record.uid)
     }
-    refreshed: set[int] = set()
-    lookups = 0
-    fetched = 0
-
-    def accept(record: InventoryMessage) -> None:
-        nonlocal fetched
-        fetched += 1
-        if (
-            fetched > max_messages
-            or len(records) + (record.uid not in records) > max_messages
-        ):
-            raise SyncResetRequired("Mail metadata exceeds the reconciliation budget")
-        if record.uid in refreshed or removed(record.uid):
-            raise SyncResetRequired(
-                "Mail metadata conflicts with thread membership or removals"
-            )
-        old = original.get(record.uid)
-        if old is not None and old.message_id != record.message_id:
-            raise SyncResetRequired("Mail reused a UID in the same namespace")
-        records[record.uid] = record
-        refreshed.add(record.uid)
-
-    for thread_id in sorted(threads):
-        lookups += 1
-        if lookups > max_lookups:
-            raise SyncResetRequired("Mail reconciliation exhausted its lookup budget")
-        for record in source.iter_thread_inventory(thread_id):
-            if record.thread_id != thread_id:
-                raise SyncResetRequired("Mail returned another thread's metadata")
-            accept(record)
-    for uid in sorted(targets - refreshed):
-        lookups += 1
-        if lookups > max_lookups:
-            raise SyncResetRequired("Mail reconciliation exhausted its lookup budget")
-        found = source.message_by_uid(uid)
-        if found is None:
-            records.pop(uid, None)
-            continue
-        if found.uid != uid or found.thread_id in threads:
-            raise SyncResetRequired("Mail UID and complete-thread lookups disagree")
-        accept(found)
+    reconciliation = _Reconciliation(
+        source=source,
+        original={record.uid: record for record in stored},
+        threads=threads,
+        removed=removed,
+        records=records,
+        max_messages=max_messages,
+        max_lookups=max_lookups,
+    )
+    reconciliation.refresh_threads()
+    reconciliation.refresh_uids(targets)
     if len({record.message_id for record in records.values()}) != len(records):
         raise SyncResetRequired("Mail metadata contains duplicate message identifiers")
-    if source.current_checkpoint() != batch.checkpoint:
-        raise SyncResetRequired(
-            "Mail changed during reconciliation; checkpoint retained"
-        )
-    return state.replace_inventory(expected, batch.checkpoint, records.values())
+    return records

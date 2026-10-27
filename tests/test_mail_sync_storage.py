@@ -62,12 +62,9 @@ def test_private_storage_restart_and_connection_close(directory: Path) -> None:
         assert resumed.read_snapshot() == (saved, (message(1),))
 
 
-def test_active_journal_private_and_cleanup_after_failure(directory: Path) -> None:
-    """Rollback sidecars inherit private modes; caller failures release locks."""
-    with (
-        pytest.raises(RuntimeError, match="synthetic"),
-        storage.open_inventory(directory) as state,
-    ):
+def interrupt_active_transaction(directory: Path) -> None:
+    """Verify sidecar permissions before interrupting a real transaction."""
+    with storage.open_inventory(directory) as state:
         state.connection.execute("BEGIN IMMEDIATE")
         state.connection.execute("INSERT INTO mail_sync_messages VALUES (1,'a',NULL,0)")
         assert (
@@ -75,6 +72,12 @@ def test_active_journal_private_and_cleanup_after_failure(directory: Path) -> No
             == 0o600
         )
         raise RuntimeError("synthetic interruption")
+
+
+def test_active_journal_private_and_cleanup_after_failure(directory: Path) -> None:
+    """Rollback sidecars inherit private modes; caller failures release locks."""
+    with pytest.raises(RuntimeError, match="synthetic"):
+        interrupt_active_transaction(directory)
     with storage.open_inventory(directory) as resumed:
         assert resumed.read_snapshot() == (None, ())
 

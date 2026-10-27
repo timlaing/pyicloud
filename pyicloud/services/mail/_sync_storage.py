@@ -18,7 +18,8 @@ import stat
 from pyicloud.services.mail._sync_state import SQLiteMailInventory
 
 _APPLICATION_ID = 0x504D5349
-_FILES = {"inventory.sqlite3", "inventory.sqlite3-journal", "inventory.lock"}
+INVENTORY_FILENAME = "inventory.sqlite3"
+_FILES = {INVENTORY_FILENAME, f"{INVENTORY_FILENAME}-journal", "inventory.lock"}
 
 
 class UnsafeSyncStorage(ValueError):
@@ -126,9 +127,9 @@ def open_inventory(
                     "Mail state directory contains unexpected files"
                 )
             _private(child.lstat())
-        descriptor = _private_file(directory / "inventory.sqlite3")
+        descriptor = _private_file(directory / INVENTORY_FILENAME)
         os.close(descriptor)
-        connection = _database(directory / "inventory.sqlite3", timeout)
+        connection = _database(directory / INVENTORY_FILENAME, timeout)
         try:
             yield SQLiteMailInventory(connection)
         finally:

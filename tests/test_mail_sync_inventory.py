@@ -85,7 +85,8 @@ def test_initial_inventory_and_empty_baseline(state: SQLiteMailInventory) -> Non
     assert first.revision == 1
     assert state.read_messages() == (message(1), message(2, flags=None))
     second = establish_inventory(Source([checkpoint()] * 2, [[]]), state)
-    assert second.revision == 2 and second.checkpoint == checkpoint()
+    assert second.revision == 2
+    assert second.checkpoint == checkpoint()
     assert state.read_checkpoint() == second
     assert state.read_messages() == ()
 
@@ -98,7 +99,8 @@ def test_arrival_during_scan_discards_attempt(state: SQLiteMailInventory) -> Non
     )
     result = establish_inventory(source, state, max_attempts=2)
     assert source.scan_count == 2
-    assert result.revision == 1 and result.checkpoint == newer
+    assert result.revision == 1
+    assert result.checkpoint == newer
     assert state.read_messages() == (message(1), message(2))
 
 
@@ -110,7 +112,8 @@ def test_unstable_mailbox_leaves_old_inventory(state: SQLiteMailInventory) -> No
     with pytest.raises(SyncResetRequired, match="every inventory attempt"):
         establish_inventory(source, state, max_attempts=2)
     assert source.scan_count == 2
-    assert state.read_checkpoint() == old and state.read_messages() == (message(7),)
+    assert state.read_checkpoint() == old
+    assert state.read_messages() == (message(7),)
 
 
 def interrupted() -> Iterator[InventoryMessage]:
@@ -122,9 +125,11 @@ def interrupted() -> Iterator[InventoryMessage]:
 def test_interrupted_scan_preserves_state(state: SQLiteMailInventory) -> None:
     """The stable-end observation is never attempted after an incomplete scan."""
     old = state.replace_inventory(None, checkpoint(), [message(7)])
+    prepared_source_1 = Source([checkpoint()], [interrupted()])
     with pytest.raises(RuntimeError, match="interruption"):
-        establish_inventory(Source([checkpoint()], [interrupted()]), state)
-    assert state.read_checkpoint() == old and state.read_messages() == (message(7),)
+        establish_inventory(prepared_source_1, state)
+    assert state.read_checkpoint() == old
+    assert state.read_messages() == (message(7),)
 
 
 @pytest.mark.parametrize(
@@ -138,17 +143,17 @@ def test_duplicate_scan_identity_requires_reset(
     state: SQLiteMailInventory, rows: list[InventoryMessage]
 ) -> None:
     """Do not turn inconsistent pages into a seemingly complete deduplicated list."""
+    prepared_source_1 = Source([checkpoint()], [rows])
     with pytest.raises(SyncResetRequired, match="duplicate"):
-        establish_inventory(Source([checkpoint()], [rows]), state)
+        establish_inventory(prepared_source_1, state)
     assert state.read_checkpoint() is None
 
 
 def test_message_budget_is_not_silent_truncation(state: SQLiteMailInventory) -> None:
     """An exact-size scan succeeds; one extra message invalidates the whole scan."""
+    prepared_source_1 = Source([checkpoint()], [[message(1), message(2)]])
     with pytest.raises(SyncResetRequired, match="message budget"):
-        establish_inventory(
-            Source([checkpoint()], [[message(1), message(2)]]), state, max_messages=1
-        )
+        establish_inventory(prepared_source_1, state, max_messages=1)
     assert state.read_checkpoint() is None
     establish_inventory(
         Source([checkpoint()] * 2, [[message(1)]]), state, max_messages=1
@@ -161,8 +166,9 @@ def test_invalid_budget_precedes_reads(
     state: SQLiteMailInventory, option: str, value: Any
 ) -> None:
     """Explicit resource limits cannot accept boolean or coercible inputs."""
+    prepared_source_1 = Source([], [])
     with pytest.raises(ValueError, match="positive integers"):
-        establish_inventory(Source([], []), state, **{option: value})
+        establish_inventory(prepared_source_1, state, **{option: value})
 
 
 @pytest.mark.parametrize("field", ["account", "mailbox_id"])
@@ -174,28 +180,28 @@ def test_wrong_existing_source_rejected_before_scan(
     source = Source([checkpoint(**{field: "other"})], [])
     with pytest.raises(SyncResetRequired, match="another account/mailbox"):
         establish_inventory(source, state)
-    assert source.scan_count == 0 and state.read_checkpoint() == old
+    assert source.scan_count == 0
+    assert state.read_checkpoint() == old
 
 
 def test_source_switch_during_first_scan_rejected(state: SQLiteMailInventory) -> None:
     """Even a previously empty target pins its first account and mailbox identity."""
+    prepared_source_1 = Source(
+        [checkpoint(), checkpoint(account="other")], [[message(1)]]
+    )
     with pytest.raises(SyncResetRequired, match="during scan"):
-        establish_inventory(
-            Source([checkpoint(), checkpoint(account="other")], [[message(1)]]), state
-        )
+        establish_inventory(prepared_source_1, state)
     assert state.read_checkpoint() is None
 
 
 def test_source_switch_between_attempts_rejected(state: SQLiteMailInventory) -> None:
     """A retry is not authorization to switch accounts after an unstable attempt."""
+    prepared_source_1 = Source(
+        [checkpoint(), checkpoint(modseq=101), checkpoint(account="other")],
+        [[message(1)]],
+    )
     with pytest.raises(SyncResetRequired, match="another account/mailbox"):
-        establish_inventory(
-            Source(
-                [checkpoint(), checkpoint(modseq=101), checkpoint(account="other")],
-                [[message(1)]],
-            ),
-            state,
-        )
+        establish_inventory(prepared_source_1, state)
 
 
 def test_namespace_reset_and_rename_require_fresh_stable_scan(
@@ -206,17 +212,21 @@ def test_namespace_reset_and_rename_require_fresh_stable_scan(
     newer = checkpoint(uid_validity=124, folder="Renamed", modseq=1, threadmodseq=1)
     source = Source([checkpoint(), newer, newer, newer], [[message(7)], [message(1)]])
     result = establish_inventory(source, state, max_attempts=2)
-    assert result.revision == 2 and result.checkpoint == newer
+    assert result.revision == 2
+    assert result.checkpoint == newer
     assert state.read_messages() == (message(1),)
 
 
 def test_atomic_rollback_after_row_insert(state: SQLiteMailInventory) -> None:
     """Failure after DELETE and INSERT restores both old data and old checkpoint."""
     old = state.replace_inventory(None, checkpoint(), [message(7)])
+    prepared_checkpoint_1 = checkpoint(modseq=101)
+    prepared_argument_2 = interrupted()
     with pytest.raises(RuntimeError):
-        state.replace_inventory(old, checkpoint(modseq=101), interrupted())
+        state.replace_inventory(old, prepared_checkpoint_1, prepared_argument_2)
     assert not state.connection.in_transaction
-    assert state.read_checkpoint() == old and state.read_messages() == (message(7),)
+    assert state.read_checkpoint() == old
+    assert state.read_messages() == (message(7),)
 
 
 def test_snapshot_read_is_transactional(state: SQLiteMailInventory) -> None:
@@ -239,20 +249,25 @@ def test_duplicate_storage_rows_rollback_without_echoing_ids(
     """Storage also enforces UID and message-ID uniqueness inside its transaction."""
     old = state.replace_inventory(None, checkpoint(), [message(7)])
     secret = message(1, message_id="private-identifier")
+    prepared_checkpoint_1 = checkpoint()
     with pytest.raises(SyncResetRequired) as error:
-        state.replace_inventory(old, checkpoint(), [secret, secret])
+        state.replace_inventory(old, prepared_checkpoint_1, [secret, secret])
     assert "private-identifier" not in str(error.value)
-    assert state.read_checkpoint() == old and state.read_messages() == (message(7),)
+    assert state.read_checkpoint() == old
+    assert state.read_messages() == (message(7),)
 
 
 def test_local_revision_rejects_equal_counter_aba(state: SQLiteMailInventory) -> None:
     """Two writers cannot overwrite each other just because remote counters agree."""
     stale = state.replace_inventory(None, checkpoint(), [message(1)])
     current = state.replace_inventory(stale, checkpoint(), [message(2)])
+    prepared_checkpoint_1 = checkpoint(modseq=101)
+    prepared_argument_2 = [message(3)]
     with pytest.raises(StateConflict):
-        state.replace_inventory(stale, checkpoint(modseq=101), [message(3)])
+        state.replace_inventory(stale, prepared_checkpoint_1, prepared_argument_2)
     assert current.revision == 2
-    assert state.read_checkpoint() == current and state.read_messages() == (message(2),)
+    assert state.read_checkpoint() == current
+    assert state.read_messages() == (message(2),)
 
 
 def test_competing_writer_during_baseline_wins_without_lost_update(
@@ -269,8 +284,10 @@ def test_competing_writer_during_baseline_wins_without_lost_update(
     with pytest.raises(StateConflict):
         establish_inventory(source, state)
     saved, records = state.read_snapshot()
-    assert saved is not None and saved.revision == 2
-    assert saved.checkpoint.modseq == 101 and records == (message(9),)
+    assert saved is not None
+    assert saved.revision == 2
+    assert saved.checkpoint.modseq == 101
+    assert records == (message(9),)
 
 
 def test_later_remote_change_is_not_saved_as_part_of_baseline(
@@ -299,9 +316,12 @@ def test_storage_rejects_scope_switch_and_counter_regression(
 ) -> None:
     """A stable but stale/mis-scoped source cannot overwrite an existing target."""
     old = state.replace_inventory(None, checkpoint(), [message(7)])
+    prepared_checkpoint_1 = checkpoint(**changes)
+    prepared_argument_2 = [message(1)]
     with pytest.raises(SyncResetRequired):
-        state.replace_inventory(old, checkpoint(**changes), [message(1)])
-    assert state.read_checkpoint() == old and state.read_messages() == (message(7),)
+        state.replace_inventory(old, prepared_checkpoint_1, prepared_argument_2)
+    assert state.read_checkpoint() == old
+    assert state.read_messages() == (message(7),)
 
 
 def test_dedicated_connection_rejects_existing_transaction() -> None:
@@ -328,6 +348,27 @@ class FailingConnection(sqlite3.Connection):
         super().commit()
 
 
+@pytest.mark.parametrize("failure", [GeneratorExit, KeyboardInterrupt, SystemExit])
+def test_interrupted_transaction_rolls_back(
+    state: SQLiteMailInventory, failure: type[BaseException]
+) -> None:
+    """Generator closure and process interruption also release partial writes."""
+    original = message(7)
+    old = state.replace_inventory(None, checkpoint(), [original])
+    newer = checkpoint(modseq=101)
+
+    def rows() -> Iterator[InventoryMessage]:
+        yield message(1)
+        raise failure
+
+    interrupted_rows = rows()
+    with pytest.raises(failure):
+        state.replace_inventory(old, newer, interrupted_rows)
+    assert not state.connection.in_transaction
+    assert state.read_checkpoint() == old
+    assert state.read_messages() == (original,)
+
+
 def test_commit_failure_rolls_back_inventory() -> None:
     """Even failure at the final commit cannot leave a newer saved cursor."""
     connection = sqlite3.connect(":memory:", factory=FailingConnection)
@@ -335,10 +376,13 @@ def test_commit_failure_rolls_back_inventory() -> None:
         state = SQLiteMailInventory(connection)
         old = state.replace_inventory(None, checkpoint(), [message(7)])
         connection.fail_commit = True
+        prepared_checkpoint_1 = checkpoint(modseq=101)
+        prepared_argument_2 = [message(1)]
         with pytest.raises(sqlite3.OperationalError, match="disk failure"):
-            state.replace_inventory(old, checkpoint(modseq=101), [message(1)])
+            state.replace_inventory(old, prepared_checkpoint_1, prepared_argument_2)
         assert not connection.in_transaction
-        assert state.read_checkpoint() == old and state.read_messages() == (message(7),)
+        assert state.read_checkpoint() == old
+        assert state.read_messages() == (message(7),)
     finally:
         connection.close()
 
@@ -410,8 +454,10 @@ def test_durable_restart_and_two_connections(db_path: Path) -> None:
         initial = one.replace_inventory(None, checkpoint(), [message(1)])
         stale = two.read_checkpoint()
         current = one.replace_inventory(initial, checkpoint(modseq=101), [message(2)])
+        prepared_checkpoint_1 = checkpoint(modseq=102)
+        prepared_argument_2 = [message(3)]
         with pytest.raises(StateConflict):
-            two.replace_inventory(stale, checkpoint(modseq=102), [message(3)])
+            two.replace_inventory(stale, prepared_checkpoint_1, prepared_argument_2)
     finally:
         first.close()
         second.close()

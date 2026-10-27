@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Roll back interrupted Mail inventory transactions, including generator closure and process interruption, and simplify synchronization validation without changing its CLI options or safety budgets.
 - Explain fresh-state recovery for unsupported Mail sync histories and avoid duplicate folder discovery around exact UID refreshes while retaining both identity guards.
 - Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
 - Accept observed flag-less NIL Mail thread invalidations through checked thread/UID metadata refreshes, without interpreting them as empty flags or permanent deletion.

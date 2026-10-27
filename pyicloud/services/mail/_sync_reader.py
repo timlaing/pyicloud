@@ -13,6 +13,7 @@ import json
 from typing import Annotated
 
 from pydantic import Field, ValidationError
+from requests import Response
 
 from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
 from pyicloud.services.mail._sync import (
@@ -53,6 +54,37 @@ class _PollResponse(_PollRequest):
 
 def _expired(data: object) -> bool:
     return isinstance(data, dict) and data.get("errorCode") == "MODSEQ_TOO_OLD"
+
+
+def _failed_poll_expired(error: PyiCloudException) -> bool:
+    """Inspect an API failure without retaining its response or hiding auth errors."""
+    response = getattr(error, "response", None)
+    if response is None:
+        return False
+    try:
+        return isinstance(error, PyiCloudAPIResponseException) and _expired(
+            response.json()
+        )
+    except ValueError:
+        return False
+    finally:
+        response.close()
+
+
+def _parse_poll(response: Response) -> _PollResponse:
+    """Validate the envelope before a caller can publish its counters."""
+    try:
+        data = response.json()
+    except ValueError:
+        raise SyncResetRequired("Mail poll returned invalid JSON") from None
+    if _expired(data):
+        raise SyncHistoryExpired("Mail change history expired; rebuild explicitly")
+    if response.status_code != 200:
+        raise SyncResetRequired("Mail change poll failed; checkpoint retained")
+    try:
+        return _PollResponse.model_validate(data)
+    except ValidationError:
+        raise SyncResetRequired("Mail poll returned an unsupported envelope") from None
 
 
 class MailSyncReader:
@@ -145,39 +177,13 @@ class MailSyncReader:
                 allow_redirects=False,
             )
         except PyiCloudException as error:
-            failed_response = getattr(error, "response", None)
-            if failed_response is not None:
-                try:
-                    try:
-                        expired = isinstance(
-                            error, PyiCloudAPIResponseException
-                        ) and _expired(failed_response.json())
-                    except ValueError:
-                        expired = False
-                finally:
-                    failed_response.close()
-                if expired:
-                    raise SyncHistoryExpired(
-                        "Mail change history expired; rebuild explicitly"
-                    ) from None
-            raise
-        try:
-            try:
-                data = response.json()
-            except ValueError:
-                raise SyncResetRequired("Mail poll returned invalid JSON") from None
-            if _expired(data):
+            if _failed_poll_expired(error):
                 raise SyncHistoryExpired(
                     "Mail change history expired; rebuild explicitly"
-                )
-            if response.status_code != 200:
-                raise SyncResetRequired("Mail change poll failed; checkpoint retained")
-            try:
-                result = _PollResponse.model_validate(data)
-            except ValidationError:
-                raise SyncResetRequired(
-                    "Mail poll returned an unsupported envelope"
                 ) from None
+            raise
+        try:
+            result = _parse_poll(response)
             headers = result.session_headers
             if (
                 headers.folder != self.folder.name

@@ -36,6 +36,39 @@ class _RevisionPolicy(Enum):
     ANY = "any"
 
 
+def _check_minimum(observed: SyncCheckpoint, minimum: SyncCheckpoint | None) -> None:
+    """A fallback may not regress behind the change batch that requested it."""
+    if minimum is None:
+        return
+    if (
+        any(
+            getattr(observed, field) != getattr(minimum, field)
+            for field in ("account", "mailbox_id", "folder", "uid_validity")
+        )
+        or observed.modseq < minimum.modseq
+        or observed.threadmodseq < minimum.threadmodseq
+    ):
+        raise SyncResetRequired(
+            "Mail inventory regressed from the observed change batch"
+        )
+
+
+def _read_inventory(source: InventorySource, maximum: int) -> list[InventoryMessage]:
+    """Collect a bounded, unique attempt without publishing partial records."""
+    messages: list[InventoryMessage] = []
+    uids: set[int] = set()
+    identifiers: set[str] = set()
+    for message in source.iter_inventory():
+        if len(messages) >= maximum:
+            raise SyncResetRequired("Mail inventory exceeds the message budget")
+        if message.uid in uids or message.message_id in identifiers:
+            raise SyncResetRequired("Mail inventory returned duplicate identities")
+        messages.append(message)
+        uids.add(message.uid)
+        identifiers.add(message.message_id)
+    return messages
+
+
 def establish_inventory(
     source: InventorySource,
     state: SQLiteMailInventory,
@@ -68,34 +101,14 @@ def establish_inventory(
     )
     for _ in range(max_attempts):
         before = source.current_checkpoint()
-        if minimum_checkpoint is not None and (
-            any(
-                getattr(before, field) != getattr(minimum_checkpoint, field)
-                for field in ("account", "mailbox_id", "folder", "uid_validity")
-            )
-            or before.modseq < minimum_checkpoint.modseq
-            or before.threadmodseq < minimum_checkpoint.threadmodseq
-        ):
-            raise SyncResetRequired(
-                "Mail inventory regressed from the observed change batch"
-            )
+        _check_minimum(before, minimum_checkpoint)
         if scope is None:
             scope = (before.account, before.mailbox_id)
         if scope != (before.account, before.mailbox_id):
             raise SyncResetRequired(
                 "Mail inventory source belongs to another account/mailbox"
             )
-        messages: list[InventoryMessage] = []
-        uids: set[int] = set()
-        identifiers: set[str] = set()
-        for message in source.iter_inventory():
-            if len(messages) >= max_messages:
-                raise SyncResetRequired("Mail inventory exceeds the message budget")
-            if message.uid in uids or message.message_id in identifiers:
-                raise SyncResetRequired("Mail inventory returned duplicate identities")
-            messages.append(message)
-            uids.add(message.uid)
-            identifiers.add(message.message_id)
+        messages = _read_inventory(source, max_messages)
         after = source.current_checkpoint()
         if scope != (after.account, after.mailbox_id):
             raise SyncResetRequired(

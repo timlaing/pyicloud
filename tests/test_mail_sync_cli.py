@@ -131,8 +131,10 @@ def test_initial_sync_is_private_content_free_and_read_only(
     )
     assert result.exit_code == 0, result.exception
     saved, rows = snapshot(directory)
-    assert saved is not None and saved.revision == 1
-    assert len(rows) == 1 and rows[0].uid == 7
+    assert saved is not None
+    assert saved.revision == 1
+    assert len(rows) == 1
+    assert rows[0].uid == 7
     case.inventory.assert_called_once_with(case.folder, page_size=2, max_pages=5)
     assert len(case.session.post.call_args_list) == 2
     assert all(
@@ -206,7 +208,8 @@ def test_restart_replays_saved_checkpoint_without_rescan(
     case.inventory.assert_not_called()
     case.session.post.assert_called_once()
     headers = case.session.post.call_args.kwargs["json"]["sessionHeaders"]
-    assert headers["modseq"] == 100 and headers["threadmodseq"] == 200
+    assert headers["modseq"] == 100
+    assert headers["threadmodseq"] == 200
 
 
 def test_flag_change_updates_only_local_metadata(case: Case, directory: Path) -> None:
@@ -222,7 +225,8 @@ def test_flag_change_updates_only_local_metadata(case: Case, directory: Path) ->
     result = invoke(case, directory, "--format", "json")
     assert result.exit_code == 0, result.exception
     payload = json.loads(result.stdout)
-    assert payload["status"] == "updated" and payload["revision"] == 2
+    assert payload["status"] == "updated"
+    assert payload["revision"] == 2
     assert snapshot(directory)[1][0].flags == 2
     case.inventory.assert_not_called()
     assert case.exact.call_args.args == (case.service, case.folder, "uid", 7)

@@ -116,19 +116,21 @@ class ChangeBatch(SyncModel):
     events: tuple[ChangeEvent, ...]
 
 
-_EXISTS = re.compile(r"\* ([0-9]+) EXISTS")
-_ARRIVAL = re.compile(r"\* ([0-9]+) EXISTS \(UID ([0-9]+)\)")
+_EXISTS = re.compile(r"\* (\d+) EXISTS", re.ASCII)
+_ARRIVAL = re.compile(r"\* (\d+) EXISTS \(UID (\d+)\)", re.ASCII)
 _MESSAGE = re.compile(
-    r"\* ([0-9]+) FETCH \(UID ([0-9]+) MODSEQ \(([0-9]+)\) FLAGS \(([^()]*)\)\)"
+    r"\* (\d+) FETCH \(UID (\d+) MODSEQ \((\d+)\) FLAGS \(([^()]*)\)\)",
+    re.ASCII,
 )
-_VANISHED = re.compile(r"\* VANISHED (\(EARLIER\) )?([0-9:,]+)")
+_VANISHED = re.compile(r"\* VANISHED (\(EARLIER\) )?([\d:,]+)", re.ASCII)
 _THREAD = re.compile(
-    r"\* THREADUPDATE \(([A-Za-z0-9+/=_-]+) ([0-9]+|NIL) ([0-9]+) "
-    r"FLAGS \(([^()]*)\)( NEW)?\)"
+    r"\* THREADUPDATE \(([A-Za-z0-9+/=_-]+) (\d+|NIL) (\d+) "
+    r"FLAGS \(([^()]*)\)( NEW)?\)",
+    re.ASCII,
 )
 _FLAGS = re.compile(r"(?:\\?[A-Za-z0-9$_.-]+(?: \\?[A-Za-z0-9$_.-]+)*)?")
 _THREAD_INVALIDATION = re.compile(
-    r"\* THREADUPDATE \(([A-Za-z0-9+/=_-]+) NIL ([0-9]+)\)"
+    r"\* THREADUPDATE \(([A-Za-z0-9+/=_-]+) NIL (\d+)\)", re.ASCII
 )
 
 
@@ -229,18 +231,23 @@ def validate_decoded_batch(previous: SyncCheckpoint, batch: ChangeBatch) -> Chan
             "Mail counters advanced without a supported change batch"
         )
     for event in events:
-        if isinstance(event, VanishedEvent) and current.modseq == previous.modseq:
-            raise SyncResetRequired("Mail removals have no advancing message counter")
-        if isinstance(event, ArrivalEvent) and current.modseq == previous.modseq:
-            raise SyncResetRequired("Mail arrival has no advancing message counter")
-        if isinstance(event, MessageEvent) and not (
-            previous.modseq < event.modseq <= current.modseq
-        ):
-            raise SyncResetRequired(
-                "Mail message event is outside the requested stride"
-            )
-        if isinstance(event, (ThreadEvent, ThreadInvalidationEvent)) and not (
-            previous.threadmodseq < event.modseq <= current.threadmodseq
-        ):
-            raise SyncResetRequired("Mail thread event is outside the requested stride")
+        _validate_event_stride(previous, current, event)
     return batch
+
+
+def _validate_event_stride(
+    previous: SyncCheckpoint, current: SyncCheckpoint, event: ChangeEvent
+) -> None:
+    """Check one event against the exact message or thread counter interval."""
+    if isinstance(event, VanishedEvent) and current.modseq == previous.modseq:
+        raise SyncResetRequired("Mail removals have no advancing message counter")
+    if isinstance(event, ArrivalEvent) and current.modseq == previous.modseq:
+        raise SyncResetRequired("Mail arrival has no advancing message counter")
+    if isinstance(event, MessageEvent) and not (
+        previous.modseq < event.modseq <= current.modseq
+    ):
+        raise SyncResetRequired("Mail message event is outside the requested stride")
+    if isinstance(event, (ThreadEvent, ThreadInvalidationEvent)) and not (
+        previous.threadmodseq < event.modseq <= current.threadmodseq
+    ):
+        raise SyncResetRequired("Mail thread event is outside the requested stride")

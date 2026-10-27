@@ -17,6 +17,7 @@ from rich.text import Text
 import typer
 
 from pyicloud.base import PyiCloudService
+from pyicloud.cli.command_options import CommandOptions, with_command_options
 from pyicloud.cli.context import CLIAbort, CLIState, get_state, service_call
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
@@ -45,6 +46,7 @@ from pyicloud.services.mail._sync import (
 )
 from pyicloud.services.mail._sync_reader import MailSyncReader
 from pyicloud.services.mail._sync_refresh import refresh_inventory
+from pyicloud.services.mail._sync_state import StoredCheckpoint
 from pyicloud.services.mail._sync_storage import open_inventory
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
@@ -553,9 +555,22 @@ def mail_get(
     print_json_text(state.console, payload)
 
 
+def _sync_status(
+    previous: StoredCheckpoint | None, saved: StoredCheckpoint
+) -> Literal["baseline", "unchanged", "updated"]:
+    """Describe the committed revision without exposing its private cursor."""
+    if previous is None:
+        return "baseline"
+    if previous == saved:
+        return "unchanged"
+    return "updated"
+
+
 @app.command("sync")
+@with_command_options
 def mail_sync(
     ctx: typer.Context,
+    common: CommandOptions,
     folder_id: FolderOption,
     state_dir: Annotated[
         Path,
@@ -586,13 +601,6 @@ def mail_sync(
         "--allow-inventory-fallback",
         help="Allow one stable full rescan for count-only change hints.",
     ),
-    username: UsernameOption = None,
-    session_dir: SessionDirOption = None,
-    http_proxy: HttpProxyOption = None,
-    https_proxy: HttpsProxyOption = None,
-    no_verify_ssl: NoVerifySslOption = False,
-    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
-    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Update a local metadata inventory once; never modify mail or download content.
 
@@ -603,16 +611,7 @@ def mail_sync(
         raise typer.BadParameter("Folder ID must not be empty.")
     if not 0 < state_timeout <= 60:
         raise typer.BadParameter("State timeout must be finite and greater than zero.")
-    store_command_options(
-        ctx,
-        username=username,
-        session_dir=session_dir,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
-        no_verify_ssl=no_verify_ssl,
-        output_format=output_format,
-        log_level=log_level,
-    )
+    common.store(ctx)
     try:
         # Hold a validated local store's lock before authentication or Mail reads.
         with open_inventory(state_dir, timeout=state_timeout) as inventory:
@@ -656,11 +655,7 @@ def mail_sync(
                 return _SyncSummary(
                     folder_id=folder.id,
                     state_path=str(state_dir.resolve() / "inventory.sqlite3"),
-                    status="baseline"
-                    if previous is None
-                    else "unchanged"
-                    if previous == saved
-                    else "updated",
+                    status=_sync_status(previous, saved),
                     revision=saved.revision,
                     message_count=len(inventory.read_messages()),
                 )

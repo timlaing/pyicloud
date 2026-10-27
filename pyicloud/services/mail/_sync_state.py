@@ -70,9 +70,9 @@ class SQLiteMailInventory:
         try:
             yield
             self.connection.commit()
-        except BaseException:
-            self.connection.rollback()
-            raise
+        finally:
+            if self.connection.in_transaction:
+                self.connection.rollback()
 
     def read_checkpoint(self) -> StoredCheckpoint | None:
         """Read a validated local revision without changing or advancing it."""

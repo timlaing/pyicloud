@@ -126,7 +126,8 @@ def test_incremental_poll_replays_exact_counters(case: Case) -> None:
     assert batch.checkpoint.modseq == 101
     assert batch.events[0].kind == "arrival"
     headers = case.session.post.call_args.kwargs["json"]["sessionHeaders"]
-    assert headers["modseq"] == 100 and headers["threadmodseq"] == 200
+    assert headers["modseq"] == 100
+    assert headers["threadmodseq"] == 200
 
 
 def test_thread_invalidation_poll_is_validated(case: Case) -> None:
@@ -146,8 +147,9 @@ def test_expired_history_never_retries_with_null_counters(case: Case) -> None:
         "errorCode": "MODSEQ_TOO_OLD",
         "private": "secret",
     }
+    prepared_checkpoint_1 = checkpoint(case)
     with pytest.raises(SyncHistoryExpired, match="expired") as error:
-        case.reader.poll_changes(checkpoint(case))
+        case.reader.poll_changes(prepared_checkpoint_1)
     assert "secret" not in str(error.value)
     case.session.post.assert_called_once()
     case.response.close.assert_called_once()
@@ -159,8 +161,9 @@ def test_session_http_expiry_exception_translates_and_closes(case: Case) -> None
     case.session.post.side_effect = PyiCloudAPIResponseException(
         "synthetic", 400, case.response
     )
+    prepared_checkpoint_1 = checkpoint(case)
     with pytest.raises(SyncHistoryExpired, match="expired"):
-        case.reader.poll_changes(checkpoint(case))
+        case.reader.poll_changes(prepared_checkpoint_1)
     case.session.post.assert_called_once()
     case.response.close.assert_called_once()
 
@@ -185,8 +188,9 @@ def test_other_api_errors_keep_their_type(case: Case, invalid_json: bool) -> Non
         case.response.json.side_effect = ValueError("private response")
     failure = PyiCloudAPIResponseException("synthetic", 403, case.response)
     case.session.post.side_effect = failure
+    prepared_checkpoint_1 = checkpoint(case)
     with pytest.raises(PyiCloudAPIResponseException) as error:
-        case.reader.poll_changes(checkpoint(case))
+        case.reader.poll_changes(prepared_checkpoint_1)
     assert error.value is failure
     case.response.close.assert_called_once()
 
@@ -206,8 +210,9 @@ def test_transport_and_auth_failures_are_not_resets(
 ) -> None:
     """Do not confuse an unreachable service or expired auth with expired history."""
     case.session.post.side_effect = failure
+    prepared_checkpoint_1 = checkpoint(case)
     with pytest.raises(type(failure)) as error:
-        case.reader.poll_changes(checkpoint(case))
+        case.reader.poll_changes(prepared_checkpoint_1)
     assert error.value is failure
     case.session.post.assert_called_once()
 
@@ -284,8 +289,9 @@ def test_foreign_checkpoint_rejected_before_poll(
     case: Case, change: dict[str, Any]
 ) -> None:
     """A persisted cursor cannot be replayed into a different folder or account."""
+    prepared_checkpoint_1 = checkpoint(case, **change)
     with pytest.raises(SyncResetRequired, match="another scope"):
-        case.reader.poll_changes(checkpoint(case, **change))
+        case.reader.poll_changes(prepared_checkpoint_1)
     case.session.post.assert_not_called()
 
 
@@ -351,11 +357,11 @@ def test_invalid_paging_configuration(case: Case, options: dict[str, Any]) -> No
 @pytest.mark.parametrize("validity", [None, 0, True])
 def test_invalid_initial_namespace(case: Case, validity: Any) -> None:
     """Require positive, non-boolean UID validity before doing any work."""
+    prepared_argument_1 = case.reader.folder.model_copy(
+        update={"uid_validity": validity}
+    )
     with pytest.raises(ValueError):
-        MailSyncReader(
-            case.service,
-            case.reader.folder.model_copy(update={"uid_validity": validity}),
-        )
+        MailSyncReader(case.service, prepared_argument_1)
 
 
 def test_inventory_and_thread_delegate_to_complete_iterators(case: Case) -> None:
@@ -430,7 +436,8 @@ def test_exact_uid_refresh_and_absence(case: Case) -> None:
         MailService, "_lookup_message", return_value=metadata(case)
     ) as lookup:
         record = case.reader.message_by_uid(7)
-        assert record is not None and record.message_id == "test-message"
+        assert record is not None
+        assert record.message_id == "test-message"
         assert lookup.call_count == 1
         assert lookup.call_args.args == (case.service, case.reader.folder, "uid", 7)
         assert callable(lookup.call_args.kwargs["check_folder"])

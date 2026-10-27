@@ -174,8 +174,9 @@ def test_fallback_stability_budget_is_one_scan(state: SQLiteMailInventory) -> No
 @pytest.mark.parametrize("value", [1, "yes", None])
 def test_fallback_policy_is_not_coerced(state: SQLiteMailInventory, value: Any) -> None:
     """A rescan cannot be accidentally enabled by a truthy configuration value."""
+    prepared_source_1 = Source([])
     with pytest.raises(ValueError, match="explicitly boolean"):
-        apply_incremental(Source([]), state, allow_inventory_fallback=value)
+        apply_incremental(prepared_source_1, state, allow_inventory_fallback=value)
 
 
 def test_noop_does_not_rewrite_inventory_or_revision(
@@ -200,7 +201,8 @@ def test_numeric_flags_are_refreshed_not_inferred(state: SQLiteMailInventory) ->
     result = apply_incremental(source, state)
     assert result.revision == old.revision + 1
     assert state.read_messages()[0].flags == 8192
-    assert source.uid_calls == [1] and not source.thread_calls
+    assert source.uid_calls == [1]
+    assert not source.thread_calls
 
 
 def test_arrival_fetches_exact_uid_and_preserves_other_messages(
@@ -232,7 +234,8 @@ def test_arrival_and_thread_are_reconciled_once(state: SQLiteMailInventory) -> N
     )
     apply_incremental(source, state)
     assert [row.uid for row in state.read_messages()] == [1, 2, 3, 4]
-    assert not source.uid_calls and source.thread_calls == ["thread-new"]
+    assert not source.uid_calls
+    assert source.thread_calls == ["thread-new"]
 
 
 def test_thread_membership_loss_is_checked_by_uid(state: SQLiteMailInventory) -> None:
@@ -412,8 +415,9 @@ def test_incomplete_or_stale_batch_is_not_an_implicit_reset(
 ) -> None:
     """Unsupported history, count-only hints, and scope drift require recovery."""
     old = seed(state)
+    prepared_source_1 = Source(events, end=end)
     with pytest.raises(SyncResetRequired):
-        apply_incremental(Source(events, end=end), state)
+        apply_incremental(prepared_source_1, state)
     assert state.read_checkpoint() == old
 
 
@@ -467,12 +471,9 @@ def test_existing_inventory_over_budget_precedes_poll(
 def test_new_metadata_budget_preserves_checkpoint(state: SQLiteMailInventory) -> None:
     """An extra arrival cannot silently exceed or truncate the selected inventory."""
     old = seed(state)
+    prepared_source_1 = Source(["* 3 EXISTS (UID 3)"], records={3: message(3)})
     with pytest.raises(SyncResetRequired, match="metadata exceeds"):
-        apply_incremental(
-            Source(["* 3 EXISTS (UID 3)"], records={3: message(3)}),
-            state,
-            max_messages=2,
-        )
+        apply_incremental(prepared_source_1, state, max_messages=2)
     assert state.read_checkpoint() == old
 
 
@@ -519,7 +520,8 @@ def test_local_writer_race_never_overwrites_newer_state(
         apply_incremental(source, state)
     assert state.read_messages() == (message(9),)
     current = state.read_checkpoint()
-    assert current is not None and current.checkpoint.modseq == 102
+    assert current is not None
+    assert current.checkpoint.modseq == 102
 
 
 def test_interrupted_thread_iterator_never_commits(state: SQLiteMailInventory) -> None:

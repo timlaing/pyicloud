@@ -66,8 +66,10 @@ def test_empty_poll_and_empty_flags() -> None:
         "* THREADUPDATE (thread-1 NIL 1 FLAGS ())",
     ])
     assert events[0] == ExistsEvent(count=0)
-    assert isinstance(events[1], MessageEvent) and events[1].flags == ()
-    assert isinstance(events[2], ThreadEvent) and events[2].timestamp is None
+    assert isinstance(events[1], MessageEvent)
+    assert events[1].flags == ()
+    assert isinstance(events[2], ThreadEvent)
+    assert events[2].timestamp is None
     assert not events[2].is_new
 
 
@@ -107,9 +109,11 @@ def test_arrival_push_keeps_uid_separate_from_count_and_thread_id() -> None:
 
 def test_arrival_without_message_counter_advancement_requires_reset() -> None:
     """Thread-only advancement cannot make a replayed arrival safe to apply."""
+    prepared_checkpoint_1 = checkpoint()
+    prepared_checkpoint_2 = checkpoint(threadmodseq=201)
     with pytest.raises(SyncResetRequired, match="advancing message counter"):
         validate_batch(
-            checkpoint(), checkpoint(threadmodseq=201), ["* 5 EXISTS (UID 18)"]
+            prepared_checkpoint_1, prepared_checkpoint_2, ["* 5 EXISTS (UID 18)"]
         )
 
 
@@ -183,14 +187,18 @@ def test_total_character_budget() -> None:
 )
 def test_checkpoint_scope_and_regression(changes: dict[str, Any]) -> None:
     """Account switches, moves, recreation, and old responses require recovery."""
+    prepared_checkpoint_1 = checkpoint()
+    prepared_checkpoint_2 = checkpoint(**changes)
     with pytest.raises(SyncResetRequired):
-        validate_batch(checkpoint(), checkpoint(**changes), [])
+        validate_batch(prepared_checkpoint_1, prepared_checkpoint_2, [])
 
 
 def test_advancement_without_events_is_not_a_complete_change_batch() -> None:
     """Do not save an advanced cursor merely because an HTTP request succeeded."""
+    prepared_checkpoint_1 = checkpoint()
+    prepared_checkpoint_2 = checkpoint(modseq=101)
     with pytest.raises(SyncResetRequired):
-        validate_batch(checkpoint(), checkpoint(modseq=101), [])
+        validate_batch(prepared_checkpoint_1, prepared_checkpoint_2, [])
 
 
 @pytest.mark.parametrize(
@@ -206,8 +214,10 @@ def test_advancement_without_events_is_not_a_complete_change_batch() -> None:
 )
 def test_event_outside_exact_request_stride_requires_reset(event: str) -> None:
     """Stale, overlapping, and future events cannot advance a candidate cursor."""
+    prepared_checkpoint_1 = checkpoint()
+    prepared_checkpoint_2 = checkpoint(modseq=105, threadmodseq=205)
     with pytest.raises(SyncResetRequired):
-        validate_batch(checkpoint(), checkpoint(modseq=105, threadmodseq=205), [event])
+        validate_batch(prepared_checkpoint_1, prepared_checkpoint_2, [event])
 
 
 @pytest.mark.parametrize(
