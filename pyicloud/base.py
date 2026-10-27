@@ -1438,6 +1438,18 @@ class PyiCloudService:
         security_code = body.get("securityCode")
         return isinstance(security_code, dict) and security_code.get("valid") is True
 
+    @staticmethod
+    def _is_accepted_security_code_repair(response: Response | None) -> bool:
+        """Return whether a 412 verify response opened a repair session."""
+
+        # Observed: Apple answers a correct code with 412 and a repair session
+        # when the account has pending repair steps (e.g. updated terms).
+        return (
+            response is not None
+            and response.status_code == AppleAuthError.REPAIR_REQUIRED
+            and bool(response.headers.get("X-Apple-Repair-Session-Token"))
+        )
+
     def _validate_sms_code(self, code: str) -> None:
         """Verifies a verification code received via Apple's SMS system."""
         trusted_phone_number = self._trusted_phone_number()
@@ -1462,11 +1474,15 @@ class PyiCloudService:
         except (PyiCloudAPIResponseException, PyiCloud2FARequiredException) as error:
             # Apple accepts the SMS code but still answers 409; the body's
             # `securityCode.valid` flag is the real verdict. The session raises
-            # an HSA2 409 as PyiCloud2FARequiredException.
-            if not self._is_accepted_security_code_conflict(error.response):
+            # an HSA2 409 as PyiCloud2FARequiredException. With pending account
+            # repair it answers 412 instead.
+            if not (
+                self._is_accepted_security_code_conflict(error.response)
+                or self._is_accepted_security_code_repair(error.response)
+            ):
                 raise
             LOGGER.debug(
-                "Apple accepted the SMS code with a 409 response; "
+                "Apple accepted the SMS code with a 409 or 412 response; "
                 "continuing to session trust."
             )
 

@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from .models import MailFolder, MailMessage, MailMessageRecord
-from .service import MailError
+from .service import MailError, _bind_message
 
 _BUCKET_LIMIT = 1000
 _MAX_TIMESTAMP_MS = 2**53 - 2
@@ -203,4 +203,4 @@ def _iter_search_candidates(
         seen_uids.update(record.uid for record in combined)
         before = boundary
         for record in combined:
-            yield MailMessage(**record.model_dump(), folder=current)
+            yield _bind_message(record, current)

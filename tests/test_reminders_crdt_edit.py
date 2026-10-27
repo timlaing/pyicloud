@@ -33,6 +33,11 @@ from pyicloud.services.reminders.protobuf import (
     versioned_document_pb2,
 )
 from pyicloud.services.reminders.service import RemindersService
+from tests.const.const_reminders import (
+    DEVICE_REPLICA_UUID,
+    DEVICE_TITLE_BASELINE,
+    DEVICE_TITLE_EDIT,
+)
 
 LOW_REPLICA = bytes.fromhex("00" * 16)
 HIGH_REPLICA = bytes.fromhex("ff" * 16)
@@ -178,6 +183,40 @@ def test_edit_accepts_gzip_documents_written_by_devices() -> None:
     assert _decode_crdt_document(edited) == "Edited"
 
 
+def test_sanitized_device_crdt_fixtures_preserve_native_edit_structure() -> None:
+    """Captured device documents retain the native one-replica edit semantics."""
+    baseline = _parse_crdt_string(DEVICE_TITLE_BASELINE)
+    edited = _parse_crdt_string(DEVICE_TITLE_EDIT)
+
+    assert _decode_crdt_document(DEVICE_TITLE_BASELINE) == "CRDT test"
+    assert _decode_crdt_document(DEVICE_TITLE_EDIT) == "CRDT test 2"
+    assert base64.b64decode(DEVICE_TITLE_BASELINE).startswith(b"\x1f\x8b")
+    assert base64.b64decode(DEVICE_TITLE_EDIT).startswith(b"\x1f\x8b")
+    assert [bytes(clock.replicaUUID) for clock in baseline.timestamp.clock] == [
+        DEVICE_REPLICA_UUID
+    ]
+    assert [bytes(clock.replicaUUID) for clock in edited.timestamp.clock] == [
+        DEVICE_REPLICA_UUID
+    ]
+    assert [
+        (run.charID.replicaID, run.charID.clock, run.length, run.tombstone)
+        for run in edited.substring
+    ] == [
+        (0, 0, 0, False),
+        (1, 9, 11, False),
+        (1, 0, 9, True),
+        (0, 4294967295, 0, False),
+    ]
+    assert [
+        (run.timestamp.replicaID, run.timestamp.clock) for run in edited.substring
+    ] == [(0, 0), (1, 0), (1, 8), (0, 4294967295)]
+    assert [
+        [(entry.clock, entry.subclock) for entry in clock.replicaClock]
+        for clock in edited.timestamp.clock
+    ] == [[(20, 0), (9, 0)]]
+    assert [run.length for run in edited.attributeRun] == [11]
+
+
 def test_edit_rejects_existing_replica_uuid() -> None:
     """Reusing a replica that already wrote to the document is refused."""
     existing = _encode_crdt_document("Old")
@@ -308,6 +347,38 @@ def test_update_leaves_unchanged_text_documents_alone() -> None:
     assert "NotesDocument" not in fields
     tokens = json.loads(fields["ResolutionTokenMap"].value)["map"]
     assert tokens["flagged"]["counter"] == 1
+
+
+def test_status_update_preserves_device_authored_title_document() -> None:
+    """A status-only update never replaces a native device title CRDT."""
+    current = CKRecord.model_validate({
+        "recordName": "Reminder/REM-EDIT",
+        "recordType": "Reminder",
+        "recordChangeTag": "server-tag",
+        "fields": {
+            "TitleDocument": {"type": "STRING", "value": DEVICE_TITLE_BASELINE},
+            "NotesDocument": {"type": "STRING", "value": _encode_crdt_document("")},
+            "ResolutionTokenMap": {"type": "STRING", "value": '{"map":{}}'},
+        },
+    })
+    svc = make_service(current)
+    reminder = Reminder(
+        id="Reminder/REM-EDIT",
+        list_id="List/LIST-001",
+        title="CRDT test",
+        desc="",
+        completed=True,
+        record_change_tag="server-tag",
+    )
+
+    svc.update(reminder)
+
+    fields = updated_fields(svc)
+    assert "TitleDocument" not in fields
+    assert "NotesDocument" not in fields
+    assert (
+        _decode_crdt_document(current.fields.get_value("TitleDocument")) == "CRDT test"
+    )
 
 
 def test_update_without_a_server_copy_encodes_fresh_documents() -> None:
