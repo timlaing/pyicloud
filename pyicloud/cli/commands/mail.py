@@ -1,4 +1,4 @@
-"""Read-only commands for the experimental Mail service."""
+"""Mail reads and explicit single-message flag commands."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ from pyicloud.services.mail import (
 )
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
-app = typer.Typer(help="Read Mail folders, bounded messages, and attachments.")
+app = typer.Typer(help="Read Mail and explicitly update individual message flags.")
 
 FolderOption = Annotated[
     str, typer.Option("--folder-id", help="Exact folder ID from mail folders.")
@@ -77,6 +77,7 @@ LookupLimitOption = Annotated[
 ]
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
+_MESSAGE_ID_COLUMN = "Message ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
 _DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
@@ -104,6 +105,15 @@ class ThreadFilter(str, Enum):
 
     UNREAD = "unread"
     FLAGGED = "flagged"
+
+
+class FlagAction(str, Enum):
+    """One explicit reversible action; no implicit default or bulk selector."""
+
+    READ = "read"
+    UNREAD = "unread"
+    FLAG = "flag"
+    UNFLAG = "unflag"
 
 
 def _mail_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
@@ -249,7 +259,7 @@ def _print_enumeration(
     _table(
         state,
         "Mail Messages (Scoped UID Enumeration)",
-        ["Message ID", "From", "Subject"],
+        [_MESSAGE_ID_COLUMN, "From", "Subject"],
         [(message.id, message.sender, message.subject) for message in messages],
     )
     state.console.print(
@@ -291,6 +301,61 @@ def mail_folders(
         ["ID", "Name", "Count"],
         [(folder.id, folder.name, folder.message_count) for folder in payload],
     )
+
+
+@app.command("mark")
+def mail_mark(
+    ctx: typer.Context,
+    message_id: Annotated[str, typer.Argument(help=_MESSAGE_ID_HELP)],
+    folder_id: FolderOption,
+    action: Annotated[
+        FlagAction, typer.Option("--action", help="Required flag change.")
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Explicitly mark one exact message read/unread or flag/unflag it.
+
+    No scans or automatic retries. An uncertain outcome requires fresh metadata
+    before an explicit retry; the acknowledgement is not a current-state snapshot.
+    """
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    message = _mail_call(api, lambda: mail.message(folder, message_id))
+    if message is None:
+        raise CLIAbort("Message not found in this folder; no flag update submitted.")
+    if action in (FlagAction.READ, FlagAction.UNREAD):
+        result = _mail_call(
+            api, lambda: mail.set_read(message, read=action is FlagAction.READ)
+        )
+    else:
+        result = _mail_call(
+            api, lambda: mail.set_flagged(message, flagged=action is FlagAction.FLAG)
+        )
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Mail Flag Acknowledgement",
+            [_MESSAGE_ID_COLUMN, "Flag", "Enabled", "Modseq"],
+            [(result.message_id, result.flag, result.enabled, result.modseq)],
+        )
 
 
 @app.command("list")
@@ -507,7 +572,7 @@ def mail_thread(
     _table(
         state,
         "Mail Thread (Bounded Folder Snapshot)",
-        ["Message ID", "From", "Subject"],
+        [_MESSAGE_ID_COLUMN, "From", "Subject"],
         [(message.id, message.sender, message.subject) for message in payload.messages],
     )
     state.console.print(

@@ -1,4 +1,4 @@
-"""Experimental, read-only iCloud Mail HTTP service."""
+"""Experimental iCloud Mail reads and explicit single-message flag writes."""
 
 from __future__ import annotations
 
@@ -15,6 +15,15 @@ from requests import Request, RequestException, Response, Session
 
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
+from pyicloud.services.mail._flags import (
+    FlagDelta,
+    FlagIntent,
+    FlagOperation,
+    FlagPatch,
+    FlagRequest,
+    FlagResponse,
+    MailFlag,
+)
 from pyicloud.services.mail.models import (
     MIME_PART_PATTERN,
     FolderResponse,
@@ -22,6 +31,7 @@ from pyicloud.services.mail.models import (
     MailBodyRequest,
     MailExpression,
     MailFilteredThread,
+    MailFlagUpdate,
     MailFolder,
     MailFolderSearchPage,
     MailMessage,
@@ -89,6 +99,40 @@ _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
 
 class MailError(PyiCloudException):
     """An invalid response, incomplete enumeration, or failed attachment stream."""
+
+
+class MailWriteRejected(MailError):
+    """The server explicitly rejected the one requested flag update."""
+
+
+class MailWriteUncertain(MailError):
+    """A submitted write could not be confirmed; inspect state before retrying."""
+
+
+_FLAG_OUTCOME_UNKNOWN = (
+    "Mail flag update outcome is uncertain; refresh message metadata before "
+    "retrying. No automatic retry was performed."
+)
+
+
+def _flag_acknowledgement(
+    response: FlagResponse, account_id: str, message_id: str
+) -> int:
+    """Require an exact account and message outcome without exposing server data."""
+    if response.account_id != account_id or any((
+        response.created,
+        response.destroyed,
+        response.not_created,
+        response.not_destroyed,
+    )):
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    if response.not_updated:
+        if set(response.not_updated) == {message_id} and not response.updated:
+            raise MailWriteRejected("Mail rejected the flag update; refresh metadata.")
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    if response.updated is None or set(response.updated) != {message_id}:
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    return response.updated[message_id].modseq
 
 
 def _bind_message(record: MailMessageRecord, folder: MailFolder) -> MailMessage:
@@ -392,11 +436,12 @@ def _uid_page(
 
 
 class MailService(BaseService):
-    """Read-only Mail with bounded reads and explicit UID-based enumeration.
+    """Bounded Mail reads, UID enumeration, and explicit single-message flags.
 
     Bounded methods remain snapshots; only explicit iterators opt into paging.
-    No mutations, HTML rendering, or incremental synchronization are performed.
-    Session authentication failures retain the library's existing exception types.
+    Reads never mutate mail; only set_read and set_flagged submit flag writes.
+    Sending, moves, deletion, HTML rendering, and synchronization are unsupported.
+    Read-side authentication failures retain the library's existing exception types.
     """
 
     def __init__(
@@ -459,6 +504,81 @@ class MailService(BaseService):
         if result.continuation_marker:
             raise MailError("Mail folder list requires unsupported continuation")
         return result.records
+
+    def set_read(self, message: MailMessage, *, read: bool) -> MailFlagUpdate:
+        """Set or clear only seen, after a fresh folder-local identity lookup.
+
+        The result acknowledges submission, not an atomic snapshot of later mail
+        state. A stale message is not mutated locally. An uncertain write must be
+        checked through fresh metadata before any explicit caller retry.
+        """
+        return self._set_flag(message, "seen", read)
+
+    def set_flagged(self, message: MailMessage, *, flagged: bool) -> MailFlagUpdate:
+        """Set or clear only flagged; never replace other flags or retry writes."""
+        return self._set_flag(message, "flagged", flagged)
+
+    def _set_flag(
+        self, message: MailMessage, flag: MailFlag, enabled: bool
+    ) -> MailFlagUpdate:
+        """Validate caller inputs and current identity before one mutation."""
+        if not isinstance(enabled, bool):
+            raise ValueError("The requested flag state must be a boolean")
+        if not isinstance(message, MailMessage):
+            raise ValueError("A folder-bound MailMessage is required")
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
+        validity = message.folder.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive mailbox UID validity is required for writes")
+        account_id = self.params.get("dsid")
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise ValueError("A discovered account identifier is required for writes")
+        current = self.message_by_uid(message.folder, message.uid)
+        if current is None or current.id != message.id:
+            raise MailError("Message identity changed; refresh metadata before writing")
+        delta = FlagDelta(set=(flag,)) if enabled else FlagDelta(clear=(flag,))
+        request = FlagRequest(
+            batchUpdate=(
+                FlagOperation(ids=(message.id,), patch=FlagPatch(flags=delta)),
+            )
+        )
+        # Browser intent names describe unread/flagged, not the inverse seen bit.
+        setting = enabled if flag == "flagged" else not enabled
+        intent: FlagIntent = "setMessageFlag" if setting else "clearMessageFlag"
+        counter = self._submit_flag(request, account_id, message.id, intent)
+        return MailFlagUpdate(
+            message_id=message.id, flag=flag, enabled=enabled, modseq=counter
+        )
+
+    def _submit_flag(
+        self, request: FlagRequest, account_id: str, message_id: str, intent: FlagIntent
+    ) -> int:
+        """Do not normalize/replay authentication errors after submitting a write."""
+        try:
+            response = self.session.request_raw(
+                "POST",
+                f"{self.service_root}/mailws2/v1/email/set",
+                params={**self.params, "clientIntent": intent},
+                json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+                timeout=DEFAULT_TIMEOUT,
+                allow_redirects=False,
+            )
+        except (PyiCloudException, OSError) as exc:
+            raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN) from exc
+        try:
+            if response.status_code != 200:
+                raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+            try:
+                result = FlagResponse.model_validate(response.json())
+            except ValueError as exc:
+                raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN) from exc
+            return _flag_acknowledgement(result, account_id, message_id)
+        finally:
+            try:
+                response.close()
+            except OSError as exc:
+                raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN) from exc
 
     def messages(self, folder: MailFolder, *, limit: int = 50) -> MailMessagePage:
         """Read at most limit records, newest first; completeness is unknown."""

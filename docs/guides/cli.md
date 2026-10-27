@@ -85,6 +85,13 @@ icloud auth logout --remove-keyring
 icloud auth keyring delete --username jappleseed@apple.com
 ```
 
+Mail also supports explicit single-message **writes**, separate from all reads:
+`icloud mail mark '<message-id>' --folder-id '<folder-id>' --action read`.
+Actions are `read`, `unread`, `flag`, and `unflag`; there is no default action or
+bulk scan. See [Mail flag updates](../services/mail.md#explicit-message-flag-updates)
+for identity guards and uncertain outcomes. Refresh metadata before deciding
+whether to retry a failed or interrupted write.
+
 If you would like to delete a password stored in your system keyring,
 use the dedicated keyring subcommand:
 
