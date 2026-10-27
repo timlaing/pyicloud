@@ -1,4 +1,4 @@
-"""Mail reads and explicit single-message flag and move commands."""
+"""Mail reads and explicit message and folder mutation commands."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ from pyicloud.services.mail._sync_state import StoredCheckpoint
 from pyicloud.services.mail._sync_storage import open_inventory
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
-app = typer.Typer(help="Read Mail and explicitly mark or move individual messages.")
+app = typer.Typer(help="Read Mail and explicitly change messages or folders.")
 
 FolderOption = Annotated[
     str, typer.Option("--folder-id", help="Exact folder ID from mail folders.")
@@ -333,6 +333,146 @@ def mail_folders(
         ["ID", "Name", "Count"],
         [(folder.id, folder.name, folder.message_count) for folder in payload],
     )
+
+
+def _folder_acknowledgement(state: CLIState, folder: MailFolder) -> None:
+    """Keep user-visible folder results distinct from mutation failure maps."""
+    if state.json_output:
+        state.write_json(folder)
+    else:
+        _table(
+            state,
+            "Mail Folder",
+            ["ID", "Server Path", "UID Validity"],
+            [(folder.id, folder.name, folder.uid_validity)],
+        )
+
+
+@app.command("create-folder")
+def mail_create_folder(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="New Unicode leaf name, not a path.")],
+    parent_id: Annotated[
+        str | None, typer.Option("--parent-id", help="Optional exact parent folder ID.")
+    ] = None,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Create one custom folder without overwriting or retrying uncertain writes."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    parent = None if parent_id is None else _folder(api, mail, parent_id)
+    result = _mail_call(api, lambda: mail.create_folder(name, parent=parent))
+    _folder_acknowledgement(state, result)
+
+
+@app.command("rename-folder")
+def mail_rename_folder(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Replacement Unicode leaf name.")],
+    folder_id: FolderOption,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Rename one exact custom folder within its current parent namespace."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    result = _mail_call(api, lambda: mail.rename_folder(folder, name))
+    _folder_acknowledgement(state, result)
+
+
+@app.command("delete-folder")
+def mail_delete_folder(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    confirm_folder_id: Annotated[
+        str,
+        typer.Option(
+            "--confirm-folder-id",
+            help=(
+                "Repeat the exact ID to confirm irreversible deletion "
+                "and racy emptiness checks."
+            ),
+        ),
+    ],
+    allow_nonempty: Annotated[
+        bool,
+        typer.Option(
+            "--allow-nonempty",
+            help="Also permit permanent deletion of messages observed in this folder.",
+        ),
+    ] = False,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Permanently delete one custom folder; no child-tree cascade is supported.
+
+    This does not move the folder to Trash. New mail can race the emptiness
+    check; confirming the ID explicitly acknowledges that irreversible risk.
+    """
+    if folder_id != confirm_folder_id:
+        raise CLIAbort(
+            "Confirmation does not match the folder ID; no deletion submitted."
+        )
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    result = _mail_call(
+        api,
+        lambda: mail.delete_folder(folder, confirm=True, allow_nonempty=allow_nonempty),
+    )
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Permanent Mail Folder Deletion",
+            ["Folder ID", "Permanent"],
+            [(result.folder_id, result.permanent)],
+        )
 
 
 @app.command("mark")

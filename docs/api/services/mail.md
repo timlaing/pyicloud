@@ -4,6 +4,8 @@
 
 ::: pyicloud.services.mail.models.MailFolder
 
+::: pyicloud.services.mail.models.MailFolderDeletion
+
 ::: pyicloud.services.mail.models.MailMessage
 
 ::: pyicloud.services.mail.models.MailFlagUpdate

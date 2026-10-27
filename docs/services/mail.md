@@ -3,12 +3,76 @@
 Mail support is **experimental**, using the iCloud web interface's undocumented
 HTTP API. Read operations have been verified on one account. Explicit
 single-message read/unread, flag/unflag, and ordinary mailbox moves are available
-separately; ordinary reads never change flags. Sending, drafts, folder changes,
-and permanent message deletion are not supported.
+separately, alongside explicit folder management; ordinary reads never change
+flags. Sending, drafts, and permanent message deletion are not supported.
 The `icloud mail` commands expose the same bounded API.
 The read-only commands include experimental, one-shot POSIX metadata inventory
 synchronization; this is not content synchronization or a mailbox backup.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
+
+## Explicit Folder Management
+
+Create and rename one custom folder at a time:
+
+```python
+folder = api.mail.create_folder("Research")
+folder = api.mail.rename_folder(folder, "Reference")
+# Optional nesting uses a discovered parent, not a slash-separated name:
+child = api.mail.create_folder("Examples", parent=folder)
+```
+
+Names are Unicode leaf names, encoded using the browser's
+[modified UTF-7 convention](https://www.rfc-editor.org/rfc/rfc3501#section-5.1.3).
+Returned `MailFolder.name` remains the raw server path, as in `folders()`;
+do not feed an encoded path back as a new leaf name. Parent paths are preserved,
+not encoded twice. Names cannot contain `/`, `?`, `*`, `%`, controls, or start
+with `#`; the full encoded path is limited to 512 characters. System mailbox
+names, labels, virtual folders, collisions, and unknown folder flags are refused.
+Renaming and deletion refuse folders with children: no recursive operation is
+implicit. Renaming stays within the current parent.
+
+```text
+icloud mail create-folder Research --format json
+icloud mail rename-folder Reference --folder-id '<id>' --format json
+icloud mail create-folder Examples --parent-id '<id>' --format json
+```
+
+**Folder deletion is irreversible and may permanently delete its messages.**
+Delete children separately first. The library requires `confirm=True`; the CLI
+requires repeating the exact folder ID:
+
+```python
+acknowledgement = api.mail.delete_folder(folder, confirm=True)
+```
+
+```text
+icloud mail delete-folder --folder-id '<id>' --confirm-folder-id '<id>' --format json
+```
+
+By default, deletion refuses a folder observed to contain messages, including
+deleted-flag messages. `allow_nonempty=True` (CLI `--allow-nonempty`) explicitly
+permits deleting an observed nonempty folder. **The emptiness and child checks
+are not atomic**: new mail or children arriving after inspection can still be
+deleted. Confirmation acknowledges that risk even without the nonempty option.
+There is no verified server-side empty-only delete condition or recovery promise.
+
+Each operation checks fresh ID, name, UID validity, and flags before submission,
+then verifies the result through a fresh folder listing. `MailFolderDeletion`
+reports the folder ID and `permanent: true`, not a count of deleted messages.
+`MailWriteRejected` means a matching structured rejection without success;
+`MailWriteUncertain` means success could not be established, including a failed
+post-write read or conflicting outcomes. Refresh before deciding what to do:
+there are no automatic retries, compensating operations, or cleanup deletions.
+Folder inventories requiring continuation or reaching the 1,000-record bound
+are refused rather than treated as complete.
+
+An authorized one-account live test created one Unicode-named disposable folder,
+renamed it through the mounted CLI, verified it empty, and deleted it: exactly
+three writes without retries. Fresh inventory confirmed its absence and unchanged
+identities of other folders. The browser-shaped inventory omits `limit`: a
+read-only comparison returned the same 46 folders without a marker when omitted,
+but with a marker when `limit: 1000` was supplied. Neither observation establishes
+atomicity, large-account completeness, or nonempty deletion behavior.
 
 ## Read-Operation Status
 
@@ -132,8 +196,9 @@ scan, bulk move, or automatic retry. Fresh metadata must identify the source
 message and both mailbox namespaces. Capability queries use the browser-observed
 `name` and integer `flags` properties. Only zero-flag ordinary folders are
 supported; nonzero or missing flags fail closed without guessing individual bit
-meanings. The browser's canonical server names `Junk`, `Drafts`, `/VIP`, and
-`/REMIND_ME` are rejected, independently of translated display labels. Junk and
+meanings. The browser's canonical server names `Junk` and `Drafts`, and every
+`$category$_`- or `/`-prefixed label or virtual path, are rejected independently
+of translated display labels, even with zero flags. Junk and
 Drafts have additional write semantics that are not implemented here.
 
 The submitted patch changes only mailbox membership. It does not explicitly
@@ -151,9 +216,12 @@ endpoint is called, even when the source is Trash. This differs from the
 browser's Trash shortcut, which also requests a read-state change. Archive can
 likewise be an explicit ordinary-folder destination.
 
-An exact failure without successes raises `MailWriteRejected`. Timeouts,
-malformed acknowledgements, wrong accounts or IDs, late response failures, or
-contradictory success/failure entries raise `MailWriteUncertain`. The latter
+An exact failure without successes raises `MailWriteRejected`: the failure map
+must contain only this message's key, and its value must be a dict whose
+`type`, `reason`, or `description` is a non-empty, non-whitespace string. Every
+other failure shape raises `MailWriteUncertain`: extra or foreign failure keys,
+any other value, timeouts, malformed acknowledgements, wrong accounts or IDs,
+late response failures, or contradictory success/failure entries. The latter
 contradiction was observed in a real Trash response even though the message
 actually moved. Inspect both folders before deciding whether to retry; never
 assume an exception means nothing happened. Preflight is not an atomic
@@ -194,10 +262,14 @@ token. The input message remains unchanged; refresh metadata after writing.
 Only one message is submitted, and every outcome field and acknowledgement
 identity is checked. Unknown response fields or malformed envelopes fail closed.
 
-`MailWriteRejected` means the server explicitly rejected this one update.
+`MailWriteRejected` means the server explicitly rejected this one update: the
+failure map contains only this message's key, and its value is a dict whose
+`type`, `reason`, or `description` is a non-empty, non-whitespace string.
 `MailWriteUncertain` means submission could not be confirmed, including timeouts,
-non-200 responses, mismatched results, or late response failures. **The write may
-already have taken effect. Refresh metadata before deciding whether to retry.**
+non-200 responses, mismatched results, extra or foreign failure keys, failure
+values that do not meet those requirements, or late response failures. **The
+write may already have taken effect. Refresh metadata before deciding whether
+to retry.**
 Both inherit `MailError`. Server failure details and account IDs are not printed
 in these errors. No automatic retry or authentication replay is performed by the
 write path. Custom transport adapters must not be configured to retry POST writes.

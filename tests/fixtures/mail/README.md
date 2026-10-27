@@ -21,6 +21,14 @@ and message identifiers and counters are invented; no raw captures or credential
 are included. Populated failure maps in tests are synthetic adversarial cases,
 not additional live protocol evidence for flag writes.
 
+`folder_create_response.json`, `folder_rename_response.json`, and
+`folder_delete_response.json` are synthetic, minimized `mailbox/set` envelopes
+derived from authorized disposable-folder browser actions. Creation returns a
+record under `mailbox`, rename acknowledges the exact ID with `null`, and delete
+returns a destroyed-ID list. IDs, paths, account metadata, and UID validity are
+fake; these fixtures contain no raw captures or credentials. Invalid/conflicting
+variants generated in tests are robustness cases, not additional wire evidence.
+
 `move_request.json` and `move_response.json` model captured ordinary mailbox-only
 moves: the acknowledgement is an empty object, not a flag-update counter.
 `move_conflicting_response.json` minimizes a real observed response containing
