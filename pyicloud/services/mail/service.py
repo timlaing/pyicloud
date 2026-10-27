@@ -885,7 +885,7 @@ class MailService(BaseService):
             self._draft_folder(current.folder)
             if self.message_by_uid(current.folder, current.uid) is not None:
                 raise MailError("Discarded draft is still present")
-        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+        except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN) from exc
         return MailMoveUpdate(
             source_message_id=current.id,

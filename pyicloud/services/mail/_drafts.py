@@ -11,8 +11,6 @@ from html import escape
 from typing import Any
 from urllib.parse import urlencode
 
-from requests import RequestException
-
 from pyicloud.exceptions import PyiCloudException
 
 from ._draft_models import (
@@ -239,6 +237,36 @@ class DraftWriter:
         }
         request = _save_request(common, previous, threading)
         response = self.submit(request)
+        return self._saved_draft(
+            response,
+            previous,
+            folder,
+            subject,
+            verified,
+            to,
+            cc,
+            bcc,
+            attachments,
+            draft=draft,
+            threading=threading,
+        )
+
+    def _saved_draft(
+        self,
+        response: DraftSaveResponse,
+        previous: MailMessage | None,
+        folder: MailFolder,
+        subject: str,
+        verified: MailSender,
+        to: tuple[str, ...],
+        cc: tuple[str, ...],
+        bcc: tuple[str, ...],
+        attachments: tuple[MailDraftAttachment, ...],
+        *,
+        draft: MailDraft | None,
+        threading: MailDraftThreading | None,
+    ) -> MailDraft:
+        """Keep every post-dispatch verification failure explicitly uncertain."""
         try:
             remapped = self._remap_attachments(attachments, response)
             uid = int(response.uid)
@@ -272,7 +300,7 @@ class DraftWriter:
                 checked_recipients(body, saved)
                 checked_threading(body, threading)
             return saved
-        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+        except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(DRAFT_UNCERTAIN) from exc
 
     def _retained_versions(

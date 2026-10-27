@@ -3,8 +3,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from requests import RequestException
-
 from pyicloud.exceptions import PyiCloudException
 
 from ._folder_models import (
@@ -191,7 +189,7 @@ class FolderWriter:
         """A failed post-write read must not be mistaken for a safe retry condition."""
         try:
             return self.inventory()
-        except (PyiCloudException, RequestException, OSError) as exc:
+        except (PyiCloudException, OSError) as exc:
             raise MailWriteUncertain(FOLDER_UNCERTAIN) from exc
 
     def _after(self, identifier: str, name: str, validity: int) -> MailFolder:
