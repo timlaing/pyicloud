@@ -197,6 +197,25 @@ def test_fresh_capabilities_guard_both_folders(
     case.session.request_raw.assert_not_called()
 
 
+@pytest.mark.parametrize("folder_id", ["10", "20"])
+@pytest.mark.parametrize("name", ["$category$_synthetic", "/VIP", "/OTHER_VIRTUAL"])
+def test_zero_flag_labels_and_virtual_folders_never_move(
+    case: MoveCase, folder_id: str, name: str
+) -> None:
+    """Reserved names stay unsafe even when Apple advertises ordinary flags."""
+    record = case.capabilities[folder_id]["domainObjects"][0]
+    record.update(name=name, flags=0)
+    if folder_id == "10":
+        case.message = case.message.model_copy(
+            update={"folder": case.message.folder.model_copy(update={"name": name})}
+        )
+    else:
+        case.destination = case.destination.model_copy(update={"name": name})
+    with pytest.raises(MailError, match="unsupported"):
+        case.service.move(case.message, case.destination)
+    case.session.request_raw.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "kind",
     [

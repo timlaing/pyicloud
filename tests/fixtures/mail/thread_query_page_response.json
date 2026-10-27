@@ -1,0 +1,7 @@
+{
+  "continuationMarker": "synthetic-thread-cursor",
+  "domainObjects": [
+    { "identifier": "synthetic-thread-a", "tsMap": { "10": 1700000000000 } },
+    { "identifier": "synthetic-thread-b", "tsMap": { "10": 1700000000000 } }
+  ]
+}

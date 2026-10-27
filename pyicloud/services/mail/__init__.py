@@ -3,6 +3,7 @@
 from .models import (
     MailBody,
     MailDraft,
+    MailFilteredThread,
     MailFlagUpdate,
     MailFolder,
     MailFolderDeletion,
@@ -27,6 +28,7 @@ __all__ = [
     "MailBody",
     "MailDraft",
     "MailError",
+    "MailFilteredThread",
     "MailFlagUpdate",
     "MailFolder",
     "MailFolderDeletion",
