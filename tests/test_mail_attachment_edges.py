@@ -28,7 +28,7 @@ AttachmentCase = tuple[MailService, MagicMock, MagicMock, MailMessage]
 
 
 @pytest.fixture(name="attachment")
-def attachment_fixture() -> AttachmentCase:
+def attachment_fixture() -> Iterator[AttachmentCase]:
     """Use synthetic metadata and a real service with a mocked byte transport."""
     folder = MailFolder(identifier="10", name="INBOX", uidValidity=1234)
     record = MessageResponse.model_validate(
@@ -42,7 +42,8 @@ def attachment_fixture() -> AttachmentCase:
     response.iter_content.return_value = iter([b"synthetic bytes"])
     session.get.return_value = response
     service = MailService("https://example.test", session, {})
-    return service, session, response, message
+    with patch.object(service, "folders", return_value=[folder]):
+        yield service, session, response, message
 
 
 @pytest.fixture(name="output")

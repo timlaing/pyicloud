@@ -5,6 +5,11 @@ Mail HTTP capture shapes. All identifiers, contacts, headers, dates, and message
 contents are invented. No raw captures, cookies, signed URLs, or binary files
 are included. Binary download tests use mocked bytes.
 
+`maildrop_message_response.json` models observed Mail Drop part metadata using
+invented IDs, filenames, future expirations, and deliberately fake URL signatures.
+No URL in the fixture is a usable capability. Tests use mocked byte streams and
+verify capability redaction, isolated transport, and explicit size/expiry checks.
+
 Load these fixtures through `tests.fixture_loader.load_fixture` so reads respect
 the test filesystem sandbox. Search results are thread-grouped; listing fixtures
 represent bounded snapshots, not a complete synchronization protocol.
@@ -34,3 +39,9 @@ matches; the fixtures do not establish combined-filter or sync semantics.
 `messages_uid_page_response.json` models a UID-ordered metadata page with equal
 dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
 an explicit empty terminal page; the marker is not a synchronization cursor.
+
+`thread_query_page_response.json` models the thread-domain `geqs/query` cursor
+shape verified by bounded read-only queries. It contains only invented group IDs,
+folder timestamps, and a synthetic cursor; it is not a full digest response.
+Tests replay cursors with unchanged predicates and require a separate empty,
+marker-free terminal response. No real cursor or account data is included.
