@@ -4,6 +4,7 @@
 from collections.abc import Iterator
 from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import partial
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory, gettempdir
@@ -505,7 +506,8 @@ def test_save_exact_wire_and_replacement_handle(case: DraftCase, edit: bool) -> 
     """Null session counters and omitted create reference must survive serialization."""
     original = handle(case)
     result = save(case, edit)
-    assert result.message.uid == 101 and result.message.id == "draft-101"
+    assert result.message.uid == 101
+    assert result.message.id == "draft-101"
     assert result.message.folder.name == "Drafts"
     assert original.message.uid == 100
     assert result.sender.address == "primary@example.test"
@@ -528,10 +530,10 @@ def test_save_exact_wire_and_replacement_handle(case: DraftCase, edit: bool) -> 
         "qresync": 1,
         "threadmode": 1,
     }
-    assert payload["subject"] == "After" and payload["textBody"] == "New text"
-    assert (
-        payload["webmailClientBuild"] == "synthetic-build" and payload["isHME"] is False
-    )
+    assert payload["subject"] == "After"
+    assert payload["textBody"] == "New text"
+    assert payload["webmailClientBuild"] == "synthetic-build"
+    assert payload["isHME"] is False
     assert payload["date"].endswith("-0000")
     if edit:
         assert payload["draftGuid"] == "Drafts/100"
@@ -539,10 +541,8 @@ def test_save_exact_wire_and_replacement_handle(case: DraftCase, edit: bool) -> 
         assert "draftGuid" not in payload
     assert "clientIntent" not in call.kwargs["params"]
     assert case.service.params["clientIntent"] == "stale"
-    assert (
-        call.kwargs["timeout"] == (10.0, 60.0)
-        and call.kwargs["allow_redirects"] is False
-    )
+    assert call.kwargs["timeout"] == (10.0, 60.0)
+    assert call.kwargs["allow_redirects"] is False
     case.response.close.assert_called_once()
 
 
@@ -1172,11 +1172,13 @@ def test_edit_preflight_never_overwrites_unverified_draft(
 def test_handle_type_is_not_guessed(case: DraftCase, operation: str) -> None:
     """A string or message ID cannot implicitly select a draft."""
     invalid: Any = "100"
+    mutation = (
+        partial(case.service.edit_draft, invalid, subject="", text="", html="")
+        if operation == "edit"
+        else partial(case.service.discard_draft, invalid, MailFolder(**case.folders[1]))
+    )
     with pytest.raises(ValueError, match="MailDraft"):
-        if operation == "edit":
-            case.service.edit_draft(invalid, subject="", text="", html="")
-        else:
-            case.service.discard_draft(invalid, MailFolder(**case.folders[1]))
+        mutation()
     case.session.request_raw.assert_not_called()
 
 
@@ -1285,10 +1287,8 @@ def test_discard_exact_payload_and_acknowledgement(case: DraftCase) -> None:
     """Discard uses the browser's Trash action, not an unsupported ordinary move."""
     draft = handle(case)
     result = case.service.discard_draft(draft, MailFolder(**case.folders[1]))
-    assert (
-        result.source_message_id == "draft-100"
-        and result.destination_folder_id == "trash"
-    )
+    assert result.source_message_id == "draft-100"
+    assert result.destination_folder_id == "trash"
     call = case.session.request_raw.call_args
     assert call.kwargs["params"]["clientIntent"] == "deleteMessagesGems"
     assert call.kwargs["json"] == {

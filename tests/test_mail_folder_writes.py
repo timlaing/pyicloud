@@ -1,7 +1,9 @@
 """Fresh namespace checks, exact folder outcomes, and no replay after dispatch."""
 
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import partial
 import json
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -225,11 +227,13 @@ def test_invalid_leaf_precedes_network(
     case: FolderCase, name: Any, operation: str
 ) -> None:
     """Do not normalize, accept controls, or turn a name into a path/wildcard."""
+    mutation = (
+        partial(case.service.create_folder, name)
+        if operation == "create"
+        else partial(case.service.rename_folder, case.folder, name)
+    )
     with pytest.raises(ValueError):
-        if operation == "create":
-            case.service.create_folder(name)
-        else:
-            case.service.rename_folder(case.folder, name)
+        mutation()
     case.session.post.assert_not_called()
     case.session.request_raw.assert_not_called()
 
@@ -273,14 +277,15 @@ def test_folder_context_type_precedes_reads(
     case: FolderCase, folder: Any, operation: str
 ) -> None:
     """A bare identifier cannot be used to overwrite or destroy a namespace."""
+    invalid_parent: Any = folder if folder is not None else "20"
+    mutations: dict[str, Callable[[], object]] = {
+        "create": partial(case.service.create_folder, "Child", parent=invalid_parent),
+        "rename": partial(case.service.rename_folder, folder, "Renamed"),
+        "delete": partial(case.service.delete_folder, folder, confirm=True),
+    }
+    mutation = mutations[operation]
     with pytest.raises(ValueError, match="MailFolder"):
-        if operation == "create":
-            invalid_parent: Any = folder if folder is not None else "20"
-            case.service.create_folder("Child", parent=invalid_parent)
-        elif operation == "rename":
-            case.service.rename_folder(folder, "Renamed")
-        else:
-            case.service.delete_folder(folder, confirm=True)
+        mutation()
     case.session.post.assert_not_called()
 
 
@@ -336,11 +341,13 @@ def test_fresh_inventory_guards(case: FolderCase, kind: str, operation: str) -> 
         result = case.service.create_folder("Child", parent=case.folder)
         assert result.name == "Archive/Child"
         return
+    mutation = (
+        partial(case.service.create_folder, "Child", parent=case.folder)
+        if operation == "create"
+        else partial(operate, case, operation)
+    )
     with pytest.raises(MailError):
-        if operation == "create":
-            case.service.create_folder("Child", parent=case.folder)
-        else:
-            operate(case, operation)
+        mutation()
     case.session.request_raw.assert_not_called()
 
 
@@ -349,11 +356,13 @@ def test_existing_name_or_case_alias_never_overwrites(
     case: FolderCase, operation: str
 ) -> None:
     """Refuse collisions before a mutation rather than depend on server idempotency."""
+    mutation = (
+        partial(case.service.create_folder, "testing")
+        if operation == "create"
+        else partial(case.service.rename_folder, case.folder, "testing")
+    )
     with pytest.raises(MailError, match="already exists"):
-        if operation == "create":
-            case.service.create_folder("testing")
-        else:
-            case.service.rename_folder(case.folder, "testing")
+        mutation()
     case.session.request_raw.assert_not_called()
 
 
@@ -391,11 +400,15 @@ def test_folder_write_refuses_children(case: FolderCase, operation: str) -> None
         "uidValidity": 9,
         "flags": 0,
     })
+    mutation = (
+        partial(case.service.rename_folder, case.folder, "Renamed")
+        if operation == "rename"
+        else partial(
+            case.service.delete_folder, case.folder, confirm=True, allow_nonempty=True
+        )
+    )
     with pytest.raises(MailError, match="child folders"):
-        if operation == "rename":
-            case.service.rename_folder(case.folder, "Renamed")
-        else:
-            case.service.delete_folder(case.folder, confirm=True, allow_nonempty=True)
+        mutation()
     case.session.request_raw.assert_not_called()
 
 

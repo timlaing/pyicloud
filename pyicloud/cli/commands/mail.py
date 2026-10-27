@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from enum import Enum
+from functools import partial
 import os
 from pathlib import Path
 from tempfile import mkstemp
@@ -14,6 +16,11 @@ from rich.text import Text
 import typer
 
 from pyicloud.base import PyiCloudService
+from pyicloud.cli.command_options import (
+    CommandOptions,
+    with_command_options,
+    with_option_bundle,
+)
 from pyicloud.cli.context import CLIAbort, CLIState, get_state, service_call
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
@@ -86,6 +93,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_COLUMN = "Message ID"
+_FOLDER_ID_COLUMN = "Folder ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
 _DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
@@ -331,7 +339,7 @@ def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
         _table(
             state,
             "Saved Mail Draft",
-            ["Message ID", "UID", "Folder ID", "Retained Prior Draft IDs"],
+            ["Message ID", "UID", _FOLDER_ID_COLUMN, "Retained Prior Draft IDs"],
             [
                 (
                     draft.message.id,
@@ -487,8 +495,10 @@ def mail_upload_draft_attachment(
 
 
 @app.command("create-draft")
+@with_command_options
 def mail_create_draft(
     ctx: typer.Context,
+    common: CommandOptions,
     sender: Annotated[
         str, typer.Option("--sender", help="Enabled address from mail senders.")
     ],
@@ -515,28 +525,12 @@ def mail_create_draft(
             help="JSON handle from upload-draft-attachment; repeat for each file.",
         ),
     ] = None,
-    username: UsernameOption = None,
-    session_dir: SessionDirOption = None,
-    http_proxy: HttpProxyOption = None,
-    https_proxy: HttpsProxyOption = None,
-    no_verify_ssl: NoVerifySslOption = False,
-    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
-    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Save explicit recipients and cached attachments without sending an email."""
     text, html = _draft_input(text_file), _draft_input(html_file)
     recipients = [_recipient_option(values) or () for values in (to, cc, bcc)]
     attachments = _attachment_states(attachment_state)
-    store_command_options(
-        ctx,
-        username=username,
-        session_dir=session_dir,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
-        no_verify_ssl=no_verify_ssl,
-        output_format=output_format,
-        log_level=log_level,
-    )
+    common.store(ctx)
     state, api, mail = _context(ctx)
     result = _mail_call(
         api,
@@ -556,8 +550,10 @@ def mail_create_draft(
 
 @app.command("reply-draft")
 @app.command("forward-draft")
+@with_command_options
 def mail_conversation_draft(
     ctx: typer.Context,
+    common: CommandOptions,
     message_id: str,
     folder_id: FolderOption,
     sender: Annotated[str, typer.Option("--sender", help="Explicit enabled sender.")],
@@ -583,13 +579,6 @@ def mail_conversation_draft(
             help="Forward only: explicitly omit source attachments.",
         ),
     ] = False,
-    username: UsernameOption = None,
-    session_dir: SessionDirOption = None,
-    http_proxy: HttpProxyOption = None,
-    https_proxy: HttpsProxyOption = None,
-    no_verify_ssl: NoVerifySslOption = False,
-    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
-    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Save a reply/forward to an exact source; never infer recipients or send."""
     forward = ctx.info_name == "forward-draft"
@@ -598,16 +587,7 @@ def mail_conversation_draft(
     text, html = _draft_input(text_file), _draft_input(html_file)
     recipients = [_recipient_option(v) or () for v in (to, cc, bcc)]
     attachments = _attachment_states(attachment_state)
-    store_command_options(
-        ctx,
-        username=username,
-        session_dir=session_dir,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
-        no_verify_ssl=no_verify_ssl,
-        output_format=output_format,
-        log_level=log_level,
-    )
+    common.store(ctx)
     state, api, mail = _context(ctx)
     message = _message(api, mail, folder_id, message_id, None)
     options: dict[str, Any] = {
@@ -626,9 +606,46 @@ def mail_conversation_draft(
     _draft_acknowledgement(state, result)
 
 
+@dataclass(frozen=True)
+class _DraftEditOptions:
+    """Explicit recipient and attachment replacement choices, never implicit clears."""
+
+    draft_state: Annotated[
+        Path | None,
+        typer.Option(
+            "--draft-state",
+            help="Last draft JSON handle; required for recipients or attachments.",
+        ),
+    ] = None
+    to: Annotated[list[str] | None, typer.Option("--to")] = None
+    cc: Annotated[list[str] | None, typer.Option("--cc")] = None
+    bcc: Annotated[list[str] | None, typer.Option("--bcc")] = None
+    attachment_state: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--attachment-state",
+            help="Full replacement list of uploaded attachment JSON handles.",
+        ),
+    ] = None
+    clear_recipients: Annotated[bool, typer.Option("--clear-recipients")] = False
+    clear_attachments: Annotated[bool, typer.Option("--clear-attachments")] = False
+
+    def attachments(self) -> tuple[MailDraftAttachment, ...] | None:
+        """Keep omitted attachment choices distinct from an explicit clear."""
+        if self.clear_attachments:
+            return ()
+        if self.attachment_state is None:
+            return None
+        return _attachment_states(self.attachment_state)
+
+
 @app.command("edit-draft")
+@partial(with_option_bundle, bundle_type=_DraftEditOptions, parameter_name="edit")
+@with_command_options
 def mail_edit_draft(
     ctx: typer.Context,
+    common: CommandOptions,
+    edit: _DraftEditOptions,
     message_id: str,
     folder_id: FolderOption,
     sender: Annotated[
@@ -649,63 +666,22 @@ def mail_edit_draft(
             "--html-file", help="UTF-8 HTML; empty derives HTML from plain text."
         ),
     ],
-    draft_state: Annotated[
-        Path | None,
-        typer.Option(
-            "--draft-state",
-            help="Last draft JSON handle; required for recipients or attachments.",
-        ),
-    ] = None,
-    to: Annotated[list[str] | None, typer.Option("--to")] = None,
-    cc: Annotated[list[str] | None, typer.Option("--cc")] = None,
-    bcc: Annotated[list[str] | None, typer.Option("--bcc")] = None,
-    attachment_state: Annotated[
-        list[Path] | None,
-        typer.Option(
-            "--attachment-state",
-            help="Full replacement list of uploaded attachment JSON handles.",
-        ),
-    ] = None,
-    clear_recipients: Annotated[bool, typer.Option("--clear-recipients")] = False,
-    clear_attachments: Annotated[bool, typer.Option("--clear-attachments")] = False,
-    username: UsernameOption = None,
-    session_dir: SessionDirOption = None,
-    http_proxy: HttpProxyOption = None,
-    https_proxy: HttpsProxyOption = None,
-    no_verify_ssl: NoVerifySslOption = False,
-    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
-    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Replace draft bodies; preserve recipient/attachment state unless explicit."""
     text, html = _draft_input(text_file), _draft_input(html_file)
-    previous = _saved_draft(draft_state, message_id, folder_id, sender)
-    if (clear_recipients and any(values for values in (to, cc, bcc))) or (
-        clear_attachments and attachment_state
-    ):
+    previous = _saved_draft(edit.draft_state, message_id, folder_id, sender)
+    if (
+        edit.clear_recipients and any(values for values in (edit.to, edit.cc, edit.bcc))
+    ) or (edit.clear_attachments and edit.attachment_state):
         raise CLIAbort(
             "Cannot combine replacement and clear options; no write submitted."
         )
     recipients = [
-        () if clear_recipients else _recipient_option(values)
-        for values in (to, cc, bcc)
+        () if edit.clear_recipients else _recipient_option(values)
+        for values in (edit.to, edit.cc, edit.bcc)
     ]
-    attachments = (
-        ()
-        if clear_attachments
-        else _attachment_states(attachment_state)
-        if attachment_state is not None
-        else None
-    )
-    store_command_options(
-        ctx,
-        username=username,
-        session_dir=session_dir,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
-        no_verify_ssl=no_verify_ssl,
-        output_format=output_format,
-        log_level=log_level,
-    )
+    attachments = edit.attachments()
+    common.store(ctx)
     state, api, mail = _context(ctx)
     draft = previous or MailDraft(
         message=_message(api, mail, folder_id, message_id, None),
@@ -975,7 +951,7 @@ def mail_delete_folder(
         _table(
             state,
             "Permanent Mail Folder Deletion",
-            ["Folder ID", "Permanent"],
+            [_FOLDER_ID_COLUMN, "Permanent"],
             [(result.folder_id, result.permanent)],
         )
 
@@ -1416,7 +1392,7 @@ def mail_search_folders(
     _table(
         state,
         "Mail Search (Bounded Per Folder)",
-        ["Folder ID", "Folder", _THREAD_ID_COLUMN, "Subject"],
+        [_FOLDER_ID_COLUMN, "Folder", _THREAD_ID_COLUMN, "Subject"],
         [
             (page.folder.id, page.folder.name, hit.id, hit.subject)
             for page in payload.pages
