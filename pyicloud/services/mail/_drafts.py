@@ -10,8 +10,6 @@ from email.utils import formatdate
 from html import escape
 from urllib.parse import urlencode
 
-from requests import RequestException
-
 from pyicloud.exceptions import PyiCloudException
 
 from ._draft_models import DraftCreateRequest, DraftEditRequest, DraftSaveResponse
@@ -226,6 +224,23 @@ class DraftWriter:
             })
         )
         response = self.submit(request)
+        return self._saved_draft(
+            response, previous, folder, subject, verified, to, cc, bcc, attachments
+        )
+
+    def _saved_draft(
+        self,
+        response: DraftSaveResponse,
+        previous: MailMessage | None,
+        folder: MailFolder,
+        subject: str,
+        verified: MailSender,
+        to: tuple[str, ...],
+        cc: tuple[str, ...],
+        bcc: tuple[str, ...],
+        attachments: tuple[MailDraftAttachment, ...],
+    ) -> MailDraft:
+        """Keep every post-dispatch verification failure explicitly uncertain."""
         try:
             remapped = self._remap_attachments(attachments, response)
             uid = int(response.uid)
@@ -260,7 +275,7 @@ class DraftWriter:
                     raise MailError("Saved draft body belongs to a different identity")
                 checked_recipients(body, saved)
             return saved
-        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+        except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(DRAFT_UNCERTAIN) from exc
 
     def _remap_attachments(

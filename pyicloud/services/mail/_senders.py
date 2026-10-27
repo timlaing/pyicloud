@@ -50,11 +50,8 @@ class SenderPreferences(MailModel):
     account: SenderAccount
 
 
-def sender_identities(data: SenderPreferences, account_id: str) -> list[MailSender]:
-    """Match the discovered account and reject malformed or ambiguous addresses."""
-    account = data.account
-    if str(account.account_id) != account_id:
-        raise MailError("Mail sender preferences belong to a different account")
+def _sender_candidates(account: SenderAccount) -> list[tuple[str, str, str]]:
+    """Collect only explicitly enabled primary, alias, and custom-domain entries."""
     candidates = [
         (account.email_id, domain.domain, account.full_name)
         for domain in account.domains
@@ -72,9 +69,17 @@ def sender_identities(data: SenderPreferences, account_id: str) -> list[MailSend
         for custom in account.custom_domains
         if custom.allow_send_from
     )
+    return candidates
+
+
+def sender_identities(data: SenderPreferences, account_id: str) -> list[MailSender]:
+    """Match the discovered account and reject malformed or ambiguous addresses."""
+    account = data.account
+    if str(account.account_id) != account_id:
+        raise MailError("Mail sender preferences belong to a different account")
     result = []
     seen: set[str] = set()
-    for local, domain, name in candidates:
+    for local, domain, name in _sender_candidates(account):
         if (
             not local
             or not domain
