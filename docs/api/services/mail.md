@@ -6,6 +6,14 @@
 
 ::: pyicloud.services.mail.models.MailMessage
 
+::: pyicloud.services.mail.models.MailFlagUpdate
+
+::: pyicloud.services.mail.models.MailMoveUpdate
+
+::: pyicloud.services.mail.service.MailWriteRejected
+
+::: pyicloud.services.mail.service.MailWriteUncertain
+
 ::: pyicloud.services.mail.models.MailMessagePage
 
 ::: pyicloud.services.mail.models.MailThreadPage
@@ -23,6 +31,8 @@
 ::: pyicloud.services.mail.models.MailThreadDigest
 
 ::: pyicloud.services.mail.models.MailThreadFilterPage
+
+::: pyicloud.services.mail.models.MailFilteredThread
 
 ::: pyicloud.services.mail.models.MailBody
 

@@ -35,7 +35,7 @@ repository = "https://github.com/timlaing/pyicloud"
 icloud = "pyicloud.cmdline:main"
 
 [build-system]
-requires = ["setuptools >= 77.0,< 84.1", "setuptools-scm"]
+requires = ["setuptools >= 77.0,< 84.3", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
@@ -171,6 +171,14 @@ persistent = false
 extension-pkg-whitelist = "ciso8601"
 ignore-patterns = [
     "^.*_pb2\\.py$"
+]
+
+[tool.pylint.classes]
+# Sync reuses these internal readers with stronger guards, not new public options.
+# Keep Pylint's defaults and qualify only the two intentional class-level calls.
+exclude-protected = [
+    "_asdict", "_fields", "_replace", "_source", "_make", "os._exit",
+    "MailService._lookup_message", "MailService._iter_thread_messages",
 ]
 
 [tool.pylint.typecheck]

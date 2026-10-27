@@ -366,15 +366,17 @@ def test_inventory_and_thread_delegate_to_complete_iterators(case: Case) -> None
             case.service, "iter_messages", return_value=iter([record])
         ) as scan,
         patch.object(
-            case.service, "iter_thread_messages", return_value=iter([record])
+            MailService, "_iter_thread_messages", return_value=iter([record])
         ) as thread,
     ):
         assert list(case.reader.iter_inventory())[0].uid == 7
         assert list(case.reader.iter_thread_inventory("test-thread"))[0].uid == 7
     scan.assert_called_once_with(case.reader.folder, page_size=20, max_pages=10)
-    thread.assert_called_once_with(
-        case.reader.folder, "test-thread", page_size=20, max_pages=10
-    )
+    assert thread.call_count == 1
+    assert thread.call_args.args == (case.service, case.reader.folder, "test-thread")
+    assert thread.call_args.kwargs["page_size"] == 20
+    assert thread.call_args.kwargs["max_pages"] == 10
+    assert callable(thread.call_args.kwargs["check_folder"])
 
 
 def test_inventory_exhaustion_checks_final_scope(case: Case) -> None:
@@ -415,7 +417,7 @@ def test_wrong_thread_response_rejected(case: Case) -> None:
     """The full thread iterator still has its returned identity checked locally."""
     with (
         patch.object(
-            case.service, "iter_thread_messages", return_value=iter([metadata(case)])
+            MailService, "_iter_thread_messages", return_value=iter([metadata(case)])
         ),
         pytest.raises(SyncResetRequired),
     ):
@@ -425,15 +427,109 @@ def test_wrong_thread_response_rejected(case: Case) -> None:
 def test_exact_uid_refresh_and_absence(case: Case) -> None:
     """The adapter preserves authoritative absence and validates returned UIDs."""
     with patch.object(
-        case.service, "message_by_uid", return_value=metadata(case)
+        MailService, "_lookup_message", return_value=metadata(case)
     ) as lookup:
         record = case.reader.message_by_uid(7)
         assert record is not None and record.message_id == "test-message"
-        lookup.assert_called_once_with(case.reader.folder, 7)
-    with patch.object(case.service, "message_by_uid", return_value=None):
+        assert lookup.call_count == 1
+        assert lookup.call_args.args == (case.service, case.reader.folder, "uid", 7)
+        assert callable(lookup.call_args.kwargs["check_folder"])
+    with patch.object(MailService, "_lookup_message", return_value=None):
         assert case.reader.message_by_uid(7) is None
     with (
-        patch.object(case.service, "message_by_uid", return_value=metadata(case)),
+        patch.object(MailService, "_lookup_message", return_value=metadata(case)),
         pytest.raises(SyncResetRequired, match="different UID"),
     ):
         case.reader.message_by_uid(8)
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_exact_uid_uses_two_discovery_calls(case: Case, present: bool) -> None:
+    """The shared lookup performs both stronger sync guards, without duplicate I/O."""
+    case.response.json.return_value = {
+        "domainObjects": [metadata(case).model_dump(exclude={"folder"}, by_alias=True)]
+        if present
+        else []
+    }
+    record = case.reader.message_by_uid(7)
+    assert (record is not None) is present
+    assert case.folders.call_count == 2
+    case.session.post.assert_called_once()
+
+
+@pytest.mark.parametrize("present", [False, True])
+@pytest.mark.parametrize("change", ["missing", "renamed", "recreated", "account"])
+def test_exact_uid_retains_final_identity_guard(
+    case: Case, present: bool, change: str
+) -> None:
+    """Even absence cannot hide an account, path, or namespace change during lookup."""
+    folder = case.reader.folder
+    broken = {
+        "missing": [],
+        "renamed": [folder.model_copy(update={"name": "Renamed"})],
+        "recreated": [folder.model_copy(update={"uid_validity": 124})],
+        "account": [folder],
+    }[change]
+    case.folders.side_effect = [[folder], broken]
+
+    def response_body() -> dict[str, Any]:
+        if change == "account":
+            case.service.params["dsid"] = "changed-account"
+        return {
+            "domainObjects": [
+                metadata(case).model_dump(exclude={"folder"}, by_alias=True)
+            ]
+            if present
+            else []
+        }
+
+    case.response.json.side_effect = response_body
+    with pytest.raises(SyncResetRequired):
+        case.reader.message_by_uid(7)
+    case.session.post.assert_called_once()
+
+
+@pytest.mark.parametrize("uid", [True, 0, -1, "7"])
+def test_invalid_uid_never_reads(case: Case, uid: Any) -> None:
+    """The private lookup optimization retains the public input validation."""
+    with pytest.raises(ValueError, match="positive integer"):
+        case.reader.message_by_uid(uid)
+    case.folders.assert_not_called()
+    case.session.post.assert_not_called()
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_thread_refresh_reuses_page_identity_checks(case: Case, present: bool) -> None:
+    """No duplicate outer listings, with a pinned guard on both sides of each page."""
+    record = metadata(case).model_dump(exclude={"folder"}, by_alias=True)
+    case.response.json.side_effect = (
+        [{"domainObjects": [record]}, {"domainObjects": []}]
+        if present
+        else [{"domainObjects": []}]
+    )
+    rows = list(case.reader.iter_thread_inventory("test-thread"))
+    assert len(rows) == int(present)
+    pages = 2 if present else 1
+    assert case.session.post.call_count == pages
+    assert case.folders.call_count == 2 * pages
+
+
+def test_thread_refresh_checks_identity_after_empty_terminal_page(case: Case) -> None:
+    """An empty result cannot hide a path change at scan completion."""
+    case.folders.side_effect = [[case.reader.folder], []]
+    case.response.json.return_value = {"domainObjects": []}
+    with pytest.raises(SyncResetRequired, match="folder changed"):
+        list(case.reader.iter_thread_inventory("test-thread"))
+
+
+def test_thread_refresh_checks_account_before_the_next_page(case: Case) -> None:
+    """A consumer-side scope switch is rejected before another metadata request."""
+    case.response.json.return_value = {
+        "domainObjects": [metadata(case).model_dump(exclude={"folder"}, by_alias=True)]
+    }
+    rows = case.reader.iter_thread_inventory("test-thread")
+    assert next(rows).uid == 7
+    case.service.params["dsid"] = "changed-account"
+    with pytest.raises(SyncResetRequired, match="account changed"):
+        next(rows)
+    case.session.post.assert_called_once()

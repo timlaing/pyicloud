@@ -98,7 +98,7 @@ class MailSyncReader:
             raise SyncResetRequired("Mail sync has no verified account identity")
         return sha256(json.dumps([account.casefold(), str(dsid)]).encode()).hexdigest()
 
-    def _guard(self) -> None:
+    def _guard(self) -> MailFolder:
         if self._account_scope() != self.account:
             raise SyncResetRequired("Mail sync account changed")
         matches = [item for item in self.service.folders() if item.id == self.folder.id]
@@ -108,6 +108,7 @@ class MailSyncReader:
             or matches[0].uid_validity != self.folder.uid_validity
         ):
             raise SyncResetRequired("Mail sync folder changed; refresh its identity")
+        return matches[0]
 
     def _checkpoint(self, modseq: int, threadmodseq: int) -> SyncCheckpoint:
         return SyncCheckpoint(
@@ -243,20 +244,25 @@ class MailSyncReader:
 
     def iter_thread_inventory(self, thread_id: str) -> Iterator[InventoryMessage]:
         """Exhaust a changed thread; never treat a bounded thread page as complete."""
-        self._guard()
-        for message in self.service.iter_thread_messages(
-            self.folder, thread_id, page_size=self.page_size, max_pages=self.max_pages
+        for message in MailService._iter_thread_messages(
+            self.service,
+            self.folder,
+            thread_id,
+            page_size=self.page_size,
+            max_pages=self.max_pages,
+            check_folder=self._guard,
         ):
             if message.thread_id != thread_id:
                 raise SyncResetRequired("Mail returned another thread's metadata")
             yield self._record(message)
-        self._guard()
 
     def message_by_uid(self, uid: int) -> InventoryMessage | None:
         """Refresh authoritative numeric flags and metadata for one exact UID."""
-        self._guard()
-        message = self.service.message_by_uid(self.folder, uid)
-        self._guard()
+        if isinstance(uid, bool) or not isinstance(uid, int) or uid < 1:
+            raise ValueError("uid must be a positive integer")
+        message = MailService._lookup_message(
+            self.service, self.folder, "uid", uid, check_folder=self._guard
+        )
         if message is None:
             return None
         record = self._record(message)

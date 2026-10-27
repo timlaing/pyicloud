@@ -14,6 +14,20 @@ Load these fixtures through `tests.fixture_loader.load_fixture` so reads respect
 the test filesystem sandbox. Search results are thread-grouped; listing fixtures
 represent bounded snapshots, not a complete synchronization protocol.
 
+`flag_update_request.json` and `flag_update_response.json` model the one-message
+`email/set` shape observed through authorized browser read/unread and flag/unflag
+actions. Only named `seen` and `flagged` set/clear deltas were captured. Account
+and message identifiers and counters are invented; no raw captures or credentials
+are included. Populated failure maps in tests are synthetic adversarial cases,
+not additional live protocol evidence for flag writes.
+
+`move_request.json` and `move_response.json` model captured ordinary mailbox-only
+moves: the acknowledgement is an empty object, not a flag-update counter.
+`move_conflicting_response.json` minimizes a real observed response containing
+both a success and a failure for the same source ID. All identifiers and account
+values are synthetic. That contradictory outcome requires fresh reconciliation,
+not an automatic retry or a claim that nothing changed.
+
 `thread_messages_response.json` models individual metadata records filtered by
 `appleThrid` within one folder. Its marker is synthetic and must not be treated
 as proof of completeness or followed automatically. The shape was verified
@@ -32,6 +46,12 @@ matches; the fixtures do not establish combined-filter or sync semantics.
 `messages_uid_page_response.json` models a UID-ordered metadata page with equal
 dates and a synthetic opaque marker. Tests exercise strict UID boundaries and
 an explicit empty terminal page; the marker is not a synchronization cursor.
+
+`thread_query_page_response.json` models the thread-domain `geqs/query` cursor
+shape verified by bounded read-only queries. It contains only invented group IDs,
+folder timestamps, and a synthetic cursor; it is not a full digest response.
+Tests replay cursors with unchanged predicates and require a separate empty,
+marker-free terminal response. No real cursor or account data is included.
 
 ## Private Synchronization Candidate
 

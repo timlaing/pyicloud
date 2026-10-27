@@ -1,10 +1,13 @@
 # Mail
 
-Mail support is **experimental and read-only**, using the iCloud web interface's
-undocumented HTTP API. It has been verified on one account. Sending, drafts,
-folder changes, flag writes, and moving/deleting messages are not supported.
-The read-only `icloud mail` commands include experimental, one-shot POSIX metadata
-inventory synchronization; this is not content synchronization or a mailbox backup.
+Mail support is **experimental**, using the iCloud web interface's undocumented
+HTTP API. Read operations have been verified on one account. Explicit
+single-message read/unread, flag/unflag, and ordinary mailbox moves are available
+separately; ordinary reads never change flags. Sending, drafts, folder changes,
+and permanent message deletion are not supported.
+The `icloud mail` commands expose the same bounded API.
+The read-only commands include experimental, one-shot POSIX metadata inventory
+synchronization; this is not content synchronization or a mailbox backup.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
 
 ## Read-Operation Status
@@ -21,7 +24,8 @@ server-side search. The current boundaries are:
 | Thread members                     | `thread`, `thread --all`   | Bounded metadata or UID enumeration within the selected folder, not a cross-folder conversation.                          |
 | Individual unread/flagged messages | `filter-messages`          | Explicit UID enumeration; changing flags can change membership during the scan.                                           |
 | Text search                        | `search`, `search-folders` | Bounded thread groups; exhaustive full-text search is not established.                                                    |
-| Unread/flagged thread groups       | `filter`                   | Bounded browser groups; grouped-filter pagination is not established.                                                     |
+| Unread/flagged thread groups       | `filter`                   | Bounded browser digests, without automatic pagination.                                                                    |
+| Unread/flagged thread identities   | `filter-threads`           | Explicit cursor enumeration of IDs and folder timestamps; no digests, bodies, or atomic snapshot.                         |
 | Preview                            | `preview`                  | Advertised snippets only, with exact message lookup by default; no body fallback.                                         |
 | Body data                          | `body`                     | Advertised plain-text/HTML parts only, without requesting a read-state change or rendering HTML.                          |
 | Attachments                        | `download`                 | Ordinary numeric MIME parts only; no Mail Drop/external URLs; private non-overwriting output.                             |
@@ -33,8 +37,8 @@ server-side search. The current boundaries are:
 Full-text search pagination remains a separate protocol-research blocker.
 Arbitrary external attachment downloads and body/attachment synchronization are
 not implemented. Only the explicit, restricted Mail Drop path below is supported;
-do not infer support for arbitrary URLs or complete mailbox backup from these
-commands. There is no public exhaustive search iterator.
+do not infer support for arbitrary URLs or complete mailbox backup
+from the read commands above. There is no public exhaustive search iterator.
 Mail writes require separate implementation, review, and
 explicit authorization for any live mutation tests.
 
@@ -104,6 +108,118 @@ and UID validity; never attach an old UID to a newly recreated mailbox's UID
 validity. Lookup checks cannot make subsequent reads atomic: a message may still
 be moved or deleted after it is returned. Content reads add their own namespace
 checks when UID validity is known, as described below.
+
+## Explicit Message Moves
+
+`MailService.move(message, destination)` moves one exact folder-bound message.
+Use fresh `MailFolder` objects from `folders()` and exact metadata lookup:
+
+```python
+folders = api.mail.folders()
+source = next(folder for folder in folders if folder.id == source_folder_id)
+destination = next(folder for folder in folders if folder.id == destination_folder_id)
+message = api.mail.message(source, message_id)
+if message is not None:
+    acknowledgement = api.mail.move(message, destination)
+```
+
+```console
+icloud mail move '<message-id>' --folder-id '<source-id>' --destination-id '<destination-id>' --format json
+```
+
+Both folder IDs are explicit; there is no implicit destination, newest-message
+scan, bulk move, or automatic retry. Fresh metadata must identify the source
+message and both mailbox namespaces. Capability queries use the browser-observed
+`name` and integer `flags` properties. Only zero-flag ordinary folders are
+supported; nonzero or missing flags fail closed without guessing individual bit
+meanings. The browser's canonical server names `Junk`, `Drafts`, `/VIP`, and
+`/REMIND_ME` are rejected, independently of translated display labels. Junk and
+Drafts have additional write semantics that are not implemented here.
+
+The submitted patch changes only mailbox membership. It does not explicitly
+change read/unread or flagged state. Apple may update internal metadata flags
+and assigns a new folder-local UID; the message identifier can also change.
+`MailMoveUpdate` contains only `source_message_id`, `source_folder_id`, and
+`destination_folder_id`. It acknowledges the submitted old ID, **not** the new
+destination identity or current state. Never reuse the old `MailMessage` for a
+second write. Refresh destination metadata and independently verify identity;
+subjects alone are not unique identifiers.
+
+Moving to a verified Trash folder is recoverable movement. Restoring means an
+explicit move from Trash to the intended destination. No permanent deletion
+endpoint is called, even when the source is Trash. This differs from the
+browser's Trash shortcut, which also requests a read-state change. Archive can
+likewise be an explicit ordinary-folder destination.
+
+An exact failure without successes raises `MailWriteRejected`. Timeouts,
+malformed acknowledgements, wrong accounts or IDs, late response failures, or
+contradictory success/failure entries raise `MailWriteUncertain`. The latter
+contradiction was observed in a real Trash response even though the message
+actually moved. Inspect both folders before deciding whether to retry; never
+assume an exception means nothing happened. Preflight is not an atomic
+conditional write, and no compensating move or POST retry is performed. Custom
+transport adapters must not retry mutation POSTs.
+
+An authorized live test exercised two library moves and two mounted CLI moves,
+restoring one disposable message to Inbox. Fresh metadata verified every
+destination and unread/unflagged state; other observed records in the three
+small test folders were unchanged. Exactly four mailbox-only writes occurred,
+without retries. This does not establish atomicity or large-folder guarantees.
+
+## Explicit Message Flag Updates
+
+These are **writes**, not read options. Use a message returned by an exact
+folder-scoped lookup, never a thread/search identifier or a guessed UID:
+
+```python
+message = api.mail.message(inbox, "<message-id>")
+if message is not None:
+    acknowledgement = api.mail.set_read(message, read=True)
+    # read=False marks it unread. These are separate, explicit operations:
+    acknowledgement = api.mail.set_flagged(message, flagged=True)
+    # flagged=False removes the flag.
+```
+
+The boolean keyword is required. Each call changes only `seen` or `flagged`
+through an observed named-bit patch, without replacing any other flags. The
+service requires known positive mailbox UID validity and the discovered account
+identifier, then re-reads the exact UID and checks its message ID before writing.
+Missing, moved, mismatched, or recreated identities fail before submission. These
+checks are not a server-side conditional transaction: a concurrent move, deletion,
+or flag change can still race the request. A rename does not change a message ID.
+
+`MailFlagUpdate` contains `message_id`, `flag`, `enabled`, and the acknowledged
+`modseq`. It is a server acknowledgement, not a current-state snapshot or sync
+token. The input message remains unchanged; refresh metadata after writing.
+Only one message is submitted, and every outcome field and acknowledgement
+identity is checked. Unknown response fields or malformed envelopes fail closed.
+
+`MailWriteRejected` means the server explicitly rejected this one update.
+`MailWriteUncertain` means submission could not be confirmed, including timeouts,
+non-200 responses, mismatched results, or late response failures. **The write may
+already have taken effect. Refresh metadata before deciding whether to retry.**
+Both inherit `MailError`. Server failure details and account IDs are not printed
+in these errors. No automatic retry or authentication replay is performed by the
+write path. Custom transport adapters must not be configured to retry POST writes.
+
+The CLI requires an exact folder ID, individual message ID, and action:
+
+```console
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action read --format json
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action unread
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action flag
+icloud mail mark '<message-id>' --folder-id '<folder-id>' --action unflag
+```
+
+There is no default action, bulk selection, `--limit` fallback, implicit folder
+selection, or write attached to reading a message. Test on disposable messages
+first. Browser captures verified the four request/acknowledgement shapes.
+An authorized live smoke test then exercised library read/flag and mounted CLI
+unread/unflag writes over real HTTP on one disposable message. Independent
+named-flag queries verified every transition; a fresh-process final check
+confirmed the original flags and other Inbox records were unchanged. CLI tests
+reused a real authenticated service instance, not mocked HTTP responses. This
+single-account check does not verify all server failures or concurrent changes.
 
 ## Enumerating a Mailbox
 
@@ -317,6 +433,36 @@ Filters cannot be combined through this API. In the observed browser capture,
 Unread plus Flagged returned the union of the separately filtered groups,
 not their intersection; arbitrary combinations are not assumed to mean AND.
 
+### Enumerating Filtered Thread Identities
+
+```python
+for thread in api.mail.iter_filtered_threads(
+    inbox, filter_by="flagged", page_size=50, max_pages=10000
+):
+    print(thread.id, thread.timestamp)
+```
+
+This separate API returns lightweight `MailFilteredThread` identities and the
+selected folder's Unix timestamps in milliseconds, **not full digests**, previews, counts, or individual
+messages. The `filter-threads` CLI command exposes the same scan. It uses the
+observed thread-domain query with an opaque continuation marker and an unchanged
+folder-ID/flag predicate on every page, rather than advancing timestamp boundaries.
+Filters remain separate; there is no combined-filter or text-search mode.
+
+Only an empty, marker-free response completes enumeration. A short page is not
+terminal. A nonempty page without a marker, an empty page with a marker, repeated
+markers or identities, oversized or wrong-folder pages, mailbox disappearance or
+recreation, malformed responses, and spent request budgets raise errors. No
+automatic retries or cursor persistence occur. Page sizes are 1 through 1,000;
+budgets include the terminal request. Positive mailbox UID validity is required.
+
+Successful exhaustion means the server's live cursor was exhausted, **not an
+atomic snapshot**: concurrent flag changes or new mail can change membership.
+Earlier library yields cannot be retracted if a later request fails. The CLI
+buffers results until the entire scan succeeds and reports `exhausted: true`
+with `snapshot: false`; it prints no partial success data on failure. Stable
+folder renames use the same folder ID. No bodies or snippets are requested.
+
 ## Searching Selected Folders
 
 ```python
@@ -500,6 +646,7 @@ icloud mail filter-messages --folder-id '<folder-id>' --filter flagged --format 
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
 icloud mail filter --folder-id '<folder-id>' --filter flagged --format json
+icloud mail filter-threads --folder-id '<folder-id>' --filter flagged --page-size 50 --max-pages 10000 --format json
 icloud mail search-folders example --folder-id '<inbox-id>' --folder-id '<sent-id>' --limit-per-folder 50 --format json
 icloud mail export '<message-id>' --folder-id '<folder-id>' --output ./message.json
 icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./message.eml
@@ -632,6 +779,10 @@ Recovery is explicit and narrowly scoped:
   the current folder identity and selecting a fresh state directory. Preserve the
   old directory for inspection. Corrupt databases are not silently replaced;
   preserve the database and journal rather than deleting recovery files.
+- Other unsupported or inconsistent change histories also retain the checkpoint.
+  The CLI explains how to check the current scope and select a fresh `--state-dir`
+  for a bounded baseline. Repeating the same checkpoint is not a repair; preserve
+  the old state for inspection instead of deleting it or forcing a history reset.
 
 The private Python sync helpers are implementation details, not a new documented
 `MailService` synchronization API. Use `mail export` or `export-eml` separately
@@ -640,8 +791,9 @@ when an explicit single-message content export is needed.
 ## Errors and Privacy
 
 `MailError`, a `PyiCloudException`, reports malformed Mail responses, unexpected
-attachment content types, and stream failures. Session authentication and
-connection exceptions retain their existing library types. There are no
+attachment content types, and stream failures. Read-side authentication and
+connection exceptions retain their existing library types. Submitted Mail writes
+use the rejected/uncertain errors described above. There are no
 automatic service-level retries; a caller may inspect chained causes.
 
 Bodies, subjects, addresses, previews, and filenames are omitted from the models'

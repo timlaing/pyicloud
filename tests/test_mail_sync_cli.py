@@ -56,7 +56,7 @@ def case_fixture() -> Iterator[Case]:
     with (
         patch.object(service, "folders", return_value=[folder]),
         patch.object(service, "iter_messages") as inventory,
-        patch.object(service, "message_by_uid") as exact,
+        patch.object(MailService, "_lookup_message") as exact,
     ):
         current = Case(api, service, folder, response, session, inventory, exact)
         inventory.side_effect = lambda *_args, **_kwargs: iter([metadata(current)])
@@ -175,16 +175,20 @@ def test_flag_free_invalidation_removes_only_verified_local_membership(
     case.response.json.side_effect = [wire, final]
     case.exact.return_value = None
     with patch.object(
-        case.service, "iter_thread_messages", return_value=iter([])
+        MailService, "_iter_thread_messages", return_value=iter([])
     ) as thread:
         result = invoke(case, directory, "--format", "json")
     assert result.exit_code == 0, result.exception
     assert json.loads(result.stdout)["message_count"] == 0
     assert not snapshot(directory)[1]
-    thread.assert_called_once_with(
-        case.folder, "synthetic-thread", page_size=50, max_pages=10000
-    )
-    case.exact.assert_called_once_with(case.folder, 7)
+    assert thread.call_count == 1
+    assert thread.call_args.args == (case.service, case.folder, "synthetic-thread")
+    assert thread.call_args.kwargs["page_size"] == 50
+    assert thread.call_args.kwargs["max_pages"] == 10000
+    assert callable(thread.call_args.kwargs["check_folder"])
+    assert case.exact.call_count == 1
+    assert case.exact.call_args.args == (case.service, case.folder, "uid", 7)
+    assert callable(case.exact.call_args.kwargs["check_folder"])
 
 
 def test_restart_replays_saved_checkpoint_without_rescan(
@@ -221,7 +225,8 @@ def test_flag_change_updates_only_local_metadata(case: Case, directory: Path) ->
     assert payload["status"] == "updated" and payload["revision"] == 2
     assert snapshot(directory)[1][0].flags == 2
     case.inventory.assert_not_called()
-    case.exact.assert_called_once_with(case.folder, 7)
+    assert case.exact.call_args.args == (case.service, case.folder, "uid", 7)
+    assert callable(case.exact.call_args.kwargs["check_folder"])
 
 
 @pytest.mark.parametrize(
@@ -273,6 +278,9 @@ def test_unknown_events_never_trigger_recovery(case: Case, directory: Path) -> N
     case.inventory.reset_mock()
     result = invoke(case, directory, "--rebuild-expired", "--allow-inventory-fallback")
     assert isinstance(result.exception, CLIAbort)
+    assert "fresh --state-dir" in str(result.exception)
+    assert "Preserve the old directory" in str(result.exception)
+    assert "unsupported private event" not in str(result.exception)
     assert not result.stdout
     assert snapshot(directory) == saved
     case.inventory.assert_not_called()

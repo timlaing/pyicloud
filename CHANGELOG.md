@@ -10,8 +10,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Explain fresh-state recovery for unsupported Mail sync histories and avoid duplicate folder discovery around exact UID refreshes while retaining both identity guards.
 - Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
 - Accept observed flag-less NIL Mail thread invalidations through checked thread/UID metadata refreshes, without interpreting them as empty flags or permanent deletion.
+- Preserve Mail Drop capability metadata for search-pagination messages, keep caller exceptions unchanged through `mail_drop_attachment()`, name the Mail Drop transport failure class instead of a generic message, and stop suggesting a nonexistent `--limit` option when a `download-maildrop` folder lacks UID validity.
+- Accept a valid SMS two-factor code that Apple answers with HTTP 412 and a repair session, continuing to session trust instead of reporting an incorrect code.
 - Guard Mail body and attachment reads against observed mailbox recreation and path changes when UID validity is available; reject in-flight renames for path-selected preview/filter reads too, use the current folder name, and prevent failed downloads from being published.
 - Explain the explicit `--limit N` fallback when Mail CLI exact lookup cannot use a folder without positive UID validity; never silently broaden the lookup.
 - Accept whitespace-padded plain-text and HTML body media types without changing the supported types or marking messages read.
@@ -22,9 +25,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Added
 
 - Add experimental, read-only `icloud mail sync` for a one-shot folder-scoped metadata inventory on POSIX, with explicit private state storage, bounded requests, content-free summaries, and separate opt-ins for expired-history rebuilds and count-hint rescans. It neither downloads content nor modifies mail, and is not an atomic backup or watcher.
+- Add explicit single-message Mail moves through `MailService.move()` and `icloud mail move`, with fresh mailbox guards, mailbox-only patches, source-only acknowledgements, and no automatic retries. Trash/restore use explicit folder destinations; Junk, Drafts, labels, and nonzero-flag folders remain unsupported.
 - Add explicit, size-bounded Mail Drop downloads through `MailService.mail_drop_attachment()` and `icloud mail download-maildrop`, using verified Apple capability URLs, isolated credential-free transport, mandatory content TLS verification, mailbox guards, and private non-overwriting output.
+- Add explicit cursor enumeration of unread/flagged thread identities through `MailService.iter_filtered_threads()` and `icloud mail filter-threads`, with checked mailbox scope, typed metadata, empty terminal responses, and explicit failures on incomplete or non-progressing scans. Bounded thread digests and full-text search remain unchanged.
 - Add original MIME/EML streaming with `MailService.raw_message()` and private, non-overwriting `icloud mail export-eml` downloads, preserving Apple's returned message bytes without reconstruction or new dependencies and checking mailbox identity around retrieval.
 - Add `icloud mail get` for exact metadata-only lookup by message ID or folder-local UID, without scanning messages or fetching bodies.
+- Add explicit single-message Mail read/unread and flag/unflag updates through `set_read()`, `set_flagged()`, and `icloud mail mark`, with fresh identity checks, targeted named-flag patches, typed acknowledgements, and distinct rejected/uncertain outcomes without automatic write retries.
 - Add explicit folder-scoped Mail thread-member and unread/flagged individual-message UID pagination through `iter_thread_messages()`, `iter_filtered_messages()`, `icloud mail thread --all`, and `icloud mail filter-messages`, with checked scopes, empty-page exhaustion, and explicit request-budget failures. Existing bounded thread and grouped search behavior is unchanged; live scans are not atomic snapshots.
 - Add exact folder-scoped Mail metadata lookup by message ID or UID, with mailbox UID-validity checks and explicit missing-message results.
 - Add bounded, folder-scoped Mail thread expansion through `MailService.thread_messages()` and `icloud mail thread`, returning individual message metadata with explicit incomplete-result semantics and mailbox identity checks.
@@ -33,7 +39,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add Mail snippets using advertised preview IDs and separate Unread/Flagged browser thread filters through the library and `icloud mail preview` / `icloud mail filter`, with mailbox identity checks and explicit bounded thread-group semantics.
 - Add explicit `MailService.iter_messages()` UID-based mailbox enumeration and `icloud mail list --all`, with mailbox identity checks, validated paging boundaries, and explicit failure on incomplete scans. Default message listing and search remain bounded; enumeration is not an atomic snapshot or synchronization API.
 - Add read-only `icloud mail` commands for folders, bounded message listings and thread-grouped search, body data, and attachment downloads to explicit non-overwriting paths.
-- Add experimental read-only `PyiCloudService.mail` support for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Mail mutations are not supported.
+- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Flag writes and ordinary moves are separate explicit operations; sending and permanent deletion remain unsupported.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).

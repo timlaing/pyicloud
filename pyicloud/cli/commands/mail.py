@@ -1,4 +1,4 @@
-"""Read-only commands for the experimental Mail service."""
+"""Mail reads and explicit single-message flag and move commands."""
 
 from __future__ import annotations
 
@@ -38,13 +38,17 @@ from pyicloud.services.mail import (
     MailMessageExport,
     MailService,
 )
-from pyicloud.services.mail._sync import SyncHistoryExpired, SyncInventoryRequired
+from pyicloud.services.mail._sync import (
+    SyncHistoryExpired,
+    SyncInventoryRequired,
+    SyncResetRequired,
+)
 from pyicloud.services.mail._sync_reader import MailSyncReader
 from pyicloud.services.mail._sync_refresh import refresh_inventory
 from pyicloud.services.mail._sync_storage import open_inventory
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
-app = typer.Typer(help="Read Mail folders, bounded messages, and attachments.")
+app = typer.Typer(help="Read Mail and explicitly mark or move individual messages.")
 
 FolderOption = Annotated[
     str, typer.Option("--folder-id", help="Exact folder ID from mail folders.")
@@ -65,7 +69,7 @@ ListLimitOption = Annotated[
     ),
 ]
 PageSizeOption = Annotated[
-    int, typer.Option("--page-size", min=1, max=1000, help="Messages per UID page.")
+    int, typer.Option("--page-size", min=1, max=1000, help="Records per page.")
 ]
 MaxPagesOption = Annotated[
     int,
@@ -84,6 +88,7 @@ LookupLimitOption = Annotated[
 ]
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
+_MESSAGE_ID_COLUMN = "Message ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
 _DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
@@ -126,6 +131,15 @@ class _SyncSummary:
     metadata_only: Literal[True] = True
     read_only: Literal[True] = True
     atomic_snapshot: Literal[False] = False
+
+
+class FlagAction(str, Enum):
+    """One explicit reversible action; no implicit default or bulk selector."""
+
+    READ = "read"
+    UNREAD = "unread"
+    FLAG = "flag"
+    UNFLAG = "unflag"
 
 
 def _mail_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
@@ -275,7 +289,7 @@ def _print_enumeration(
     _table(
         state,
         "Mail Messages (Scoped UID Enumeration)",
-        ["Message ID", "From", "Subject"],
+        [_MESSAGE_ID_COLUMN, "From", "Subject"],
         [(message.id, message.sender, message.subject) for message in messages],
     )
     state.console.print(
@@ -317,6 +331,116 @@ def mail_folders(
         ["ID", "Name", "Count"],
         [(folder.id, folder.name, folder.message_count) for folder in payload],
     )
+
+
+@app.command("mark")
+def mail_mark(
+    ctx: typer.Context,
+    message_id: Annotated[str, typer.Argument(help=_MESSAGE_ID_HELP)],
+    folder_id: FolderOption,
+    action: Annotated[
+        FlagAction, typer.Option("--action", help="Required flag change.")
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Explicitly mark one exact message read/unread or flag/unflag it.
+
+    No scans or automatic retries. An uncertain outcome requires fresh metadata
+    before an explicit retry; the acknowledgement is not a current-state snapshot.
+    """
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    message = _mail_call(api, lambda: mail.message(folder, message_id))
+    if message is None:
+        raise CLIAbort("Message not found in this folder; no flag update submitted.")
+    if action in (FlagAction.READ, FlagAction.UNREAD):
+        result = _mail_call(
+            api, lambda: mail.set_read(message, read=action is FlagAction.READ)
+        )
+    else:
+        result = _mail_call(
+            api, lambda: mail.set_flagged(message, flagged=action is FlagAction.FLAG)
+        )
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Mail Flag Acknowledgement",
+            [_MESSAGE_ID_COLUMN, "Flag", "Enabled", "Modseq"],
+            [(result.message_id, result.flag, result.enabled, result.modseq)],
+        )
+
+
+@app.command("move")
+def mail_move(
+    ctx: typer.Context,
+    message_id: Annotated[str, typer.Argument(help=_MESSAGE_ID_HELP)],
+    folder_id: FolderOption,
+    destination_id: Annotated[
+        str, typer.Option("--destination-id", help="Exact destination folder ID.")
+    ],
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Move one exact message, preserving flags; never retry an uncertain write.
+
+    Trash is a move destination, not permanent deletion. Junk and Drafts moves
+    are unsupported. IDs can change: refresh destination metadata afterward.
+    """
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    source = _folder(api, mail, folder_id)
+    destination = _folder(api, mail, destination_id)
+    message = _mail_call(api, lambda: mail.message(source, message_id))
+    if message is None:
+        raise CLIAbort("Message not found in this folder; no move submitted.")
+    result = _mail_call(api, lambda: mail.move(message, destination))
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Mail Move Acknowledgement",
+            ["Source Message ID", "Source Folder ID", "Destination Folder ID"],
+            [
+                (
+                    result.source_message_id,
+                    result.source_folder_id,
+                    result.destination_folder_id,
+                )
+            ],
+        )
 
 
 @app.command("list")
@@ -522,6 +646,13 @@ def mail_sync(
                         "Rerun with --allow-inventory-fallback to allow a complete "
                         "metadata rescan."
                     ) from err
+                except SyncResetRequired as err:
+                    raise CLIAbort(
+                        f"Mail sync cannot safely continue: {err}. "
+                        "Saved inventory retained. Check the current account and "
+                        "folder identity, then select a fresh --state-dir to rebuild. "
+                        "Preserve the old directory; do not delete recovery files."
+                    ) from err
                 return _SyncSummary(
                     folder_id=folder.id,
                     state_path=str(state_dir.resolve() / "inventory.sqlite3"),
@@ -666,7 +797,7 @@ def mail_thread(
     _table(
         state,
         "Mail Thread (Bounded Folder Snapshot)",
-        ["Message ID", "From", "Subject"],
+        [_MESSAGE_ID_COLUMN, "From", "Subject"],
         [(message.id, message.sender, message.subject) for message in payload.messages],
     )
     state.console.print(
@@ -870,7 +1001,7 @@ def mail_download_maildrop(
         log_level=log_level,
     )
     state, api, mail = _context(ctx)
-    message = _message(api, mail, folder_id, message_id, None)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
     size = _mail_call(
         api,
         lambda: _save_stream(
@@ -1004,6 +1135,65 @@ def mail_filter(
     )
     state.console.print(
         "Incomplete thread groups; not individual unread/flagged messages."
+    )
+
+
+@app.command("filter-threads")
+def mail_filter_threads(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    filter_by: ThreadFilter = typer.Option(..., "--filter"),
+    page_size: PageSizeOption = 50,
+    max_pages: MaxPagesOption = 10000,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Page filtered thread IDs and timestamps, not digests or individual messages."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    threads = _mail_call(
+        api,
+        lambda: list(
+            mail.iter_filtered_threads(
+                folder,
+                filter_by=filter_by.value,
+                page_size=page_size,
+                max_pages=max_pages,
+            )
+        ),
+    )
+    if state.json_output:
+        state.write_json({
+            "threads": threads,
+            "filter_by": filter_by.value,
+            "page_size": page_size,
+            "exhausted": True,
+            "snapshot": False,
+        })
+        return
+    _table(
+        state,
+        "Mail Filtered Thread IDs (Cursor Enumeration)",
+        [_THREAD_ID_COLUMN, "Timestamp"],
+        [(thread.id, thread.timestamp) for thread in threads],
+    )
+    state.console.print(
+        "Cursor exhausted; live thread identities, not a snapshot or digests."
     )
 
 

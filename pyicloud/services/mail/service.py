@@ -1,8 +1,8 @@
-"""Experimental, read-only iCloud Mail HTTP service."""
+"""Experimental Mail reads and explicit single-message flag and move writes."""
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 import os
 import re
@@ -15,18 +15,38 @@ from requests import Request, RequestException, Response, Session
 
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
+from pyicloud.services.mail._flags import (
+    FlagDelta,
+    FlagIntent,
+    FlagOperation,
+    FlagPatch,
+    FlagRequest,
+    FlagResponse,
+    MailFlag,
+)
+from pyicloud.services.mail._moves import (
+    MailboxReplacement,
+    MoveFolderResponse,
+    MoveOperation,
+    MovePatch,
+    MoveRequest,
+    MoveResponse,
+)
 from pyicloud.services.mail.models import (
     MIME_PART_PATTERN,
     FolderResponse,
     MailBody,
     MailBodyRequest,
     MailExpression,
+    MailFilteredThread,
+    MailFlagUpdate,
     MailFolder,
     MailFolderSearchPage,
     MailMessage,
     MailMessageExport,
     MailMessagePage,
     MailMessageRecord,
+    MailMoveUpdate,
     MailMultiSearchPage,
     MailOrder,
     MailPart,
@@ -40,10 +60,12 @@ from pyicloud.services.mail.models import (
     MailThreadFilterPage,
     MailThreadFilterRequest,
     MailThreadPage,
+    MailThreadQuery,
     MessageResponse,
     PreviewResponse,
     SearchResponse,
     ThreadFilterResponse,
+    ThreadQueryResponse,
 )
 from pyicloud.session import PyiCloudSession
 
@@ -86,6 +108,63 @@ _HEADER_PROPERTIES: list[str | dict[str, Any]] = [
 
 class MailError(PyiCloudException):
     """An invalid response, incomplete enumeration, or failed attachment stream."""
+
+
+class MailWriteRejected(MailError):
+    """The server explicitly rejected the one requested update."""
+
+
+class MailWriteUncertain(MailError):
+    """A submitted write could not be confirmed; inspect state before retrying."""
+
+
+_FLAG_OUTCOME_UNKNOWN = (
+    "Mail flag update outcome is uncertain; refresh message metadata before "
+    "retrying. No automatic retry was performed."
+)
+_MOVE_OUTCOME_UNKNOWN = (
+    "Mail move outcome is uncertain; inspect both folders using fresh metadata "
+    "before retrying. Message IDs may change. No automatic retry was performed."
+)
+
+
+def _move_acknowledgement(
+    response: MoveResponse, account_id: str, message_id: str
+) -> None:
+    """Contradictory real-world move outcomes must never authorize a retry."""
+    if response.account_id != account_id or any((
+        response.created,
+        response.destroyed,
+        response.not_created,
+        response.not_destroyed,
+    )):
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+    if response.not_updated:
+        if set(response.not_updated) == {message_id} and not response.updated:
+            raise MailWriteRejected("Mail rejected the move; refresh metadata.")
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+    if response.updated is None or set(response.updated) != {message_id}:
+        raise MailWriteUncertain(_MOVE_OUTCOME_UNKNOWN)
+
+
+def _flag_acknowledgement(
+    response: FlagResponse, account_id: str, message_id: str
+) -> int:
+    """Require an exact account and message outcome without exposing server data."""
+    if response.account_id != account_id or any((
+        response.created,
+        response.destroyed,
+        response.not_created,
+        response.not_destroyed,
+    )):
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    if response.not_updated:
+        if set(response.not_updated) == {message_id} and not response.updated:
+            raise MailWriteRejected("Mail rejected the flag update; refresh metadata.")
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    if response.updated is None or set(response.updated) != {message_id}:
+        raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN)
+    return response.updated[message_id].modseq
 
 
 def _bind_message(record: MailMessageRecord, folder: MailFolder) -> MailMessage:
@@ -189,17 +268,27 @@ def _mail_drop_response_size(
     return expected_size
 
 
+def _mail_drop_transport_error(exc: RequestException) -> MailError:
+    """Carry the failure class only; request messages embed the signed URL."""
+    return MailError(f"Mail Drop download or stream failed ({type(exc).__name__})")
+
+
 def _mail_drop_chunks(
     chunks: Iterator[bytes], max_bytes: int, expected_size: int | None
 ) -> Iterator[bytes]:
     """Enforce actual streamed size even without trustworthy advertised lengths."""
     size = 0
-    for chunk in chunks:
-        size += len(chunk)
-        if size > max_bytes:
-            raise MailError("Mail Drop stream exceeds max_bytes")
-        if chunk:
-            yield chunk
+    try:
+        for chunk in chunks:
+            size += len(chunk)
+            if size > max_bytes:
+                raise MailError("Mail Drop stream exceeds max_bytes")
+            if chunk:
+                yield chunk
+    except RequestException as exc:
+        # Only iter_content failures originate here; caller exceptions never
+        # enter this generator, so they are not reclassified.
+        raise _mail_drop_transport_error(exc) from exc
     if expected_size is not None and size != expected_size:
         raise MailError("Mail Drop stream length differs from metadata or response")
 
@@ -246,13 +335,61 @@ def _folder_predicate(folder: MailFolder) -> MailPredicate:
     )
 
 
-def _validate_uid_scan(folder: MailFolder, page_size: int, max_pages: int) -> None:
-    """Validate a UID scan before checking mailbox identity or reading metadata."""
+def _validate_scan(folder: MailFolder, page_size: int, max_pages: int) -> None:
+    """Validate a scan before checking mailbox identity or reading metadata."""
     _limit(page_size)
     if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
         raise ValueError("max_pages must be a positive integer")
     if folder.uid_validity is None or folder.uid_validity < 1:
         raise ValueError(_UID_VALIDITY_REQUIRED)
+
+
+def _filtered_thread_query(
+    folder: MailFolder, filter_by: MailThreadFilter, page_size: int
+) -> MailThreadQuery:
+    """Use browser-observed thread timestamps and projected boolean flag predicates."""
+    timestamp = MailExpression(property="tsMap", type="mapValueOf", value=folder.id)
+    return MailThreadQuery(
+        predicate=MailPredicate(
+            expression=timestamp,
+            type="ge",
+            value=0,
+            and_=[
+                MailPredicate(
+                    expression=MailExpression(
+                        property="flags",
+                        type="fieldOf",
+                        value="SEEN" if filter_by == "unread" else "FLAGGED",
+                    ),
+                    type="eq",
+                    value=filter_by == "flagged",
+                )
+            ],
+        ),
+        orderby=MailOrder(expressions=[timestamp], ascending=False),
+        limit=page_size,
+    )
+
+
+def _check_thread_page(
+    response: ThreadQueryResponse,
+    folder: MailFolder,
+    page_size: int,
+    seen: set[str],
+    markers: set[str],
+) -> None:
+    """Validate an entire cursor page before exposing any of its group identities."""
+    records = response.records
+    if len(records) > page_size:
+        raise MailError(_RESULT_LIMIT_EXCEEDED)
+    if any(folder.id not in record.timestamps for record in records):
+        raise MailError("Mail returned a thread from another folder")
+    ids = {record.id for record in records}
+    if len(ids) != len(records) or ids.intersection(seen):
+        raise MailError("Mail repeated a thread identifier; enumeration is incomplete")
+    marker = response.continuation_marker
+    if marker is not None and (not records or marker in markers):
+        raise MailError("Mail returned a non-progressing thread cursor")
 
 
 def _uid_query(
@@ -331,11 +468,12 @@ def _uid_page(
 
 
 class MailService(BaseService):
-    """Read-only Mail with bounded reads and explicit UID-based enumeration.
+    """Bounded Mail reads and explicit single-message flag and move writes.
 
     Bounded methods remain snapshots; only explicit iterators opt into paging.
-    No mutations, HTML rendering, or incremental synchronization are performed.
-    Session authentication failures retain the library's existing exception types.
+    Reads never mutate mail. Flag changes and mailbox-only moves are explicit.
+    Sending, permanent deletion, HTML rendering, and synchronization are unsupported.
+    Read-side authentication failures retain the library's existing exception types.
     """
 
     def __init__(
@@ -399,6 +537,177 @@ class MailService(BaseService):
             raise MailError("Mail folder list requires unsupported continuation")
         return result.records
 
+    def set_read(self, message: MailMessage, *, read: bool) -> MailFlagUpdate:
+        """Set or clear only seen, after a fresh folder-local identity lookup.
+
+        The result acknowledges submission, not an atomic snapshot of later mail
+        state. A stale message is not mutated locally. An uncertain write must be
+        checked through fresh metadata before any explicit caller retry.
+        """
+        return self._set_flag(message, "seen", read)
+
+    def set_flagged(self, message: MailMessage, *, flagged: bool) -> MailFlagUpdate:
+        """Set or clear only flagged; never replace other flags or retry writes."""
+        return self._set_flag(message, "flagged", flagged)
+
+    def move(self, message: MailMessage, destination: MailFolder) -> MailMoveUpdate:
+        """Move one message without changing flags or guessing its new identity.
+
+        Fresh capability checks reject labels, non-selectable folders, Junk, and
+        Drafts. Moving to Trash is recoverable mailbox movement, not permanent
+        deletion or the browser's mark-read-and-trash shortcut. Acknowledgements
+        refer to the old identifier only; fetch new destination metadata before
+        another write. No retry or compensating move is performed.
+        """
+        if not isinstance(destination, MailFolder):
+            raise ValueError("A discovered destination MailFolder is required")
+        validity = destination.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive destination UID validity is required")
+        if isinstance(message, MailMessage) and message.folder.id == destination.id:
+            raise ValueError("Source and destination folders must differ")
+        account_id = self._write_identity(message)
+        self._move_folder(message.folder)
+        self._move_folder(destination)
+        request = MoveRequest(
+            batchUpdate=(
+                MoveOperation(
+                    ids=(message.id,),
+                    patch=MovePatch(
+                        mboxRef=MailboxReplacement(replace=(destination.id,))
+                    ),
+                ),
+            )
+        )
+        response = self._submit_update(
+            request, MoveResponse, "moveMessagesGems", _MOVE_OUTCOME_UNKNOWN
+        )
+        _move_acknowledgement(response, account_id, message.id)
+        return MailMoveUpdate(
+            source_message_id=message.id,
+            source_folder_id=message.folder.id,
+            destination_folder_id=destination.id,
+        )
+
+    def _move_folder(self, folder: MailFolder) -> None:
+        """Require an exact current namespace and known ordinary-folder semantics."""
+        result = self._post(
+            "geqs/query",
+            MailQuery(
+                domain="mailbox",
+                include_labels=True,
+                limit=2,
+                properties=["identifier", "uidValidity", "name", "flags"],
+                predicate=MailPredicate(
+                    type="eq",
+                    expression=MailExpression(property="identifier"),
+                    value=folder.id,
+                    and_=[
+                        MailPredicate(
+                            type="eq",
+                            expression=MailExpression(property="isMboxDeleted"),
+                            value=False,
+                        )
+                    ],
+                ),
+            ),
+            MoveFolderResponse,
+        )
+        if result.continuation_marker or len(result.records) != 1:
+            raise MailError("Move requires one exact current mailbox")
+        current = result.records[0]
+        if (
+            current.id != folder.id
+            or current.uid_validity != folder.uid_validity
+            or current.name != folder.name
+        ):
+            raise MailError("Mailbox identity changed; refresh folders before moving")
+        # These are browser-defined server names, not translated UI labels.
+        # Only the captured zero-flag ordinary mailbox shape is supported.
+        if current.flags != 0 or current.name in {
+            "Junk",
+            "Drafts",
+            "/VIP",
+            "/REMIND_ME",
+        }:
+            raise MailError(
+                "Moves involving labels, Junk, Drafts, or non-selectable folders "
+                "are unsupported"
+            )
+
+    def _set_flag(
+        self, message: MailMessage, flag: MailFlag, enabled: bool
+    ) -> MailFlagUpdate:
+        """Validate caller inputs and current identity before one mutation."""
+        if not isinstance(enabled, bool):
+            raise ValueError("The requested flag state must be a boolean")
+        account_id = self._write_identity(message)
+        delta = FlagDelta(set=(flag,)) if enabled else FlagDelta(clear=(flag,))
+        request = FlagRequest(
+            batchUpdate=(
+                FlagOperation(ids=(message.id,), patch=FlagPatch(flags=delta)),
+            )
+        )
+        # Browser intent names describe unread/flagged, not the inverse seen bit.
+        setting = enabled if flag == "flagged" else not enabled
+        intent: FlagIntent = "setMessageFlag" if setting else "clearMessageFlag"
+        response = self._submit_update(
+            request, FlagResponse, intent, _FLAG_OUTCOME_UNKNOWN
+        )
+        counter = _flag_acknowledgement(response, account_id, message.id)
+        return MailFlagUpdate(
+            message_id=message.id, flag=flag, enabled=enabled, modseq=counter
+        )
+
+    def _write_identity(self, message: MailMessage) -> str:
+        """Resolve exact fresh source identity before constructing a mutation."""
+        if not isinstance(message, MailMessage):
+            raise ValueError("A folder-bound MailMessage is required")
+        if message.mailbox.id != message.folder.id:
+            raise ValueError(_MESSAGE_SCOPE_MISMATCH)
+        validity = message.folder.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive mailbox UID validity is required for writes")
+        account_id = self.params.get("dsid")
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise ValueError("A discovered account identifier is required for writes")
+        current = self.message_by_uid(message.folder, message.uid)
+        if current is None or current.id != message.id:
+            raise MailError("Message identity changed; refresh metadata before writing")
+        return account_id
+
+    def _submit_update(
+        self,
+        request: BaseModel,
+        response_type: type[ResponseModel],
+        intent: str,
+        uncertain_message: str,
+    ) -> ResponseModel:
+        """Do not normalize/replay authentication errors after submitting a write."""
+        try:
+            response = self.session.request_raw(
+                "POST",
+                f"{self.service_root}/mailws2/v1/email/set",
+                params={**self.params, "clientIntent": intent},
+                json=request.model_dump(mode="json", by_alias=True, exclude_none=True),
+                timeout=DEFAULT_TIMEOUT,
+                allow_redirects=False,
+            )
+        except (PyiCloudException, OSError) as exc:
+            raise MailWriteUncertain(uncertain_message) from exc
+        try:
+            if response.status_code != 200:
+                raise MailWriteUncertain(uncertain_message)
+            try:
+                return response_type.model_validate(response.json())
+            except ValueError as exc:
+                raise MailWriteUncertain(uncertain_message) from exc
+        finally:
+            try:
+                response.close()
+            except OSError as exc:
+                raise MailWriteUncertain(uncertain_message) from exc
+
     def messages(self, folder: MailFolder, *, limit: int = 50) -> MailMessagePage:
         """Read at most limit records, newest first; completeness is unknown."""
         _limit(limit)
@@ -447,12 +756,22 @@ class MailService(BaseService):
         return self._lookup_message(folder, "uid", uid)
 
     def _lookup_message(
-        self, folder: MailFolder, field: Literal["identifier", "uid"], value: str | int
+        self,
+        folder: MailFolder,
+        field: Literal["identifier", "uid"],
+        value: str | int,
+        *,
+        check_folder: Callable[[], MailFolder] | None = None,
     ) -> MailMessage | None:
         """Validate an exact metadata response before binding a UID to a folder."""
         if folder.uid_validity is None or folder.uid_validity < 1:
             raise ValueError(_UID_VALIDITY_REQUIRED)
-        current = self._checked_mailbox(folder)
+        check: Callable[[], MailFolder] = (
+            (lambda: self._checked_mailbox(folder))
+            if check_folder is None
+            else check_folder
+        )
+        current = check()
         predicate = _folder_predicate(current)
         predicate = predicate.model_copy(
             update={
@@ -476,7 +795,7 @@ class MailService(BaseService):
             ),
             MessageResponse,
         )
-        current = self._checked_mailbox(folder)
+        current = check()
         if response.continuation_marker or len(response.records) > 1:
             raise MailError("Mail lookup returned an ambiguous or incomplete response")
         if not response.records:
@@ -515,6 +834,20 @@ class MailService(BaseService):
         page establishes exhaustion; page budgets and failures raise. Earlier
         yielded metadata cannot be retracted. No bodies or mutations are requested.
         """
+        yield from self._iter_thread_messages(
+            folder, thread_id, page_size=page_size, max_pages=max_pages
+        )
+
+    def _iter_thread_messages(
+        self,
+        folder: MailFolder,
+        thread_id: str,
+        *,
+        page_size: int,
+        max_pages: int,
+        check_folder: Callable[[], MailFolder] | None = None,
+    ) -> Iterator[MailMessage]:
+        """Share thread scope construction with the stronger sync identity guard."""
         if not isinstance(thread_id, str) or not thread_id.strip():
             raise ValueError("thread_id must be a non-empty string")
         match = MailPredicate(
@@ -523,7 +856,12 @@ class MailService(BaseService):
             value=thread_id,
         )
         yield from self._iter_messages(
-            folder, page_size, max_pages, match=match, thread_id=thread_id
+            folder,
+            page_size,
+            max_pages,
+            match=match,
+            thread_id=thread_id,
+            check_folder=check_folder,
         )
 
     def iter_filtered_messages(
@@ -562,19 +900,27 @@ class MailService(BaseService):
         *,
         match: MailPredicate | None = None,
         thread_id: str | None = None,
+        check_folder: Callable[[], MailFolder] | None = None,
     ) -> Iterator[MailMessage]:
         """Share UID progress, exhaustion and mailbox guards across read scopes."""
-        _validate_uid_scan(folder, page_size, max_pages)
-        current = self._checked_mailbox(folder)
+        _validate_scan(folder, page_size, max_pages)
+        check: Callable[[], MailFolder] = (
+            (lambda: self._checked_mailbox(folder))
+            if check_folder is None
+            else check_folder
+        )
+        current = check()
         before: int | None = None
         seen: set[str] = set()
         for _ in range(max_pages):
+            if check_folder is not None and before is not None:
+                current = check()
             response = self._post(
                 _MESSAGE_LIST,
                 _uid_query(current, page_size, before, match),
                 MessageResponse,
             )
-            current = self._checked_mailbox(folder)
+            current = check()
             if thread_id is not None and any(
                 record.thread_id != thread_id for record in response.records
             ):
@@ -829,6 +1175,52 @@ class MailService(BaseService):
             folder=current, filter_by=filter_by, results=response.records, limit=limit
         )
 
+    def iter_filtered_threads(
+        self,
+        folder: MailFolder,
+        *,
+        filter_by: MailThreadFilter,
+        page_size: int = 50,
+        max_pages: int = 10000,
+    ) -> Iterator[MailFilteredThread]:
+        """Follow checked cursors for lightweight Unread or Flagged thread groups.
+
+        This is not an atomic snapshot, full digest retrieval, or text search.
+        Only an empty marker-free response completes the scan. Missing or repeated
+        cursors, duplicates, inconsistent scope, and budget exhaustion raise rather
+        than silently truncate. Earlier yielded records cannot be retracted.
+        No content reads, retries, mutations, or persisted cursors are used.
+        """
+        _validate_scan(folder, page_size, max_pages)
+        if filter_by not in ("unread", "flagged"):
+            raise ValueError("filter_by must be 'unread' or 'flagged'")
+        query = _filtered_thread_query(folder, filter_by, page_size)
+        markers: set[str] = set()
+        seen: set[str] = set()
+        for _ in range(max_pages):
+            self._checked_mailbox(folder)
+            response = self._post(_GEQS_QUERY, query, ThreadQueryResponse)
+            current = self._checked_mailbox(folder)
+            _check_thread_page(response, current, page_size, seen, markers)
+            if not response.records:
+                return
+            marker = response.continuation_marker
+            if marker is None:
+                raise MailError(
+                    "Mail omitted a thread cursor; enumeration is incomplete"
+                )
+            markers.add(marker)
+            seen.update(record.id for record in response.records)
+            query = query.model_copy(update={"continuation_marker": marker})
+            for record in response.records:
+                yield MailFilteredThread(
+                    id=record.id,
+                    folder=current,
+                    filter_by=filter_by,
+                    timestamp=record.timestamps[folder.id],
+                )
+        raise MailError("Mail page budget exhausted; enumeration is incomplete")
+
     def _content_folder(self, message: MailMessage) -> MailFolder:
         """Guard known UID namespaces while preserving legacy bounded reads."""
         if message.mailbox.id != message.folder.id:
@@ -893,13 +1285,13 @@ class MailService(BaseService):
         if message.mailbox.id != message.folder.id:
             raise ValueError(_MESSAGE_SCOPE_MISMATCH)
         current = self._checked_mailbox(message.folder)
-        try:
-            with Session() as download:
-                download.trust_env = False
-                request = download.prepare_request(
-                    Request("GET", url, headers={"Accept-Encoding": "identity"})
-                )
-                # Send explicit settings without the CLI's class-wide environment merge.
+        with Session() as download:
+            download.trust_env = False
+            request = download.prepare_request(
+                Request("GET", url, headers={"Accept-Encoding": "identity"})
+            )
+            # Send explicit settings without the CLI's class-wide environment merge.
+            try:
                 response = download.send(
                     request,
                     stream=True,
@@ -909,17 +1301,17 @@ class MailService(BaseService):
                     proxies={},
                     cert=None,
                 )
-                try:
-                    size = _mail_drop_response_size(response, part, max_bytes)
-                    self._verify_content_folder(message, current)
-                    yield _mail_drop_chunks(
-                        response.iter_content(chunk_size=65536), max_bytes, size
-                    )
-                    self._verify_content_folder(message, current)
-                finally:
-                    response.close()
-        except RequestException as exc:
-            raise MailError("Mail Drop download or stream failed") from exc
+            except RequestException as exc:
+                raise _mail_drop_transport_error(exc) from exc
+            try:
+                size = _mail_drop_response_size(response, part, max_bytes)
+                self._verify_content_folder(message, current)
+                yield _mail_drop_chunks(
+                    response.iter_content(chunk_size=65536), max_bytes, size
+                )
+                self._verify_content_folder(message, current)
+            finally:
+                response.close()
 
     @contextmanager
     def raw_message(

@@ -1,0 +1,11 @@
+{
+  "accountId": "synthetic-account",
+  "created": null,
+  "destroyed": null,
+  "newState": null,
+  "notCreated": null,
+  "notDestroyed": null,
+  "notUpdated": null,
+  "oldState": null,
+  "updated": { "lookup-message-7": { "modseq": 101 } }
+}

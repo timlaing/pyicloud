@@ -64,6 +64,7 @@ icloud mail export-eml '<message-id>' --folder-id '<folder-id>' --output ./messa
 icloud mail download-maildrop '<message-id>' --folder-id '<folder-id>' --part-index 2 --output ./attachment.mov --max-bytes 104857600
 icloud mail preview '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail filter --folder-id '<folder-id>' --filter unread --format json
+icloud mail filter-threads --folder-id '<folder-id>' --filter flagged --page-size 50 --format json
 icloud mail body '<message-id>' --folder-id '<folder-id>' --format json
 icloud mail download '<message-id>' --folder-id '<folder-id>' --part-id 2 --output ./attachment.pdf
 icloud photos libraries --username jappleseed@apple.com
@@ -83,6 +84,18 @@ icloud auth logout --keep-trusted --all-sessions
 icloud auth logout --remove-keyring
 icloud auth keyring delete --username jappleseed@apple.com
 ```
+
+Mail also supports explicit single-message **writes**, separate from all reads:
+`icloud mail mark '<message-id>' --folder-id '<folder-id>' --action read`.
+Actions are `read`, `unread`, `flag`, and `unflag`; there is no default action or
+bulk scan. See [Mail flag updates](../services/mail.md#explicit-message-flag-updates)
+for identity guards and uncertain outcomes. Refresh metadata before deciding
+whether to retry a failed or interrupted write.
+
+Use `icloud mail move '<message-id>' --folder-id '<source-id>' --destination-id
+'<destination-id>'` for an explicit mailbox-only move. See
+[Mail moves](../services/mail.md#explicit-message-moves) for folder restrictions,
+Trash/restore, changing message IDs, and uncertain outcomes.
 
 If you would like to delete a password stored in your system keyring,
 use the dedicated keyring subcommand:

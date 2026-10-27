@@ -672,6 +672,59 @@ def test_validate_2fa_code_sms_hsa2_409_through_session(
     assert trust_session.called is expected
 
 
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        pytest.param({"X-Apple-Repair-Session-Token": "repair"}, True, id="repair"),
+        pytest.param({}, False, id="no-repair-session"),
+    ],
+)
+def test_validate_2fa_code_sms_412_repair_through_session(
+    pyicloud_service: PyiCloudService,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    expected: bool,
+) -> None:
+    """Apple answers a valid SMS code with 412 when the account needs repair.
+
+    Only a 412 that opens a repair session counts as accepted.
+    """
+
+    pyicloud_service.data = {"dsInfo": {"hsaVersion": 2}, "hsaChallengeRequired": False}
+    pyicloud_service._auth_data = {
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": {"id": 3, "nonFTEU": False, "pushMode": "sms"}
+        }
+    }
+    pyicloud_service._two_factor_delivery_method = "sms"
+    trust_session = MagicMock(
+        side_effect=lambda: (
+            pyicloud_service.data.update({"hsaTrustedBrowser": True}) or True
+        )
+    )
+    monkeypatch.setattr(pyicloud_service, "trust_session", trust_session)
+
+    response = MagicMock(spec=Response)
+    response.status_code = AppleAuthError.REPAIR_REQUIRED
+    response.ok = False
+    response.reason = "Precondition Failed"
+    response.headers = {"Content-Type": "application/json", **headers}
+    response.json.return_value = {"securityCode": {"securityCodeLocked": False}}
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch("builtins.open", new_callable=mock_open),
+        patch("os.path.exists", return_value=False),
+        patch("http.cookiejar.LWPCookieJar.save"),
+    ):
+        pyicloud_service._session = PyiCloudSession(
+            pyicloud_service, "", cookie_directory=""
+        )
+        assert pyicloud_service.validate_2fa_code("123456") is expected
+
+    assert trust_session.called is expected
+
+
 def test_validate_2fa_code_legacy_non_409_error_is_invalid_code(
     pyicloud_service: PyiCloudService,
 ) -> None:
