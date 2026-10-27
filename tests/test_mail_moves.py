@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+import re
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -332,7 +333,10 @@ def test_move_cli_requires_explicit_destination() -> None:
     """A missing destination cannot default to Trash or any localized name."""
     result = CliRunner().invoke(app, ["mail", "move", "id", "--folder-id", "10"])
     assert result.exit_code != 0
-    assert "destination-id" in result.output
+    # Rich styles the option name in separate runs, so ANSI escapes may split
+    # "--destination-id"; strip them before asserting on the literal text.
+    plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "destination-id" in plain_output
 
 
 @pytest.mark.parametrize("failure", [None, False, 0, "denied", [], {}, {"reason": 1}])
