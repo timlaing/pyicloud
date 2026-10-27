@@ -507,9 +507,12 @@ endpoint is called, even when the source is Trash. This differs from the
 browser's Trash shortcut, which also requests a read-state change. Archive can
 likewise be an explicit ordinary-folder destination.
 
-An exact failure without successes raises `MailWriteRejected`. Timeouts,
-malformed acknowledgements, wrong accounts or IDs, late response failures, or
-contradictory success/failure entries raise `MailWriteUncertain`. The latter
+An exact failure without successes raises `MailWriteRejected`: the failure map
+must contain only this message's key, and its value must be a dict whose
+`type`, `reason`, or `description` is a non-empty, non-whitespace string. Every
+other failure shape raises `MailWriteUncertain`: extra or foreign failure keys,
+any other value, timeouts, malformed acknowledgements, wrong accounts or IDs,
+late response failures, or contradictory success/failure entries. The latter
 contradiction was observed in a real Trash response even though the message
 actually moved. Inspect both folders before deciding whether to retry; never
 assume an exception means nothing happened. Preflight is not an atomic
@@ -550,10 +553,14 @@ token. The input message remains unchanged; refresh metadata after writing.
 Only one message is submitted, and every outcome field and acknowledgement
 identity is checked. Unknown response fields or malformed envelopes fail closed.
 
-`MailWriteRejected` means the server explicitly rejected this one update.
+`MailWriteRejected` means the server explicitly rejected this one update: the
+failure map contains only this message's key, and its value is a dict whose
+`type`, `reason`, or `description` is a non-empty, non-whitespace string.
 `MailWriteUncertain` means submission could not be confirmed, including timeouts,
-non-200 responses, mismatched results, or late response failures. **The write may
-already have taken effect. Refresh metadata before deciding whether to retry.**
+non-200 responses, mismatched results, extra or foreign failure keys, failure
+values that do not meet those requirements, or late response failures. **The
+write may already have taken effect. Refresh metadata before deciding whether
+to retry.**
 Both inherit `MailError`. Server failure details and account IDs are not printed
 in these errors. No automatic retry or authentication replay is performed by the
 write path. Custom transport adapters must not be configured to retry POST writes.
