@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterable
-from contextlib import contextmanager
+from collections.abc import Callable, Generator, Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from enum import Enum
 import os
 from pathlib import Path
@@ -58,7 +58,7 @@ ListLimitOption = Annotated[
     ),
 ]
 PageSizeOption = Annotated[
-    int, typer.Option("--page-size", min=1, max=1000, help="Messages per UID page.")
+    int, typer.Option("--page-size", min=1, max=1000, help="Records per page.")
 ]
 MaxPagesOption = Annotated[
     int,
@@ -77,7 +77,9 @@ LookupLimitOption = Annotated[
 ]
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
+_MESSAGE_ID_COLUMN = "Message ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
+_DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
 
 class SearchScope(str, Enum):
@@ -143,11 +145,18 @@ def _message(
     folder_id: str,
     message_id: str,
     limit: int | None,
+    *,
+    bounded_fallback: bool = True,
 ) -> MailMessage:
     """Resolve an exact message ID, preserving explicitly bounded legacy lookups."""
     folder = _folder(api, mail, folder_id)
     if limit is None:
         if folder.uid_validity is None or folder.uid_validity < 1:
+            if not bounded_fallback:
+                raise CLIAbort(
+                    "Exact lookup needs a folder with UID validity. "
+                    "Refresh folders with 'icloud mail folders' and retry."
+                )
             raise CLIAbort(
                 "Exact lookup needs a folder with UID validity. "
                 "Use --limit N to search the newest N folder messages."
@@ -207,12 +216,19 @@ def _download(
     mail: MailService, message: MailMessage, part_id: str, output: Path
 ) -> int:
     """Stream an attachment into a private, non-overwriting destination."""
+    return _save_stream(lambda: mail.attachment(message, part_id), output)
+
+
+def _save_stream(
+    stream_factory: Callable[[], AbstractContextManager[Iterator[bytes]]], output: Path
+) -> int:
+    """Publish unchanged bytes only after the stream and its final guards succeed."""
     size = 0
     with (
         _private_output(output) as temporary,
-        mail.attachment(message, part_id) as chunks,
+        stream_factory() as stream,
     ):
-        for chunk in chunks:
+        for chunk in stream:
             size += temporary.write(chunk)
     return size
 
@@ -243,7 +259,7 @@ def _print_enumeration(
     _table(
         state,
         "Mail Messages (Scoped UID Enumeration)",
-        ["Message ID", "From", "Subject"],
+        [_MESSAGE_ID_COLUMN, "From", "Subject"],
         [(message.id, message.sender, message.subject) for message in messages],
     )
     state.console.print(
@@ -477,7 +493,7 @@ def mail_mark(
         _table(
             state,
             "Mail Flag Acknowledgement",
-            ["Message ID", "Flag", "Enabled", "Modseq"],
+            [_MESSAGE_ID_COLUMN, "Flag", "Enabled", "Modseq"],
             [(result.message_id, result.flag, result.enabled, result.modseq)],
         )
 
@@ -600,6 +616,53 @@ def mail_list(
     )
 
 
+@app.command("get")
+def mail_get(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str | None = typer.Argument(None, help=_MESSAGE_ID_HELP),
+    uid: Annotated[int | None, typer.Option("--uid", min=1)] = None,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Read exact folder-scoped metadata by message ID or UID, without bodies."""
+    if (message_id is None) == (uid is None):
+        raise typer.BadParameter("Supply exactly one message ID or --uid.")
+    if message_id is not None and not message_id.strip():
+        raise typer.BadParameter("Message ID must not be empty.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    payload = _mail_call(
+        api,
+        lambda: (
+            mail.message_by_uid(folder, uid)
+            if uid is not None
+            else mail.message(folder, cast(str, message_id))
+        ),
+    )
+    if payload is None:
+        raise CLIAbort("Message not found in this folder.")
+    if state.json_output:
+        state.write_json(payload)
+        return
+    print_json_text(state.console, payload)
+
+
 @app.command("search")
 def mail_search(
     ctx: typer.Context,
@@ -704,7 +767,7 @@ def mail_thread(
     _table(
         state,
         "Mail Thread (Bounded Folder Snapshot)",
-        ["Message ID", "From", "Subject"],
+        [_MESSAGE_ID_COLUMN, "From", "Subject"],
         [(message.id, message.sender, message.subject) for message in payload.messages],
     )
     state.console.print(
@@ -837,7 +900,7 @@ def mail_export(
         "--include-body",
         help="Explicitly fetch and include unrendered body data.",
     ),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -848,7 +911,7 @@ def mail_export(
 ) -> None:
     """Export selected message metadata to JSON, not raw MIME or a mailbox backup."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,
@@ -872,12 +935,103 @@ def mail_export(
     state.console.print(Text(str(output)))
 
 
+@app.command("download-maildrop")
+def mail_download_maildrop(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
+    part_index: int = typer.Option(
+        ..., "--part-index", min=1, help="1-based position in the message parts array."
+    ),
+    output: Path = typer.Option(
+        ..., "--output", help="New private destination; never a remote filename."
+    ),
+    max_bytes: int = typer.Option(
+        104857600, "--max-bytes", min=1, help="Hard byte limit; default 100 MiB."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Download a verified Mail Drop part without forwarding account credentials."""
+    if os.path.lexists(output):
+        raise CLIAbort(_DESTINATION_EXISTS)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
+    size = _mail_call(
+        api,
+        lambda: _save_stream(
+            lambda: mail.mail_drop_attachment(message, part_index, max_bytes=max_bytes),
+            output,
+        ),
+    )
+    if state.json_output:
+        state.write_json({"message_id": message.id, "path": str(output), "size": size})
+        return
+    state.console.print(Text(str(output)))
+
+
+@app.command("export-eml")
+def mail_export_eml(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
+    output: Path = typer.Option(
+        ..., "--output", help="New private file for original EML bytes."
+    ),
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Save original MIME bytes from Apple; never reconstruct or render the message."""
+    if os.path.lexists(output):
+        raise CLIAbort(_DESTINATION_EXISTS)
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
+    size = _mail_call(
+        api, lambda: _save_stream(lambda: mail.raw_message(message), output)
+    )
+    payload = {"message_id": message.id, "path": str(output), "size": size}
+    if state.json_output:
+        state.write_json(payload)
+        return
+    state.console.print(Text(str(output)))
+
+
 @app.command("preview")
 def mail_preview(
     ctx: typer.Context,
     folder_id: FolderOption,
     message_id: str = typer.Argument(..., help=_MESSAGE_ID_HELP),
-    limit: LookupLimitOption = 50,
+    limit: LookupLimitOption = None,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -954,6 +1108,65 @@ def mail_filter(
     )
 
 
+@app.command("filter-threads")
+def mail_filter_threads(
+    ctx: typer.Context,
+    folder_id: FolderOption,
+    filter_by: ThreadFilter = typer.Option(..., "--filter"),
+    page_size: PageSizeOption = 50,
+    max_pages: MaxPagesOption = 10000,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Page filtered thread IDs and timestamps, not digests or individual messages."""
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    folder = _folder(api, mail, folder_id)
+    threads = _mail_call(
+        api,
+        lambda: list(
+            mail.iter_filtered_threads(
+                folder,
+                filter_by=filter_by.value,
+                page_size=page_size,
+                max_pages=max_pages,
+            )
+        ),
+    )
+    if state.json_output:
+        state.write_json({
+            "threads": threads,
+            "filter_by": filter_by.value,
+            "page_size": page_size,
+            "exhausted": True,
+            "snapshot": False,
+        })
+        return
+    _table(
+        state,
+        "Mail Filtered Thread IDs (Cursor Enumeration)",
+        [_THREAD_ID_COLUMN, "Timestamp"],
+        [(thread.id, thread.timestamp) for thread in threads],
+    )
+    state.console.print(
+        "Cursor exhausted; live thread identities, not a snapshot or digests."
+    )
+
+
 @app.command("body")
 def mail_body(
     ctx: typer.Context,
@@ -1010,7 +1223,7 @@ def mail_download(
 ) -> None:
     """Save an ordinary attachment to an explicit path, without overwriting."""
     if os.path.lexists(output):
-        raise CLIAbort("Destination already exists; choose a new --output path.")
+        raise CLIAbort(_DESTINATION_EXISTS)
     store_command_options(
         ctx,
         username=username,

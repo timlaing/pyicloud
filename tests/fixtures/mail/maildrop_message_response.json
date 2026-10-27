@@ -1,0 +1,23 @@
+{
+  "domainObjects": [
+    {
+      "identifier": "message-drop",
+      "uid": 7,
+      "mboxRef": { "id": "10" },
+      "appleThrid": "thread-drop",
+      "parts": [
+        { "partId": "1", "contentType": "text/plain", "attach": false },
+        {
+          "partId": "cloudpart:https://cvws.icloud-content.com/B/synthetic/movie.mov?ckc=com.apple.largeattachment&ckz=Apple-Webmail&e=4102444800&o=fake&a=fake&k=fake&s=fake",
+          "contentType": "video/quicktime",
+          "attach": true,
+          "size": 5,
+          "fileName": "../../remote.mov",
+          "mailDropHeaderName": "x-synthetic-attachment",
+          "mailDropStreamingUrl": "https://cvws.icloud-content.com/B/synthetic/movie.mov?ckc=com.apple.largeattachment&ckz=Apple-Webmail&e=4102444800&o=fake&a=fake&k=fake&s=fake",
+          "expirationDate": 4102444800000
+        }
+      ]
+    }
+  ]
+}

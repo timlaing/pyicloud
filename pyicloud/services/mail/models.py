@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer
 
 Identifier = Annotated[str, Field(strict=True, min_length=1)]
 MIME_PART_PATTERN = r"^[0-9]+(?:\.[0-9]+)*$"
@@ -36,6 +36,27 @@ class MailPart(MailModel):
     size: int | None = Field(default=None, ge=0)
     filename: str | None = Field(default=None, alias="fileName", repr=False)
     is_attachment: bool = Field(default=False, alias="attach")
+    mail_drop_url: str | None = Field(
+        default=None, alias="mailDropStreamingUrl", exclude=True, repr=False
+    )
+    mail_drop_expiration_ms: float | None = Field(
+        default=None, alias="expirationDate", ge=0, allow_inf_nan=False
+    )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def is_mail_drop(self) -> bool:
+        """Identify Mail Drop metadata without exposing its bearer URL."""
+        return bool(self.mail_drop_url)
+
+    @field_serializer("id")
+    def safe_part_id(self, value: str) -> str:
+        """Cloud-part identifiers embed signed URLs; keep them out of JSON output."""
+        return (
+            "cloudpart:<redacted>"
+            if self.is_mail_drop or value.startswith("cloudpart:")
+            else value
+        )
 
 
 class MailboxReference(MailModel):
@@ -197,6 +218,33 @@ class MailThreadFilterPage(MailModel):
     complete: Literal[False] = False
 
 
+class MailFilteredThread(MailModel):
+    """Lightweight filtered group identity, not a digest or a message."""
+
+    id: Identifier
+    folder: MailFolder
+    filter_by: MailThreadFilter
+    timestamp: float = Field(allow_inf_nan=False, ge=0)
+
+
+class ThreadQueryRecord(MailModel):
+    """Thread-domain metadata with independently checked folder membership."""
+
+    id: Identifier = Field(alias="identifier", pattern=r"\S")
+    timestamps: dict[
+        str, Annotated[float, Field(strict=True, allow_inf_nan=False, ge=0)]
+    ] = Field(alias="tsMap", repr=False)
+
+
+class ThreadQueryResponse(MailModel):
+    """Opaque continuation belongs only to the exact originating query."""
+
+    records: list[ThreadQueryRecord] = Field(alias="domainObjects")
+    continuation_marker: Annotated[str, Field(strict=True, pattern=r"\S")] | None = (
+        Field(default=None, alias="continuationMarker", repr=False)
+    )
+
+
 class MailReadContext(MailModel):
     """Response scope only; modification sequences are not persisted or replayed."""
 
@@ -249,14 +297,14 @@ class MailExpression(MailModel):
     """A property or header/body projection in a query predicate."""
 
     property: str
-    type: Literal["property", "fieldOf"] | None = None
+    type: Literal["property", "fieldOf", "mapValueOf"] | None = None
     value: str | None = None
 
 
 class MailPredicate(MailModel):
     """Observed comparison and conjunction shape."""
 
-    type: Literal["eq", "textMatch", "lt"]
+    type: Literal["eq", "textMatch", "lt", "ge"]
     expression: MailExpression
     value: str | bool | int
     and_: list[MailPredicate] | None = Field(default=None, serialization_alias="and")
@@ -286,6 +334,22 @@ class MailQuery(MailModel):
     )
     collapse_on: str | None = Field(default=None, serialization_alias="collapseOn")
     orderby: MailOrder | None = None
+
+
+class MailThreadQuery(MailModel):
+    """Thread-domain cursor query; never a full-text search or sync request."""
+
+    domain: Literal["thread"] = "thread"
+    properties: list[str] = Field(default_factory=lambda: ["identifier", "tsMap"])
+    predicate: MailPredicate
+    orderby: MailOrder
+    limit: int = Field(ge=1, le=1000)
+    strict_limit: Literal[False] = Field(
+        default=False, serialization_alias="strictLimit"
+    )
+    continuation_marker: str | None = Field(
+        default=None, serialization_alias="continuationMarker", repr=False
+    )
 
 
 class MailSessionHeaders(MailModel):
