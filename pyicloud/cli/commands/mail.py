@@ -77,6 +77,7 @@ LookupLimitOption = Annotated[
 ]
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
+_MESSAGE_ID_COLUMN = "Message ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
 _DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
@@ -258,7 +259,7 @@ def _print_enumeration(
     _table(
         state,
         "Mail Messages (Scoped UID Enumeration)",
-        ["Message ID", "From", "Subject"],
+        [_MESSAGE_ID_COLUMN, "From", "Subject"],
         [(message.id, message.sender, message.subject) for message in messages],
     )
     state.console.print(
@@ -352,7 +353,7 @@ def mail_mark(
         _table(
             state,
             "Mail Flag Acknowledgement",
-            ["Message ID", "Flag", "Enabled", "Modseq"],
+            [_MESSAGE_ID_COLUMN, "Flag", "Enabled", "Modseq"],
             [(result.message_id, result.flag, result.enabled, result.modseq)],
         )
 
@@ -626,7 +627,7 @@ def mail_thread(
     _table(
         state,
         "Mail Thread (Bounded Folder Snapshot)",
-        ["Message ID", "From", "Subject"],
+        [_MESSAGE_ID_COLUMN, "From", "Subject"],
         [(message.id, message.sender, message.subject) for message in payload.messages],
     )
     state.console.print(
