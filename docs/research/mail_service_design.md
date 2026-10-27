@@ -4,6 +4,119 @@
 
 ## Status and Evidence
 
+### Additional Write Investigation (2026-10-21)
+
+The ordinary-move library and CLI implementation uses the observations below.
+Folder management and draft observations are evidence for subsequent work, not
+implemented public APIs. The remaining work covers folder management, drafts,
+sending/replies/forwarding with attachments, and permanent deletion. Live sends
+and permanent message deletion require separate authorization.
+
+An authorized browser test moved one uniquely identified disposable message
+from Inbox to an existing empty testing folder and back, then used Trash and
+restored it to Inbox. The restored message was unread/unflagged, Inbox again
+showed ten messages and three unread, and both test destinations were empty.
+No message was opened or permanently deleted during these actions.
+
+Ordinary moves used `email/set`, `clientIntent: moveMessagesGems`, and exactly
+one `batchUpdate` operation. Its patch was only
+`mboxRef: {replace: [destinationId]}`. Successful responses acknowledged the
+submitted source identifier in `updated` with an **empty object**, unlike flag
+writes' positive counter. Do not require or invent a counter for move results.
+Fresh metadata after a move can have a different message identifier and local
+UID. An acknowledgement does not establish the new destination identity, and
+the old `MailMessage` must not be reused for a subsequent mutation.
+
+The browser Trash command used `clientIntent: deleteMessagesGems` and added
+`flags: {set: [seen]}` to the mailbox replacement. One real response contained
+both `updated: {sourceId: {}}` and `notUpdated: {sourceId: {type: unknown,
+description: ...}}`. This is an uncertain outcome, not success or an unambiguous
+rejection. The request was not replayed. A fresh page load found the disposable
+message in Trash, still unread; a fresh move restored it to Inbox. Offline tests
+must retain this contradictory-outcome case and never automatically retry it.
+
+The browser occasionally retained stale metadata immediately after a move.
+An initial move-back interaction produced no captured mutation; a page reload
+and fresh selection enabled restoration. UI disappearance and HTTP 200 alone
+are not sufficient verification of write outcomes.
+
+The previously captured browser JavaScript also shows additional spam-flag
+changes for moves into or out of Junk. Do not silently equate those operations
+with an ordinary mailbox-only move or guess localized system-folder names.
+
+Creating one uniquely named disposable folder used `mailbox/set`,
+`clientIntent: gemsCreateMailbox`, and
+`{domain: mailbox, create: {mailbox: {name: requestedName}}}`. Its response
+contained the created folder under the caller key `mailbox`, including actual
+server identity, name, UID validity, counts, and system-folder boolean fields.
+Renaming that same empty folder used `clientIntent: renameMailboxGems` and
+`{domain: mailbox, update: {folderId: {name: newName}}}`. Its acknowledgement
+was `updated: {folderId: null}`. Do not apply the flag or move acknowledgement
+schema to folder operations. After a separate action-time confirmation, deleting
+the verified empty test folder used `clientIntent: deleteMailboxGems` and
+`{domain: mailbox, destroy: [folderId]}`. The response's `destroyed` array
+contained exactly that folder ID; all other outcome maps were null. The folder
+was absent afterward and the original message remained in Inbox.
+
+A recipient-free draft was created, saved, reopened, edited, and saved again.
+`message/savedraft` requests contained `date`, `from`, empty `to`/`cc`/`bcc`
+arrays, `subject`, `textBody`, `htmlBody`, empty `attachments`,
+`webmailClientBuild`, `isHME: false`, and session headers with null folder and
+counters. An update supplied `draftGuid: Drafts/previousUid`; successful replies
+contained a decimal-string `uid`. Each successful save returned a new UID,
+including automatic saves while typing. Do not guess an idempotency key or
+reuse the previous draft reference after a successful save. The sender and
+client build must come from verified account/client context, not capture values.
+
+After action-time confirmation to discard only this test draft, the list's
+Trash command issued the same mark-read-and-move patch as ordinary message
+Trash, including the contradictory outcome shape. The draft disappeared from
+Drafts, restoring the original five-draft count. No `destroy` request or send was
+issued; do not describe this capture as permanent draft deletion. The discarded
+test draft can remain recoverable in Trash. Permanent deletion remains untested.
+
+A read-only implementation probe established that `geqs/query` ignores the
+`noSelect`, `labelMailbox`, and `specialUse...` properties returned by
+`mailbox/set`; it omitted those fields. The browser's actual folder query uses
+`identifier`, `name`, `uidValidity`, and integer `flags`. Preflight now requires
+that captured shape and accepts only zero flags, without inventing flag bits.
+The captured JavaScript maps canonical server names `Drafts` and `Junk` to
+special roles independently of translated labels. Those names and virtual
+mailboxes are excluded. A repeat metadata-only probe validated Inbox, Testing,
+and Trash preflight and independently confirmed the restored disposable message
+was neither seen nor flagged. The numeric message flags were not assumed to be
+zero: mailbox moves can change internal metadata bits.
+
+A subsequent, separately authorized implementation smoke test performed exactly
+four mailbox-only writes: library Inbox-to-Testing, mounted CLI Testing-to-Inbox,
+library Inbox-to-Trash, and mounted CLI Trash-to-Inbox. All four returned exact
+source acknowledgements with no failure entries. Fresh folder listings and
+bounded metadata snapshots after every write located the unique disposable
+message only in the expected destination, matching its original header/date/size
+signature despite changed IDs and UIDs. Named `SEEN` and `FLAGGED` queries
+confirmed unread/unflagged state throughout. Other observed records in all three
+folders retained their IDs, UIDs, numeric flags, and metadata signatures. A fresh
+read-only process subsequently verified restoration independently.
+
+The test transport permitted metadata queries and only one exact mailbox-only
+payload per stage. Attempts were persisted before dispatch to prevent replay;
+no flag patches, bodies, attachments, sends, or permanent deletions were allowed.
+Private manifests stayed outside Git. The mounted CLI used real parsing,
+lookups, move methods, HTTP, and JSON output while reusing the authenticated API
+under its outer SSL context. TLS verification remained enabled. These are
+single-account, small-folder happy-path observations, not evidence of atomic
+preflight, large-folder completeness, or universal server behavior. Synthetic
+offline tests cover rejected, uncertain, malformed, and contradictory outcomes.
+
+All request and response examples above are structural descriptions. Account
+identifiers, cookies, real message/folder IDs, and raw captures remain untracked.
+Synthetic fixtures must use fake stable values. Each new public operation needs
+strict input validation, exact fresh scope checks, one non-replayed dispatch,
+operation-specific acknowledgement validation, rejected/uncertain outcomes,
+offline transport/failure/CLI tests, documentation, and independently checked
+live state where authorized. Preserve the existing separation between reads
+and explicit writes.
+
 ### Explicit Single-Message Flag Writes (2026-10-21)
 
 Four authorized browser actions on one disposable email captured `POST email/set`
@@ -31,7 +144,8 @@ write retry, and distinct rejected/uncertain errors. The unnormalized session
 request path avoids response-status/authentication replay. The server has not
 provided a verified conditional-write token; preflight is not atomic with a
 concurrent move or flag change. Acknowledgements do not replace a fresh state read.
-Sending, drafts, moves, deletion, and bulk writes remain excluded.
+That initial flag-only implementation excluded sending, drafts, moves, deletion,
+and bulk writes; the later explicitly authorized additions are recorded above.
 
 ### Live Library and CLI Flag Verification (2026-10-21)
 

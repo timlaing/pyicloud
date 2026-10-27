@@ -1,4 +1,4 @@
-"""Experimental Mail reads and explicit single-message flag updates."""
+"""Experimental Mail reads and explicit single-message flag and move updates."""
 
 from .models import (
     MailBody,
@@ -9,6 +9,7 @@ from .models import (
     MailMessage,
     MailMessageExport,
     MailMessagePage,
+    MailMoveUpdate,
     MailMultiSearchPage,
     MailPart,
     MailPreview,
@@ -30,6 +31,7 @@ __all__ = [
     "MailMessage",
     "MailMessageExport",
     "MailMessagePage",
+    "MailMoveUpdate",
     "MailMultiSearchPage",
     "MailPart",
     "MailPreview",

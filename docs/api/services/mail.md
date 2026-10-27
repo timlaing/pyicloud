@@ -8,6 +8,8 @@
 
 ::: pyicloud.services.mail.models.MailFlagUpdate
 
+::: pyicloud.services.mail.models.MailMoveUpdate
+
 ::: pyicloud.services.mail.service.MailWriteRejected
 
 ::: pyicloud.services.mail.service.MailWriteUncertain

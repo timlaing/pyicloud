@@ -1807,7 +1807,7 @@ class PyiCloudService:
 
     @property
     def mail(self) -> MailService:
-        """Experimental Mail reads and explicit flags via the discovered gateway."""
+        """Experimental Mail reads and explicit writes via the discovered gateway."""
         if self._mail is None:
             service_root: str = self.get_webservice_url("mccgateway")
             try:
