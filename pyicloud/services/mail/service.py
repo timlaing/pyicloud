@@ -381,7 +381,7 @@ class MailService(BaseService):
                 timeout=DEFAULT_TIMEOUT,
                 allow_redirects=False,
             )
-        except (PyiCloudException, RequestException, OSError) as exc:
+        except (PyiCloudException, OSError) as exc:
             raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN) from exc
         try:
             if response.status_code != 200:
@@ -394,7 +394,7 @@ class MailService(BaseService):
         finally:
             try:
                 response.close()
-            except (RequestException, OSError) as exc:
+            except OSError as exc:
                 raise MailWriteUncertain(_FLAG_OUTCOME_UNKNOWN) from exc
 
     def messages(self, folder: MailFolder, *, limit: int = 50) -> MailMessagePage:
