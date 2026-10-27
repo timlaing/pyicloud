@@ -109,6 +109,13 @@ class MailMoveUpdate(MailModel):
     destination_folder_id: Identifier
 
 
+class MailFolderDeletion(MailModel):
+    """An acknowledged permanent folder deletion, not a move to Trash."""
+
+    folder_id: Identifier
+    permanent: Literal[True] = True
+
+
 class MailMessagePage(MailModel):
     """A bounded snapshot, not a complete mailbox or a synchronization cursor."""
 

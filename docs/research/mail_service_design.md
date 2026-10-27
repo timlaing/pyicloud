@@ -6,11 +6,11 @@
 
 ### Additional Write Investigation (2026-10-21)
 
-The ordinary-move library and CLI implementation uses the observations below.
-Folder management and draft observations are evidence for subsequent work, not
-implemented public APIs. The remaining work covers folder management, drafts,
-sending/replies/forwarding with attachments, and permanent deletion. Live sends
-and permanent message deletion require separate authorization.
+The ordinary-move and folder-management library and CLI implementations use the
+observations below. Draft observations are evidence for subsequent work, not
+implemented public APIs. The remaining work covers drafts,
+sending/replies/forwarding with attachments, and permanent single-message deletion.
+Live sends and permanent message deletion require separate authorization.
 
 An authorized browser test moved one uniquely identified disposable message
 from Inbox to an existing empty testing folder and back, then used Trash and

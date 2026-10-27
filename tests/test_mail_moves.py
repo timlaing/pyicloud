@@ -197,6 +197,25 @@ def test_fresh_capabilities_guard_both_folders(
     case.session.request_raw.assert_not_called()
 
 
+@pytest.mark.parametrize("folder_id", ["10", "20"])
+@pytest.mark.parametrize("name", ["$category$_synthetic", "/VIP", "/OTHER_VIRTUAL"])
+def test_zero_flag_labels_and_virtual_folders_never_move(
+    case: MoveCase, folder_id: str, name: str
+) -> None:
+    """Reserved names stay unsafe even when Apple advertises ordinary flags."""
+    record = case.capabilities[folder_id]["domainObjects"][0]
+    record.update(name=name, flags=0)
+    if folder_id == "10":
+        case.message = case.message.model_copy(
+            update={"folder": case.message.folder.model_copy(update={"name": name})}
+        )
+    else:
+        case.destination = case.destination.model_copy(update={"name": name})
+    with pytest.raises(MailError, match="unsupported"):
+        case.service.move(case.message, case.destination)
+    case.session.request_raw.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "kind",
     [
@@ -337,3 +356,13 @@ def test_move_cli_requires_explicit_destination() -> None:
     # "--destination-id"; strip them before asserting on the literal text.
     plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert "destination-id" in plain_output
+
+
+@pytest.mark.parametrize("failure", [None, False, 0, "denied", [], {}, {"reason": 1}])
+def test_malformed_move_rejection_is_uncertain(case: MoveCase, failure: Any) -> None:
+    """A malformed per-key failure cannot establish a definite no-write result."""
+    case.response.json.return_value["updated"] = None
+    case.response.json.return_value["notUpdated"] = {case.message.id: failure}
+    with pytest.raises(MailWriteUncertain):
+        case.service.move(case.message, case.destination)
+    case.session.request_raw.assert_called_once()

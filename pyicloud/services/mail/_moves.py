@@ -1,11 +1,10 @@
 """Mailbox-only move shapes; no implicit flag changes or permanent deletion."""
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import Field
 
 from ._write_models import UpdateResponse, WriteModel
-from .models import MailModel
 
 
 class MailboxReplacement(WriteModel):
@@ -40,19 +39,3 @@ class MoveAcknowledgement(WriteModel):
 
 class MoveResponse(UpdateResponse[MoveAcknowledgement]):
     """Moves do not return the counter required by flag acknowledgements."""
-
-
-class MoveFolder(MailModel):
-    """Captured mailbox query properties, not mailbox/set-only boolean fields."""
-
-    id: Annotated[str, Field(strict=True, min_length=1)] = Field(alias="identifier")
-    uid_validity: Annotated[int, Field(strict=True, gt=0)] = Field(alias="uidValidity")
-    name: Annotated[str, Field(strict=True, min_length=1)]
-    flags: Annotated[int, Field(strict=True, ge=0)]
-
-
-class MoveFolderResponse(MailModel):
-    """An exact mailbox capability lookup, not a partial folder listing."""
-
-    records: list[MoveFolder] = Field(alias="domainObjects")
-    continuation_marker: str | None = Field(default=None, alias="continuationMarker")
