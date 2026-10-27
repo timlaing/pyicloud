@@ -2,6 +2,7 @@
 
 from .models import (
     MailBody,
+    MailFilteredThread,
     MailFlagUpdate,
     MailFolder,
     MailFolderSearchPage,
@@ -23,6 +24,7 @@ from .service import MailError, MailService, MailWriteRejected, MailWriteUncerta
 __all__ = [
     "MailBody",
     "MailError",
+    "MailFilteredThread",
     "MailFlagUpdate",
     "MailFolder",
     "MailFolderSearchPage",

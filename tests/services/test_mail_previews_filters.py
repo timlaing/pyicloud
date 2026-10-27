@@ -254,13 +254,28 @@ def test_mailbox_recreation_or_deletion_aborts_reads(
 
 @pytest.mark.parametrize("kind", ["preview", "filter"])
 def test_safe_rename_updates_returned_context(read_case: ReadCase, kind: str) -> None:
-    """A rename preserves UID validity and updates the returned folder metadata."""
-    prepare(read_case, kind)
+    """A stable pre-request rename uses the refreshed path and namespace."""
+    data = prepare(read_case, kind)
     _, _, folders, message = read_case
     renamed = message.folder.model_copy(update={"name": "Renamed"})
-    folders.side_effect = [[message.folder], [renamed]]
+    folders.return_value = [renamed]
+    data["sessionHeaders"]["folder"] = "Renamed"
+    if kind == "preview":
+        data["result"][0]["messageGuid"] = f"Renamed/{message.uid}"
     result = run(read_case, kind)
     assert result.folder.name == "Renamed"
+
+
+@pytest.mark.parametrize("kind", ["preview", "filter"])
+def test_rename_during_path_selected_read_fails(read_case: ReadCase, kind: str) -> None:
+    """The old path may have been reassigned despite a stable original UID epoch."""
+    prepare(read_case, kind)
+    _, session, folders, message = read_case
+    renamed = message.folder.model_copy(update={"name": "Renamed"})
+    folders.side_effect = [[message.folder], [renamed]]
+    with pytest.raises(MailError, match="folder"):
+        run(read_case, kind)
+    session.post.return_value.close.assert_called_once()
 
 
 @pytest.mark.parametrize("kind", ["preview", "filter"])

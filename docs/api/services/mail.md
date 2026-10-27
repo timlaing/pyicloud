@@ -32,6 +32,8 @@
 
 ::: pyicloud.services.mail.models.MailThreadFilterPage
 
+::: pyicloud.services.mail.models.MailFilteredThread
+
 ::: pyicloud.services.mail.models.MailBody
 
 ::: pyicloud.services.mail.models.MailPart
