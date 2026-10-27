@@ -106,7 +106,7 @@ repos:
           - prek
           - pylint>=4.0.8,<4.1
           - pylint-strict-informational
-          - pytest
+          - pytest<9.2
           - pytest-asyncio
           - pytest-cov
           - pytest-socket
@@ -145,7 +145,7 @@ repos:
           - prek
           - pylint>=4.0.8,<4.1
           - pylint-strict-informational
-          - pytest
+          - pytest<9.2
           - pytest-asyncio
           - pytest-cov
           - pytest-socket
@@ -186,7 +186,7 @@ repos:
           - prek
           - pylint>=4.0.8,<4.1
           - pylint-strict-informational
-          - pytest
+          - pytest<9.2
           - pytest-asyncio
           - pytest-cov
           - pytest-socket
