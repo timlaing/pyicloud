@@ -14,6 +14,7 @@ from rich.text import Text
 import typer
 
 from pyicloud.base import PyiCloudService
+from pyicloud.cli.command_options import CommandOptions, with_command_options
 from pyicloud.cli.context import CLIAbort, CLIState, get_state, service_call
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
@@ -30,9 +31,11 @@ from pyicloud.cli.options import (
 from pyicloud.cli.output import console_table, print_json_text
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.mail import (
+    MailDraft,
     MailFolder,
     MailMessage,
     MailMessageExport,
+    MailSender,
     MailService,
 )
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
@@ -78,6 +81,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_COLUMN = "Message ID"
+_FOLDER_ID_COLUMN = "Folder ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
 _DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
@@ -303,6 +307,181 @@ def mail_folders(
     )
 
 
+def _draft_input(path: Path | None) -> str:
+    """Read explicit local UTF-8 input without putting body text in shell arguments."""
+    if path is None:
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise CLIAbort(
+            "Draft input could not be read as UTF-8; no save submitted."
+        ) from exc
+
+
+def _require_draft_sender(sender: str) -> None:
+    """Reject an unusable --sender before authentication or any lookup.
+
+    ``MailSender.address`` is a strict nonempty string, so an empty value would
+    otherwise escape as a raw pydantic error outside ``_mail_call``.
+    """
+    if not sender.strip():
+        raise CLIAbort("Mail: --sender must be a non-empty enabled address.")
+
+
+def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
+    """Report the replacement identity, never echo draft body content."""
+    if state.json_output:
+        state.write_json(draft)
+    else:
+        _table(
+            state,
+            "Saved Mail Draft",
+            ["Message ID", "UID", _FOLDER_ID_COLUMN],
+            [
+                (
+                    draft.message.id,
+                    draft.message.uid,
+                    draft.message.folder.id,
+                )
+            ],
+        )
+
+
+@app.command("senders")
+@with_command_options
+def mail_senders(ctx: typer.Context, common: CommandOptions) -> None:
+    """Read enabled sender addresses; do not assume the login is a Mail address."""
+    common.store(ctx)
+    state, api, mail = _context(ctx)
+    result = _mail_call(api, mail.senders)
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Enabled Mail Senders",
+            ["Address", "Name"],
+            [(sender.address, sender.display_name) for sender in result],
+        )
+
+
+@app.command("create-draft")
+@with_command_options
+def mail_create_draft(
+    ctx: typer.Context,
+    common: CommandOptions,
+    sender: Annotated[
+        str, typer.Option("--sender", help="Enabled address from mail senders.")
+    ],
+    subject: Annotated[str, typer.Option("--subject")] = "",
+    text_file: Annotated[
+        Path | None,
+        typer.Option("--text-file", help="UTF-8 plain-text body; omitted means empty."),
+    ] = None,
+    html_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--html-file", help="UTF-8 HTML; omitted derives HTML from plain text."
+        ),
+    ] = None,
+) -> None:
+    """Save one recipient-free, attachment-free draft without sending it."""
+    text, html = _draft_input(text_file), _draft_input(html_file)
+    common.store(ctx)
+    state, api, mail = _context(ctx)
+    result = _mail_call(
+        api,
+        lambda: mail.create_draft(sender=sender, subject=subject, text=text, html=html),
+    )
+    _draft_acknowledgement(state, result)
+
+
+@app.command("edit-draft")
+@with_command_options
+def mail_edit_draft(
+    ctx: typer.Context,
+    common: CommandOptions,
+    message_id: str,
+    folder_id: FolderOption,
+    sender: Annotated[
+        str, typer.Option("--sender", help="Current enabled draft sender.")
+    ],
+    subject: Annotated[
+        str, typer.Option("--subject", help="Full replacement subject.")
+    ],
+    text_file: Annotated[
+        Path,
+        typer.Option(
+            "--text-file", help="Full UTF-8 plain-text replacement; may be empty."
+        ),
+    ],
+    html_file: Annotated[
+        Path,
+        typer.Option(
+            "--html-file", help="UTF-8 HTML; empty derives HTML from plain text."
+        ),
+    ],
+) -> None:
+    """Replace one recipient-free draft; use its returned UID and message ID."""
+    _require_draft_sender(sender)
+    text, html = _draft_input(text_file), _draft_input(html_file)
+    common.store(ctx)
+    state, api, mail = _context(ctx)
+    draft = MailDraft(
+        message=_message(
+            api, mail, folder_id, message_id, None, bounded_fallback=False
+        ),
+        sender=MailSender(address=sender),
+    )
+    result = _mail_call(
+        api, lambda: mail.edit_draft(draft, subject=subject, text=text, html=html)
+    )
+    _draft_acknowledgement(state, result)
+
+
+@app.command("discard-draft")
+@with_command_options
+def mail_discard_draft(
+    ctx: typer.Context,
+    common: CommandOptions,
+    message_id: str,
+    folder_id: FolderOption,
+    trash_id: Annotated[
+        str, typer.Option("--trash-id", help="Exact Deleted Messages folder ID.")
+    ],
+    sender: Annotated[
+        str, typer.Option("--sender", help="Current enabled draft sender.")
+    ],
+) -> None:
+    """Move only this recipient-free draft to Trash; request seen, never destroy."""
+    _require_draft_sender(sender)
+    common.store(ctx)
+    state, api, mail = _context(ctx)
+    draft = MailDraft(
+        message=_message(
+            api, mail, folder_id, message_id, None, bounded_fallback=False
+        ),
+        sender=MailSender(address=sender),
+    )
+    trash = _folder(api, mail, trash_id)
+    result = _mail_call(api, lambda: mail.discard_draft(draft, trash))
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Discarded Mail Draft",
+            ["Source Message ID", "Trash Folder ID"],
+            [
+                (
+                    result.source_message_id,
+                    result.destination_folder_id,
+                )
+            ],
+        )
+
+
 def _folder_acknowledgement(state: CLIState, folder: MailFolder) -> None:
     """Keep user-visible folder results distinct from mutation failure maps."""
     if state.json_output:
@@ -438,7 +617,7 @@ def mail_delete_folder(
         _table(
             state,
             "Permanent Mail Folder Deletion",
-            ["Folder ID", "Permanent"],
+            [_FOLDER_ID_COLUMN, "Permanent"],
             [(result.folder_id, result.permanent)],
         )
 
@@ -879,7 +1058,7 @@ def mail_search_folders(
     _table(
         state,
         "Mail Search (Bounded Per Folder)",
-        ["Folder ID", "Folder", _THREAD_ID_COLUMN, "Subject"],
+        [_FOLDER_ID_COLUMN, "Folder", _THREAD_ID_COLUMN, "Subject"],
         [
             (page.folder.id, page.folder.name, hit.id, hit.subject)
             for page in payload.pages

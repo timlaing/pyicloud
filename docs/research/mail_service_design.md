@@ -6,11 +6,14 @@
 
 ### Additional Write Investigation (2026-10-21)
 
-The ordinary-move and folder-management library and CLI implementations use the
-observations below. Draft observations are evidence for subsequent work, not
-implemented public APIs. The remaining work covers drafts,
-sending/replies/forwarding with attachments, and permanent single-message deletion.
-Live sends and permanent message deletion require separate authorization.
+The ordinary-move library and CLI implementation uses the observations below.
+Folder management now implements the captured create, rename, and delete shapes
+with fresh identity guards and explicit irreversible-deletion confirmation.
+Recipient-free draft saves and recoverable discard now use these observed wire
+shapes with fresh sender/namespace checks and rotating-UID handles. The remaining
+work covers recipient-bearing drafts and attachment editing,
+sending/replies/forwarding with attachments, and permanent deletion. Live sends
+and permanent message deletion require separate authorization.
 
 An authorized browser test moved one uniquely identified disposable message
 from Inbox to an existing empty testing folder and back, then used Trash and
@@ -67,6 +70,18 @@ contained a decimal-string `uid`. Each successful save returned a new UID,
 including automatic saves while typing. Do not guess an idempotency key or
 reuse the previous draft reference after a successful save. The sender and
 client build must come from verified account/client context, not capture values.
+
+The captured browser reads sender preferences with a GET to its discovered `mcc`
+root, `cc/mail/v1/account/<discovered-dsid>/preference/web/all`, using
+`userEntryPoint=/mail/load`. A metadata-only probe confirmed the `account` object
+with `dsId`, `emailId`, `fullName`, `supportedDomains`, `aliases`, and
+`customDomains`. Domains explicitly advertise `allowSendFrom`; aliases also
+advertise `isActive` in the browser's declared schema. `MailService.senders()`
+now validates that projection, matches the account ID, and returns only explicitly
+enabled identities. A fresh public-API probe returned the same enabled primary
+address as the raw preferences projection without printing its value. No writes
+were made. Alias/custom-domain tests are synthetic, based on browser-declared
+shapes; this account had neither, so their live behavior remains unverified.
 
 After action-time confirmation to discard only this test draft, the list's
 Trash command issued the same mark-read-and-move patch as ordinary message
@@ -810,9 +825,9 @@ must validate operation outcomes, distinguish uncertain submission outcomes,
 and avoid automatic retries of non-idempotent operations. These observations
 do not authorize implementing or exercising writers in the read-only phase.
 
-## Proposed First Release and Verification
+## Original First-Release Proposal and Verification
 
-The initial scope is endpoint discovery, folder listing, bounded message
+The original read-only scope was endpoint discovery, folder listing, bounded message
 metadata listing, selected body retrieval, mailbox-scoped search, and streamed
 attachment downloads. It excludes sending, drafts, flag changes, moves, folder
 mutations, HTML rendering, and incremental synchronization. No dedicated Mail

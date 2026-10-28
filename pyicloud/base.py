@@ -1810,11 +1810,13 @@ class PyiCloudService:
         """Experimental Mail reads and explicit writes via the discovered gateway."""
         if self._mail is None:
             service_root: str = self.get_webservice_url("mccgateway")
+            settings_root = self._optional_webservice_url("mcc")
             try:
                 self._mail = MailService(
                     service_root=service_root,
                     session=self.session,
                     params=self.params,
+                    settings_root=settings_root,
                 )
             except ValueError as error:
                 # A discovered URL Mail's stricter validation rejects (query,
