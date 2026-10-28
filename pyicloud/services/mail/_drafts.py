@@ -397,11 +397,15 @@ class DraftWriter:
 
     def _check_sources(self, attachments: tuple[MailDraftAttachment, ...]) -> None:
         """Do not submit stale stored parts if their source moved or changed."""
+        lookups: dict[tuple[str, int | None, int], MailMessage | None] = {}
         for attachment in attachments:
             source = attachment.source_message
             if source is None:
                 continue
-            current = self.lookup(source.folder, source.uid)
+            key = (source.folder.id, source.folder.uid_validity, source.uid)
+            if key not in lookups:
+                lookups[key] = self.lookup(source.folder, source.uid)
+            current = lookups[key]
             if (
                 current is None
                 or current.id != source.id
