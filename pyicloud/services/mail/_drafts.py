@@ -3,9 +3,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from email import policy
 from email.headerregistry import Address
-from email.parser import Parser
 from email.utils import formatdate
 from html import escape
 from typing import Any
@@ -13,6 +11,7 @@ from urllib.parse import urlencode
 
 from pyicloud.exceptions import PyiCloudException
 
+from ._draft_headers import parse_headers
 from ._draft_models import (
     DraftAttachmentReference,
     DraftCreateRequest,
@@ -47,9 +46,7 @@ def header_sender(value: str) -> str:
     """Require one well-formed From address without accepting injected headers."""
     if not value or any(ord(c) < 32 or ord(c) == 127 for c in value):
         raise MailError("Draft sender metadata is invalid")
-    header = Parser(policy=policy.default).parsestr("From: " + value + "\r\n\r\n")[
-        "From"
-    ]
+    header = parse_headers("From: " + value + "\r\n\r\n")["From"]
     # Header factories retain class references across module reloads. Validate
     # their structured result, not the identity of a dynamically created class.
     addresses: object = getattr(header, "addresses", None)
@@ -89,13 +86,23 @@ def recipient_addresses(values: tuple[str, ...]) -> tuple[str, ...]:
 
 def checked_recipients(body: MailBody, draft: MailDraft) -> None:
     """Compare fresh headers with the handle, including Bcc and Resent guards."""
-    headers = Parser(policy=policy.default).parsestr(body.headers, headersonly=True)
+    headers = parse_headers(body.headers)
     if headers.defects or any(
         value.strip()
-        for name in ("Resent-To", "Resent-Cc", "Resent-Bcc")
+        for name in (
+            "Reply-To",
+            "Sender",
+            "Return-Receipt-To",
+            "Disposition-Notification-To",
+            "Resent-To",
+            "Resent-Cc",
+            "Resent-Bcc",
+        )
         for value in headers.get_all(name, [])
     ):
-        raise MailError("Draft headers are malformed or contain Resent recipients")
+        raise MailError(
+            "Draft headers are malformed or contain unsupported address headers"
+        )
     for name, expected in (("To", draft.to), ("Cc", draft.cc), ("Bcc", draft.bcc)):
         values = headers.get_all(name, [])
         if len(values) > 1:
@@ -160,7 +167,7 @@ class DraftWriter:
         body = self.body(current)
         if body.guid != f"message:Drafts/{current.uid}":
             raise MailError("Draft body belongs to a different identity")
-        headers = Parser(policy=policy.default).parsestr(body.headers, headersonly=True)
+        headers = parse_headers(body.headers)
         checked_recipients(body, draft)
         checked_threading(body, draft.threading)
         sender_headers = headers.get_all("From", [])
