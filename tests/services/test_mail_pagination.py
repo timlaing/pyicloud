@@ -146,6 +146,13 @@ def test_duplicate_records_within_a_page_are_not_yielded_twice(
     ("records", "message"),
     [
         ([record(10), record(10, identifier="different")], "conflicting identities"),
+        ([record(10), record(10, flags=0)], "conflicting metadata"),
+        ([record(10, flags=1), record(10, flags=0)], "conflicting metadata"),
+        ([record(10), record(10, appleThrid="changed")], "conflicting metadata"),
+        (
+            [record(10, appleThrid="before"), record(10, appleThrid="after")],
+            "conflicting metadata",
+        ),
         ([record(10), record(9, identifier="synthetic-message-10")], "multiple UIDs"),
         ([record(9), record(10)], "descending UID"),
         ([record(10, mboxRef={"id": "wrong-folder"})], "another folder"),

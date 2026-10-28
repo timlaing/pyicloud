@@ -204,9 +204,13 @@ Non-empty Reply-To, Sender, Return-Receipt-To, Disposition-Notification-To, and
 Resent-* headers are refused rather than silently erased. Other original headers
 not explicitly represented by the saved draft handle, such as X-* fields, are not
 preserved by a full replacement.
-To/Cc/Bcc headers are checked again after a recipient-bearing save. A missing Bcc
+To/Cc/Bcc headers are checked again after every save, including an explicit clear.
+A missing Bcc
 header cannot be assumed to prove a successful Bcc save. Attachment mappings
 must be complete, unique and reusable; an unsupported mapping remains uncertain.
+Writes require explicit attachment status even when the parts list matches the
+handle. An omitted `hasAttachment` value is not evidence that the list is complete;
+it remains a preflight failure rather than permission to replace the draft.
 These checks
 are **not atomic conditional writes**: another client can still change the
 draft between inspection and submission. A failed post-save read or unverified
