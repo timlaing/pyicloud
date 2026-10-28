@@ -1,0 +1,11 @@
+{
+  "messagePart": {
+    "url": "/mailws2/v1/message/part?guid=cachedpart%3Aaaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&code=base64&name=synthetic.txt&type=text%2Fplain",
+    "size": 20,
+    "guid": "cachedpart:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    "datatype": "text/plain",
+    "encoding": "base64",
+    "name": "synthetic.txt"
+  },
+  "uid": "11111111-2222-4333-8444-555555555555"
+}

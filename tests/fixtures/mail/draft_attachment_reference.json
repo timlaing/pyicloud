@@ -1,0 +1,10 @@
+{
+  "contentID": "cachedpart:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  "datatype": "text/plain",
+  "guid": "cachedpart:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  "isMailDropThumbnail": false,
+  "mailDropExpirationDate": null,
+  "name": "synthetic.txt",
+  "size": 20,
+  "url": "https://gateway.example.test/mailws2/v1/message/part?guid=cachedpart%3Aaaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee&code=base64&name=synthetic.txt&type=text%2Fplain"
+}

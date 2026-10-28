@@ -54,6 +54,7 @@ icloud contacts me --username jappleseed@apple.com
 icloud drive list /Documents --username jappleseed@apple.com
 icloud mail folders --format json
 icloud mail senders --format json
+icloud mail upload-draft-attachment --file ./synthetic.txt --content-type text/plain --format json
 icloud mail create-folder Research --format json
 icloud mail rename-folder Reference --folder-id '<folder-id>' --format json
 icloud mail delete-folder --folder-id '<folder-id>' --confirm-folder-id '<folder-id>' --format json

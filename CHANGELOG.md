@@ -8,8 +8,15 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Refactored
+
+- Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.
+
 ### Fixed
 
+- Reject duplicate Mail UIDs with conflicting flags or thread metadata instead of keeping an arbitrary record during enumeration or synchronization.
+- Verify saved Mail recipient headers even after explicitly clearing every recipient, reporting unexpected retained recipients as an uncertain save.
+- Treat unexpected attachment identity mappings on an attachment-free Mail draft save as an uncertain outcome instead of accepting unrequested attachment effects.
 - Handle malformed Mail draft headers consistently across supported Python versions and give draft commands actionable guidance when exact lookup lacks a verified mailbox namespace.
 - Treat a move or flag per-message failure whose value is not a structured reason as `MailWriteUncertain` instead of `MailWriteRejected`, so malformed rejection maps never imply that a retry is safe.
 - Reject reserved label and virtual mailbox name prefixes during message moves even when their advertised flags are zero.
@@ -25,7 +32,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
-- Add explicit recipient-free, attachment-free Mail draft creation, full subject/body replacement, and recoverable Trash discard through the library and CLI, with verified senders, fresh draft identity checks, rotating-UID handles, UTF-8 file input, and no automatic write retries. Sending and permanent single-message deletion remain unsupported.
+- Add explicit Mail draft creation, full subject/body replacement, recoverable Trash discard, To/Cc/Bcc recipients, and account-bound ordinary attachments preserved by default during edits. Include verified senders, fresh identity checks, rotating-UID handles, bounded uploads, attachment remapping, UTF-8 inputs, private CLI state, explicit clear options, and no automatic write retries. Mail Drop uploads remain unsupported.
 - Add read-only Mail sender discovery from authenticated account preferences, excluding inactive and disabled identities instead of inferring a sender from the Apple login address.
 - Add explicit Mail folder creation, leaf renaming, and confirmed irreversible deletion through the library and CLI, with Unicode name encoding, fresh identity checks, collision/system-folder protection, and no automatic mutation retries. Empty-folder preflight is not atomic; new arrivals can race deletion.
 - Add explicit single-message Mail moves through `MailService.move()` and `icloud mail move`, with fresh mailbox guards, mailbox-only patches, source-only acknowledgements, and no automatic retries. Trash/restore use explicit folder destinations; Junk, Drafts, labels, and nonzero-flag folders remain unsupported.
@@ -42,7 +49,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add Mail snippets using advertised preview IDs and separate Unread/Flagged browser thread filters through the library and `icloud mail preview` / `icloud mail filter`, with mailbox identity checks and explicit bounded thread-group semantics.
 - Add explicit `MailService.iter_messages()` UID-based mailbox enumeration and `icloud mail list --all`, with mailbox identity checks, validated paging boundaries, and explicit failure on incomplete scans. Default message listing and search remain bounded; enumeration is not an atomic snapshot or synchronization API.
 - Add read-only `icloud mail` commands for folders, bounded message listings and thread-grouped search, body data, and attachment downloads to explicit non-overwriting paths.
-- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Supported Mail writes, including folder mutations, are separate explicit operations; sending, permanent single-message deletion, and incremental synchronization remain unsupported. Confirmed folder deletion is irreversible and may remove contained messages.
+- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Supported Mail writes, including folder mutations, are separate explicit operations; sending, permanent single-message deletion, and incremental synchronization remain unsupported. Folder deletion is confirmed irreversible and can permanently remove contained messages.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
@@ -56,6 +63,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Add synthetic ordinary Mail draft-upload, attachment-reference, and attachment-remapping fixtures with strict offline protocol validation. These do not enable attachment uploads or sending by themselves.
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.
 - Harden a private Mail date-search pagination candidate with offline cases for timestamp ties, saturated boundary buckets, concurrent changes, identity failures, and request budgets. This does not add public search pagination or infer boundary completeness from short responses.
 

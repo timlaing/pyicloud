@@ -6,6 +6,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer
 
+from ._draft_models import DraftAttachmentReference
+
 Identifier = Annotated[str, Field(strict=True, min_length=1)]
 MIME_PART_PATTERN = r"^[0-9]+(?:\.[0-9]+)*$"
 PartID = Annotated[str, Field(pattern=MIME_PART_PATTERN)]
@@ -104,6 +106,18 @@ class MailDraft(MailModel):
 
     message: MailMessage
     sender: MailSender
+    to: tuple[str, ...] = Field(default=(), repr=False)
+    cc: tuple[str, ...] = Field(default=(), repr=False)
+    bcc: tuple[str, ...] = Field(default=(), repr=False)
+    attachments: tuple[MailDraftAttachment, ...] = Field(default=(), repr=False)
+
+
+class MailDraftAttachment(MailModel):
+    """One ordinary cached upload bound to its account and discovered gateway."""
+
+    account_id: Identifier = Field(repr=False)
+    service_root: Identifier = Field(repr=False)
+    reference: DraftAttachmentReference = Field(repr=False)
 
 
 class MailFlagUpdate(MailModel):

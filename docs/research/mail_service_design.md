@@ -1,6 +1,6 @@
 # Mail Service Investigation
 
-<!-- cspell:words geqs mailws mccgateway messagepart savedraft thrid -->
+<!-- cspell:words cachedpart geqs mailws mccgateway messagepart savedraft thrid -->
 
 ## Status and Evidence
 
@@ -9,10 +9,11 @@
 The ordinary-move library and CLI implementation uses the observations below.
 Folder management now implements the captured create, rename, and delete shapes
 with fresh identity guards and explicit irreversible-deletion confirmation.
-Recipient-free draft saves and recoverable discard now use these observed wire
-shapes with fresh sender/namespace checks and rotating-UID handles. The remaining
-work covers recipient-bearing drafts and attachment editing,
-sending/replies/forwarding with attachments, and permanent deletion. Live sends
+Draft saves and recoverable discard now use these observed wire shapes with
+fresh sender/namespace checks and rotating-UID handles. Recipient-bearing drafts
+and ordinary attachment uploads/edit preservation are implemented and verified
+as described below. Remaining work includes sending/replies/forwarding with
+attachments, Mail Drop uploads, and permanent deletion. Live sends
 and permanent message deletion require separate authorization.
 
 An authorized browser test moved one uniquely identified disposable message
@@ -70,6 +71,88 @@ contained a decimal-string `uid`. Each successful save returned a new UID,
 including automatic saves while typing. Do not guess an idempotency key or
 reuse the previous draft reference after a successful save. The sender and
 client build must come from verified account/client context, not capture values.
+
+#### Recipient and Attachment Investigation
+
+A separately authorized browser draft addressed to one controlled test address
+confirmed a nonempty `to` array of address strings in `message/savedraft`.
+The browser saved the synthetic subject and body successfully and rotated the
+draft UID. The `cc`, `bcc`, and `attachments` arrays were empty in that captured
+request. This confirms recipient serialization, not delivery: no send was
+requested or performed. After a native file-picker timeout and user-assisted
+selection, the browser uploaded exactly one 77-byte synthetic text file.
+
+The live upload confirmed `POST mailws2/v1/message/part`, `X-id` (a UUID),
+`X-type`, `X-size`, and `X-name` query parameters, a `text/plain` content type,
+and the raw text bytes as the body. Its successful modern response contained
+`uid` matching the submitted UUID and `messagePart` with a `cachedpart:` UUID,
+relative part URL, byte size, MIME type, base64 encoding, and filename. The
+subsequent draft save supplied the absolute same-gateway part URL and cached
+identity in both `guid` and `contentID`, with null expiration and a false Mail
+Drop thumbnail flag. Its reply rotated the draft UID and returned an attachment
+mapping with equal `requestGuid` and `newGuid`. Saving on composer close returned
+another new UID with the same attachment mapping.
+
+After closing and saving that exact composer, a fresh Drafts view showed six
+messages and the unique synthetic subject with its attachment indicator. The
+list's Trash action moved only that selected draft: Drafts returned to five
+messages, and Trash visibly contained the same synthetic subject and attachment.
+The captured mutation was a mark-seen mailbox replacement, not `destroy`.
+No email was sent, no permanent deletion was performed, and no other draft was
+edited. As with the earlier discard, HTTP 207 is not a clean success envelope;
+fresh source and destination observations verified the recoverable final state.
+
+Offline inspection of the already captured browser JavaScript supplies the
+following supporting implementation leads (only the ordinary modern path above
+has live upload evidence):
+
+- The draft serializer maps `to`, `cc`, and `bcc` to arrays of formatted address
+  strings. Existing draft references still use `Drafts/previousUid`.
+- Its attachment projection includes `guid`, `name`, `url`, `contentID`, `size`,
+  `mailDropExpirationDate`, `isMailDropThumbnail`, and `datatype`. A cached-part
+  identifier may also supply `contentID`. Mail Drop and ordinary uploads must
+  not be conflated.
+- The legacy upload helper posts a local file body to `wm/messagepart`, with
+  `X-id`, `X-type`, `X-size`, and `X-name` query parameters, and `X-channel`,
+  `Content-Type`, `X-File-Name`, and `X-File-Size` headers. It labels the content
+  multipart, but the code alone does not establish the actual wire encoding.
+  The helper also supports remote URLs; that is a separate capability, not
+  authorization to fetch caller-supplied URLs.
+- Its declared upload response contains `status`, `uid`, `url`, and `msgPart`;
+  the part includes `type`, `guid`, `datatype`, `encoding`, `name`, `filename`,
+  `url`, and `size`.
+- A distinct modern helper posts to `mailws2/v1/message/part` on the discovered
+  gateway. It uses the same `X-id`, `X-type`, `X-size`, and `X-name` query
+  parameters and a local file body, but does not set the legacy helper's
+  multipart headers in that function. Its response is instead `{uid,
+messagePart}`, with `guid`, `datatype`, `encoding`, `name`, `url`, and `size`
+  inside `messagePart`. Do not accept the legacy envelope as a modern reply.
+- The draft-save response schema permits an optional `attachments` array with
+  `requestGuid` and optional `newGuid` / `contentId`. Ignoring this remapping
+  could leave an edit with stale attachment identities after UID rotation.
+
+Implementation must follow the matched modern upload and draft-save captures,
+not just whichever helper is easiest to call. Do not copy the legacy route,
+disable timeouts, trust arbitrary attachment URLs, or silently discard existing
+recipients/attachments merely because a code path exists in the bundle. Keep
+raw captures, signed URLs, and account-specific identifiers out of fixtures.
+
+The library and mounted CLI implementation was then exercised under a separate
+four-write approval: one ordinary synthetic text upload, one new draft addressed
+only to the controlled test address, one edit preserving both, and one recoverable
+Trash discard. The upload, create and edit returned verified handles; the draft
+UID rotated and the original UID disappeared. A streamed download of the created
+attachment matched the original synthetic bytes, and fresh body reads confirmed
+the edited text and expected recipient. The discard returned contradictory maps,
+so the client raised an uncertain-outcome error without retry. Fresh listings
+found exactly one matching test draft in Trash and none in Drafts, with other
+observed ID/UID/flag/subject projections unchanged in Drafts, Trash, Sent and Inbox.
+No send or permanent deletion was attempted. Afterward, read-only checks also
+verified the edited text and exact attachment bytes on the recovered Trash
+identity; no additional mutation was required. The earlier native file-picker
+failure and a local pre-dispatch harness assertion did not consume live writes;
+the audit manifest records exactly four submitted mutations. Cc/Bcc, multiple
+attachments and other MIME types remain offline-tested rather than live-proven.
 
 The captured browser reads sender preferences with a GET to its discovered `mcc`
 root, `cc/mail/v1/account/<discovered-dsid>/preference/web/all`, using

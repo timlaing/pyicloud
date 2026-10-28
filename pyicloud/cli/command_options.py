@@ -43,13 +43,22 @@ class CommandOptions:
 
 def with_command_options(function: Callable[..., None]) -> Callable[..., None]:
     """Expose the usual seven CLI flags while passing one typed options bundle."""
-    option_fields = fields(CommandOptions)
+    return with_option_bundle(
+        function, bundle_type=CommandOptions, parameter_name="common"
+    )
+
+
+def with_option_bundle(
+    function: Callable[..., None], *, bundle_type: type[Any], parameter_name: str
+) -> Callable[..., None]:
+    """Expose a dataclass's option fields while passing the bundle to a handler."""
+    option_fields = fields(bundle_type)
     annotations = get_type_hints(function, include_extras=True)
-    option_annotations = get_type_hints(CommandOptions, include_extras=True)
+    option_annotations = get_type_hints(bundle_type, include_extras=True)
     parameters = [
         parameter.replace(annotation=annotations[parameter.name])
         for parameter in inspect.signature(function).parameters.values()
-        if parameter.name != "common"
+        if parameter.name != parameter_name
     ]
     parameters.extend(
         inspect.Parameter(
@@ -63,10 +72,10 @@ def with_command_options(function: Callable[..., None]) -> Callable[..., None]:
 
     @wraps(function)
     def invoke(*args: Any, **kwargs: Any) -> None:
-        common = CommandOptions(**{
+        bundle = bundle_type(**{
             field.name: kwargs.pop(field.name, field.default) for field in option_fields
         })
-        function(*args, common=common, **kwargs)
+        function(*args, **{parameter_name: bundle}, **kwargs)
 
     invoke.__dict__["__signature__"] = inspect.Signature(
         parameters, return_annotation=None

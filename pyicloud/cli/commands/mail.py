@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from enum import Enum
+from functools import partial
 import os
 from pathlib import Path
 from tempfile import mkstemp
@@ -14,7 +16,11 @@ from rich.text import Text
 import typer
 
 from pyicloud.base import PyiCloudService
-from pyicloud.cli.command_options import CommandOptions, with_command_options
+from pyicloud.cli.command_options import (
+    CommandOptions,
+    with_command_options,
+    with_option_bundle,
+)
 from pyicloud.cli.context import CLIAbort, CLIState, get_state, service_call
 from pyicloud.cli.options import (
     DEFAULT_LOG_LEVEL,
@@ -32,12 +38,18 @@ from pyicloud.cli.output import console_table, print_json_text
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.mail import (
     MailDraft,
+    MailDraftAttachment,
     MailFolder,
     MailMessage,
     MailMessageExport,
     MailSender,
     MailService,
 )
+from pyicloud.services.mail._draft_uploads import (
+    MAX_DRAFT_UPLOAD_BYTES,
+    validate_upload_input,
+)
+from pyicloud.services.mail._drafts import recipient_addresses
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
 app = typer.Typer(help="Read Mail and explicitly change messages or folders.")
@@ -348,6 +360,62 @@ def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
         )
 
 
+def _draft_state_bytes(path: Path) -> bytes:
+    """Read a bounded private metadata handle, never an arbitrary-size state file."""
+    try:
+        with path.open("rb") as source:
+            data = source.read(131073)
+        if len(data) > 131072:
+            raise ValueError("Draft state file exceeds 128 KiB")
+        return data
+    except (OSError, ValueError) as exc:
+        raise CLIAbort("Could not read draft state; no write submitted.") from exc
+
+
+def _attachment_states(paths: list[Path] | None) -> tuple[MailDraftAttachment, ...]:
+    """Load explicit handles; the library rechecks account, origin and identity."""
+    try:
+        return tuple(
+            MailDraftAttachment.model_validate_json(_draft_state_bytes(path))
+            for path in paths or []
+        )
+    except ValueError as exc:
+        raise CLIAbort("Invalid attachment state; no write submitted.") from exc
+
+
+def _saved_draft(
+    path: Path | None, message_id: str, folder_id: str, sender: str
+) -> MailDraft | None:
+    """State cannot silently override the user's explicit draft selectors."""
+    if path is None:
+        return None
+    try:
+        draft = MailDraft.model_validate_json(_draft_state_bytes(path))
+        if (
+            draft.message.id != message_id
+            or draft.message.folder.id != folder_id
+            or draft.sender.address.casefold() != sender.casefold()
+        ):
+            raise ValueError("Draft state selectors do not match")
+        return draft
+    except ValueError as exc:
+        raise CLIAbort(
+            "Invalid or mismatched draft state; no write submitted."
+        ) from exc
+
+
+def _recipient_option(values: list[str] | None) -> tuple[str, ...] | None:
+    """Reject malformed address input before authenticating."""
+    if values is None:
+        return None
+    result = tuple(values)
+    try:
+        recipient_addresses(result)
+    except ValueError as exc:
+        raise CLIAbort("Invalid draft recipients; no write submitted.") from exc
+    return result
+
+
 @app.command("senders")
 @with_command_options
 def mail_senders(ctx: typer.Context, common: CommandOptions) -> None:
@@ -363,6 +431,44 @@ def mail_senders(ctx: typer.Context, common: CommandOptions) -> None:
             "Enabled Mail Senders",
             ["Address", "Name"],
             [(sender.address, sender.display_name) for sender in result],
+        )
+
+
+@app.command("upload-draft-attachment")
+@with_command_options
+def mail_upload_draft_attachment(
+    ctx: typer.Context,
+    common: CommandOptions,
+    file: Annotated[Path, typer.Option("--file", help="Local ordinary attachment.")],
+    content_type: Annotated[
+        str, typer.Option("--content-type", help="Bare MIME type, without parameters.")
+    ] = "application/octet-stream",
+) -> None:
+    """Upload one cached attachment; do not save a draft or send an email."""
+    try:
+        with file.open("rb") as source:
+            data = source.read(MAX_DRAFT_UPLOAD_BYTES + 1)
+        validate_upload_input(data, file.name, content_type)
+    except (OSError, ValueError) as exc:
+        raise CLIAbort(
+            "Invalid attachment file or metadata; no upload submitted."
+        ) from exc
+    common.store(ctx)
+    state, api, mail = _context(ctx)
+    result = _mail_call(
+        api,
+        lambda: mail.upload_draft_attachment(
+            data, filename=file.name, content_type=content_type
+        ),
+    )
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Cached Mail Attachment (Not Sent)",
+            ["Filename", "Size", "Type"],
+            [(result.reference.name, result.reference.size, result.reference.datatype)],
         )
 
 
@@ -385,23 +491,81 @@ def mail_create_draft(
             "--html-file", help="UTF-8 HTML; omitted derives HTML from plain text."
         ),
     ] = None,
+    to: Annotated[
+        list[str] | None, typer.Option("--to", help="Repeat for each recipient.")
+    ] = None,
+    cc: Annotated[list[str] | None, typer.Option("--cc")] = None,
+    bcc: Annotated[list[str] | None, typer.Option("--bcc")] = None,
+    attachment_state: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--attachment-state",
+            help="JSON handle from upload-draft-attachment; repeat for each file.",
+        ),
+    ] = None,
 ) -> None:
-    """Save one recipient-free, attachment-free draft without sending it."""
+    """Save explicit recipients and cached attachments without sending an email."""
     text, html = _draft_input(text_file), _draft_input(html_file)
+    recipients = [_recipient_option(values) or () for values in (to, cc, bcc)]
+    attachments = _attachment_states(attachment_state)
     common.store(ctx)
     state, api, mail = _context(ctx)
     result = _mail_call(
         api,
-        lambda: mail.create_draft(sender=sender, subject=subject, text=text, html=html),
+        lambda: mail.create_draft(
+            sender=sender,
+            subject=subject,
+            text=text,
+            html=html,
+            to=recipients[0],
+            cc=recipients[1],
+            bcc=recipients[2],
+            attachments=attachments,
+        ),
     )
     _draft_acknowledgement(state, result)
 
 
+@dataclass(frozen=True)
+class _DraftEditOptions:
+    """Explicit recipient and attachment replacement choices, never implicit clears."""
+
+    draft_state: Annotated[
+        Path | None,
+        typer.Option(
+            "--draft-state",
+            help="Last draft JSON handle; required for recipients or attachments.",
+        ),
+    ] = None
+    to: Annotated[list[str] | None, typer.Option("--to")] = None
+    cc: Annotated[list[str] | None, typer.Option("--cc")] = None
+    bcc: Annotated[list[str] | None, typer.Option("--bcc")] = None
+    attachment_state: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--attachment-state",
+            help="Full replacement list of uploaded attachment JSON handles.",
+        ),
+    ] = None
+    clear_recipients: Annotated[bool, typer.Option("--clear-recipients")] = False
+    clear_attachments: Annotated[bool, typer.Option("--clear-attachments")] = False
+
+    def attachments(self) -> tuple[MailDraftAttachment, ...] | None:
+        """Keep omitted attachment choices distinct from an explicit clear."""
+        if self.clear_attachments:
+            return ()
+        if self.attachment_state is None:
+            return None
+        return _attachment_states(self.attachment_state)
+
+
 @app.command("edit-draft")
+@partial(with_option_bundle, bundle_type=_DraftEditOptions, parameter_name="edit")
 @with_command_options
 def mail_edit_draft(
     ctx: typer.Context,
     common: CommandOptions,
+    edit: _DraftEditOptions,
     message_id: str,
     folder_id: FolderOption,
     sender: Annotated[
@@ -423,19 +587,41 @@ def mail_edit_draft(
         ),
     ],
 ) -> None:
-    """Replace one recipient-free draft; use its returned UID and message ID."""
+    """Replace draft bodies; preserve recipient/attachment state unless explicit."""
     _require_draft_sender(sender)
     text, html = _draft_input(text_file), _draft_input(html_file)
+    previous = _saved_draft(edit.draft_state, message_id, folder_id, sender)
+    if (edit.clear_recipients and any((edit.to, edit.cc, edit.bcc))) or (
+        edit.clear_attachments and edit.attachment_state
+    ):
+        raise CLIAbort(
+            "Cannot combine replacement and clear options; no write submitted."
+        )
+    recipients = [
+        () if edit.clear_recipients else _recipient_option(values)
+        for values in (edit.to, edit.cc, edit.bcc)
+    ]
+    attachments = edit.attachments()
     common.store(ctx)
     state, api, mail = _context(ctx)
-    draft = MailDraft(
+    draft = previous or MailDraft(
         message=_message(
             api, mail, folder_id, message_id, None, bounded_fallback=False
         ),
         sender=MailSender(address=sender),
     )
     result = _mail_call(
-        api, lambda: mail.edit_draft(draft, subject=subject, text=text, html=html)
+        api,
+        lambda: mail.edit_draft(
+            draft,
+            subject=subject,
+            text=text,
+            html=html,
+            to=recipients[0],
+            cc=recipients[1],
+            bcc=recipients[2],
+            attachments=attachments,
+        ),
     )
     _draft_acknowledgement(state, result)
 
@@ -453,12 +639,17 @@ def mail_discard_draft(
     sender: Annotated[
         str, typer.Option("--sender", help="Current enabled draft sender.")
     ],
+    draft_state: Annotated[
+        Path | None,
+        typer.Option("--draft-state", help="Last successful draft JSON handle."),
+    ] = None,
 ) -> None:
-    """Move only this recipient-free draft to Trash; request seen, never destroy."""
+    """Move only this verified draft to Trash; request seen, never destroy."""
     _require_draft_sender(sender)
+    previous = _saved_draft(draft_state, message_id, folder_id, sender)
     common.store(ctx)
     state, api, mail = _context(ctx)
-    draft = MailDraft(
+    draft = previous or MailDraft(
         message=_message(
             api, mail, folder_id, message_id, None, bounded_fallback=False
         ),

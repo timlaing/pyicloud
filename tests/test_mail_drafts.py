@@ -1,4 +1,5 @@
 """Draft UID rotation, identity guards, and exactly-once write attempts."""
+# cspell:words cachedpart
 
 from collections.abc import Iterator
 from copy import deepcopy
@@ -20,6 +21,7 @@ from pyicloud.cli.app import app
 from pyicloud.cli.context import CLIAbort, CLIState
 from pyicloud.services.mail import (
     MailDraft,
+    MailDraftAttachment,
     MailError,
     MailFolder,
     MailMessage,
@@ -29,6 +31,7 @@ from pyicloud.services.mail import (
     MailWriteUncertain,
 )
 from pyicloud.services.mail._draft_headers import parse_headers
+from pyicloud.services.mail._draft_models import DraftAttachmentReference
 from pyicloud.services.mail._drafts import header_sender
 from pyicloud.session import PyiCloudSession
 from tests.fixture_loader import load_fixture
@@ -52,6 +55,7 @@ class DraftCase:
     keep_previous: bool = False
     after_error: Exception | None = None
     after_record: dict[str, Any] | None = None
+    after_headers: str | None = None
     wrote: bool = False
 
 
@@ -130,7 +134,9 @@ def draft_case() -> DraftCase:
             uid = int(query["uid"])
             result.json.return_value = {
                 "guid": case.body_guid or f"message:Drafts/{uid}",
-                "longHeader": case.body_headers,
+                "longHeader": case.after_headers
+                if case.wrote and case.after_headers is not None
+                else case.body_headers,
                 "contentType": "text/plain",
                 "parts": [{"guid": f"messagepart:Drafts/{uid}-1", "content": "Before"}],
             }
@@ -175,9 +181,35 @@ def draft_case() -> DraftCase:
                 case.records.pop(int(payload["draftGuid"].split("/")[-1]), None)
             current = record(case.next_uid)
             current["subject"] = payload["subject"]
+            current["hasAttachment"] = bool(payload["attachments"])
+            current["parts"] += [
+                {
+                    "partId": str(index + 2),
+                    "contentType": reference["datatype"],
+                    "attach": True,
+                    "fileName": reference["name"],
+                    "size": reference["size"],
+                }
+                for index, reference in enumerate(payload["attachments"])
+            ]
+            case.body_headers = (
+                "From: "
+                + payload["from"]
+                + "\r\n"
+                + "".join(
+                    name + ": " + ", ".join(payload[name.lower()]) + "\r\n"
+                    for name in ("To", "Cc", "Bcc")
+                    if payload[name.lower()]
+                )
+            )
             case.records[case.next_uid] = current
             data = load_fixture("mail", "draft_save_response.json")
             data["uid"] = str(case.next_uid)
+            if payload["attachments"]:
+                data["attachments"] = [
+                    {"requestGuid": r["guid"], "newGuid": r["guid"]}
+                    for r in payload["attachments"]
+                ]
             response.json.return_value = (
                 data if case.save_result is None else case.save_result
             )
@@ -217,7 +249,11 @@ def handle(case: DraftCase) -> MailDraft:
 
 def save(case: DraftCase, edit: bool) -> MailDraft:
     """Both public save routes supply explicit full replacement content."""
-    values = {"subject": "After", "text": "New text", "html": "<p>New text</p>"}
+    values: dict[str, Any] = {
+        "subject": "After",
+        "text": "New text",
+        "html": "<p>New text</p>",
+    }
     if edit:
         return case.service.edit_draft(handle(case), **values)
     return case.service.create_draft(sender="primary@example.test", **values)
@@ -268,6 +304,520 @@ def test_save_exact_wire_and_replacement_handle(case: DraftCase, edit: bool) -> 
     case.response.close.assert_called_once()
 
 
+def test_recipient_free_save_refuses_unexpected_attachment_mappings(
+    case: DraftCase,
+) -> None:
+    """Parsing a richer envelope must not accept unrequested attachment effects."""
+    case.save_result = load_fixture("mail", "draft_attachment_save_response.json")
+    with pytest.raises(MailWriteUncertain, match="uncertain"):
+        save(case, False)
+    case.session.request_raw.assert_called_once()
+
+
+def uploaded_attachment(case: DraftCase) -> MailDraftAttachment:
+    """A synthetic handle with the same account and gateway as the test service."""
+    return MailDraftAttachment(
+        account_id="12345",
+        service_root=case.service.service_root,
+        reference=load_fixture("mail", "draft_attachment_reference.json"),
+    )
+
+
+@pytest.mark.parametrize("role", ["to", "cc", "bcc"])
+def test_create_verifies_explicit_recipients(case: DraftCase, role: str) -> None:
+    """Each role is serialized separately and verified in fresh headers after save."""
+    values = ("Synthetic Recipient <recipient@example.test>", "other@example.test")
+    options: dict[str, Any] = {role: values}
+    result = case.service.create_draft(sender="primary@example.test", **options)
+    assert getattr(result, role) == values
+    assert case.session.request_raw.call_args.kwargs["json"][role] == list(values)
+    assert case.session.request_raw.call_count == 1
+
+
+@pytest.mark.parametrize("clear", [False, True])
+def test_edit_preserves_or_explicitly_clears_content(
+    case: DraftCase, clear: bool
+) -> None:
+    """Omission preserves all recipients/parts; explicit empty tuples remove them."""
+    initial = case.service.create_draft(
+        sender="primary@example.test",
+        to=("recipient@example.test",),
+        bcc=("hidden@example.test",),
+        attachments=(uploaded_attachment(case),),
+    )
+    case.next_uid = 102
+    changes = {"to": (), "cc": (), "bcc": (), "attachments": ()} if clear else {}
+    result = case.service.edit_draft(
+        initial, subject="Edited", text="New", html="", **changes
+    )
+    assert result.message.uid == 102
+    assert result.to == (() if clear else initial.to)
+    assert result.bcc == (() if clear else initial.bcc)
+    assert len(result.attachments) == (0 if clear else 1)
+    assert case.session.request_raw.call_count == 2
+    assert initial.message.uid == 101
+    assert initial.attachments[0].reference.name == "synthetic.txt"
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        "one@example.test",
+        ["one@example.test"],
+        (None,),
+        ("",),
+        ("no-domain",),
+        ("a@",),
+        ("@example.test",),
+        ("a@example.test, b@example.test",),
+        ("a@example.test\r\nBcc: hidden@example.test",),
+        ("\ud800",),
+        ("Group: a@example.test;",),
+    ],
+)
+def test_bad_recipients_fail_before_reads(case: DraftCase, values: Any) -> None:
+    """Neither address coercion nor header injection can reach the write endpoint."""
+    with pytest.raises(ValueError):
+        case.service.create_draft(sender="primary@example.test", to=values)
+    case.session.request_raw.assert_not_called()
+    case.session.post.assert_not_called()
+    case.session.get.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "kind", ["account", "gateway", "identity", "url", "duplicate", "list", "object"]
+)
+def test_attachment_handles_are_rechecked_before_reads(
+    case: DraftCase, kind: str
+) -> None:
+    """A persisted or manually copied handle cannot bypass account/URL guards."""
+    attachment = uploaded_attachment(case)
+    if kind in {"account", "gateway"}:
+        attachment = attachment.model_copy(
+            update={"account_id" if kind == "account" else "service_root": "other"}
+        )
+    elif kind in {"identity", "url"}:
+        reference = DraftAttachmentReference.model_validate(
+            load_fixture("mail", "draft_attachment_reference.json")
+        ).model_copy(
+            update={
+                "content_id"
+                if kind == "identity"
+                else "url": "cachedpart:11111111-2222-4333-8444-555555555555"
+                if kind == "identity"
+                else "https://attacker.example.test/part"
+            }
+        )
+        attachment = attachment.model_copy(update={"reference": reference})
+    values: Any = (
+        [attachment]
+        if kind == "list"
+        else (None,)
+        if kind == "object"
+        else (attachment, attachment)
+        if kind == "duplicate"
+        else (attachment,)
+    )
+    with pytest.raises((ValueError, MailError)):
+        case.service.create_draft(sender="primary@example.test", attachments=values)
+    case.session.request_raw.assert_not_called()
+    case.session.get.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("name", "../file.txt"),
+        ("name", "bad\r\nname"),
+        ("datatype", "text/plain; charset=utf-8"),
+        ("size", 26 * 1024 * 1024),
+    ],
+)
+def test_attachment_state_metadata_cannot_bypass_upload_guards(
+    case: DraftCase, key: str, value: Any
+) -> None:
+    """Persisted JSON handles must obey the same filename, type and size limits."""
+    data = load_fixture("mail", "draft_attachment_reference.json")
+    data[key] = value
+    attachment = uploaded_attachment(case).model_copy(
+        update={"reference": DraftAttachmentReference.model_validate(data)}
+    )
+    with pytest.raises(ValueError):
+        case.service.create_draft(
+            sender="primary@example.test", attachments=(attachment,)
+        )
+    case.session.request_raw.assert_not_called()
+    case.session.post.assert_not_called()
+    case.session.get.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "kind", ["absent", "duplicate", "wrong", "no-new", "bad-new", "content-id"]
+)
+def test_attachment_mapping_failures_are_uncertain(case: DraftCase, kind: str) -> None:
+    """Never retry a save or return stale parts after an ambiguous reply."""
+    data = load_fixture("mail", "draft_attachment_save_response.json")
+    mapping = data["attachments"][0]
+    if kind == "absent":
+        data.pop("attachments")
+    elif kind == "duplicate":
+        data["attachments"] *= 2
+    elif kind == "wrong":
+        mapping["requestGuid"] = "unknown"
+    elif kind == "no-new":
+        mapping.pop("newGuid")
+    elif kind == "bad-new":
+        mapping["newGuid"] = "messagepart:Drafts/102-2"
+    else:
+        mapping["contentId"] = "cachedpart:11111111-2222-4333-8444-555555555555"
+    case.save_result = data
+    attachment = uploaded_attachment(case)
+    with pytest.raises(MailWriteUncertain):
+        case.service.create_draft(
+            sender="primary@example.test", attachments=(attachment,)
+        )
+    case.session.request_raw.assert_called_once()
+
+
+def test_attachment_mapping_can_rotate_cached_identity(case: DraftCase) -> None:
+    """A valid new cached ID replaces both the part URL and content identity."""
+    data = load_fixture("mail", "draft_attachment_save_response.json")
+    new = "cachedpart:11111111-2222-4333-8444-555555555555"
+    data["uid"] = "101"
+    data["attachments"][0]["newGuid"] = new
+    case.save_result = data
+    result = case.service.create_draft(
+        sender="primary@example.test", attachments=(uploaded_attachment(case),)
+    )
+    assert result.attachments[0].reference.guid == new
+    assert result.attachments[0].reference.content_id == new
+    assert "11111111-2222-4333-8444-555555555555" in result.attachments[0].reference.url
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        "From: primary@example.test\r\n",  # missing expected To
+        "To: a@example.test\r\nTo: a@example.test\r\n",  # duplicate
+        "To: Group: a@example.test;\r\n",  # unsupported group
+        "To: broken <\r\n",  # malformed address
+        "Resent-To: a@example.test\r\n",  # unexpected redirect recipient
+        "From: primary@example.test\r\nTo: a@example.test\r\n"
+        "Reply-To: other@example.test\r\n",
+        "From: primary@example.test\r\nTo: a@example.test\r\n"
+        "Sender: other@example.test\r\n",
+        "From: primary@example.test\r\nTo: a@example.test\r\n"
+        "Return-Receipt-To: other@example.test\r\n",
+        "From: primary@example.test\r\nTo: a@example.test\r\n"
+        "Disposition-Notification-To: other@example.test\r\n",
+    ],
+)
+def test_post_save_recipient_mismatch_is_uncertain(
+    case: DraftCase, headers: str
+) -> None:
+    """Verify recipient expectations rather than trusting HTTP 200."""
+    case.after_headers = headers
+    with pytest.raises(MailWriteUncertain):
+        case.service.create_draft(sender="primary@example.test", to=("a@example.test",))
+    case.session.request_raw.assert_called_once()
+
+
+@pytest.mark.parametrize("retained", [None, "To", "Cc", "Bcc"])
+def test_explicit_recipient_clear_is_verified(
+    case: DraftCase, retained: str | None
+) -> None:
+    """A cleared handle must never conceal recipients retained by the server."""
+    draft = case.service.create_draft(
+        sender="primary@example.test", to=("recipient@example.test",)
+    )
+    case.wrote = False
+    case.next_uid = 102
+    case.session.request_raw.reset_mock()
+    case.after_headers = "From: primary@example.test\r\n"
+    if retained is not None:
+        case.after_headers += f"{retained}: recipient@example.test\r\n"
+        with pytest.raises(MailWriteUncertain):
+            case.service.edit_draft(draft, subject="Cleared", text="", html="", to=())
+    else:
+        cleared = case.service.edit_draft(
+            draft, subject="Cleared", text="", html="", to=()
+        )
+        assert (cleared.to, cleared.cc, cleared.bcc) == ((), (), ())
+    case.session.request_raw.assert_called_once()
+
+
+@pytest.mark.parametrize("attached", [False, True])
+def test_missing_attachment_status_blocks_draft_edit(
+    case: DraftCase, attached: bool
+) -> None:
+    """Read-model optionality is not proof that replacement metadata is complete."""
+    attachments = (uploaded_attachment(case),) if attached else ()
+    draft = case.service.create_draft(
+        sender="primary@example.test", attachments=attachments
+    )
+    case.wrote = False
+    case.records[draft.message.uid].pop("hasAttachment")
+    case.session.request_raw.reset_mock()
+    with pytest.raises(MailError, match="attachment state"):
+        case.service.edit_draft(draft, subject="Changed", text="", html="")
+    case.session.request_raw.assert_not_called()
+
+
+def test_post_save_recipient_body_wrong_identity(case: DraftCase) -> None:
+    """A different body cannot verify the saved recipient-bearing draft."""
+    case.body_guid = "message:Other/101"
+    with pytest.raises(MailWriteUncertain):
+        case.service.create_draft(sender="primary@example.test", to=("a@example.test",))
+
+
+@pytest.mark.parametrize(
+    "address,accepted", [("a@EXAMPLE.test", True), ("A@example.test", False)]
+)
+def test_recipient_domain_only_case_insensitivity(
+    case: DraftCase, address: str, accepted: bool
+) -> None:
+    """Ignore domain case, but preserve potentially case-sensitive local parts."""
+    case.after_headers = "From: primary@example.test\r\nTo: " + address + "\r\n"
+    if accepted:
+        assert case.service.create_draft(
+            sender="primary@example.test", to=("a@example.test",)
+        ).to == ("a@example.test",)
+    else:
+        with pytest.raises(MailWriteUncertain):
+            case.service.create_draft(
+                sender="primary@example.test", to=("a@example.test",)
+            )
+
+
+@pytest.mark.parametrize("kind", ["metadata", "parts"])
+def test_edit_refuses_changed_attachment_state(case: DraftCase, kind: str) -> None:
+    """Do not overwrite a draft whose attachments changed after its saved handle."""
+    initial = case.service.create_draft(
+        sender="primary@example.test", attachments=(uploaded_attachment(case),)
+    )
+    current = case.records[101]["parts"][1]
+    current["fileName" if kind == "metadata" else "partId"] = "changed"
+    case.session.request_raw.reset_mock()
+    with pytest.raises(MailError):
+        case.service.edit_draft(initial, subject="", text="", html="")
+    case.session.request_raw.assert_not_called()
+
+
+def test_discard_addressed_attachment_draft(case: DraftCase) -> None:
+    """Recoverable discard verifies the rich handle without rewriting its content."""
+    initial = case.service.create_draft(
+        sender="primary@example.test",
+        to=("a@example.test",),
+        attachments=(uploaded_attachment(case),),
+    )
+    case.save_result = {
+        "accountId": "12345",
+        "created": None,
+        "destroyed": None,
+        "newState": None,
+        "oldState": None,
+        "notCreated": None,
+        "notDestroyed": None,
+        "notUpdated": None,
+        "updated": {"draft-101": {}},
+    }
+    result = case.service.discard_draft(initial, MailFolder(**case.folders[1]))
+    assert result.source_message_id == "draft-101"
+    assert "attachments" not in case.session.request_raw.call_args.kwargs["json"]
+
+
+@pytest.mark.parametrize("mode", ["json", "text"])
+def test_create_cli_recipients_and_attachment_states(
+    case: DraftCase, tmp_path: Path, mode: str
+) -> None:
+    """The mounted CLI loads uploaded state and sends the same explicit wire shape."""
+    state = tmp_path / "attachment.json"
+    state.write_text(uploaded_attachment(case).model_dump_json(), encoding="utf-8")
+    api = MagicMock(mail=case.service, account_name="login@example.test")
+    with (
+        patch.object(CLIState, "get_api", return_value=api),
+        patch.object(CLIState, "open"),
+    ):
+        result = CliRunner().invoke(
+            app,
+            [
+                "mail",
+                "create-draft",
+                "--sender",
+                "primary@example.test",
+                "--to",
+                "recipient@example.test",
+                "--cc",
+                "copy@example.test",
+                "--bcc",
+                "hidden@example.test",
+                "--attachment-state",
+                str(state),
+                "--format",
+                mode,
+            ],
+        )
+    assert result.exit_code == 0, result.exception
+    payload = case.session.request_raw.call_args.kwargs["json"]
+    assert payload["to"] == ["recipient@example.test"]
+    assert payload["bcc"] == ["hidden@example.test"]
+    assert payload["attachments"][0]["name"] == "synthetic.txt"
+    if mode == "json":
+        assert json.loads(result.stdout)["attachments"][0]["account_id"] == "12345"
+
+
+@pytest.mark.parametrize("operation", ["preserve", "replace", "clear", "discard"])
+def test_rich_draft_cli_uses_saved_handle(
+    case: DraftCase, tmp_path: Path, operation: str
+) -> None:
+    """An explicit saved state carries rich expectations across CLI invocations."""
+    initial = case.service.create_draft(
+        sender="primary@example.test",
+        to=("recipient@example.test",),
+        attachments=(uploaded_attachment(case),),
+    )
+    state, text, html, attachment_state = [
+        tmp_path / n for n in ("draft.json", "text.txt", "html.txt", "attachment.json")
+    ]
+    state.write_text(initial.model_dump_json(), encoding="utf-8")
+    text.write_text("Updated private body", encoding="utf-8")
+    html.write_text("", encoding="utf-8")
+    attachment_state.write_text(
+        uploaded_attachment(case).model_dump_json(), encoding="utf-8"
+    )
+    case.next_uid = 102
+    args = [
+        "mail",
+        "discard-draft" if operation == "discard" else "edit-draft",
+        "draft-101",
+        "--folder-id",
+        "drafts",
+        "--sender",
+        "primary@example.test",
+        "--draft-state",
+        str(state),
+        "--format",
+        "json",
+    ]
+    if operation == "discard":
+        args += ["--trash-id", "trash"]
+        case.save_result = {
+            "accountId": "12345",
+            "created": None,
+            "destroyed": None,
+            "newState": None,
+            "oldState": None,
+            "notCreated": None,
+            "notDestroyed": None,
+            "notUpdated": None,
+            "updated": {"draft-101": {}},
+        }
+    else:
+        args += [
+            "--subject",
+            "Edited",
+            "--text-file",
+            str(text),
+            "--html-file",
+            str(html),
+        ]
+        if operation == "clear":
+            args += ["--clear-recipients", "--clear-attachments"]
+        elif operation == "replace":
+            args += [
+                "--to",
+                "other@example.test",
+                "--attachment-state",
+                str(attachment_state),
+            ]
+    api = MagicMock(mail=case.service, account_name="login@example.test")
+    with (
+        patch.object(CLIState, "get_api", return_value=api),
+        patch.object(CLIState, "open"),
+    ):
+        result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.exception
+    assert "Updated private body" not in result.stdout
+    payload = json.loads(result.stdout)
+    if operation != "discard":
+        assert payload["to"] == (
+            []
+            if operation == "clear"
+            else ["other@example.test"]
+            if operation == "replace"
+            else ["recipient@example.test"]
+        )
+        assert len(payload["attachments"]) == (0 if operation == "clear" else 1)
+    else:
+        assert payload["source_message_id"] == "draft-101"
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "missing",
+        "large",
+        "malformed",
+        "selectors",
+        "recipient",
+        "clear-recipients",
+        "clear-attachments",
+        "attachment-json",
+    ],
+)
+def test_rich_cli_input_failures_precede_auth(
+    case: DraftCase, tmp_path: Path, kind: str
+) -> None:
+    """Invalid persisted state and conflicting options must never start a write."""
+    state, text, html = [tmp_path / n for n in ("state.json", "text.txt", "html.txt")]
+    text.write_text("", encoding="utf-8")
+    html.write_text("", encoding="utf-8")
+    state.write_text(handle(case).model_dump_json(), encoding="utf-8")
+    args = [
+        "mail",
+        "edit-draft",
+        "draft-100",
+        "--folder-id",
+        "drafts",
+        "--sender",
+        "primary@example.test",
+        "--subject",
+        "Edited",
+        "--text-file",
+        str(text),
+        "--html-file",
+        str(html),
+    ]
+    if kind == "missing":
+        state.unlink()
+    elif kind == "large":
+        state.write_bytes(b" " * 131073)
+    elif kind in {"malformed", "attachment-json"}:
+        state.write_text("{invalid", encoding="utf-8")
+    elif kind == "selectors":
+        state.write_text(
+            handle(case)
+            .model_copy(update={"sender": MailSender(address="other@example.test")})
+            .model_dump_json(),
+            encoding="utf-8",
+        )
+    if kind in {"missing", "large", "malformed", "selectors"}:
+        args += ["--draft-state", str(state)]
+    elif kind == "recipient":
+        args += ["--to", "bad\r\nBcc: hidden@example.test"]
+    elif kind == "clear-recipients":
+        args += ["--to", "recipient@example.test", "--clear-recipients"]
+    elif kind == "clear-attachments":
+        args += ["--attachment-state", str(state), "--clear-attachments"]
+    else:
+        args += ["--attachment-state", str(state)]
+    with patch.object(CLIState, "get_api") as get_api, patch.object(CLIState, "open"):
+        result = CliRunner().invoke(app, args)
+    assert isinstance(result.exception, CLIAbort), result.exception
+    get_api.assert_not_called()
+    case.session.request_raw.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "field_name,value",
     [
@@ -306,6 +856,9 @@ def test_invalid_inputs_never_read_or_write(
         "Sender",
         "Return-Receipt-To",
         "Disposition-Notification-To",
+        "Resent-From",
+        "Resent-Sender",
+        "Resent-Reply-To",
     ],
 )
 def test_address_headers_are_not_erased(
@@ -320,7 +873,7 @@ def test_address_headers_are_not_erased(
         if operation == "edit"
         else partial(case.service.discard_draft, draft, trash)
     )
-    with pytest.raises(MailError, match="recipient-free"):
+    with pytest.raises(MailError):
         mutation()
     case.session.request_raw.assert_not_called()
     assert case.records[100]["subject"] == "Before"

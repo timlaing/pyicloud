@@ -26,6 +26,14 @@ acknowledgement, not a send response or an idempotency key. Server mocks generat
 replacement UIDs; malformed/conflicting variants are robustness tests, not extra
 live protocol evidence. No draft bodies, real UIDs, or captured senders are stored.
 
+`draft_attachment_upload_response.json`, `draft_attachment_reference.json`, and
+`draft_attachment_save_response.json` are synthetic projections from an approved
+browser draft with one tiny text attachment. The modern upload returns
+`messagePart`, not the legacy `msgPart` envelope. The save response can remap
+attachment identities as well as rotate the draft UID. All filenames, UUIDs,
+sizes, and URLs here are invented; no file body, recipient, credentials, or raw
+capture is included. These shapes do not establish Mail Drop uploads or sending.
+
 `sender_preferences_response.json` models only the sender-related account
 preference shape. Every name, domain, address, and account identifier is synthetic.
 Primary-address data was checked against a read-only live response; alias and

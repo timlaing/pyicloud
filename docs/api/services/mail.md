@@ -10,6 +10,8 @@
 
 ::: pyicloud.services.mail.models.MailDraft
 
+::: pyicloud.services.mail.models.MailDraftAttachment
+
 ::: pyicloud.services.mail.models.MailMessage
 
 ::: pyicloud.services.mail.models.MailFlagUpdate
