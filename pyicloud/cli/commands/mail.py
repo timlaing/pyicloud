@@ -429,7 +429,9 @@ def mail_edit_draft(
     common.store(ctx)
     state, api, mail = _context(ctx)
     draft = MailDraft(
-        message=_message(api, mail, folder_id, message_id, None),
+        message=_message(
+            api, mail, folder_id, message_id, None, bounded_fallback=False
+        ),
         sender=MailSender(address=sender),
     )
     result = _mail_call(
@@ -457,7 +459,9 @@ def mail_discard_draft(
     common.store(ctx)
     state, api, mail = _context(ctx)
     draft = MailDraft(
-        message=_message(api, mail, folder_id, message_id, None),
+        message=_message(
+            api, mail, folder_id, message_id, None, bounded_fallback=False
+        ),
         sender=MailSender(address=sender),
     )
     trash = _folder(api, mail, trash_id)

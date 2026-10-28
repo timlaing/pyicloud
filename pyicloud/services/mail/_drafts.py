@@ -3,14 +3,13 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from email import policy
 from email.headerregistry import Address
-from email.parser import Parser
 from email.utils import formatdate
 from html import escape
 
 from pyicloud.exceptions import PyiCloudException
 
+from ._draft_headers import parse_headers
 from ._draft_models import DraftCreateRequest, DraftEditRequest, DraftSaveResponse
 from .exceptions import MailError, MailWriteUncertain
 from .models import MailBody, MailDraft, MailFolder, MailMessage, MailSender
@@ -25,9 +24,7 @@ def header_sender(value: str) -> str:
     """Require one well-formed From address without accepting injected headers."""
     if not value or any(ord(c) < 32 or ord(c) == 127 for c in value):
         raise MailError("Draft sender metadata is invalid")
-    header = Parser(policy=policy.default).parsestr("From: " + value + "\r\n\r\n")[
-        "From"
-    ]
+    header = parse_headers("From: " + value + "\r\n\r\n")["From"]
     # Header factories retain class references across module reloads. Validate
     # their structured result, not the identity of a dynamically created class.
     addresses: object = getattr(header, "addresses", None)
@@ -73,7 +70,7 @@ class DraftWriter:
         body = self.body(current)
         if body.guid != f"message:Drafts/{current.uid}":
             raise MailError("Draft body belongs to a different identity")
-        headers = Parser(policy=policy.default).parsestr(body.headers, headersonly=True)
+        headers = parse_headers(body.headers)
         # The replacement carries only From/To/Cc/Bcc/subject/bodies, so refuse
         # every address-bearing header it would otherwise silently erase.
         if headers.defects or any(

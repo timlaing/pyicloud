@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Handle malformed Mail draft headers consistently across supported Python versions and give draft commands actionable guidance when exact lookup lacks a verified mailbox namespace.
 - Treat a move or flag per-message failure whose value is not a structured reason as `MailWriteUncertain` instead of `MailWriteRejected`, so malformed rejection maps never imply that a retry is safe.
 - Reject reserved label and virtual mailbox name prefixes during message moves even when their advertised flags are zero.
 - Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
