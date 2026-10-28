@@ -141,10 +141,9 @@ originals deliberately. Existing source parts have a null content ID and encoded
 MIME size; they are **not** cached uploads and do not require an upload mapping
 in Apple's save response. Their account, gateway, folder UID validity, source
 message identity, part metadata and exact endpoint URL are checked before reuse.
-The original must remain available; a move, deletion or changed attachment
-refuses a later edit/send rather than silently removing the file. Duplicate
-filenames, unknown attachment metadata and Mail Drop source attachments are not
-silently converted or dropped. These methods do not automatically copy inline
+Original MIME/size metadata and exact endpoints are validated for reuse; an uploaded
+attachment that reuses any existing filename is refused. Unknown attachment metadata
+and Mail Drop source attachments are not silently converted or dropped. These methods do not automatically copy inline
 body resources. As with all writes, checks are not atomic with submission.
 
 ```shell
