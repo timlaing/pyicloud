@@ -8,16 +8,23 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Refactored
+
+- Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.
+
 ### Fixed
 
+- Give `mail delete-forever` actionable folder-refresh guidance when UID validity is missing instead of suggesting its unavailable `--limit` option.
+- Preserve MIME parameters and repeated filenames for distinct source attachments in forward drafts while retaining strict upload validation and exact source-part checks.
 - Reject duplicate Mail UIDs with conflicting flags or thread metadata instead of keeping an arbitrary record during enumeration or synchronization.
 - Roll back interrupted Mail inventory transactions, including generator closure and process interruption, and simplify synchronization validation without changing its CLI options or safety budgets.
 - Explain fresh-state recovery for unsupported Mail sync histories and avoid duplicate folder discovery around exact UID refreshes while retaining both identity guards.
+- Verify saved Mail recipient headers even after explicitly clearing every recipient, reporting unexpected retained recipients as an uncertain save.
+- Treat unexpected attachment identity mappings on an attachment-free Mail draft save as an uncertain outcome instead of accepting unrequested attachment effects.
 - Handle malformed Mail draft headers consistently across supported Python versions and give draft commands actionable guidance when exact lookup lacks a verified mailbox namespace.
 - Treat a move or flag per-message failure whose value is not a structured reason as `MailWriteUncertain` instead of `MailWriteRejected`, so malformed rejection maps never imply that a retry is safe.
 - Reject reserved label and virtual mailbox name prefixes during message moves even when their advertised flags are zero.
 - Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
-- Accept observed flag-less NIL Mail thread invalidations through checked thread/UID metadata refreshes, without interpreting them as empty flags or permanent deletion.
 - Preserve Mail Drop capability metadata for search-pagination messages, keep caller exceptions unchanged through `mail_drop_attachment()`, name the Mail Drop transport failure class instead of a generic message, and stop suggesting a nonexistent `--limit` option when a `download-maildrop` folder lacks UID validity.
 - Accept a valid SMS two-factor code that Apple answers with HTTP 412 and a repair session, continuing to session trust instead of reporting an incorrect code.
 - Guard Mail body and attachment reads against observed mailbox recreation and path changes when UID validity is available; reject in-flight renames for path-selected preview/filter reads too, use the current folder name, and prevent failed downloads from being published.
@@ -29,8 +36,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add explicitly confirmed, single-message permanent Mail deletion from the discovered Trash mailbox through `delete_permanently()` and `icloud mail delete-forever`, with fresh identity checks, exact destruction acknowledgements, target-only post-verification, and no automatic retries or mailbox purge.
+- Add explicit reply and forward draft creation through the library and CLI, retaining validated parent/reference headers across edits and sending. Forward drafts preserve account-bound ordinary source attachments without reuploading them and explicitly report previous versions Apple retains on edit, without deleting or sending those versions. Recipients and complete body content remain explicit, and moved/changed sources are refused.
+- Add explicitly confirmed sending of one saved Mail draft through `send_draft()` and `icloud mail send-draft`, with fresh identity/recipient/attachment checks, source-only acknowledgements, and no automatic retries or Undo Send delay. Submission acknowledgement does not confirm delivery.
+- Add explicit Mail draft creation, full subject/body replacement, recoverable Trash discard, To/Cc/Bcc recipients, and account-bound ordinary attachments preserved by default during edits. Include verified senders, fresh identity checks, rotating-UID handles, bounded uploads, attachment remapping, UTF-8 inputs, private CLI state, explicit clear options, and no automatic write retries. Mail Drop uploads remain unsupported.
 - Add experimental, read-only `icloud mail sync` for a one-shot folder-scoped metadata inventory on POSIX, with explicit private state storage, bounded requests, content-free summaries, and separate opt-ins for expired-history rebuilds and count-hint rescans. It neither downloads content nor modifies mail, and is not an atomic backup or watcher.
-- Add explicit recipient-free, attachment-free Mail draft creation, full subject/body replacement, and recoverable Trash discard through the library and CLI, with verified senders, fresh draft identity checks, rotating-UID handles, UTF-8 file input, and no automatic write retries. Sending and permanent single-message deletion remain unsupported.
 - Add read-only Mail sender discovery from authenticated account preferences, excluding inactive and disabled identities instead of inferring a sender from the Apple login address.
 - Add explicit Mail folder creation, leaf renaming, and confirmed irreversible deletion through the library and CLI, with Unicode name encoding, fresh identity checks, collision/system-folder protection, and no automatic mutation retries. Empty-folder preflight is not atomic; new arrivals can race deletion.
 - Add explicit single-message Mail moves through `MailService.move()` and `icloud mail move`, with fresh mailbox guards, mailbox-only patches, source-only acknowledgements, and no automatic retries. Trash/restore use explicit folder destinations; Junk, Drafts, labels, and nonzero-flag folders remain unsupported.
@@ -47,7 +57,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add Mail snippets using advertised preview IDs and separate Unread/Flagged browser thread filters through the library and `icloud mail preview` / `icloud mail filter`, with mailbox identity checks and explicit bounded thread-group semantics.
 - Add explicit `MailService.iter_messages()` UID-based mailbox enumeration and `icloud mail list --all`, with mailbox identity checks, validated paging boundaries, and explicit failure on incomplete scans. Default message listing and search remain bounded; enumeration is not an atomic snapshot or synchronization API.
 - Add read-only `icloud mail` commands for folders, bounded message listings and thread-grouped search, body data, and attachment downloads to explicit non-overwriting paths.
-- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Supported Mail writes, including folder mutations, are separate explicit operations; sending and permanent single-message deletion remain unsupported. Confirmed folder deletion is irreversible and may remove contained messages.
+- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Supported Mail writes, including folder mutations, are separate explicit operations; permanent single-message deletion remains unsupported. Confirmed folder deletion is irreversible and may remove contained messages.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
@@ -61,18 +71,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
-- Verify Mail sync help stays offline and exposes its options in both plain and ANSI-colored output.
-- Verify invalid Mail reconciliation budgets fail with the specific validation error before reading inventory state or polling remote metadata.
-- Add private POSIX Mail inventory storage with owner-only files, bounded locking, restart guards, and explicitly opted-in recovery for expired change history.
-- Integrate the private Mail sync engine with read-only polling and exact metadata readers, bounded incremental reconciliation, explicit history-reset failures, and atomic local checkpoint application.
-- Add a private Mail baseline-inventory and transactional SQLite state backend with bounded stable-counter scans, restart/rollback tests, namespace guards, and competing-writer protection.
-- Add a private, bounded Mail change-event decoder and checkpoint-validation helper with synthetic fixtures and offline recovery guards.
+- Add synthetic ordinary Mail draft-upload, attachment-reference, and attachment-remapping fixtures with strict offline protocol validation. These do not enable attachment uploads or sending by themselves.
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.
 - Harden a private Mail date-search pagination candidate with offline cases for timestamp ties, saturated boundary buckets, concurrent changes, identity failures, and request budgets. This does not add public search pagination or infer boundary completeness from short responses.
 
 ### Documentation
 
-- Clarify that Mail sync receives header and part metadata but discards it rather than persisting it or including it in normal CLI output; message content is not fetched.
 - Clarify the separate ordinary-attachment and Mail Drop download paths and capability redaction in serialized metadata.
 - Document the observed iCloud Mail HTTP protocol research and capture limitations.
 - Reconcile the Invites design document with the shipped reads, CLI, RSVP image downloads, and cancellation support; document the entitlement flow and remaining owner-write limitations (#434).
