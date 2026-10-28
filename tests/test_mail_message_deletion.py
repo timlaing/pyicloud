@@ -296,6 +296,46 @@ def test_mounted_delete_cli(case: DeleteCase, output: str) -> None:
         assert "Permanently Deleted" in result.stdout
 
 
+@pytest.mark.parametrize("validity", [None, 0, -1])
+@pytest.mark.parametrize("output", ["json", "text"])
+def test_delete_cli_missing_namespace_has_actionable_hint(
+    case: DeleteCase, validity: int | None, output: str
+) -> None:
+    """An unverified namespace cannot suggest bounded lookup or submit deletion."""
+    folder = case.message.folder.model_copy(update={"uid_validity": validity})
+    api = MagicMock(mail=case.service, account_name="login@example.test")
+    with (
+        patch.object(CLIState, "get_api", return_value=api),
+        patch.object(CLIState, "open"),
+        patch.object(case.service, "folders", return_value=[folder]),
+        patch.object(case.service, "message") as exact_lookup,
+        patch.object(case.service, "messages") as bounded_lookup,
+        patch.object(case.service, "delete_permanently") as delete,
+    ):
+        result = CliRunner().invoke(
+            app,
+            [
+                "mail",
+                "delete-forever",
+                case.message.id,
+                "--folder-id",
+                "trash",
+                "--confirm",
+                "--format",
+                output,
+            ],
+        )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, CLIAbort)
+    assert "icloud mail folders" in str(result.exception)
+    assert "--limit" not in str(result.exception)
+    exact_lookup.assert_not_called()
+    bounded_lookup.assert_not_called()
+    delete.assert_not_called()
+    case.session.post.assert_not_called()
+    case.session.request_raw.assert_not_called()
+
+
 def test_cli_confirmation_required_before_authentication() -> None:
     """Missing irreversible-action confirmation never starts authentication."""
     with patch.object(CLIState, "get_api") as auth:

@@ -718,7 +718,7 @@ def mail_delete_forever(
         log_level=log_level,
     )
     state, api, mail = _context(ctx)
-    message = _message(api, mail, folder_id, message_id, None)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
     result = _mail_call(api, lambda: mail.delete_permanently(message, confirm=True))
     if state.json_output:
         state.write_json(result)
