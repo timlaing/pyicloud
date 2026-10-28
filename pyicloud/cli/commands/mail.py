@@ -91,6 +91,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_COLUMN = "Message ID"
+_FOLDER_ID_COLUMN = "Folder ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
 _DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
 
@@ -470,7 +471,7 @@ def mail_delete_folder(
         _table(
             state,
             "Permanent Mail Folder Deletion",
-            ["Folder ID", "Permanent"],
+            [_FOLDER_ID_COLUMN, "Permanent"],
             [(result.folder_id, result.permanent)],
         )
 
@@ -817,7 +818,7 @@ def mail_sync(
         ["Field", "Value"],
         [
             ("Status", payload.status),
-            ("Folder ID", payload.folder_id),
+            (_FOLDER_ID_COLUMN, payload.folder_id),
             ("Messages", payload.message_count),
             ("Revision", payload.revision),
             ("State", payload.state_path),
@@ -1044,7 +1045,7 @@ def mail_search_folders(
     _table(
         state,
         "Mail Search (Bounded Per Folder)",
-        ["Folder ID", "Folder", _THREAD_ID_COLUMN, "Subject"],
+        [_FOLDER_ID_COLUMN, "Folder", _THREAD_ID_COLUMN, "Subject"],
         [
             (page.folder.id, page.folder.name, hit.id, hit.subject)
             for page in payload.pages
