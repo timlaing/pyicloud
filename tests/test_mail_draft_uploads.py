@@ -77,7 +77,8 @@ def test_upload_wire_and_bound_handle(upload: tuple[Any, ...]) -> None:
         allow_redirects=False,
     )
     assert service.params["clientIntent"] == "stale"
-    assert result.account_id == "12345" and result.service_root == ROOT
+    assert result.account_id == "12345"
+    assert result.service_root == ROOT
     assert result.reference.guid == result.reference.content_id == PART_ID
     assert result.reference.size == len(DATA)
     assert result.reference.url.startswith(ROOT + "/mailws2/v1/message/part?")

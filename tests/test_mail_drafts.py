@@ -471,9 +471,10 @@ def test_attachment_mapping_failures_are_uncertain(case: DraftCase, kind: str) -
     else:
         mapping["contentId"] = "cachedpart:11111111-2222-4333-8444-555555555555"
     case.save_result = data
+    attachment = uploaded_attachment(case)
     with pytest.raises(MailWriteUncertain):
         case.service.create_draft(
-            sender="primary@example.test", attachments=(uploaded_attachment(case),)
+            sender="primary@example.test", attachments=(attachment,)
         )
     case.session.request_raw.assert_called_once()
 

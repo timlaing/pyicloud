@@ -6,8 +6,6 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import uuid4
 
-from requests import RequestException
-
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
@@ -150,7 +148,7 @@ def upload_attachment(
             timeout=UPLOAD_TIMEOUT,
             allow_redirects=False,
         )
-    except (PyiCloudException, RequestException, OSError) as exc:
+    except (PyiCloudException, OSError) as exc:
         raise MailWriteUncertain(UPLOAD_UNCERTAIN) from exc
     try:
         try:
@@ -182,10 +180,10 @@ def upload_attachment(
                     datatype=part.datatype,
                 ),
             )
-        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+        except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(UPLOAD_UNCERTAIN) from exc
     finally:
         try:
             response.close()
-        except (RequestException, OSError) as exc:
+        except OSError as exc:
             raise MailWriteUncertain(UPLOAD_UNCERTAIN) from exc
