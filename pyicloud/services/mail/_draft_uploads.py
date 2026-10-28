@@ -94,6 +94,57 @@ def checked_part_url(
     )
 
 
+def _check_stored_source(
+    attachment: MailDraftAttachment, reference: DraftStoredReference
+) -> None:
+    """Require exactly one matching attachment in the bound source message."""
+    source = attachment.source_message
+    if source is None:
+        raise ValueError("Stored attachments require their source message")
+    matches = [
+        part
+        for part in source.parts
+        if reference.guid == f"messagepart:{source.folder.name}/{source.uid}-{part.id}"
+        and part.is_attachment
+        and part.filename == reference.name
+        and part.content_type == reference.datatype
+        and part.size == reference.size
+    ]
+    if len(matches) != 1:
+        raise ValueError("Stored attachment does not match its source metadata")
+
+
+def _checked_reference(
+    attachment: MailDraftAttachment, root: str, account_id: str
+) -> DraftAttachmentReference | DraftStoredReference:
+    """Revalidate ownership, wire metadata, and uploaded or stored provenance."""
+    if (
+        not isinstance(attachment, MailDraftAttachment)
+        or attachment.account_id != account_id
+        or attachment.service_root != root
+    ):
+        raise ValueError("Attachment belongs to a different account or gateway")
+    if not isinstance(
+        attachment.reference, (DraftAttachmentReference, DraftStoredReference)
+    ):
+        raise ValueError("Invalid attachment reference")
+    reference = type(attachment.reference).model_validate(
+        attachment.reference.model_dump(by_alias=True), by_alias=True, by_name=False
+    )
+    validate_upload_input(b"", reference.name, reference.datatype)
+    if isinstance(reference, DraftAttachmentReference):
+        if reference.size > MAX_DRAFT_UPLOAD_BYTES:
+            raise ValueError("Attachment handle exceeds the ordinary upload limit")
+        if (
+            reference.content_id != reference.guid
+            or attachment.source_message is not None
+        ):
+            raise ValueError("Attachment content identity does not match its part")
+    else:
+        _check_stored_source(attachment, reference)
+    return reference
+
+
 def attachment_references(
     attachments: tuple[MailDraftAttachment, ...], root: str, account_id: str
 ) -> list[DraftAttachmentReference | DraftStoredReference]:
@@ -102,46 +153,7 @@ def attachment_references(
         raise ValueError("Attachments must be a tuple of uploaded handles")
     references: list[DraftAttachmentReference | DraftStoredReference] = []
     for attachment in attachments:
-        if (
-            not isinstance(attachment, MailDraftAttachment)
-            or attachment.account_id != account_id
-            or attachment.service_root != root
-        ):
-            raise ValueError("Attachment belongs to a different account or gateway")
-        if not isinstance(
-            attachment.reference, (DraftAttachmentReference, DraftStoredReference)
-        ):
-            raise ValueError("Invalid attachment reference")
-        reference = type(attachment.reference).model_validate(
-            attachment.reference.model_dump(by_alias=True), by_alias=True, by_name=False
-        )
-        validate_upload_input(b"", reference.name, reference.datatype)
-        if (
-            isinstance(reference, DraftAttachmentReference)
-            and reference.size > MAX_DRAFT_UPLOAD_BYTES
-        ):
-            raise ValueError("Attachment handle exceeds the ordinary upload limit")
-        if isinstance(reference, DraftAttachmentReference) and (
-            reference.content_id != reference.guid
-            or attachment.source_message is not None
-        ):
-            raise ValueError("Attachment content identity does not match its part")
-        if isinstance(reference, DraftStoredReference):
-            source = attachment.source_message
-            if source is None:
-                raise ValueError("Stored attachments require their source message")
-            matches = [
-                p
-                for p in source.parts
-                if reference.guid
-                == f"messagepart:{source.folder.name}/{source.uid}-{p.id}"
-                and p.is_attachment
-                and p.filename == reference.name
-                and p.content_type == reference.datatype
-                and p.size == reference.size
-            ]
-            if len(matches) != 1:
-                raise ValueError("Stored attachment does not match its source metadata")
+        reference = _checked_reference(attachment, root, account_id)
         url = checked_part_url(
             root,
             reference.url,
