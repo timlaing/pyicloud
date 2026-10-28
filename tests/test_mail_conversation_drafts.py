@@ -500,6 +500,75 @@ def test_mounted_conversation_cli(
         assert json.loads(result.stdout)["threading"]["mode"] == mode
 
 
+@pytest.mark.parametrize("mode", ["reply", "forward"])
+@pytest.mark.parametrize("sender", ["", "   "])
+def test_conversation_cli_empty_sender_precedes_io(
+    case: DraftCase, tmp_path: Path, mode: str, sender: str
+) -> None:
+    """Invalid draft selectors are rejected before files or remote state are read."""
+    with (
+        patch("pyicloud.cli.commands.mail._draft_input") as read_body,
+        patch.object(CLIState, "get_api") as auth,
+    ):
+        result = CliRunner().invoke(
+            app,
+            [
+                "mail",
+                mode + "-draft",
+                "id",
+                "--folder-id",
+                "sent",
+                "--sender",
+                sender,
+                "--to",
+                "recipient@example.test",
+                "--text-file",
+                str(tmp_path / "missing.txt"),
+            ],
+        )
+    assert isinstance(result.exception, CLIAbort)
+    assert "--sender" in str(result.exception)
+    read_body.assert_not_called()
+    auth.assert_not_called()
+    case.session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", ["reply", "forward"])
+def test_conversation_cli_namespace_hint_has_no_limit(
+    case: DraftCase, tmp_path: Path, mode: str
+) -> None:
+    """Reply/forward commands also cannot suggest an unavailable lookup flag."""
+    message = source(case)
+    case.folders[-1].pop("uidValidity")
+    path = tmp_path / "body.txt"
+    path.write_text("Text", encoding="utf-8")
+    api = MagicMock(mail=case.service, account_name="login@example.test")
+    with (
+        patch.object(CLIState, "get_api", return_value=api),
+        patch.object(CLIState, "open"),
+    ):
+        result = CliRunner().invoke(
+            app,
+            [
+                "mail",
+                mode + "-draft",
+                message.id,
+                "--folder-id",
+                "sent",
+                "--sender",
+                "primary@example.test",
+                "--to",
+                "recipient@example.test",
+                "--text-file",
+                str(path),
+            ],
+        )
+    assert isinstance(result.exception, CLIAbort)
+    assert "icloud mail folders" in str(result.exception)
+    assert "--limit" not in str(result.exception)
+    case.session.request_raw.assert_not_called()
+
+
 def test_reply_cli_rejects_forward_only_option(tmp_path: Path) -> None:
     """An irrelevant flag must not be silently accepted."""
     path = tmp_path / "body.txt"
