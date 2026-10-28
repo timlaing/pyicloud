@@ -6,6 +6,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_serializer
 
+from ._draft_models import DraftAttachmentReference, DraftStoredReference
+from ._thread_models import MailDraftThreading
+
 Identifier = Annotated[str, Field(strict=True, min_length=1)]
 MIME_PART_PATTERN = r"^[0-9]+(?:\.[0-9]+)*$"
 PartID = Annotated[str, Field(pattern=MIME_PART_PATTERN)]
@@ -104,6 +107,21 @@ class MailDraft(MailModel):
 
     message: MailMessage
     sender: MailSender
+    to: tuple[str, ...] = Field(default=(), repr=False)
+    cc: tuple[str, ...] = Field(default=(), repr=False)
+    bcc: tuple[str, ...] = Field(default=(), repr=False)
+    attachments: tuple[MailDraftAttachment, ...] = Field(default=(), repr=False)
+    threading: MailDraftThreading | None = Field(default=None, repr=False)
+    retained_drafts: tuple[MailMessage, ...] = Field(default=(), repr=False)
+
+
+class MailDraftAttachment(MailModel):
+    """An ordinary cached or source-bound part scoped to its account/gateway."""
+
+    account_id: Identifier = Field(repr=False)
+    service_root: Identifier = Field(repr=False)
+    reference: DraftAttachmentReference | DraftStoredReference = Field(repr=False)
+    source_message: MailMessage | None = Field(default=None, repr=False)
 
 
 class MailFlagUpdate(MailModel):
@@ -123,10 +141,30 @@ class MailMoveUpdate(MailModel):
     destination_folder_id: Identifier
 
 
+class MailSendUpdate(MailModel):
+    """Apple accepted a send and consumed its draft, not confirmed delivery."""
+
+    source_message_id: Identifier
+    source_folder_id: Identifier
+    source_uid: int = Field(strict=True, gt=0)
+    acknowledged: Literal[True] = True
+    delivery_confirmed: Literal[False] = False
+    retained_draft_ids: tuple[Identifier, ...] = ()
+
+
 class MailFolderDeletion(MailModel):
     """An acknowledged permanent folder deletion, not a move to Trash."""
 
     folder_id: Identifier
+    permanent: Literal[True] = True
+
+
+class MailMessageDeletion(MailModel):
+    """Acknowledged destruction of one Trash message, with no recovery promise."""
+
+    message_id: Identifier
+    folder_id: Identifier
+    uid: int = Field(strict=True, gt=0)
     permanent: Literal[True] = True
 
 
