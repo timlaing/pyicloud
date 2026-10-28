@@ -10,6 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Reject duplicate Mail UIDs with conflicting flags or thread metadata instead of keeping an arbitrary record during enumeration or synchronization.
 - Roll back interrupted Mail inventory transactions, including generator closure and process interruption, and simplify synchronization validation without changing its CLI options or safety budgets.
 - Explain fresh-state recovery for unsupported Mail sync histories and avoid duplicate folder discovery around exact UID refreshes while retaining both identity guards.
 - Handle malformed Mail draft headers consistently across supported Python versions and give draft commands actionable guidance when exact lookup lacks a verified mailbox namespace.

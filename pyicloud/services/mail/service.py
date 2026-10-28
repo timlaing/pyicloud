@@ -455,6 +455,8 @@ def _unique_uid_records(records: list[MailMessageRecord]) -> list[MailMessageRec
         if existing is not None:
             if existing.id != record.id:
                 raise MailError("Mail returned conflicting identities for a UID")
+            if (existing.flags, existing.thread_id) != (record.flags, record.thread_id):
+                raise MailError("Mail returned conflicting metadata for a UID")
             continue
         if record.id in identifiers:
             raise MailError("Mail returned one message identifier for multiple UIDs")
