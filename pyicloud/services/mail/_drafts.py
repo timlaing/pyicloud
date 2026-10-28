@@ -74,9 +74,22 @@ class DraftWriter:
         if body.guid != f"message:Drafts/{current.uid}":
             raise MailError("Draft body belongs to a different identity")
         headers = Parser(policy=policy.default).parsestr(body.headers, headersonly=True)
+        # The replacement carries only From/To/Cc/Bcc/subject/bodies, so refuse
+        # every address-bearing header it would otherwise silently erase.
         if headers.defects or any(
             value.strip()
-            for name in ("To", "Cc", "Bcc", "Resent-To", "Resent-Cc", "Resent-Bcc")
+            for name in (
+                "To",
+                "Cc",
+                "Bcc",
+                "Reply-To",
+                "Sender",
+                "Return-Receipt-To",
+                "Disposition-Notification-To",
+                "Resent-To",
+                "Resent-Cc",
+                "Resent-Bcc",
+            )
             for value in headers.get_all(name, [])
         ):
             raise MailError(

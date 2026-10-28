@@ -319,6 +319,16 @@ def _draft_input(path: Path | None) -> str:
         ) from exc
 
 
+def _require_draft_sender(sender: str) -> None:
+    """Reject an unusable --sender before authentication or any lookup.
+
+    ``MailSender.address`` is a strict nonempty string, so an empty value would
+    otherwise escape as a raw pydantic error outside ``_mail_call``.
+    """
+    if not sender.strip():
+        raise CLIAbort("Mail: --sender must be a non-empty enabled address.")
+
+
 def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
     """Report the replacement identity, never echo draft body content."""
     if state.json_output:
@@ -339,27 +349,10 @@ def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
 
 
 @app.command("senders")
-def mail_senders(
-    ctx: typer.Context,
-    username: UsernameOption = None,
-    session_dir: SessionDirOption = None,
-    http_proxy: HttpProxyOption = None,
-    https_proxy: HttpsProxyOption = None,
-    no_verify_ssl: NoVerifySslOption = False,
-    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
-    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
-) -> None:
+@with_command_options
+def mail_senders(ctx: typer.Context, common: CommandOptions) -> None:
     """Read enabled sender addresses; do not assume the login is a Mail address."""
-    store_command_options(
-        ctx,
-        username=username,
-        session_dir=session_dir,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
-        no_verify_ssl=no_verify_ssl,
-        output_format=output_format,
-        log_level=log_level,
-    )
+    common.store(ctx)
     state, api, mail = _context(ctx)
     result = _mail_call(api, mail.senders)
     if state.json_output:
@@ -374,8 +367,10 @@ def mail_senders(
 
 
 @app.command("create-draft")
+@with_command_options
 def mail_create_draft(
     ctx: typer.Context,
+    common: CommandOptions,
     sender: Annotated[
         str, typer.Option("--sender", help="Enabled address from mail senders.")
     ],
@@ -390,26 +385,10 @@ def mail_create_draft(
             "--html-file", help="UTF-8 HTML; omitted derives HTML from plain text."
         ),
     ] = None,
-    username: UsernameOption = None,
-    session_dir: SessionDirOption = None,
-    http_proxy: HttpProxyOption = None,
-    https_proxy: HttpsProxyOption = None,
-    no_verify_ssl: NoVerifySslOption = False,
-    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
-    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Save one recipient-free, attachment-free draft without sending it."""
     text, html = _draft_input(text_file), _draft_input(html_file)
-    store_command_options(
-        ctx,
-        username=username,
-        session_dir=session_dir,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
-        no_verify_ssl=no_verify_ssl,
-        output_format=output_format,
-        log_level=log_level,
-    )
+    common.store(ctx)
     state, api, mail = _context(ctx)
     result = _mail_call(
         api,
@@ -445,6 +424,7 @@ def mail_edit_draft(
     ],
 ) -> None:
     """Replace one recipient-free draft; use its returned UID and message ID."""
+    _require_draft_sender(sender)
     text, html = _draft_input(text_file), _draft_input(html_file)
     common.store(ctx)
     state, api, mail = _context(ctx)
@@ -459,8 +439,10 @@ def mail_edit_draft(
 
 
 @app.command("discard-draft")
+@with_command_options
 def mail_discard_draft(
     ctx: typer.Context,
+    common: CommandOptions,
     message_id: str,
     folder_id: FolderOption,
     trash_id: Annotated[
@@ -469,25 +451,10 @@ def mail_discard_draft(
     sender: Annotated[
         str, typer.Option("--sender", help="Current enabled draft sender.")
     ],
-    username: UsernameOption = None,
-    session_dir: SessionDirOption = None,
-    http_proxy: HttpProxyOption = None,
-    https_proxy: HttpsProxyOption = None,
-    no_verify_ssl: NoVerifySslOption = False,
-    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
-    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
 ) -> None:
     """Move only this recipient-free draft to Trash; request seen, never destroy."""
-    store_command_options(
-        ctx,
-        username=username,
-        session_dir=session_dir,
-        http_proxy=http_proxy,
-        https_proxy=https_proxy,
-        no_verify_ssl=no_verify_ssl,
-        output_format=output_format,
-        log_level=log_level,
-    )
+    _require_draft_sender(sender)
+    common.store(ctx)
     state, api, mail = _context(ctx)
     draft = MailDraft(
         message=_message(api, mail, folder_id, message_id, None),

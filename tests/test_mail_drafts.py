@@ -348,6 +348,8 @@ def test_plain_only_save_supplies_escaped_canonical_html(
         "body-guid",
         "recipients",
         "bcc",
+        "reply-to",
+        "sender-header",
         "headers",
         "from-missing",
         "from-duplicate",
@@ -382,6 +384,10 @@ def test_edit_preflight_never_overwrites_unverified_draft(
         case.body_headers += "To: other@example.test\r\n"
     elif kind == "bcc":
         case.body_headers += "Bcc: hidden@example.test\r\n"
+    elif kind == "reply-to":
+        case.body_headers += "Reply-To: other@example.test\r\n"
+    elif kind == "sender-header":
+        case.body_headers += "Sender: other@example.test\r\n"
     elif kind == "headers":
         case.body_headers = "not a header\r\n"
     elif kind == "from-missing":
@@ -538,6 +544,7 @@ def test_discard_exact_payload_and_acknowledgement(case: DraftCase) -> None:
 @pytest.mark.parametrize(
     "kind",
     [
+        "not-folder",
         "wrong-trash",
         "disabled-sender",
         "conflicting",
@@ -549,8 +556,10 @@ def test_discard_exact_payload_and_acknowledgement(case: DraftCase) -> None:
 def test_discard_guards_and_uncertain_outcomes(case: DraftCase, kind: str) -> None:
     """Contradictory outcomes stay uncertain; they never authorize a retry."""
     draft = handle(case)
-    trash = MailFolder(**case.folders[1])
-    if kind == "wrong-trash":
+    trash: Any = MailFolder(**case.folders[1])
+    if kind == "not-folder":
+        trash = "trash"
+    elif kind == "wrong-trash":
         trash = MailFolder(**case.folders[2])
     elif kind == "disabled-sender":
         draft = draft.model_copy(
@@ -576,7 +585,7 @@ def test_discard_guards_and_uncertain_outcomes(case: DraftCase, kind: str) -> No
         case.after_record = record()
     expected = (
         ValueError
-        if kind == "wrong-trash"
+        if kind in {"not-folder", "wrong-trash"}
         else MailError
         if kind == "disabled-sender"
         else MailWriteRejected
@@ -586,8 +595,11 @@ def test_discard_guards_and_uncertain_outcomes(case: DraftCase, kind: str) -> No
     with pytest.raises(expected):
         case.service.discard_draft(draft, trash)
     assert case.session.request_raw.call_count == (
-        0 if kind in {"wrong-trash", "disabled-sender"} else 1
+        0 if kind in {"not-folder", "wrong-trash", "disabled-sender"} else 1
     )
+    if kind in {"not-folder", "wrong-trash"}:
+        case.session.get.assert_not_called()
+        case.session.post.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -698,4 +710,47 @@ def test_draft_cli_required_selection_is_not_implicit(
         result = CliRunner().invoke(app, ["mail", command])
     assert result.exit_code != 0
     get_api.assert_not_called()
+    case.session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["edit-draft", "discard-draft"])
+def test_draft_cli_empty_sender_fails_before_authentication(
+    case: DraftCase, tmp_path: Path, command: str
+) -> None:
+    """A nonempty --sender guard precedes body reads, authentication and lookups."""
+    text = tmp_path / "text.txt"
+    html = tmp_path / "html.txt"
+    text.write_text("Private replacement text", encoding="utf-8")
+    html.write_text("<p>Private replacement text</p>", encoding="utf-8")
+    args = [
+        "mail",
+        command,
+        "draft-100",
+        "--folder-id",
+        "drafts",
+        "--sender",
+        "",
+    ]
+    if command == "discard-draft":
+        args += ["--trash-id", "trash"]
+    else:
+        args += [
+            "--subject",
+            "After",
+            "--text-file",
+            str(text),
+            "--html-file",
+            str(html),
+        ]
+    api = MagicMock(mail=case.service, account_name="login@example.test")
+    with (
+        patch.object(CLIState, "get_api", return_value=api) as get_api,
+        patch.object(CLIState, "open"),
+    ):
+        result = CliRunner().invoke(app, args)
+    assert isinstance(result.exception, CLIAbort)
+    assert "--sender" in str(result.exception)
+    get_api.assert_not_called()
+    case.session.get.assert_not_called()
+    case.session.post.assert_not_called()
     case.session.request_raw.assert_not_called()

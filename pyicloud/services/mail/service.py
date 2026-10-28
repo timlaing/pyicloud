@@ -638,6 +638,10 @@ class MailService(BaseService):
         destruction. Contradictory success/error maps remain uncertain even when
         the draft has moved; inspect both folders, never retry automatically.
         """
+        if not isinstance(trash, MailFolder):
+            raise ValueError("A discovered Trash MailFolder is required")
+        if trash.name != "Deleted Messages":
+            raise ValueError("Discard requires the discovered Deleted Messages mailbox")
         writer = self._draft_writer()
         current = writer.checked(draft)
         enabled = self.senders()
@@ -646,8 +650,6 @@ class MailService(BaseService):
         ):
             raise MailError("Draft sender is no longer enabled")
         self._move_folder(trash)
-        if trash.name != "Deleted Messages":
-            raise ValueError("Discard requires the discovered Deleted Messages mailbox")
         request = DraftDiscardRequest(
             batchUpdate=(
                 DraftDiscardOperation(

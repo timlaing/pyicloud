@@ -35,10 +35,13 @@ independently preserved MIME alternatives. These methods do not send
 mail, upload attachments, enable addresses, or use Hide My Email.
 
 Before editing, fresh UID, message ID, Drafts namespace, sender, body identity,
-headers, and attachment metadata are checked. Existing recipient headers,
-attachments, unknown attachment status, stale handles, and unsupported body
-metadata fail before dispatch instead of silently erasing data. These checks
-are **not atomic conditional writes**: another client can still change the
+headers, and attachment metadata are checked. Existing address-bearing headers
+(To, Cc, Bcc, Reply-To, Sender, Return-Receipt-To, Disposition-Notification-To,
+and Resent-*), attachments, unknown attachment status, stale handles, and
+unsupported body metadata fail before dispatch instead of silently erasing
+data. A full replacement does not preserve other original headers, such as
+`In-Reply-To`, `References`, or `X-*` fields. These checks are **not atomic
+conditional writes**: another client can still change the
 draft between inspection and submission. A failed post-save read or unverified
 acknowledgement raises `MailWriteUncertain`; inspect Drafts before any explicit
 retry, because the save may have succeeded and rotated the UID. There are no
