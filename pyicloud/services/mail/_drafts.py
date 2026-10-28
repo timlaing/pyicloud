@@ -97,6 +97,9 @@ def checked_recipients(body: MailBody, draft: MailDraft) -> None:
             "Resent-To",
             "Resent-Cc",
             "Resent-Bcc",
+            "Resent-From",
+            "Resent-Sender",
+            "Resent-Reply-To",
         )
         for value in headers.get_all(name, [])
     ):
