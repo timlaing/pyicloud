@@ -14,6 +14,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Give `mail delete-forever` actionable folder-refresh guidance when UID validity is missing instead of suggesting its unavailable `--limit` option.
 - Preserve MIME parameters and repeated filenames for distinct source attachments in forward drafts while retaining strict upload validation and exact source-part checks.
 - Reject duplicate Mail UIDs with conflicting flags or thread metadata instead of keeping an arbitrary record during enumeration or synchronization.
 - Verify saved Mail recipient headers even after explicitly clearing every recipient, reporting unexpected retained recipients as an uncertain save.
@@ -33,6 +34,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add explicitly confirmed, single-message permanent Mail deletion from the discovered Trash mailbox through `delete_permanently()` and `icloud mail delete-forever`, with fresh identity checks, exact destruction acknowledgements, target-only post-verification, and no automatic retries or mailbox purge.
 - Add explicit reply and forward draft creation through the library and CLI, retaining validated parent/reference headers across edits and sending. Forward drafts preserve account-bound ordinary source attachments without reuploading them and explicitly report previous versions Apple retains on edit, without deleting or sending those versions. Recipients and complete body content remain explicit, and moved/changed sources are refused.
 - Add explicitly confirmed sending of one saved Mail draft through `send_draft()` and `icloud mail send-draft`, with fresh identity/recipient/attachment checks, source-only acknowledgements, and no automatic retries or Undo Send delay. Submission acknowledgement does not confirm delivery.
 - Add explicit Mail draft creation, full subject/body replacement, recoverable Trash discard, To/Cc/Bcc recipients, and account-bound ordinary attachments preserved by default during edits. Include verified senders, fresh identity checks, rotating-UID handles, bounded uploads, attachment remapping, UTF-8 inputs, private CLI state, explicit clear options, and no automatic write retries. Mail Drop uploads remain unsupported.
@@ -52,7 +54,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add Mail snippets using advertised preview IDs and separate Unread/Flagged browser thread filters through the library and `icloud mail preview` / `icloud mail filter`, with mailbox identity checks and explicit bounded thread-group semantics.
 - Add explicit `MailService.iter_messages()` UID-based mailbox enumeration and `icloud mail list --all`, with mailbox identity checks, validated paging boundaries, and explicit failure on incomplete scans. Default message listing and search remain bounded; enumeration is not an atomic snapshot or synchronization API.
 - Add read-only `icloud mail` commands for folders, bounded message listings and thread-grouped search, body data, and attachment downloads to explicit non-overwriting paths.
-- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Supported Mail writes, including folder mutations, are separate explicit operations; permanent single-message deletion and incremental synchronization remain unsupported. Folder deletion is confirmed irreversible and can permanently remove contained messages.
+- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Supported Mail writes, including folder mutations, are separate explicit operations; incremental synchronization remains unsupported. Folder deletion is confirmed irreversible and can permanently remove contained messages.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).

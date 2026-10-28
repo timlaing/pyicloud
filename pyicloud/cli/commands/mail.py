@@ -350,7 +350,7 @@ def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
         _table(
             state,
             "Saved Mail Draft",
-            ["Message ID", "UID", _FOLDER_ID_COLUMN, "Retained Prior Draft IDs"],
+            [_MESSAGE_ID_COLUMN, "UID", _FOLDER_ID_COLUMN, "Retained Prior Draft IDs"],
             [
                 (
                     draft.message.id,
@@ -685,6 +685,50 @@ def mail_edit_draft(
         ),
     )
     _draft_acknowledgement(state, result)
+
+
+@app.command("delete-forever")
+def mail_delete_forever(
+    ctx: typer.Context,
+    message_id: str,
+    folder_id: FolderOption,
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Irreversibly delete this one Trash message."),
+    ] = False,
+    username: UsernameOption = None,
+    session_dir: SessionDirOption = None,
+    http_proxy: HttpProxyOption = None,
+    https_proxy: HttpsProxyOption = None,
+    no_verify_ssl: NoVerifySslOption = False,
+    output_format: OutputFormatOption = DEFAULT_OUTPUT_FORMAT,
+    log_level: LogLevelOption = DEFAULT_LOG_LEVEL,
+) -> None:
+    """Permanently delete one exact Trash message; never empty the mailbox."""
+    if not confirm:
+        raise CLIAbort("Permanent deletion requires --confirm; no write submitted.")
+    store_command_options(
+        ctx,
+        username=username,
+        session_dir=session_dir,
+        http_proxy=http_proxy,
+        https_proxy=https_proxy,
+        no_verify_ssl=no_verify_ssl,
+        output_format=output_format,
+        log_level=log_level,
+    )
+    state, api, mail = _context(ctx)
+    message = _message(api, mail, folder_id, message_id, None, bounded_fallback=False)
+    result = _mail_call(api, lambda: mail.delete_permanently(message, confirm=True))
+    if state.json_output:
+        state.write_json(result)
+    else:
+        _table(
+            state,
+            "Mail Message Permanently Deleted",
+            [_MESSAGE_ID_COLUMN, _FOLDER_ID_COLUMN, "UID"],
+            [(result.message_id, result.folder_id, result.uid)],
+        )
 
 
 @app.command("send-draft")

@@ -4,6 +4,38 @@
 
 ## Status and Evidence
 
+### Write Coverage Audit (2026-10-21)
+
+The initial write roadmap is implemented in the public library and mounted CLI.
+This is not a claim that every iCloud Mail operation is supported, that the API
+is stable, or that the pending changes have been merged upstream.
+
+| Roadmap item                                   | Implementation and offline evidence                                                                                           | Authorized live evidence                                                                                                                         |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Read/unread and flag/unflag                    | `set_read`, `set_flagged`, `mail mark`; `test_mail_flags.py`                                                                  | Four implementation writes; original state restored.                                                                                             |
+| Moves, archive destinations, Trash and restore | Exact-destination `move`, `mail move`; `test_mail_moves.py`                                                                   | Inbox/Testing/Trash round trips through library and CLI. No automatic archive-folder selection.                                                  |
+| Folder create, rename and delete               | Folder methods and CLI commands; `test_mail_folder_writes.py`                                                                 | One Unicode disposable folder created, renamed and deleted.                                                                                      |
+| Draft create, replace and discard              | Saved handles and CLI state; `test_mail_drafts.py`                                                                            | Recipient-free create/edit/Trash lifecycle, rotating UID and body preservation checked.                                                          |
+| Recipients and ordinary attachments            | Explicit To/Cc/Bcc, upload and saved references; `test_mail_drafts.py`                                                        | Upload/create/edit/discard with exact attachment-byte and recipient preservation.                                                                |
+| Send, reply and forward                        | `send_draft`, `create_reply_draft`, `create_forward_draft` and CLI; `test_mail_drafts.py`, `test_mail_conversation_drafts.py` | One direct implementation send; reply/forward implementation draft lifecycles. Browser sends separately established all three final-send shapes. |
+| Permanent deletion                             | Confirmed `delete_permanently`, `mail delete-forever`; `test_mail_message_deletion.py`                                        | One exact synthetic Trash target destroyed through the implementation; UID/ID absence verified.                                                  |
+
+The upstream-integrated suite passed with 3,851 tests and 98.38% aggregate
+coverage. The changed
+Mail source modules and CLI had complete statement and branch coverage. All
+mandatory hooks and the strict documentation build passed. Offline mocks check
+failure handling, but do not prove Apple's behavior for every account or server
+failure. Reply/forward sending through this implementation was verified offline,
+not by additional live implementation sends. Browser sends and direct-send
+implementation verification are distinct evidence, as detailed below.
+
+Deliberate boundaries remain: no Mail Drop uploads, Undo Send scheduling,
+inferred recipients, automatic quoting/reply-all, Junk spam-state mutations,
+bulk destruction, or empty-Trash operation. Forward edits can retain prior
+versions, which are reported rather than silently deleted. Write preflight is
+not atomic with the mutation. Explicit uncertain outcomes never authorize an
+automatic retry or cleanup, and all recorded live approvals are exhausted.
+
 ### Additional Write Investigation (2026-10-21)
 
 The ordinary-move library and CLI implementation uses the observations below.
@@ -18,9 +50,31 @@ Reply/forward draft creation now has offline implementation
 coverage, including retained threading, cached uploads and source-bound ordinary
 forward attachments. Live tests verified reply creation/edit/Trash reconciliation
 and forward creation/edit/retention reporting/Trash reconciliation, with exact
-attachment bytes preserved. Mail Drop uploads and permanent message deletion
-remain unsupported. Additional live sends and permanent
+attachment bytes preserved. Confirmed single-message Trash destruction now has
+an implementation and offline coverage derived from the browser capture below.
+Mail Drop uploads remain unsupported. Additional live sends and permanent
 message deletion require separate authorization.
+
+An authorized browser test permanently deleted exactly one previously verified
+synthetic reply already in Trash, after separate action-time confirmation. The
+request used `email/set` with `clientIntent=deleteMessagesGems`, `domain: email`
+and a one-element `destroy` array. HTTP 200 returned the matching account and
+exactly that ID in `destroyed`, with no created, updated or failure effects.
+Target-only read checks subsequently found neither the UID nor the message ID.
+No whole-Trash metadata scan or attachment/body download was used. The browser
+approval is exhausted; this does not authorize further deletions.
+
+After all offline checks passed, a separately authorized implementation test
+permanently deleted one exact synthetic forward already in Trash through the
+mounted CLI. Fresh preflight verified its subject, ID, UID and UID validity.
+The guarded transport allowed exactly one matching `email/set` destruction and
+blocked any broader message query, additional write, or retry. The public service
+returned a typed permanent-deletion acknowledgement; its post-verification and
+independent target-only checks found neither the UID nor ID. No other message
+metadata, bodies or attachments were queried. No new mail was created or sent.
+The private audit was persisted before dispatch and remains outside Git. This
+one irreversible deletion approval is exhausted. These checks demonstrate one
+account's observed behavior, not an atomic mailbox snapshot or recovery promise.
 
 Three authorized browser sends on 2026-10-21 verified new/reply/forward submission
 with disposable text, one ordinary text attachment, and a single controlled
@@ -236,7 +290,8 @@ Trash command issued the same mark-read-and-move patch as ordinary message
 Trash, including the contradictory outcome shape. The draft disappeared from
 Drafts, restoring the original five-draft count. No `destroy` request or send was
 issued; do not describe this capture as permanent draft deletion. The discarded
-test draft can remain recoverable in Trash. Permanent deletion remains untested in this implementation.
+test draft can remain recoverable in Trash. Permanent deletion was untested at
+that stage; the separate later evidence above does not change discard semantics.
 
 A read-only implementation probe established that `geqs/query` ignores the
 `noSelect`, `labelMailbox`, and `specialUse...` properties returned by

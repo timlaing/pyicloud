@@ -14,6 +14,16 @@ Load these fixtures through `tests.fixture_loader.load_fixture` so reads respect
 the test filesystem sandbox. Search results are thread-grouped; listing fixtures
 represent bounded snapshots, not a complete synchronization protocol.
 
+`message_delete_request.json` and `message_delete_response.json` model a separately
+authorized browser deletion of one synthetic message already in Trash. The
+request destroys exactly one ID; the acknowledgement names exactly that ID and
+no other effects. All account/message IDs are invented. Failure maps and mixed
+effects in tests are robustness cases, not additional live capture evidence.
+No mailbox purge or bulk destruction is modeled.
+A separate, one-write live implementation test subsequently verified the CLI
+acknowledgement and exact target absence by UID and ID, without retries or other
+message queries. No additional real identifiers are stored in these fixtures.
+
 `flag_update_request.json` and `flag_update_response.json` model the one-message
 `email/set` shape observed through authorized browser read/unread and flag/unflag
 actions. Only named `seen` and `flagged` set/clear deltas were captured. Account

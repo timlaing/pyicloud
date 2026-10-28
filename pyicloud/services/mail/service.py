@@ -50,6 +50,12 @@ from pyicloud.services.mail._folder_models import (
 )
 from pyicloud.services.mail._folder_writes import FOLDER_UNCERTAIN, FolderWriter
 from pyicloud.services.mail._mailboxes import MailboxSnapshot, MailboxSnapshotResponse
+from pyicloud.services.mail._message_deletion import (
+    DELETE_UNCERTAIN,
+    MessageDeleteRequest,
+    MessageDeleteResponse,
+    deletion_acknowledged,
+)
 from pyicloud.services.mail._moves import (
     MailboxReplacement,
     MoveOperation,
@@ -79,6 +85,7 @@ from pyicloud.services.mail.models import (
     MailFolderDeletion,
     MailFolderSearchPage,
     MailMessage,
+    MailMessageDeletion,
     MailMessageExport,
     MailMessagePage,
     MailMessageRecord,
@@ -503,7 +510,8 @@ class MailService(BaseService):
 
     Bounded methods remain snapshots; only explicit iterators opt into paging.
     Reads never mutate mail. Folder, draft, ordinary upload and send writes are
-    explicit. Permanent message deletion, rendering and sync are unsupported.
+    explicit, as is confirmed single-message Trash destruction. Rendering and
+    sync are unsupported.
     Read-side authentication failures retain the library's existing exception types.
     """
 
@@ -1060,6 +1068,42 @@ class MailService(BaseService):
             source_message_id=message.id,
             source_folder_id=message.folder.id,
             destination_folder_id=destination.id,
+        )
+
+    def delete_permanently(
+        self, message: MailMessage, *, confirm: bool = False
+    ) -> MailMessageDeletion:
+        """Irreversibly destroy exactly one current message already in Trash.
+
+        Never use this as a move-to-Trash operation or an empty-Trash API. Fresh
+        identity checks are not atomic with destruction. A submitted request is
+        never retried automatically, even when verification fails afterward.
+        """
+        if confirm is not True:
+            raise ValueError("Permanent message deletion requires confirm=True")
+        if not isinstance(message, MailMessage):
+            raise ValueError("A folder-bound MailMessage is required")
+        if message.folder.name != "Deleted Messages":
+            raise ValueError("Permanent deletion requires the discovered Trash mailbox")
+        account_id = self._write_identity(message)
+        self._move_folder(message.folder)
+        response = self._submit_update(
+            MessageDeleteRequest(destroy=(message.id,)),
+            MessageDeleteResponse,
+            "deleteMessagesGems",
+            DELETE_UNCERTAIN,
+        )
+        deletion_acknowledged(response, account_id, message.id)
+        try:
+            if (
+                self.message_by_uid(message.folder, message.uid) is not None
+                or self.message(message.folder, message.id) is not None
+            ):
+                raise MailError("Deleted message is still present")
+        except (PyiCloudException, OSError, ValueError) as exc:
+            raise MailWriteUncertain(DELETE_UNCERTAIN) from exc
+        return MailMessageDeletion(
+            message_id=message.id, folder_id=message.folder.id, uid=message.uid
         )
 
     def _move_folder(self, folder: MailFolder) -> None:
