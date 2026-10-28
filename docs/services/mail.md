@@ -80,6 +80,10 @@ Before editing, fresh UID, message ID, Drafts namespace, sender, body identity,
 headers, and attachment metadata are checked against the saved handle. Extra or
 changed recipients/attachments, unknown attachment status, stale handles, and
 unsupported body metadata fail before dispatch instead of silently erasing data.
+Non-empty Reply-To, Sender, Return-Receipt-To, Disposition-Notification-To, and
+Resent-* headers are refused rather than silently erased. Other original headers
+not explicitly represented by the saved draft handle, such as X-* fields, are not
+preserved by a full replacement.
 To/Cc/Bcc headers are checked again after a recipient-bearing save. A missing Bcc
 header cannot be assumed to prove a successful Bcc save. Attachment mappings
 must be complete, unique and reusable; an unsupported mapping remains uncertain.

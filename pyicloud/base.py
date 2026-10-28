@@ -1810,10 +1810,7 @@ class PyiCloudService:
         """Experimental Mail reads and explicit writes via the discovered gateway."""
         if self._mail is None:
             service_root: str = self.get_webservice_url("mccgateway")
-            try:
-                settings_root = self.get_webservice_url("mcc")
-            except PyiCloudServiceNotActivatedException:
-                settings_root = None
+            settings_root = self._optional_webservice_url("mcc")
             try:
                 self._mail = MailService(
                     service_root=service_root,

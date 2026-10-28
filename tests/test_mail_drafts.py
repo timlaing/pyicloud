@@ -4,6 +4,7 @@
 from collections.abc import Iterator
 from copy import deepcopy
 from dataclasses import dataclass, field
+from email.errors import MessageError
 from functools import partial
 import json
 from pathlib import Path
@@ -29,6 +30,7 @@ from pyicloud.services.mail import (
     MailWriteRejected,
     MailWriteUncertain,
 )
+from pyicloud.services.mail._draft_headers import parse_headers
 from pyicloud.services.mail._draft_models import DraftAttachmentReference
 from pyicloud.services.mail._drafts import header_sender
 from pyicloud.session import PyiCloudSession
@@ -499,6 +501,14 @@ def test_attachment_mapping_can_rotate_cached_identity(case: DraftCase) -> None:
         "To: Group: a@example.test;\r\n",  # unsupported group
         "To: broken <\r\n",  # malformed address
         "Resent-To: a@example.test\r\n",  # unexpected redirect recipient
+        "From: primary@example.test\r\nTo: a@example.test\r\n"
+        "Reply-To: other@example.test\r\n",
+        "From: primary@example.test\r\nTo: a@example.test\r\n"
+        "Sender: other@example.test\r\n",
+        "From: primary@example.test\r\nTo: a@example.test\r\n"
+        "Return-Receipt-To: other@example.test\r\n",
+        "From: primary@example.test\r\nTo: a@example.test\r\n"
+        "Disposition-Notification-To: other@example.test\r\n",
     ],
 )
 def test_post_save_recipient_mismatch_is_uncertain(
@@ -796,6 +806,104 @@ def test_invalid_inputs_never_read_or_write(
     case.session.request_raw.assert_not_called()
 
 
+@pytest.mark.parametrize("operation", ["edit", "discard"])
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Reply-To",
+        "Sender",
+        "Return-Receipt-To",
+        "Disposition-Notification-To",
+    ],
+)
+def test_address_headers_are_not_erased(
+    case: DraftCase, operation: str, header: str
+) -> None:
+    """Retain the published refusal policy for routing and receipt headers."""
+    case.body_headers += f"{header}: synthetic@example.test\r\n"
+    draft = handle(case)
+    trash = MailFolder(**case.folders[1])
+    mutation = (
+        partial(case.service.edit_draft, draft, subject="After", text="", html="")
+        if operation == "edit"
+        else partial(case.service.discard_draft, draft, trash)
+    )
+    with pytest.raises(MailError):
+        mutation()
+    case.session.request_raw.assert_not_called()
+    assert case.records[100]["subject"] == "Before"
+
+
+def test_known_regenerated_headers_are_supported(case: DraftCase) -> None:
+    """Routine MIME/date metadata is supported, without permitting arbitrary fields."""
+    case.body_headers += (
+        "Date: Tue, 27 Oct 2026 12:00:00 +0000\r\n"
+        "Message-ID: <synthetic@example.test>\r\nMIME-Version: 1.0\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n"
+        "Content-Transfer-Encoding: 7bit\r\n"
+    )
+    assert save(case, True).message.uid == 101
+
+
+@pytest.mark.parametrize("failure", [IndexError, ValueError, MessageError])
+@pytest.mark.parametrize("lazy", [False, True])
+def test_header_parser_failures_are_mail_errors(
+    failure: type[Exception], lazy: bool
+) -> None:
+    """Older Python parser bugs and lazy header failures stay inside the boundary."""
+    with patch("pyicloud.services.mail._draft_headers.Parser") as parser:
+        target = (
+            parser.return_value.parsestr.return_value.items
+            if lazy
+            else parser.return_value.parsestr
+        )
+        target.side_effect = failure("private header details")
+        with pytest.raises(MailError, match="malformed draft headers") as caught:
+            parse_headers("From: synthetic@example.test\r\n")
+    assert caught.value.__suppress_context__ is True
+    assert "private" not in str(caught.value)
+
+
+@pytest.mark.parametrize("command", ["edit-draft", "discard-draft"])
+def test_draft_cli_missing_namespace_has_actionable_hint(
+    case: DraftCase, tmp_path: Path, command: str
+) -> None:
+    """These commands cannot recommend a nonexistent bounded-lookup option."""
+    case.folders[0].pop("uidValidity")
+    body = tmp_path / "empty-body.txt"
+    body.write_text("", encoding="utf-8")
+    args = [
+        "mail",
+        command,
+        "draft-100",
+        "--folder-id",
+        "drafts",
+        "--sender",
+        "primary@example.test",
+    ]
+    if command == "edit-draft":
+        args += [
+            "--subject",
+            "After",
+            "--text-file",
+            str(body),
+            "--html-file",
+            str(body),
+        ]
+    else:
+        args += ["--trash-id", "trash"]
+    api = MagicMock(mail=case.service, account_name="login@example.test")
+    with (
+        patch.object(CLIState, "get_api", return_value=api),
+        patch.object(CLIState, "open"),
+    ):
+        result = CliRunner().invoke(app, args)
+    assert isinstance(result.exception, CLIAbort)
+    assert "icloud mail folders" in str(result.exception)
+    assert "--limit" not in str(result.exception)
+    case.session.request_raw.assert_not_called()
+
+
 @pytest.mark.parametrize("build", [None, 123, "", " "])
 def test_missing_client_build_is_not_copied_from_capture(
     case: DraftCase, build: Any
@@ -848,6 +956,8 @@ def test_plain_only_save_supplies_escaped_canonical_html(
         "body-guid",
         "recipients",
         "bcc",
+        "reply-to",
+        "sender-header",
         "headers",
         "from-missing",
         "from-duplicate",
@@ -882,6 +992,10 @@ def test_edit_preflight_never_overwrites_unverified_draft(
         case.body_headers += "To: other@example.test\r\n"
     elif kind == "bcc":
         case.body_headers += "Bcc: hidden@example.test\r\n"
+    elif kind == "reply-to":
+        case.body_headers += "Reply-To: other@example.test\r\n"
+    elif kind == "sender-header":
+        case.body_headers += "Sender: other@example.test\r\n"
     elif kind == "headers":
         case.body_headers = "not a header\r\n"
     elif kind == "from-missing":
@@ -939,7 +1053,7 @@ def test_valid_sender_header_uses_structured_parser_fields() -> None:
 )
 def test_unknown_parser_shapes_fail_closed(header: object) -> None:
     """Defensive parser-interface failures cannot become a verified sender."""
-    with patch("pyicloud.services.mail._drafts.Parser") as parser:
+    with patch("pyicloud.services.mail._draft_headers.Parser") as parser:
         parser.return_value.parsestr.return_value = {"From": header}
         with pytest.raises(MailError):
             header_sender("Synthetic User <primary@example.test>")
@@ -1038,6 +1152,7 @@ def test_discard_exact_payload_and_acknowledgement(case: DraftCase) -> None:
 @pytest.mark.parametrize(
     "kind",
     [
+        "not-folder",
         "wrong-trash",
         "disabled-sender",
         "conflicting",
@@ -1049,8 +1164,10 @@ def test_discard_exact_payload_and_acknowledgement(case: DraftCase) -> None:
 def test_discard_guards_and_uncertain_outcomes(case: DraftCase, kind: str) -> None:
     """Contradictory outcomes stay uncertain; they never authorize a retry."""
     draft = handle(case)
-    trash = MailFolder(**case.folders[1])
-    if kind == "wrong-trash":
+    trash: Any = MailFolder(**case.folders[1])
+    if kind == "not-folder":
+        trash = "trash"
+    elif kind == "wrong-trash":
         trash = MailFolder(**case.folders[2])
     elif kind == "disabled-sender":
         draft = draft.model_copy(
@@ -1076,7 +1193,7 @@ def test_discard_guards_and_uncertain_outcomes(case: DraftCase, kind: str) -> No
         case.after_record = record()
     expected = (
         ValueError
-        if kind == "wrong-trash"
+        if kind in {"not-folder", "wrong-trash"}
         else MailError
         if kind == "disabled-sender"
         else MailWriteRejected
@@ -1086,8 +1203,11 @@ def test_discard_guards_and_uncertain_outcomes(case: DraftCase, kind: str) -> No
     with pytest.raises(expected):
         case.service.discard_draft(draft, trash)
     assert case.session.request_raw.call_count == (
-        0 if kind in {"wrong-trash", "disabled-sender"} else 1
+        0 if kind in {"not-folder", "wrong-trash", "disabled-sender"} else 1
     )
+    if kind in {"not-folder", "wrong-trash"}:
+        case.session.get.assert_not_called()
+        case.session.post.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -1198,4 +1318,48 @@ def test_draft_cli_required_selection_is_not_implicit(
         result = CliRunner().invoke(app, ["mail", command])
     assert result.exit_code != 0
     get_api.assert_not_called()
+    case.session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["edit-draft", "discard-draft"])
+@pytest.mark.parametrize("sender", ["", "   "])
+def test_draft_cli_empty_sender_fails_before_authentication(
+    case: DraftCase, tmp_path: Path, command: str, sender: str
+) -> None:
+    """A nonempty --sender guard precedes body reads, authentication and lookups."""
+    text = tmp_path / "text.txt"
+    html = tmp_path / "html.txt"
+    text.write_text("Private replacement text", encoding="utf-8")
+    html.write_text("<p>Private replacement text</p>", encoding="utf-8")
+    args = [
+        "mail",
+        command,
+        "draft-100",
+        "--folder-id",
+        "drafts",
+        "--sender",
+        sender,
+    ]
+    if command == "discard-draft":
+        args += ["--trash-id", "trash"]
+    else:
+        args += [
+            "--subject",
+            "After",
+            "--text-file",
+            str(text),
+            "--html-file",
+            str(html),
+        ]
+    api = MagicMock(mail=case.service, account_name="login@example.test")
+    with (
+        patch.object(CLIState, "get_api", return_value=api) as get_api,
+        patch.object(CLIState, "open"),
+    ):
+        result = CliRunner().invoke(app, args)
+    assert isinstance(result.exception, CLIAbort)
+    assert "--sender" in str(result.exception)
+    get_api.assert_not_called()
+    case.session.get.assert_not_called()
+    case.session.post.assert_not_called()
     case.session.request_raw.assert_not_called()
