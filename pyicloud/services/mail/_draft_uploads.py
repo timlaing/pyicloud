@@ -98,6 +98,11 @@ def _check_stored_source(
     attachment: MailDraftAttachment, reference: DraftStoredReference
 ) -> None:
     """Require exactly one matching attachment in the bound source message."""
+    validate_upload_input(
+        b"", reference.name, reference.datatype.split(";", 1)[0].strip()
+    )
+    if any(ord(c) < 32 or ord(c) == 127 for c in reference.datatype):
+        raise ValueError("Stored attachment MIME metadata must be control-free")
     source = attachment.source_message
     if source is None:
         raise ValueError("Stored attachments require their source message")
@@ -131,8 +136,8 @@ def _checked_reference(
     reference = type(attachment.reference).model_validate(
         attachment.reference.model_dump(by_alias=True), by_alias=True, by_name=False
     )
-    validate_upload_input(b"", reference.name, reference.datatype)
     if isinstance(reference, DraftAttachmentReference):
+        validate_upload_input(b"", reference.name, reference.datatype)
         if reference.size > MAX_DRAFT_UPLOAD_BYTES:
             raise ValueError("Attachment handle exceeds the ordinary upload limit")
         if (
@@ -165,7 +170,15 @@ def attachment_references(
             else None,
         )
         if any(
-            r.guid == reference.guid or r.name == reference.name for r in references
+            r.guid == reference.guid
+            or (
+                r.name == reference.name
+                and (
+                    isinstance(r, DraftAttachmentReference)
+                    or isinstance(reference, DraftAttachmentReference)
+                )
+            )
+            for r in references
         ):
             raise ValueError("Duplicate attachment identity or filename")
         references.append(reference.model_copy(update={"url": url}))

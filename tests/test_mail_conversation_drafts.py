@@ -250,6 +250,64 @@ def test_forward_explicitly_omits_source_attachments(case: DraftCase) -> None:
     assert case.session.request_raw.call_args.kwargs["json"]["attachments"] == []
 
 
+@pytest.mark.parametrize("mime", ["text/plain; charset=us-ascii", "application/pdf"])
+@pytest.mark.parametrize("size", [106, 30 * 1024 * 1024])
+def test_forward_preserves_distinct_source_parts_with_repeated_names(
+    case: DraftCase, mime: str, size: int
+) -> None:
+    """Stored parts retain full metadata without inheriting upload-only limits."""
+    message = source(case)
+    part = case.records[100]["parts"][-1]
+    part.update(contentType=mime, size=size)
+    case.records[100]["parts"].append({**part, "partId": "2.3"})
+    draft = create(case, message, "forward")
+    references = [attachment.reference for attachment in draft.attachments]
+    assert [reference.name for reference in references] == ["original.txt"] * 2
+    assert [reference.datatype for reference in references] == [mime] * 2
+    assert [reference.size for reference in references] == [size] * 2
+    assert len({reference.guid for reference in references}) == 2
+    case.wrote = False
+    case.next_uid = 102
+    edited = case.service.edit_draft(draft, subject="Edited", text="Body", html="")
+    assert edited.attachments == draft.attachments
+
+
+@pytest.mark.parametrize("mime", ["invalid", "text/plain;\r\nInjected: bad"])
+def test_forward_rejects_malformed_source_mime(case: DraftCase, mime: str) -> None:
+    """Parameter support must not authorize malformed types or header controls."""
+    message = source(case)
+    case.records[100]["parts"][-1]["contentType"] = mime
+    with pytest.raises(ValueError):
+        create(case, message, "forward")
+    case.session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_cached_name_collision_with_stored_part_is_refused(
+    case: DraftCase, reverse: bool
+) -> None:
+    """Stored-name support cannot weaken the cached-upload collision guard."""
+    cached = uploaded_attachment(case)
+    message = source(case)
+    case.records[100]["parts"][-1]["fileName"] = cached.model_dump()["reference"][
+        "name"
+    ]
+    draft = create(case, message, "forward")
+    references = (*draft.attachments, cached)
+    if reverse:
+        references = tuple(reversed(references))
+    with pytest.raises(ValueError, match="Duplicate"):
+        attachment_references(references, case.service.service_root, "12345")
+
+
+def test_stored_part_identity_cannot_be_repeated(case: DraftCase) -> None:
+    """Only names may repeat; the exact same stored part must never be duplicated."""
+    draft = create(case, source(case), "forward")
+    references = draft.attachments * 2
+    with pytest.raises(ValueError, match="Duplicate"):
+        attachment_references(references, case.service.service_root, "12345")
+
+
 @pytest.mark.parametrize("mode", ["reply", "forward"])
 def test_subject_prefix_is_not_duplicated(case: DraftCase, mode: str) -> None:
     """Existing standard prefixes are retained, not repeatedly prepended."""

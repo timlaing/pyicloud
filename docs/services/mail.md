@@ -192,7 +192,9 @@ arguments are omitted. Supplying a tuple replaces that entire role/list; an
 explicit empty tuple clears it. A full subject/plain-text/HTML replacement is
 still required. Persist the most recent returned handle, including any attachment
 identity mappings; do not reuse an earlier draft or pre-save attachment handle.
-Duplicate attachment filenames or cached IDs are refused. Ordinary upload
+Duplicate upload filenames or part identities are refused. Distinct stored source
+parts may share a filename; their MIME parameters and source identities are
+preserved rather than normalized or silently omitted. Ordinary upload
 support does not enable inline images, existing arbitrary attachment imports,
 or Mail Drop uploads.
 
