@@ -156,7 +156,7 @@ def _describe_known(
         )
 
     url = _entry_url(entry)
-    if key == "mccgateway" and url is not None:
+    if key in {"mcc", "mccgateway"} and url is not None:
         try:
             validate_mail_endpoint(url)
         except ValueError:

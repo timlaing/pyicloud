@@ -73,6 +73,12 @@ WEBSERVICES: tuple[Webservice, ...] = (
         description="Find My iPhone device list and location.",
     ),
     Webservice(
+        key="mcc",
+        powers=("mail",),
+        description="Mail sender preferences; optional for ordinary message reads.",
+        required=False,
+    ),
+    Webservice(
         key="mccgateway",
         powers=("mail",),
         description="Experimental read-only Mail folders, messages, and attachments.",

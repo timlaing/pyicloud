@@ -12,6 +12,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Roll back interrupted Mail inventory transactions, including generator closure and process interruption, and simplify synchronization validation without changing its CLI options or safety budgets.
 - Explain fresh-state recovery for unsupported Mail sync histories and avoid duplicate folder discovery around exact UID refreshes while retaining both identity guards.
+- Handle malformed Mail draft headers consistently across supported Python versions and give draft commands actionable guidance when exact lookup lacks a verified mailbox namespace.
 - Treat a move or flag per-message failure whose value is not a structured reason as `MailWriteUncertain` instead of `MailWriteRejected`, so malformed rejection maps never imply that a retry is safe.
 - Reject reserved label and virtual mailbox name prefixes during message moves even when their advertised flags are zero.
 - Keep Mail Drop download TLS verification and proxy isolation independent of CLI SSL and proxy overrides.
@@ -28,6 +29,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Added
 
 - Add experimental, read-only `icloud mail sync` for a one-shot folder-scoped metadata inventory on POSIX, with explicit private state storage, bounded requests, content-free summaries, and separate opt-ins for expired-history rebuilds and count-hint rescans. It neither downloads content nor modifies mail, and is not an atomic backup or watcher.
+- Add explicit recipient-free, attachment-free Mail draft creation, full subject/body replacement, and recoverable Trash discard through the library and CLI, with verified senders, fresh draft identity checks, rotating-UID handles, UTF-8 file input, and no automatic write retries. Sending and permanent single-message deletion remain unsupported.
+- Add read-only Mail sender discovery from authenticated account preferences, excluding inactive and disabled identities instead of inferring a sender from the Apple login address.
 - Add explicit Mail folder creation, leaf renaming, and confirmed irreversible deletion through the library and CLI, with Unicode name encoding, fresh identity checks, collision/system-folder protection, and no automatic mutation retries. Empty-folder preflight is not atomic; new arrivals can race deletion.
 - Add explicit single-message Mail moves through `MailService.move()` and `icloud mail move`, with fresh mailbox guards, mailbox-only patches, source-only acknowledgements, and no automatic retries. Trash/restore use explicit folder destinations; Junk, Drafts, labels, and nonzero-flag folders remain unsupported.
 - Add explicit, size-bounded Mail Drop downloads through `MailService.mail_drop_attachment()` and `icloud mail download-maildrop`, using verified Apple capability URLs, isolated credential-free transport, mandatory content TLS verification, mailbox guards, and private non-overwriting output.

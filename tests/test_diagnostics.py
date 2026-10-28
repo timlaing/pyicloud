@@ -98,13 +98,14 @@ def test_a_needed_key_without_a_url_is_a_problem() -> None:
     assert services_at_risk(diagnose_webservices(advertised)) == ("devices",)
 
 
-def test_missing_optional_mail_is_visible_without_failing() -> None:
+@pytest.mark.parametrize("key", ["mcc", "mccgateway"])
+def test_missing_optional_mail_is_visible_without_failing(key: str) -> None:
     """An account without experimental Mail still passes ordinary diagnostics."""
     advertised = _healthy_map()
-    del advertised["mccgateway"]
+    del advertised[key]
 
     findings = diagnose_webservices(advertised)
-    finding = _finding(findings, "mccgateway")
+    finding = _finding(findings, key)
 
     assert finding.status is WebserviceStatus.MISSING
     assert finding.needed
@@ -126,12 +127,15 @@ def test_missing_optional_mail_is_visible_without_failing() -> None:
         {"url": "https://[invalid"},
     ],
 )
-def test_advertised_malformed_mail_is_still_a_problem(entry: dict[str, str]) -> None:
+@pytest.mark.parametrize("key", ["mcc", "mccgateway"])
+def test_advertised_malformed_mail_is_still_a_problem(
+    entry: dict[str, str], key: str
+) -> None:
     """Optional absence does not hide a broken advertised Mail endpoint."""
     advertised = _healthy_map()
-    advertised["mccgateway"] = entry
+    advertised[key] = entry
 
-    finding = _finding(diagnose_webservices(advertised), "mccgateway")
+    finding = _finding(diagnose_webservices(advertised), key)
 
     assert finding.status is WebserviceStatus.MALFORMED
     assert finding.is_problem

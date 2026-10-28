@@ -27,6 +27,13 @@ class MailFolder(MailModel):
     message_count: int | None = Field(default=None, alias="messageCount")
 
 
+class MailSender(MailModel):
+    """An address explicitly enabled by the authenticated Mail account."""
+
+    address: Identifier = Field(repr=False)
+    display_name: str = Field(default="", repr=False)
+
+
 class MailPart(MailModel):
     """MIME metadata; size can describe the encoded representation."""
 
@@ -90,6 +97,13 @@ class MailMessage(MailMessageRecord):
     """A message bound to the folder context used when it was fetched."""
 
     folder: MailFolder
+
+
+class MailDraft(MailModel):
+    """A verified saved draft; every successful edit returns a replacement handle."""
+
+    message: MailMessage
+    sender: MailSender
 
 
 class MailFlagUpdate(MailModel):
