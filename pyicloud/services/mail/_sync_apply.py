@@ -89,6 +89,9 @@ class _Reconciliation:
     def accept(self, record: InventoryMessage) -> None:
         """Reject conflicting identities before staging a refreshed record."""
         self.fetched += 1
+        # Both new and existing records are checked against budget; new records
+        # add 1 to the current count while existing records (already present) only
+        # require the current count to be within budget
         if (
             self.fetched > self.max_messages
             or len(self.records) + (record.uid not in self.records) > self.max_messages
