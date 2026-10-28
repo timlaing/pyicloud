@@ -303,12 +303,11 @@ class DraftWriter:
                 retained_drafts=retained,
             )
             checked_attachments(current, saved)
-            if to or cc or bcc or threading is not None:
-                body = self.body(current)
-                if body.guid != f"message:Drafts/{current.uid}":
-                    raise MailError("Saved draft body belongs to a different identity")
-                checked_recipients(body, saved)
-                checked_threading(body, threading)
+            body = self.body(current)
+            if body.guid != f"message:Drafts/{current.uid}":
+                raise MailError("Saved draft body belongs to a different identity")
+            checked_recipients(body, saved)
+            checked_threading(body, threading)
             return saved
         except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(DRAFT_UNCERTAIN) from exc

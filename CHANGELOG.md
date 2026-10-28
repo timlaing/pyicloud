@@ -14,6 +14,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Preserve MIME parameters and repeated filenames for distinct source attachments in forward drafts while retaining strict upload validation and exact source-part checks.
+- Reject duplicate Mail UIDs with conflicting flags or thread metadata instead of keeping an arbitrary record during enumeration or synchronization.
+- Verify saved Mail recipient headers even after explicitly clearing every recipient, reporting unexpected retained recipients as an uncertain save.
 - Treat unexpected attachment identity mappings on an attachment-free Mail draft save as an uncertain outcome instead of accepting unrequested attachment effects.
 - Handle malformed Mail draft headers consistently across supported Python versions and give draft commands actionable guidance when exact lookup lacks a verified mailbox namespace.
 - Treat a move or flag per-message failure whose value is not a structured reason as `MailWriteUncertain` instead of `MailWriteRejected`, so malformed rejection maps never imply that a retry is safe.

@@ -44,8 +44,9 @@ with fresh identity guards and explicit irreversible-deletion confirmation.
 Draft saves and recoverable discard now use these observed wire shapes with
 fresh sender/namespace checks and rotating-UID handles. Recipient-bearing drafts
 and ordinary attachment uploads/edit preservation are implemented and verified
-as described below. Guarded final sending of saved drafts now has offline
-and live coverage. Reply/forward draft creation now has offline implementation
+as described below. Direct sending of a new saved draft has offline and live
+coverage. Reply/forward sending remains offline-tested only.
+Reply/forward draft creation now has offline implementation
 coverage, including retained threading, cached uploads and source-bound ordinary
 forward attachments. Live tests verified reply creation/edit/Trash reconciliation
 and forward creation/edit/retention reporting/Trash reconciliation, with exact
