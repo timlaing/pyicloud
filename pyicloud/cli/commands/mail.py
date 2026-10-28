@@ -651,9 +651,9 @@ def mail_edit_draft(
     _require_draft_sender(sender)
     text, html = _draft_input(text_file), _draft_input(html_file)
     previous = _saved_draft(edit.draft_state, message_id, folder_id, sender)
-    if (
-        edit.clear_recipients and any(values for values in (edit.to, edit.cc, edit.bcc))
-    ) or (edit.clear_attachments and edit.attachment_state):
+    if (edit.clear_recipients and any((edit.to, edit.cc, edit.bcc))) or (
+        edit.clear_attachments and edit.attachment_state
+    ):
         raise CLIAbort(
             "Cannot combine replacement and clear options; no write submitted."
         )
