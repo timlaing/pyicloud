@@ -7,6 +7,7 @@ from pydantic import BeforeValidator, Field
 
 from ._flags import FlagDelta
 from ._moves import MailboxReplacement
+from ._thread_models import MessageIdentifier
 from ._write_models import WriteModel
 
 UploadIdentifier = Annotated[
@@ -44,19 +45,36 @@ class DraftUploadResponse(WriteModel):
     message_part: DraftUploadedPart = Field(alias="messagePart", repr=False)
 
 
-class DraftAttachmentReference(WriteModel):
-    """A cached upload reference serialized inside an ordinary draft save."""
+class DraftPartReference(WriteModel):
+    """Shared ordinary-part metadata; cached and stored identities differ."""
 
-    guid: CachedPartIdentifier = Field(repr=False)
     name: Annotated[str, Field(min_length=1)] = Field(repr=False)
     url: Annotated[str, Field(min_length=1)] = Field(repr=False)
-    content_id: CachedPartIdentifier = Field(alias="contentID", repr=False)
     size: Annotated[int, Field(ge=0)]
     mail_drop_expiration_date: None = Field(alias="mailDropExpirationDate")
     is_mail_drop_thumbnail: Annotated[
         Literal[False], BeforeValidator(_ordinary_attachment)
     ] = Field(alias="isMailDropThumbnail")
     datatype: Annotated[str, Field(min_length=1)]
+
+
+class DraftAttachmentReference(DraftPartReference):
+    """A cached upload reference serialized inside an ordinary draft save."""
+
+    guid: CachedPartIdentifier = Field(repr=False)
+    content_id: CachedPartIdentifier = Field(alias="contentID", repr=False)
+
+
+class DraftStoredReference(DraftPartReference):
+    """An existing source-message part, not an upload or a remote-fetch URL."""
+
+    guid: Annotated[
+        str,
+        Field(
+            pattern=r"^messagepart:[^\x00-\x1f\x7f]+/[1-9][0-9]*-[0-9]+(?:\.[0-9]+)*$"
+        ),
+    ] = Field(repr=False)
+    content_id: None = Field(alias="contentID", repr=False)
 
 
 class DraftAttachmentRemapping(WriteModel):
@@ -95,7 +113,7 @@ class DraftCreateRequest(WriteModel):
     subject: str = Field(repr=False)
     text: str = Field(alias="textBody", repr=False)
     html: str = Field(alias="htmlBody", repr=False)
-    attachments: list[DraftAttachmentReference] = Field(
+    attachments: list[DraftAttachmentReference | DraftStoredReference] = Field(
         default_factory=list, repr=False
     )
     client_build: str = Field(alias="webmailClientBuild")
@@ -107,6 +125,33 @@ class DraftCreateRequest(WriteModel):
 
 class DraftEditRequest(DraftCreateRequest):
     """Only updates include the previous Drafts/UID reference."""
+
+    draft_guid: str = Field(alias="draftGuid")
+
+
+class ReplyDraftRequest(DraftCreateRequest):
+    """A new reply carries explicit parent and reference arrays."""
+
+    mode: Literal["reply"] = "reply"
+    in_reply_to: list[MessageIdentifier] = Field(alias="headerInReplyTo", repr=False)
+    references: list[MessageIdentifier] = Field(alias="headerReferences", repr=False)
+
+
+class ReplyDraftEditRequest(ReplyDraftRequest):
+    """A reply edit retains its threading along with the previous UID."""
+
+    draft_guid: str = Field(alias="draftGuid")
+
+
+class ForwardDraftRequest(DraftCreateRequest):
+    """Forwards carry references without an In-Reply-To header."""
+
+    mode: Literal["forward"] = "forward"
+    references: list[MessageIdentifier] = Field(alias="headerReferences", repr=False)
+
+
+class ForwardDraftEditRequest(ForwardDraftRequest):
+    """A forward edit retains its references and source-part attachments."""
 
     draft_guid: str = Field(alias="draftGuid")
 

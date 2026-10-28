@@ -4,10 +4,128 @@ Mail support is **experimental**, using the iCloud web interface's undocumented
 HTTP API. Read operations have been verified on one account. Explicit
 single-message read/unread, flag/unflag, and ordinary mailbox moves are available
 separately, alongside explicit folder management, draft saves, and ordinary draft
-attachment uploads; ordinary reads never change flags. Sending, Mail Drop uploads,
-permanent message deletion, and incremental synchronization are not supported.
+attachment uploads and explicitly confirmed sending of saved drafts; ordinary
+reads never change flags. Mail Drop uploads, permanent message deletion, and
+incremental synchronization are not supported.
 The `icloud mail` commands expose the same bounded API.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
+
+## Sending a Saved Draft
+
+`api.mail.send_draft(draft, confirm=True)` submits exactly the saved draft from
+the latest successful create/edit handle. It requires explicit recipients,
+rechecks the sender, recipients, attachment metadata, Drafts identity and subject,
+and does not implicitly save edits, upload files, or choose a draft for you.
+It sends **immediately**, without the browser's separate Undo Send scheduling
+delay. There is no recall or delivery guarantee.
+
+```python
+acknowledgement = api.mail.send_draft(draft, confirm=True)
+assert acknowledgement.acknowledged
+assert not acknowledgement.delivery_confirmed
+```
+
+The CLI requires both the private saved handle and explicit confirmation:
+
+```shell
+icloud mail send-draft '<current-message-id>' --folder-id '<drafts-id>' --sender '<enabled-address>' --draft-state ./draft.json --confirm --format json
+```
+
+Success means Apple acknowledged submission and the source draft disappeared.
+The acknowledgement does not contain a guessed Sent message ID. The server's
+EXPUNGE value is a mailbox sequence number, **not** the draft UID. An unexpected
+response, timeout, or failed post-send verification raises `MailWriteUncertain`:
+the email may already have been sent. Inspect Drafts and Sent before deciding
+whether to retry; there is never an automatic retry or cleanup send.
+
+Fresh preflight is not atomic. Another editor can change the body or other draft
+state between inspection and submission; use a dedicated draft that is not open
+elsewhere. This experimental direct-send path has offline regression coverage.
+Browser captures verified the final send envelope for new, replied, and forwarded
+synthetic messages after Apple's separate scheduling request. A separately
+authorized live implementation test uploaded one tiny synthetic text attachment,
+created one draft to the controlled test address, and sent it once through the
+mounted CLI without scheduling. Fresh reads verified the source absent, one Sent
+copy with the expected recipient and body, and byte-for-byte attachment contents.
+Exactly three writes occurred; other observed metadata in Inbox, Drafts, Trash,
+and Sent was unchanged. This is not independent SMTP delivery verification.
+
+## Reply and Forward Drafts
+
+Choose an exact source `MailMessage` from a discovered folder. Both methods
+require explicit sender, recipients and the **full desired body**, including any
+quotes or forwarded content. They do not choose Reply-To, reply-all recipients,
+or automatically copy private source text into your outgoing body. Empty
+recipient tuples can save an unfinished draft, but cannot be sent.
+
+```python
+reply = api.mail.create_reply_draft(
+    source_message,
+    sender=chosen_address,
+    to=("recipient@example.test",),
+    text="My complete reply body.",
+    attachments=(uploaded_attachment,),
+)
+forward = api.mail.create_forward_draft(
+    source_message,
+    sender=chosen_address,
+    to=("recipient@example.test",),
+    text="My complete forward body, including the desired original content.",
+)
+```
+
+Replies carry `In-Reply-To` and `References`; forwards carry only `References`.
+The exact source is reread without marking it read. A single standard Message-ID
+is required; malformed, duplicated or unsupported identifiers and reference
+chains exceeding 100 entries fail explicitly rather than being guessed or
+truncated. An existing standard `Re:` / `Fwd:` subject prefix is not duplicated.
+The returned private handle retains typed threading expectations. Subsequent
+`edit_draft()`, `send_draft()` and discard checks refuse changed headers or a
+context-free handle instead of dropping the thread relationship.
+
+Apple can retain earlier **forward** versions on edit, including in its own
+browser. The new handle reports these explicitly in `retained_drafts`; CLI text
+shows their IDs. These are previously observed draft records, not automatically
+refreshed snapshots or permission to delete them. Edits accumulate the observed
+versions instead of hiding them. Sending or discarding the current handle acts
+only on its current message, never on retained versions. Send acknowledgements
+also report `retained_draft_ids`, which were **not sent**. Inspect Drafts before
+any manual cleanup; the library never silently deletes old versions. Unexpected
+retention for ordinary drafts or replies still raises `MailWriteUncertain`.
+
+Replies include only attachments you explicitly supply. Forwards retain all
+recognized ordinary file attachments from the source by default, plus any
+explicit uploaded handles. Set `include_original_attachments=False` to omit the
+originals deliberately. Existing source parts have a null content ID and encoded
+MIME size; they are **not** cached uploads and do not require an upload mapping
+in Apple's save response. Their account, gateway, folder UID validity, source
+message identity, part metadata and exact endpoint URL are checked before reuse.
+Original MIME/size metadata and exact endpoints are validated for reuse; an uploaded
+attachment that reuses any existing filename is refused. Unknown attachment metadata
+and Mail Drop source attachments are not silently converted or dropped. These methods do not automatically copy inline
+body resources. As with all writes, checks are not atomic with submission.
+
+```shell
+icloud mail reply-draft '<source-message-id>' --folder-id '<source-folder-id>' --sender '<enabled-address>' --to recipient@example.test --text-file ./reply.txt --attachment-state ./attachment.json --format json
+icloud mail forward-draft '<source-message-id>' --folder-id '<source-folder-id>' --sender '<enabled-address>' --to recipient@example.test --text-file ./forward.txt --format json
+```
+
+Repeat `--to`, `--cc`, `--bcc` or `--attachment-state` for additional explicit
+values. `--html-file` optionally supplies the full HTML body; otherwise HTML is
+derived from plain text. `--omit-original-attachments` is forward-only. Save the
+returned JSON privately and use `--draft-state` for editing, discarding or
+explicitly confirmed sending. Neither draft-creation command sends an email.
+Offline tests cover the full reply/forward create/edit/send path. The live reply
+draft lifecycle preserved headers and attachment bytes through editing and Trash
+reconciliation. The first forward edit exposed Apple's retained older versions.
+A separately authorized six-write test then cleaned up those two test copies,
+created and edited a new forward, verified the reported retained version, and
+moved both new versions to Trash. Fresh reads verified threading and exact
+attachment bytes, with other observed mailbox metadata unchanged. No sending or
+permanent deletion occurred in either threaded-draft test. Contradictory Trash
+acknowledgements were reconciled read-only, never retried. Two intermediate
+versions from the earlier browser-only forward capture were left unchanged;
+they were outside that cleanup approval.
 
 ## Drafts and Ordinary Attachments
 
@@ -31,8 +149,9 @@ draft = api.mail.edit_draft(
 
 Every successful save returns a **new `MailDraft` handle**, containing fresh
 `message` metadata, a verified `sender`, explicit `to` / `cc` / `bcc` tuples, and
-account-bound attachment handles. Apple rotates the folder-local UID
-on save; the old UID/message ID must not be reused. Editing replaces all three
+account-bound attachment handles. Apple rotates the folder-local UID on save;
+use the new handle for subsequent edits. Forward drafts can retain old versions
+as described above; do not mistake those for the current version. Editing replaces all three
 subject/plain-text/HTML fields, so every replacement argument is required.
 Apple treats HTML as the canonical body: plain-only input is converted to safely
 escaped HTML, preserving line breaks, so empty HTML cannot silently discard it.
@@ -72,7 +191,9 @@ arguments are omitted. Supplying a tuple replaces that entire role/list; an
 explicit empty tuple clears it. A full subject/plain-text/HTML replacement is
 still required. Persist the most recent returned handle, including any attachment
 identity mappings; do not reuse an earlier draft or pre-save attachment handle.
-Duplicate attachment filenames or cached IDs are refused. Ordinary upload
+Duplicate upload filenames or part identities are refused. Distinct stored source
+parts may share a filename; their MIME parameters and source identities are
+preserved rather than normalized or silently omitted. Ordinary upload
 support does not enable inline images, existing arbitrary attachment imports,
 or Mail Drop uploads.
 
@@ -110,8 +231,8 @@ draft there; it does **not** permanently destroy it or empty Trash. The captured
 browser operation also requests the `seen` flag. Its source-only
 `MailMoveUpdate` does not supply a new destination UID or message ID. Conflicting
 success/error maps remain uncertain even if the draft moved; reconcile fresh
-Drafts/Trash metadata, do not retry automatically. Sending and permanent message
-destruction remain separate work, not supported by these methods.
+Drafts/Trash metadata, do not retry automatically. These draft methods never
+permanently destroy a message; permanent message deletion remains unsupported.
 
 CLI body input comes from explicit local UTF-8 files rather than body text in
 shell arguments. `create-draft` defaults omitted bodies to empty strings;

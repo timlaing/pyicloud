@@ -34,6 +34,32 @@ attachment identities as well as rotate the draft UID. All filenames, UUIDs,
 sizes, and URLs here are invented; no file body, recipient, credentials, or raw
 capture is included. These shapes do not establish Mail Drop uploads or sending.
 
+`draft_send_request.json` and `draft_send_response.json` are separate synthetic
+final-send envelopes derived from three explicitly authorized browser sends of
+disposable text and a tiny ordinary attachment: a new email, a reply, and a
+forward. All were addressed only to the user's controlled test address. The
+browser scheduled Undo Send first, then issued `draft/send`; these fixtures model
+only that final request. A separate three-write implementation test subsequently
+verified direct sending without scheduling, including source disappearance and
+Sent-copy body/attachment integrity, but not SMTP delivery. The EXPUNGE value is
+a sequence number, not a UID. UIDs, counters, and all other fixture values are
+invented.
+
+`draft_forward_stored_reference.json` models the distinct existing-message-part
+reference observed in the authorized synthetic forward. Its content ID is null,
+its size can be MIME-encoded rather than decoded bytes, and its save can return
+only a UID, without a cached-upload mapping. The source folder, UID, filename,
+gateway and all identifiers are synthetic. No attachment body or signed URL is
+stored. Tests also verify that mixed cached/stored references preserve the
+cached mapping requirement and fail on unexpected mappings.
+
+Read-only comparison with the earlier browser captures established that Apple
+can retain intermediate forward drafts after edits and even after sending the
+final version. Offline tests model that distinct behavior explicitly rather
+than weakening ordinary draft/reply identity guards. A separate authorized
+six-write live test verified retained-version reporting and Trash cleanup of
+only its disposable forward copies, with exact attachment-byte preservation.
+
 `sender_preferences_response.json` models only the sender-related account
 preference shape. Every name, domain, address, and account identifier is synthetic.
 Primary-address data was checked against a read-only live response; alias and

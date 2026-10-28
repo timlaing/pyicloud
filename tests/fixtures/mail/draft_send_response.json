@@ -1,0 +1,11 @@
+{
+  "events": ["* 3 EXPUNGE"],
+  "sessionHeaders": {
+    "folder": "Drafts",
+    "modseq": 1001,
+    "threadmodseq": 0,
+    "condstore": 0,
+    "qresync": 0,
+    "threadmode": 0
+  }
+}
