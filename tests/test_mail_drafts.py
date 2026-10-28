@@ -814,6 +814,9 @@ def test_invalid_inputs_never_read_or_write(
         "Sender",
         "Return-Receipt-To",
         "Disposition-Notification-To",
+        "Resent-From",
+        "Resent-Sender",
+        "Resent-Reply-To",
     ],
 )
 def test_address_headers_are_not_erased(
@@ -958,6 +961,7 @@ def test_plain_only_save_supplies_escaped_canonical_html(
         "bcc",
         "reply-to",
         "sender-header",
+        "resent-from",
         "headers",
         "from-missing",
         "from-duplicate",
@@ -996,6 +1000,8 @@ def test_edit_preflight_never_overwrites_unverified_draft(
         case.body_headers += "Reply-To: other@example.test\r\n"
     elif kind == "sender-header":
         case.body_headers += "Sender: other@example.test\r\n"
+    elif kind == "resent-from":
+        case.body_headers += "Resent-From: other@example.test\r\n"
     elif kind == "headers":
         case.body_headers = "not a header\r\n"
     elif kind == "from-missing":
@@ -1321,45 +1327,60 @@ def test_draft_cli_required_selection_is_not_implicit(
     case.session.request_raw.assert_not_called()
 
 
+def draft_cli_args(command: str, tmp_path: Path, sender: str) -> list[str]:
+    """One explicit draft-command invocation with real sandbox body files."""
+    args = ["mail", command, "draft-100", "--folder-id", "drafts", "--sender", sender]
+    if command == "discard-draft":
+        return args + ["--trash-id", "trash"]
+    text = tmp_path / "text.txt"
+    html = tmp_path / "html.txt"
+    text.write_text("Private replacement text", encoding="utf-8")
+    html.write_text("<p>Private replacement text</p>", encoding="utf-8")
+    return args + [
+        "--subject",
+        "After",
+        "--text-file",
+        str(text),
+        "--html-file",
+        str(html),
+    ]
+
+
 @pytest.mark.parametrize("command", ["edit-draft", "discard-draft"])
 @pytest.mark.parametrize("sender", ["", "   "])
 def test_draft_cli_empty_sender_fails_before_authentication(
     case: DraftCase, tmp_path: Path, command: str, sender: str
 ) -> None:
     """A nonempty --sender guard precedes body reads, authentication and lookups."""
-    text = tmp_path / "text.txt"
-    html = tmp_path / "html.txt"
-    text.write_text("Private replacement text", encoding="utf-8")
-    html.write_text("<p>Private replacement text</p>", encoding="utf-8")
-    args = [
-        "mail",
-        command,
-        "draft-100",
-        "--folder-id",
-        "drafts",
-        "--sender",
-        sender,
-    ]
-    if command == "discard-draft":
-        args += ["--trash-id", "trash"]
-    else:
-        args += [
-            "--subject",
-            "After",
-            "--text-file",
-            str(text),
-            "--html-file",
-            str(html),
-        ]
     api = MagicMock(mail=case.service, account_name="login@example.test")
     with (
         patch.object(CLIState, "get_api", return_value=api) as get_api,
         patch.object(CLIState, "open"),
     ):
-        result = CliRunner().invoke(app, args)
+        result = CliRunner().invoke(app, draft_cli_args(command, tmp_path, sender))
     assert isinstance(result.exception, CLIAbort)
     assert "--sender" in str(result.exception)
     get_api.assert_not_called()
     case.session.get.assert_not_called()
     case.session.post.assert_not_called()
+    case.session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["edit-draft", "discard-draft"])
+def test_draft_cli_uid_validity_hint_needs_no_limit(
+    case: DraftCase, tmp_path: Path, command: str
+) -> None:
+    """Draft commands offer no --limit, so their hint must name the real fix."""
+    case.folders[0]["uidValidity"] = None
+    api = MagicMock(mail=case.service, account_name="login@example.test")
+    with (
+        patch.object(CLIState, "get_api", return_value=api),
+        patch.object(CLIState, "open"),
+    ):
+        result = CliRunner().invoke(
+            app, draft_cli_args(command, tmp_path, "primary@example.test")
+        )
+    assert isinstance(result.exception, CLIAbort)
+    assert "icloud mail folders" in str(result.exception)
+    assert "--limit" not in str(result.exception)
     case.session.request_raw.assert_not_called()
