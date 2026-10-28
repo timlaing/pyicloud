@@ -291,8 +291,9 @@ def test_send_requires_explicit_confirmation(
     case: DraftCase, confirmation: Any
 ) -> None:
     """Truthy values are not authorization and must not even start reads."""
+    draft = handle(case)
     with pytest.raises(ValueError, match="confirm=True"):
-        case.service.send_draft(handle(case), confirm=confirmation)
+        case.service.send_draft(draft, confirm=confirmation)
     assert case.session.mock_calls == []
 
 
@@ -300,8 +301,9 @@ def test_send_requires_handle_and_recipients(case: DraftCase) -> None:
     """A recipient-free draft or malformed handle cannot accidentally send."""
     with pytest.raises(ValueError, match="MailDraft"):
         case.service.send_draft(None, confirm=True)  # type: ignore[arg-type]
+    draft = handle(case)
     with pytest.raises(ValueError, match="recipient"):
-        case.service.send_draft(handle(case), confirm=True)
+        case.service.send_draft(draft, confirm=True)
     invalid = handle(case).model_copy(update={"to": ("bad\r\nBcc: x@y.test",)})
     with pytest.raises(ValueError):
         case.service.send_draft(invalid, confirm=True)
@@ -774,9 +776,10 @@ def test_attachment_mapping_failures_are_uncertain(case: DraftCase, kind: str) -
     else:
         mapping["contentId"] = "cachedpart:11111111-2222-4333-8444-555555555555"
     case.save_result = data
+    attachment = uploaded_attachment(case)
     with pytest.raises(MailWriteUncertain):
         case.service.create_draft(
-            sender="primary@example.test", attachments=(uploaded_attachment(case),)
+            sender="primary@example.test", attachments=(attachment,)
         )
     case.session.request_raw.assert_called_once()
 

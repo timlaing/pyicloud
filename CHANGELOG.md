@@ -8,6 +8,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Refactored
+
+- Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.
+
 ### Fixed
 
 - Treat unexpected attachment identity mappings on an attachment-free Mail draft save as an uncertain outcome instead of accepting unrequested attachment effects.

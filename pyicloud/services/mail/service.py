@@ -813,7 +813,11 @@ class MailService(BaseService):
             raise ValueError("Sending requires confirm=True")
         if not isinstance(draft, MailDraft):
             raise ValueError("A saved MailDraft handle is required")
-        recipients = [recipient_addresses(v) for v in (draft.to, draft.cc, draft.bcc)]
+        recipients = (
+            recipient_addresses(draft.to),
+            recipient_addresses(draft.cc),
+            recipient_addresses(draft.bcc),
+        )
         if not any(recipients):
             raise ValueError("Sending requires at least one explicit recipient")
         current = self._draft_writer().checked(draft)
@@ -840,7 +844,7 @@ class MailService(BaseService):
             self._draft_folder(current.folder)
             if self.message_by_uid(current.folder, current.uid) is not None:
                 raise MailError("Sent draft is still present")
-        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+        except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(uncertain) from exc
         return MailSendUpdate(
             source_message_id=current.id,

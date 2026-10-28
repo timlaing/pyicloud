@@ -76,7 +76,7 @@ def recipient_addresses(values: tuple[str, ...]) -> tuple[str, ...]:
             value.encode("utf-8")
             address = header_sender(value)
             parsed = Address(addr_spec=address)
-        except (MailError, UnicodeError, ValueError) as exc:
+        except (MailError, ValueError) as exc:
             raise ValueError("Invalid draft recipient") from exc
         if not parsed.domain or not parsed.username or ":" in value:
             raise ValueError("Draft recipients require individual mailbox addresses")

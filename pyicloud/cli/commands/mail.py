@@ -93,6 +93,7 @@ LookupLimitOption = Annotated[
 _CONTROL_CHARACTERS = dict.fromkeys([*range(32), *range(127, 160)])
 _THREAD_ID_COLUMN = "Thread ID"
 _MESSAGE_ID_COLUMN = "Message ID"
+_SOURCE_MESSAGE_ID_COLUMN = "Source Message ID"
 _FOLDER_ID_COLUMN = "Folder ID"
 _MESSAGE_ID_HELP = "Message ID from mail list."
 _DESTINATION_EXISTS = "Destination already exists; choose a new --output path."
@@ -651,9 +652,9 @@ def mail_edit_draft(
     _require_draft_sender(sender)
     text, html = _draft_input(text_file), _draft_input(html_file)
     previous = _saved_draft(edit.draft_state, message_id, folder_id, sender)
-    if (
-        edit.clear_recipients and any(values for values in (edit.to, edit.cc, edit.bcc))
-    ) or (edit.clear_attachments and edit.attachment_state):
+    if (edit.clear_recipients and any((edit.to, edit.cc, edit.bcc))) or (
+        edit.clear_attachments and edit.attachment_state
+    ):
         raise CLIAbort(
             "Cannot combine replacement and clear options; no write submitted."
         )
@@ -761,7 +762,11 @@ def mail_send_draft(
         _table(
             state,
             "Mail Send Acknowledged (Delivery Not Confirmed)",
-            ["Source Message ID", "Drafts Folder ID", "Retained Draft IDs (Not Sent)"],
+            [
+                _SOURCE_MESSAGE_ID_COLUMN,
+                "Drafts Folder ID",
+                "Retained Draft IDs (Not Sent)",
+            ],
             [
                 (
                     result.source_message_id,
@@ -809,7 +814,7 @@ def mail_discard_draft(
         _table(
             state,
             "Discarded Mail Draft",
-            ["Source Message ID", "Trash Folder ID"],
+            [_SOURCE_MESSAGE_ID_COLUMN, "Trash Folder ID"],
             [
                 (
                     result.source_message_id,
@@ -1058,7 +1063,7 @@ def mail_move(
         _table(
             state,
             "Mail Move Acknowledgement",
-            ["Source Message ID", "Source Folder ID", "Destination Folder ID"],
+            [_SOURCE_MESSAGE_ID_COLUMN, "Source Folder ID", "Destination Folder ID"],
             [
                 (
                     result.source_message_id,

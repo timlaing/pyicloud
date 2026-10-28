@@ -121,7 +121,8 @@ def test_conversation_create_edit_send_preserves_context(
         restored, subject="Explicit revised subject", text="Revised full body", html=""
     )
     request = case.session.request_raw.call_args.kwargs["json"]
-    assert request["draftGuid"] == "Drafts/101" and request["mode"] == mode
+    assert request["draftGuid"] == "Drafts/101"
+    assert request["mode"] == mode
     assert request["headerReferences"] == [ANCESTOR, PARENT]
     assert edited.threading == draft.threading
     assert edited.attachments == draft.attachments
@@ -162,7 +163,8 @@ def test_forward_retained_versions_are_explicit_and_never_implicitly_sent(
     result = case.service.send_draft(draft, confirm=True)
     assert result.retained_draft_ids == ("draft-101", "draft-102")
     case.session.request_raw.assert_called_once()
-    assert all(uid in case.records for uid in (101, 102)) and 103 not in case.records
+    assert all(uid in case.records for uid in (101, 102))
+    assert 103 not in case.records
 
 
 @pytest.mark.parametrize("changed_id", ["unexpected", "draft-102"])
@@ -237,7 +239,8 @@ def test_retained_forward_versions_visible_in_cli(
     if output == "json":
         assert json.loads(result.stdout)["retained_drafts"][0]["id"] == "draft-101"
     else:
-        assert "draft-101" in result.stdout and "Retained" in result.stdout
+        assert "draft-101" in result.stdout
+        assert "Retained" in result.stdout
 
 
 def test_forward_explicitly_omits_source_attachments(case: DraftCase) -> None:
@@ -438,8 +441,9 @@ def headers(value: str) -> MailBody:
 )
 def test_source_header_failures(value: str) -> None:
     """Malformed/large chains fail explicitly, never truncating references."""
+    body = headers(value)
     with pytest.raises(MailError):
-        source_threading(headers(value), "reply")
+        source_threading(body, "reply")
 
 
 def test_reference_boundary_and_deduplication() -> None:
@@ -449,10 +453,9 @@ def test_reference_boundary_and_deduplication() -> None:
     )
     assert source_threading(body, "reply").references == (ANCESTOR, PARENT)
     references = " ".join(f"<a{i}@example.test>" for i in range(100))
+    oversized = headers(f"Message-ID: {PARENT}\r\nReferences: {references}\r\n")
     with pytest.raises(MailError, match="cannot be preserved"):
-        source_threading(
-            headers(f"Message-ID: {PARENT}\r\nReferences: {references}\r\n"), "reply"
-        )
+        source_threading(oversized, "reply")
     checked_threading(headers("From: a@example.test\r\n"), None)
     checked_threading(headers("References: \r\nIn-Reply-To: \r\n"), None)
     with pytest.raises(ValueError):
