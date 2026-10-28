@@ -279,11 +279,10 @@ class DraftWriter:
                 attachments=remapped,
             )
             checked_attachments(current, saved)
-            if to or cc or bcc:
-                body = self.body(current)
-                if body.guid != f"message:Drafts/{current.uid}":
-                    raise MailError("Saved draft body belongs to a different identity")
-                checked_recipients(body, saved)
+            body = self.body(current)
+            if body.guid != f"message:Drafts/{current.uid}":
+                raise MailError("Saved draft body belongs to a different identity")
+            checked_recipients(body, saved)
             return saved
         except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(DRAFT_UNCERTAIN) from exc

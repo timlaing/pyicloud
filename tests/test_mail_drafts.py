@@ -522,6 +522,47 @@ def test_post_save_recipient_mismatch_is_uncertain(
     case.session.request_raw.assert_called_once()
 
 
+@pytest.mark.parametrize("retained", [None, "To", "Cc", "Bcc"])
+def test_explicit_recipient_clear_is_verified(
+    case: DraftCase, retained: str | None
+) -> None:
+    """A cleared handle must never conceal recipients retained by the server."""
+    draft = case.service.create_draft(
+        sender="primary@example.test", to=("recipient@example.test",)
+    )
+    case.wrote = False
+    case.next_uid = 102
+    case.session.request_raw.reset_mock()
+    case.after_headers = "From: primary@example.test\r\n"
+    if retained is not None:
+        case.after_headers += f"{retained}: recipient@example.test\r\n"
+        with pytest.raises(MailWriteUncertain):
+            case.service.edit_draft(draft, subject="Cleared", text="", html="", to=())
+    else:
+        cleared = case.service.edit_draft(
+            draft, subject="Cleared", text="", html="", to=()
+        )
+        assert (cleared.to, cleared.cc, cleared.bcc) == ((), (), ())
+    case.session.request_raw.assert_called_once()
+
+
+@pytest.mark.parametrize("attached", [False, True])
+def test_missing_attachment_status_blocks_draft_edit(
+    case: DraftCase, attached: bool
+) -> None:
+    """Read-model optionality is not proof that replacement metadata is complete."""
+    attachments = (uploaded_attachment(case),) if attached else ()
+    draft = case.service.create_draft(
+        sender="primary@example.test", attachments=attachments
+    )
+    case.wrote = False
+    case.records[draft.message.uid].pop("hasAttachment")
+    case.session.request_raw.reset_mock()
+    with pytest.raises(MailError, match="attachment state"):
+        case.service.edit_draft(draft, subject="Changed", text="", html="")
+    case.session.request_raw.assert_not_called()
+
+
 def test_post_save_recipient_body_wrong_identity(case: DraftCase) -> None:
     """A different body cannot verify the saved recipient-bearing draft."""
     case.body_guid = "message:Other/101"
