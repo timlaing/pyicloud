@@ -245,6 +245,17 @@ def test_submitted_delete_is_never_retried(case: DeleteCase, kind: str) -> None:
     case.session.request_raw.assert_called_once()
 
 
+@pytest.mark.parametrize("error", [ReadTimeout, OSError, MailError, ValueError])
+def test_delete_post_read_errors_remain_uncertain(
+    case: DeleteCase, error: type[Exception]
+) -> None:
+    """Post-submission verification failures cannot make deletion safe to retry."""
+    case.after_error = error("synthetic failure")
+    with pytest.raises(MailWriteUncertain, match="already have been deleted"):
+        case.service.delete_permanently(case.message, confirm=True)
+    case.session.request_raw.assert_called_once()
+
+
 @pytest.mark.parametrize("values", [(), ("one", "two"), ("",), (1,)])
 def test_request_model_forbids_empty_and_bulk_destruction(values: Any) -> None:
     """A request cannot be repurposed as empty Trash or a multi-message delete."""

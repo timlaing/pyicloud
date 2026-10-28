@@ -350,7 +350,7 @@ def _draft_acknowledgement(state: CLIState, draft: MailDraft) -> None:
         _table(
             state,
             "Saved Mail Draft",
-            ["Message ID", "UID", _FOLDER_ID_COLUMN, "Retained Prior Draft IDs"],
+            [_MESSAGE_ID_COLUMN, "UID", _FOLDER_ID_COLUMN, "Retained Prior Draft IDs"],
             [
                 (
                     draft.message.id,
@@ -726,7 +726,7 @@ def mail_delete_forever(
         _table(
             state,
             "Mail Message Permanently Deleted",
-            ["Message ID", "Folder ID", "UID"],
+            [_MESSAGE_ID_COLUMN, _FOLDER_ID_COLUMN, "UID"],
             [(result.message_id, result.folder_id, result.uid)],
         )
 

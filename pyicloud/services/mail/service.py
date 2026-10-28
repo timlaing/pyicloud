@@ -1098,7 +1098,7 @@ class MailService(BaseService):
                 or self.message(message.folder, message.id) is not None
             ):
                 raise MailError("Deleted message is still present")
-        except (PyiCloudException, RequestException, OSError, ValueError) as exc:
+        except (PyiCloudException, OSError, ValueError) as exc:
             raise MailWriteUncertain(DELETE_UNCERTAIN) from exc
         return MailMessageDeletion(
             message_id=message.id, folder_id=message.folder.id, uid=message.uid
