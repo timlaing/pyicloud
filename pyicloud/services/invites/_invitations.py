@@ -17,7 +17,7 @@ from pyicloud.common.cloudkit import (
 from pyicloud.common.cloudkit.models import CKParticipant
 
 from ._constants import SHARE_RECORD_NAME
-from .client import InvitesApiError
+from .exceptions import InvitesApiError
 from .models.constants import InvitesRecordType
 from .models.dto import OneTimeLinkGuest
 

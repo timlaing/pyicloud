@@ -26,44 +26,21 @@ from pyicloud.common.cloudkit.client import (
     CloudKitZoneNotFoundError,
 )
 from pyicloud.common.cloudkit.models import CKAssetToken
-from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
+from .exceptions import (
+    RemindersApiError,
+    RemindersAuthError,
+    RemindersZoneNotFoundError,
+)
+
+__all__ = [
+    "RemindersApiError",
+    "RemindersAuthError",
+    "RemindersZoneNotFoundError",
+]
+
 LOGGER = logging.getLogger(__name__)
-
-
-class RemindersAuthError(PyiCloudException):
-    """Auth/PCS/cookie issues (401/403)."""
-
-
-class RemindersApiError(PyiCloudException):
-    """Catch-all API error."""
-
-    def __init__(self, message: str, payload: object | None = None):
-        super().__init__(message)
-        self.payload = payload
-
-
-class RemindersZoneNotFoundError(RemindersApiError):
-    """The Reminders zone does not exist for this account.
-
-    Apple answers ``ZONE_NOT_FOUND`` for accounts that have not enabled
-    Reminders (or whose Reminders zone has not been created yet). This is a
-    valid account state rather than a transport or server failure, so callers
-    can catch it to report "Reminders not set up" instead of a generic error.
-
-    Subclasses ``RemindersApiError``, so existing handlers keep catching it.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        payload: object | None = None,
-        *,
-        zone_name: str | None = None,
-    ):
-        super().__init__(message, payload)
-        self.zone_name = zone_name
 
 
 class CloudKitRemindersClient:
@@ -91,6 +68,12 @@ class CloudKitRemindersClient:
 
     @staticmethod
     def _raise_reminders_error(exc: Exception) -> NoReturn:
+        """Translate a shared CloudKit failure into the Reminders error type.
+
+        The dedicated zone-not-found error keeps its payload and zone name so
+        callers can report "Reminders not set up"; other failures propagate
+        unchanged.
+        """
         cause = exc.__cause__ or exc
         if isinstance(exc, CloudKitAuthError):
             raise RemindersAuthError(str(exc)) from cause

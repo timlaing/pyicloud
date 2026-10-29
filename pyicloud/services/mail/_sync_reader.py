@@ -21,13 +21,15 @@ from pyicloud.services.mail._sync import (
     Identity,
     Number,
     SyncCheckpoint,
-    SyncHistoryExpired,
     SyncModel,
-    SyncResetRequired,
     decode_events,
     validate_batch,
 )
 from pyicloud.services.mail._sync_state import InventoryMessage
+from pyicloud.services.mail.exceptions import (
+    SyncHistoryExpired,
+    SyncResetRequired,
+)
 from pyicloud.services.mail.models import MailFolder, MailMessage
 from pyicloud.services.mail.service import DEFAULT_TIMEOUT, MailService
 

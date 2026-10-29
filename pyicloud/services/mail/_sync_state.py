@@ -20,8 +20,10 @@ from pyicloud.services.mail._sync import (
     PositiveNumber,
     SyncCheckpoint,
     SyncModel,
-    SyncResetRequired,
 )
+from pyicloud.services.mail.exceptions import StateConflict, SyncResetRequired
+
+__all__ = ["StateConflict"]
 
 
 class InventoryMessage(SyncModel):
@@ -38,10 +40,6 @@ class StoredCheckpoint(SyncModel):
 
     revision: PositiveNumber
     checkpoint: SyncCheckpoint
-
-
-class StateConflict(SyncResetRequired):
-    """Another writer changed the inventory after the caller read its revision."""
 
 
 class SQLiteMailInventory:

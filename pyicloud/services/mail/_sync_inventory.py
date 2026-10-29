@@ -11,13 +11,13 @@ from collections.abc import Iterator
 from enum import Enum
 from typing import Protocol
 
-from pyicloud.services.mail._sync import SyncCheckpoint, SyncResetRequired
+from pyicloud.services.mail._sync import SyncCheckpoint
 from pyicloud.services.mail._sync_state import (
     InventoryMessage,
     SQLiteMailInventory,
-    StateConflict,
     StoredCheckpoint,
 )
+from pyicloud.services.mail.exceptions import StateConflict, SyncResetRequired
 
 
 class InventorySource(Protocol):

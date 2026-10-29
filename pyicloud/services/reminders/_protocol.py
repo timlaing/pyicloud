@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from pyicloud.common.cloudkit.models import CKFields
 
+from .exceptions import CRDTDecodeError, CRDTStructureError
 from .models import (
     DateComponents,
     EarlyReminder,
@@ -28,20 +29,7 @@ from .protobuf import reminders_pb2, versioned_document_pb2
 
 LOGGER = logging.getLogger(__name__)
 
-
-class CRDTDecodeError(ValueError):
-    """Raised when a Reminders CRDT payload cannot be decoded."""
-
-
-class CRDTStructureError(CRDTDecodeError):
-    """Raised when a decodable payload has no CRDT structure to edit.
-
-    The document carries no substrings, so there is no replica state to
-    preserve and re-encoding from scratch is equivalent. Callers that fall
-    back to a fresh document should catch this rather than
-    :class:`CRDTDecodeError`, whose other cases (a missing vector clock or
-    start sentinel) mean replica state does exist and must not be discarded.
-    """
+__all__ = ["CRDTDecodeError", "CRDTStructureError"]
 
 
 def _ref_name(fields: CKFields, key: str) -> str:

@@ -19,12 +19,13 @@ from .constants import (
     legacy_shared_stream_unsupported_message,
     unsupported_shared_library_album_message,
 )
+from .exceptions import PhotosServiceException
 from .materialize import (
     apply_align_raw_policy,
     set_exif_datetime_if_missing,
     write_xmp_sidecar,
 )
-from .models import PhotoResource, PhotosServiceException
+from .models import PhotoResource
 from .state import PhotoSyncState, SyncedPhotoResource, create_photo_sync_state
 
 DEFAULT_FOLDER_STRUCTURE = "none"

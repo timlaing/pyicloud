@@ -20,7 +20,7 @@ from ._protocol import (
     _ref_name,
     _structure_has_visible_text,
 )
-from .client import RemindersApiError
+from .exceptions import RemindersApiError
 from .models import (
     Alarm,
     DateTrigger,

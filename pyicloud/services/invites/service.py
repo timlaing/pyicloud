@@ -66,15 +66,18 @@ from ._invitations import (
 )
 from .client import (
     CloudKitInvitesClient,
+    ScopeLiteral,
+)
+from .codecs import decode_integrations, decode_json_bytes
+from .entitlement import CREATE_EVENT_FEATURE, FeatureAccess
+from .exceptions import (
+    EventNotFound,
     InvitesApiError,
     InvitesCreationError,
     InvitesEntitlementError,
     InvitesError,
     InvitesInvitationError,
-    ScopeLiteral,
 )
-from .codecs import decode_integrations, decode_json_bytes
-from .entitlement import CREATE_EVENT_FEATURE, FeatureAccess
 from .models.constants import (
     EventDetailsField,
     InvitesRecordType,
@@ -99,9 +102,7 @@ from .models.dto import (
 
 LOGGER = logging.getLogger(__name__)
 
-
-class EventNotFound(InvitesError):
-    """Raised when a requested event ID is not present in any scope."""
+__all__ = ["EventNotFound"]
 
 
 class InvitesService(BaseService):
