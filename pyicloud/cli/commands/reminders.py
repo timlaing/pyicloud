@@ -32,7 +32,7 @@ from pyicloud.cli.options import (
     store_command_options,
 )
 from pyicloud.cli.output import console_kv_table, console_table, format_color_value
-from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
+from pyicloud.services.reminders.exceptions import RemindersApiError, RemindersAuthError
 from pyicloud.services.reminders.models import (
     AlarmWithTrigger,
     EarlyReminder,

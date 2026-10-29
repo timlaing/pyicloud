@@ -12,22 +12,14 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .exceptions import SyncHistoryExpired, SyncInventoryRequired, SyncResetRequired
+
+__all__ = ["SyncHistoryExpired", "SyncInventoryRequired", "SyncResetRequired"]
+
 Number = Annotated[int, Field(ge=0)]
 UID = Annotated[int, Field(ge=1, le=4294967295)]
 PositiveNumber = Annotated[int, Field(ge=1)]
 Identity = Annotated[str, Field(min_length=1)]
-
-
-class SyncResetRequired(ValueError):
-    """The candidate cannot establish a safe, complete change batch."""
-
-
-class SyncHistoryExpired(SyncResetRequired):
-    """Apple explicitly rejected saved counters as older than retained history."""
-
-
-class SyncInventoryRequired(SyncResetRequired):
-    """A count-only change hint requires an explicitly authorized full scan."""
 
 
 class SyncModel(BaseModel):

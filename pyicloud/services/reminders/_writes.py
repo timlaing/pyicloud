@@ -25,8 +25,6 @@ from ._mappers import Attachment, RemindersRecordMapper
 from ._protocol import (
     _APPLE_EPOCH_OFFSET,
     _URGENT_PRESENTATION_ALARMS_MIN_VERSION,
-    CRDTDecodeError,
-    CRDTStructureError,
     _as_raw_id,
     _as_record_name,
     _decode_crdt_document,
@@ -46,6 +44,7 @@ from ._support import (
     _refresh_record_change_tag,
     _response_record_change_tag,
 )
+from .exceptions import CRDTDecodeError, CRDTStructureError
 from .models import (
     Alarm,
     EarlyReminder,

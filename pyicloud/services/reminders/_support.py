@@ -7,7 +7,7 @@ from typing import Any
 
 from pyicloud.common.cloudkit import CKErrorItem, CKModifyResponse, CKRecord
 
-from .client import RemindersApiError
+from .exceptions import RemindersApiError
 
 
 def _raise_record_errors(records: Iterable[Any], operation_name: str) -> None:

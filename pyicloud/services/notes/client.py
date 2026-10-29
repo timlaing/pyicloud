@@ -38,60 +38,27 @@ from pyicloud.common.cloudkit.client import (
     CloudKitZoneNotFoundError,
     redact_cloudkit_url,
 )
-from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE_REQ
+from .exceptions import (
+    NotesApiError,
+    NotesAuthError,
+    NotesError,
+    NotesRateLimited,
+    NotesZoneNotFoundError,
+)
+
+__all__ = [
+    "NotesApiError",
+    "NotesAuthError",
+    "NotesError",
+    "NotesRateLimited",
+    "NotesZoneNotFoundError",
+]
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = (10.0, 60.0)
-
-
-# ------------------------------- Errors --------------------------------------
-
-
-class NotesError(PyiCloudException):
-    """Base Notes transport error."""
-
-
-class NotesAuthError(NotesError):
-    """Auth/PCS/cookie issues (401/403)."""
-
-
-class NotesRateLimited(NotesError):
-    """429 Too Many Requests."""
-
-    def __init__(self, message: str, retry_after: float | None = None):
-        super().__init__(message)
-        self.retry_after = retry_after
-
-
-class NotesApiError(NotesError):
-    """Catch-all API error."""
-
-    def __init__(self, message: str, payload: object | None = None):
-        super().__init__(message)
-        self.payload = payload
-
-
-class NotesZoneNotFoundError(NotesApiError):
-    """The Notes zone does not exist for this account.
-
-    Apple answers ``ZONE_NOT_FOUND`` for accounts whose Notes data is not
-    stored in CloudKit (or whose zone has not been created). Callers can catch
-    it to report "Notes not set up" instead of a generic error. Subclasses
-    ``NotesApiError``, so existing handlers keep catching it.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        payload: object | None = None,
-        *,
-        zone_name: str | None = None,
-    ):
-        super().__init__(message, payload)
-        self.zone_name = zone_name
 
 
 # ------------------------------ Raw client -----------------------------------
@@ -131,6 +98,12 @@ class CloudKitNotesClient:
 
     @staticmethod
     def _raise_notes_error(exc: Exception) -> NoReturn:
+        """Translate a shared CloudKit failure into the Notes error type.
+
+        The dedicated zone-not-found error keeps its payload and zone name so
+        callers can report "Notes not set up"; other failures propagate
+        unchanged.
+        """
         cause = exc.__cause__ or exc
         if isinstance(exc, CloudKitAuthError):
             raise NotesAuthError(str(exc)) from cause

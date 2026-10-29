@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 import logging
-from typing import Any, Literal, TypeVar, cast
+from typing import Any, Literal, NoReturn, TypeVar, cast
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
 from requests import Response
 
 from pyicloud.const import ERROR_ZONE_NOT_FOUND
-from pyicloud.exceptions import PyiCloudException
+from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
 from pyicloud.session import PyiCloudSession
 
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
@@ -190,12 +190,15 @@ class _CloudKitHTTP:
         op = path.strip("/")
         display_url = self._display_url(url) if self._redact_urls else path
         LOGGER.debug("CloudKit POST %s", display_url)
-        resp = self._session.post(
-            url,
-            json=payload,
-            timeout=self._timeout,
-            headers=headers,
-        )
+        try:
+            resp = self._session.post(
+                url,
+                json=payload,
+                timeout=self._timeout,
+                headers=headers,
+            )
+        except PyiCloudAPIResponseException as exc:
+            _reraise_zone_not_found(exc)
         code = getattr(resp, "status_code", 0)
         if not isinstance(code, int):
             code = 200
@@ -205,30 +208,10 @@ class _CloudKitHTTP:
             raise CloudKitAuthError(f"HTTP {code}: unauthorized")
         if code == 429 and self._handle_rate_limits:
             self._run_debug_hook(op, url, payload, resp)
-            retry_after = None
-            try:
-                hdr = resp.headers.get("Retry-After")
-                if hdr:
-                    retry_after = float(hdr)
-            except Exception:
-                retry_after = None
-            raise CloudKitRateLimited(_RATE_LIMITED, retry_after=retry_after)
+            raise CloudKitRateLimited(_RATE_LIMITED, retry_after=_retry_after(resp))
         if code >= 400:
             self._run_debug_hook(op, url, payload, resp)
-            try:
-                body = resp.json()
-            except Exception:
-                body = getattr(resp, "text", None)
-            if (
-                isinstance(body, dict)
-                and body.get("serverErrorCode") == ERROR_ZONE_NOT_FOUND
-            ):
-                raise CloudKitZoneNotFoundError(
-                    f"HTTP {code}",
-                    payload=body,
-                    zone_name=_zone_id_name(body.get("zoneID")),
-                )
-            raise CloudKitApiError(f"HTTP {code}", payload=body)
+            _raise_for_http_error(code, resp)
 
         try:
             return cast(dict[str, Any], resp.json())
@@ -377,6 +360,60 @@ def _zone_id_name(zone_id: Any) -> str | None:
     return None
 
 
+def _retry_after(resp: Response) -> float | None:
+    """Parse the Retry-After header of a rate-limited response, if present."""
+    try:
+        hdr = resp.headers.get("Retry-After")
+        if hdr:
+            return float(hdr)
+    except Exception:
+        return None
+    return None
+
+
+def _raise_for_http_error(code: int, resp: Response) -> NoReturn:
+    """Raise the CloudKit error matching a non-OK HTTP response.
+
+    A body reporting ``ZONE_NOT_FOUND`` becomes a dedicated error so callers
+    can treat a missing zone as a valid account state rather than a failure;
+    anything else stays a generic API error carrying the response body.
+    """
+    try:
+        body = resp.json()
+    except Exception:
+        body = getattr(resp, "text", None)
+    if isinstance(body, dict) and body.get("serverErrorCode") == ERROR_ZONE_NOT_FOUND:
+        raise CloudKitZoneNotFoundError(
+            f"HTTP {code}",
+            payload=body,
+            zone_name=_zone_id_name(body.get("zoneID")),
+        )
+    raise CloudKitApiError(f"HTTP {code}", payload=body)
+
+
+def _reraise_zone_not_found(exc: PyiCloudAPIResponseException) -> NoReturn:
+    """Re-map a session-raised HTTP error that is really a missing zone.
+
+    ``PyiCloudSession`` raises on any non-OK response before the HTTP layer
+    receives it, so a real 404 ``ZONE_NOT_FOUND`` would otherwise reach
+    callers as a generic ``PyiCloudAPIResponseException`` and the HTTP-error
+    branch in ``_CloudKitHTTP.post`` would never run. The message and payload
+    match that branch; every other session error is re-raised unchanged.
+    """
+    body: Any = None
+    response = exc.response
+    if response is not None:
+        with suppress(Exception):
+            body = response.json()
+    if isinstance(body, dict) and body.get("serverErrorCode") == ERROR_ZONE_NOT_FOUND:
+        raise CloudKitZoneNotFoundError(
+            f"HTTP {exc.code}",
+            payload=body,
+            zone_name=_zone_id_name(body.get("zoneID")),
+        ) from exc
+    raise exc
+
+
 def _raise_for_zone_errors(data: Any, *, operation: str = "changes") -> None:
     """Raise if any zone in a /changes/zone or /zones/modify response failed.
 
@@ -393,27 +430,36 @@ def _raise_for_zone_errors(data: Any, *, operation: str = "changes") -> None:
     for zone in zones:
         if not isinstance(zone, dict) or "serverErrorCode" not in zone:
             continue
+        raise _zone_error(zone, data, operation)
 
-        code = zone["serverErrorCode"]
-        message = f"Zone {operation} failed: {code}"
-        if reason := zone.get("reason"):
-            message = f"{message} ({reason})"
 
-        if code in _RETRYABLE_ZONE_ERRORS:
-            retry_after = None
-            if (raw_retry_after := zone.get("retryAfter")) is not None:
-                with suppress(TypeError, ValueError):
-                    retry_after = float(raw_retry_after)
-            raise CloudKitRateLimited(message, retry_after=retry_after)
-        if code in _AUTH_ZONE_ERRORS:
-            raise CloudKitAuthError(message)
-        if code == ERROR_ZONE_NOT_FOUND:
-            raise CloudKitZoneNotFoundError(
-                message,
-                payload=data,
-                zone_name=_zone_id_name(zone.get("zoneID")),
-            )
-        raise CloudKitApiError(message, payload=data)
+def _zone_error(zone: dict[str, Any], data: Any, operation: str) -> PyiCloudException:
+    """Build the error for one zone entry that reported a failure.
+
+    CloudKit reports retryable, authentication, and missing-zone failures
+    with distinct codes; a missing zone is a valid account state, so it gets
+    its own type while everything else stays a generic API error.
+    """
+    code = zone["serverErrorCode"]
+    message = f"Zone {operation} failed: {code}"
+    if reason := zone.get("reason"):
+        message = f"{message} ({reason})"
+
+    if code in _RETRYABLE_ZONE_ERRORS:
+        retry_after = None
+        if (raw_retry_after := zone.get("retryAfter")) is not None:
+            with suppress(TypeError, ValueError):
+                retry_after = float(raw_retry_after)
+        return CloudKitRateLimited(message, retry_after=retry_after)
+    if code in _AUTH_ZONE_ERRORS:
+        return CloudKitAuthError(message)
+    if code == ERROR_ZONE_NOT_FOUND:
+        return CloudKitZoneNotFoundError(
+            message,
+            payload=data,
+            zone_name=_zone_id_name(zone.get("zoneID")),
+        )
+    return CloudKitApiError(message, payload=data)
 
 
 def _raise_for_record_errors(data: Any) -> None:

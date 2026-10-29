@@ -203,8 +203,9 @@ class TestCloudKitRemindersClientErrors:
             zone_name="Reminders",
         )
 
+        zone_req = MagicMock()
         with pytest.raises(RemindersZoneNotFoundError) as excinfo:
-            client.changes(zone_req=MagicMock())
+            client.changes(zone_req=zone_req)
 
         assert isinstance(excinfo.value, RemindersApiError)
         assert excinfo.value.payload == {"zones": []}

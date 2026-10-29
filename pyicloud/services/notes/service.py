@@ -44,14 +44,16 @@ from pyicloud.services.notes.decoding import BodyDecoder
 from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE, NOTES_ZONE_NAME, NOTES_ZONE_REQ
-from .client import (
-    CloudKitNotesClient,
+from .client import CloudKitNotesClient
+from .domain import AttachmentId, NoteBody
+from .exceptions import (
+    NoteLockedError,
+    NoteNotFound,
     NotesApiError,
     NotesAuthError,
     NotesError,
     NotesRateLimited,
 )
-from .domain import AttachmentId, NoteBody
 from .models import Attachment, Note, NoteSummary
 from .models.constants import NotesDesiredKey, NotesRecordType
 from .models.dto import ChangeEvent, NoteFolder
@@ -59,16 +61,10 @@ from .rendering.exporter import NoteExporter, build_datasource, decode_and_parse
 from .rendering.options import ExportConfig
 from .rendering.renderer import NoteRenderer
 
+__all__ = ["NoteLockedError", "NoteNotFound"]
+
 LOGGER = logging.getLogger(__name__)
 _HAS_SUBFOLDER_FIELD = "HasSubfolder"
-
-
-class NoteNotFound(NotesError):
-    """Raised when a note cannot be found."""
-
-
-class NoteLockedError(NotesError):
-    """Raised when a note is password protected and cannot be accessed."""
 
 
 # ----------------------------- NotesService ----------------------------------

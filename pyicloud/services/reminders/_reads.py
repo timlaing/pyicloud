@@ -23,7 +23,7 @@ from ._constants import _REMINDERS_ZONE, _REMINDERS_ZONE_REQ
 from ._mappers import Attachment, RemindersRecordMapper
 from ._protocol import _as_record_name
 from ._support import _assert_read_success
-from .client import RemindersApiError
+from .exceptions import RemindersApiError
 from .models import (
     Alarm,
     AlarmWithTrigger,

@@ -19,8 +19,6 @@ from pyicloud.services.mail._sync import (
     ExistsEvent,
     MessageEvent,
     SyncCheckpoint,
-    SyncInventoryRequired,
-    SyncResetRequired,
     ThreadEvent,
     ThreadInvalidationEvent,
     VanishedEvent,
@@ -32,6 +30,7 @@ from pyicloud.services.mail._sync_state import (
     SQLiteMailInventory,
     StoredCheckpoint,
 )
+from pyicloud.services.mail.exceptions import SyncInventoryRequired, SyncResetRequired
 
 
 class IncrementalSource(InventorySource, Protocol):

@@ -16,7 +16,8 @@ from .constants import (
     ObjectTypeEnum,
     SmartAlbumEnum,
 )
-from .models import PhotoChangeEvent, PhotoResource, PhotosServiceException
+from .exceptions import PhotosServiceException
+from .models import PhotoChangeEvent, PhotoResource
 from .service import (
     AlbumContainer,
     BasePhotoAlbum,

@@ -56,6 +56,7 @@ from .constants import (
     ObjectTypeEnum,
     SmartAlbumEnum,
 )
+from .exceptions import PhotosServiceException
 from .mappers import (
     _master_asset_groups,
     _raw_asset_groups,
@@ -71,7 +72,6 @@ from .models import (
     PhotoChangeEvent,
     PhotoResource,
     PhotosPutAssetResult,
-    PhotosServiceException,
     PhotosUploadResponse,
     SmartAlbumSpec,
 )
