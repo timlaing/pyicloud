@@ -10,46 +10,60 @@ Library album and mixed-view coverage remains deferred.
 
 from __future__ import annotations
 
-from pyicloud.services.photos_cloudkit import (
+from .constants import (
     PRIMARY_ZONE,
     UPLOAD_HYDRATION_INTERVAL,
     UPLOAD_HYDRATION_TIMEOUT,
-    AlbumContainer,
     AlbumTypeEnum,
-    BasePhotoAlbum,
-    BasePhotoLibrary,
     DirectionEnum,
     ListTypeEnum,
     ObjectTypeEnum,
+    SmartAlbumEnum,
+)
+from .exceptions import (
+    PhotosApiError,
+    PhotosAuthError,
+    PhotosRateLimited,
+    PhotosServiceException,
+    PhotosZoneNotFoundError,
+)
+from .mappers import record_change_tag
+from .models import (
+    PhotoChangeEvent,
+    PhotoResource,
+    PhotosPutAssetResult,
+    PhotosUploadResponse,
+    SmartAlbumSpec,
+)
+from .service import (
+    AlbumContainer,
+    BasePhotoAlbum,
+    BasePhotoLibrary,
     PhotoAlbum,
     PhotoAlbumFolder,
     PhotoAlbumRecordState,
     PhotoAsset,
-    PhotoChangeEvent,
     PhotoLibrary,
-    PhotoResource,
-    PhotosApiError,
-    PhotosAuthError,
-    PhotosRateLimited,
     PhotosService,
-    PhotosServiceException,
-    PhotoSyncItem,
-    PhotoSyncOptions,
-    PhotoSyncResult,
-    PhotoSyncState,
-    PhotosZoneNotFoundError,
-    SmartAlbumEnum,
     SmartPhotoAlbum,
-    SQLitePhotoSyncState,
-    SyncedPhotoResource,
-    create_photo_sync_state,
-    run_photo_sync,
-    watch_photo_sync,
 )
-from pyicloud.services.photos_legacy import (
+from .shared_streams import (
     PhotoStreamAsset,
     PhotoStreamLibrary,
     SharedPhotoStreamAlbum,
+)
+from .state import (
+    PhotoSyncState,
+    SQLitePhotoSyncState,
+    SyncedPhotoResource,
+    create_photo_sync_state,
+)
+from .sync import (
+    PhotoSyncItem,
+    PhotoSyncOptions,
+    PhotoSyncResult,
+    run_photo_sync,
+    watch_photo_sync,
 )
 
 __all__ = [
@@ -90,4 +104,8 @@ __all__ = [
     "create_photo_sync_state",
     "run_photo_sync",
     "watch_photo_sync",
+    "record_change_tag",
+    "PhotosPutAssetResult",
+    "PhotosUploadResponse",
+    "SmartAlbumSpec",
 ]

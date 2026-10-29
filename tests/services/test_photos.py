@@ -57,25 +57,25 @@ from pyicloud.services.photos import (
     SmartAlbumEnum,
     SmartPhotoAlbum,
 )
-from pyicloud.services.photos_cloudkit.mappers import (
+from pyicloud.services.photos.mappers import (
     decode_encrypted_text,
     record_change_tag,
     record_field_value,
 )
-from pyicloud.services.photos_cloudkit.models import (
+from pyicloud.services.photos.models import (
     PhotosPutAssetResult,
     PhotosPutAssetStatus,
 )
-from pyicloud.services.photos_cloudkit.queries import parent_filter, smart_album_filter
-from pyicloud.services.photos_legacy import AlbumContainer as LegacyAlbumContainer
-from pyicloud.services.photos_legacy import DirectionEnum as LegacyDirectionEnum
-from pyicloud.services.photos_legacy import ListTypeEnum as LegacyListTypeEnum
-from pyicloud.services.photos_legacy import ObjectTypeEnum as LegacyObjectTypeEnum
-from pyicloud.services.photos_legacy import PhotoAlbum as LegacyPhotoAlbum
-from pyicloud.services.photos_legacy import PhotoAsset as LegacyPhotoAsset
-from pyicloud.services.photos_legacy import PhotoLibrary as LegacyPhotoLibrary
-from pyicloud.services.photos_legacy import PhotosService as LegacyPhotosService
-from pyicloud.services.photos_legacy import (
+from pyicloud.services.photos.queries import parent_filter, smart_album_filter
+from pyicloud.services.photos import AlbumContainer as LegacyAlbumContainer
+from pyicloud.services.photos import DirectionEnum as LegacyDirectionEnum
+from pyicloud.services.photos import ListTypeEnum as LegacyListTypeEnum
+from pyicloud.services.photos import ObjectTypeEnum as LegacyObjectTypeEnum
+from pyicloud.services.photos import PhotoAlbum as LegacyPhotoAlbum
+from pyicloud.services.photos import PhotoAsset as LegacyPhotoAsset
+from pyicloud.services.photos import PhotoLibrary as LegacyPhotoLibrary
+from pyicloud.services.photos import PhotosService as LegacyPhotosService
+from pyicloud.services.photos import (
     PhotosServiceException as LegacyPhotosServiceException,
 )
 from pyicloud.session import PyiCloudSession
@@ -674,7 +674,7 @@ def test_upload_file_retries_until_cloudkit_indexes_the_records() -> None:
     ]
 
     library = _upload_library(mock_client)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+    with patch("pyicloud.services.photos.service.time.sleep") as sleep:
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -695,7 +695,7 @@ def test_upload_file_gives_up_when_indexing_never_completes() -> None:
     mock_client.lookup.return_value = _not_found_lookup()
 
     library = _upload_library(mock_client)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+    with patch("pyicloud.services.photos.service.time.sleep"):
         asset = library._hydrate_uploaded_asset(
             mock_client.upload_file.return_value, timeout=0.2, interval=0.0
         )
@@ -721,7 +721,7 @@ def test_upload_file_backs_off_between_hydration_attempts() -> None:
 
     library = _upload_library(mock_client, upload_hydration_timeout=300.0)
     library._upload_hydration_interval = 2.0
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+    with patch("pyicloud.services.photos.service.time.sleep") as sleep:
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -742,7 +742,7 @@ def test_upload_file_backs_off_when_rate_limited_mid_hydration() -> None:
     ]
 
     library = _upload_library(mock_client, upload_hydration_timeout=300.0)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+    with patch("pyicloud.services.photos.service.time.sleep") as sleep:
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -765,7 +765,7 @@ def test_upload_file_retries_transient_lookup_failures() -> None:
     ]
 
     library = _upload_library(mock_client, upload_hydration_timeout=300.0)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+    with patch("pyicloud.services.photos.service.time.sleep"):
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -790,7 +790,7 @@ def test_upload_file_normalises_persistent_lookup_failures() -> None:
 
     library = _upload_library(mock_client, upload_hydration_timeout=0.2)
     with (
-        patch("pyicloud.services.photos_cloudkit.service.time.sleep"),
+        patch("pyicloud.services.photos.service.time.sleep"),
         pytest.raises(PhotosApiError, match="HTTP 500"),
     ):
         library.upload_file("test_photo.jpg")
@@ -828,7 +828,7 @@ def test_upload_file_returns_none_when_rate_limited_past_the_deadline() -> None:
     mock_client.lookup.side_effect = PhotosRateLimited("rate limited")
 
     library = _upload_library(mock_client, upload_hydration_timeout=0.2)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+    with patch("pyicloud.services.photos.service.time.sleep"):
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is None
@@ -845,7 +845,7 @@ def test_upload_file_hydrates_duplicate_without_waiting() -> None:
     mock_client.lookup.return_value = _uploaded_records_lookup()
 
     library = _upload_library(mock_client)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+    with patch("pyicloud.services.photos.service.time.sleep") as sleep:
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
