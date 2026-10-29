@@ -14,6 +14,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
     CloudKitAuthError,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.invites.client import (
@@ -22,6 +23,7 @@ from pyicloud.services.invites.client import (
     InvitesEntitlementError,
     InvitesError,
     InvitesRateLimited,
+    InvitesZoneNotFoundError,
 )
 from pyicloud.services.invites.service import EventNotFound
 from pyicloud.services.notes.client import (
@@ -29,9 +31,14 @@ from pyicloud.services.notes.client import (
     NotesAuthError,
     NotesError,
     NotesRateLimited,
+    NotesZoneNotFoundError,
 )
 from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
-from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
+from pyicloud.services.reminders.client import (
+    RemindersApiError,
+    RemindersAuthError,
+    RemindersZoneNotFoundError,
+)
 
 #: Every error a caller can catch, across all four hierarchies. The base of
 #: each is listed alongside its subclasses so a regression on either the root
@@ -40,20 +47,24 @@ PUBLIC_ERRORS: list[type[PyiCloudException]] = [
     CloudKitAuthError,
     CloudKitRateLimited,
     CloudKitApiError,
+    CloudKitZoneNotFoundError,
     InvitesError,
     InvitesAuthError,
     InvitesRateLimited,
     InvitesEntitlementError,
     InvitesApiError,
+    InvitesZoneNotFoundError,
     EventNotFound,
     NotesError,
     NotesAuthError,
     NotesRateLimited,
     NotesApiError,
+    NotesZoneNotFoundError,
     NoteNotFound,
     NoteLockedError,
     RemindersAuthError,
     RemindersApiError,
+    RemindersZoneNotFoundError,
 ]
 
 

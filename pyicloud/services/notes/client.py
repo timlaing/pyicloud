@@ -35,6 +35,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitAuthError,
     CloudKitContainerClient,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
     redact_cloudkit_url,
 )
 from pyicloud.exceptions import PyiCloudException
@@ -71,6 +72,26 @@ class NotesApiError(NotesError):
     def __init__(self, message: str, payload: object | None = None):
         super().__init__(message)
         self.payload = payload
+
+
+class NotesZoneNotFoundError(NotesApiError):
+    """The Notes zone does not exist for this account.
+
+    Apple answers ``ZONE_NOT_FOUND`` for accounts whose Notes data is not
+    stored in CloudKit (or whose zone has not been created). Callers can catch
+    it to report "Notes not set up" instead of a generic error. Subclasses
+    ``NotesApiError``, so existing handlers keep catching it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        payload: object | None = None,
+        *,
+        zone_name: str | None = None,
+    ):
+        super().__init__(message, payload)
+        self.zone_name = zone_name
 
 
 # ------------------------------ Raw client -----------------------------------
@@ -115,6 +136,10 @@ class CloudKitNotesClient:
             raise NotesAuthError(str(exc)) from cause
         if isinstance(exc, CloudKitRateLimited):
             raise NotesRateLimited(str(exc), retry_after=exc.retry_after) from cause
+        if isinstance(exc, CloudKitZoneNotFoundError):
+            raise NotesZoneNotFoundError(
+                str(exc), exc.payload, zone_name=exc.zone_name
+            ) from cause
         if isinstance(exc, CloudKitApiError):
             raise NotesApiError(str(exc), payload=exc.payload) from cause
         raise exc

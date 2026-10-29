@@ -8,6 +8,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Added
+
+- Add `CloudKitZoneNotFoundError`, raised when CloudKit reports `ZONE_NOT_FOUND` instead of the generic `CloudKitApiError`, so callers can treat a missing zone (e.g. Reminders not enabled on the account) as a valid account state; it derives from `CloudKitApiError` and keeps the same message and payload, so existing handlers that catch `CloudKitApiError` and look for `ZONE_NOT_FOUND` keep working. The Reminders, Notes, and Invites services re-raise it as `RemindersZoneNotFoundError`, `NotesZoneNotFoundError`, and `InvitesZoneNotFoundError` respectively, each deriving from the service's generic API error.
+
 ### Refactored
 
 - Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.

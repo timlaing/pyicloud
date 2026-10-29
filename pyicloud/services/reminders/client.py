@@ -23,6 +23,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitAuthError,
     CloudKitContainerClient,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.common.cloudkit.models import CKAssetToken
 from pyicloud.exceptions import PyiCloudException
@@ -41,6 +42,28 @@ class RemindersApiError(PyiCloudException):
     def __init__(self, message: str, payload: object | None = None):
         super().__init__(message)
         self.payload = payload
+
+
+class RemindersZoneNotFoundError(RemindersApiError):
+    """The Reminders zone does not exist for this account.
+
+    Apple answers ``ZONE_NOT_FOUND`` for accounts that have not enabled
+    Reminders (or whose Reminders zone has not been created yet). This is a
+    valid account state rather than a transport or server failure, so callers
+    can catch it to report "Reminders not set up" instead of a generic error.
+
+    Subclasses ``RemindersApiError``, so existing handlers keep catching it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        payload: object | None = None,
+        *,
+        zone_name: str | None = None,
+    ):
+        super().__init__(message, payload)
+        self.zone_name = zone_name
 
 
 class CloudKitRemindersClient:
@@ -74,6 +97,10 @@ class CloudKitRemindersClient:
         if isinstance(exc, CloudKitRateLimited):
             raise RemindersApiError(
                 str(exc), payload={"retry_after": exc.retry_after}
+            ) from cause
+        if isinstance(exc, CloudKitZoneNotFoundError):
+            raise RemindersZoneNotFoundError(
+                str(exc), exc.payload, zone_name=exc.zone_name
             ) from cause
         if isinstance(exc, CloudKitApiError):
             raise RemindersApiError(str(exc), payload=exc.payload) from cause

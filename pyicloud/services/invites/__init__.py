@@ -9,6 +9,7 @@ from .client import (
     InvitesError,
     InvitesInvitationError,
     InvitesRateLimited,
+    InvitesZoneNotFoundError,
 )
 from .models import (
     AcceptanceStatus,
@@ -44,6 +45,7 @@ __all__ = [
     "InvitesInvitationError",
     "InvitesRateLimited",
     "InvitesService",
+    "InvitesZoneNotFoundError",
     "OneTimeLinkGuest",
     "OneTimeLinkInvitation",
     "Participant",

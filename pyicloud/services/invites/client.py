@@ -50,6 +50,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitAuthError,
     CloudKitContainerClient,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
 from pyicloud.services.invites._constants import ONE_TIME_LINK_RECORD_NAME_SUFFIX
@@ -160,6 +161,26 @@ class InvitesApiError(InvitesError):
         self.payload = payload
 
 
+class InvitesZoneNotFoundError(InvitesApiError):
+    """The requested event zone does not exist for this account.
+
+    Apple answers ``ZONE_NOT_FOUND`` for an event zone that was never created
+    or has been deleted. Callers can catch it to report "event not found"
+    instead of a generic error. Subclasses ``InvitesApiError``, so existing
+    handlers keep catching it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        payload: object | None = None,
+        *,
+        zone_name: str | None = None,
+    ) -> None:
+        super().__init__(message, payload)
+        self.zone_name = zone_name
+
+
 class InvitesCreationError(InvitesApiError):
     """Creation failed; identifies the new zone and whether cleanup succeeded.
 
@@ -257,6 +278,10 @@ class CloudKitInvitesClient:
             raise InvitesAuthError(str(exc)) from cause
         if isinstance(exc, CloudKitRateLimited):
             raise InvitesRateLimited(str(exc), retry_after=exc.retry_after) from cause
+        if isinstance(exc, CloudKitZoneNotFoundError):
+            raise InvitesZoneNotFoundError(
+                str(exc), exc.payload, zone_name=exc.zone_name
+            ) from cause
         if isinstance(exc, CloudKitApiError):
             raise InvitesApiError(str(exc), payload=exc.payload) from cause
         if isinstance(exc, PyiCloudAPIResponseException):

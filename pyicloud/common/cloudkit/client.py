@@ -11,6 +11,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from pydantic import ValidationError
 from requests import Response
 
+from pyicloud.const import ERROR_ZONE_NOT_FOUND
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
@@ -84,6 +85,31 @@ class CloudKitApiError(PyiCloudException):
     def __init__(self, message: str, *, payload: Any | None = None) -> None:
         super().__init__(message)
         self.payload = payload
+
+
+class CloudKitZoneNotFoundError(CloudKitApiError):
+    """Raised when Apple reports the requested CloudKit zone as missing.
+
+    CloudKit answers ``ZONE_NOT_FOUND`` when a zone does not exist. For
+    containers such as Reminders this is a valid account state -- the account
+    has not enabled the service -- rather than a failure of the request, so
+    callers need a way to tell it apart from other API errors and report
+    "service not set up" instead of an error.
+
+    It subclasses ``CloudKitApiError`` and keeps the same message and
+    ``payload``, so existing handlers that catch ``CloudKitApiError`` and
+    look for ``ZONE_NOT_FOUND`` keep working unchanged.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        payload: Any | None = None,
+        zone_name: str | None = None,
+    ) -> None:
+        super().__init__(message, payload=payload)
+        self.zone_name = zone_name
 
 
 class _CloudKitHTTP:
@@ -193,6 +219,15 @@ class _CloudKitHTTP:
                 body = resp.json()
             except Exception:
                 body = getattr(resp, "text", None)
+            if (
+                isinstance(body, dict)
+                and body.get("serverErrorCode") == ERROR_ZONE_NOT_FOUND
+            ):
+                raise CloudKitZoneNotFoundError(
+                    f"HTTP {code}",
+                    payload=body,
+                    zone_name=_zone_id_name(body.get("zoneID")),
+                )
             raise CloudKitApiError(f"HTTP {code}", payload=body)
 
         try:
@@ -333,6 +368,15 @@ class _CloudKitHTTP:
                     close()
 
 
+def _zone_id_name(zone_id: Any) -> str | None:
+    """Return the zone name from a CloudKit ``zoneID`` dict, if present."""
+    if isinstance(zone_id, dict):
+        name = zone_id.get("zoneName")
+        if isinstance(name, str):
+            return name
+    return None
+
+
 def _raise_for_zone_errors(data: Any, *, operation: str = "changes") -> None:
     """Raise if any zone in a /changes/zone or /zones/modify response failed.
 
@@ -363,6 +407,12 @@ def _raise_for_zone_errors(data: Any, *, operation: str = "changes") -> None:
             raise CloudKitRateLimited(message, retry_after=retry_after)
         if code in _AUTH_ZONE_ERRORS:
             raise CloudKitAuthError(message)
+        if code == ERROR_ZONE_NOT_FOUND:
+            raise CloudKitZoneNotFoundError(
+                message,
+                payload=data,
+                zone_name=_zone_id_name(zone.get("zoneID")),
+            )
         raise CloudKitApiError(message, payload=data)
 
 
@@ -736,5 +786,6 @@ __all__ = [
     "CloudKitAuthError",
     "CloudKitContainerClient",
     "CloudKitRateLimited",
+    "CloudKitZoneNotFoundError",
     "redact_cloudkit_url",
 ]
