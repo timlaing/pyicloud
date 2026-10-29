@@ -1142,10 +1142,12 @@ is an atomic snapshot of concurrent mailbox changes.
 `icloud mail sync` performs **one read-only synchronization of minimal metadata**
 for one explicitly selected folder. The first successful run establishes an
 inventory; later runs replay its saved counters and reconcile changes. It stores
-only folder-local UIDs, message/thread IDs, numeric flags, scoped counters, and a
-local revision. Metadata queries also receive `From`, `To`, `Cc`, and `Subject`
-header values, MIME-part metadata (including any Mail Drop capabilities Apple
-returns), and preview identifiers. These additional values are discarded rather
+only folder-local UIDs, message/thread IDs, numeric flags, scoped counters, a
+local revision, and the folder name, mailbox ID, UID validity, and hashed
+account scope that pin the inventory to one account and folder. Metadata queries
+also receive `From`, `To`, `Cc`, and `Subject` header values, MIME-part metadata
+(including any Mail Drop capabilities Apple returns), and preview identifiers.
+These additional values are discarded rather
 than persisted in the inventory or printed in normal CLI output. The command
 does not fetch message bodies, preview text, attachment content, or raw MIME
 messages, and never changes remote flags, sends, moves, or deletes mail.
@@ -1181,8 +1183,10 @@ JSON success is a versioned summary, not a message dump or reusable sync token:
 `metadata_only: true`, `read_only: true`, and `atomic_snapshot: false`. Status is
 `baseline` for the first commit, `unchanged` for a no-op poll, or `updated` for a
 new local revision, including a rebuild. `updated` does not count remote message
-changes or imply that every existing row changed. Text output shows the same
-summary and limits. Success is printed only after storage is closed successfully.
+changes or imply that every existing row changed. Text output shows the status,
+folder ID, message count, revision, and state path, followed by a metadata-only
+reminder; it omits `format_version`. Success is printed only after storage is
+closed successfully.
 
 Recovery is explicit and narrowly scoped:
 
