@@ -399,15 +399,25 @@ def _reraise_zone_not_found(exc: PyiCloudAPIResponseException) -> NoReturn:
     callers as a generic ``PyiCloudAPIResponseException`` and the HTTP-error
     branch in ``_CloudKitHTTP.post`` would never run. The message and payload
     match that branch; every other session error is re-raised unchanged.
+    Auth (401, 403) and rate-limit (429) statuses are re-raised before the
+    body is read so a zone body cannot mask them, mirroring the status
+    checks that run first in ``_CloudKitHTTP.post``.
     """
+    if exc.code in (401, 403, 429):
+        raise exc
     body: Any = None
     response = exc.response
     if response is not None:
         with suppress(Exception):
             body = response.json()
     if isinstance(body, dict) and body.get("serverErrorCode") == ERROR_ZONE_NOT_FOUND:
+        message = (
+            f"HTTP {exc.code}"
+            if isinstance(exc.code, int)
+            else "CloudKit zone not found"
+        )
         raise CloudKitZoneNotFoundError(
-            f"HTTP {exc.code}",
+            message,
             payload=body,
             zone_name=_zone_id_name(body.get("zoneID")),
         ) from exc
