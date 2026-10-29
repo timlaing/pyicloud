@@ -47,6 +47,10 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 - Docs-only dependencies live in `docs/requirements.txt`; preview locally with `pip install -r docs/requirements.txt`, `pip install ".[cli]"`, then `mkdocs serve`.
 - Register every new page in the `nav:` of `mkdocs.yml` — pages absent from the nav are not published. `docs/research/` and `docs/hooks/` are excluded from the published site.
 
+## Repos
+
+- **Never look at the upstream repo.** Work only against your own fork (`origin`) and the local checkout. Do not fetch from, query the GitHub API for, or otherwise consult any `upstream` remote. This project is maintained across contributor forks; the original `picklepete/pyicloud` upstream is deprecated.
+
 ## Misc
 
 - `docs/research/invites_service_design.md` describes the invites/CloudKit wire protocol — read it before touching that service.
