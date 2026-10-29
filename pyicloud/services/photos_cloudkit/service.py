@@ -940,20 +940,30 @@ class PhotoLibrary(BasePhotoLibrary):
                     desired_keys=PHOTO_DESIRED_KEYS,
                 )
             except PhotosRateLimited as exc:
-                if not backoff.wait(exc.retry_after):
+                if not self._wait_backoff(backoff, exc.retry_after):
                     LOGGER.debug("Rate limited while waiting for the upload to index")
                     return None
             except PhotosApiError as exc:
-                # The Photos client already raises the public error type, so
-                # there is nothing to translate once retries are exhausted.
-                # 4xx errors are permanent (client errors) - raise immediately.
-                # 5xx errors are transient (server errors) - retry.
-                if exc.status is not None and 400 <= exc.status < 500:
-                    raise
-                if not backoff.wait():
-                    raise
+                if self._should_retry_photos_api_error(exc, backoff):
+                    continue
+                raise
             else:
                 return lookup.records
+
+    def _wait_backoff(self, backoff: _HydrationBackoff, seconds: float | None) -> bool:
+        """Wait with backoff, logging on timeout."""
+        if not backoff.wait(seconds):
+            LOGGER.debug("Rate limited while waiting for the upload to index")
+            return False
+        return True
+
+    def _should_retry_photos_api_error(
+        self, exc: PhotosApiError, backoff: _HydrationBackoff
+    ) -> bool:
+        """Return True if the PhotosApiError should be retried."""
+        if exc.status is not None and 400 <= exc.status < 500:
+            return False
+        return backoff.wait()
 
     def _asset_from_uploaded_records(
         self,

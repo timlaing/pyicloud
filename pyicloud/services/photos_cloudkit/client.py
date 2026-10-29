@@ -34,10 +34,7 @@ from pyicloud.common.cloudkit.errors import (
     status_of,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
-from pyicloud.exceptions import (
-    PyiCloudAPIResponseException,
-    PyiCloudConnectionException,
-)
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.session import PyiCloudSession
 
 from .exceptions import (
@@ -298,7 +295,6 @@ class PhotosCloudKitClient:
             CloudKitAuthError,
             CloudKitRateLimited,
             PyiCloudAPIResponseException,
-            PyiCloudConnectionException,
         ) as exc:
             self._raise_photos_error(exc)
         try:
@@ -328,7 +324,6 @@ class PhotosCloudKitClient:
             CloudKitAuthError,
             CloudKitRateLimited,
             PyiCloudAPIResponseException,
-            PyiCloudConnectionException,
         ) as exc:
             self._raise_photos_error(exc)
 
@@ -358,6 +353,5 @@ class PhotosCloudKitClient:
             CloudKitAuthError,
             CloudKitRateLimited,
             PyiCloudAPIResponseException,
-            PyiCloudConnectionException,
         ) as exc:
             self._raise_photos_error(exc)
