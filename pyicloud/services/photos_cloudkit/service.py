@@ -28,10 +28,8 @@ from pyicloud.common.cloudkit import (
     CKZoneID,
     CKZoneIDReq,
 )
-from pyicloud.common.cloudkit.client import CloudKitApiError, CloudKitRateLimited
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
-    PyiCloudAPIResponseException,
     PyiCloudException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
@@ -58,7 +56,11 @@ from .constants import (
     ObjectTypeEnum,
     SmartAlbumEnum,
 )
-from .exceptions import PhotosServiceException
+from .exceptions import (
+    PhotosApiError,
+    PhotosRateLimited,
+    PhotosServiceException,
+)
 from .mappers import (
     _master_asset_groups,
     _raw_asset_groups,
@@ -937,15 +939,31 @@ class PhotoLibrary(BasePhotoLibrary):
                     zone_id=zone_id,
                     desired_keys=PHOTO_DESIRED_KEYS,
                 )
-            except CloudKitRateLimited as exc:
-                if not backoff.wait(exc.retry_after):
+            except PhotosRateLimited as exc:
+                if not self._wait_backoff(backoff, exc.retry_after):
                     LOGGER.debug("Rate limited while waiting for the upload to index")
                     return None
-            except CloudKitApiError as exc:
-                if not backoff.wait():
-                    raise PyiCloudAPIResponseException(str(exc)) from exc
+            except PhotosApiError as exc:
+                if self._should_retry_photos_api_error(exc, backoff):
+                    continue
+                raise
             else:
                 return lookup.records
+
+    def _wait_backoff(self, backoff: _HydrationBackoff, seconds: float | None) -> bool:
+        """Wait with backoff, logging on timeout."""
+        if not backoff.wait(seconds):
+            LOGGER.debug("Rate limited while waiting for the upload to index")
+            return False
+        return True
+
+    def _should_retry_photos_api_error(
+        self, exc: PhotosApiError, backoff: _HydrationBackoff
+    ) -> bool:
+        """Return True if the PhotosApiError should be retried."""
+        if exc.status is not None and 400 <= exc.status < 500:
+            return False
+        return backoff.wait()
 
     def _asset_from_uploaded_records(
         self,
@@ -971,13 +989,12 @@ class PhotoLibrary(BasePhotoLibrary):
         """Upload a file into the library and return the created asset."""
 
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
-            try:
-                result = self._client.upload_file(
-                    path,
-                    zone_name=str(self.zone_id.get("zoneName") or ""),
-                )
-            except CloudKitApiError as exc:
-                raise PyiCloudAPIResponseException(str(exc)) from exc
+            # The client raises Photos errors (PhotosApiError et al.) itself,
+            # so a failed upload propagates without further translation.
+            result = self._client.upload_file(
+                path,
+                zone_name=str(self.zone_id.get("zoneName") or ""),
+            )
             return self._hydrate_uploaded_asset(result)
 
         filename = os.path.basename(path)
@@ -995,7 +1012,7 @@ class PhotoLibrary(BasePhotoLibrary):
             else PhotosUploadResponse.model_validate(payload)
         )
         if upload_payload.errors:
-            raise PyiCloudAPIResponseException(
+            raise PhotosApiError(
                 "; ".join(
                     (
                         f"{error.code}: {error.message}"

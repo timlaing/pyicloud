@@ -204,7 +204,7 @@ api.photos.albums["Screenshots"].upload(file_path)
 
 Note: Only limited media types are accepted; iCloud's own web uploader declares
 `.jpeg`, `.jpg`, and `image/jpeg`. An unsupported file is rejected with HTTP 415
-and raises a `PyiCloudAPIResponseException` naming the status.
+and raises a `PhotosApiError` naming the status.
 
 Uploads run against Apple's `photosupload` webservice, which replaced the
 withdrawn `uploadimagews` endpoint. The host is read from the account's
@@ -258,4 +258,34 @@ api.photos.albums["Screenshots"].add_photo(photo_asset)
 <PhotoAlbum: 'MyAlbum'>
 >>> my_album.add_photo(photo)
 True
+```
+
+## Errors
+
+Photos transport and API failures derive from `PhotosServiceException`, which
+itself derives from `PyiCloudException`, so a single `except PyiCloudException`
+block still catches everything:
+
+- `PhotosAuthError` — authentication or entitlement problems (HTTP 401/403).
+- `PhotosRateLimited` — HTTP 429; carries `retry_after` in seconds when Apple
+  sends a `Retry-After` header.
+- `PhotosApiError` — the catch-all API failure; carries the response `payload`
+  when one is available.
+- `PhotosZoneNotFoundError` — Apple reported the requested Photos zone as
+  missing (`ZONE_NOT_FOUND`). It derives from `PhotosApiError` and carries the
+  zone name in `zone_name`. It reaches the caller when `api.photos` builds the
+  service (the indexing-state check) as well as from later queries, zone
+  discovery, and writes.
+
+```python
+from pyicloud.exceptions import PyiCloudException
+from pyicloud.services.photos import PhotosZoneNotFoundError
+
+try:
+    photos = api.photos
+    lists = photos.albums
+except PhotosZoneNotFoundError:
+    print("Photos is not available for this account")
+except PyiCloudException as err:
+    print(f"Photos failed: {err}")
 ```
