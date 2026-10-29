@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import NoReturn
+from contextlib import suppress
+from typing import Any, NoReturn
 
 from pydantic import ValidationError
 
@@ -125,7 +126,13 @@ class PhotosCloudKitClient:
                     zone_error.payload,
                     zone_name=zone_error.zone_name,
                 ) from cause
-            raise PhotosApiError(str(exc), status=status) from cause
+            # Extract response body as payload, matching HTTP layer behavior
+            payload: Any = None
+            response = exc.response
+            if response is not None:
+                with suppress(Exception):
+                    payload = response.json()
+            raise PhotosApiError(str(exc), payload=payload, status=status) from cause
         raise exc
 
     def query(
