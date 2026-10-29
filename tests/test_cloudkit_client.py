@@ -379,6 +379,63 @@ def test_cloudkit_client_session_error_without_zone_body_is_reraised(
     assert exc_info.value is error
 
 
+def test_cloudkit_client_session_zone_error_with_api_code_is_not_http_status() -> None:
+    """A session API code in a zone body is never formatted as an HTTP status.
+
+    On a 2xx JSON response the session raises with the CloudKit API code
+    (a string such as ZONE_NOT_FOUND) as ``code``, so prefixing it with
+    ``HTTP`` would name a status that never happened.
+    """
+    body = {
+        "serverErrorCode": "ZONE_NOT_FOUND",
+        "reason": "zone does not exist",
+        "zoneID": {"zoneName": "Reminders"},
+    }
+    response = MagicMock()
+    response.json.return_value = body
+    error = PyiCloudAPIResponseException(
+        "zone does not exist", "ZONE_NOT_FOUND", response
+    )
+    session = MagicMock()
+    session.post.side_effect = error
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="reminderList")
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(CloudKitZoneNotFoundError) as exc_info:
+        client.query(query=query, zone_id=zone_id)
+
+    assert str(exc_info.value) == "CloudKit zone not found"
+    assert exc_info.value.payload == body
+    assert exc_info.value.zone_name == "Reminders"
+    assert isinstance(exc_info.value.__cause__, PyiCloudAPIResponseException)
+
+
+@pytest.mark.parametrize("status", [401, 403, 429])
+def test_cloudkit_client_session_auth_and_rate_limit_errors_are_not_remapped(
+    status: int,
+) -> None:
+    """Auth and rate-limit session errors are not remapped to a zone error.
+
+    A 401, 403 or 429 response whose body also carries ZONE_NOT_FOUND must
+    keep the original status: the zone remap would otherwise hide the auth
+    or rate-limit failure behind a missing-zone error.
+    """
+    response = MagicMock()
+    response.json.return_value = {"serverErrorCode": "ZONE_NOT_FOUND"}
+    error = PyiCloudAPIResponseException("Rejected", status, response)
+    session = MagicMock()
+    session.post.side_effect = error
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="reminderList")
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(PyiCloudAPIResponseException) as exc_info:
+        client.query(query=query, zone_id=zone_id)
+
+    assert exc_info.value is error
+
+
 def test_cloudkit_client_iter_changes_zone_error() -> None:
     """Paged zone changes raise on a zone-level error too."""
     client = _zone_error_client({"serverErrorCode": "TRY_AGAIN_LATER"})

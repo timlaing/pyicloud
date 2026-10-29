@@ -408,8 +408,13 @@ def session_zone_not_found(
         with suppress(Exception):
             body = response.json()
     if isinstance(body, dict) and body.get("serverErrorCode") == ERROR_ZONE_NOT_FOUND:
+        message = (
+            f"HTTP {exc.code}"
+            if isinstance(exc.code, int)
+            else "CloudKit zone not found"
+        )
         return CloudKitZoneNotFoundError(
-            f"HTTP {exc.code}",
+            message,
             payload=body,
             zone_name=_zone_id_name(body.get("zoneID")),
         )
@@ -420,8 +425,13 @@ def _reraise_zone_not_found(exc: PyiCloudAPIResponseException) -> NoReturn:
     """Re-map a session-raised HTTP error that is really a missing zone.
 
     Re-raises the zone error :func:`session_zone_not_found` builds, and
-    re-raises every other session error unchanged.
+    re-raises every other session error unchanged. Auth (401, 403) and
+    rate-limit (429) statuses are re-raised before the body is read so a
+    zone body cannot mask them, mirroring the status checks that run first
+    in ``_CloudKitHTTP.post``.
     """
+    if exc.code in (401, 403, 429):
+        raise exc
     zone_error = session_zone_not_found(exc)
     if zone_error is not None:
         raise zone_error from exc
