@@ -26,11 +26,11 @@ from pyicloud.services.photos import (
     PhotosServiceException,
     PhotoSyncOptions,
 )
-from pyicloud.services.photos_cloudkit.state import (
+from pyicloud.services.photos.state import (
     SyncedPhotoResource,
     create_photo_sync_state,
 )
-from pyicloud.services.photos_cloudkit.sync import (
+from pyicloud.services.photos.sync import (
     PhotoSyncItem,
     PhotoSyncResult,
     _asset_datetime,
@@ -924,7 +924,7 @@ def test_atomic_write_bytes_removes_temp_file_on_failure() -> None:
         target = temp_dir / "photo.jpg"
         with (
             patch(
-                "pyicloud.services.photos_cloudkit.sync.os.replace",
+                "pyicloud.services.photos.sync.os.replace",
                 side_effect=OSError("no rename"),
             ),
             pytest.raises(OSError),

@@ -1,7 +1,7 @@
 """Coverage-focused unit tests for the Photos CloudKit read helpers.
 
 These tests exercise the pure mapping, query-building, and local
-materialization helpers in ``pyicloud.services.photos_cloudkit`` directly.
+materialization helpers in ``pyicloud.services.photos`` directly.
 No network or real file-system access is performed: ``session`` objects are
 never touched and every ``Path`` touch goes through ``MagicMock`` instances.
 """
@@ -22,9 +22,9 @@ import zlib
 
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.common.cloudkit.models import CKAssetToken
-from pyicloud.services.photos_cloudkit import materialize as materialize_module
-from pyicloud.services.photos_cloudkit.constants import DirectionEnum, ListTypeEnum
-from pyicloud.services.photos_cloudkit.mappers import (
+from pyicloud.services.photos import materialize as materialize_module
+from pyicloud.services.photos.constants import DirectionEnum, ListTypeEnum
+from pyicloud.services.photos.mappers import (
     _master_asset_groups,
     _raw_asset_groups,
     build_photo_resource,
@@ -37,7 +37,7 @@ from pyicloud.services.photos_cloudkit.mappers import (
     record_zone,
     timestamp_or_epoch,
 )
-from pyicloud.services.photos_cloudkit.materialize import (
+from pyicloud.services.photos.materialize import (
     PhotoXmpMetadata,
     _build_exif_tiff,
     _can_overwrite_xmp_sidecar,
@@ -63,7 +63,7 @@ from pyicloud.services.photos_cloudkit.materialize import (
     set_exif_datetime_if_missing,
     write_xmp_sidecar,
 )
-from pyicloud.services.photos_cloudkit.queries import (
+from pyicloud.services.photos.queries import (
     album_query,
     check_indexing_state_query,
     list_query,
@@ -563,7 +563,7 @@ def test_write_xmp_sidecar_paths() -> None:
 def test_can_overwrite_xmp_sidecar_paths() -> None:
     """Can overwrite xmp sidecar paths."""
     path = cast(Path, MagicMock())
-    parse_target = "pyicloud.services.photos_cloudkit.materialize.ElementTree.parse"
+    parse_target = "pyicloud.services.photos.materialize.ElementTree.parse"
 
     with patch(parse_target, side_effect=ElementTree.ParseError):
         assert _can_overwrite_xmp_sidecar(path) is False

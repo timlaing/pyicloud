@@ -8,12 +8,11 @@ from typing import Any
 import pytest
 
 from pyicloud.common.cloudkit import CKRecord
-from pyicloud.services.photos_cloudkit.mappers import (
+from pyicloud.services.photos.mappers import (
     _master_asset_groups,
     _raw_asset_groups,
 )
-from pyicloud.services.photos_cloudkit.service import BasePhotoAlbum
-from pyicloud.services.photos_legacy import BasePhotoAlbum as LegacyAlbum
+from pyicloud.services.photos.service import BasePhotoAlbum
 
 
 def asset(name: str, master_id: str = "master") -> dict[str, Any]:
@@ -67,7 +66,7 @@ def test_legacy_join_keeps_two_assets_on_one_master() -> None:
     """Legacy join keeps two assets on one master."""
     response = {"records": [asset("first"), asset("second"), master()]}
     assert [
-        row.id for row in LegacyAlbum._process_photo_list_response(album(), response)
+        row.id for row in BasePhotoAlbum._process_photo_list_response(album(), response)
     ] == [
         "first",
         "second",
@@ -78,7 +77,7 @@ def test_legacy_join_keeps_two_assets_on_one_master() -> None:
     "processor",
     [
         BasePhotoAlbum._process_photo_list_response,
-        LegacyAlbum._process_photo_list_response,
+        BasePhotoAlbum._process_photo_list_response,
     ],
 )
 def test_separate_pages_can_reuse_the_same_master(processor: Any) -> None:

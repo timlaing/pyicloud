@@ -35,7 +35,7 @@ from pyicloud.cli.options import (
 )
 from pyicloud.cli.output import console_table, print_json_text, to_json_string
 from pyicloud.services.photos import PhotosServiceException, PhotoSyncOptions
-from pyicloud.services.photos_cloudkit.constants import (
+from pyicloud.services.photos.constants import (
     legacy_shared_stream_unsupported_message,
     unsupported_shared_library_album_message,
 )

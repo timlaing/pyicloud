@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from pyicloud.cookie_jar import PyiCloudCookieJar
-from pyicloud.services.photos_cloudkit.state import (
+from pyicloud.services.photos.state import (
     MemoryPhotoSyncState,
     SQLitePhotoSyncState,
     SyncedPhotoResource,
