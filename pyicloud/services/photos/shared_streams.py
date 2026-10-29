@@ -226,16 +226,39 @@ class PhotoStreamAsset(PhotoAsset):
     """A Shared Stream Photo Asset with overridden
     properties for shared-stream responses."""
 
+    def _get_plugin_fields(self) -> dict[str, Any]:
+        """Get pluginFields from asset record, handling both dict and CKRecord."""
+        asset_record = self._asset_record
+        if isinstance(asset_record, dict):
+            raw_plugin_fields = asset_record.get("pluginFields", {})
+        elif hasattr(asset_record, "fields"):
+            # Handle SimpleNamespace with fields attribute
+            fields = getattr(asset_record, "fields", {})
+            if isinstance(fields, dict):
+                raw_plugin_fields = fields.get("pluginFields", {})
+            else:
+                raw_plugin_fields = {}
+        else:
+            raw_plugin_fields = getattr(asset_record, "pluginFields", {})
+        return raw_plugin_fields if isinstance(raw_plugin_fields, dict) else {}
+
+    def _get_master_field(self, field_name: str) -> Any:
+        """Get field from master record, handling both dict and CKRecord."""
+        master_record = self._master_record
+        if isinstance(master_record, dict):
+            return master_record.get(field_name)
+        elif hasattr(master_record, "fields"):
+            # Handle SimpleNamespace with fields attribute
+            fields = getattr(master_record, "fields", {})
+            if isinstance(fields, dict):
+                return fields.get(field_name)
+            return None
+        return getattr(master_record, field_name, None)
+
     @property
     def like_count(self) -> int:
         """Gets the photo like count from pluginFields."""
-        fields = self._asset_record.fields
-        raw_plugin_fields: Any = (
-            fields.get("pluginFields") if hasattr(fields, "get") else {}
-        )
-        plugin_fields: dict[str, Any] = raw_plugin_fields
-        if not isinstance(plugin_fields, dict):
-            return 0
+        plugin_fields = self._get_plugin_fields()
         like_count = plugin_fields.get("likeCount")
         if not isinstance(like_count, dict):
             return 0
@@ -245,13 +268,7 @@ class PhotoStreamAsset(PhotoAsset):
     @property
     def liked(self) -> bool:
         """Gets if the photo is liked from pluginFields."""
-        fields = self._asset_record.fields
-        raw_plugin_fields: Any = (
-            fields.get("pluginFields") if hasattr(fields, "get") else {}
-        )
-        plugin_fields: dict[str, Any] = raw_plugin_fields
-        if not isinstance(plugin_fields, dict):
-            return False
+        plugin_fields = self._get_plugin_fields()
         liked_by_caller = plugin_fields.get("likedByCaller")
         if not isinstance(liked_by_caller, dict):
             return False
@@ -261,8 +278,7 @@ class PhotoStreamAsset(PhotoAsset):
     @property
     def asset_date(self) -> datetime:
         """Gets the photo asset date from master record's originalCreationDate."""
-        fields = self._master_record.fields
-        value = fields.get("originalCreationDate") if hasattr(fields, "get") else None
+        value = self._get_master_field("originalCreationDate")
         if isinstance(value, datetime):
             return value
         if isinstance(value, (int, float)):
@@ -273,10 +289,7 @@ class PhotoStreamAsset(PhotoAsset):
     def size(self) -> int:
         """Gets the photo asset size from master record's resOriginalFileSize."""
         try:
-            fields = self._master_record.fields
-            res_size = (
-                fields.get("resOriginalFileSize") if hasattr(fields, "get") else None
-            )
+            res_size = self._get_master_field("resOriginalFileSize")
             if res_size and isinstance(res_size, dict):
                 value = res_size.get("value", 0)
                 return int(value) if value is not None else 0

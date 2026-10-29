@@ -1015,6 +1015,9 @@ class PhotoLibrary(BasePhotoLibrary):
             )
             return self._hydrate_uploaded_asset(result)
 
+        if not self._upload_url:
+            return None
+
         filename = os.path.basename(path)
         params = dict(self.service.params)
         params["filename"] = filename
