@@ -15,11 +15,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
-- Raise the Photos service's own error types instead of raw CloudKit errors: Photos client methods raise `PhotosApiError` in place of `CloudKitApiError`, `PhotosRateLimited` in place of `CloudKitRateLimited`, and `PhotosAuthError` in place of `CloudKitAuthError`, each with the same message. Session-raised transport failures that previously surfaced as `PyiCloudAPIResponseException` are mapped by HTTP status the same way the other CloudKit services map them: 401/403 become `PhotosAuthError`, 429 becomes `PhotosRateLimited`, and everything else (including connection failures) becomes `PhotosApiError`. An authentication failure during upload hydration now surfaces immediately as `PhotosAuthError` instead of being retried until the hydration deadline. Existing handlers for `PhotosServiceException` or `PyiCloudException` keep catching all of these.
+- Raise the Photos service's own error types instead of raw CloudKit errors: Photos client methods raise `PhotosApiError` in place of `CloudKitApiError`, `PhotosRateLimited` in place of `CloudKitRateLimited`, and `PhotosAuthError` in place of `CloudKitAuthError`, each with the same message. Session-raised transport failures that previously surfaced as `PyiCloudAPIResponseException` are mapped the same way the other CloudKit services map them: a missing zone keeps `PhotosZoneNotFoundError`, 401/403 become `PhotosAuthError`, 429 becomes `PhotosRateLimited` (carrying `Retry-After` when Apple sends one), and everything else (including connection failures) becomes `PhotosApiError`. An authentication failure during upload hydration now surfaces immediately as `PhotosAuthError` instead of being retried until the hydration deadline. Existing handlers for `PhotosServiceException` or `PyiCloudException` keep catching all of these.
 
 ### Refactored
 
 - Move each service's exception classes into a dedicated `exceptions` module (`notes`, `reminders`, `invites`, `mail`, `photos_cloudkit`); every previous import path keeps re-exporting the same classes, so existing handlers are unaffected.
+- Share the session-error mapping helpers between the Invites and Photos services in a new `pyicloud.common.cloudkit.errors` module: HTTP-status extraction, `Retry-After` parsing, and the unauthorized/rate-limited status constants now live in one place instead of per service.
 - Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.
 
 ### Fixed

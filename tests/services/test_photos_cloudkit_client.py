@@ -30,10 +30,14 @@ from pyicloud.common.cloudkit.models import (
     CKZoneIDReq,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
-from pyicloud.services.photos_cloudkit.client import (
+from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
+    PyiCloudConnectionException,
+)
+from pyicloud.services.photos_cloudkit.client import PhotosCloudKitClient
+from pyicloud.services.photos_cloudkit.exceptions import (
     PhotosApiError,
     PhotosAuthError,
-    PhotosCloudKitClient,
     PhotosRateLimited,
     PhotosZoneNotFoundError,
 )
@@ -502,6 +506,96 @@ def test_upload_file_raises_cloudkit_error_for_invalid_json() -> None:
         ),
     ):
         client.upload_file("/virtual/invalid_json.jpg", zone_name="PrimarySync")
+
+
+def _session_response(
+    *, headers: dict[str, str] | None = None, body: object | None = None
+) -> MagicMock:
+    """Build the response stub a session-raised exception carries with it."""
+
+    response = MagicMock()
+    response.text = ""
+    response.headers = headers or {}
+    response.json.return_value = {} if body is None else body
+    return response
+
+
+def test_upload_file_maps_session_auth_error() -> None:
+    """A session-raised 401 should surface as PhotosAuthError, not escape."""
+
+    session = MagicMock()
+    session.post.side_effect = PyiCloudAPIResponseException(
+        "auth required", "401", _session_response()
+    )
+    client = _upload_client(session)
+
+    with _upload_environment(), pytest.raises(PhotosAuthError):
+        client.upload_file("/virtual/unauthorized.jpg", zone_name="PrimarySync")
+
+
+def test_upload_status_maps_session_rate_limit() -> None:
+    """A session-raised 429 should keep its Retry-After on the Photos error."""
+
+    session = MagicMock()
+    session.post.side_effect = PyiCloudAPIResponseException(
+        "slow down", 429, _session_response(headers={"Retry-After": "120"})
+    )
+    client = _upload_client(session)
+
+    with pytest.raises(PhotosRateLimited) as rate_ctx:
+        client.upload_status(["job"])
+
+    assert rate_ctx.value.retry_after == 120.0
+
+
+def test_upload_file_maps_session_connection_failure() -> None:
+    """A connection failure during upload should become PhotosApiError."""
+
+    session = MagicMock()
+    session.post.side_effect = PyiCloudConnectionException("Request failed to iCloud")
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(PhotosApiError, match="Request failed to iCloud"),
+    ):
+        client.upload_file("/virtual/offline.jpg", zone_name="PrimarySync")
+
+
+def test_upload_file_maps_session_zone_not_found() -> None:
+    """A session-raised ZONE_NOT_FOUND should keep its zone identity."""
+
+    body = {
+        "serverErrorCode": "ZONE_NOT_FOUND",
+        "zoneID": {"zoneName": "PrimarySync"},
+    }
+    session = MagicMock()
+    session.post.side_effect = PyiCloudAPIResponseException(
+        "zone missing", "ZONE_NOT_FOUND", _session_response(body=body)
+    )
+    client = _upload_client(session)
+
+    with (
+        _upload_environment(),
+        pytest.raises(PhotosZoneNotFoundError) as zone_ctx,
+    ):
+        client.upload_file("/virtual/missing_zone.jpg", zone_name="PrimarySync")
+
+    assert zone_ctx.value.payload == body
+    assert zone_ctx.value.zone_name == "PrimarySync"
+
+
+def test_query_maps_session_http_error() -> None:
+    """Shared-client wrappers should map session errors, not just uploads."""
+
+    client, inner = _mocked_client()
+    inner.query.side_effect = PyiCloudAPIResponseException("boom", 500)
+
+    with pytest.raises(PhotosApiError, match="boom"):
+        client.query(
+            query=CKQueryObject(recordType="CPLMaster"),
+            zone_id=CKZoneIDReq(zoneName="PrimarySync"),
+        )
 
 
 def test_local_time_zone_uses_javascript_offset_sign() -> None:

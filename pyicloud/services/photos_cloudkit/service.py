@@ -43,7 +43,7 @@ from pyicloud.services.photos_legacy import (
 )
 from pyicloud.session import PyiCloudSession
 
-from .client import PhotosApiError, PhotosCloudKitClient, PhotosRateLimited
+from .client import PhotosCloudKitClient
 from .constants import (
     PRIMARY_ZONE,
     SUPPORTED_SHARED_LIBRARY_SMART_ALBUMS,
@@ -56,7 +56,11 @@ from .constants import (
     ObjectTypeEnum,
     SmartAlbumEnum,
 )
-from .exceptions import PhotosServiceException
+from .exceptions import (
+    PhotosApiError,
+    PhotosRateLimited,
+    PhotosServiceException,
+)
 from .mappers import (
     _master_asset_groups,
     _raw_asset_groups,

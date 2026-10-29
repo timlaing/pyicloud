@@ -16,6 +16,7 @@ from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
 from pyicloud.session import PyiCloudSession
 
 from .base import CloudKitExtraMode, resolve_cloudkit_validation_extra
+from .errors import parse_retry_after
 from .models import (
     CKAssetToken,
     CKDatabaseChangesResponse,
@@ -363,12 +364,9 @@ def _zone_id_name(zone_id: Any) -> str | None:
 def _retry_after(resp: Response) -> float | None:
     """Parse the Retry-After header of a rate-limited response, if present."""
     try:
-        hdr = resp.headers.get("Retry-After")
-        if hdr:
-            return float(hdr)
+        return parse_retry_after(resp.headers.get("Retry-After"))
     except Exception:
         return None
-    return None
 
 
 def _raise_for_http_error(code: int, resp: Response) -> NoReturn:
@@ -391,14 +389,18 @@ def _raise_for_http_error(code: int, resp: Response) -> NoReturn:
     raise CloudKitApiError(f"HTTP {code}", payload=body)
 
 
-def _reraise_zone_not_found(exc: PyiCloudAPIResponseException) -> NoReturn:
-    """Re-map a session-raised HTTP error that is really a missing zone.
+def session_zone_not_found(
+    exc: PyiCloudAPIResponseException,
+) -> CloudKitZoneNotFoundError | None:
+    """Return the missing-zone error a session-raised HTTP error stands for.
 
     ``PyiCloudSession`` raises on any non-OK response before the HTTP layer
     receives it, so a real 404 ``ZONE_NOT_FOUND`` would otherwise reach
     callers as a generic ``PyiCloudAPIResponseException`` and the HTTP-error
     branch in ``_CloudKitHTTP.post`` would never run. The message and payload
-    match that branch; every other session error is re-raised unchanged.
+    match that branch; every other session error yields ``None``. Service
+    clients that talk to the session directly use this to surface a missing
+    zone the same way the HTTP layer would.
     """
     body: Any = None
     response = exc.response
@@ -406,11 +408,23 @@ def _reraise_zone_not_found(exc: PyiCloudAPIResponseException) -> NoReturn:
         with suppress(Exception):
             body = response.json()
     if isinstance(body, dict) and body.get("serverErrorCode") == ERROR_ZONE_NOT_FOUND:
-        raise CloudKitZoneNotFoundError(
+        return CloudKitZoneNotFoundError(
             f"HTTP {exc.code}",
             payload=body,
             zone_name=_zone_id_name(body.get("zoneID")),
-        ) from exc
+        )
+    return None
+
+
+def _reraise_zone_not_found(exc: PyiCloudAPIResponseException) -> NoReturn:
+    """Re-map a session-raised HTTP error that is really a missing zone.
+
+    Re-raises the zone error :func:`session_zone_not_found` builds, and
+    re-raises every other session error unchanged.
+    """
+    zone_error = session_zone_not_found(exc)
+    if zone_error is not None:
+        raise zone_error from exc
     raise exc
 
 
