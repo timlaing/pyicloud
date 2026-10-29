@@ -2007,11 +2007,12 @@ def test_photos_service_raises_photos_error_for_a_missing_zone(
         )
 
     monkeypatch.setattr(CloudKitContainerClient, "query", _zone_not_found)
+    session = cast(PyiCloudSession, object())
 
     with pytest.raises(PhotosZoneNotFoundError) as exc_info:
         PhotosService(
             service_root="https://example.com",
-            session=cast(PyiCloudSession, object()),
+            session=session,
             params={"dsid": "12345"},
             upload_url="https://upload.example.com",
             shared_streams_url=None,

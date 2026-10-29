@@ -590,12 +590,11 @@ def test_query_maps_session_http_error() -> None:
 
     client, inner = _mocked_client()
     inner.query.side_effect = PyiCloudAPIResponseException("boom", 500)
+    query = CKQueryObject(recordType="CPLMaster")
+    zone_id = CKZoneIDReq(zoneName="PrimarySync")
 
     with pytest.raises(PhotosApiError, match="boom"):
-        client.query(
-            query=CKQueryObject(recordType="CPLMaster"),
-            zone_id=CKZoneIDReq(zoneName="PrimarySync"),
-        )
+        client.query(query=query, zone_id=zone_id)
 
 
 def test_local_time_zone_uses_javascript_offset_sign() -> None:
@@ -1047,8 +1046,9 @@ def _mocked_client() -> tuple[PhotosCloudKitClient, MagicMock]:
 def test_raise_photos_error_translations() -> None:
     """Each raw CloudKit error maps to its Photos-service counterpart."""
 
+    auth_error = CloudKitAuthError("auth failed")
     with pytest.raises(PhotosAuthError):
-        PhotosCloudKitClient._raise_photos_error(CloudKitAuthError("auth failed"))
+        PhotosCloudKitClient._raise_photos_error(auth_error)
 
     rate_limited = CloudKitRateLimited("slow down", retry_after=1.5)
     with pytest.raises(PhotosRateLimited) as rate_ctx:
@@ -1069,8 +1069,9 @@ def test_raise_photos_error_translations() -> None:
     assert zone_ctx.value.payload == {"x": 2}
     assert zone_ctx.value.zone_name == "PrimarySync"
 
+    passthrough = ValueError("unchanged")
     with pytest.raises(ValueError, match="unchanged"):
-        PhotosCloudKitClient._raise_photos_error(ValueError("unchanged"))
+        PhotosCloudKitClient._raise_photos_error(passthrough)
 
 
 def test_zone_not_found_translates_on_every_client_method() -> None:
@@ -1090,17 +1091,15 @@ def test_zone_not_found_translates_on_every_client_method() -> None:
 
     client, inner = _mocked_client()
     inner.query.side_effect = zone_error()
+    query = CKQueryObject(recordType="CPLMaster")
     with pytest.raises(PhotosZoneNotFoundError):
-        client.query(query=CKQueryObject(recordType="CPLMaster"), zone_id=zone_id)
+        client.query(query=query, zone_id=zone_id)
 
     client, inner = _mocked_client()
     inner.iter_changes.side_effect = zone_error()
+    zone_id_req = CKZoneChangesZoneReq(zoneID=CKZoneID(zoneName="PrimarySync"))
     with pytest.raises(PhotosZoneNotFoundError):
-        list(
-            client.iter_changes(
-                zone_req=CKZoneChangesZoneReq(zoneID=CKZoneID(zoneName="PrimarySync"))
-            )
-        )
+        list(client.iter_changes(zone_req=zone_id_req))
 
     client, inner = _mocked_client()
     inner.modify.side_effect = zone_error()
