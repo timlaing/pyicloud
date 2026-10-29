@@ -115,3 +115,19 @@ shape verified by bounded read-only queries. It contains only invented group IDs
 folder timestamps, and a synthetic cursor; it is not a full digest response.
 Tests replay cursors with unchanged predicates and require a separate empty,
 marker-free terminal response. No real cursor or account data is included.
+
+## Private Synchronization Candidate
+
+`sync_events_response.json` is synthetic metadata matching the structural forms
+of read-only change polls. Counters, IDs, timestamps, flags, and ranges are fake.
+It tests a private decoder, not end-to-end synchronization or a public sync API.
+
+`sync_arrival_push.json` uses the observed new-message push envelope and the
+UID-bearing `EXISTS` event form. All counters, IDs, timestamps, flags, and topic
+values are synthetic. It contains no binary push frames, tokens, or alert text.
+
+`sync_thread_invalidation_response.json` models the observed
+`THREADUPDATE (<id> NIL <counter>)` form without a `FLAGS` section, alongside a
+UID removal. All identifiers and counters are invented. The event invalidates
+folder-local membership; it is not proof of permanent deletion or an empty flag
+set. Tests refresh the thread and verify missing old members by exact UID.

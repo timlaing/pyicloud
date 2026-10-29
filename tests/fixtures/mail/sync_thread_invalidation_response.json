@@ -1,0 +1,11 @@
+{
+  "events": ["* VANISHED 7", "* THREADUPDATE (synthetic-thread NIL 201)"],
+  "sessionHeaders": {
+    "folder": "INBOX",
+    "modseq": 101,
+    "threadmodseq": 201,
+    "condstore": 1,
+    "qresync": 1,
+    "threadmode": 1
+  }
+}

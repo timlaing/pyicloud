@@ -6,8 +6,10 @@ single-message read/unread, flag/unflag, and ordinary mailbox moves are availabl
 separately, alongside explicit folder management, draft saves, and ordinary draft
 attachment uploads and explicitly confirmed sending of saved drafts; ordinary
 reads never change flags. Mail Drop uploads and
-incremental synchronization are not supported.
+content synchronization are not supported.
 The `icloud mail` commands expose the same bounded API.
+The read-only commands include experimental, one-shot POSIX metadata inventory
+synchronization; this is not content synchronization or a mailbox backup.
 The existing `icloud doctor --probe` command checks Mail by listing its folders.
 
 ## Permanent Deletion
@@ -423,27 +425,28 @@ The supported read commands are deliberately narrower than every feature of
 the Mail website. "Supported" does not imply an atomic backup or unbounded
 server-side search. The current boundaries are:
 
-| Operation                          | CLI                        | Coverage and limits                                                                                           |
-| ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Folder metadata                    | `folders`                  | Lists active folders; fails on unsupported continuation rather than silently truncating.                      |
-| Exact message metadata             | `get`                      | Select one message ID or folder-local UID, with mailbox identity checks; no content reads.                    |
-| Message listing                    | `list`, `list --all`       | Bounded date-ordered listing or explicit UID enumeration, not an atomic snapshot.                             |
-| Thread members                     | `thread`, `thread --all`   | Bounded metadata or UID enumeration within the selected folder, not a cross-folder conversation.              |
-| Individual unread/flagged messages | `filter-messages`          | Explicit UID enumeration; changing flags can change membership during the scan.                               |
-| Text search                        | `search`, `search-folders` | Bounded thread groups; exhaustive full-text search is not established.                                        |
-| Unread/flagged thread groups       | `filter`                   | Bounded browser digests, without automatic pagination.                                                        |
-| Unread/flagged thread identities   | `filter-threads`           | Explicit cursor enumeration of IDs and folder timestamps; no digests, bodies, or atomic snapshot.             |
-| Preview                            | `preview`                  | Advertised snippets only, with exact message lookup by default; no body fallback.                             |
-| Body data                          | `body`                     | Advertised plain-text/HTML parts only, without requesting a read-state change or rendering HTML.              |
-| Attachments                        | `download`                 | Ordinary numeric MIME parts only; no Mail Drop/external URLs; private non-overwriting output.                 |
-| Mail Drop attachments              | `download-maildrop`        | Explicit part selection, verified Apple host, isolated session, hard size limit; no redirects or renewal.     |
-| JSON export                        | `export`                   | Exact metadata selection by default; body data only by explicit opt-in; not raw MIME/EML or a mailbox backup. |
-| Original MIME/EML export           | `export-eml`               | Streams Apple's returned message bytes unchanged, with exact lookup and private non-overwriting output.       |
+| Operation                          | CLI                        | Coverage and limits                                                                                                       |
+| ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Folder metadata                    | `folders`                  | Lists active folders; fails on unsupported continuation rather than silently truncating.                                  |
+| Exact message metadata             | `get`                      | Select one message ID or folder-local UID, with mailbox identity checks; no content reads.                                |
+| Message listing                    | `list`, `list --all`       | Bounded date-ordered listing or explicit UID enumeration, not an atomic snapshot.                                         |
+| Thread members                     | `thread`, `thread --all`   | Bounded metadata or UID enumeration within the selected folder, not a cross-folder conversation.                          |
+| Individual unread/flagged messages | `filter-messages`          | Explicit UID enumeration; changing flags can change membership during the scan.                                           |
+| Text search                        | `search`, `search-folders` | Bounded thread groups; exhaustive full-text search is not established.                                                    |
+| Unread/flagged thread groups       | `filter`                   | Bounded browser digests, without automatic pagination.                                                                    |
+| Unread/flagged thread identities   | `filter-threads`           | Explicit cursor enumeration of IDs and folder timestamps; no digests, bodies, or atomic snapshot.                         |
+| Preview                            | `preview`                  | Advertised snippets only, with exact message lookup by default; no body fallback.                                         |
+| Body data                          | `body`                     | Advertised plain-text/HTML parts only, without requesting a read-state change or rendering HTML.                          |
+| Attachments                        | `download`                 | Ordinary numeric MIME parts only; no Mail Drop/external URLs; private non-overwriting output.                             |
+| Mail Drop attachments              | `download-maildrop`        | Explicit part selection, verified Apple host, isolated session, hard size limit; no redirects or renewal.                 |
+| JSON export                        | `export`                   | Exact metadata selection by default; body data only by explicit opt-in; not raw MIME/EML or a mailbox backup.             |
+| Original MIME/EML export           | `export-eml`               | Streams Apple's returned message bytes unchanged, with exact lookup and private non-overwriting output.                   |
+| Local metadata inventory           | `sync`                     | One-shot POSIX inventory with guarded incremental reads; no content downloads, mail writes, or atomic snapshot guarantee. |
 
 Full-text search pagination remains a separate protocol-research blocker.
-Arbitrary external attachment downloads and incremental synchronization are
+Arbitrary external attachment downloads and body/attachment synchronization are
 not implemented. Only the explicit, restricted Mail Drop path below is supported;
-do not infer support for arbitrary URLs or synchronization
+do not infer support for arbitrary URLs or complete mailbox backup
 from the read commands above. There is no public exhaustive search iterator.
 Mail writes require separate implementation, review, and
 explicit authorization for any live mutation tests.
@@ -1133,6 +1136,82 @@ already have consumed bytes before a later failure; those bytes cannot be
 retracted. A stable rename uses the current folder path. As with bodies, legacy
 metadata without UID validity cannot provide namespace checks, and no stream
 is an atomic snapshot of concurrent mailbox changes.
+
+## Metadata Inventory Synchronization
+
+`icloud mail sync` performs **one read-only synchronization of minimal metadata**
+for one explicitly selected folder. The first successful run establishes an
+inventory; later runs replay its saved counters and reconcile changes. It stores
+only folder-local UIDs, message/thread IDs, numeric flags, scoped counters, a
+local revision, and the folder name, mailbox ID, UID validity, and hashed
+account scope that pin the inventory to one account and folder. Metadata queries
+also receive `From`, `To`, `Cc`, and `Subject` header values, MIME-part metadata
+(including any Mail Drop capabilities Apple returns), and preview identifiers.
+These additional values are discarded rather
+than persisted in the inventory or printed in normal CLI output. The command
+does not fetch message bodies, preview text, attachment content, or raw MIME
+messages, and never changes remote flags, sends, moves, or deletes mail.
+This is not a live watcher, atomic snapshot, full-mailbox archive, or cross-folder
+move/deletion feed. The underlying web protocol remains experimental; server
+history completeness and large event bursts are not fully verified.
+
+This command currently requires **macOS/Linux (POSIX)** and a local filesystem.
+Choose a separate dedicated state directory for each account/folder, outside Git.
+Its parent must already exist. The command creates the final directory as `0700`
+and database/lock files as `0600`; it rejects permissive existing modes, unsafe
+ancestors, final-directory/file symlinks, hard-linked files, and unexpected files
+rather than changing permissions or deleting them. Existing parent symlinks are
+canonicalized before safety checks. Network filesystems, custom ACL overrides,
+same-user malicious processes, and encryption at rest are outside this boundary.
+
+```console
+mkdir -p "$HOME/.local/state/pyicloud-mail"
+icloud mail sync --folder-id '<inbox-id>' --state-dir "$HOME/.local/state/pyicloud-mail/inbox" --format json
+```
+
+Repeat the same command to poll once more; no `--all` or `--limit` is needed.
+Only one worker can hold a state directory's lock. Defaults are `--page-size 50`,
+`--max-pages 10000` per enumeration, `--max-messages 100000`, `--max-lookups 1000`,
+and `--max-attempts 3` for a stable baseline/rebuild. Exhausted budgets fail rather
+than silently truncating. `--state-timeout` bounds SQLite lock waits (default five
+seconds, maximum sixty); the full-run worker lock fails immediately if busy.
+There are no automatic network retries. A continuously changing mailbox may need
+a later retry rather than an incomplete successful result.
+
+JSON success is a versioned summary, not a message dump or reusable sync token:
+`format_version`, `folder_id`, `state_path`, `status`, `revision`, `message_count`,
+`metadata_only: true`, `read_only: true`, and `atomic_snapshot: false`. Status is
+`baseline` for the first commit, `unchanged` for a no-op poll, or `updated` for a
+new local revision, including a rebuild. `updated` does not count remote message
+changes or imply that every existing row changed. Text output shows the status,
+folder ID, message count, revision, and state path, followed by a metadata-only
+reminder; it omits `format_version`. Success is printed only after storage is
+closed successfully.
+
+Recovery is explicit and narrowly scoped:
+
+- If Apple reports expired change history, the command retains the inventory and
+  suggests `--rebuild-expired`. That option permits a bounded, stable full metadata
+  rescan; it does not reset on authorization failures or unknown events.
+- A count-only notification cannot identify changed messages. The command retains
+  state and suggests `--allow-inventory-fallback`. That option permits one stable
+  full metadata scan, not an unbounded retry, and cannot regress below counters
+  already observed in the notification response. It does not authorize expiry recovery.
+- Both opt-ins may be specified when both behaviors are wanted. Failed or interrupted
+  scans do not publish partial inventory/checkpoint updates. Neither option permits
+  a different account/mailbox to claim a state directory.
+- Folder recreation, a changed UID namespace, or a renamed path requires checking
+  the current folder identity and selecting a fresh state directory. Preserve the
+  old directory for inspection. Corrupt databases are not silently replaced;
+  preserve the database and journal rather than deleting recovery files.
+- Other unsupported or inconsistent change histories also retain the checkpoint.
+  The CLI explains how to check the current scope and select a fresh `--state-dir`
+  for a bounded baseline. Repeating the same checkpoint is not a repair; preserve
+  the old state for inspection instead of deleting it or forcing a history reset.
+
+The private Python sync helpers are implementation details, not a new documented
+`MailService` synchronization API. Use `mail export` or `export-eml` separately
+when an explicit single-message content export is needed.
 
 ## Errors and Privacy
 

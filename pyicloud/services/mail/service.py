@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 import os
 import re
@@ -1306,12 +1306,22 @@ class MailService(BaseService):
         return self._lookup_message(folder, "uid", uid)
 
     def _lookup_message(
-        self, folder: MailFolder, field: Literal["identifier", "uid"], value: str | int
+        self,
+        folder: MailFolder,
+        field: Literal["identifier", "uid"],
+        value: str | int,
+        *,
+        check_folder: Callable[[], MailFolder] | None = None,
     ) -> MailMessage | None:
         """Validate an exact metadata response before binding a UID to a folder."""
         if folder.uid_validity is None or folder.uid_validity < 1:
             raise ValueError(_UID_VALIDITY_REQUIRED)
-        current = self._checked_mailbox(folder)
+        check: Callable[[], MailFolder] = (
+            (lambda: self._checked_mailbox(folder))
+            if check_folder is None
+            else check_folder
+        )
+        current = check()
         predicate = _folder_predicate(current)
         predicate = predicate.model_copy(
             update={
@@ -1335,7 +1345,7 @@ class MailService(BaseService):
             ),
             MessageResponse,
         )
-        current = self._checked_mailbox(folder)
+        current = check()
         if response.continuation_marker or len(response.records) > 1:
             raise MailError("Mail lookup returned an ambiguous or incomplete response")
         if not response.records:
@@ -1374,6 +1384,20 @@ class MailService(BaseService):
         page establishes exhaustion; page budgets and failures raise. Earlier
         yielded metadata cannot be retracted. No bodies or mutations are requested.
         """
+        yield from self._iter_thread_messages(
+            folder, thread_id, page_size=page_size, max_pages=max_pages
+        )
+
+    def _iter_thread_messages(
+        self,
+        folder: MailFolder,
+        thread_id: str,
+        *,
+        page_size: int,
+        max_pages: int,
+        check_folder: Callable[[], MailFolder] | None = None,
+    ) -> Iterator[MailMessage]:
+        """Share thread scope construction with the stronger sync identity guard."""
         if not isinstance(thread_id, str) or not thread_id.strip():
             raise ValueError("thread_id must be a non-empty string")
         match = MailPredicate(
@@ -1382,7 +1406,12 @@ class MailService(BaseService):
             value=thread_id,
         )
         yield from self._iter_messages(
-            folder, page_size, max_pages, match=match, thread_id=thread_id
+            folder,
+            page_size,
+            max_pages,
+            match=match,
+            thread_id=thread_id,
+            check_folder=check_folder,
         )
 
     def iter_filtered_messages(
@@ -1421,19 +1450,27 @@ class MailService(BaseService):
         *,
         match: MailPredicate | None = None,
         thread_id: str | None = None,
+        check_folder: Callable[[], MailFolder] | None = None,
     ) -> Iterator[MailMessage]:
         """Share UID progress, exhaustion and mailbox guards across read scopes."""
         _validate_scan(folder, page_size, max_pages)
-        current = self._checked_mailbox(folder)
+        check: Callable[[], MailFolder] = (
+            (lambda: self._checked_mailbox(folder))
+            if check_folder is None
+            else check_folder
+        )
+        current = check()
         before: int | None = None
         seen: set[str] = set()
         for _ in range(max_pages):
+            if check_folder is not None and before is not None:
+                current = check()
             response = self._post(
                 _MESSAGE_LIST,
                 _uid_query(current, page_size, before, match),
                 MessageResponse,
             )
-            current = self._checked_mailbox(folder)
+            current = check()
             if thread_id is not None and any(
                 record.thread_id != thread_id for record in response.records
             ):

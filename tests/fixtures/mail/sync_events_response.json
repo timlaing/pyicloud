@@ -1,0 +1,16 @@
+{
+  "events": [
+    "* 4 EXISTS",
+    "* 2 FETCH (UID 17 MODSEQ (103) FLAGS (\\Seen $Synthetic))",
+    "* VANISHED 3:8,12",
+    "* THREADUPDATE (synthetic-thread 1700000000000 204 FLAGS (\\Seen) NEW)"
+  ],
+  "sessionHeaders": {
+    "folder": "INBOX",
+    "modseq": 105,
+    "threadmodseq": 205,
+    "condstore": 1,
+    "qresync": 1,
+    "threadmode": 1
+  }
+}

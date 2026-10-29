@@ -173,6 +173,14 @@ ignore-patterns = [
     "^.*_pb2\\.py$"
 ]
 
+[tool.pylint.classes]
+# Sync reuses these internal readers with stronger guards, not new public options.
+# Keep Pylint's defaults and qualify only the two intentional class-level calls.
+exclude-protected = [
+    "_asdict", "_fields", "_replace", "_source", "_make", "os._exit",
+    "MailService._lookup_message", "MailService._iter_thread_messages",
+]
+
 [tool.pylint.typecheck]
 # Members of generated protobuf modules are created dynamically at import
 # time, so pylint cannot see them (E1101). They are imported under varying
