@@ -1,7 +1,8 @@
 """Public API for the Invites service."""
 
-from .client import (
-    CloudKitInvitesClient,
+from .client import CloudKitInvitesClient
+from .exceptions import (
+    EventNotFound,
     InvitesApiError,
     InvitesAuthError,
     InvitesCreationError,
@@ -9,6 +10,7 @@ from .client import (
     InvitesError,
     InvitesInvitationError,
     InvitesRateLimited,
+    InvitesZoneNotFoundError,
 )
 from .models import (
     AcceptanceStatus,
@@ -25,7 +27,7 @@ from .models import (
     Rsvp,
     RsvpStatus,
 )
-from .service import EventNotFound, InvitesService
+from .service import InvitesService
 
 __all__ = [
     "AcceptanceStatus",
@@ -44,6 +46,7 @@ __all__ = [
     "InvitesInvitationError",
     "InvitesRateLimited",
     "InvitesService",
+    "InvitesZoneNotFoundError",
     "OneTimeLinkGuest",
     "OneTimeLinkInvitation",
     "Participant",

@@ -40,6 +40,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitAuthError,
     CloudKitContainerClient,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.services.invites import (
@@ -56,6 +57,7 @@ from pyicloud.services.invites.client import (
     InvitesApiError,
     InvitesAuthError,
     InvitesRateLimited,
+    InvitesZoneNotFoundError,
 )
 from pyicloud.services.invites.codecs import (
     decode_integrations,
@@ -232,6 +234,14 @@ class RawClientCoverageTest(unittest.TestCase):
         with self.assertRaises(InvitesApiError) as api_ctx:
             self.client.query("private", query=query)
         self.assertEqual(api_ctx.exception.payload, {"x": 1})
+
+        self.private.query.side_effect = CloudKitZoneNotFoundError(
+            "gone", payload={"x": 2}, zone_name="EVENT"
+        )
+        with self.assertRaises(InvitesZoneNotFoundError) as zone_ctx:
+            self.client.query("private", query=query)
+        self.assertEqual(zone_ctx.exception.payload, {"x": 2})
+        self.assertEqual(zone_ctx.exception.zone_name, "EVENT")
 
         self.private.query.side_effect = PyiCloudAPIResponseException("Bad", 429)
         with self.assertRaises(InvitesRateLimited):

@@ -16,18 +16,13 @@ import sqlite3
 import stat
 
 from pyicloud.services.mail._sync_state import SQLiteMailInventory
+from pyicloud.services.mail.exceptions import SyncStorageBusy, UnsafeSyncStorage
+
+__all__ = ["SyncStorageBusy", "UnsafeSyncStorage"]
 
 _APPLICATION_ID = 0x504D5349
 INVENTORY_FILENAME = "inventory.sqlite3"
 _FILES = {INVENTORY_FILENAME, f"{INVENTORY_FILENAME}-journal", "inventory.lock"}
-
-
-class UnsafeSyncStorage(ValueError):
-    """The local state location cannot be opened without weakening its safety."""
-
-
-class SyncStorageBusy(ValueError):
-    """Another process holds this mailbox's local state lock; retry later."""
 
 
 def _trusted_parent(parent: Path) -> None:

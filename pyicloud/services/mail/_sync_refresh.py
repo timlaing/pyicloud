@@ -1,9 +1,9 @@
 """Private read-only orchestration with explicit, narrowly typed expiry recovery."""
 
-from pyicloud.services.mail._sync import SyncHistoryExpired
 from pyicloud.services.mail._sync_apply import IncrementalSource, apply_incremental
 from pyicloud.services.mail._sync_inventory import establish_inventory
 from pyicloud.services.mail._sync_state import SQLiteMailInventory, StoredCheckpoint
+from pyicloud.services.mail.exceptions import SyncHistoryExpired
 
 
 def refresh_inventory(

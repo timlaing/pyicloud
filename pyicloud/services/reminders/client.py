@@ -23,24 +23,24 @@ from pyicloud.common.cloudkit.client import (
     CloudKitAuthError,
     CloudKitContainerClient,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.common.cloudkit.models import CKAssetToken
-from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
+from .exceptions import (
+    RemindersApiError,
+    RemindersAuthError,
+    RemindersZoneNotFoundError,
+)
+
+__all__ = [
+    "RemindersApiError",
+    "RemindersAuthError",
+    "RemindersZoneNotFoundError",
+]
+
 LOGGER = logging.getLogger(__name__)
-
-
-class RemindersAuthError(PyiCloudException):
-    """Auth/PCS/cookie issues (401/403)."""
-
-
-class RemindersApiError(PyiCloudException):
-    """Catch-all API error."""
-
-    def __init__(self, message: str, payload: object | None = None):
-        super().__init__(message)
-        self.payload = payload
 
 
 class CloudKitRemindersClient:
@@ -68,12 +68,22 @@ class CloudKitRemindersClient:
 
     @staticmethod
     def _raise_reminders_error(exc: Exception) -> NoReturn:
+        """Translate a shared CloudKit failure into the Reminders error type.
+
+        The dedicated zone-not-found error keeps its payload and zone name so
+        callers can report "Reminders not set up"; other failures propagate
+        unchanged.
+        """
         cause = exc.__cause__ or exc
         if isinstance(exc, CloudKitAuthError):
             raise RemindersAuthError(str(exc)) from cause
         if isinstance(exc, CloudKitRateLimited):
             raise RemindersApiError(
                 str(exc), payload={"retry_after": exc.retry_after}
+            ) from cause
+        if isinstance(exc, CloudKitZoneNotFoundError):
+            raise RemindersZoneNotFoundError(
+                str(exc), exc.payload, zone_name=exc.zone_name
             ) from cause
         if isinstance(exc, CloudKitApiError):
             raise RemindersApiError(str(exc), payload=exc.payload) from cause

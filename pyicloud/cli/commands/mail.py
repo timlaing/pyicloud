@@ -52,15 +52,15 @@ from pyicloud.services.mail._draft_uploads import (
     validate_upload_input,
 )
 from pyicloud.services.mail._drafts import recipient_addresses
-from pyicloud.services.mail._sync import (
-    SyncHistoryExpired,
-    SyncInventoryRequired,
-    SyncResetRequired,
-)
 from pyicloud.services.mail._sync_reader import MailSyncReader
 from pyicloud.services.mail._sync_refresh import refresh_inventory
 from pyicloud.services.mail._sync_state import StoredCheckpoint
 from pyicloud.services.mail._sync_storage import open_inventory
+from pyicloud.services.mail.exceptions import (
+    SyncHistoryExpired,
+    SyncInventoryRequired,
+    SyncResetRequired,
+)
 from pyicloud.services.mail.service import MAX_SEARCH_FOLDERS
 
 app = typer.Typer(help="Read Mail and explicitly change messages or folders.")

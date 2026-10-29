@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
+from requests import HTTPError
 
+from pyicloud import PyiCloudService
 from pyicloud.common.cloudkit import (
     CKModifyOperation,
     CKQueryObject,
@@ -20,8 +22,11 @@ from pyicloud.common.cloudkit.client import (
     CloudKitAuthError,
     CloudKitContainerClient,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
     redact_cloudkit_url,
 )
+from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.session import PyiCloudSession
 
 
 def _json_response(
@@ -194,19 +199,241 @@ def test_cloudkit_client_changes_zone_error_auth() -> None:
 def test_cloudkit_client_changes_zone_error_other() -> None:
     """Any other zone-level error raises an API error carrying the payload."""
     client = _zone_error_client({
-        "serverErrorCode": "ZONE_NOT_FOUND",
-        "reason": "zone does not exist",
+        "serverErrorCode": "BAD_DATABASE_SCOPE",
+        "reason": "no such database",
     })
 
     with pytest.raises(CloudKitApiError) as exc_info:
         client.changes(zone_req=_ZONE_REQ)
 
     assert str(exc_info.value) == (
-        "Zone changes failed: ZONE_NOT_FOUND (zone does not exist)"
+        "Zone changes failed: BAD_DATABASE_SCOPE (no such database)"
     )
     payload = exc_info.value.payload
     assert payload is not None
+    assert payload["zones"][0]["serverErrorCode"] == "BAD_DATABASE_SCOPE"
+
+
+def test_cloudkit_client_changes_zone_not_found() -> None:
+    """ZONE_NOT_FOUND raises a dedicated zone-not-found error, not a bare one.
+
+    A missing zone is a valid account state (the service was never enabled),
+    so callers need to distinguish it from other API failures. It must still
+    be catchable as CloudKitApiError with the same message and payload.
+    """
+    client = _zone_error_client({
+        "serverErrorCode": "ZONE_NOT_FOUND",
+        "reason": "zone does not exist",
+    })
+
+    with pytest.raises(CloudKitZoneNotFoundError) as exc_info:
+        client.changes(zone_req=_ZONE_REQ)
+
+    assert isinstance(exc_info.value, CloudKitApiError)
+    assert str(exc_info.value) == (
+        "Zone changes failed: ZONE_NOT_FOUND (zone does not exist)"
+    )
+    assert exc_info.value.zone_name == "Reminders"
+    payload = exc_info.value.payload
+    assert payload is not None
     assert payload["zones"][0]["serverErrorCode"] == "ZONE_NOT_FOUND"
+
+
+def test_cloudkit_client_changes_zone_not_found_without_zone_id() -> None:
+    """A zone-not-found error dict without a zoneID leaves zone_name unset."""
+    session = MagicMock()
+    session.post.return_value = _json_response({
+        "zones": [{"serverErrorCode": "ZONE_NOT_FOUND"}]
+    })
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+
+    with pytest.raises(CloudKitZoneNotFoundError) as exc_info:
+        client.changes(zone_req=_ZONE_REQ)
+
+    assert exc_info.value.zone_name is None
+
+
+def test_cloudkit_client_http_zone_not_found() -> None:
+    """An HTTP error body carrying ZONE_NOT_FOUND raises the dedicated type.
+
+    Queries against a missing zone surface it as a top-level
+    ``serverErrorCode`` in an error body rather than a per-zone dictionary.
+    """
+    session = MagicMock()
+    session.post.return_value = _json_response(
+        {
+            "serverErrorCode": "ZONE_NOT_FOUND",
+            "reason": "zone does not exist",
+            "zoneID": {"zoneName": "Reminders"},
+        },
+        status_code=404,
+    )
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="reminderList")
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(CloudKitZoneNotFoundError) as exc_info:
+        client.query(query=query, zone_id=zone_id)
+
+    assert str(exc_info.value) == "HTTP 404"
+    assert exc_info.value.zone_name == "Reminders"
+    assert exc_info.value.payload == {
+        "serverErrorCode": "ZONE_NOT_FOUND",
+        "reason": "zone does not exist",
+        "zoneID": {"zoneName": "Reminders"},
+    }
+
+
+def test_cloudkit_client_http_zone_not_found_without_zone_id() -> None:
+    """An HTTP zone-not-found body without a zoneID leaves zone_name unset."""
+    session = MagicMock()
+    session.post.return_value = _json_response(
+        {"serverErrorCode": "ZONE_NOT_FOUND"},
+        status_code=404,
+    )
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="reminderList")
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(CloudKitZoneNotFoundError) as exc_info:
+        client.query(query=query, zone_id=zone_id)
+
+    assert exc_info.value.zone_name is None
+
+
+def test_cloudkit_client_http_zone_not_found_via_real_session(
+    pyicloud_service_working: PyiCloudService,
+) -> None:
+    """A real PyiCloudSession 404 still surfaces CloudKitZoneNotFoundError.
+
+    PyiCloudSession raises on a non-OK JSON response before the HTTP layer
+    sees it, so the mapping has to survive the session's own error handling
+    instead of relying on a mock that hands the response back.
+    """
+    body = {
+        "serverErrorCode": "ZONE_NOT_FOUND",
+        "reason": "zone does not exist",
+        "zoneID": {"zoneName": "Reminders"},
+    }
+    response = MagicMock()
+    response.status_code = 404
+    response.ok = False
+    response.reason = "Not Found"
+    response.headers = {"Content-Type": "application/json"}
+    response.json.return_value = body
+    response.raise_for_status.side_effect = HTTPError(response=response)
+
+    with patch.object(PyiCloudSession, "_load_session_data"):
+        session = PyiCloudSession(pyicloud_service_working, "", cookie_directory="")
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="reminderList")
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with (
+        patch("requests.Session.request", return_value=response),
+        patch.object(session, "_save_session_data"),
+        pytest.raises(CloudKitZoneNotFoundError) as exc_info,
+    ):
+        client.query(query=query, zone_id=zone_id)
+
+    assert str(exc_info.value) == "HTTP 404"
+    assert exc_info.value.zone_name == "Reminders"
+    assert exc_info.value.payload == body
+    assert isinstance(exc_info.value, CloudKitApiError)
+    assert isinstance(exc_info.value.__cause__, PyiCloudAPIResponseException)
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["no_response", "invalid_json", "other_code", "not_a_dict"],
+)
+def test_cloudkit_client_session_error_without_zone_body_is_reraised(
+    case: str,
+) -> None:
+    """Session errors that are not zone failures propagate unchanged.
+
+    Only a body carrying ZONE_NOT_FOUND is re-mapped to the dedicated type;
+    anything else must reach the caller as the original
+    PyiCloudAPIResponseException.
+    """
+    if case == "no_response":
+        error = PyiCloudAPIResponseException("Not Found", 404)
+    else:
+        response = MagicMock()
+        if case == "invalid_json":
+            response.json.side_effect = ValueError("not json")
+        elif case == "other_code":
+            response.json.return_value = {"serverErrorCode": "BAD_DATABASE_SCOPE"}
+        else:
+            response.json.return_value = ["not", "a", "dict"]
+        error = PyiCloudAPIResponseException("Not Found", 404, response)
+    session = MagicMock()
+    session.post.side_effect = error
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="reminderList")
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(PyiCloudAPIResponseException) as exc_info:
+        client.query(query=query, zone_id=zone_id)
+
+    assert exc_info.value is error
+
+
+def test_cloudkit_client_session_zone_error_with_api_code_is_not_http_status() -> None:
+    """A session API code in a zone body is never formatted as an HTTP status.
+
+    On a 2xx JSON response the session raises with the CloudKit API code
+    (a string such as ZONE_NOT_FOUND) as ``code``, so prefixing it with
+    ``HTTP`` would name a status that never happened.
+    """
+    body = {
+        "serverErrorCode": "ZONE_NOT_FOUND",
+        "reason": "zone does not exist",
+        "zoneID": {"zoneName": "Reminders"},
+    }
+    response = MagicMock()
+    response.json.return_value = body
+    error = PyiCloudAPIResponseException(
+        "zone does not exist", "ZONE_NOT_FOUND", response
+    )
+    session = MagicMock()
+    session.post.side_effect = error
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="reminderList")
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(CloudKitZoneNotFoundError) as exc_info:
+        client.query(query=query, zone_id=zone_id)
+
+    assert str(exc_info.value) == "CloudKit zone not found"
+    assert exc_info.value.payload == body
+    assert exc_info.value.zone_name == "Reminders"
+    assert isinstance(exc_info.value.__cause__, PyiCloudAPIResponseException)
+
+
+@pytest.mark.parametrize("status", [401, 403, 429])
+def test_cloudkit_client_session_auth_and_rate_limit_errors_are_not_remapped(
+    status: int,
+) -> None:
+    """Auth and rate-limit session errors are not remapped to a zone error.
+
+    A 401, 403 or 429 response whose body also carries ZONE_NOT_FOUND must
+    keep the original status: the zone remap would otherwise hide the auth
+    or rate-limit failure behind a missing-zone error.
+    """
+    response = MagicMock()
+    response.json.return_value = {"serverErrorCode": "ZONE_NOT_FOUND"}
+    error = PyiCloudAPIResponseException("Rejected", status, response)
+    session = MagicMock()
+    session.post.side_effect = error
+    client = CloudKitContainerClient("https://example.com/database", session, {})
+    query = CKQueryObject(recordType="reminderList")
+    zone_id = CKZoneIDReq(zoneName="Reminders")
+
+    with pytest.raises(PyiCloudAPIResponseException) as exc_info:
+        client.query(query=query, zone_id=zone_id)
+
+    assert exc_info.value is error
 
 
 def test_cloudkit_client_iter_changes_zone_error() -> None:

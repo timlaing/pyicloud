@@ -35,42 +35,30 @@ from pyicloud.common.cloudkit.client import (
     CloudKitAuthError,
     CloudKitContainerClient,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
     redact_cloudkit_url,
 )
-from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE_REQ
+from .exceptions import (
+    NotesApiError,
+    NotesAuthError,
+    NotesError,
+    NotesRateLimited,
+    NotesZoneNotFoundError,
+)
+
+__all__ = [
+    "NotesApiError",
+    "NotesAuthError",
+    "NotesError",
+    "NotesRateLimited",
+    "NotesZoneNotFoundError",
+]
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = (10.0, 60.0)
-
-
-# ------------------------------- Errors --------------------------------------
-
-
-class NotesError(PyiCloudException):
-    """Base Notes transport error."""
-
-
-class NotesAuthError(NotesError):
-    """Auth/PCS/cookie issues (401/403)."""
-
-
-class NotesRateLimited(NotesError):
-    """429 Too Many Requests."""
-
-    def __init__(self, message: str, retry_after: float | None = None):
-        super().__init__(message)
-        self.retry_after = retry_after
-
-
-class NotesApiError(NotesError):
-    """Catch-all API error."""
-
-    def __init__(self, message: str, payload: object | None = None):
-        super().__init__(message)
-        self.payload = payload
 
 
 # ------------------------------ Raw client -----------------------------------
@@ -110,11 +98,21 @@ class CloudKitNotesClient:
 
     @staticmethod
     def _raise_notes_error(exc: Exception) -> NoReturn:
+        """Translate a shared CloudKit failure into the Notes error type.
+
+        The dedicated zone-not-found error keeps its payload and zone name so
+        callers can report "Notes not set up"; other failures propagate
+        unchanged.
+        """
         cause = exc.__cause__ or exc
         if isinstance(exc, CloudKitAuthError):
             raise NotesAuthError(str(exc)) from cause
         if isinstance(exc, CloudKitRateLimited):
             raise NotesRateLimited(str(exc), retry_after=exc.retry_after) from cause
+        if isinstance(exc, CloudKitZoneNotFoundError):
+            raise NotesZoneNotFoundError(
+                str(exc), exc.payload, zone_name=exc.zone_name
+            ) from cause
         if isinstance(exc, CloudKitApiError):
             raise NotesApiError(str(exc), payload=exc.payload) from cause
         raise exc

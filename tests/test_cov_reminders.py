@@ -41,6 +41,7 @@ from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
     CloudKitAuthError,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.services.reminders._mappers import RemindersRecordMapper
 from pyicloud.services.reminders._protocol import (
@@ -63,6 +64,7 @@ from pyicloud.services.reminders.client import (
     CloudKitRemindersClient,
     RemindersApiError,
     RemindersAuthError,
+    RemindersZoneNotFoundError,
 )
 from pyicloud.services.reminders.models import (
     DateComponents,
@@ -186,6 +188,28 @@ class TestCloudKitRemindersClientErrors:
         error = ValueError("boom")
         with pytest.raises(ValueError, match="boom"):
             CloudKitRemindersClient._raise_reminders_error(error)
+
+    def test_zone_not_found_is_distinguishable_but_still_reminders_api(self) -> None:
+        """ZONE_NOT_FOUND wraps as its own type while staying catchable.
+
+        A missing zone means the account has not enabled Reminders, which is a
+        valid state callers may want to report separately. It must still be a
+        ``RemindersApiError`` so existing handlers keep working.
+        """
+        client, inner = self._client()
+        inner.changes.side_effect = CloudKitZoneNotFoundError(
+            "Zone changes failed: ZONE_NOT_FOUND",
+            payload={"zones": []},
+            zone_name="Reminders",
+        )
+
+        zone_req = MagicMock()
+        with pytest.raises(RemindersZoneNotFoundError) as excinfo:
+            client.changes(zone_req=zone_req)
+
+        assert isinstance(excinfo.value, RemindersApiError)
+        assert excinfo.value.payload == {"zones": []}
+        assert excinfo.value.zone_name == "Reminders"
 
     def test_query_success_and_api_error(self) -> None:
         """query() returns the response and wraps CloudKit API failures."""

@@ -10,25 +10,13 @@ from pydantic import Field
 
 from pyicloud.common.cloudkit import CKQueryFilterBy, CKRecord, CKZoneIDReq
 from pyicloud.common.cloudkit.base import CKModel
-from pyicloud.exceptions import PyiCloudException
+
+from .exceptions import PhotosServiceException
 
 if TYPE_CHECKING:
     from .constants import DirectionEnum, ListTypeEnum, ObjectTypeEnum
-    from .service import BasePhotoAlbum, PhotoAsset
 
-
-class PhotosServiceException(PyiCloudException):
-    """Photo service exception."""
-
-    def __init__(
-        self,
-        *args: Any,
-        photo: PhotoAsset | None = None,
-        album: BasePhotoAlbum | None = None,
-    ) -> None:
-        super().__init__(*args)
-        self.photo = photo
-        self.album = album
+__all__ = ["PhotosServiceException"]
 
 
 @dataclass(slots=True)

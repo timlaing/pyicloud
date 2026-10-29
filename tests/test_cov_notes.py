@@ -31,12 +31,14 @@ from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
     CloudKitAuthError,
     CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.services.notes.client import (
     CloudKitNotesClient,
     NotesApiError,
     NotesAuthError,
     NotesRateLimited,
+    NotesZoneNotFoundError,
 )
 from pyicloud.services.notes.decoding import BodyDecoder, _b64_to_bytes, _decompress
 from pyicloud.services.notes.protobuf import notes_pb2 as pb
@@ -1009,6 +1011,14 @@ class CloudKitNotesClientCoverageTest(unittest.TestCase):
         with self.assertRaises(NotesApiError) as api_ctx:
             CloudKitNotesClient._raise_notes_error(api_error)
         self.assertEqual(api_ctx.exception.payload, {"err": 1})
+
+        zone_error = CloudKitZoneNotFoundError(
+            "gone", payload={"err": 2}, zone_name="Notes"
+        )
+        with self.assertRaises(NotesZoneNotFoundError) as zone_ctx:
+            CloudKitNotesClient._raise_notes_error(zone_error)
+        self.assertEqual(zone_ctx.exception.payload, {"err": 2})
+        self.assertEqual(zone_ctx.exception.zone_name, "Notes")
 
         plain_error = ValueError("plain")
         with self.assertRaises(ValueError):

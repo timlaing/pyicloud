@@ -30,7 +30,7 @@ from pyicloud.cli.options import (
     store_command_options,
 )
 from pyicloud.cli.output import console_table
-from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
+from pyicloud.services.notes.exceptions import NoteLockedError, NoteNotFound
 
 app = typer.Typer(help="Inspect, render, and export Notes.")
 
