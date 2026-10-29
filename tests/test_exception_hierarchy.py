@@ -34,13 +34,20 @@ from pyicloud.services.notes.client import (
     NotesZoneNotFoundError,
 )
 from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
+from pyicloud.services.photos import (
+    PhotosApiError,
+    PhotosAuthError,
+    PhotosRateLimited,
+    PhotosServiceException,
+    PhotosZoneNotFoundError,
+)
 from pyicloud.services.reminders.client import (
     RemindersApiError,
     RemindersAuthError,
     RemindersZoneNotFoundError,
 )
 
-#: Every error a caller can catch, across all four hierarchies. The base of
+#: Every error a caller can catch, across all five hierarchies. The base of
 #: each is listed alongside its subclasses so a regression on either the root
 #: or an individual subclass is caught.
 PUBLIC_ERRORS: list[type[PyiCloudException]] = [
@@ -62,6 +69,11 @@ PUBLIC_ERRORS: list[type[PyiCloudException]] = [
     NotesZoneNotFoundError,
     NoteNotFound,
     NoteLockedError,
+    PhotosServiceException,
+    PhotosAuthError,
+    PhotosRateLimited,
+    PhotosApiError,
+    PhotosZoneNotFoundError,
     RemindersAuthError,
     RemindersApiError,
     RemindersZoneNotFoundError,

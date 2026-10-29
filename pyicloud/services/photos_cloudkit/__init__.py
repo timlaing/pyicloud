@@ -1,5 +1,11 @@
 """Modern Photos CloudKit package."""
 
+from .client import (
+    PhotosApiError,
+    PhotosAuthError,
+    PhotosRateLimited,
+    PhotosZoneNotFoundError,
+)
 from .constants import (
     PRIMARY_ZONE,
     UPLOAD_HYDRATION_INTERVAL,
@@ -56,8 +62,12 @@ __all__ = [
     "PhotoSyncResult",
     "PhotoSyncState",
     "PhotoResource",
+    "PhotosApiError",
+    "PhotosAuthError",
+    "PhotosRateLimited",
     "PhotosService",
     "PhotosServiceException",
+    "PhotosZoneNotFoundError",
     "PRIMARY_ZONE",
     "UPLOAD_HYDRATION_INTERVAL",
     "UPLOAD_HYDRATION_TIMEOUT",

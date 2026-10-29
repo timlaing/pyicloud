@@ -25,12 +25,11 @@ from pyicloud.common.cloudkit import (
     CKZoneListResponse,
 )
 from pyicloud.common.cloudkit.client import (
-    CloudKitApiError,
-    CloudKitRateLimited,
+    CloudKitContainerClient,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
-    PyiCloudAPIResponseException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
 )
@@ -47,9 +46,13 @@ from pyicloud.services.photos import (
     PhotoAlbumRecordState,
     PhotoAsset,
     PhotoLibrary,
+    PhotosApiError,
+    PhotosAuthError,
+    PhotosRateLimited,
     PhotosService,
     PhotosServiceException,
     PhotoStreamLibrary,
+    PhotosZoneNotFoundError,
     SharedPhotoStreamAlbum,
     SmartAlbumEnum,
     SmartPhotoAlbum,
@@ -468,7 +471,7 @@ def test_upload_file_with_errors(mock_photos_service: MagicMock) -> None:
     mock_file = mock_open(read_data=b"file_content")
     with (
         patch("builtins.open", mock_file),
-        pytest.raises(PyiCloudAPIResponseException) as exc_info,
+        pytest.raises(PhotosApiError) as exc_info,
     ):
         library.upload_file("test_photo.jpg")
 
@@ -734,7 +737,7 @@ def test_upload_file_backs_off_when_rate_limited_mid_hydration() -> None:
         response=PhotosPutAssetStatus(status=200, isRetryable=False),
     )
     mock_client.lookup.side_effect = [
-        CloudKitRateLimited("rate limited", retry_after=5.0),
+        PhotosRateLimited("rate limited", retry_after=5.0),
         _uploaded_records_lookup(),
     ]
 
@@ -757,7 +760,7 @@ def test_upload_file_retries_transient_lookup_failures() -> None:
         response=PhotosPutAssetStatus(status=200, isRetryable=False),
     )
     mock_client.lookup.side_effect = [
-        CloudKitApiError("Lookup failed with HTTP 500"),
+        PhotosApiError("Lookup failed with HTTP 500"),
         _uploaded_records_lookup(),
     ]
 
@@ -770,11 +773,12 @@ def test_upload_file_retries_transient_lookup_failures() -> None:
 
 
 def test_upload_file_normalises_persistent_lookup_failures() -> None:
-    """A lookup that keeps failing raises the public response exception.
+    """A lookup that keeps failing raises the public Photos error.
 
-    The hydration path normalises a CloudKit failure into a
-    ``PyiCloudAPIResponseException`` so the method's error contract does not
-    depend on whether registration or hydration failed.
+    The hydration path keeps retrying a CloudKit failure, then surfaces the
+    Photos hierarchy's own ``PhotosApiError`` once the deadline passes, so the
+    method's error contract does not depend on whether registration or
+    hydration failed.
     """
     mock_client = _indexed_client()
     mock_client.upload_file.return_value = PhotosPutAssetResult(
@@ -782,14 +786,35 @@ def test_upload_file_normalises_persistent_lookup_failures() -> None:
         cplAsset="asset123",
         response=PhotosPutAssetStatus(status=200, isRetryable=False),
     )
-    mock_client.lookup.side_effect = CloudKitApiError("Lookup failed with HTTP 500")
+    mock_client.lookup.side_effect = PhotosApiError("Lookup failed with HTTP 500")
 
     library = _upload_library(mock_client, upload_hydration_timeout=0.2)
     with (
         patch("pyicloud.services.photos_cloudkit.service.time.sleep"),
-        pytest.raises(PyiCloudAPIResponseException, match="HTTP 500"),
+        pytest.raises(PhotosApiError, match="HTTP 500"),
     ):
         library.upload_file("test_photo.jpg")
+
+
+def test_upload_file_raises_auth_errors_without_retrying() -> None:
+    """Expired credentials fail fast instead of burning the retry budget.
+
+    ``PhotosAuthError`` is not a transient CloudKit failure, so the hydration
+    loop surfaces it immediately instead of polling until the deadline.
+    """
+    mock_client = _indexed_client()
+    mock_client.upload_file.return_value = PhotosPutAssetResult(
+        cplMaster="master123",
+        cplAsset="asset123",
+        response=PhotosPutAssetStatus(status=200, isRetryable=False),
+    )
+    mock_client.lookup.side_effect = PhotosAuthError("Auth failed with HTTP 401")
+
+    library = _upload_library(mock_client, upload_hydration_timeout=5.0)
+    with pytest.raises(PhotosAuthError, match="HTTP 401"):
+        library.upload_file("test_photo.jpg")
+
+    mock_client.lookup.assert_called_once()
 
 
 def test_upload_file_returns_none_when_rate_limited_past_the_deadline() -> None:
@@ -800,7 +825,7 @@ def test_upload_file_returns_none_when_rate_limited_past_the_deadline() -> None:
         cplAsset="asset123",
         response=PhotosPutAssetStatus(status=200, isRetryable=False),
     )
-    mock_client.lookup.side_effect = CloudKitRateLimited("rate limited")
+    mock_client.lookup.side_effect = PhotosRateLimited("rate limited")
 
     library = _upload_library(mock_client, upload_hydration_timeout=0.2)
     with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
@@ -863,8 +888,12 @@ def test_upload_file_returns_none_when_lookup_is_incomplete() -> None:
     assert library.upload_file("test_photo.jpg") is None
 
 
-def test_upload_file_typed_client_raises_api_response_exception() -> None:
-    """Tests typed upload errors are normalized to the public exception type."""
+def test_upload_file_typed_client_raises_photos_error() -> None:
+    """A typed upload failure surfaces as PhotosApiError, untranslated.
+
+    The typed client raises the Photos hierarchy's own errors, so the service
+    passes them through unchanged.
+    """
     mock_client = MagicMock()
     mock_client.query.return_value = CKQueryResponse(
         records=[
@@ -876,9 +905,7 @@ def test_upload_file_typed_client_raises_api_response_exception() -> None:
         ],
         syncToken="sync-token",
     )
-    mock_client.upload_file.side_effect = CloudKitApiError(
-        "UPLOAD_ERROR: Upload failed"
-    )
+    mock_client.upload_file.side_effect = PhotosApiError("UPLOAD_ERROR: Upload failed")
     service: PhotosService = cast(
         PhotosService,
         SimpleNamespace(
@@ -895,7 +922,7 @@ def test_upload_file_typed_client_raises_api_response_exception() -> None:
         upload_url="https://upload.example.com",
     )
 
-    with pytest.raises(PyiCloudAPIResponseException, match="UPLOAD_ERROR"):
+    with pytest.raises(PhotosApiError, match="UPLOAD_ERROR"):
         library.upload_file("test_photo.jpg")
 
 
@@ -1960,6 +1987,38 @@ def test_photos_service_libraries_classify_shared_sync_zone_typed_path(
     assert root_library.current_sync_token == "SYNC_TOKEN_001"
     private_zones_list_mock.assert_called_once()
     shared_zones_list_mock.assert_called_once()
+
+
+def test_photos_service_raises_photos_error_for_a_missing_zone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing Photos zone surfaces as ``PhotosZoneNotFoundError`` at setup.
+
+    ``PhotoLibrary`` checks the indexing state while the service is built, so
+    the raw CloudKit ``ZONE_NOT_FOUND`` reply must reach the caller as the
+    Photos hierarchy's own error rather than escaping as a CloudKit error.
+    """
+
+    def _zone_not_found(*_args: object, **_kwargs: object) -> CKQueryResponse:
+        raise CloudKitZoneNotFoundError(
+            "Zone not found",
+            payload={"reason": "ZONE_NOT_FOUND"},
+            zone_name="PrimarySync",
+        )
+
+    monkeypatch.setattr(CloudKitContainerClient, "query", _zone_not_found)
+
+    with pytest.raises(PhotosZoneNotFoundError) as exc_info:
+        PhotosService(
+            service_root="https://example.com",
+            session=cast(PyiCloudSession, object()),
+            params={"dsid": "12345"},
+            upload_url="https://upload.example.com",
+            shared_streams_url=None,
+        )
+
+    assert exc_info.value.zone_name == "PrimarySync"
+    assert isinstance(exc_info.value, PhotosApiError)
 
 
 def test_shared_library_all_photos_feed_uses_captured_fixture(

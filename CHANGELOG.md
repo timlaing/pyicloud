@@ -11,6 +11,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Added
 
 - Add `CloudKitZoneNotFoundError`, raised when CloudKit reports `ZONE_NOT_FOUND` instead of the generic `CloudKitApiError`, so callers can treat a missing zone (e.g. Reminders not enabled on the account) as a valid account state; it derives from `CloudKitApiError` and keeps the same message and payload, so existing handlers that catch `CloudKitApiError` and look for `ZONE_NOT_FOUND` keep working. The Reminders, Notes, and Invites services re-raise it as `RemindersZoneNotFoundError`, `NotesZoneNotFoundError`, and `InvitesZoneNotFoundError` respectively, each deriving from the service's generic API error.
+- Add a Photos error hierarchy following the same convention as the other CloudKit services: `PhotosAuthError`, `PhotosRateLimited`, `PhotosApiError`, and `PhotosZoneNotFoundError`, all deriving from `PhotosServiceException` (and therefore from `PyiCloudException`), exported from `pyicloud.services.photos`. Callers can catch `PhotosZoneNotFoundError` to treat a missing Photos zone as a valid account state; it reaches them while `api.photos` verifies the indexing state as well as from later queries, zone discovery, and writes.
+
+### Changed
+
+- Raise the Photos service's own error types instead of raw CloudKit errors: Photos client methods raise `PhotosApiError` in place of `CloudKitApiError`, `PhotosRateLimited` in place of `CloudKitRateLimited`, and `PhotosAuthError` in place of `CloudKitAuthError`, each with the same message, and rejected writes or upload failures that previously surfaced as `PyiCloudAPIResponseException` now surface as `PhotosApiError`. An authentication failure during upload hydration now surfaces immediately as `PhotosAuthError` instead of being retried until the hydration deadline. Existing handlers for `PhotosServiceException` or `PyiCloudException` keep catching all of these.
 
 ### Refactored
 

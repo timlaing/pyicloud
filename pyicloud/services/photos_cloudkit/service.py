@@ -28,10 +28,8 @@ from pyicloud.common.cloudkit import (
     CKZoneID,
     CKZoneIDReq,
 )
-from pyicloud.common.cloudkit.client import CloudKitApiError, CloudKitRateLimited
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.exceptions import (
-    PyiCloudAPIResponseException,
     PyiCloudException,
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
@@ -45,7 +43,7 @@ from pyicloud.services.photos_legacy import (
 )
 from pyicloud.session import PyiCloudSession
 
-from .client import PhotosCloudKitClient
+from .client import PhotosApiError, PhotosCloudKitClient, PhotosRateLimited
 from .constants import (
     PRIMARY_ZONE,
     SUPPORTED_SHARED_LIBRARY_SMART_ALBUMS,
@@ -937,13 +935,15 @@ class PhotoLibrary(BasePhotoLibrary):
                     zone_id=zone_id,
                     desired_keys=PHOTO_DESIRED_KEYS,
                 )
-            except CloudKitRateLimited as exc:
+            except PhotosRateLimited as exc:
                 if not backoff.wait(exc.retry_after):
                     LOGGER.debug("Rate limited while waiting for the upload to index")
                     return None
-            except CloudKitApiError as exc:
+            except PhotosApiError:
+                # The Photos client already raises the public error type, so
+                # there is nothing to translate once retries are exhausted.
                 if not backoff.wait():
-                    raise PyiCloudAPIResponseException(str(exc)) from exc
+                    raise
             else:
                 return lookup.records
 
@@ -971,13 +971,12 @@ class PhotoLibrary(BasePhotoLibrary):
         """Upload a file into the library and return the created asset."""
 
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
-            try:
-                result = self._client.upload_file(
-                    path,
-                    zone_name=str(self.zone_id.get("zoneName") or ""),
-                )
-            except CloudKitApiError as exc:
-                raise PyiCloudAPIResponseException(str(exc)) from exc
+            # The client raises Photos errors (PhotosApiError et al.) itself,
+            # so a failed upload propagates without further translation.
+            result = self._client.upload_file(
+                path,
+                zone_name=str(self.zone_id.get("zoneName") or ""),
+            )
             return self._hydrate_uploaded_asset(result)
 
         filename = os.path.basename(path)
@@ -995,7 +994,7 @@ class PhotoLibrary(BasePhotoLibrary):
             else PhotosUploadResponse.model_validate(payload)
         )
         if upload_payload.errors:
-            raise PyiCloudAPIResponseException(
+            raise PhotosApiError(
                 "; ".join(
                     (
                         f"{error.code}: {error.message}"

@@ -13,9 +13,15 @@ from uuid import UUID
 
 import pytest
 
-from pyicloud.common.cloudkit.client import CloudKitApiError, CloudKitRateLimited
+from pyicloud.common.cloudkit.client import (
+    CloudKitApiError,
+    CloudKitAuthError,
+    CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
+)
 from pyicloud.common.cloudkit.models import (
     CKModifyOperation,
+    CKQueryObject,
     CKRecord,
     CKTombstoneRecord,
     CKWriteRecord,
@@ -24,8 +30,14 @@ from pyicloud.common.cloudkit.models import (
     CKZoneIDReq,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
-from pyicloud.exceptions import PyiCloudAPIResponseException
-from pyicloud.services.photos_cloudkit.client import PhotosCloudKitClient
+from pyicloud.services.photos_cloudkit.client import (
+    PhotosApiError,
+    PhotosAuthError,
+    PhotosCloudKitClient,
+    PhotosRateLimited,
+    PhotosZoneNotFoundError,
+)
+from pyicloud.services.photos_cloudkit.models import PhotosServiceException
 from pyicloud.services.photos_cloudkit.upload import _local_time_zone
 from tests.fixture_loader import load_fixture
 
@@ -188,7 +200,7 @@ def test_upload_file_requires_photos_upload_url() -> None:
         photos_upload_url=None,
     )
 
-    with pytest.raises(CloudKitApiError, match="Photos uploads are not configured"):
+    with pytest.raises(PhotosApiError, match="Photos uploads are not configured"):
         client.upload_file("/virtual/missing_host.jpg", zone_name="PrimarySync")
 
 
@@ -203,7 +215,7 @@ def test_upload_file_raises_when_no_url_is_reserved() -> None:
 
     with (
         _upload_environment(),
-        pytest.raises(CloudKitApiError, match="did not return an upload URL"),
+        pytest.raises(PhotosApiError, match="did not return an upload URL"),
     ):
         client.upload_file("/virtual/no_url.jpg", zone_name="PrimarySync")
 
@@ -236,7 +248,7 @@ def test_upload_file_raises_when_registration_is_rejected() -> None:
 
     with (
         _upload_environment(),
-        pytest.raises(CloudKitApiError, match="rejected rejected.jpg with status 503"),
+        pytest.raises(PhotosApiError, match="rejected rejected.jpg with status 503"),
     ):
         client.upload_file("/virtual/rejected.jpg", zone_name="PrimarySync")
 
@@ -377,7 +389,7 @@ def test_upload_status_requires_photos_upload_url() -> None:
         photos_upload_url=None,
     )
 
-    with pytest.raises(CloudKitApiError, match="Photos uploads are not configured"):
+    with pytest.raises(PhotosApiError, match="Photos uploads are not configured"):
         client.upload_status(["job"])
 
 
@@ -389,7 +401,7 @@ def test_upload_status_raises_when_payload_is_not_a_mapping() -> None:
     client = _upload_client(session)
 
     with pytest.raises(
-        CloudKitApiError, match="uploadStatus returned an unexpected payload"
+        PhotosApiError, match="uploadStatus returned an unexpected payload"
     ):
         client.upload_status(["job"])
 
@@ -410,7 +422,7 @@ def test_upload_file_refuses_a_non_https_upload_url() -> None:
 
     with (
         _upload_environment(),
-        pytest.raises(CloudKitApiError, match="not HTTPS"),
+        pytest.raises(PhotosApiError, match="not HTTPS"),
     ):
         client.upload_file("/virtual/insecure.jpg", zone_name="PrimarySync")
 
@@ -451,7 +463,7 @@ def test_upload_file_rejects_a_surplus_put_asset_result() -> None:
 
     with (
         _upload_environment(),
-        pytest.raises(CloudKitApiError, match="returned 2 results for one file"),
+        pytest.raises(PhotosApiError, match="returned 2 results for one file"),
     ):
         client.upload_file("/virtual/surplus.jpg", zone_name="PrimarySync")
 
@@ -468,7 +480,7 @@ def test_upload_file_raises_cloudkit_error_for_http_error() -> None:
     with (
         _upload_environment(),
         pytest.raises(
-            CloudKitApiError, match="Photos createUploadUrl failed with HTTP 503"
+            PhotosApiError, match="Photos createUploadUrl failed with HTTP 503"
         ),
     ):
         client.upload_file("/virtual/http_error.jpg", zone_name="PrimarySync")
@@ -486,7 +498,7 @@ def test_upload_file_raises_cloudkit_error_for_invalid_json() -> None:
     with (
         _upload_environment(),
         pytest.raises(
-            CloudKitApiError, match="Photos createUploadUrl returned invalid JSON"
+            PhotosApiError, match="Photos createUploadUrl returned invalid JSON"
         ),
     ):
         client.upload_file("/virtual/invalid_json.jpg", zone_name="PrimarySync")
@@ -517,7 +529,7 @@ def test_upload_file_raises_when_reservation_payload_is_malformed() -> None:
     with (
         _upload_environment(),
         pytest.raises(
-            CloudKitApiError, match="createUploadUrl returned an unexpected payload"
+            PhotosApiError, match="createUploadUrl returned an unexpected payload"
         ),
     ):
         client.upload_file("/virtual/malformed.jpg", zone_name="PrimarySync")
@@ -541,7 +553,7 @@ def test_upload_file_raises_when_receipt_is_missing() -> None:
     with (
         _upload_environment(),
         pytest.raises(
-            CloudKitApiError, match="singleFileUpload returned an unexpected payload"
+            PhotosApiError, match="singleFileUpload returned an unexpected payload"
         ),
     ):
         client.upload_file("/virtual/no_receipt.jpg", zone_name="PrimarySync")
@@ -570,9 +582,7 @@ def test_upload_file_raises_when_put_asset_is_not_a_list() -> None:
 
     with (
         _upload_environment(),
-        pytest.raises(
-            CloudKitApiError, match="putAsset returned an unexpected payload"
-        ),
+        pytest.raises(PhotosApiError, match="putAsset returned an unexpected payload"),
     ):
         client.upload_file("/virtual/bad_put.jpg", zone_name="PrimarySync")
 
@@ -604,7 +614,7 @@ def test_upload_file_raises_when_put_asset_registers_nothing() -> None:
 
     with (
         _upload_environment(),
-        pytest.raises(CloudKitApiError, match="returned 0 results for one file"),
+        pytest.raises(PhotosApiError, match="returned 0 results for one file"),
     ):
         client.upload_file("/virtual/empty_put.jpg", zone_name="PrimarySync")
 
@@ -691,7 +701,7 @@ def test_batch_count_debug_log_omits_cloudkit_query_params(
 
 
 def test_batch_count_raises_on_malformed_payload() -> None:
-    """Malformed count responses should be surfaced as CloudKitApiError."""
+    """Malformed count responses should be surfaced as PhotosApiError."""
 
     session = MagicMock()
     session.post.return_value = MagicMock(json=lambda: {"batch": []})
@@ -701,15 +711,15 @@ def test_batch_count_raises_on_malformed_payload() -> None:
         base_params={"dsid": "12345"},
     )
 
-    with pytest.raises(CloudKitApiError, match="Photos count query failed"):
+    with pytest.raises(PhotosApiError, match="Photos count query failed"):
         client.batch_count(
             container_id="CPLContainerRelationLiveByPosition:album123",
             zone_id={"zoneName": "PrimarySync"},
         )
 
 
-def test_batch_count_raises_cloudkit_error_for_validation_failure() -> None:
-    """Invalid count response models should be normalized into CloudKitApiError."""
+def test_batch_count_raises_photos_api_error_for_validation_failure() -> None:
+    """Invalid count response models should be normalized into PhotosApiError."""
 
     session = MagicMock()
     session.post.return_value = MagicMock(
@@ -729,7 +739,7 @@ def test_batch_count_raises_cloudkit_error_for_validation_failure() -> None:
         base_params={"dsid": "12345"},
     )
 
-    with pytest.raises(CloudKitApiError, match="Photos count query failed"):
+    with pytest.raises(PhotosApiError, match="Photos count query failed"):
         client.batch_count(
             container_id="CPLContainerRelationLiveByPosition:album123",
             zone_id={"zoneName": "PrimarySync"},
@@ -751,7 +761,7 @@ def test_download_asset_bytes_preserves_rate_limit_retry_after() -> None:
         base_params={"dsid": "12345"},
     )
 
-    with pytest.raises(CloudKitRateLimited) as exc_info:
+    with pytest.raises(PhotosRateLimited) as exc_info:
         client.download_asset_bytes("https://example.com/asset")
 
     assert exc_info.value.retry_after == 2.5
@@ -795,7 +805,7 @@ def test_batch_count_raises_cloudkit_error_for_http_error() -> None:
         base_params={"dsid": "12345"},
     )
 
-    with pytest.raises(CloudKitApiError, match="HTTP 500"):
+    with pytest.raises(PhotosApiError, match="HTTP 500"):
         client.batch_count(
             container_id="CPLContainerRelationLiveByPosition:album123",
             zone_id={"zoneName": "PrimarySync"},
@@ -893,7 +903,11 @@ def test_iter_changes_parses_fixture_payload() -> None:
 
 
 def test_modify_translates_rejected_records_to_the_public_type() -> None:
-    """A rejected photos write must not escape as a bare CloudKitApiError."""
+    """A rejected photos write must not escape as a bare CloudKitApiError.
+
+    It surfaces as the Photos hierarchy's ``PhotosApiError`` instead, which
+    also derives from ``PhotosServiceException``.
+    """
 
     op = CKModifyOperation(
         operationType="update",
@@ -919,7 +933,114 @@ def test_modify_translates_rejected_records_to_the_public_type() -> None:
         base_params={"dsid": "12345"},
     )
 
-    with pytest.raises(
-        PyiCloudAPIResponseException, match="record to insert already exists"
-    ):
+    with pytest.raises(PhotosApiError, match="record to insert already exists"):
         client.modify(operations=[op], zone_id=zone_id, atomic=True)
+
+
+def _mocked_client() -> tuple[PhotosCloudKitClient, MagicMock]:
+    """Return a Photos client whose inner CloudKit client is a mock."""
+
+    client = PhotosCloudKitClient(
+        base_url="https://example.com/database/1/container/production/private",
+        session=MagicMock(),
+        base_params={"dsid": "12345"},
+    )
+    inner = MagicMock()
+    client._client = inner
+    return client, inner
+
+
+def test_raise_photos_error_translations() -> None:
+    """Each raw CloudKit error maps to its Photos-service counterpart."""
+
+    with pytest.raises(PhotosAuthError):
+        PhotosCloudKitClient._raise_photos_error(CloudKitAuthError("auth failed"))
+
+    rate_limited = CloudKitRateLimited("slow down", retry_after=1.5)
+    with pytest.raises(PhotosRateLimited) as rate_ctx:
+        PhotosCloudKitClient._raise_photos_error(rate_limited)
+    assert rate_ctx.value.retry_after == 1.5
+
+    api_error = CloudKitApiError("boom", payload={"x": 1})
+    with pytest.raises(PhotosApiError) as api_ctx:
+        PhotosCloudKitClient._raise_photos_error(api_error)
+    assert api_ctx.value.payload == {"x": 1}
+
+    zone_error = CloudKitZoneNotFoundError(
+        "gone", payload={"x": 2}, zone_name="PrimarySync"
+    )
+    with pytest.raises(PhotosZoneNotFoundError) as zone_ctx:
+        PhotosCloudKitClient._raise_photos_error(zone_error)
+    assert isinstance(zone_ctx.value, PhotosApiError)
+    assert zone_ctx.value.payload == {"x": 2}
+    assert zone_ctx.value.zone_name == "PrimarySync"
+
+    with pytest.raises(ValueError, match="unchanged"):
+        PhotosCloudKitClient._raise_photos_error(ValueError("unchanged"))
+
+
+def test_zone_not_found_translates_on_every_client_method() -> None:
+    """A missing zone surfaces as PhotosZoneNotFoundError on every method.
+
+    ``CloudKitZoneNotFoundError`` derives from ``CloudKitApiError``, so any
+    wrapped method could flatten it; each one must preserve the specific type
+    so callers can treat a missing Photos zone as a valid account state.
+    """
+
+    def zone_error() -> CloudKitZoneNotFoundError:
+        return CloudKitZoneNotFoundError(
+            "gone", payload={"x": 1}, zone_name="PrimarySync"
+        )
+
+    zone_id = CKZoneIDReq(zoneName="PrimarySync")
+
+    client, inner = _mocked_client()
+    inner.query.side_effect = zone_error()
+    with pytest.raises(PhotosZoneNotFoundError):
+        client.query(query=CKQueryObject(recordType="CPLMaster"), zone_id=zone_id)
+
+    client, inner = _mocked_client()
+    inner.iter_changes.side_effect = zone_error()
+    with pytest.raises(PhotosZoneNotFoundError):
+        list(
+            client.iter_changes(
+                zone_req=CKZoneChangesZoneReq(zoneID=CKZoneID(zoneName="PrimarySync"))
+            )
+        )
+
+    client, inner = _mocked_client()
+    inner.modify.side_effect = zone_error()
+    with pytest.raises(PhotosZoneNotFoundError):
+        client.modify(operations=[], zone_id=zone_id)
+
+    client, inner = _mocked_client()
+    inner.lookup.side_effect = zone_error()
+    with pytest.raises(PhotosZoneNotFoundError):
+        client.lookup(record_names=["R1"], zone_id=zone_id)
+
+    client, inner = _mocked_client()
+    inner.zones_list.side_effect = zone_error()
+    with pytest.raises(PhotosZoneNotFoundError):
+        client.zones_list()
+
+    client, inner = _mocked_client()
+    inner.database_changes.side_effect = zone_error()
+    with pytest.raises(PhotosZoneNotFoundError):
+        client.database_changes()
+
+    client, inner = _mocked_client()
+    inner.download_asset_bytes.side_effect = zone_error()
+    with pytest.raises(PhotosZoneNotFoundError):
+        client.download_asset_bytes("https://example.com/asset")
+
+
+def test_photos_errors_catch_as_photos_service_exception() -> None:
+    """Every Photos transport error is also a ``PhotosServiceException``.
+
+    The CLI and other callers already handle ``PhotosServiceException``; the
+    new transport errors join that hierarchy instead of a parallel one.
+    """
+
+    for error in (PhotosAuthError, PhotosRateLimited, PhotosApiError):
+        assert issubclass(error, PhotosServiceException)
+    assert issubclass(PhotosZoneNotFoundError, PhotosApiError)

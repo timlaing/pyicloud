@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import NoReturn
 
 from pydantic import ValidationError
 
@@ -20,10 +21,12 @@ from pyicloud.common.cloudkit import (
 )
 from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
+    CloudKitAuthError,
     CloudKitContainerClient,
+    CloudKitRateLimited,
+    CloudKitZoneNotFoundError,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
-from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.session import PyiCloudSession
 
 from .models import (
@@ -34,9 +37,51 @@ from .models import (
     PhotosBatchCountResponse,
     PhotosBatchCountStringListValue,
     PhotosPutAssetResult,
+    PhotosServiceException,
     PhotosUploadStatus,
 )
 from .upload import PhotosUploader
+
+
+class PhotosAuthError(PhotosServiceException):
+    """Auth/PCS/cookie issues (401/403) reaching the Photos container."""
+
+
+class PhotosRateLimited(PhotosServiceException):
+    """429 Too Many Requests."""
+
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class PhotosApiError(PhotosServiceException):
+    """Catch-all Photos API/transport error."""
+
+    def __init__(self, message: str, payload: object | None = None) -> None:
+        super().__init__(message)
+        self.payload = payload
+
+
+class PhotosZoneNotFoundError(PhotosApiError):
+    """The Photos zone does not exist for this account.
+
+    Apple answers ``ZONE_NOT_FOUND`` when the requested zone is missing. The
+    Photos client surfaces it like every other service's client so callers can
+    report "Photos not available" instead of a generic failure. It derives from
+    ``PhotosApiError`` (and therefore from ``PhotosServiceException``), so
+    existing handlers keep catching it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        payload: object | None = None,
+        *,
+        zone_name: str | None = None,
+    ) -> None:
+        super().__init__(message, payload)
+        self.zone_name = zone_name
 
 
 class PhotosCloudKitClient:
@@ -65,6 +110,26 @@ class PhotosCloudKitClient:
                 timeout=self._client.timeout,
             )
 
+    @staticmethod
+    def _raise_photos_error(exc: Exception) -> NoReturn:
+        """Re-raise a raw CloudKit error as its Photos-service counterpart.
+
+        Mirrors the other CloudKit services' clients: callers of the Photos
+        service see Photos errors rather than the shared CloudKit hierarchy.
+        """
+        cause = exc.__cause__ or exc
+        if isinstance(exc, CloudKitAuthError):
+            raise PhotosAuthError(str(exc)) from cause
+        if isinstance(exc, CloudKitRateLimited):
+            raise PhotosRateLimited(str(exc), retry_after=exc.retry_after) from cause
+        if isinstance(exc, CloudKitZoneNotFoundError):
+            raise PhotosZoneNotFoundError(
+                str(exc), exc.payload, zone_name=exc.zone_name
+            ) from cause
+        if isinstance(exc, CloudKitApiError):
+            raise PhotosApiError(str(exc), payload=exc.payload) from cause
+        raise exc
+
     def query(
         self,
         *,
@@ -75,13 +140,16 @@ class PhotosCloudKitClient:
         desired_keys: list[str] | None = None,
     ) -> CKQueryResponse:
         """Run a CloudKit query against a Photos zone."""
-        return self._client.query(
-            query=query,
-            zone_id=zone_id,
-            results_limit=results_limit,
-            continuation=continuation,
-            desired_keys=desired_keys,
-        )
+        try:
+            return self._client.query(
+                query=query,
+                zone_id=zone_id,
+                results_limit=results_limit,
+                continuation=continuation,
+                desired_keys=desired_keys,
+            )
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
 
     def iter_changes(
         self,
@@ -89,7 +157,10 @@ class PhotosCloudKitClient:
         zone_req: CKZoneChangesZoneReq,
     ) -> Iterator[CKZoneChangesZone]:
         """Yield CloudKit record changes in the given zone."""
-        yield from self._client.iter_changes(zone_req=zone_req)
+        try:
+            yield from self._client.iter_changes(zone_req=zone_req)
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
 
     def modify(
         self,
@@ -101,15 +172,16 @@ class PhotosCloudKitClient:
         """Apply a batch of CloudKit modify operations in the given zone.
 
         ``CloudKitContainerClient`` reports a rejected record as a
-        ``CloudKitApiError``. Translate it to the library's public exception
-        type so a failed photos write does not escape as a bare ``Exception``.
+        ``CloudKitApiError``. Translate it to the Photos hierarchy so a failed
+        photos write surfaces as ``PhotosApiError`` (or a more specific Photos
+        error) rather than a raw CloudKit error.
         """
         try:
             return self._client.modify(
                 operations=operations, zone_id=zone_id, atomic=atomic
             )
-        except CloudKitApiError as exc:
-            raise PyiCloudAPIResponseException(str(exc)) from exc
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
 
     def lookup(
         self,
@@ -119,25 +191,37 @@ class PhotosCloudKitClient:
         desired_keys: list[str] | None = None,
     ) -> CKLookupResponse:
         """Look up CloudKit records by name in the given zone."""
-        return self._client.lookup(
-            record_names=record_names,
-            zone_id=zone_id,
-            desired_keys=desired_keys,
-        )
+        try:
+            return self._client.lookup(
+                record_names=record_names,
+                zone_id=zone_id,
+                desired_keys=desired_keys,
+            )
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
 
     def zones_list(self) -> CKZoneListResponse:
         """List the CloudKit zones for the Photos container."""
-        return self._client.zones_list()
+        try:
+            return self._client.zones_list()
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
 
     def database_changes(
         self, *, sync_token: str | None = None
     ) -> CKDatabaseChangesResponse:
         """Yield CloudKit database changes, optionally from a sync token."""
-        return self._client.database_changes(sync_token=sync_token)
+        try:
+            return self._client.database_changes(sync_token=sync_token)
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
 
     def download_asset_bytes(self, url: str) -> bytes:
         """Download the raw bytes of a CloudKit asset at ``url``."""
-        return self._client.download_asset_bytes(url)
+        try:
+            return self._client.download_asset_bytes(url)
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
 
     def batch_count(self, *, container_id: str, zone_id: dict[str, str]) -> int:
         """
@@ -167,21 +251,22 @@ class PhotosCloudKitClient:
                 )
             ]
         ).model_dump(mode="json", exclude_none=True)
-        raw_data = self._client.raw_post(
-            "/internal/records/query/batch",
-            payload,
-            headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
-        )
+        try:
+            raw_data = self._client.raw_post(
+                "/internal/records/query/batch",
+                payload,
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+            )
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
         try:
             data = PhotosBatchCountResponse.model_validate(raw_data)
         except ValidationError as exc:
-            raise CloudKitApiError(
-                "Photos count query failed", payload=raw_data
-            ) from exc
+            raise PhotosApiError("Photos count query failed", payload=raw_data) from exc
         try:
             return data.batch[0].records[0].fields.itemCount.value
         except Exception as exc:
-            raise CloudKitApiError(
+            raise PhotosApiError(
                 "Photos count query failed", payload=data.model_dump(mode="json")
             ) from exc
 
@@ -193,8 +278,11 @@ class PhotosCloudKitClient:
         """
 
         if self._uploader is None:
-            raise CloudKitApiError("Photos uploads are not configured")
-        return self._uploader.upload_status(job_ids)
+            raise PhotosApiError("Photos uploads are not configured")
+        try:
+            return self._uploader.upload_status(job_ids)
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
 
     def upload_file(
         self,
@@ -212,7 +300,10 @@ class PhotosCloudKitClient:
         """
 
         if self._uploader is None:
-            raise CloudKitApiError("Photos uploads are not configured")
-        return self._uploader.upload(
-            path, zone_name=zone_name, import_group=import_group
-        )
+            raise PhotosApiError("Photos uploads are not configured")
+        try:
+            return self._uploader.upload(
+                path, zone_name=zone_name, import_group=import_group
+            )
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_photos_error(exc)
