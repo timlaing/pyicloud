@@ -57,6 +57,33 @@ from .models import (
 from .upload import PhotosUploader
 
 
+def _raise_from_session_error(
+    exc: PyiCloudAPIResponseException, cause: BaseException
+) -> NoReturn:
+    """Translate a session-raised transport error to a Photos error."""
+    # Check auth/rate-limit first so a ZONE_NOT_FOUND body cannot mask
+    # an auth error or lose Retry-After.
+    status = status_of(exc)
+    if status in UNAUTHORIZED_STATUSES:
+        raise PhotosAuthError(str(exc)) from cause
+    if status == RATE_LIMITED_STATUS:
+        raise PhotosRateLimited(str(exc), retry_after=retry_after_of(exc)) from cause
+    zone_error = session_zone_not_found(exc)
+    if zone_error is not None:
+        raise PhotosZoneNotFoundError(
+            str(zone_error),
+            zone_error.payload,
+            zone_name=zone_error.zone_name,
+        ) from cause
+    # Extract response body as payload, matching HTTP layer behavior
+    payload: Any = None
+    response = exc.response
+    if response is not None:
+        with suppress(Exception):
+            payload = response.json()
+    raise PhotosApiError(str(exc), payload=payload, status=status) from cause
+
+
 class PhotosCloudKitClient:
     """Photos container adapter on top of the generic CloudKit client."""
 
@@ -106,33 +133,8 @@ class PhotosCloudKitClient:
                 status=exc.status if hasattr(exc, "status") else None,
             ) from cause
         if isinstance(exc, PyiCloudAPIResponseException):
-            # The CloudKit HTTP layer maps 4xx onto the errors above, but
-            # never gets the chance: PyiCloudSession raises on a non-ok
-            # response first, so the transport error arrives here
-            # untranslated and callers catching PhotosServiceException miss
-            # it. Check auth/rate-limit first so a ZONE_NOT_FOUND body
-            # cannot mask an auth error or lose Retry-After.
-            status = status_of(exc)
-            if status in UNAUTHORIZED_STATUSES:
-                raise PhotosAuthError(str(exc)) from cause
-            if status == RATE_LIMITED_STATUS:
-                raise PhotosRateLimited(
-                    str(exc), retry_after=retry_after_of(exc)
-                ) from cause
-            zone_error = session_zone_not_found(exc)
-            if zone_error is not None:
-                raise PhotosZoneNotFoundError(
-                    str(zone_error),
-                    zone_error.payload,
-                    zone_name=zone_error.zone_name,
-                ) from cause
-            # Extract response body as payload, matching HTTP layer behavior
-            payload: Any = None
-            response = exc.response
-            if response is not None:
-                with suppress(Exception):
-                    payload = response.json()
-            raise PhotosApiError(str(exc), payload=payload, status=status) from cause
+            # Delegate to helper to keep cognitive complexity down
+            _raise_from_session_error(exc, cause)
         raise exc
 
     def query(
