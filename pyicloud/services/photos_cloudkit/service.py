@@ -943,9 +943,13 @@ class PhotoLibrary(BasePhotoLibrary):
                 if not backoff.wait(exc.retry_after):
                     LOGGER.debug("Rate limited while waiting for the upload to index")
                     return None
-            except PhotosApiError:
+            except PhotosApiError as exc:
                 # The Photos client already raises the public error type, so
                 # there is nothing to translate once retries are exhausted.
+                # 4xx errors are permanent (client errors) - raise immediately.
+                # 5xx errors are transient (server errors) - retry.
+                if exc.status is not None and 400 <= exc.status < 500:
+                    raise
                 if not backoff.wait():
                     raise
             else:

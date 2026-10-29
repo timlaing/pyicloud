@@ -34,7 +34,10 @@ from pyicloud.common.cloudkit.errors import (
     status_of,
 )
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
-from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
+    PyiCloudConnectionException,
+)
 from pyicloud.session import PyiCloudSession
 
 from .exceptions import (
@@ -99,21 +102,18 @@ class PhotosCloudKitClient:
                 str(exc), exc.payload, zone_name=exc.zone_name
             ) from cause
         if isinstance(exc, CloudKitApiError):
-            raise PhotosApiError(str(exc), payload=exc.payload) from cause
+            raise PhotosApiError(
+                str(exc),
+                payload=exc.payload,
+                status=exc.status if hasattr(exc, "status") else None,
+            ) from cause
         if isinstance(exc, PyiCloudAPIResponseException):
             # The CloudKit HTTP layer maps 4xx onto the errors above, but
             # never gets the chance: PyiCloudSession raises on a non-ok
             # response first, so the transport error arrives here
             # untranslated and callers catching PhotosServiceException miss
-            # it. A missing zone keeps its identity; everything else is
-            # mapped by HTTP status the way the HTTP layer would have.
-            zone_error = session_zone_not_found(exc)
-            if zone_error is not None:
-                raise PhotosZoneNotFoundError(
-                    str(zone_error),
-                    zone_error.payload,
-                    zone_name=zone_error.zone_name,
-                ) from cause
+            # it. Check auth/rate-limit first so a ZONE_NOT_FOUND body
+            # cannot mask an auth error or lose Retry-After.
             status = status_of(exc)
             if status in UNAUTHORIZED_STATUSES:
                 raise PhotosAuthError(str(exc)) from cause
@@ -121,7 +121,14 @@ class PhotosCloudKitClient:
                 raise PhotosRateLimited(
                     str(exc), retry_after=retry_after_of(exc)
                 ) from cause
-            raise PhotosApiError(str(exc)) from cause
+            zone_error = session_zone_not_found(exc)
+            if zone_error is not None:
+                raise PhotosZoneNotFoundError(
+                    str(zone_error),
+                    zone_error.payload,
+                    zone_name=zone_error.zone_name,
+                ) from cause
+            raise PhotosApiError(str(exc), status=status) from cause
         raise exc
 
     def query(
@@ -291,6 +298,7 @@ class PhotosCloudKitClient:
             CloudKitAuthError,
             CloudKitRateLimited,
             PyiCloudAPIResponseException,
+            PyiCloudConnectionException,
         ) as exc:
             self._raise_photos_error(exc)
         try:
@@ -320,6 +328,7 @@ class PhotosCloudKitClient:
             CloudKitAuthError,
             CloudKitRateLimited,
             PyiCloudAPIResponseException,
+            PyiCloudConnectionException,
         ) as exc:
             self._raise_photos_error(exc)
 
@@ -349,5 +358,6 @@ class PhotosCloudKitClient:
             CloudKitAuthError,
             CloudKitRateLimited,
             PyiCloudAPIResponseException,
+            PyiCloudConnectionException,
         ) as exc:
             self._raise_photos_error(exc)

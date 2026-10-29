@@ -39,9 +39,12 @@ class PhotosRateLimited(PhotosServiceException):
 class PhotosApiError(PhotosServiceException):
     """Catch-all Photos API/transport error."""
 
-    def __init__(self, message: str, payload: object | None = None) -> None:
+    def __init__(
+        self, message: str, payload: object | None = None, status: int | None = None
+    ) -> None:
         super().__init__(message)
         self.payload = payload
+        self.status = status
 
 
 class PhotosZoneNotFoundError(PhotosApiError):
