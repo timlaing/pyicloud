@@ -14,9 +14,9 @@ The Photos CLI is split into browse commands and sync commands:
   for `icloud_photos_downloader`.
 
 The CloudKit-backed browse/sync path targets the private iCloud Photos library
-and Shared Library zones discovered as `shared:<zoneName>` keys. Legacy Shared
-Albums / shared streams remain available through the separate shared-stream
-adapter.
+and Shared Library zones discovered as `shared:<zoneName>` keys. Shared Albums
+/ shared streams remain available through the shared-stream module in the
+Photos package.
 
 Current scope:
 
@@ -27,8 +27,8 @@ Current scope:
   `changes`, `sync-cursor`, `sync`, and `watch`
 - Shared Library album filters are currently limited to the captured, tested
   smart albums `Library` and `Favorites`
-- Shared Albums / shared streams continue to use the legacy shared-stream
-  adapter under the `shared` library key
+- Shared Albums / shared streams continue to use the shared-stream module
+  under the `shared` library key
 - Shared Library album-scoped browsing and mixed `Both Libraries` semantics are
   still narrower than the private-library path and continue to rely on further
   captures
@@ -68,7 +68,7 @@ Library-key notes:
 
 - `root` is the private iCloud Photos library
 - `shared:<zoneName>` is a CloudKit-backed Shared Library zone
-- `shared` is the legacy Shared Albums / shared-stream adapter and is not a
+- `shared` is the Shared Albums / shared-stream module and is not a
   drop-in substitute for CloudKit library reads, `sync-cursor`, `sync`, or
   `watch`
 
@@ -138,7 +138,7 @@ Shared streams are still available separately:
 <AlbumContainer: ...>
 ```
 
-Those shared-stream albums continue to use the legacy adapter, even though the
+Those shared-stream albums continue to use the shared-stream module, even though the
 private-library path is now CloudKit-backed.
 
 Which you can iterate to access the photo assets. The "All Photos"
