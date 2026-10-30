@@ -1527,10 +1527,38 @@ class PhotoAlbum(BasePhotoAlbum):
             parent_fullname = parent.fullname
         return f"{parent_fullname}/{self.name}" if parent_fullname else self.name
 
+    def _update_from_rename_response(
+        self,
+        records: Iterable[CKRecord | dict[str, Any] | CKTombstoneRecord | CKErrorItem],
+    ) -> None:
+        """Update album metadata from a rename response."""
+        if not _check_modify_response(records):
+            raise PhotosServiceException("Failed to rename album")
+
+        for record in records:
+            if isinstance(record, CKRecord):
+                self._record_change_tag = (
+                    record.recordChangeTag or self._record_change_tag
+                )
+                self._record_modification_date = record.fields.get_value(
+                    "recordModificationDate"
+                ) or record.fields.get_value("userModificationDate")
+                return
+            if isinstance(record, dict):
+                self._record_change_tag = record.get(
+                    "recordChangeTag", self._record_change_tag
+                )
+                fields = record.get("fields", {})
+                self._record_modification_date = fields.get(
+                    "recordModificationDate", {}
+                ).get("value", fields.get("userModificationDate", {}).get("value"))
+                return
+
     def rename(self, value: str) -> None:
         if self._name == value:
             return
         encoded = base64.b64encode(value.encode("utf-8")).decode("utf-8")
+
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             op = CKModifyOperation(
                 operationType="update",
@@ -1548,17 +1576,7 @@ class PhotoAlbum(BasePhotoAlbum):
                 zone_id=CKZoneIDReq(**self._zone_id),
                 atomic=True,
             )
-            if not _check_modify_response(response.records):
-                raise PhotosServiceException("Failed to rename album")
-            for record in response.records:
-                if isinstance(record, CKRecord):
-                    self._record_change_tag = (
-                        record.recordChangeTag or self._record_change_tag
-                    )
-                    self._record_modification_date = record.fields.get_value(
-                        "recordModificationDate"
-                    ) or record.fields.get_value("userModificationDate")
-                    break
+            self._update_from_rename_response(response.records)
         else:
             endpoint = self.service.service_endpoint
             params = urlencode(self.service.params)
@@ -1587,25 +1605,8 @@ class PhotoAlbum(BasePhotoAlbum):
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             payload = http_response.json()
-            if not _check_modify_response(payload.get("records", [])):
-                raise PhotosServiceException("Failed to rename album")
-            latest = (payload.get("records") or [{}])[0]
-            self._record_change_tag = latest.get(
-                "recordChangeTag",
-                self._record_change_tag,
-            )
-            self._record_modification_date = (
-                latest
-                .get("fields", {})
-                .get("recordModificationDate", {})
-                .get(
-                    "value",
-                    latest
-                    .get("fields", {})
-                    .get("userModificationDate", {})
-                    .get("value", self._record_modification_date),
-                )
-            )
+            self._update_from_rename_response(payload.get("records", []))
+
         self._name = value
 
     def delete(self) -> bool:
@@ -2402,6 +2403,7 @@ class PhotosService(BaseService):
             if shared_streams_url
             else None
         )
+
         # pylint: disable=import-outside-toplevel
         from .shared_streams import PhotoStreamLibrary
 

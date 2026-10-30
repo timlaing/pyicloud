@@ -77,7 +77,6 @@ def test_legacy_join_keeps_two_assets_on_one_master() -> None:
     "processor",
     [
         BasePhotoAlbum._process_photo_list_response,
-        BasePhotoAlbum._process_photo_list_response,
     ],
 )
 def test_separate_pages_can_reuse_the_same_master(processor: Any) -> None:

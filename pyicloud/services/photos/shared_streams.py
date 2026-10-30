@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from requests import Response
@@ -24,9 +24,6 @@ from .service import (
     PhotoAsset,
     PhotosService,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 class PhotoStreamLibrary(BasePhotoLibrary):
