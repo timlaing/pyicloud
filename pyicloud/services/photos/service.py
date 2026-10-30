@@ -496,10 +496,19 @@ class BasePhotoLibrary(ABC):
         asset_records: dict[str, dict[str, Any]] = {}
         master_records: list[dict[str, Any]] = []
         for record in response["records"]:
-            if record["recordType"] == "CPLAsset":
-                master_ref = record["fields"]["masterRef"]["value"]["recordName"]
-                asset_records[master_ref] = record
-            elif record["recordType"] == "CPLMaster":
+            if not isinstance(record, dict):
+                continue
+            if record.get("recordType") == "CPLAsset":
+                master_ref = (
+                    record
+                    .get("fields", {})
+                    .get("masterRef", {})
+                    .get("value", {})
+                    .get("recordName")
+                )
+                if master_ref:
+                    asset_records[master_ref] = record
+            elif record.get("recordType") == "CPLMaster":
                 master_records.append(record)
         return asset_records, master_records
 
@@ -1360,6 +1369,8 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
         if isinstance(key, int):
             if key < 0:
                 key = len(self) + key
+            if key < 0 or key >= len(self):
+                raise IndexError("Photo index out of range")
             try:
                 return next(self._get_photos_at(key, self._direction, 1))
             except StopIteration as exc:
@@ -1535,6 +1546,8 @@ class PhotoAlbum(BasePhotoAlbum):
                 zone_id=CKZoneIDReq(**self._zone_id),
                 atomic=True,
             )
+            if not _check_modify_response(response.records):
+                raise PhotosServiceException("Failed to rename album")
             for record in response.records:
                 if isinstance(record, CKRecord):
                     self._record_change_tag = (
@@ -1572,6 +1585,8 @@ class PhotoAlbum(BasePhotoAlbum):
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             payload = http_response.json()
+            if not _check_modify_response(payload.get("records", [])):
+                raise PhotosServiceException("Failed to rename album")
             latest = (payload.get("records") or [{}])[0]
             self._record_change_tag = latest.get(
                 "recordChangeTag",
@@ -2461,6 +2476,7 @@ class PhotosService(BaseService):
                 self,
                 zone_id=zone_dict,
                 client=self._private_client,
+                upload_url=self._upload_url,
                 upload_hydration_timeout=self._upload_hydration_timeout,
                 upload_hydration_interval=self._upload_hydration_interval,
                 scope=scope,
@@ -2512,6 +2528,7 @@ class PhotosService(BaseService):
             libraries[key] = PhotoLibrary(
                 self,
                 zone_id=zone_id,
+                upload_url=self._upload_url,
                 upload_hydration_timeout=self._upload_hydration_timeout,
                 upload_hydration_interval=self._upload_hydration_interval,
                 scope=scope,

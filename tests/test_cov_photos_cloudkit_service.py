@@ -120,6 +120,7 @@ def _bare_service(*, session: Any = None) -> Any:
     service._libraries = None
     service._upload_hydration_timeout = 1.0
     service._upload_hydration_interval = 0.1
+    service._upload_url = "https://upload.example.com"
     return service
 
 

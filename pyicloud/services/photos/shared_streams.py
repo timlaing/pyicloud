@@ -230,17 +230,25 @@ class PhotoStreamAsset(PhotoAsset):
         """Get pluginFields from asset record, handling both dict and CKRecord."""
         asset_record = self._asset_record
         if isinstance(asset_record, dict):
-            raw_plugin_fields = asset_record.get("pluginFields", {})
-        elif hasattr(asset_record, "fields"):
+            return (
+                asset_record.get("pluginFields", {})
+                if isinstance(asset_record.get("pluginFields", {}), dict)
+                else {}
+            )
+        if hasattr(asset_record, "fields"):
             # Handle SimpleNamespace with fields attribute
             fields = getattr(asset_record, "fields", {})
             if isinstance(fields, dict):
-                raw_plugin_fields = fields.get("pluginFields", {})
-            else:
-                raw_plugin_fields = {}
-        else:
-            raw_plugin_fields = getattr(asset_record, "pluginFields", {})
-        return raw_plugin_fields if isinstance(raw_plugin_fields, dict) else {}
+                return (
+                    fields.get("pluginFields", {})
+                    if isinstance(fields.get("pluginFields", {}), dict)
+                    else {}
+                )
+        return (
+            getattr(asset_record, "pluginFields", {})
+            if isinstance(getattr(asset_record, "pluginFields", {}), dict)
+            else {}
+        )
 
     def _get_master_field(self, field_name: str) -> Any:
         """Get field from master record, handling both dict and CKRecord."""
