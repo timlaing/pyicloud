@@ -401,7 +401,7 @@ def test_upload_status_raises_when_payload_is_not_a_mapping() -> None:
     """uploadStatus answers with a mapping keyed by job id."""
 
     session = MagicMock()
-    session.post.return_value = MagicMock(status_code=200, json=lambda: [])
+    session.post.return_value = MagicMock(status_code=200, json=list)
     client = _upload_client(session)
 
     with pytest.raises(
@@ -701,7 +701,7 @@ def test_upload_file_raises_when_put_asset_registers_nothing() -> None:
                 "photos_upload", "single_file_upload_response.json"
             ),
         ),
-        MagicMock(status_code=200, json=lambda: []),
+        MagicMock(status_code=200, json=list),
     ]
     client = _upload_client(session)
 

@@ -596,7 +596,7 @@ class DriveNode:
         return "{" + f"type: {self.type}, name: {self.name}" + "}"
 
     def __repr__(self) -> str:
-        return f"<{type(self).__name__}: {str(self)}>"
+        return f"<{type(self).__name__}: {self!s}>"
 
 
 def _date_to_utc(date: str | None) -> datetime | None:

@@ -2299,7 +2299,7 @@ def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) 
 def test_request_error_handling_for_response_conditions() -> None:
     """Mock the get_webservice_url to return a valid fmip_url."""
     pyicloud_service = MagicMock(spec=PyiCloudService)
-    with (  # noqa: S5778
+    with (
         pytest.raises(PyiCloudAPIResponseException),
         patch("requests.Session.request") as mock_request,
         patch("builtins.open", new_callable=mock_open),
@@ -2329,7 +2329,7 @@ def test_request_error_handling_for_response_conditions() -> None:
 def test_raise_error_2sa_required(pyicloud_session: PyiCloudSession) -> None:
     """Test the _raise_error method with a 2SA required exception."""
     response = MagicMock()
-    with (  # noqa: S5778
+    with (
         pytest.raises(PyiCloud2SARequiredException),
         patch("pyicloud.base.PyiCloudService.requires_2sa", return_value=True),
     ):

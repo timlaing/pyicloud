@@ -149,7 +149,7 @@ class StyleSig:
     paragraph_uuid: bytes | None
 
     @staticmethod
-    def from_run(run: pb.AttributeRun) -> StyleSig:  # noqa: S3776
+    def from_run(run: pb.AttributeRun) -> StyleSig:
         """Extract a StyleSig from a protobuf AttributeRun."""
         ps = run.paragraph_style if run.HasField("paragraph_style") else None
         st = align = indent = bq = wd = None
@@ -367,7 +367,7 @@ def _should_close_paragraph(mr: MergedRun, next_mr: MergedRun | None) -> bool:
     return True
 
 
-def render_note_fragment(  # noqa: S3776
+def render_note_fragment(
     note: pb.Note,
     datasource: NoteDataSource | None,
     config: ExportConfig | None = None,

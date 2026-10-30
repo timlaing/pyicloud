@@ -627,7 +627,7 @@ def test_iter_sync_assets_shared_library_missing_album() -> None:
         def find(self, _name: str | None) -> None:
             """Return no album for any name."""
 
-            return None
+            return
 
     class SharedLibrary:
         """Library scoped to the shared library."""
@@ -652,7 +652,7 @@ def test_iter_sync_assets_private_library_missing_album() -> None:
         def find(self, _name: str | None) -> None:
             """Return no album for any name."""
 
-            return None
+            return
 
     class PrivateLibrary:
         """Library scoped to the private library."""

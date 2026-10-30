@@ -35,7 +35,7 @@ PYICLOUD_XMP_TOOLKIT = "pyicloud photos-cloudkit"
 RDF_DESCRIPTION = "rdf:Description"
 RDF_ABOUT = "rdf:about"
 # Canonical IPTC XMP namespace URI (not a network endpoint).
-IPTC_EXT_NS = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"  # noqa: S5332
+IPTC_EXT_NS = "http://iptc.org/std/Iptc4xmpExt/2008-02-29/"
 
 
 @dataclass(slots=True)
@@ -117,7 +117,7 @@ def set_exif_datetime_if_missing(path: Path, taken_at: datetime) -> None:
         return
 
     try:
-        path.write_bytes(updated)  # noqa: S2083 - path validated by callers
+        path.write_bytes(updated)
     except OSError:
         LOGGER.debug("Failed to write %s after EXIF update", path)
 
@@ -289,7 +289,7 @@ def _can_overwrite_xmp_sidecar(path: Path) -> bool:
     return isinstance(toolkit, str) and toolkit.startswith(PYICLOUD_XMP_TOOLKIT)
 
 
-def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:  # noqa: S3776
+def _render_xmp_xml(metadata: PhotoXmpMetadata) -> ElementTree.Element:
     xml_doc = ElementTree.Element(
         "x:xmpmeta",
         {"xmlns:x": "adobe:ns:meta/", "x:xmptk": metadata.toolkit},

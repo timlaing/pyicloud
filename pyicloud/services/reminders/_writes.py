@@ -1222,7 +1222,7 @@ class RemindersWriteAPI:
             ),
         )
 
-    def update_attachment(  # noqa: S3776
+    def update_attachment(
         self,
         attachment: Attachment,
         *,

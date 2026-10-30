@@ -6,8 +6,8 @@ from .dto import Attachment, ChangeEvent, Note, NoteFolder, NoteSummary
 
 __all__ = [
     "Attachment",
+    "ChangeEvent",
     "Note",
     "NoteFolder",
     "NoteSummary",
-    "ChangeEvent",
 ]

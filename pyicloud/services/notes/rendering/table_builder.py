@@ -156,7 +156,7 @@ class TableBuilder:
             [Cell() for _ in range(self.cols.total)] for _ in range(self.rows.total)
         ]
 
-    def parse_cell_columns(  # noqa: S3776
+    def parse_cell_columns(
         self, entry: pb.MergeableDataObjectRow
     ) -> None:
         """Extract and render cell contents into the cell buffer."""
@@ -216,7 +216,7 @@ ALLOWED_TABLE_TYPES = {
 }
 
 
-def render_table_from_mergeable(  # noqa: S3776
+def render_table_from_mergeable(
     gz_bytes: bytes, render_note_cb: Callable[[pb.Note], str]
 ) -> str | None:
     """Parse gzipped MergeableData and render as HTML table, or None if invalid."""

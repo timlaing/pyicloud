@@ -12,8 +12,8 @@ from .service import RemindersService
 __all__ = [
     "AlarmWithTrigger",
     "ListRemindersResult",
-    "RemindersService",
     "Reminder",
     "ReminderChangeEvent",
     "RemindersList",
+    "RemindersService",
 ]

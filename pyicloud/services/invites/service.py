@@ -826,7 +826,7 @@ class InvitesService(BaseService):
     @staticmethod
     def _find_existing_rsvp(event: Event, record_name: str) -> Rsvp | None:
         """Find the user's RSVP in ``event.rsvps`` matching ``record_name``."""
-        for rsvp in event.rsvps:  # noqa: S3862
+        for rsvp in event.rsvps:
             if rsvp.record_name == record_name:
                 return rsvp
         return None
@@ -1152,7 +1152,7 @@ class InvitesService(BaseService):
         record_name = record.recordName
         suffix = "_rsvp"
         participant_id = (
-            record_name[: -len(suffix)] if record_name.endswith(suffix) else record_name
+            record_name.removesuffix(suffix)
         )
         fields = record.fields
         status_int = self._field_int(fields, RsvpField.STATUS.value) or 0
@@ -1181,7 +1181,7 @@ class InvitesService(BaseService):
         record_name = record.recordName
         suffix = "_otl"
         participant_id = (
-            record_name[: -len(suffix)] if record_name.endswith(suffix) else record_name
+            record_name.removesuffix(suffix)
         )
         fields = record.fields
         emails_raw = self._field_value(fields, OneTimeLinkField.EMAILS.value)
@@ -1214,7 +1214,7 @@ class InvitesService(BaseService):
             )
         return first
 
-    def _resolved_share_from_result(  # noqa: S3776
+    def _resolved_share_from_result(
         self, result: Mapping[str, Any]
     ) -> ResolvedShare:
         short = result.get("shortGUID") or {}

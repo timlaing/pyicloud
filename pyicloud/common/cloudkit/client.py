@@ -599,7 +599,7 @@ class CloudKitContainerClient:
             desiredKeys=desired_keys,
             resultsLimit=results_limit,
             continuationMarker=continuation,
-            zoneWide=zone_wide if zone_wide else None,
+            zoneWide=zone_wide or None,
         ).model_dump(mode="json", exclude_none=True)
         data = self._http.post("/records/query", payload)
         try:

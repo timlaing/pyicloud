@@ -1123,7 +1123,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     @property
     def page_size(self) -> int:
         """Return the page size capped at 100."""
-        return self._page_size if self._page_size < 100 else 100
+        return min(100, self._page_size)
 
     @property
     def service(self) -> PhotosService:
@@ -2395,9 +2395,7 @@ class PhotosService(BaseService):
         self._upload_hydration_timeout = upload_hydration_timeout
         self._upload_hydration_interval = upload_hydration_interval
         self._shared_streams_url = shared_streams_url
-        # fmt: off
         self._libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary] | None" = (
-        # fmt: on
             None
         )
         self._legacy_service = None
@@ -2411,9 +2409,7 @@ class PhotosService(BaseService):
         # pylint: disable=import-outside-toplevel
         from .shared_streams import PhotoStreamLibrary
 
-        # fmt: off
         self._shared_library: "PhotoStreamLibrary | None" = (
-        # fmt: on
             PhotoStreamLibrary(
                 self,
                 shared_streams_url=shared_streams_album_url,
@@ -2446,16 +2442,12 @@ class PhotosService(BaseService):
         return self._private_client
 
     @property
-    # fmt: off
     def libraries(self) -> "dict[str, BasePhotoLibrary | PhotoStreamLibrary]":
-        # fmt: on
         """Return the available photo libraries, discovering them on first access."""
         # pylint: disable=import-outside-toplevel
 
         if self._libraries is None:
-            # fmt: off
             libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]" = {
-            # fmt: on
                 "root": self._get_root_library(),
             }
             if self._shared_library is not None:
@@ -2469,9 +2461,7 @@ class PhotosService(BaseService):
 
     def _discover_typed_zones(
         self,
-        # fmt: off
         libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
-        # fmt: on
     ) -> None:
         """Discover additional private/shared zones via the typed CloudKit client."""
         private_zones = self._private_client.zones_list()
@@ -2520,9 +2510,7 @@ class PhotosService(BaseService):
 
     def _discover_legacy_zones(
         self,
-        # fmt: off
         libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
-        # fmt: on
     ) -> None:
         """Discover additional zones via the legacy REST zones/list endpoint."""
         response = self.session.post(

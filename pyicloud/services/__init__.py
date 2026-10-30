@@ -12,8 +12,8 @@ from pyicloud.services.reminders import RemindersService
 from pyicloud.services.ubiquity import UbiquityService
 
 __all__: list[str] = [
-    "AppleDevice",
     "AccountService",
+    "AppleDevice",
     "CalendarService",
     "ContactsService",
     "DriveService",

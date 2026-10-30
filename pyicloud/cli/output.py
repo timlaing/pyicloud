@@ -122,7 +122,7 @@ def print_json_text(console: Console, payload: Any) -> None:
     console.print_json(json=to_json_string(payload, indent=2))
 
 
-def format_color_value(value: Any) -> str:  # noqa: S3776
+def format_color_value(value: Any) -> str:
     """Return a compact human-friendly representation of reminder colors."""
 
     if not value:

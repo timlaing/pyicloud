@@ -98,7 +98,7 @@ class TestNoteRendering(unittest.TestCase):
                 # For references, we might need more complex reconstruction if the
                 # code checks types
                 # But let's start simple.
-                return None
+                return
 
         rec = Mock()
         rec.recordName = data["recordName"]
@@ -360,7 +360,7 @@ class TestNoteRendering(unittest.TestCase):
 
             def ParseFromString(self, payload: bytes) -> None:
                 """No-op parse of the protobuf payload."""
-                return None
+                return
 
         with (
             patch(

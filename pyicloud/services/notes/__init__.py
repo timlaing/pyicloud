@@ -5,11 +5,11 @@ from .models import Attachment, ChangeEvent, Note, NoteFolder, NoteSummary
 from .service import NotesService
 
 __all__ = [
-    "NotesService",
-    "Note",
-    "NoteSummary",
-    "NoteFolder",
-    "ChangeEvent",
     "Attachment",
     "AttachmentId",
+    "ChangeEvent",
+    "Note",
+    "NoteFolder",
+    "NoteSummary",
+    "NotesService",
 ]

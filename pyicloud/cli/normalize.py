@@ -291,7 +291,7 @@ def select_recent_notes(
         probe_limit = min(probe_limit * 2, max_probe)
 
 
-def search_notes_by_title(  # noqa: S3776
+def search_notes_by_title(
     notes_service: Any,
     *,
     title: str | None = None,

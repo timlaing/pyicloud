@@ -216,7 +216,7 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
 
     def rename(self, value: str) -> None:
         """Renames the album - shared albums cannot be renamed."""
-        return None
+        return
 
 
 class PhotoStreamAsset(PhotoAsset):

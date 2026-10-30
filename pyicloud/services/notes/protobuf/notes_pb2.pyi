@@ -1,7 +1,6 @@
 from collections.abc import Iterable as _Iterable
 from collections.abc import Mapping as _Mapping
 from typing import ClassVar as _ClassVar
-from typing import Union as _Union
 
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
@@ -77,7 +76,7 @@ FONT_WEIGHT_ITALIC: FontWeight
 FONT_WEIGHT_BOLD_ITALIC: FontWeight
 
 class Color(_message.Message):
-    __slots__ = ("red", "green", "blue", "alpha")
+    __slots__ = ("alpha", "blue", "green", "red")
     RED_FIELD_NUMBER: _ClassVar[int]
     GREEN_FIELD_NUMBER: _ClassVar[int]
     BLUE_FIELD_NUMBER: _ClassVar[int]
@@ -107,7 +106,7 @@ class AttachmentInfo(_message.Message):
     ) -> None: ...
 
 class Font(_message.Message):
-    __slots__ = ("font_name", "point_size", "font_hints")
+    __slots__ = ("font_hints", "font_name", "point_size")
     FONT_NAME_FIELD_NUMBER: _ClassVar[int]
     POINT_SIZE_FIELD_NUMBER: _ClassVar[int]
     FONT_HINTS_FIELD_NUMBER: _ClassVar[int]
@@ -123,14 +122,14 @@ class Font(_message.Message):
 
 class ParagraphStyle(_message.Message):
     __slots__ = (
-        "style_type",
         "alignment",
-        "writing_direction_paragraph",
-        "indent_amount",
-        "checklist",
-        "starting_list_item_number",
         "block_quote",
+        "checklist",
+        "indent_amount",
         "paragraph_uuid",
+        "starting_list_item_number",
+        "style_type",
+        "writing_direction_paragraph",
     )
     STYLE_TYPE_FIELD_NUMBER: _ClassVar[int]
     ALIGNMENT_FIELD_NUMBER: _ClassVar[int]
@@ -150,18 +149,18 @@ class ParagraphStyle(_message.Message):
     paragraph_uuid: bytes
     def __init__(
         self,
-        style_type: _Union[StyleType, str] | None = ...,
-        alignment: _Union[Alignment, str] | None = ...,
-        writing_direction_paragraph: _Union[WritingDirection, str] | None = ...,
+        style_type: StyleType | str | None = ...,
+        alignment: Alignment | str | None = ...,
+        writing_direction_paragraph: WritingDirection | str | None = ...,
         indent_amount: int | None = ...,
-        checklist: _Union[Checklist, _Mapping] | None = ...,
+        checklist: Checklist | _Mapping | None = ...,
         starting_list_item_number: int | None = ...,
         block_quote: int | None = ...,
         paragraph_uuid: bytes | None = ...,
     ) -> None: ...
 
 class Checklist(_message.Message):
-    __slots__ = ("uuid", "done")
+    __slots__ = ("done", "uuid")
     UUID_FIELD_NUMBER: _ClassVar[int]
     DONE_FIELD_NUMBER: _ClassVar[int]
     uuid: bytes
@@ -176,8 +175,8 @@ class DictionaryElement(_message.Message):
     value: ObjectID
     def __init__(
         self,
-        key: _Union[ObjectID, _Mapping] | None = ...,
-        value: _Union[ObjectID, _Mapping] | None = ...,
+        key: ObjectID | _Mapping | None = ...,
+        value: ObjectID | _Mapping | None = ...,
     ) -> None: ...
 
 class Dictionary(_message.Message):
@@ -185,11 +184,11 @@ class Dictionary(_message.Message):
     ELEMENT_FIELD_NUMBER: _ClassVar[int]
     element: _containers.RepeatedCompositeFieldContainer[DictionaryElement]
     def __init__(
-        self, element: _Iterable[_Union[DictionaryElement, _Mapping]] | None = ...
+        self, element: _Iterable[DictionaryElement | _Mapping] | None = ...
     ) -> None: ...
 
 class ObjectID(_message.Message):
-    __slots__ = ("unsigned_integer_value", "string_value", "object_index")
+    __slots__ = ("object_index", "string_value", "unsigned_integer_value")
     UNSIGNED_INTEGER_VALUE_FIELD_NUMBER: _ClassVar[int]
     STRING_VALUE_FIELD_NUMBER: _ClassVar[int]
     OBJECT_INDEX_FIELD_NUMBER: _ClassVar[int]
@@ -207,7 +206,7 @@ class RegisterLatest(_message.Message):
     __slots__ = ("contents",)
     CONTENTS_FIELD_NUMBER: _ClassVar[int]
     contents: ObjectID
-    def __init__(self, contents: _Union[ObjectID, _Mapping] | None = ...) -> None: ...
+    def __init__(self, contents: ObjectID | _Mapping | None = ...) -> None: ...
 
 class MapItem(_message.Message):
     __slots__ = ("key", "value")
@@ -218,25 +217,25 @@ class MapItem(_message.Message):
     def __init__(
         self,
         key: int | None = ...,
-        value: _Union[ObjectID, _Mapping] | None = ...,
+        value: ObjectID | _Mapping | None = ...,
     ) -> None: ...
 
 class AttributeRun(_message.Message):
     __slots__ = (
-        "length",
-        "paragraph_style",
+        "attachment_info",
+        "color",
+        "emphasis_style",
         "font",
         "font_weight",
-        "underlined",
+        "highlight_color",
+        "length",
+        "link",
+        "paragraph_style",
         "strikethrough",
         "superscript",
-        "link",
-        "color",
-        "writing_direction_selection",
-        "attachment_info",
         "timestamp",
-        "emphasis_style",
-        "highlight_color",
+        "underlined",
+        "writing_direction_selection",
     )
     LENGTH_FIELD_NUMBER: _ClassVar[int]
     PARAGRAPH_STYLE_FIELD_NUMBER: _ClassVar[int]
@@ -269,29 +268,29 @@ class AttributeRun(_message.Message):
     def __init__(
         self,
         length: int | None = ...,
-        paragraph_style: _Union[ParagraphStyle, _Mapping] | None = ...,
-        font: _Union[Font, _Mapping] | None = ...,
-        font_weight: _Union[FontWeight, str] | None = ...,
+        paragraph_style: ParagraphStyle | _Mapping | None = ...,
+        font: Font | _Mapping | None = ...,
+        font_weight: FontWeight | str | None = ...,
         underlined: int | None = ...,
         strikethrough: int | None = ...,
         superscript: int | None = ...,
         link: str | None = ...,
-        color: _Union[Color, _Mapping] | None = ...,
-        writing_direction_selection: _Union[WritingDirection, str] | None = ...,
-        attachment_info: _Union[AttachmentInfo, _Mapping] | None = ...,
+        color: Color | _Mapping | None = ...,
+        writing_direction_selection: WritingDirection | str | None = ...,
+        attachment_info: AttachmentInfo | _Mapping | None = ...,
         timestamp: int | None = ...,
         emphasis_style: int | None = ...,
-        highlight_color: _Union[Highlight, str] | None = ...,
+        highlight_color: Highlight | str | None = ...,
     ) -> None: ...
 
 class NoteStoreProto(_message.Message):
     __slots__ = ("document",)
     DOCUMENT_FIELD_NUMBER: _ClassVar[int]
     document: Document
-    def __init__(self, document: _Union[Document, _Mapping] | None = ...) -> None: ...
+    def __init__(self, document: Document | _Mapping | None = ...) -> None: ...
 
 class Document(_message.Message):
-    __slots__ = ("version", "note")
+    __slots__ = ("note", "version")
     VERSION_FIELD_NUMBER: _ClassVar[int]
     NOTE_FIELD_NUMBER: _ClassVar[int]
     version: int
@@ -299,11 +298,11 @@ class Document(_message.Message):
     def __init__(
         self,
         version: int | None = ...,
-        note: _Union[Note, _Mapping] | None = ...,
+        note: Note | _Mapping | None = ...,
     ) -> None: ...
 
 class Note(_message.Message):
-    __slots__ = ("note_text", "attribute_run")
+    __slots__ = ("attribute_run", "note_text")
     NOTE_TEXT_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTE_RUN_FIELD_NUMBER: _ClassVar[int]
     note_text: str
@@ -311,7 +310,7 @@ class Note(_message.Message):
     def __init__(
         self,
         note_text: str | None = ...,
-        attribute_run: _Iterable[_Union[AttributeRun, _Mapping]] | None = ...,
+        attribute_run: _Iterable[AttributeRun | _Mapping] | None = ...,
     ) -> None: ...
 
 class MergableDataProto(_message.Message):
@@ -320,11 +319,11 @@ class MergableDataProto(_message.Message):
     mergable_data_object: MergableDataObject
     def __init__(
         self,
-        mergable_data_object: _Union[MergableDataObject, _Mapping] | None = ...,
+        mergable_data_object: MergableDataObject | _Mapping | None = ...,
     ) -> None: ...
 
 class MergableDataObject(_message.Message):
-    __slots__ = ("version", "mergeable_data_object_data")
+    __slots__ = ("mergeable_data_object_data", "version")
     VERSION_FIELD_NUMBER: _ClassVar[int]
     MERGEABLE_DATA_OBJECT_DATA_FIELD_NUMBER: _ClassVar[int]
     version: int
@@ -332,7 +331,7 @@ class MergableDataObject(_message.Message):
     def __init__(
         self,
         version: int | None = ...,
-        mergeable_data_object_data: _Union[MergeableDataObjectData, _Mapping]
+        mergeable_data_object_data: MergeableDataObjectData | _Mapping
         | None = ...,
     ) -> None: ...
 
@@ -355,7 +354,7 @@ class MergeableDataObjectData(_message.Message):
     mergeable_data_object_uuid_item: _containers.RepeatedScalarFieldContainer[bytes]
     def __init__(
         self,
-        mergeable_data_object_entry: _Iterable[_Union[MergeableDataObjectRow, _Mapping]]
+        mergeable_data_object_entry: _Iterable[MergeableDataObjectRow | _Mapping]
         | None = ...,
         mergeable_data_object_key_item: _Iterable[str] | None = ...,
         mergeable_data_object_type_item: _Iterable[str] | None = ...,
@@ -364,13 +363,13 @@ class MergeableDataObjectData(_message.Message):
 
 class MergeableDataObjectRow(_message.Message):
     __slots__ = (
-        "register_latest",
-        "list",
-        "dictionary",
-        "unknown_message",
-        "note",
         "custom_map",
+        "dictionary",
+        "list",
+        "note",
         "ordered_set",
+        "register_latest",
+        "unknown_message",
     )
     REGISTER_LATEST_FIELD_NUMBER: _ClassVar[int]
     LIST_FIELD_NUMBER: _ClassVar[int]
@@ -388,14 +387,14 @@ class MergeableDataObjectRow(_message.Message):
     ordered_set: OrderedSet
     def __init__(
         self,
-        register_latest: _Union[RegisterLatest, _Mapping] | None = ...,
-        list: _Union[List, _Mapping] | None = ...,
-        dictionary: _Union[Dictionary, _Mapping] | None = ...,
-        unknown_message: _Union[UnknownMergeableDataObjectEntryMessage, _Mapping]
+        register_latest: RegisterLatest | _Mapping | None = ...,
+        list: List | _Mapping | None = ...,
+        dictionary: Dictionary | _Mapping | None = ...,
+        unknown_message: UnknownMergeableDataObjectEntryMessage | _Mapping
         | None = ...,
-        note: _Union[Note, _Mapping] | None = ...,
-        custom_map: _Union[MergeableDataObjectMap, _Mapping] | None = ...,
-        ordered_set: _Union[OrderedSet, _Mapping] | None = ...,
+        note: Note | _Mapping | None = ...,
+        custom_map: MergeableDataObjectMap | _Mapping | None = ...,
+        ordered_set: OrderedSet | _Mapping | None = ...,
     ) -> None: ...
 
 class UnknownMergeableDataObjectEntryMessage(_message.Message):
@@ -404,7 +403,7 @@ class UnknownMergeableDataObjectEntryMessage(_message.Message):
     unknown_entry: UnknownMergeableDataObjectEntryMessageEntry
     def __init__(
         self,
-        unknown_entry: _Union[UnknownMergeableDataObjectEntryMessageEntry, _Mapping]
+        unknown_entry: UnknownMergeableDataObjectEntryMessageEntry | _Mapping
         | None = ...,
     ) -> None: ...
 
@@ -419,7 +418,7 @@ class UnknownMergeableDataObjectEntryMessageEntry(_message.Message):
     ) -> None: ...
 
 class MergeableDataObjectMap(_message.Message):
-    __slots__ = ("type", "map_entry")
+    __slots__ = ("map_entry", "type")
     TYPE_FIELD_NUMBER: _ClassVar[int]
     MAP_ENTRY_FIELD_NUMBER: _ClassVar[int]
     type: int
@@ -427,19 +426,19 @@ class MergeableDataObjectMap(_message.Message):
     def __init__(
         self,
         type: int | None = ...,
-        map_entry: _Iterable[_Union[MapItem, _Mapping]] | None = ...,
+        map_entry: _Iterable[MapItem | _Mapping] | None = ...,
     ) -> None: ...
 
 class OrderedSet(_message.Message):
-    __slots__ = ("ordering", "elements")
+    __slots__ = ("elements", "ordering")
     ORDERING_FIELD_NUMBER: _ClassVar[int]
     ELEMENTS_FIELD_NUMBER: _ClassVar[int]
     ordering: OrderedSetOrdering
     elements: Dictionary
     def __init__(
         self,
-        ordering: _Union[OrderedSetOrdering, _Mapping] | None = ...,
-        elements: _Union[Dictionary, _Mapping] | None = ...,
+        ordering: OrderedSetOrdering | _Mapping | None = ...,
+        elements: Dictionary | _Mapping | None = ...,
     ) -> None: ...
 
 class OrderedSetOrdering(_message.Message):
@@ -450,12 +449,12 @@ class OrderedSetOrdering(_message.Message):
     contents: Dictionary
     def __init__(
         self,
-        array: _Union[OrderedSetOrderingArray, _Mapping] | None = ...,
-        contents: _Union[Dictionary, _Mapping] | None = ...,
+        array: OrderedSetOrderingArray | _Mapping | None = ...,
+        contents: Dictionary | _Mapping | None = ...,
     ) -> None: ...
 
 class OrderedSetOrderingArray(_message.Message):
-    __slots__ = ("contents", "attachment")
+    __slots__ = ("attachment", "contents")
     CONTENTS_FIELD_NUMBER: _ClassVar[int]
     ATTACHMENT_FIELD_NUMBER: _ClassVar[int]
     contents: Note
@@ -464,8 +463,8 @@ class OrderedSetOrderingArray(_message.Message):
     ]
     def __init__(
         self,
-        contents: _Union[Note, _Mapping] | None = ...,
-        attachment: _Iterable[_Union[OrderedSetOrderingArrayAttachment, _Mapping]]
+        contents: Note | _Mapping | None = ...,
+        attachment: _Iterable[OrderedSetOrderingArrayAttachment | _Mapping]
         | None = ...,
     ) -> None: ...
 
@@ -482,11 +481,11 @@ class List(_message.Message):
     LIST_ENTRY_FIELD_NUMBER: _ClassVar[int]
     list_entry: _containers.RepeatedCompositeFieldContainer[ListItem]
     def __init__(
-        self, list_entry: _Iterable[_Union[ListItem, _Mapping]] | None = ...
+        self, list_entry: _Iterable[ListItem | _Mapping] | None = ...
     ) -> None: ...
 
 class ListItem(_message.Message):
-    __slots__ = ("id", "details", "additional_details")
+    __slots__ = ("additional_details", "details", "id")
     ID_FIELD_NUMBER: _ClassVar[int]
     DETAILS_FIELD_NUMBER: _ClassVar[int]
     ADDITIONAL_DETAILS_FIELD_NUMBER: _ClassVar[int]
@@ -495,25 +494,25 @@ class ListItem(_message.Message):
     additional_details: ListEntryDetails
     def __init__(
         self,
-        id: _Union[ObjectID, _Mapping] | None = ...,
-        details: _Union[ListEntryDetails, _Mapping] | None = ...,
-        additional_details: _Union[ListEntryDetails, _Mapping] | None = ...,
+        id: ObjectID | _Mapping | None = ...,
+        details: ListEntryDetails | _Mapping | None = ...,
+        additional_details: ListEntryDetails | _Mapping | None = ...,
     ) -> None: ...
 
 class ListEntryDetails(_message.Message):
-    __slots__ = ("list_entry_details_key", "id")
+    __slots__ = ("id", "list_entry_details_key")
     LIST_ENTRY_DETAILS_KEY_FIELD_NUMBER: _ClassVar[int]
     ID_FIELD_NUMBER: _ClassVar[int]
     list_entry_details_key: ListEntryDetailsKey
     id: ObjectID
     def __init__(
         self,
-        list_entry_details_key: _Union[ListEntryDetailsKey, _Mapping] | None = ...,
-        id: _Union[ObjectID, _Mapping] | None = ...,
+        list_entry_details_key: ListEntryDetailsKey | _Mapping | None = ...,
+        id: ObjectID | _Mapping | None = ...,
     ) -> None: ...
 
 class ListEntryDetailsKey(_message.Message):
-    __slots__ = ("list_entry_details_type_index", "list_entry_details_key")
+    __slots__ = ("list_entry_details_key", "list_entry_details_type_index")
     LIST_ENTRY_DETAILS_TYPE_INDEX_FIELD_NUMBER: _ClassVar[int]
     LIST_ENTRY_DETAILS_KEY_FIELD_NUMBER: _ClassVar[int]
     list_entry_details_type_index: int

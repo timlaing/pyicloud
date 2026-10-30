@@ -620,7 +620,7 @@ def test_trusted_device_bridge_rejects_malformed_push_token(
         MagicMock(return_value=(b"\x04public-key", _FakePrivateKey())),
     )
 
-    with pytest.raises(  # noqa: S5778
+    with pytest.raises(
         PyiCloudTrustedDevicePromptException,
         match="Failed to bootstrap the trusted-device bridge prompt.",
     ) as exc_info:
@@ -673,7 +673,7 @@ def test_trusted_device_bridge_rejects_mismatched_session_uuid(
     session = MagicMock()
     session.request_raw.return_value = _response(200)
 
-    with pytest.raises(  # noqa: S5778
+    with pytest.raises(
         PyiCloudTrustedDevicePromptException,
         match="Failed to bootstrap the trusted-device bridge prompt.",
     ) as exc_info:

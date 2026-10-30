@@ -340,7 +340,7 @@ def _print_verdict(
     )
 
 
-def doctor(  # noqa: PLR0913
+def doctor(
     ctx: typer.Context,
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,

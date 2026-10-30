@@ -73,7 +73,7 @@ def decode_and_parse_note(record: CKRecord) -> pb.Note | None:
         return None
 
 
-def _attachment_ids_from_record_and_runs(  # noqa: S3776
+def _attachment_ids_from_record_and_runs(
     record: CKRecord, note: pb.Note
 ) -> list[str]:
     # Collect from Attachments field
@@ -238,14 +238,14 @@ def build_datasource(
     return ds, att_ids
 
 
-def download_pdf_assets(  # noqa: S3776
+def download_pdf_assets(
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
+    config: ExportConfig | None = None,
 ) -> dict[str, str]:
     """Download PDFs for attachments and rewrite datasource URLs to local paths.
 
@@ -297,7 +297,7 @@ def download_pdf_assets(  # noqa: S3776
     return updated
 
 
-def download_image_assets(  # noqa: S3776
+def download_image_assets(
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
@@ -382,14 +382,14 @@ def download_image_assets(  # noqa: S3776
     return updated
 
 
-def download_av_assets(  # noqa: S3776
+def download_av_assets(
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
+    config: ExportConfig | None = None,
 ) -> dict[str, str]:
     """Download audio/video attachments and rewrite datasource URLs to local paths.
 
@@ -487,7 +487,7 @@ def download_vcard_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
+    config: ExportConfig | None = None,
 ) -> dict[str, str]:
     """Download VCard (contact) attachments and rewrite datasource URLs to local paths.
 

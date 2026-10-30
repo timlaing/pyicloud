@@ -327,7 +327,7 @@ def devices_sound(
 
 @app.command("message")
 def devices_message(
-    ctx: typer.Context,  # noqa: S107
+    ctx: typer.Context,
     device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     message: str = typer.Argument(..., help="Message to display."),
     subject: str = typer.Option("A Message", "--subject"),
@@ -379,7 +379,7 @@ def devices_message(
 
 @app.command("lost-mode")
 def devices_lost_mode(
-    ctx: typer.Context,  # noqa: S107
+    ctx: typer.Context,
     device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     phone: str = typer.Option("", "--phone", help="Phone number shown in lost mode."),
     message: str = typer.Option(
@@ -487,7 +487,7 @@ def devices_erase(
 
 @app.command("export")
 def devices_export(
-    ctx: typer.Context,  # noqa: S107
+    ctx: typer.Context,
     device: str = typer.Argument(..., help=DEVICE_ID_HELP),
     output: Path = typer.Option(..., "--output", help="Destination JSON file."),
     raw: bool | None = typer.Option(

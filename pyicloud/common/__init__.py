@@ -2,4 +2,4 @@
 
 from .models import FrozenServiceModel, MutableServiceModel, ServiceModel
 
-__all__ = ["ServiceModel", "FrozenServiceModel", "MutableServiceModel"]
+__all__ = ["FrozenServiceModel", "MutableServiceModel", "ServiceModel"]

@@ -212,7 +212,7 @@ class TestInitTableBuffers(unittest.TestCase):
 class TestParseCellColumns(unittest.TestCase):
     """Tests for TableBuilder.parse_cell_columns."""
 
-    def _setup(  # noqa: S3776
+    def _setup(
         self, note_text: str | None = "x"
     ) -> tuple[TableBuilder, pb.MergeableDataObjectRow]:
         """Build a builder with one column mapping to one row cell."""

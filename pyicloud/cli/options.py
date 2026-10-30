@@ -190,7 +190,7 @@ RefreshIntervalOption = Annotated[
 
 
 def store_command_options(
-    ctx: typer.Context,  # noqa: S107
+    ctx: typer.Context,
     *,
     username: str | None = None,
     password: str | None = None,
