@@ -4062,7 +4062,9 @@ def test_legacy_photo_asset_delete_returns_false_for_error_payload() -> None:
         status_code=200,
     )
 
-    asset = PhotoAsset(mock_service, master_record, asset_record)
+    asset = PhotoAsset(
+        mock_service, cast(CKRecord, master_record), cast(CKRecord, asset_record)
+    )
 
     assert asset.delete() is False
 
@@ -4196,7 +4198,9 @@ def test_legacy_photo_asset_added_date_falls_back_to_epoch() -> None:
         "zoneID": {"zoneName": "PrimarySync"},
     }
 
-    asset = PhotoAsset(MagicMock(), master_record, asset_record)
+    asset = PhotoAsset(
+        MagicMock(), cast(CKRecord, master_record), cast(CKRecord, asset_record)
+    )
 
     assert asset.added_date == datetime.fromtimestamp(0, timezone.utc)
 

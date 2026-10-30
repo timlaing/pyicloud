@@ -147,7 +147,6 @@ pretty = true
 exclude = [
     "pyicloud/services/notes/protobuf/",
     "pyicloud/services/reminders/protobuf/",
-    "tests/",
 ]
 
 # Generated protobuf code is never hand-edited (see AGENTS.md). Excluded but
