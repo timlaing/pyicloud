@@ -1,5 +1,7 @@
 """Tests for the shared_streams module."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 from dataclasses import dataclass
