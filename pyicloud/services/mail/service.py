@@ -291,7 +291,7 @@ def _mail_drop_response_size(
     if length is not None and (not length.isascii() or not length.isdigit()):
         raise MailError("Invalid Mail Drop content length")
     declared = int(length) if length is not None else None
-    expected_size = part.size or declared
+    expected_size = part.size if part.size else declared
     if declared is not None and (
         declared > max_bytes or (part.size and declared != part.size)
     ):

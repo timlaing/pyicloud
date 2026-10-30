@@ -1,6 +1,3 @@
 {
-    "plugins": [
-        "prettier-plugin-sort-json",
-        "@prettier/plugin-xml"
-    ]
+  "plugins": ["prettier-plugin-sort-json", "@prettier/plugin-xml"]
 }

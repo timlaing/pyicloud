@@ -39,7 +39,7 @@ SENTINEL_ZERO_MS: set[int] = {
 }
 
 
-def _from_millis_or_none(v: float | str) -> datetime | None:
+def _from_millis_or_none(v: int | float | str) -> datetime | None:
     # Accept int/float or signed numeric strings; be strict about milliseconds.
     if isinstance(v, (int, float)):
         iv = int(v)
@@ -99,7 +99,7 @@ MillisDateTimeOrNone = Annotated[
 # Some top-level properties (e.g., CKRecord.expirationTime) arrive as
 # seconds-since-epoch in this API. Be tolerant and also accept millisecond
 # values if Apple changes shape.
-def _from_secs_or_millis(v: float | str) -> datetime | None:
+def _from_secs_or_millis(v: int | float | str) -> datetime | None:
     if isinstance(v, (int, float)):
         iv = int(v)
     elif isinstance(v, str):
@@ -441,21 +441,23 @@ KNOWN_TAGS: frozenset[str] = frozenset({
 # Split into (a) a known, literal-tagged union and (b) an open wrapper that
 # gracefully falls back to CKPassthroughField for unknown tags.
 KnownCKField = Annotated[
-    CKTimestampField
-    | CKInt64Field
-    | CKEncryptedBytesField
-    | CKReferenceField
-    | CKReferenceListField
-    | CKStringField
-    | CKStringListField
-    | CKAssetIDField
-    | CKAssetField
-    | CKDoubleField
-    | CKBytesField
-    | CKDoubleListField
-    | CKInt64ListField
-    | CKAssetIDListField
-    | CKUnknownListField,
+    Union[
+        CKTimestampField,
+        CKInt64Field,
+        CKEncryptedBytesField,
+        CKReferenceField,
+        CKReferenceListField,
+        CKStringField,
+        CKStringListField,
+        CKAssetIDField,
+        CKAssetField,
+        CKDoubleField,
+        CKBytesField,
+        CKDoubleListField,
+        CKInt64ListField,
+        CKAssetIDListField,
+        CKUnknownListField,
+    ],
     Field(discriminator="type"),
 ]
 
@@ -839,7 +841,13 @@ class CKFVReferenceList(_CKFilterValueBase):
 
 
 CKFilterValue = Annotated[
-    CKFVString | CKFVInt64 | CKFVStringList | CKFVReference | CKFVReferenceList,
+    Union[
+        CKFVString,
+        CKFVInt64,
+        CKFVStringList,
+        CKFVReference,
+        CKFVReferenceList,
+    ],
     Field(discriminator="type"),
 ]
 

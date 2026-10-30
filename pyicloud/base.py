@@ -254,7 +254,7 @@ class PyiCloudService:
         if not cookie_directory:
             topdir = path.dirname(_cookie_directory)
             makedirs(topdir, exist_ok=True)
-            chmod(topdir, 0o1777)
+            chmod(topdir, 0o1777)  # noqa: S2612
 
         old_umask = umask(0o077)
         try:
@@ -264,7 +264,7 @@ class PyiCloudService:
         return _cookie_directory
 
     def __init__(
-        self,
+        self,  # noqa: S107 - public entry point intentionally exposes many options
         apple_id: str,
         password: str | None = None,
         cookie_directory: str | None = None,
@@ -686,8 +686,8 @@ class PyiCloudService:
 
         srp_password.set_encrypt_info(salt, iterations, key_length, protocol)
 
-        m1: Any | None = usr.process_challenge(salt, b)
-        m2: bytes | None = usr.H_AMK
+        m1: None | Any = usr.process_challenge(salt, b)
+        m2: None | bytes = usr.H_AMK
         if m1 and m2:
             data = {
                 ACCOUNT_NAME: uname,
@@ -1311,7 +1311,7 @@ class PyiCloudService:
         """Request PCS access for a specific service."""
         _check_pcs_resp: dict[str, Any] = self._check_pcs_consent()
 
-        if not _check_pcs_resp.get("isICDRSDisabled"):
+        if not _check_pcs_resp.get("isICDRSDisabled", False):
             LOGGER.debug("Skipping PCS request because Apple reports ICDRS is enabled")
             return
 

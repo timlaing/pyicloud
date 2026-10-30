@@ -103,7 +103,7 @@ def test_get_file_package_token_and_missing_tokens() -> None:
     assert get.call_args_list[1].args[0] == "https://pkg"
 
     with (
-        patch.object(drive.session, "get", return_value=Mock(ok=True, json=dict)),
+        patch.object(drive.session, "get", return_value=Mock(ok=True, json=lambda: {})),
         pytest.raises(KeyError, match="package_token"),
     ):
         drive.get_file("fid")

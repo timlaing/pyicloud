@@ -322,7 +322,7 @@ class _HashtagRenderer(_Renderer):
         else:
             text = ctx.uti or "hashtag"
         # Expose the normalized tag (without '#') for consumers
-        tag_norm = text.removeprefix("#")
+        tag_norm = text[1:] if text.startswith("#") else text
         attrs = ctx.base_attrs({"class": "attachment hashtag", "data-tag": tag_norm})
         return h("span", **attrs)(text).render()
 

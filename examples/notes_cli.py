@@ -153,7 +153,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def ensure_auth(api: PyiCloudService) -> None:
+def ensure_auth(api: PyiCloudService) -> None:  # noqa: S3776
     """Ensure the iCloud session is authenticated, handling 2FA and 2SA."""
     if api.requires_2fa:
         fido2_devices = list(api.fido2_devices)
@@ -204,7 +204,7 @@ def ensure_auth(api: PyiCloudService) -> None:
             raise RuntimeError("Failed to verify code")
 
 
-def main() -> None:
+def main() -> None:  # noqa: S3776
     """Explore, render, and export iCloud Notes per CLI arguments."""
     logging.basicConfig(
         level=logging.INFO,

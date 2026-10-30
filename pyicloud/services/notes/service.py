@@ -476,7 +476,9 @@ class NotesService(BaseService):
         renderer = NoteRenderer(config)
         return renderer.render(note, ds)
 
-    def iter_changes(self, *, since: str | None = None) -> Iterable[ChangeEvent]:
+    def iter_changes(  # noqa: S3776
+        self, *, since: str | None = None
+    ) -> Iterable[ChangeEvent]:
         """
         Yield ``ChangeEvent`` items from the Notes changes feed.
 
@@ -704,7 +706,7 @@ class NotesService(BaseService):
             LOGGER.warning("notes.body.decode_failed id=%s err=%s", rec.recordName, e)
             return None
 
-    def _resolve_attachments_for_record(
+    def _resolve_attachments_for_record(  # noqa: S3776
         self,
         rec: CKRecord,
         *,
@@ -756,7 +758,7 @@ class NotesService(BaseService):
         # Fetch metadata for uncached attachments
         seen_lookup: set[str] = set()
         lookup_ids: list[str] = []
-        lookup_source_ids = lookup_candidates or ids
+        lookup_source_ids = lookup_candidates if lookup_candidates else ids
         for cid in lookup_source_ids:
             if cid not in seen_lookup:
                 seen_lookup.add(cid)

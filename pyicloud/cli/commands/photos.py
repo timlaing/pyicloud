@@ -153,7 +153,7 @@ def _resolve_album(
 
 
 def _build_photo_sync_options(
-    *,
+    *,  # noqa: S107
     directory: Path,
     state_dir: Path | None,
     library: str,
@@ -662,7 +662,7 @@ def photos_sync_cursor(
 
 @app.command("download")
 def photos_download(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     photo_id: str = typer.Argument(..., help="Photo asset id."),
     album: str | None = typer.Option(
         None,
@@ -735,7 +735,7 @@ def photos_download(
 
 @app.command("sync")
 def photos_sync(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     directory: Path = typer.Option(
         ...,
         "--directory",
@@ -904,8 +904,8 @@ def photos_sync(
 
 
 @app.command("watch")
-def photos_watch(
-    ctx: typer.Context,
+def photos_watch(  # noqa: S3776
+    ctx: typer.Context,  # noqa: S107
     directory: Path = typer.Option(
         ...,
         "--directory",

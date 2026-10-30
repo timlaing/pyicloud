@@ -79,9 +79,9 @@ class AppleAlarm:
     # pylint: disable=invalid-name
 
     guid: str
-    pGuid: str
-    messageType: str = AlarmDefaults.MESSAGE_TYPE
-    isLocationBased: bool = AlarmDefaults.IS_LOCATION_BASED
+    pGuid: str  # noqa: S116
+    messageType: str = AlarmDefaults.MESSAGE_TYPE  # noqa: S116
+    isLocationBased: bool = AlarmDefaults.IS_LOCATION_BASED  # noqa: S116
     measurement: AlarmMeasurement = field(default_factory=AlarmMeasurement)
 
 
@@ -146,7 +146,9 @@ class AppleDateFormat:
         Apple sends wall-clock time with the zone carried separately on the
         event, so the result is intentionally naive.
         """
-        return datetime(self.year, self.month, self.day, self.hour, self.minute)
+        return datetime(  # noqa: DTZ001
+            self.year, self.month, self.day, self.hour, self.minute
+        )
 
     def to_list(self) -> list[int | str]:
         """Convert to Apple's expected list format."""
@@ -197,7 +199,7 @@ class AppleEventInvitee:
 
     email: str
     role: str = InviteeDefaults.ROLE
-    inviteeStatus: str = InviteeDefaults.STATUS
+    inviteeStatus: str = InviteeDefaults.STATUS  # noqa: S116
 
 
 @dataclass
@@ -211,13 +213,13 @@ class ApplePayloadInvitee:
     # pylint: disable=invalid-name
 
     guid: str
-    pGuid: str
+    pGuid: str  # noqa: S116
     role: str = InviteeDefaults.ROLE
-    isOrganizer: bool = False
+    isOrganizer: bool = False  # noqa: S116
     email: str = ""
-    inviteeStatus: str = InviteeDefaults.STATUS
-    commonName: str = ""
-    isMe: bool = False
+    inviteeStatus: str = InviteeDefaults.STATUS  # noqa: S116
+    commonName: str = ""  # noqa: S116
+    isMe: bool = False  # noqa: S116
 
 
 @dataclass
@@ -235,26 +237,26 @@ class AppleCalendarEvent:
     tz: str
     icon: int
     duration: int
-    allDay: bool
-    pGuid: str
+    allDay: bool  # noqa: S116
+    pGuid: str  # noqa: S116
     guid: str
 
-    startDate: list[int | str]
-    endDate: list[int | str]
-    localStartDate: list[int | str]
-    localEndDate: list[int | str]
-    createdDate: list[int | str]
-    lastModifiedDate: list[int | str]
+    startDate: list[int | str]  # noqa: S116
+    endDate: list[int | str]  # noqa: S116
+    localStartDate: list[int | str]  # noqa: S116
+    localEndDate: list[int | str]  # noqa: S116
+    createdDate: list[int | str]  # noqa: S116
+    lastModifiedDate: list[int | str]  # noqa: S116
 
-    extendedDetailsAreIncluded: bool
-    recurrenceException: bool
-    recurrenceMaster: bool
-    hasAttachments: bool
-    readOnly: bool = False
+    extendedDetailsAreIncluded: bool  # noqa: S116
+    recurrenceException: bool  # noqa: S116
+    recurrenceMaster: bool  # noqa: S116
+    hasAttachments: bool  # noqa: S116
+    readOnly: bool = False  # noqa: S116
     transparent: bool = False
-    birthdayIsYearlessBday: bool = False
-    birthdayShowAsCompany: bool = False
-    shouldShowJunkUIWhenAppropriate: bool = False
+    birthdayIsYearlessBday: bool = False  # noqa: S116
+    birthdayShowAsCompany: bool = False  # noqa: S116
+    shouldShowJunkUIWhenAppropriate: bool = False  # noqa: S116
 
     location: str = ""
     url: str = ""
@@ -265,7 +267,7 @@ class AppleCalendarEvent:
     attachments: list[Any] = field(default_factory=list)
     invitees: list[str] = field(default_factory=list)
 
-    changeRecurring: str | None = None
+    changeRecurring: str | None = None  # noqa: S116
 
 
 @dataclass
@@ -703,7 +705,7 @@ class CalendarService(BaseService):
     def get_calendars(self, as_objs: Literal[True]) -> list[CalendarObject]: ...
 
     def get_calendars(
-        self, as_objs: Literal[True, False] = False
+        self, as_objs: Literal[True] | Literal[False] = False
     ) -> list[dict[str, Any]] | list[CalendarObject]:
         """
         Retrieves calendars of this month.

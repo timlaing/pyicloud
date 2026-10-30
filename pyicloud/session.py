@@ -205,7 +205,7 @@ class PyiCloudSession(requests.Session):
             CONTENT_TYPE_JSON,
             CONTENT_TYPE_TEXT_JSON,
         ]
-        return content_type.split(";", maxsplit=1)[0] in json_mimetypes
+        return content_type.split(";")[0] in json_mimetypes
 
     def request(
         self,
@@ -247,7 +247,7 @@ class PyiCloudSession(requests.Session):
         )
 
     def request_raw(
-        self,
+        self,  # noqa: S107
         method: str,
         url: str,
         params: Any = None,

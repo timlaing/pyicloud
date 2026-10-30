@@ -98,7 +98,7 @@ class TestNoteRendering(unittest.TestCase):
                 # For references, we might need more complex reconstruction if the
                 # code checks types
                 # But let's start simple.
-                return
+                return None
 
         rec = Mock()
         rec.recordName = data["recordName"]
@@ -360,7 +360,7 @@ class TestNoteRendering(unittest.TestCase):
 
             def ParseFromString(self, payload: bytes) -> None:
                 """No-op parse of the protobuf payload."""
-                return
+                return None
 
         with (
             patch(
@@ -527,7 +527,7 @@ class TestNoteExporter(unittest.TestCase):
         expected = {
             "assets_dir": expected_assets_dir,
             "out_dir": tmpdir,
-            "_config": config,
+            "config": config,
         }
 
         mock_pdf.assert_called_once_with(client, datasource, ["att-1"], **expected)
@@ -608,7 +608,7 @@ class TestNoteExporter(unittest.TestCase):
             ["img-1"],
             assets_dir=os.path.join(tmpdir, "assets"),
             out_dir=tmpdir,
-            _config=config,
+            config=config,
         )
 
         ck_client.download_asset_to.assert_not_called()

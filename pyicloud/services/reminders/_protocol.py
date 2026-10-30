@@ -357,7 +357,7 @@ def _extract_nsdate_components(root: dict[str, object]) -> dict[str, object]:
     return decoded
 
 
-def _decode_crdt_document(
+def _decode_crdt_document(  # noqa: S3776
     encrypted_value: str | bytes,
 ) -> str:
     """Decode a CRDT document (TitleDocument or NotesDocument)."""
@@ -636,7 +636,7 @@ def _reorder_substrings(value: Any) -> None:
     value.substring.extend(reordered)
 
 
-def _edit_crdt_document(
+def _edit_crdt_document(  # noqa: S3776
     existing: str | bytes,
     text: str,
     *,

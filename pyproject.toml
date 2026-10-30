@@ -109,8 +109,6 @@ preview=true
 [tool.ruff.lint]
 preview=true
 
-[tool.ruff.lint.per-file-ignores]
-"pyicloud/services/photos/service.py" = ["UP032", "UP037"]
 select = [
     "E",    # pycodestyle errors
     "W",    # pycodestyle warnings
@@ -126,6 +124,9 @@ ignore = [
     "UP032",  # string annotations to regular annotations (keep for SonarCloud S3827)
     "UP037",  # quoted annotations to unquoted (keep for SonarCloud S3827)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"pyicloud/services/photos/service.py" = ["UP032", "UP037"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyicloud", "tests"]

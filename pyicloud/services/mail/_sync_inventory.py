@@ -75,7 +75,7 @@ def establish_inventory(
     *,
     max_attempts: int = 3,
     max_messages: int = 100000,
-    expected_revision: StoredCheckpoint | _RevisionPolicy | None = _RevisionPolicy.ANY,
+    expected_revision: StoredCheckpoint | None | _RevisionPolicy = _RevisionPolicy.ANY,
     minimum_checkpoint: SyncCheckpoint | None = None,
 ) -> StoredCheckpoint:
     """Publish only a bounded inventory bracketed by identical checkpoints.

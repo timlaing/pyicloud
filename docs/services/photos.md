@@ -273,9 +273,9 @@ block still catches everything:
   when one is available.
 - `PhotosZoneNotFoundError` — Apple reported the requested Photos zone as
   missing (`ZONE_NOT_FOUND`). It derives from `PhotosApiError` and carries the
-  zone name in `zone_name`. It reaches the caller when `api.photos` builds the
-  service (the indexing-state check) as well as from later queries, zone
-  discovery, and writes.
+  zone name in `zone_name`. It reaches the caller when the Photos service's
+  root library is accessed (the indexing-state check) as well as from later
+  queries, zone discovery, and writes.
 
 ```python
 from pyicloud.exceptions import PyiCloudException
@@ -283,6 +283,7 @@ from pyicloud.services.photos import PhotosZoneNotFoundError
 
 try:
     photos = api.photos
+    library = photos.root
     lists = photos.albums
 except PhotosZoneNotFoundError:
     print("Photos is not available for this account")

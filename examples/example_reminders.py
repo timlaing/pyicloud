@@ -199,7 +199,7 @@ def _raw_token(value: str) -> str:
     return value.split("/", 1)[1]
 
 
-def authenticate(args: argparse.Namespace) -> PyiCloudService:
+def authenticate(args: argparse.Namespace) -> PyiCloudService:  # noqa: S3776
     """Authenticate with iCloud, handling 2FA and 2SA flows."""
     username, password = resolve_credentials(args)
     print("Authenticating with iCloud...")
@@ -327,7 +327,7 @@ def cleanup_generated(api: PyiCloudService, state: RunState) -> None:
             print(f"  [WARN] Failed deleting {case_name} ({reminder.id}): {exc}")
 
 
-def main() -> int:
+def main() -> int:  # noqa: S3776
     """Run the complete reminders service validation suite."""
     args = parse_args()
     tracker = ValidationTracker()
@@ -539,7 +539,7 @@ def main() -> int:
             *,
             allow_missing: bool = False,
         ) -> tuple[Reminder | None, bool]:
-            matched: dict[str, Reminder | bool | None] = {
+            matched: dict[str, Reminder | None | bool] = {
                 "reminder": None,
                 "missing": False,
             }

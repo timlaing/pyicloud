@@ -185,7 +185,9 @@ def watch_photo_sync(
         sleep_fn(interval_seconds)
 
 
-def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
+def run_photo_sync(  # noqa: S3776
+    service: Any, options: PhotoSyncOptions
+) -> PhotoSyncResult:
     """Synchronize selected photo resources into a local output directory."""
 
     if options.size not in PRIMARY_SYNC_VERSIONS:
@@ -513,7 +515,7 @@ def _sync_cursor(library: Any, service: Any) -> str | None:
     return None
 
 
-def _can_short_circuit(
+def _can_short_circuit(  # noqa: S3776
     *,
     state: PhotoSyncState,
     directory: Path,
@@ -554,7 +556,7 @@ def _can_short_circuit(
     return True
 
 
-def _iter_sync_assets(
+def _iter_sync_assets(  # noqa: S3776
     service: Any,
     library: Any,
     options: PhotoSyncOptions,

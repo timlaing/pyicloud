@@ -73,7 +73,9 @@ def decode_and_parse_note(record: CKRecord) -> pb.Note | None:
         return None
 
 
-def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> list[str]:
+def _attachment_ids_from_record_and_runs(  # noqa: S3776
+    record: CKRecord, note: pb.Note
+) -> list[str]:
     # Collect from Attachments field
     ids: list[str] = []
     fld = record.fields.get_field("Attachments")
@@ -176,7 +178,7 @@ def _wire_media_to_parent(
     media_map: dict[str, str],
     mrec: CKRecord,
     url: str,
-    _config: ExportConfig | None,
+    config: ExportConfig | None,
 ) -> None:
     """Promote a Media URL to the parent attachment's primary, when appropriate."""
     parent = media_map.get(mrec.recordName)
@@ -190,7 +192,7 @@ def _wire_media_to_parent(
     except Exception:
         parent_uti = ""
     # Use config-aware predicate to recognize image UTIs (jpeg/png/heic/webp...)
-    conf = _config or ExportConfig()
+    conf = config or ExportConfig()
     is_image = conf.is_image_uti(parent_uti)
     # Simple heuristic for audio/video promotion
     is_av = (
@@ -236,14 +238,14 @@ def build_datasource(
     return ds, att_ids
 
 
-def download_pdf_assets(
+def download_pdf_assets(  # noqa: S3776
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    _config: ExportConfig | None = None,
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download PDFs for attachments and rewrite datasource URLs to local paths.
 
@@ -295,14 +297,14 @@ def download_pdf_assets(
     return updated
 
 
-def download_image_assets(
+def download_image_assets(  # noqa: S3776
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    _config: ExportConfig | None = None,
+    config: ExportConfig | None = None,
 ) -> dict[str, str]:
     """Download image attachments and rewrite datasource URLs to local paths.
 
@@ -312,7 +314,7 @@ def download_image_assets(
     os.makedirs(assets_dir, exist_ok=True)
     updated: dict[str, str] = {}
 
-    conf = _config or ExportConfig()
+    conf = config or ExportConfig()
 
     def _infer_image_ext(head: bytes) -> str | None:
         try:
@@ -380,14 +382,14 @@ def download_image_assets(
     return updated
 
 
-def download_av_assets(
+def download_av_assets(  # noqa: S3776
     ck_client: CloudKitNotesClient,
     ds: CloudKitNoteDataSource,
     att_ids: Iterable[str],
     *,
     assets_dir: str,
     out_dir: str,
-    _config: ExportConfig | None = None,
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download audio/video attachments and rewrite datasource URLs to local paths.
 
@@ -485,7 +487,7 @@ def download_vcard_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    _config: ExportConfig | None = None,
+    config: ExportConfig | None = None,  # noqa: S1172 - pylint: disable=unused-argument
 ) -> dict[str, str]:
     """Download VCard (contact) attachments and rewrite datasource URLs to local paths.
 
@@ -608,7 +610,7 @@ class NoteExporter:
                 att_ids,
                 assets_dir=assets_dir,
                 out_dir=output_dir,
-                _config=self.config,
+                config=self.config,
             )
             download_image_assets(
                 self.client,
@@ -616,7 +618,7 @@ class NoteExporter:
                 att_ids,
                 assets_dir=assets_dir,
                 out_dir=output_dir,
-                _config=self.config,
+                config=self.config,
             )
             download_av_assets(
                 self.client,
@@ -624,7 +626,7 @@ class NoteExporter:
                 att_ids,
                 assets_dir=assets_dir,
                 out_dir=output_dir,
-                _config=self.config,
+                config=self.config,
             )
             download_vcard_assets(
                 self.client,
@@ -632,7 +634,7 @@ class NoteExporter:
                 att_ids,
                 assets_dir=assets_dir,
                 out_dir=output_dir,
-                _config=self.config,
+                config=self.config,
             )
 
         # 4. Render

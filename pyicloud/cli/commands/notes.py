@@ -399,7 +399,7 @@ def notes_render(
 
 @app.command("export")
 def notes_export(
-    ctx: typer.Context,
+    ctx: typer.Context,  # noqa: S107
     note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
     output_dir: Path = typer.Option(..., "--output-dir", help="Destination directory."),
     export_mode: ExportMode = typer.Option(

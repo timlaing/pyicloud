@@ -652,7 +652,7 @@ def test_apple_date_format_round_trip() -> None:
 
     parsed = AppleDateFormat.from_list(raw)
 
-    assert parsed.to_datetime() == datetime(2026, 9, 9, 10, 0)
+    assert parsed.to_datetime() == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
     assert parsed.to_list() == ["20260909", 2026, 9, 9, 10, 0, 600]
 
 
@@ -676,9 +676,9 @@ def test_event_dates_are_parsed_into_datetimes() -> None:
         )
 
     # Apple sends naive wall-clock time; the zone lives on the event.
-    assert event.start_date == datetime(2026, 9, 9, 10, 0)
-    assert event.end_date == datetime(2026, 9, 9, 11, 0)
-    assert event.local_start_date == datetime(2026, 9, 9, 10, 0)
+    assert event.start_date == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
+    assert event.end_date == datetime(2026, 9, 9, 11, 0)  # noqa: DTZ001
+    assert event.local_start_date == datetime(2026, 9, 9, 10, 0)  # noqa: DTZ001
     assert event.title == "Lunch"
 
 

@@ -23,6 +23,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Share the session-error mapping helpers between the Invites and Photos services in a new `pyicloud.common.cloudkit.errors` module: HTTP-status extraction, `Retry-After` parsing, and the unauthorized/rate-limited status constants now live in one place instead of per service.
 - Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.
 
+### Removed
+
+- Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
+
 ### Fixed
 
 - Give `mail delete-forever` actionable folder-refresh guidance when UID validity is missing instead of suggesting its unavailable `--limit` option.

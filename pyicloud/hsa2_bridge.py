@@ -737,7 +737,9 @@ def _encode_ack_message(topic: bytes, message_id: int) -> bytes:
 
 def _topic_hash(topic: str) -> str:
     """Return Apple's websocket topic hash for a named APNS topic."""
-    return hashlib.sha1(topic.encode("utf-8")).hexdigest()
+    return hashlib.sha1(  # noqa: S4790 - APNS topic hash is protocol-mandated SHA-1
+        topic.encode("utf-8")
+    ).hexdigest()
 
 
 def _topic_name(topic_bytes: bytes, topics_by_hash: Mapping[str, str]) -> str:
@@ -745,7 +747,7 @@ def _topic_name(topic_bytes: bytes, topics_by_hash: Mapping[str, str]) -> str:
     return topics_by_hash.get(topic_bytes.hex(), topic_bytes.decode("utf-8", "ignore"))
 
 
-def _extract_json_payload(
+def _extract_json_payload(  # noqa: S3776
     payload: bytes,
 ) -> dict[str, Any]:
     """Extract the JSON object embedded in one bridge push payload."""
@@ -888,7 +890,7 @@ class _RawWebSocketClient:
             resource = f"{resource}?{parsed.query}"
 
         raw_socket = socket.create_connection((parsed.hostname, port), self._timeout)
-        context = ssl.create_default_context()
+        context = ssl.create_default_context()  # noqa: S4423 - default TLS 1.2+
         secure_socket = context.wrap_socket(raw_socket, server_hostname=parsed.hostname)
         secure_socket.settimeout(self._timeout)
 
@@ -921,7 +923,9 @@ class _RawWebSocketClient:
             headers[key.strip().lower()] = value.strip()
 
         expected_accept = base64.b64encode(
-            hashlib.sha1((websocket_key + WEBSOCKET_GUID).encode("ascii")).digest()
+            hashlib.sha1(  # noqa: S4790 - websocket accept key requires SHA-1
+                (websocket_key + WEBSOCKET_GUID).encode("ascii")
+            ).digest()
         ).decode("ascii")
         if headers.get("sec-websocket-accept") != expected_accept:
             raise PyiCloudTrustedDevicePromptException(
@@ -984,7 +988,7 @@ class _RawWebSocketClient:
         """Send one binary websocket message payload."""
         self._send_frame(OPCODE_BINARY, payload)
 
-    def read_message(self) -> bytes:
+    def read_message(self) -> bytes:  # noqa: S3776
         """Read one complete websocket message, handling control frames inline."""
         fragments: list[bytes] = []
         opcode: int | None = None

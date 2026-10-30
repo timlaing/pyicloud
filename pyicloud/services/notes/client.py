@@ -234,7 +234,7 @@ class CloudKitNotesClient:
         path = os.path.join(directory, fname)
         with open(path, "wb") as f:
             for chunk in self.download_asset_stream(url):
-                f.write(chunk)  # noqa: UP032
+                f.write(chunk)
         LOGGER.info("Finished downloading asset to %s", path)
         return path
 
