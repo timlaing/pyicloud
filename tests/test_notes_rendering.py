@@ -527,7 +527,7 @@ class TestNoteExporter(unittest.TestCase):
         expected = {
             "assets_dir": expected_assets_dir,
             "out_dir": tmpdir,
-            "config": config,
+            "_config": config,
         }
 
         mock_pdf.assert_called_once_with(client, datasource, ["att-1"], **expected)
@@ -608,7 +608,7 @@ class TestNoteExporter(unittest.TestCase):
             ["img-1"],
             assets_dir=os.path.join(tmpdir, "assets"),
             out_dir=tmpdir,
-            config=config,
+            _config=config,
         )
 
         ck_client.download_asset_to.assert_not_called()

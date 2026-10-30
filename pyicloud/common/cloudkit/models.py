@@ -441,7 +441,21 @@ KNOWN_TAGS: frozenset[str] = frozenset({
 # Split into (a) a known, literal-tagged union and (b) an open wrapper that
 # gracefully falls back to CKPassthroughField for unknown tags.
 KnownCKField = Annotated[
-    CKTimestampField | CKInt64Field | CKEncryptedBytesField | CKReferenceField | CKReferenceListField | CKStringField | CKStringListField | CKAssetIDField | CKAssetField | CKDoubleField | CKBytesField | CKDoubleListField | CKInt64ListField | CKAssetIDListField | CKUnknownListField,
+    CKTimestampField
+    | CKInt64Field
+    | CKEncryptedBytesField
+    | CKReferenceField
+    | CKReferenceListField
+    | CKStringField
+    | CKStringListField
+    | CKAssetIDField
+    | CKAssetField
+    | CKDoubleField
+    | CKBytesField
+    | CKDoubleListField
+    | CKInt64ListField
+    | CKAssetIDListField
+    | CKUnknownListField,
     Field(discriminator="type"),
 ]
 

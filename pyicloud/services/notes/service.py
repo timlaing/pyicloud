@@ -476,9 +476,7 @@ class NotesService(BaseService):
         renderer = NoteRenderer(config)
         return renderer.render(note, ds)
 
-    def iter_changes(
-        self, *, since: str | None = None
-    ) -> Iterable[ChangeEvent]:
+    def iter_changes(self, *, since: str | None = None) -> Iterable[ChangeEvent]:
         """
         Yield ``ChangeEvent`` items from the Notes changes feed.
 

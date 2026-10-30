@@ -737,9 +737,7 @@ def _encode_ack_message(topic: bytes, message_id: int) -> bytes:
 
 def _topic_hash(topic: str) -> str:
     """Return Apple's websocket topic hash for a named APNS topic."""
-    return hashlib.sha1(
-        topic.encode("utf-8")
-    ).hexdigest()
+    return hashlib.sha1(topic.encode("utf-8")).hexdigest()
 
 
 def _topic_name(topic_bytes: bytes, topics_by_hash: Mapping[str, str]) -> str:
@@ -923,9 +921,7 @@ class _RawWebSocketClient:
             headers[key.strip().lower()] = value.strip()
 
         expected_accept = base64.b64encode(
-            hashlib.sha1(
-                (websocket_key + WEBSOCKET_GUID).encode("ascii")
-            ).digest()
+            hashlib.sha1((websocket_key + WEBSOCKET_GUID).encode("ascii")).digest()
         ).decode("ascii")
         if headers.get("sec-websocket-accept") != expected_accept:
             raise PyiCloudTrustedDevicePromptException(

@@ -156,9 +156,7 @@ class TableBuilder:
             [Cell() for _ in range(self.cols.total)] for _ in range(self.rows.total)
         ]
 
-    def parse_cell_columns(
-        self, entry: pb.MergeableDataObjectRow
-    ) -> None:
+    def parse_cell_columns(self, entry: pb.MergeableDataObjectRow) -> None:
         """Extract and render cell contents into the cell buffer."""
         # entry.dictionary.element: key -> column dict
         for col in entry.dictionary.element:

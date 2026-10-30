@@ -146,9 +146,7 @@ class AppleDateFormat:
         Apple sends wall-clock time with the zone carried separately on the
         event, so the result is intentionally naive.
         """
-        return datetime(
-            self.year, self.month, self.day, self.hour, self.minute
-        )
+        return datetime(self.year, self.month, self.day, self.hour, self.minute)
 
     def to_list(self) -> list[int | str]:
         """Convert to Apple's expected list format."""

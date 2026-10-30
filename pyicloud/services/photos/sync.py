@@ -185,9 +185,7 @@ def watch_photo_sync(
         sleep_fn(interval_seconds)
 
 
-def run_photo_sync(
-    service: Any, options: PhotoSyncOptions
-) -> PhotoSyncResult:
+def run_photo_sync(service: Any, options: PhotoSyncOptions) -> PhotoSyncResult:
     """Synchronize selected photo resources into a local output directory."""
 
     if options.size not in PRIMARY_SYNC_VERSIONS:

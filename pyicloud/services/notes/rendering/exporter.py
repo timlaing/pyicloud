@@ -73,9 +73,7 @@ def decode_and_parse_note(record: CKRecord) -> pb.Note | None:
         return None
 
 
-def _attachment_ids_from_record_and_runs(
-    record: CKRecord, note: pb.Note
-) -> list[str]:
+def _attachment_ids_from_record_and_runs(record: CKRecord, note: pb.Note) -> list[str]:
     # Collect from Attachments field
     ids: list[str] = []
     fld = record.fields.get_field("Attachments")
@@ -178,7 +176,7 @@ def _wire_media_to_parent(
     media_map: dict[str, str],
     mrec: CKRecord,
     url: str,
-    config: ExportConfig | None,
+    _config: ExportConfig | None,
 ) -> None:
     """Promote a Media URL to the parent attachment's primary, when appropriate."""
     parent = media_map.get(mrec.recordName)
@@ -192,7 +190,7 @@ def _wire_media_to_parent(
     except Exception:
         parent_uti = ""
     # Use config-aware predicate to recognize image UTIs (jpeg/png/heic/webp...)
-    conf = config or ExportConfig()
+    conf = _config or ExportConfig()
     is_image = conf.is_image_uti(parent_uti)
     # Simple heuristic for audio/video promotion
     is_av = (
@@ -245,7 +243,7 @@ def download_pdf_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,
+    _config: ExportConfig | None = None,
 ) -> dict[str, str]:
     """Download PDFs for attachments and rewrite datasource URLs to local paths.
 
@@ -304,7 +302,7 @@ def download_image_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,
+    _config: ExportConfig | None = None,
 ) -> dict[str, str]:
     """Download image attachments and rewrite datasource URLs to local paths.
 
@@ -314,7 +312,7 @@ def download_image_assets(
     os.makedirs(assets_dir, exist_ok=True)
     updated: dict[str, str] = {}
 
-    conf = config or ExportConfig()
+    conf = _config or ExportConfig()
 
     def _infer_image_ext(head: bytes) -> str | None:
         try:
@@ -389,7 +387,7 @@ def download_av_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,
+    _config: ExportConfig | None = None,
 ) -> dict[str, str]:
     """Download audio/video attachments and rewrite datasource URLs to local paths.
 
@@ -487,7 +485,7 @@ def download_vcard_assets(
     *,
     assets_dir: str,
     out_dir: str,
-    config: ExportConfig | None = None,
+    _config: ExportConfig | None = None,
 ) -> dict[str, str]:
     """Download VCard (contact) attachments and rewrite datasource URLs to local paths.
 
@@ -610,7 +608,7 @@ class NoteExporter:
                 att_ids,
                 assets_dir=assets_dir,
                 out_dir=output_dir,
-                config=self.config,
+                _config=self.config,
             )
             download_image_assets(
                 self.client,
@@ -618,7 +616,7 @@ class NoteExporter:
                 att_ids,
                 assets_dir=assets_dir,
                 out_dir=output_dir,
-                config=self.config,
+                _config=self.config,
             )
             download_av_assets(
                 self.client,
@@ -626,7 +624,7 @@ class NoteExporter:
                 att_ids,
                 assets_dir=assets_dir,
                 out_dir=output_dir,
-                config=self.config,
+                _config=self.config,
             )
             download_vcard_assets(
                 self.client,
@@ -634,7 +632,7 @@ class NoteExporter:
                 att_ids,
                 assets_dir=assets_dir,
                 out_dir=output_dir,
-                config=self.config,
+                _config=self.config,
             )
 
         # 4. Render

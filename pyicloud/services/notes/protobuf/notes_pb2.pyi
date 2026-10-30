@@ -331,8 +331,7 @@ class MergableDataObject(_message.Message):
     def __init__(
         self,
         version: int | None = ...,
-        mergeable_data_object_data: MergeableDataObjectData | _Mapping
-        | None = ...,
+        mergeable_data_object_data: MergeableDataObjectData | _Mapping | None = ...,
     ) -> None: ...
 
 class MergeableDataObjectData(_message.Message):
@@ -390,8 +389,7 @@ class MergeableDataObjectRow(_message.Message):
         register_latest: RegisterLatest | _Mapping | None = ...,
         list: List | _Mapping | None = ...,
         dictionary: Dictionary | _Mapping | None = ...,
-        unknown_message: UnknownMergeableDataObjectEntryMessage | _Mapping
-        | None = ...,
+        unknown_message: UnknownMergeableDataObjectEntryMessage | _Mapping | None = ...,
         note: Note | _Mapping | None = ...,
         custom_map: MergeableDataObjectMap | _Mapping | None = ...,
         ordered_set: OrderedSet | _Mapping | None = ...,
@@ -403,7 +401,8 @@ class UnknownMergeableDataObjectEntryMessage(_message.Message):
     unknown_entry: UnknownMergeableDataObjectEntryMessageEntry
     def __init__(
         self,
-        unknown_entry: UnknownMergeableDataObjectEntryMessageEntry | _Mapping
+        unknown_entry: UnknownMergeableDataObjectEntryMessageEntry
+        | _Mapping
         | None = ...,
     ) -> None: ...
 
