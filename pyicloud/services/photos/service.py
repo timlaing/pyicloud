@@ -1,5 +1,7 @@
 """Modern Photos CloudKit service implementation."""
 
+# pylint: disable=wrong-import-position
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
