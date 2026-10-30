@@ -1535,16 +1535,18 @@ class PhotoAlbum(BasePhotoAlbum):
         if not _check_modify_response(records):
             raise PhotosServiceException("Failed to rename album")
 
+        has_record = False
         for record in records:
             if isinstance(record, CKRecord):
+                has_record = True
                 self._record_change_tag = (
                     record.recordChangeTag or self._record_change_tag
                 )
                 self._record_modification_date = record.fields.get_value(
                     "recordModificationDate"
                 ) or record.fields.get_value("userModificationDate")
-                return
-            if isinstance(record, dict):
+            elif isinstance(record, dict):
+                has_record = True
                 self._record_change_tag = record.get(
                     "recordChangeTag", self._record_change_tag
                 )
@@ -1552,7 +1554,9 @@ class PhotoAlbum(BasePhotoAlbum):
                 self._record_modification_date = fields.get(
                     "recordModificationDate", {}
                 ).get("value", fields.get("userModificationDate", {}).get("value"))
-                return
+            # CKTombstoneRecord indicates deleted, not a rename success
+        if not has_record:
+            raise PhotosServiceException("Failed to rename album")
 
     def rename(self, value: str) -> None:
         if self._name == value:

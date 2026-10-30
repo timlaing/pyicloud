@@ -283,7 +283,7 @@ from pyicloud.services.photos import PhotosZoneNotFoundError
 
 try:
     photos = api.photos
-    library = photos.root
+    library = photos.libraries["root"]
     lists = photos.albums
 except PhotosZoneNotFoundError:
     print("Photos is not available for this account")

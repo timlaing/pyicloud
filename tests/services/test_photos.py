@@ -2747,9 +2747,11 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
     """Tests successful album renaming."""
     mock_photo_library: MagicMock = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = mock_photos_service
-    mock_photo_library.service.session.post.return_value = MagicMock()
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(return_value=load_fixture("photos_album_rename_response.json"))
+    )
 
     album = PhotoAlbum(
         library=mock_photo_library,
@@ -2800,6 +2802,33 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
     album.rename("Another Name")
     assert album._record_change_tag == "new_tag"
     assert album._record_modification_date == "2023-02-01T00:00:00Z"
+
+
+def test_photo_album_rename_empty_records_raises() -> None:
+    """Empty rename response should raise PhotosServiceException."""
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
+    mock_photo_library.service = MagicMock()
+    mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
+    mock_photo_library.service.params = {"dsid": "12345"}
+    # Empty records response
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(return_value={"records": []})
+    )
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Old Name",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
+        zone_id={"zoneName": "TestZone"},
+    )
+
+    with pytest.raises(PhotosServiceException, match="Failed to rename album"):
+        album.rename("New Name")
 
 
 def test_photo_album_rename_uses_browser_response_user_modification_date() -> None:
