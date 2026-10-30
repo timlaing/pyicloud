@@ -255,7 +255,7 @@ class PhotoStreamAsset(PhotoAsset):
         master_record = self._master_record
         if isinstance(master_record, dict):
             return master_record.get(field_name)
-        elif hasattr(master_record, "fields"):
+        if hasattr(master_record, "fields"):
             # Handle SimpleNamespace with fields attribute
             fields = getattr(master_record, "fields", {})
             if isinstance(fields, dict):
