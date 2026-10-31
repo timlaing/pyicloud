@@ -609,7 +609,14 @@ def test_shared_stream_transport_and_page_size(page_size: int) -> None:
         album = SharedPhotoStreamAlbum(**kwargs)
         service.session.post.return_value.json.return_value = {
             "records": [
-                {"recordName": "master123", "recordType": "CPLMaster", "fields": {}},
+                {
+                    "recordName": "master123",
+                    "recordType": "CPLMaster",
+                    "fields": {
+                        "originalCreationDate": {"value": 1609459200000},
+                        "resOriginalFileSize": {"value": 2048},
+                    },
+                },
                 {
                     "recordName": "asset123",
                     "recordType": "CPLAsset",
@@ -620,6 +627,8 @@ def test_shared_stream_transport_and_page_size(page_size: int) -> None:
         photos = list(album._get_photos_at(3, DirectionEnum.ASCENDING, page_size))
         assert [photo.id for photo in photos] == ["asset123"]
         assert isinstance(photos[0], PhotoStreamAsset)
+        assert photos[0].asset_date == datetime(2021, 1, 1, tzinfo=timezone.utc)
+        assert photos[0].size == 2048
         service.session.post.assert_called_once_with(
             url="https://shared.example.com/webgetassets?dsid=12345",
             json={
@@ -682,3 +691,27 @@ def test_shared_stream_invalid_like_count(value: Any) -> None:
         PhotoStreamAsset(cast(PhotosService, MockService()), master, asset).like_count
         == 0
     )
+
+
+@pytest.mark.parametrize("fields", [None, [], "invalid", 1])
+def test_shared_stream_invalid_master_fields(fields: Any) -> None:
+    """Malformed REST master fields use the normal metadata defaults."""
+    master: Any = {"recordName": "master", "fields": fields}
+    asset: Any = {"recordName": "asset", "fields": {}}
+    photo = PhotoStreamAsset(cast(PhotosService, MockService()), master, asset)
+    assert photo.asset_date == datetime.fromtimestamp(0, timezone.utc)
+    assert photo.size == 0
+
+
+@pytest.mark.parametrize(
+    "timestamp", [1e100, -1e100, float("nan"), float("inf"), 10**400]
+)
+def test_shared_stream_out_of_range_dates(timestamp: Any) -> None:
+    """Wrapped invalid timestamps cannot abort shared album reads."""
+    master: Any = {
+        "recordName": "master",
+        "fields": {"originalCreationDate": {"value": timestamp}},
+    }
+    asset: Any = {"recordName": "asset", "fields": {}}
+    photo = PhotoStreamAsset(cast(PhotosService, MockService()), master, asset)
+    assert photo.asset_date == datetime.fromtimestamp(0, timezone.utc)

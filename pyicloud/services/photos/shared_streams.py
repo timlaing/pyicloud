@@ -264,7 +264,8 @@ class PhotoStreamAsset(PhotoAsset):
         """Get field from master record, handling both dict and CKRecord."""
         master_record = self._master_record
         if isinstance(master_record, dict):
-            return master_record.get("fields", {}).get(field_name)
+            fields = master_record.get("fields")
+            return fields.get(field_name) if isinstance(fields, dict) else None
         if hasattr(master_record, "fields"):
             # Handle SimpleNamespace with fields attribute
             fields = getattr(master_record, "fields", {})
@@ -305,7 +306,10 @@ class PhotoStreamAsset(PhotoAsset):
         if isinstance(value, datetime):
             return value
         if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value / 1000.0, timezone.utc)
+            try:
+                return datetime.fromtimestamp(value / 1000.0, timezone.utc)
+            except (ValueError, OverflowError, OSError):
+                pass
         return datetime.fromtimestamp(0, timezone.utc)
 
     @property

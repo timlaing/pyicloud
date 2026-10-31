@@ -6330,3 +6330,27 @@ def test_positive_index_does_not_trust_cached_album_count(
     photo = MagicMock(spec=PhotoAsset)
     with patch.object(album, "_get_photos_at", return_value=iter([photo])):
         assert album[0] is photo
+
+
+@pytest.mark.parametrize("count_response", [{"batch": []}, {"batch": None}, {}])
+def test_negative_index_preserves_count_after_malformed_refresh(
+    mock_photo_library: MagicMock, count_response: dict[str, Any]
+) -> None:
+    """An invalid count refresh cannot hide a photo behind a valid cached count."""
+    album = PhotoAlbum(
+        mock_photo_library,
+        name="Album",
+        record_id="album",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+    )
+    album._len = 1
+    mock_photo_library.service.session.post.return_value.json.return_value = (
+        count_response
+    )
+    photo = MagicMock(spec=PhotoAsset)
+    with patch.object(album, "_get_photos_at", return_value=iter([photo])) as page:
+        assert album[-1] is photo
+        assert album._len == 1
+        page.assert_called_once_with(0, DirectionEnum.ASCENDING, 1)

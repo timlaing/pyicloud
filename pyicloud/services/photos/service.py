@@ -1393,7 +1393,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     def __getitem__(self, key: int | str) -> PhotoAsset:
         if isinstance(key, int):
             if key < 0:
-                self._len = None
+                self._len = self._get_len()
                 key = len(self) + key
                 if key < 0:
                     raise IndexError("Photo index out of range")
@@ -1797,7 +1797,7 @@ class PhotoAlbum(BasePhotoAlbum):
                     response,
                     exc_info=True,
                 )
-                return 0
+                return self._len if self._len is not None else 0
         client = cast(PhotosCloudKitClient, self._client)
         return client.batch_count(
             container_id=self._get_container_id,
