@@ -57,6 +57,10 @@ class PhotoStreamLibrary(BasePhotoLibrary):
         """Shared streams do not expose a CloudKit change feed."""
         raise PhotosServiceException("Shared photo streams do not support change feeds")
 
+    def sync_cursor(self) -> str:
+        """Shared streams do not expose a sync cursor."""
+        raise PhotosServiceException("Shared photo streams do not support sync cursors")
+
     def _get_albums(self) -> AlbumContainer:
         """Returns albums from the shared streams endpoint."""
         albums: AlbumContainer = AlbumContainer()

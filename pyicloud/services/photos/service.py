@@ -2465,7 +2465,8 @@ class PhotosService(BaseService):
                 # Do not cache a partial discovery: private indexing may finish later.
                 return libraries
             if _can_use_typed_cloudkit(self.session):
-                self._discover_typed_zones(libraries)
+                if not self._discover_typed_zones(libraries):
+                    return libraries
             else:
                 self._discover_legacy_zones(libraries)
             self._libraries = libraries
@@ -2474,9 +2475,14 @@ class PhotosService(BaseService):
     def _discover_typed_zones(
         self,
         libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
-    ) -> None:
-        """Discover additional private/shared zones via the typed CloudKit client."""
-        private_zones = self._private_client.zones_list()
+    ) -> bool:
+        """Discover typed zones, returning whether the result is complete."""
+        try:
+            private_zones = self._private_client.zones_list()
+        except PyiCloudException:  # pylint: disable=broad-exception-caught
+            LOGGER.debug("Private CloudKit photos zones unavailable", exc_info=True)
+            self._discover_shared_typed_zones(libraries)
+            return False
         for zone in private_zones.zones:
             if zone.deleted:
                 continue
@@ -2499,13 +2505,13 @@ class PhotosService(BaseService):
                 upload_hydration_interval=self._upload_hydration_interval,
                 scope=scope,
             )
-        self._discover_shared_typed_zones(libraries)
+        return self._discover_shared_typed_zones(libraries)
 
     def _discover_shared_typed_zones(
         self,
         libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
-    ) -> None:
-        """Discover shared zones independently of private library availability."""
+    ) -> bool:
+        """Discover shared zones, returning False when discovery needs a retry."""
         try:
             shared_zones = self._shared_client.zones_list()
             for zone in shared_zones.zones:
@@ -2526,6 +2532,8 @@ class PhotosService(BaseService):
                 )
         except PyiCloudException:  # pylint: disable=broad-exception-caught
             LOGGER.debug("Shared CloudKit photos zones unavailable", exc_info=True)
+            return False
+        return True
 
     def _discover_legacy_zones(
         self,

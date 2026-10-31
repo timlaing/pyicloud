@@ -29,6 +29,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Retry incomplete Photos library discovery after private or shared zone-list failures, preserving access to available libraries; reject unsupported shared-stream sync cursors without querying private Photos.
+
 - Discover shared CloudKit libraries even when the private Photos library is not indexed or its zone is missing, and report a clear error for unsupported shared-stream change feeds.
 
 - Keep shared photo streams on their REST transport, reject non-positive shared-album page sizes, and allow shared-library access while private Photos indexing is unavailable.

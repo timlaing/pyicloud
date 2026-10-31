@@ -611,3 +611,12 @@ def test_shared_stream_changes_are_unsupported() -> None:
     with pytest.raises(PhotosServiceException, match="do not support change feeds"):
         list(library.iter_changes(since="cursor"))
     service.session.post.assert_not_called()
+
+
+def test_shared_stream_sync_cursor_is_unsupported() -> None:
+    """A shared cursor request never reads the private library's sync token."""
+    service = MockService()
+    library = PhotoStreamLibrary(service, "https://shared.example.com/albums")
+    with pytest.raises(PhotosServiceException, match="do not support sync cursors"):
+        library.sync_cursor()
+    service.session.post.assert_not_called()

@@ -6192,3 +6192,58 @@ def test_recovered_libraries_keep_configured_shared_library(
         assert libraries == {"shared": shared_library, "root": root.return_value}
         assert service.libraries is libraries
         root.assert_called_once()
+
+
+@pytest.mark.parametrize("failed_scope", ["private", "shared", "both"])
+def test_library_discovery_retries_after_zone_listing_failure(
+    failed_scope: str,
+) -> None:
+    """A transient zone-list failure preserves available libraries and retries."""
+    service = PhotosService(
+        service_root="https://example.com",
+        session=MagicMock(),
+        params={"dsid": "12345"},
+        upload_url=None,
+        shared_streams_url="https://shared.example.com",
+    )
+    private_client = MagicMock()
+    shared_client = MagicMock()
+    private_zones = CKZoneListResponse.model_validate({
+        "zones": [{"zoneID": {"zoneName": "Custom"}}]
+    })
+    shared_zones = CKZoneListResponse.model_validate({
+        "zones": [{"zoneID": {"zoneName": "Family"}}]
+    })
+    private_failed = failed_scope in {"private", "both"}
+    shared_failed = failed_scope in {"shared", "both"}
+    private_client.zones_list.side_effect = [
+        PhotosApiError("Private unavailable") if private_failed else private_zones,
+        private_zones,
+    ]
+    shared_client.zones_list.side_effect = [
+        PhotosApiError("Shared unavailable") if shared_failed else shared_zones,
+        shared_zones,
+    ]
+    service._private_client = private_client
+    service._shared_client = shared_client
+    with (
+        patch(
+            "pyicloud.services.photos.service._can_use_typed_cloudkit",
+            return_value=True,
+        ),
+        patch.object(BasePhotoLibrary, "_ensure_indexing_ready"),
+    ):
+        partial = service.libraries
+        assert "root" in partial
+        assert partial["shared"] is service._shared_library
+        assert ("Custom" in partial) is not private_failed
+        assert ("shared:Family" in partial) is not shared_failed
+        assert service._libraries is None
+        shared_client.zones_list.assert_called_once()
+        recovered = service.libraries
+        assert set(recovered) == {"root", "shared", "Custom", "shared:Family"}
+        assert recovered["root"] is partial["root"]
+        assert recovered["shared"] is partial["shared"]
+        assert service.libraries is recovered
+        assert private_client.zones_list.call_count == 2
+        assert shared_client.zones_list.call_count == 2
