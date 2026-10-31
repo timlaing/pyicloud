@@ -1347,7 +1347,9 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
                     continue
                 seen.add(photo.id)
                 yield photo
-            if num_results < self.page_size // 2:
+            # An empty page must always end pagination: with page_size=1 the
+            # half-page threshold is 0, which would otherwise never stop.
+            if num_results < max(1, self.page_size // 2):
                 break
             if self._direction == DirectionEnum.DESCENDING:
                 offset -= num_results

@@ -641,6 +641,50 @@ def test_shared_stream_transport_and_page_size(page_size: int) -> None:
         )
 
 
+def test_shared_stream_photos_stop_on_empty_page() -> None:
+    """page_size=1 pagination ends once a page returns no photos."""
+    service = MockService()
+    library = PhotoStreamLibrary(
+        cast(PhotosService, service), "https://shared.example.com/albums"
+    )
+    album = SharedPhotoStreamAlbum(
+        library=library,
+        name="Shared",
+        album_location="https://shared.example.com/",
+        album_ctag="tag",
+        album_guid="guid",
+        owner_dsid="12345",
+        creation_date="0",
+        page_size=1,
+    )
+    first_page: dict[str, Any] = {
+        "records": [
+            {
+                "recordName": "master123",
+                "recordType": "CPLMaster",
+                "fields": {
+                    "originalCreationDate": {"value": 1609459200000},
+                    "resOriginalFileSize": {"value": 2048},
+                },
+            },
+            {
+                "recordName": "asset123",
+                "recordType": "CPLAsset",
+                "fields": {"masterRef": {"value": {"recordName": "master123"}}},
+            },
+        ]
+    }
+    service.session.post.return_value.json.side_effect = [first_page, {"records": []}]
+
+    photos = list(album.photos)
+
+    assert [photo.id for photo in photos] == ["asset123"]
+    assert service.session.post.call_count == 2
+    assert [
+        call.kwargs["json"]["offset"] for call in service.session.post.call_args_list
+    ] == ["0", "1"]
+
+
 def test_shared_stream_changes_are_unsupported() -> None:
     """Shared streams report an actionable error without making a request."""
     service = MockService()

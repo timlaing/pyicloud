@@ -41,6 +41,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Keep shared photo streams on their REST transport, reject non-positive shared-album page sizes, and allow shared-library access while private Photos indexing is unavailable.
 
+- Stop shared-album pagination on an empty page, so iterating a `SharedPhotoStreamAlbum` with `page_size=1` ends after the last photo instead of re-requesting the same offset indefinitely.
+
 - Give `mail delete-forever` actionable folder-refresh guidance when UID validity is missing instead of suggesting its unavailable `--limit` option.
 - Preserve MIME parameters and repeated filenames for distinct source attachments in forward drafts while retaining strict upload validation and exact source-part checks.
 - Reject duplicate Mail UIDs with conflicting flags or thread metadata instead of keeping an arbitrary record during enumeration or synchronization.
