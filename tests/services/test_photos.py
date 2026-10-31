@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Generator
 from datetime import datetime, timezone
+from functools import partial
 import json
 from types import SimpleNamespace
 from typing import Any, cast
@@ -5641,8 +5642,8 @@ def test_base_photo_album_getitem_index_out_of_range(
     with pytest.raises(IndexError, match="Photo index out of range"):
         _ = album[100]
 
-    # Index is checked before calling _get_photos_at, so it should not be called
-    get_photos_at.assert_not_called()
+    # A server-side empty page establishes that the index is out of range.
+    get_photos_at.assert_called_once_with(100, DirectionEnum.ASCENDING, 1)
 
 
 def test_base_photo_album_getitem_with_string_key_found(
@@ -6247,3 +6248,85 @@ def test_library_discovery_retries_after_zone_listing_failure(
         assert service.libraries is recovered
         assert private_client.zones_list.call_count == 2
         assert shared_client.zones_list.call_count == 2
+
+
+@pytest.mark.parametrize("operation", ["asset_delete", "album_delete", "add_photo"])
+@pytest.mark.parametrize(
+    "failure", ["record", "transport", "auth", "zone", "http", "empty"]
+)
+def test_typed_boolean_writes_preserve_error_semantics(
+    mock_photo_library: MagicMock, operation: str, failure: str
+) -> None:
+    """Only record rejection becomes False; account/transport failures propagate."""
+    errors = {
+        "record": PhotosApiError(
+            "Rejected", payload={"records": [{"serverErrorCode": "CONFLICT"}]}
+        ),
+        "transport": PhotosApiError("Connection failed"),
+        "auth": PhotosAuthError("Unauthorized"),
+        "zone": PhotosZoneNotFoundError("Missing"),
+        "http": PhotosApiError(
+            "Unavailable",
+            status=503,
+            payload={"records": [{"serverErrorCode": "RETRY"}]},
+        ),
+        "empty": PhotosApiError("Invalid response", payload={"records": []}),
+    }
+    client = MagicMock()
+    client.modify.side_effect = errors[failure]
+    service = mock_photo_library.service
+    service.private_client = client
+    photo = PhotoAsset(
+        service,
+        CKRecord.model_validate({
+            "recordName": "master",
+            "recordType": "CPLMaster",
+            "fields": {},
+        }),
+        CKRecord.model_validate({
+            "recordName": "asset",
+            "recordType": "CPLAsset",
+            "fields": {},
+        }),
+    )
+    album = PhotoAlbum(
+        mock_photo_library,
+        name="Album",
+        record_id="album",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        client=client,
+    )
+    with patch(
+        "pyicloud.services.photos.service._can_use_typed_cloudkit", return_value=True
+    ):
+        if operation == "asset_delete":
+            action = photo.delete
+        elif operation == "album_delete":
+            action = album.delete
+        else:
+            action = partial(album.add_photo, photo)
+        if failure == "record":
+            assert action() is False
+        else:
+            with pytest.raises(type(errors[failure])):
+                action()
+
+
+def test_positive_index_does_not_trust_cached_album_count(
+    mock_photo_library: MagicMock,
+) -> None:
+    """A stale count cannot hide a photo returned by the server."""
+    album = PhotoAlbum(
+        mock_photo_library,
+        name="Album",
+        record_id="album",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+    )
+    album._len = 0
+    photo = MagicMock(spec=PhotoAsset)
+    with patch.object(album, "_get_photos_at", return_value=iter([photo])):
+        assert album[0] is photo

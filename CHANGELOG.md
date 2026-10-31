@@ -19,15 +19,19 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Refactored
 
-- Move each service's exception classes into a dedicated `exceptions` module (`notes`, `reminders`, `invites`, `mail`, `photos_cloudkit`); every previous import path keeps re-exporting the same classes, so existing handlers are unaffected.
+- Move each service's exception classes into a dedicated `exceptions` module (`notes`, `reminders`, `invites`, `mail`, `photos`); supported import paths re-export the same classes.
 - Share the session-error mapping helpers between the Invites and Photos services in a new `pyicloud.common.cloudkit.errors` module: HTTP-status extraction, `Retry-After` parsing, and the unauthorized/rate-limited status constants now live in one place instead of per service.
 - Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.
 
 ### Removed
 
+- Remove `pyicloud.services.photos_cloudkit`; use `pyicloud.services.photos` instead.
+
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
+
+- Read shared-stream REST metadata from nested fields, tolerate malformed like counts, and preserve boolean write results for record-level rejections while propagating transport and account errors. Indexed Photos reads no longer reject available assets based on stale cached counts.
 
 - Retry incomplete Photos library discovery after private or shared zone-list failures, preserving access to available libraries; reject unsupported shared-stream sync cursors without querying private Photos.
 

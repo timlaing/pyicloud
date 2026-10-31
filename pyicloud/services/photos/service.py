@@ -257,6 +257,28 @@ def _check_modify_response(
     return True
 
 
+def _modify_succeeded(
+    client: PhotosCloudKitClient,
+    operation: CKModifyOperation,
+    zone_id: CKZoneIDReq,
+) -> bool:
+    """Return False for record rejection; preserve transport and account errors."""
+    try:
+        response = client.modify(operations=[operation], zone_id=zone_id, atomic=True)
+    except PhotosApiError as exc:
+        if isinstance(exc, PhotosZoneNotFoundError) or exc.status not in (None, 200):
+            raise
+        payload = exc.payload if isinstance(exc.payload, dict) else {}
+        records = payload.get("records", [])
+        if isinstance(records, list) and any(
+            isinstance(record, dict) and record.get("serverErrorCode")
+            for record in records
+        ):
+            return False
+        raise
+    return _check_modify_response(response.records)
+
+
 class _HydrationBackoff:
     """Deadline-bounded exponential backoff for upload hydration polling."""
 
@@ -1371,9 +1393,10 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     def __getitem__(self, key: int | str) -> PhotoAsset:
         if isinstance(key, int):
             if key < 0:
+                self._len = None
                 key = len(self) + key
-            if key < 0 or key >= len(self):
-                raise IndexError("Photo index out of range")
+                if key < 0:
+                    raise IndexError("Photo index out of range")
             try:
                 return next(self._get_photos_at(key, self._direction, 1))
             except StopIteration as exc:
@@ -1626,12 +1649,7 @@ class PhotoAlbum(BasePhotoAlbum):
                     fields={"isDeleted": {"type": "INT64", "value": 1}},
                 ),
             )
-            response = self._client.modify(
-                operations=[op],
-                zone_id=CKZoneIDReq(**self._zone_id),
-                atomic=True,
-            )
-            success = _check_modify_response(response.records)
+            success = _modify_succeeded(self._client, op, CKZoneIDReq(**self._zone_id))
         else:
             endpoint = self.service.service_endpoint
             params = urlencode(self.service.params)
@@ -1678,12 +1696,7 @@ class PhotoAlbum(BasePhotoAlbum):
                     },
                 ),
             )
-            response = self._client.modify(
-                operations=[op],
-                zone_id=CKZoneIDReq(**self._zone_id),
-                atomic=True,
-            )
-            success = _check_modify_response(response.records)
+            success = _modify_succeeded(self._client, op, CKZoneIDReq(**self._zone_id))
         else:
             endpoint = self.service.service_endpoint
             params = urlencode(self.service.params)
@@ -2320,12 +2333,7 @@ class PhotoAsset:
                     zoneID=CKZoneID(**zone_dict),
                 ),
             )
-            response = self._service.private_client.modify(
-                operations=[op],
-                zone_id=zone_id,
-                atomic=True,
-            )
-            success = _check_modify_response(response.records)
+            success = _modify_succeeded(self._service.private_client, op, zone_id)
         else:
             endpoint = self._service.service_endpoint
             params = urlencode(self._service.params)

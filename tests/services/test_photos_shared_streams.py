@@ -7,11 +7,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pyicloud.services.photos import PhotosService
 from pyicloud.services.photos.constants import DirectionEnum
 from pyicloud.services.photos.exceptions import PhotosServiceException
 from pyicloud.services.photos.shared_streams import (
@@ -21,6 +22,7 @@ from pyicloud.services.photos.shared_streams import (
 )
 
 
+# Alternate record shapes and partial services deliberately exercise REST compatibility.
 class MockService:
     """Mock PhotosService for testing."""
 
@@ -53,7 +55,7 @@ def test_photo_stream_library_get_albums() -> None:
     }
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -77,7 +79,7 @@ def test_photo_stream_library_get_albums_empty() -> None:
     mock_service.session.post.return_value.json.return_value = {"albums": []}
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -91,7 +93,7 @@ def test_shared_photo_stream_album_get_len() -> None:
     mock_service.session.post.return_value.json.return_value = {"albumassetcount": 42}
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -117,7 +119,7 @@ def test_shared_photo_stream_album_get_len_error() -> None:
     mock_service.session.post.return_value.json.return_value = {}
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -140,12 +142,12 @@ def test_photo_stream_asset_like_count() -> None:
     """Test PhotoStreamAsset.like_count property."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={},
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={
             "pluginFields": {
                 "likeCount": {"value": 5},
@@ -155,7 +157,9 @@ def test_photo_stream_asset_like_count() -> None:
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     assert photo.like_count == 5
 
 
@@ -163,17 +167,19 @@ def test_photo_stream_asset_like_count_missing() -> None:
     """Test PhotoStreamAsset.like_count with missing pluginFields."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={},
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={},
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     assert photo.like_count == 0
 
 
@@ -181,12 +187,12 @@ def test_photo_stream_asset_liked() -> None:
     """Test PhotoStreamAsset.liked property."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={},
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={
             "pluginFields": {
                 "likeCount": {"value": 5},
@@ -196,7 +202,9 @@ def test_photo_stream_asset_liked() -> None:
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     assert photo.liked is True
 
 
@@ -204,12 +212,12 @@ def test_photo_stream_asset_liked_false() -> None:
     """Test PhotoStreamAsset.liked property when not liked."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={},
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={
             "pluginFields": {
                 "likeCount": {"value": 5},
@@ -219,7 +227,9 @@ def test_photo_stream_asset_liked_false() -> None:
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     assert photo.liked is False
 
 
@@ -227,19 +237,21 @@ def test_photo_stream_asset_asset_date() -> None:
     """Test PhotoStreamAsset.asset_date from originalCreationDate."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={
             "originalCreationDate": 1609459200000,  # 2021-01-01 00:00:00 UTC
         },
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={},
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     expected = datetime(2021, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     assert photo.asset_date == expected
 
@@ -248,17 +260,19 @@ def test_photo_stream_asset_asset_date_missing() -> None:
     """Test PhotoStreamAsset.asset_date with missing originalCreationDate."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={},
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={},
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     expected = datetime(1970, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     assert photo.asset_date == expected
 
@@ -267,19 +281,21 @@ def test_photo_stream_asset_size() -> None:
     """Test PhotoStreamAsset.size from resOriginalFileSize."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={
             "resOriginalFileSize": {"value": 1024000},
         },
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={},
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     assert photo.size == 1024000
 
 
@@ -287,17 +303,19 @@ def test_photo_stream_asset_size_missing() -> None:
     """Test PhotoStreamAsset.size with missing resOriginalFileSize."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={},
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={},
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     assert photo.size == 0
 
 
@@ -305,19 +323,21 @@ def test_photo_stream_asset_size_invalid() -> None:
     """Test PhotoStreamAsset.size with invalid value."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={
             "resOriginalFileSize": {"value": "invalid"},
         },
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={},
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     assert photo.size == 0
 
 
@@ -326,7 +346,7 @@ def test_shared_photo_stream_album_properties() -> None:
     mock_service = MockService()
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -357,7 +377,7 @@ def test_shared_photo_stream_album_get_payload() -> None:
     mock_service = MockService()
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -385,7 +405,7 @@ def test_shared_photo_stream_album_get_photo_payload() -> None:
     mock_service = MockService()
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -416,7 +436,7 @@ def test_shared_photo_stream_album_get_photo() -> None:
     ]
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -441,7 +461,7 @@ def test_shared_photo_stream_album_get_photo_not_found() -> None:
     mock_service = MockService()
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -468,7 +488,7 @@ def test_shared_photo_stream_album_delete() -> None:
     mock_service = MockService()
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -490,7 +510,7 @@ def test_shared_photo_stream_album_rename() -> None:
     mock_service = MockService()
 
     library = PhotoStreamLibrary(
-        service=mock_service,
+        service=cast(PhotosService, mock_service),
         shared_streams_url="https://shared.example.com/webgetalbumslist",
     )
 
@@ -504,26 +524,30 @@ def test_shared_photo_stream_album_rename() -> None:
         creation_date="1609459200000",
     )
 
-    assert album.rename("New Name") is None
+    original_name = album.name
+    album.rename("New Name")
+    assert album.name == original_name
 
 
 def test_photo_stream_asset_asset_date_datetime() -> None:
     """Test PhotoStreamAsset.asset_date with datetime value."""
     mock_service = MockService()
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={
             "originalCreationDate": datetime(2021, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         },
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={},
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     expected = datetime(2021, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     assert photo.asset_date == expected
 
@@ -538,19 +562,21 @@ def test_photo_stream_asset_size_with_object() -> None:
 
         value: int
 
-    master_record = SimpleNamespace(
+    master_record: Any = SimpleNamespace(
         fields={
             "resOriginalFileSize": FakeField(2048000),
         },
         recordName="master123",
     )
 
-    asset_record = SimpleNamespace(
+    asset_record: Any = SimpleNamespace(
         fields={},
         recordName="asset123",
     )
 
-    photo = PhotoStreamAsset(mock_service, master_record, asset_record)
+    photo = PhotoStreamAsset(
+        cast(PhotosService, mock_service), master_record, asset_record
+    )
     assert photo.size == 2048000
 
 
@@ -561,7 +587,9 @@ def test_shared_stream_transport_and_page_size(page_size: int) -> None:
     with patch(
         "pyicloud.services.photos.service._can_use_typed_cloudkit", return_value=True
     ):
-        library = PhotoStreamLibrary(service, "https://shared.example.com/albums")
+        library = PhotoStreamLibrary(
+            cast(PhotosService, service), "https://shared.example.com/albums"
+        )
         assert library._client is None
         kwargs: dict[str, Any] = {
             "library": library,
@@ -607,7 +635,9 @@ def test_shared_stream_transport_and_page_size(page_size: int) -> None:
 def test_shared_stream_changes_are_unsupported() -> None:
     """Shared streams report an actionable error without making a request."""
     service = MockService()
-    library = PhotoStreamLibrary(service, "https://shared.example.com/albums")
+    library = PhotoStreamLibrary(
+        cast(PhotosService, service), "https://shared.example.com/albums"
+    )
     with pytest.raises(PhotosServiceException, match="do not support change feeds"):
         list(library.iter_changes(since="cursor"))
     service.session.post.assert_not_called()
@@ -616,7 +646,39 @@ def test_shared_stream_changes_are_unsupported() -> None:
 def test_shared_stream_sync_cursor_is_unsupported() -> None:
     """A shared cursor request never reads the private library's sync token."""
     service = MockService()
-    library = PhotoStreamLibrary(service, "https://shared.example.com/albums")
+    library = PhotoStreamLibrary(
+        cast(PhotosService, service), "https://shared.example.com/albums"
+    )
     with pytest.raises(PhotosServiceException, match="do not support sync cursors"):
         library.sync_cursor()
     service.session.post.assert_not_called()
+
+
+def test_shared_stream_rest_master_metadata() -> None:
+    """REST field wrappers preserve shared photo timestamps and sizes."""
+    master: Any = {
+        "recordName": "master",
+        "recordType": "CPLMaster",
+        "fields": {
+            "originalCreationDate": {"value": 1609459200000},
+            "resOriginalFileSize": {"value": 2048},
+        },
+    }
+    asset: Any = {"recordName": "asset", "recordType": "CPLAsset", "fields": {}}
+    photo = PhotoStreamAsset(cast(PhotosService, MockService()), master, asset)
+    assert photo.asset_date == datetime(2021, 1, 1, tzinfo=timezone.utc)
+    assert photo.size == 2048
+
+
+@pytest.mark.parametrize("value", ["invalid", {}, [], None])
+def test_shared_stream_invalid_like_count(value: Any) -> None:
+    """Malformed like counts use the same zero default as missing counts."""
+    master: Any = {"recordName": "master", "fields": {}}
+    asset: Any = {
+        "recordName": "asset",
+        "pluginFields": {"likeCount": {"value": value}},
+    }
+    assert (
+        PhotoStreamAsset(cast(PhotosService, MockService()), master, asset).like_count
+        == 0
+    )

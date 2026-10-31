@@ -264,7 +264,7 @@ class PhotoStreamAsset(PhotoAsset):
         """Get field from master record, handling both dict and CKRecord."""
         master_record = self._master_record
         if isinstance(master_record, dict):
-            return master_record.get(field_name)
+            return master_record.get("fields", {}).get(field_name)
         if hasattr(master_record, "fields"):
             # Handle SimpleNamespace with fields attribute
             fields = getattr(master_record, "fields", {})
@@ -281,7 +281,10 @@ class PhotoStreamAsset(PhotoAsset):
         if not isinstance(like_count, dict):
             return 0
         value = like_count.get("value", 0)
-        return int(value) if value is not None else 0
+        try:
+            return int(value) if value is not None else 0
+        except (TypeError, ValueError):
+            return 0
 
     @property
     def liked(self) -> bool:
@@ -297,6 +300,8 @@ class PhotoStreamAsset(PhotoAsset):
     def asset_date(self) -> datetime:
         """Gets the photo asset date from master record's originalCreationDate."""
         value = self._get_master_field("originalCreationDate")
+        if isinstance(value, dict):
+            value = value.get("value")
         if isinstance(value, datetime):
             return value
         if isinstance(value, (int, float)):
