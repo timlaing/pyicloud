@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -550,3 +551,42 @@ def test_photo_stream_asset_size_with_object() -> None:
 
     photo = PhotoStreamAsset(mock_service, master_record, asset_record)
     assert photo.size == 2048000
+
+
+@pytest.mark.parametrize("page_size", [0, -1, 1, 100])
+def test_shared_stream_transport_and_page_size(page_size: int) -> None:
+    """Shared streams use REST even when the session supports typed CloudKit."""
+    service = MockService()
+    with patch(
+        "pyicloud.services.photos.service._can_use_typed_cloudkit", return_value=True
+    ):
+        library = PhotoStreamLibrary(service, "https://shared.example.com/albums")
+        assert library._client is None
+        kwargs: dict[str, Any] = {
+            "library": library,
+            "name": "Shared",
+            "album_location": "https://shared.example.com/",
+            "album_ctag": "tag",
+            "album_guid": "guid",
+            "owner_dsid": "12345",
+            "creation_date": "0",
+            "page_size": page_size,
+        }
+        if page_size <= 0:
+            with pytest.raises(ValueError, match="page_size must be positive"):
+                SharedPhotoStreamAlbum(**kwargs)
+            service.session.post.assert_not_called()
+            return
+        album = SharedPhotoStreamAlbum(**kwargs)
+        service.session.post.return_value.json.return_value = {"records": []}
+        assert not list(album._get_photos_at(3, DirectionEnum.ASCENDING, page_size))
+        service.session.post.assert_called_once_with(
+            url="https://shared.example.com/webgetassets?dsid=12345",
+            json={
+                "albumguid": "guid",
+                "albumctag": "tag",
+                "limit": str(3 + page_size * 2),
+                "offset": "3",
+            },
+            headers={"Content-Type": "plain/text"},
+        )

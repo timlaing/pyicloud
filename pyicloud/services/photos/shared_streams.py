@@ -47,6 +47,7 @@ class PhotoStreamLibrary(BasePhotoLibrary):
             client=None,
             check_indexing=False,
         )
+        self._client = None
         self.shared_streams_url: str = shared_streams_url
 
     def _get_albums(self) -> AlbumContainer:
@@ -95,6 +96,8 @@ class SharedPhotoStreamAlbum(BasePhotoAlbum):
         public_url: str | None = None,
         page_size: int = 100,
     ) -> None:
+        if page_size <= 0:
+            raise ValueError("page_size must be positive")
         super().__init__(
             library=library,
             name=name,

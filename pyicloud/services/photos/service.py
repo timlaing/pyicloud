@@ -2451,11 +2451,16 @@ class PhotosService(BaseService):
         # pylint: disable=import-outside-toplevel
 
         if self._libraries is None:
-            libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]" = {
-                "root": self._get_root_library(),
-            }
+            libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]" = {}
             if self._shared_library is not None:
                 libraries["shared"] = self._shared_library
+            try:
+                libraries["root"] = self._get_root_library()
+            except PyiCloudServiceNotActivatedException:
+                if not libraries:
+                    raise
+                # Do not cache a partial discovery: private indexing may finish later.
+                return libraries
             if _can_use_typed_cloudkit(self.session):
                 self._discover_typed_zones(libraries)
             else:

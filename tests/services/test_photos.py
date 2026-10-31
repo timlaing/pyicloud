@@ -6087,3 +6087,29 @@ def test_photo_asset_download_url_default_parameter() -> None:
 
     # Test default parameter (should be "original")
     assert asset.download_url() == "http://example.com/original.jpg"
+
+
+def test_shared_libraries_remain_available_during_private_indexing() -> None:
+    """Partial discovery preserves shared access and retries private indexing."""
+    service = PhotosService(
+        service_root="https://example.com",
+        session=MagicMock(),
+        params={"dsid": "12345"},
+        upload_url=None,
+        shared_streams_url="https://shared.example.com",
+    )
+    with patch.object(
+        service,
+        "_get_root_library",
+        side_effect=PyiCloudServiceNotActivatedException("Not indexed"),
+    ):
+        assert service.libraries == {"shared": service._shared_library}
+        assert service._libraries is None
+        service._shared_library = None
+        with pytest.raises(PyiCloudServiceNotActivatedException):
+            _ = service.libraries
+    with (
+        patch.object(service, "_get_root_library") as root,
+        patch.object(service, "_discover_legacy_zones"),
+    ):
+        assert service.libraries == {"root": root.return_value}
