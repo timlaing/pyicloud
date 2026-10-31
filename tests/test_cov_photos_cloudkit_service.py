@@ -26,7 +26,7 @@ from pyicloud.common.cloudkit import (
     CKZoneID,
 )
 from pyicloud.exceptions import PyiCloudException
-from pyicloud.services.photos_cloudkit.constants import (
+from pyicloud.services.photos.constants import (
     PRIMARY_ZONE,
     AlbumTypeEnum,
     DirectionEnum,
@@ -34,11 +34,11 @@ from pyicloud.services.photos_cloudkit.constants import (
     ObjectTypeEnum,
     SmartAlbumEnum,
 )
-from pyicloud.services.photos_cloudkit.models import (
+from pyicloud.services.photos.models import (
     PhotoResource,
     PhotosServiceException,
 )
-from pyicloud.services.photos_cloudkit.service import (
+from pyicloud.services.photos.service import (
     AlbumContainer,
     BasePhotoAlbum,
     BasePhotoLibrary,
@@ -48,7 +48,7 @@ from pyicloud.services.photos_cloudkit.service import (
     PhotoLibrary,
     PhotosService,
 )
-from pyicloud.services.photos_cloudkit.sync import PhotoSyncOptions
+from pyicloud.services.photos.sync import PhotoSyncOptions
 
 
 def _ck_record(
@@ -120,6 +120,7 @@ def _bare_service(*, session: Any = None) -> Any:
     service._libraries = None
     service._upload_hydration_timeout = 1.0
     service._upload_hydration_interval = 0.1
+    service._upload_url = "https://upload.example.com"
     return service
 
 
@@ -917,7 +918,7 @@ def test_photos_service_sync_delegates() -> None:
 
     service = _bare_service()
     options = PhotoSyncOptions(directory=Path("/tmp/python-test-results/out"))
-    with patch("pyicloud.services.photos_cloudkit.service.run_photo_sync") as run:
+    with patch("pyicloud.services.photos.service.run_photo_sync") as run:
         run.return_value = "result"
         assert service.sync(options) == "result"
 
@@ -927,7 +928,7 @@ def test_photos_service_watch_delegates() -> None:
 
     service = _bare_service()
     options = PhotoSyncOptions(directory=Path("/tmp/python-test-results/out"))
-    with patch("pyicloud.services.photos_cloudkit.service.watch_photo_sync") as watch:
+    with patch("pyicloud.services.photos.service.watch_photo_sync") as watch:
         watch.return_value = iter(["event"])
         assert list(service.watch(options, interval_seconds=5)) == ["event"]
 

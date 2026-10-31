@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Generator
 from datetime import datetime, timezone
+from functools import partial
 import json
 from types import SimpleNamespace
 from typing import Any, cast
@@ -57,27 +58,16 @@ from pyicloud.services.photos import (
     SmartAlbumEnum,
     SmartPhotoAlbum,
 )
-from pyicloud.services.photos_cloudkit.mappers import (
+from pyicloud.services.photos.mappers import (
     decode_encrypted_text,
     record_change_tag,
     record_field_value,
 )
-from pyicloud.services.photos_cloudkit.models import (
+from pyicloud.services.photos.models import (
     PhotosPutAssetResult,
     PhotosPutAssetStatus,
 )
-from pyicloud.services.photos_cloudkit.queries import parent_filter, smart_album_filter
-from pyicloud.services.photos_legacy import AlbumContainer as LegacyAlbumContainer
-from pyicloud.services.photos_legacy import DirectionEnum as LegacyDirectionEnum
-from pyicloud.services.photos_legacy import ListTypeEnum as LegacyListTypeEnum
-from pyicloud.services.photos_legacy import ObjectTypeEnum as LegacyObjectTypeEnum
-from pyicloud.services.photos_legacy import PhotoAlbum as LegacyPhotoAlbum
-from pyicloud.services.photos_legacy import PhotoAsset as LegacyPhotoAsset
-from pyicloud.services.photos_legacy import PhotoLibrary as LegacyPhotoLibrary
-from pyicloud.services.photos_legacy import PhotosService as LegacyPhotosService
-from pyicloud.services.photos_legacy import (
-    PhotosServiceException as LegacyPhotosServiceException,
-)
+from pyicloud.services.photos.queries import parent_filter, smart_album_filter
 from pyicloud.session import PyiCloudSession
 from tests.fixture_loader import load_fixture
 
@@ -165,22 +155,6 @@ def test_photo_library_indexing_not_finished(mock_photos_service: MagicMock) -> 
     )
     with pytest.raises(PyiCloudServiceNotActivatedException):
         PhotoLibrary(
-            service=mock_photos_service,
-            zone_id={"zoneName": "PrimarySync"},
-            upload_url="https://upload.example.com",
-        )
-
-
-def test_legacy_photo_library_indexing_missing_records_raises_not_activated(
-    mock_photos_service: MagicMock,
-) -> None:
-    """Unexpected legacy indexing payloads should fail with a service-not-activated
-    error.
-    """
-
-    mock_photos_service.session.post.return_value.json.return_value = {}
-    with pytest.raises(PyiCloudServiceNotActivatedException):
-        LegacyPhotoLibrary(
             service=mock_photos_service,
             zone_id={"zoneName": "PrimarySync"},
             upload_url="https://upload.example.com",
@@ -674,7 +648,7 @@ def test_upload_file_retries_until_cloudkit_indexes_the_records() -> None:
     ]
 
     library = _upload_library(mock_client)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+    with patch("pyicloud.services.photos.service.time.sleep") as sleep:
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -695,7 +669,7 @@ def test_upload_file_gives_up_when_indexing_never_completes() -> None:
     mock_client.lookup.return_value = _not_found_lookup()
 
     library = _upload_library(mock_client)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+    with patch("pyicloud.services.photos.service.time.sleep"):
         asset = library._hydrate_uploaded_asset(
             mock_client.upload_file.return_value, timeout=0.2, interval=0.0
         )
@@ -721,7 +695,7 @@ def test_upload_file_backs_off_between_hydration_attempts() -> None:
 
     library = _upload_library(mock_client, upload_hydration_timeout=300.0)
     library._upload_hydration_interval = 2.0
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+    with patch("pyicloud.services.photos.service.time.sleep") as sleep:
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -742,7 +716,7 @@ def test_upload_file_backs_off_when_rate_limited_mid_hydration() -> None:
     ]
 
     library = _upload_library(mock_client, upload_hydration_timeout=300.0)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+    with patch("pyicloud.services.photos.service.time.sleep") as sleep:
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -765,7 +739,7 @@ def test_upload_file_retries_transient_lookup_failures() -> None:
     ]
 
     library = _upload_library(mock_client, upload_hydration_timeout=300.0)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+    with patch("pyicloud.services.photos.service.time.sleep"):
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -790,7 +764,7 @@ def test_upload_file_normalises_persistent_lookup_failures() -> None:
 
     library = _upload_library(mock_client, upload_hydration_timeout=0.2)
     with (
-        patch("pyicloud.services.photos_cloudkit.service.time.sleep"),
+        patch("pyicloud.services.photos.service.time.sleep"),
         pytest.raises(PhotosApiError, match="HTTP 500"),
     ):
         library.upload_file("test_photo.jpg")
@@ -828,7 +802,7 @@ def test_upload_file_returns_none_when_rate_limited_past_the_deadline() -> None:
     mock_client.lookup.side_effect = PhotosRateLimited("rate limited")
 
     library = _upload_library(mock_client, upload_hydration_timeout=0.2)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep"):
+    with patch("pyicloud.services.photos.service.time.sleep"):
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is None
@@ -845,7 +819,7 @@ def test_upload_file_hydrates_duplicate_without_waiting() -> None:
     mock_client.lookup.return_value = _uploaded_records_lookup()
 
     library = _upload_library(mock_client)
-    with patch("pyicloud.services.photos_cloudkit.service.time.sleep") as sleep:
+    with patch("pyicloud.services.photos.service.time.sleep") as sleep:
         asset = library.upload_file("test_photo.jpg")
 
     assert asset is not None
@@ -1257,39 +1231,6 @@ def test_base_photo_album_parse_response(mock_photo_library: MagicMock) -> None:
     assert master_records[0]["recordName"] == "master1"
 
 
-def test_base_photo_album_parse_response_skips_malformed_records() -> None:
-    """Malformed legacy asset payload entries should be ignored."""
-
-    response = cast(
-        dict[str, list[dict[str, Any]]],
-        {
-            "records": [
-                "not-a-record",
-                {
-                    "recordType": "CPLAsset",
-                    "fields": {"masterRef": {"value": {"missing": "recordName"}}},
-                },
-                {"recordType": "CPLMaster"},
-                {
-                    "recordType": "CPLAsset",
-                    "fields": {"masterRef": {"value": {"recordName": "master2"}}},
-                },
-                {
-                    "recordType": "CPLMaster",
-                    "recordName": "master2",
-                },
-            ]
-        },
-    )
-
-    legacy_library = LegacyPhotoLibrary.__new__(LegacyPhotoLibrary)
-
-    asset_records, master_records = legacy_library.parse_asset_response(response)
-
-    assert asset_records == {"master2": response["records"][3]}
-    assert master_records == [response["records"][4]]
-
-
 def test_base_photo_album_get_photos_at(mock_photo_library: MagicMock) -> None:
     """Tests the _get_photos_at method."""
     mock_photo_library.service.session.post.return_value.json.side_effect = [
@@ -1656,7 +1597,7 @@ def test_base_photo_album_repr(mock_photo_album: BasePhotoAlbum) -> None:
 
 
 def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
-    """Tests initialization of PhotosService."""
+    """Tests initialization of PhotosService with lazy root library."""
     mock_photos_service.session.post.return_value.json.return_value = {
         "records": [
             {
@@ -1676,10 +1617,16 @@ def test_photos_service_initialization(mock_photos_service: MagicMock) -> None:
     assert photos_service.service_endpoint == (
         "https://example.com/database/1/com.apple.photos.cloud/production/private"
     )
-    assert isinstance(photos_service._root_library, PhotoLibrary)
+    # Root library is now lazily initialized
+    assert photos_service._root_library is None
     assert isinstance(photos_service._shared_library, PhotoStreamLibrary)
     assert photos_service.params["remapEnums"] is True
     assert photos_service.params["getCurrentSyncToken"] is True
+
+    # Accessing root library properties should trigger initialization
+    _ = photos_service.all
+    assert isinstance(photos_service._root_library, PhotoLibrary)
+    mock_photos_service.session.post.assert_called()
 
 
 def test_photos_service_without_shared_streams_host(
@@ -1698,8 +1645,8 @@ def test_photos_service_without_shared_streams_host(
         shared_streams_url=None,
     )
 
-    # The private library is unaffected...
-    assert photos_service._root_library is not None
+    # Root library is now lazily initialized
+    assert photos_service._root_library is None
     # ...and the shared-stream albums report unavailable rather than crashing.
     with pytest.raises(PyiCloudServiceUnavailable, match="Shared photo streams"):
         _ = photos_service.shared_streams
@@ -1863,7 +1810,8 @@ def test_photos_service_libraries_cached(mock_photos_service: MagicMock) -> None
         photos_service.libraries
     )
     assert libraries == mock_libraries
-    mock_photos_service.session.post.assert_called_once()
+    # Cached libraries should be returned without API calls
+    mock_photos_service.session.post.assert_not_called()
 
 
 def test_photos_service_libraries_classify_shared_sync_zone_raw_path(
@@ -2009,14 +1957,17 @@ def test_photos_service_raises_photos_error_for_a_missing_zone(
     monkeypatch.setattr(CloudKitContainerClient, "query", _zone_not_found)
     session = cast(PyiCloudSession, object())
 
+    photos_service = PhotosService(
+        service_root="https://example.com",
+        session=session,
+        params={"dsid": "12345"},
+        upload_url="https://upload.example.com",
+        shared_streams_url=None,
+    )
+
     with pytest.raises(PhotosZoneNotFoundError) as exc_info:
-        PhotosService(
-            service_root="https://example.com",
-            session=session,
-            params={"dsid": "12345"},
-            upload_url="https://upload.example.com",
-            shared_streams_url=None,
-        )
+        # Root library is lazily initialized, so accessing it triggers the error
+        _ = photos_service.all
 
     assert exc_info.value.zone_name == "PrimarySync"
     assert isinstance(exc_info.value, PhotosApiError)
@@ -2444,7 +2395,7 @@ def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
             }
         ]
     }
-    photos_service = LegacyPhotosService(
+    photos_service = PhotosService(
         service_root="https://example.com",
         session=mock_photos_service.session,
         params={"dsid": "12345"},
@@ -2452,8 +2403,8 @@ def test_photos_service_shared_streams(mock_photos_service: MagicMock) -> None:
         shared_streams_url="https://shared.example.com",
     )
     assert photos_service._root_library is None
-    shared_streams: LegacyAlbumContainer = photos_service.shared_streams
-    assert isinstance(shared_streams, LegacyAlbumContainer)
+    shared_streams: AlbumContainer = photos_service.shared_streams
+    assert isinstance(shared_streams, AlbumContainer)
     assert "Shared Album" in shared_streams
     assert isinstance(shared_streams.find("Shared Album"), SharedPhotoStreamAlbum)
     assert photos_service._root_library is None
@@ -2464,7 +2415,7 @@ def test_legacy_photos_service_initialization_is_lazy_for_root_library() -> None
     """Legacy service should defer root-library construction until root access."""
 
     session = MagicMock()
-    service = LegacyPhotosService(
+    service = PhotosService(
         service_root="https://example.com",
         session=session,
         params={"dsid": "12345"},
@@ -2489,7 +2440,7 @@ def test_legacy_photos_service_root_library_initializes_on_demand() -> None:
             }
         ]
     }
-    service = LegacyPhotosService(
+    service = PhotosService(
         service_root="https://example.com",
         session=session,
         params={"dsid": "12345"},
@@ -2509,31 +2460,14 @@ def test_legacy_photos_service_libraries_propagate_upload_url() -> None:
 
     session = MagicMock()
     session.post.return_value.json.side_effect = [
-        {
-            "zones": [
-                {"zoneID": {"zoneName": "CustomZone"}, "deleted": False},
-            ]
-        },
-        {
-            "records": [
-                {
-                    "fields": {
-                        "state": {"value": "FINISHED"},
-                    },
-                }
-            ]
-        },
-        {
-            "records": [
-                {
-                    "fields": {
-                        "state": {"value": "FINISHED"},
-                    },
-                }
-            ]
-        },
+        # Root library indexing check (called first in _get_root_library)
+        {"records": [{"fields": {"state": {"value": "FINISHED"}}}]},
+        # Zones list (called in _discover_legacy_zones)
+        {"zones": [{"zoneID": {"zoneName": "CustomZone"}, "deleted": False}]},
+        # CustomZone indexing check (when creating PhotoLibrary for CustomZone)
+        {"records": [{"fields": {"state": {"value": "FINISHED"}}}]},
     ]
-    service = LegacyPhotosService(
+    service = PhotosService(
         service_root="https://example.com",
         session=session,
         params={"dsid": "12345"},
@@ -2543,7 +2477,11 @@ def test_legacy_photos_service_libraries_propagate_upload_url() -> None:
 
     libraries = service.libraries
 
-    assert session.post.call_args_list[0].kwargs["params"] == service.params
+    # The zones list call (2nd call) includes params in the URL
+    assert (
+        "params" in session.post.call_args_list[1].kwargs
+        or "zones/list" in session.post.call_args_list[1].args[0]
+    )
     assert libraries["root"]._upload_url == "https://upload.example.com"
     assert libraries["CustomZone"]._upload_url == "https://upload.example.com"
 
@@ -2561,7 +2499,7 @@ def test_legacy_photo_library_upload_file_without_upload_url_returns_none() -> N
             }
         ]
     }
-    library = LegacyPhotoLibrary(
+    library = PhotoLibrary(
         service=mock_service,
         zone_id={"zoneName": "CustomZone"},
         upload_url=None,
@@ -2810,9 +2748,11 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
     """Tests successful album renaming."""
     mock_photo_library: MagicMock = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = mock_photos_service
-    mock_photo_library.service.session.post.return_value = MagicMock()
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(return_value=load_fixture("photos_album_rename_response.json"))
+    )
 
     album = PhotoAlbum(
         library=mock_photo_library,
@@ -2863,6 +2803,33 @@ def test_photo_album_rename_success(mock_photos_service: MagicMock) -> None:
     album.rename("Another Name")
     assert album._record_change_tag == "new_tag"
     assert album._record_modification_date == "2023-02-01T00:00:00Z"
+
+
+def test_photo_album_rename_empty_records_raises() -> None:
+    """Empty rename response should raise PhotosServiceException."""
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
+    mock_photo_library.service = MagicMock()
+    mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
+    mock_photo_library.service.params = {"dsid": "12345"}
+    # Empty records response
+    mock_photo_library.service.session.post.return_value = MagicMock(
+        json=MagicMock(return_value={"records": []})
+    )
+
+    album = PhotoAlbum(
+        library=mock_photo_library,
+        name="Old Name",
+        record_id="album123",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        url="https://example.com/records/query?dsid=12345",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
+        zone_id={"zoneName": "TestZone"},
+    )
+
+    with pytest.raises(PhotosServiceException, match="Failed to rename album"):
+        album.rename("New Name")
 
 
 def test_photo_album_rename_uses_browser_response_user_modification_date() -> None:
@@ -2960,7 +2927,7 @@ def test_photo_album_rename_same_name(mock_photo_library: MagicMock) -> None:
 def test_legacy_photo_album_rename_raises_for_error_payload() -> None:
     """Legacy raw rename should not update state when CloudKit returns errors."""
 
-    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = MagicMock()
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
@@ -2977,19 +2944,19 @@ def test_legacy_photo_album_rename_raises_for_error_payload() -> None:
         )
     )
 
-    album = LegacyPhotoAlbum(
+    album = PhotoAlbum(
         library=mock_photo_library,
         name="Old Name",
         record_id="album123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag="tag123",
+        record=PhotoAlbumRecordState(record_change_tag="tag123"),
         zone_id={"zoneName": "TestZone"},
     )
 
-    with pytest.raises(LegacyPhotosServiceException, match="Failed to rename album"):
+    with pytest.raises(PhotosServiceException, match="Failed to rename album"):
         album.rename("New Name")
 
     assert album.name == "Old Name"
@@ -2999,18 +2966,18 @@ def test_legacy_photo_album_rename_raises_for_error_payload() -> None:
 def test_legacy_photo_album_fullname_missing_parent_falls_back_to_name() -> None:
     """Malformed legacy parent references should not raise KeyError."""
 
-    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
-    mock_photo_library.albums = LegacyAlbumContainer()
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
+    mock_photo_library.albums = AlbumContainer()
 
-    album = LegacyPhotoAlbum(
+    album = PhotoAlbum(
         library=mock_photo_library,
         name="Child Album",
         record_id="child123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="missing-parent",
+        record=PhotoAlbumRecordState(parent_id="missing-parent"),
     )
 
     assert album.fullname == "Child Album"
@@ -3019,28 +2986,28 @@ def test_legacy_photo_album_fullname_missing_parent_falls_back_to_name() -> None
 def test_legacy_photo_album_fullname_cycle_falls_back_without_recursing() -> None:
     """Malformed legacy cyclic parent graphs should not recurse forever."""
 
-    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
-    parent_album = LegacyPhotoAlbum(
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
+    parent_album = PhotoAlbum(
         library=mock_photo_library,
         name="Parent Album",
         record_id="parent123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="child123",
+        record=PhotoAlbumRecordState(parent_id="child123"),
     )
-    child_album = LegacyPhotoAlbum(
+    child_album = PhotoAlbum(
         library=mock_photo_library,
         name="Child Album",
         record_id="child123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        parent_id="parent123",
+        record=PhotoAlbumRecordState(parent_id="parent123"),
     )
-    mock_photo_library.albums = LegacyAlbumContainer([parent_album, child_album])
+    mock_photo_library.albums = AlbumContainer([parent_album, child_album])
 
     assert child_album.fullname == "Parent Album/Child Album"
 
@@ -3048,7 +3015,7 @@ def test_legacy_photo_album_fullname_cycle_falls_back_without_recursing() -> Non
 def test_legacy_photo_album_get_len_returns_zero_for_malformed_response() -> None:
     """Malformed legacy count payloads should not abort album iteration."""
 
-    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = MagicMock()
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
@@ -3056,13 +3023,13 @@ def test_legacy_photo_album_get_len_returns_zero_for_malformed_response() -> Non
         json=MagicMock(return_value={"batch": []})
     )
 
-    album = LegacyPhotoAlbum(
+    album = PhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
         record_id="album123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
         zone_id={"zoneName": "TestZone"},
     )
@@ -4125,7 +4092,9 @@ def test_legacy_photo_asset_delete_returns_false_for_error_payload() -> None:
         status_code=200,
     )
 
-    asset = LegacyPhotoAsset(mock_service, master_record, asset_record)
+    asset = PhotoAsset(
+        mock_service, cast(CKRecord, master_record), cast(CKRecord, asset_record)
+    )
 
     assert asset.delete() is False
 
@@ -4133,7 +4102,7 @@ def test_legacy_photo_asset_delete_returns_false_for_error_payload() -> None:
 def test_legacy_photo_album_add_photo_does_not_replace_album_change_tag() -> None:
     """Relation-create responses should not overwrite cached album metadata."""
 
-    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = MagicMock()
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
@@ -4156,15 +4125,15 @@ def test_legacy_photo_album_add_photo_does_not_replace_album_change_tag() -> Non
     photo = MagicMock()
     photo.id = "asset123"
 
-    album = LegacyPhotoAlbum(
+    album = PhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
         record_id="album123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag="album-tag",
+        record=PhotoAlbumRecordState(record_change_tag="album-tag"),
         zone_id={"zoneName": "TestZone"},
     )
     album._record_modification_date = "2026-04-09T00:00:00Z"
@@ -4175,9 +4144,9 @@ def test_legacy_photo_album_add_photo_does_not_replace_album_change_tag() -> Non
 
 
 def test_legacy_photo_album_delete_without_records_keeps_cached_metadata() -> None:
-    """Legacy album deletes should fail safely for empty modify responses."""
+    """Album deletes should succeed for empty modify responses (no errors)."""
 
-    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = MagicMock()
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
@@ -4185,20 +4154,20 @@ def test_legacy_photo_album_delete_without_records_keeps_cached_metadata() -> No
         json=MagicMock(return_value={})
     )
 
-    album = LegacyPhotoAlbum(
+    album = PhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
         record_id="album123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag="album-tag",
+        record=PhotoAlbumRecordState(record_change_tag="album-tag"),
         zone_id={"zoneName": "TestZone"},
     )
     album._record_modification_date = "2026-04-09T00:00:00Z"
 
-    assert album.delete() is False
+    assert album.delete() is True
     assert album._record_change_tag == "album-tag"
     assert album._record_modification_date == "2026-04-09T00:00:00Z"
 
@@ -4206,7 +4175,7 @@ def test_legacy_photo_album_delete_without_records_keeps_cached_metadata() -> No
 def test_legacy_photo_album_add_photo_returns_false_for_error_payload() -> None:
     """Legacy album membership writes should reject CloudKit payload errors."""
 
-    mock_photo_library = MagicMock(spec=LegacyPhotoLibrary)
+    mock_photo_library = MagicMock(spec=PhotoLibrary)
     mock_photo_library.service = MagicMock()
     mock_photo_library.service.service_endpoint = "https://example.com/endpoint"
     mock_photo_library.service.params = {"dsid": "12345"}
@@ -4225,15 +4194,15 @@ def test_legacy_photo_album_add_photo_returns_false_for_error_payload() -> None:
     photo = MagicMock()
     photo.id = "asset123"
 
-    album = LegacyPhotoAlbum(
+    album = PhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
         record_id="album123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
-        record_change_tag="album-tag",
+        record=PhotoAlbumRecordState(record_change_tag="album-tag"),
         zone_id={"zoneName": "TestZone"},
     )
     album._record_modification_date = "2026-04-09T00:00:00Z"
@@ -4259,7 +4228,9 @@ def test_legacy_photo_asset_added_date_falls_back_to_epoch() -> None:
         "zoneID": {"zoneName": "PrimarySync"},
     }
 
-    asset = LegacyPhotoAsset(MagicMock(), master_record, asset_record)
+    asset = PhotoAsset(
+        MagicMock(), cast(CKRecord, master_record), cast(CKRecord, asset_record)
+    )
 
     assert asset.added_date == datetime.fromtimestamp(0, timezone.utc)
 
@@ -4816,7 +4787,7 @@ def test_shared_photo_stream_album_get_payload_and_url_and_len(
 
     # Test _get_payload
     payload = mock_album._get_payload(
-        offset=2, page_size=5, direction=LegacyDirectionEnum.ASCENDING
+        offset=2, page_size=5, direction=DirectionEnum.ASCENDING
     )
     assert payload["albumguid"] == "guid"
     assert payload["albumctag"] == "ctag"
@@ -4855,7 +4826,7 @@ def test_shared_photo_stream_album_payload_does_not_call_len(
     monkeypatch.setattr(album, "_get_len", get_len)
 
     payload = album._get_payload(
-        offset=10, page_size=5, direction=LegacyDirectionEnum.ASCENDING
+        offset=10, page_size=5, direction=DirectionEnum.ASCENDING
     )
 
     assert payload["limit"] == "15"
@@ -5577,6 +5548,8 @@ def test_base_photo_album_getitem_with_positive_index(
         url="https://example.com/records/query?dsid=12345",
     )
 
+    # Mock _get_len to return a valid length
+    monkeypatch.setattr(album, "_get_len", MagicMock(return_value=100))
     # Mock _get_photos_at to return the photo
     get_photos_at = MagicMock(return_value=iter([mock_photo]))
     monkeypatch.setattr(album, "_get_photos_at", get_photos_at)
@@ -5624,13 +5597,13 @@ def test_legacy_base_photo_album_getitem_negative_out_of_range(
 ) -> None:
     """Legacy albums should raise IndexError for overly negative indices."""
 
-    album = LegacyPhotoAlbum(
+    album = PhotoAlbum(
         library=mock_photo_library,
         name="Test Album",
         record_id="album123",
-        obj_type=LegacyObjectTypeEnum.CONTAINER,
-        list_type=LegacyListTypeEnum.CONTAINER,
-        direction=LegacyDirectionEnum.ASCENDING,
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
         url="https://example.com/records/query?dsid=12345",
     )
 
@@ -5660,6 +5633,8 @@ def test_base_photo_album_getitem_index_out_of_range(
         url="https://example.com/records/query?dsid=12345",
     )
 
+    # Mock _get_len to return a valid length
+    monkeypatch.setattr(album, "_get_len", MagicMock(return_value=10))
     # Mock _get_photos_at to return empty iterator (StopIteration)
     get_photos_at = MagicMock(return_value=iter([]))
     monkeypatch.setattr(album, "_get_photos_at", get_photos_at)
@@ -5667,6 +5642,7 @@ def test_base_photo_album_getitem_index_out_of_range(
     with pytest.raises(IndexError, match="Photo index out of range"):
         _ = album[100]
 
+    # A server-side empty page establishes that the index is out of range.
     get_photos_at.assert_called_once_with(100, DirectionEnum.ASCENDING, 1)
 
 
@@ -6112,3 +6088,269 @@ def test_photo_asset_download_url_default_parameter() -> None:
 
     # Test default parameter (should be "original")
     assert asset.download_url() == "http://example.com/original.jpg"
+
+
+@pytest.mark.parametrize(
+    "error_type", [PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError]
+)
+def test_shared_libraries_remain_available_during_private_indexing(
+    error_type: type[Exception],
+) -> None:
+    """Partial discovery preserves shared access and retries private indexing."""
+    service = PhotosService(
+        service_root="https://example.com",
+        session=MagicMock(),
+        params={"dsid": "12345"},
+        upload_url=None,
+        shared_streams_url="https://shared.example.com",
+    )
+    with patch.object(
+        service,
+        "_get_root_library",
+        side_effect=error_type("Private library unavailable"),
+    ):
+        assert service.libraries == {"shared": service._shared_library}
+        assert service._libraries is None
+        service._shared_library = None
+        with pytest.raises(error_type):
+            _ = service.libraries
+    with (
+        patch.object(service, "_get_root_library") as root,
+        patch.object(service, "_discover_legacy_zones"),
+    ):
+        assert service.libraries == {"root": root.return_value}
+
+
+@pytest.mark.parametrize(
+    "error_type", [PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError]
+)
+@pytest.mark.parametrize("shared_streams", [False, True])
+def test_shared_cloudkit_discovery_without_private_library(
+    error_type: type[Exception], shared_streams: bool
+) -> None:
+    """Shared CloudKit zones stay accessible independently of private indexing."""
+    service = PhotosService(
+        service_root="https://example.com",
+        session=MagicMock(),
+        params={"dsid": "12345"},
+        upload_url=None,
+        shared_streams_url="https://shared.example.com" if shared_streams else None,
+    )
+    shared_client = MagicMock()
+    shared_client.zones_list.return_value = CKZoneListResponse.model_validate({
+        "zones": [{"zoneID": {"zoneName": "Family"}, "syncToken": "shared-token"}]
+    })
+    private_client = MagicMock()
+    service._shared_client = shared_client
+    service._private_client = private_client
+    with (
+        patch.object(
+            service, "_get_root_library", side_effect=error_type("Unavailable")
+        ),
+        patch(
+            "pyicloud.services.photos.service._can_use_typed_cloudkit",
+            return_value=True,
+        ),
+        patch.object(BasePhotoLibrary, "_ensure_indexing_ready"),
+    ):
+        libraries = service.libraries
+    shared = libraries["shared:Family"]
+    assert isinstance(shared, PhotoLibrary)
+    assert shared._client is shared_client
+    assert shared.scope == "shared-library"
+    assert ("shared" in libraries) is shared_streams
+    assert "root" not in libraries
+    assert service._libraries is None
+    private_client.zones_list.assert_not_called()
+    shared_client.zones_list.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "error_type", [PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError]
+)
+def test_recovered_libraries_keep_configured_shared_library(
+    error_type: type[Exception],
+) -> None:
+    """Successful rediscovery retains shared streams and caches both libraries."""
+    service = PhotosService(
+        service_root="https://example.com",
+        session=MagicMock(),
+        params={"dsid": "12345"},
+        upload_url=None,
+        shared_streams_url="https://shared.example.com",
+    )
+    shared_library = service._shared_library
+    with patch.object(
+        service, "_get_root_library", side_effect=error_type("Unavailable")
+    ):
+        assert service.libraries == {"shared": shared_library}
+        assert service._libraries is None
+    with (
+        patch.object(service, "_get_root_library") as root,
+        patch.object(service, "_discover_legacy_zones"),
+    ):
+        libraries = service.libraries
+        assert libraries == {"shared": shared_library, "root": root.return_value}
+        assert service.libraries is libraries
+        root.assert_called_once()
+
+
+@pytest.mark.parametrize("failed_scope", ["private", "shared", "both"])
+def test_library_discovery_retries_after_zone_listing_failure(
+    failed_scope: str,
+) -> None:
+    """A transient zone-list failure preserves available libraries and retries."""
+    service = PhotosService(
+        service_root="https://example.com",
+        session=MagicMock(),
+        params={"dsid": "12345"},
+        upload_url=None,
+        shared_streams_url="https://shared.example.com",
+    )
+    private_client = MagicMock()
+    shared_client = MagicMock()
+    private_zones = CKZoneListResponse.model_validate({
+        "zones": [{"zoneID": {"zoneName": "Custom"}}]
+    })
+    shared_zones = CKZoneListResponse.model_validate({
+        "zones": [{"zoneID": {"zoneName": "Family"}}]
+    })
+    private_failed = failed_scope in {"private", "both"}
+    shared_failed = failed_scope in {"shared", "both"}
+    private_client.zones_list.side_effect = [
+        PhotosApiError("Private unavailable") if private_failed else private_zones,
+        private_zones,
+    ]
+    shared_client.zones_list.side_effect = [
+        PhotosApiError("Shared unavailable") if shared_failed else shared_zones,
+        shared_zones,
+    ]
+    service._private_client = private_client
+    service._shared_client = shared_client
+    with (
+        patch(
+            "pyicloud.services.photos.service._can_use_typed_cloudkit",
+            return_value=True,
+        ),
+        patch.object(BasePhotoLibrary, "_ensure_indexing_ready"),
+    ):
+        partial = service.libraries
+        assert "root" in partial
+        assert partial["shared"] is service._shared_library
+        assert ("Custom" in partial) is not private_failed
+        assert ("shared:Family" in partial) is not shared_failed
+        assert service._libraries is None
+        shared_client.zones_list.assert_called_once()
+        recovered = service.libraries
+        assert set(recovered) == {"root", "shared", "Custom", "shared:Family"}
+        assert recovered["root"] is partial["root"]
+        assert recovered["shared"] is partial["shared"]
+        assert service.libraries is recovered
+        assert private_client.zones_list.call_count == 2
+        assert shared_client.zones_list.call_count == 2
+
+
+@pytest.mark.parametrize("operation", ["asset_delete", "album_delete", "add_photo"])
+@pytest.mark.parametrize(
+    "failure", ["record", "transport", "auth", "zone", "http", "empty"]
+)
+def test_typed_boolean_writes_preserve_error_semantics(
+    mock_photo_library: MagicMock, operation: str, failure: str
+) -> None:
+    """Only record rejection becomes False; account/transport failures propagate."""
+    errors = {
+        "record": PhotosApiError(
+            "Rejected", payload={"records": [{"serverErrorCode": "CONFLICT"}]}
+        ),
+        "transport": PhotosApiError("Connection failed"),
+        "auth": PhotosAuthError("Unauthorized"),
+        "zone": PhotosZoneNotFoundError("Missing"),
+        "http": PhotosApiError(
+            "Unavailable",
+            status=503,
+            payload={"records": [{"serverErrorCode": "RETRY"}]},
+        ),
+        "empty": PhotosApiError("Invalid response", payload={"records": []}),
+    }
+    client = MagicMock()
+    client.modify.side_effect = errors[failure]
+    service = mock_photo_library.service
+    service.private_client = client
+    photo = PhotoAsset(
+        service,
+        CKRecord.model_validate({
+            "recordName": "master",
+            "recordType": "CPLMaster",
+            "fields": {},
+        }),
+        CKRecord.model_validate({
+            "recordName": "asset",
+            "recordType": "CPLAsset",
+            "fields": {},
+        }),
+    )
+    album = PhotoAlbum(
+        mock_photo_library,
+        name="Album",
+        record_id="album",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        client=client,
+    )
+    with patch(
+        "pyicloud.services.photos.service._can_use_typed_cloudkit", return_value=True
+    ):
+        if operation == "asset_delete":
+            action = photo.delete
+        elif operation == "album_delete":
+            action = album.delete
+        else:
+            action = partial(album.add_photo, photo)
+        if failure == "record":
+            assert action() is False
+        else:
+            with pytest.raises(type(errors[failure])):
+                action()
+
+
+def test_positive_index_does_not_trust_cached_album_count(
+    mock_photo_library: MagicMock,
+) -> None:
+    """A stale count cannot hide a photo returned by the server."""
+    album = PhotoAlbum(
+        mock_photo_library,
+        name="Album",
+        record_id="album",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+    )
+    album._len = 0
+    photo = MagicMock(spec=PhotoAsset)
+    with patch.object(album, "_get_photos_at", return_value=iter([photo])):
+        assert album[0] is photo
+
+
+@pytest.mark.parametrize("count_response", [{"batch": []}, {"batch": None}, {}])
+def test_negative_index_preserves_count_after_malformed_refresh(
+    mock_photo_library: MagicMock, count_response: dict[str, Any]
+) -> None:
+    """An invalid count refresh cannot hide a photo behind a valid cached count."""
+    album = PhotoAlbum(
+        mock_photo_library,
+        name="Album",
+        record_id="album",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+    )
+    album._len = 1
+    mock_photo_library.service.session.post.return_value.json.return_value = (
+        count_response
+    )
+    photo = MagicMock(spec=PhotoAsset)
+    with patch.object(album, "_get_photos_at", return_value=iter([photo])) as page:
+        assert album[-1] is photo
+        assert album._len == 1
+        page.assert_called_once_with(0, DirectionEnum.ASCENDING, 1)

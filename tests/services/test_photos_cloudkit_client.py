@@ -34,15 +34,15 @@ from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
     PyiCloudConnectionException,
 )
-from pyicloud.services.photos_cloudkit.client import PhotosCloudKitClient
-from pyicloud.services.photos_cloudkit.exceptions import (
+from pyicloud.services.photos.client import PhotosCloudKitClient
+from pyicloud.services.photos.exceptions import (
     PhotosApiError,
     PhotosAuthError,
     PhotosRateLimited,
     PhotosZoneNotFoundError,
 )
-from pyicloud.services.photos_cloudkit.models import PhotosServiceException
-from pyicloud.services.photos_cloudkit.upload import _local_time_zone
+from pyicloud.services.photos.models import PhotosServiceException
+from pyicloud.services.photos.upload import _local_time_zone
 from tests.fixture_loader import load_fixture
 
 UPLOAD_CLIENT_UUID = "11111111-2222-3333-4444-555555555555"
@@ -69,15 +69,15 @@ def _upload_environment(
     with (
         patch("pathlib.Path.open", mock_open(read_data=b"jpeg-bytes")),
         patch(
-            "pyicloud.services.photos_cloudkit.upload.os.path.getsize",
+            "pyicloud.services.photos.upload.os.path.getsize",
             return_value=size,
         ),
         patch(
-            "pyicloud.services.photos_cloudkit.upload.os.path.getmtime",
+            "pyicloud.services.photos.upload.os.path.getmtime",
             return_value=mtime,
         ),
         patch(
-            "pyicloud.services.photos_cloudkit.upload.uuid4",
+            "pyicloud.services.photos.upload.uuid4",
             return_value=UUID(UPLOAD_CLIENT_UUID),
         ),
     ):
@@ -401,7 +401,7 @@ def test_upload_status_raises_when_payload_is_not_a_mapping() -> None:
     """uploadStatus answers with a mapping keyed by job id."""
 
     session = MagicMock()
-    session.post.return_value = MagicMock(status_code=200, json=lambda: [])
+    session.post.return_value = MagicMock(status_code=200, json=list)
     client = _upload_client(session)
 
     with pytest.raises(
@@ -601,7 +601,7 @@ def test_local_time_zone_uses_javascript_offset_sign() -> None:
     """Apple expects getTimezoneOffset() semantics: UTC+2 is sent as -120."""
 
     zone = timezone(timedelta(hours=2))
-    with patch("pyicloud.services.photos_cloudkit.upload.datetime") as mock_datetime:
+    with patch("pyicloud.services.photos.upload.datetime") as mock_datetime:
         mock_datetime.now.return_value.astimezone.return_value = datetime(
             2026, 8, 26, 12, 0, tzinfo=zone
         )
@@ -701,7 +701,7 @@ def test_upload_file_raises_when_put_asset_registers_nothing() -> None:
                 "photos_upload", "single_file_upload_response.json"
             ),
         ),
-        MagicMock(status_code=200, json=lambda: []),
+        MagicMock(status_code=200, json=list),
     ]
     client = _upload_client(session)
 

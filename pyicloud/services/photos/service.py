@@ -1,5 +1,7 @@
 """Modern Photos CloudKit service implementation."""
 
+# pylint: disable=wrong-import-position
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -10,9 +12,12 @@ from datetime import datetime, timezone
 import logging
 import os
 import time
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 from urllib.parse import urlencode
+
+if TYPE_CHECKING:
+    from .shared_streams import PhotoStreamLibrary
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
@@ -35,12 +40,6 @@ from pyicloud.exceptions import (
     PyiCloudServiceUnavailable,
 )
 from pyicloud.services.base import BaseService
-from pyicloud.services.photos_legacy import (
-    PhotosService as LegacyPhotosService,
-)
-from pyicloud.services.photos_legacy import (
-    PhotoStreamLibrary,
-)
 from pyicloud.session import PyiCloudSession
 
 from .client import PhotosCloudKitClient
@@ -60,6 +59,7 @@ from .exceptions import (
     PhotosApiError,
     PhotosRateLimited,
     PhotosServiceException,
+    PhotosZoneNotFoundError,
 )
 from .mappers import (
     _master_asset_groups,
@@ -242,6 +242,43 @@ def _is_shared_library_zone_name(zone_name: str | None) -> bool:
     return bool(zone_name and zone_name.startswith(SHARED_LIBRARY_ZONE_PREFIX))
 
 
+def _check_modify_response(
+    records: Iterable[CKRecord | dict[str, Any] | CKTombstoneRecord | CKErrorItem],
+) -> bool:
+    """Check a CloudKit modify response for errors.
+
+    Returns True if the operation succeeded (no error records), False otherwise.
+    """
+    for record in records:
+        if isinstance(record, CKErrorItem):
+            return False
+        if isinstance(record, dict) and record.get("serverErrorCode"):
+            return False
+    return True
+
+
+def _modify_succeeded(
+    client: PhotosCloudKitClient,
+    operation: CKModifyOperation,
+    zone_id: CKZoneIDReq,
+) -> bool:
+    """Return False for record rejection; preserve transport and account errors."""
+    try:
+        response = client.modify(operations=[operation], zone_id=zone_id, atomic=True)
+    except PhotosApiError as exc:
+        if isinstance(exc, PhotosZoneNotFoundError) or exc.status not in (None, 200):
+            raise
+        payload = exc.payload if isinstance(exc.payload, dict) else {}
+        records = payload.get("records", [])
+        if isinstance(records, list) and any(
+            isinstance(record, dict) and record.get("serverErrorCode")
+            for record in records
+        ):
+            return False
+        raise
+    return _check_modify_response(response.records)
+
+
 class _HydrationBackoff:
     """Deadline-bounded exponential backoff for upload hydration polling."""
 
@@ -335,6 +372,7 @@ class BasePhotoLibrary(ABC):
         upload_hydration_timeout: float = UPLOAD_HYDRATION_TIMEOUT,
         upload_hydration_interval: float = UPLOAD_HYDRATION_INTERVAL,
         scope: str = "private",
+        check_indexing: bool = True,
     ) -> None:
         self.service = service
         self.asset_type = asset_type or PhotoAsset
@@ -370,7 +408,8 @@ class BasePhotoLibrary(ABC):
         if _is_mock_like(service) and type(self).__name__ != "PhotoLibrary":
             self._indexing_state = "FINISHED"
             return
-        self._ensure_indexing_ready()
+        if check_indexing:
+            self._ensure_indexing_ready()
 
     def _ensure_indexing_ready(self) -> None:
         client = self._client
@@ -482,10 +521,19 @@ class BasePhotoLibrary(ABC):
         asset_records: dict[str, dict[str, Any]] = {}
         master_records: list[dict[str, Any]] = []
         for record in response["records"]:
-            if record["recordType"] == "CPLAsset":
-                master_ref = record["fields"]["masterRef"]["value"]["recordName"]
-                asset_records[master_ref] = record
-            elif record["recordType"] == "CPLMaster":
+            if not isinstance(record, dict):
+                continue
+            if record.get("recordType") == "CPLAsset":
+                master_ref = (
+                    record
+                    .get("fields", {})
+                    .get("masterRef", {})
+                    .get("value", {})
+                    .get("recordName")
+                )
+                if master_ref:
+                    asset_records[master_ref] = record
+            elif record.get("recordType") == "CPLMaster":
                 master_records.append(record)
         return asset_records, master_records
 
@@ -826,6 +874,8 @@ class PhotoLibrary(BasePhotoLibrary):
             zone_id=CKZoneIDReq(**self.zone_id),
             atomic=True,
         )
+        if not _check_modify_response(resp.records):
+            raise PhotosServiceException("Failed to create album")
         for record in resp.records:
             if isinstance(record, CKRecord):
                 album = self._convert_record_to_album(record)
@@ -870,6 +920,8 @@ class PhotoLibrary(BasePhotoLibrary):
         )
         payload = response.json()
         records = payload.get("records", [])
+        if not _check_modify_response(records):
+            raise PhotosServiceException("Failed to create album")
         if records:
             album = self._convert_record_to_album(records[0])
             if isinstance(album, PhotoAlbum):
@@ -997,6 +1049,9 @@ class PhotoLibrary(BasePhotoLibrary):
             )
             return self._hydrate_uploaded_asset(result)
 
+        if not self._upload_url:
+            return None
+
         filename = os.path.basename(path)
         params = dict(self.service.params)
         params["filename"] = filename
@@ -1091,7 +1146,7 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     @property
     def page_size(self) -> int:
         """Return the page size capped at 100."""
-        return self._page_size if self._page_size < 100 else 100
+        return min(100, self._page_size)
 
     @property
     def service(self) -> PhotosService:
@@ -1292,7 +1347,9 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
                     continue
                 seen.add(photo.id)
                 yield photo
-            if num_results < self.page_size // 2:
+            # An empty page must always end pagination: with page_size=1 the
+            # half-page threshold is 0, which would otherwise never stop.
+            if num_results < max(1, self.page_size // 2):
                 break
             if self._direction == DirectionEnum.DESCENDING:
                 offset -= num_results
@@ -1338,7 +1395,10 @@ class BasePhotoAlbum(Iterable["PhotoAsset"], ABC):
     def __getitem__(self, key: int | str) -> PhotoAsset:
         if isinstance(key, int):
             if key < 0:
+                self._len = self._get_len()
                 key = len(self) + key
+                if key < 0:
+                    raise IndexError("Photo index out of range")
             try:
                 return next(self._get_photos_at(key, self._direction, 1))
             except StopIteration as exc:
@@ -1493,10 +1553,42 @@ class PhotoAlbum(BasePhotoAlbum):
             parent_fullname = parent.fullname
         return f"{parent_fullname}/{self.name}" if parent_fullname else self.name
 
+    def _update_from_rename_response(
+        self,
+        records: Iterable[CKRecord | dict[str, Any] | CKTombstoneRecord | CKErrorItem],
+    ) -> None:
+        """Update album metadata from a rename response."""
+        if not _check_modify_response(records):
+            raise PhotosServiceException("Failed to rename album")
+
+        has_record = False
+        for record in records:
+            if isinstance(record, CKRecord):
+                has_record = True
+                self._record_change_tag = (
+                    record.recordChangeTag or self._record_change_tag
+                )
+                self._record_modification_date = record.fields.get_value(
+                    "recordModificationDate"
+                ) or record.fields.get_value("userModificationDate")
+            elif isinstance(record, dict):
+                has_record = True
+                self._record_change_tag = record.get(
+                    "recordChangeTag", self._record_change_tag
+                )
+                fields = record.get("fields", {})
+                self._record_modification_date = fields.get(
+                    "recordModificationDate", {}
+                ).get("value", fields.get("userModificationDate", {}).get("value"))
+            # CKTombstoneRecord indicates deleted, not a rename success
+        if not has_record:
+            raise PhotosServiceException("Failed to rename album")
+
     def rename(self, value: str) -> None:
         if self._name == value:
             return
         encoded = base64.b64encode(value.encode("utf-8")).decode("utf-8")
+
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             op = CKModifyOperation(
                 operationType="update",
@@ -1514,15 +1606,7 @@ class PhotoAlbum(BasePhotoAlbum):
                 zone_id=CKZoneIDReq(**self._zone_id),
                 atomic=True,
             )
-            for record in response.records:
-                if isinstance(record, CKRecord):
-                    self._record_change_tag = (
-                        record.recordChangeTag or self._record_change_tag
-                    )
-                    self._record_modification_date = record.fields.get_value(
-                        "recordModificationDate"
-                    ) or record.fields.get_value("userModificationDate")
-                    break
+            self._update_from_rename_response(response.records)
         else:
             endpoint = self.service.service_endpoint
             params = urlencode(self.service.params)
@@ -1551,26 +1635,12 @@ class PhotoAlbum(BasePhotoAlbum):
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
             payload = http_response.json()
-            latest = (payload.get("records") or [{}])[0]
-            self._record_change_tag = latest.get(
-                "recordChangeTag",
-                self._record_change_tag,
-            )
-            self._record_modification_date = (
-                latest
-                .get("fields", {})
-                .get("recordModificationDate", {})
-                .get(
-                    "value",
-                    latest
-                    .get("fields", {})
-                    .get("userModificationDate", {})
-                    .get("value", self._record_modification_date),
-                )
-            )
+            self._update_from_rename_response(payload.get("records", []))
+
         self._name = value
 
     def delete(self) -> bool:
+        success = False
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             op = CKModifyOperation(
                 operationType="update",
@@ -1581,16 +1651,12 @@ class PhotoAlbum(BasePhotoAlbum):
                     fields={"isDeleted": {"type": "INT64", "value": 1}},
                 ),
             )
-            self._client.modify(
-                operations=[op],
-                zone_id=CKZoneIDReq(**self._zone_id),
-                atomic=True,
-            )
+            success = _modify_succeeded(self._client, op, CKZoneIDReq(**self._zone_id))
         else:
             endpoint = self.service.service_endpoint
             params = urlencode(self.service.params)
             url = f"{endpoint}/records/modify?{params}"
-            self.service.session.post(
+            http_response = self.service.session.post(
                 url,
                 json={
                     "atomic": True,
@@ -1609,12 +1675,16 @@ class PhotoAlbum(BasePhotoAlbum):
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-        self._library.remove_cached_album(self._record_id)
-        return True
+            payload = http_response.json()
+            success = _check_modify_response(payload.get("records", []))
+        if success:
+            self._library.remove_cached_album(self._record_id)
+        return success
 
     def add_photo(self, photo: PhotoAsset) -> bool:
         """Add the given photo to the album."""
         item_id = self._relation_item_id(photo)
+        success = False
         if self._client is not None and _can_use_typed_cloudkit(self.service.session):
             op = CKModifyOperation(
                 operationType="create",
@@ -1628,16 +1698,12 @@ class PhotoAlbum(BasePhotoAlbum):
                     },
                 ),
             )
-            self._client.modify(
-                operations=[op],
-                zone_id=CKZoneIDReq(**self._zone_id),
-                atomic=True,
-            )
+            success = _modify_succeeded(self._client, op, CKZoneIDReq(**self._zone_id))
         else:
             endpoint = self.service.service_endpoint
             params = urlencode(self.service.params)
             url = f"{endpoint}/records/modify?{params}"
-            self.service.session.post(
+            http_response = self.service.session.post(
                 url,
                 json={
                     "atomic": True,
@@ -1659,7 +1725,9 @@ class PhotoAlbum(BasePhotoAlbum):
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-        return True
+            payload = http_response.json()
+            success = _check_modify_response(payload.get("records", []))
+        return success
 
     def upload(self, path: str) -> PhotoAsset | None:
         """Upload a file into this album and return the created asset."""
@@ -1731,7 +1799,7 @@ class PhotoAlbum(BasePhotoAlbum):
                     response,
                     exc_info=True,
                 )
-                return 0
+                return self._len if self._len is not None else 0
         client = cast(PhotosCloudKitClient, self._client)
         return client.batch_count(
             container_id=self._get_container_id,
@@ -2252,6 +2320,7 @@ class PhotoAsset:
             ownerRecordName=zone_dict.get("ownerRecordName"),
             zoneType=zone_dict.get("zoneType"),
         )
+        success = False
         if hasattr(self._service, "private_client") and _can_use_typed_cloudkit(
             getattr(self._service, "session", None)
         ):
@@ -2266,16 +2335,12 @@ class PhotoAsset:
                     zoneID=CKZoneID(**zone_dict),
                 ),
             )
-            self._service.private_client.modify(
-                operations=[op],
-                zone_id=zone_id,
-                atomic=True,
-            )
+            success = _modify_succeeded(self._service.private_client, op, zone_id)
         else:
             endpoint = self._service.service_endpoint
             params = urlencode(self._service.params)
             url = f"{endpoint}/records/modify?{params}"
-            self._service.session.post(
+            http_response = self._service.session.post(
                 url,
                 json={
                     "operations": [
@@ -2297,7 +2362,9 @@ class PhotoAsset:
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-        return True
+            payload = http_response.json()
+            success = _check_modify_response(payload.get("records", []))
+        return success
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__}: id={self.id}>"
@@ -2343,32 +2410,46 @@ class PhotosService(BaseService):
         self._upload_hydration_timeout = upload_hydration_timeout
         self._upload_hydration_interval = upload_hydration_interval
         self._shared_streams_url = shared_streams_url
-        self._libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary] | None = None
+        self._libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary] | None" = (
+            None
+        )
         self._legacy_service = None
+        self._root_library: PhotoLibrary | None = None
         shared_streams_album_url = (
             f"{shared_streams_url}/{self.params['dsid']}/sharedstreams/webgetalbumslist"
             if shared_streams_url
             else None
         )
-        self._root_library = PhotoLibrary(
-            self,
-            zone_id=PRIMARY_ZONE,
-            client=self._private_client if _can_use_typed_cloudkit(session) else None,
-            asset_type=PhotoAsset,
-            upload_url=upload_url,
-            photos_upload_url=photos_upload_url,
-            upload_hydration_timeout=upload_hydration_timeout,
-            upload_hydration_interval=upload_hydration_interval,
-            scope="private",
-        )
-        self._shared_library: PhotoStreamLibrary | None = (
+
+        # pylint: disable=import-outside-toplevel
+        from .shared_streams import PhotoStreamLibrary
+
+        self._shared_library: "PhotoStreamLibrary | None" = (
             PhotoStreamLibrary(
-                cast(LegacyPhotosService, self),
+                self,
                 shared_streams_url=shared_streams_album_url,
             )
             if shared_streams_album_url
             else None
         )
+
+    def _get_root_library(self) -> PhotoLibrary:
+        """Build the primary library lazily so shared-only callers still work."""
+        if self._root_library is None:
+            self._root_library = PhotoLibrary(
+                self,
+                zone_id=PRIMARY_ZONE,
+                client=self._private_client
+                if _can_use_typed_cloudkit(self.session)
+                else None,
+                asset_type=PhotoAsset,
+                upload_url=self._upload_url,
+                photos_upload_url=self._photos_upload_url,
+                upload_hydration_timeout=self._upload_hydration_timeout,
+                upload_hydration_interval=self._upload_hydration_interval,
+                scope="private",
+            )
+        return self._root_library
 
     @property
     def private_client(self) -> PhotosCloudKitClient:
@@ -2376,34 +2457,51 @@ class PhotosService(BaseService):
         return self._private_client
 
     @property
-    def libraries(self) -> dict[str, BasePhotoLibrary | PhotoStreamLibrary]:
+    def libraries(self) -> "dict[str, BasePhotoLibrary | PhotoStreamLibrary]":
         """Return the available photo libraries, discovering them on first access."""
-        if self._libraries is None:
-            libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary] = {
-                "root": self._root_library,
-            }
-            if self._shared_library is not None:
-                libraries["shared"] = self._shared_library
+        # pylint: disable=import-outside-toplevel
+
+        if self._libraries is not None:
+            return self._libraries
+
+        libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]" = {}
+        if self._shared_library is not None:
+            libraries["shared"] = self._shared_library
+        try:
+            libraries["root"] = self._get_root_library()
+        except (PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError):
             if _can_use_typed_cloudkit(self.session):
-                self._discover_typed_zones(libraries)
-            else:
-                self._discover_legacy_zones(libraries)
-            self._libraries = libraries
+                self._discover_shared_typed_zones(libraries)
+            if not libraries:
+                raise
+            # Do not cache a partial discovery: private indexing may finish later.
+            return libraries
+        if _can_use_typed_cloudkit(self.session):
+            if not self._discover_typed_zones(libraries):
+                return libraries
+        else:
+            self._discover_legacy_zones(libraries)
+        self._libraries = libraries
         return self._libraries
 
     def _discover_typed_zones(
         self,
-        libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary],
-    ) -> None:
-        """Discover additional private/shared zones via the typed CloudKit client."""
-        private_zones = self._private_client.zones_list()
+        libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
+    ) -> bool:
+        """Discover typed zones, returning whether the result is complete."""
+        try:
+            private_zones = self._private_client.zones_list()
+        except PyiCloudException:  # pylint: disable=broad-exception-caught
+            LOGGER.debug("Private CloudKit photos zones unavailable", exc_info=True)
+            self._discover_shared_typed_zones(libraries)
+            return False
         for zone in private_zones.zones:
             if zone.deleted:
                 continue
             zone_dict = zone.zoneID.model_dump(exclude_none=True)
             zone_name = zone.zoneID.zoneName
             if zone_name == PRIMARY_ZONE["zoneName"]:
-                self._root_library.current_sync_token = zone.syncToken
+                self._get_root_library().current_sync_token = zone.syncToken
                 continue
             key = zone_name
             scope = "private"
@@ -2414,10 +2512,18 @@ class PhotosService(BaseService):
                 self,
                 zone_id=zone_dict,
                 client=self._private_client,
+                upload_url=self._upload_url,
                 upload_hydration_timeout=self._upload_hydration_timeout,
                 upload_hydration_interval=self._upload_hydration_interval,
                 scope=scope,
             )
+        return self._discover_shared_typed_zones(libraries)
+
+    def _discover_shared_typed_zones(
+        self,
+        libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
+    ) -> bool:
+        """Discover shared zones, returning False when discovery needs a retry."""
         try:
             shared_zones = self._shared_client.zones_list()
             for zone in shared_zones.zones:
@@ -2438,10 +2544,12 @@ class PhotosService(BaseService):
                 )
         except PyiCloudException:  # pylint: disable=broad-exception-caught
             LOGGER.debug("Shared CloudKit photos zones unavailable", exc_info=True)
+            return False
+        return True
 
     def _discover_legacy_zones(
         self,
-        libraries: dict[str, BasePhotoLibrary | PhotoStreamLibrary],
+        libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
     ) -> None:
         """Discover additional zones via the legacy REST zones/list endpoint."""
         response = self.session.post(
@@ -2455,7 +2563,7 @@ class PhotosService(BaseService):
             zone_id = zone.get("zoneID", {})
             zone_name = zone_id.get("zoneName")
             if zone_name == PRIMARY_ZONE["zoneName"]:
-                self._root_library.current_sync_token = zone.get("syncToken")
+                self._get_root_library().current_sync_token = zone.get("syncToken")
                 continue
             key = zone_name
             scope = "private"
@@ -2465,6 +2573,7 @@ class PhotosService(BaseService):
             libraries[key] = PhotoLibrary(
                 self,
                 zone_id=zone_id,
+                upload_url=self._upload_url,
                 upload_hydration_timeout=self._upload_hydration_timeout,
                 upload_hydration_interval=self._upload_hydration_interval,
                 scope=scope,
@@ -2473,12 +2582,12 @@ class PhotosService(BaseService):
     @property
     def all(self) -> PhotoAlbum:
         """Return the root library's All Photos album."""
-        return self._root_library.all
+        return self._get_root_library().all
 
     @property
     def albums(self) -> AlbumContainer:
         """Return the root library's albums."""
-        return self._root_library.albums
+        return self._get_root_library().albums
 
     @property
     def shared_streams(self) -> AlbumContainer:
@@ -2502,7 +2611,7 @@ class PhotosService(BaseService):
         album_type: AlbumTypeEnum = AlbumTypeEnum.ALBUM,
     ) -> PhotoAlbum | None:
         """Create a new album in the root library and return it."""
-        return self._root_library.create_album(name, album_type)
+        return self._get_root_library().create_album(name, album_type)
 
     def upload(
         self,
@@ -2518,13 +2627,13 @@ class PhotosService(BaseService):
         """
 
         if album is None:
-            return self._root_library.upload_file(path)
+            return self._get_root_library().upload_file(path)
 
         album_obj: BasePhotoAlbum | None
         if isinstance(album, str):
             album_obj = self.albums.find(album)
             if album_obj is None:
-                album_obj = self._root_library.refresh_albums().find(album)
+                album_obj = self._get_root_library().refresh_albums().find(album)
             if album_obj is None:
                 raise PhotosServiceException(f"No album matched '{album}'")
         else:
@@ -2534,11 +2643,11 @@ class PhotosService(BaseService):
 
     def sync_cursor(self) -> str:
         """Return the root library's current sync cursor."""
-        return self._root_library.sync_cursor()
+        return self._get_root_library().sync_cursor()
 
     def iter_changes(self, *, since: str | None = None) -> Iterator[PhotoChangeEvent]:
         """Yield photo change events from the root library."""
-        yield from self._root_library.iter_changes(since=since)
+        yield from self._get_root_library().iter_changes(since=since)
 
     def sync(self, options: PhotoSyncOptions) -> PhotoSyncResult:
         """Synchronize photo resources into a local output directory."""
@@ -2562,7 +2671,7 @@ class PhotosService(BaseService):
         )
 
     def _upload_into_album(self, album: PhotoAlbum, path: str) -> PhotoAsset | None:
-        photo = self._root_library.upload_file(path)
+        photo = self._get_root_library().upload_file(path)
         if photo is None:
             return None
         if album.id != SmartAlbumEnum.ALL_PHOTOS.value:

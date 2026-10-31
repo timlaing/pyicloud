@@ -11,7 +11,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Added
 
 - Add `CloudKitZoneNotFoundError`, raised when CloudKit reports `ZONE_NOT_FOUND` instead of the generic `CloudKitApiError`, so callers can treat a missing zone (e.g. Reminders not enabled on the account) as a valid account state; it derives from `CloudKitApiError` and keeps the same message and payload, so existing handlers that catch `CloudKitApiError` and look for `ZONE_NOT_FOUND` keep working. The Reminders, Notes, and Invites services re-raise it as `RemindersZoneNotFoundError`, `NotesZoneNotFoundError`, and `InvitesZoneNotFoundError`; each derives from the service's generic API error.
-- Add a Photos error hierarchy following the same convention as the other CloudKit services: `PhotosAuthError`, `PhotosRateLimited`, `PhotosApiError`, and `PhotosZoneNotFoundError`, all deriving from `PhotosServiceException` (and therefore from `PyiCloudException`), exported from `pyicloud.services.photos`. Callers can catch `PhotosZoneNotFoundError` to treat a missing Photos zone as a valid account state; it reaches them while `api.photos` verifies the indexing state as well as from later queries, zone discovery, and writes.
+- Add a Photos error hierarchy following the same convention as the other CloudKit services: `PhotosAuthError`, `PhotosRateLimited`, `PhotosApiError`, and `PhotosZoneNotFoundError`, all deriving from `PhotosServiceException` (and therefore from `PyiCloudException`), exported from `pyicloud.services.photos`. Callers can catch `PhotosZoneNotFoundError` to treat a missing Photos zone as a valid account state; accessing `api.photos` does not raise it, but root-library operations such as indexing checks, queries, zone discovery, and writes can.
 
 ### Changed
 
@@ -19,11 +19,29 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Refactored
 
-- Move each service's exception classes into a dedicated `exceptions` module (`notes`, `reminders`, `invites`, `mail`, `photos_cloudkit`); every previous import path keeps re-exporting the same classes, so existing handlers are unaffected.
+- Move each service's exception classes into a dedicated `exceptions` module (`notes`, `reminders`, `invites`, `mail`, `photos`); supported import paths re-export the same classes.
 - Share the session-error mapping helpers between the Invites and Photos services in a new `pyicloud.common.cloudkit.errors` module: HTTP-status extraction, `Retry-After` parsing, and the unauthorized/rate-limited status constants now live in one place instead of per service.
 - Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.
 
+### Removed
+
+- Remove `pyicloud.services.photos_cloudkit`; use `pyicloud.services.photos` instead.
+
+- Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
+
 ### Fixed
+
+- Preserve cached Photos counts on malformed count refreshes, and use safe metadata defaults for shared-stream records with invalid fields or out-of-range timestamps.
+
+- Read shared-stream REST metadata from nested fields, tolerate malformed like counts, and preserve boolean write results for record-level rejections while propagating transport and account errors. Indexed Photos reads no longer reject available assets based on stale cached counts.
+
+- Retry incomplete Photos library discovery after private or shared zone-list failures, preserving access to available libraries; reject unsupported shared-stream sync cursors without querying private Photos.
+
+- Discover shared CloudKit libraries even when the private Photos library is not indexed or its zone is missing, and report a clear error for unsupported shared-stream change feeds.
+
+- Keep shared photo streams on their REST transport, reject non-positive shared-album page sizes, and allow shared-library access while private Photos indexing is unavailable.
+
+- Stop shared-album pagination on an empty page, so iterating a `SharedPhotoStreamAlbum` with `page_size=1` ends after the last photo instead of re-requesting the same offset indefinitely.
 
 - Give `mail delete-forever` actionable folder-refresh guidance when UID validity is missing instead of suggesting its unavailable `--limit` option.
 - Preserve MIME parameters and repeated filenames for distinct source attachments in forward drafts while retaining strict upload validation and exact source-part checks.

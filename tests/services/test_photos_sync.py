@@ -22,9 +22,9 @@ from pyicloud.services.photos import (
     run_photo_sync,
     watch_photo_sync,
 )
-from pyicloud.services.photos_cloudkit import materialize as materialize_module
-from pyicloud.services.photos_cloudkit import sync as sync_module
-from pyicloud.services.photos_cloudkit.state import (
+from pyicloud.services.photos import materialize as materialize_module
+from pyicloud.services.photos import sync as sync_module
+from pyicloud.services.photos.state import (
     MemoryPhotoSyncState,
     SQLitePhotoSyncState,
     SyncedPhotoResource,
@@ -437,7 +437,7 @@ def test_run_photo_sync_skips_resource_when_safe_target_path_rejects() -> None:
             return original_safe_target_path(directory, relative_path)
 
         with patch(
-            "pyicloud.services.photos_cloudkit.sync._safe_target_path",
+            "pyicloud.services.photos.sync._safe_target_path",
             side_effect=reject_one_path,
         ):
             result = run_photo_sync(
@@ -953,9 +953,9 @@ def test_apply_local_metadata_skips_mutations_for_preview_modes() -> None:
     ):
         with (
             patch(
-                "pyicloud.services.photos_cloudkit.sync.set_exif_datetime_if_missing"
+                "pyicloud.services.photos.sync.set_exif_datetime_if_missing"
             ) as set_exif,
-            patch("pyicloud.services.photos_cloudkit.sync.write_xmp_sidecar") as xmp,
+            patch("pyicloud.services.photos.sync.write_xmp_sidecar") as xmp,
         ):
             sync_module._apply_local_metadata(
                 asset=asset,

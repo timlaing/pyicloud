@@ -108,6 +108,7 @@ preview=true
 
 [tool.ruff.lint]
 preview=true
+
 select = [
     "E",    # pycodestyle errors
     "W",    # pycodestyle warnings
@@ -121,6 +122,10 @@ ignore = [
     "E501",   # line too long (handled by formatter)
     "UP007",  # use X | Y for union types (HA uses Optional in some places)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Keep forward references for the runtime circular import with shared_streams.
+"pyicloud/services/photos/service.py" = ["UP037"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyicloud", "tests"]
