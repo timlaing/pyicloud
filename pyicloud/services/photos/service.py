@@ -59,6 +59,7 @@ from .exceptions import (
     PhotosApiError,
     PhotosRateLimited,
     PhotosServiceException,
+    PhotosZoneNotFoundError,
 )
 from .mappers import (
     _master_asset_groups,
@@ -2456,7 +2457,9 @@ class PhotosService(BaseService):
                 libraries["shared"] = self._shared_library
             try:
                 libraries["root"] = self._get_root_library()
-            except PyiCloudServiceNotActivatedException:
+            except (PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError):
+                if _can_use_typed_cloudkit(self.session):
+                    self._discover_shared_typed_zones(libraries)
                 if not libraries:
                     raise
                 # Do not cache a partial discovery: private indexing may finish later.
@@ -2496,6 +2499,13 @@ class PhotosService(BaseService):
                 upload_hydration_interval=self._upload_hydration_interval,
                 scope=scope,
             )
+        self._discover_shared_typed_zones(libraries)
+
+    def _discover_shared_typed_zones(
+        self,
+        libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
+    ) -> None:
+        """Discover shared zones independently of private library availability."""
         try:
             shared_zones = self._shared_client.zones_list()
             for zone in shared_zones.zones:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from typing import Any, cast
 from urllib.parse import urlencode
@@ -15,6 +16,8 @@ from .constants import (
     DirectionEnum,
     ListTypeEnum,
 )
+from .exceptions import PhotosServiceException
+from .models import PhotoChangeEvent
 
 # Import base classes at runtime to break circular import
 from .service import (
@@ -49,6 +52,10 @@ class PhotoStreamLibrary(BasePhotoLibrary):
         )
         self._client = None
         self.shared_streams_url: str = shared_streams_url
+
+    def iter_changes(self, *, since: str | None = None) -> Iterator[PhotoChangeEvent]:
+        """Shared streams do not expose a CloudKit change feed."""
+        raise PhotosServiceException("Shared photo streams do not support change feeds")
 
     def _get_albums(self) -> AlbumContainer:
         """Returns albums from the shared streams endpoint."""

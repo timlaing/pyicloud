@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pyicloud.services.photos.constants import DirectionEnum
+from pyicloud.services.photos.exceptions import PhotosServiceException
 from pyicloud.services.photos.shared_streams import (
     PhotoStreamAsset,
     PhotoStreamLibrary,
@@ -578,8 +579,19 @@ def test_shared_stream_transport_and_page_size(page_size: int) -> None:
             service.session.post.assert_not_called()
             return
         album = SharedPhotoStreamAlbum(**kwargs)
-        service.session.post.return_value.json.return_value = {"records": []}
-        assert not list(album._get_photos_at(3, DirectionEnum.ASCENDING, page_size))
+        service.session.post.return_value.json.return_value = {
+            "records": [
+                {"recordName": "master123", "recordType": "CPLMaster", "fields": {}},
+                {
+                    "recordName": "asset123",
+                    "recordType": "CPLAsset",
+                    "fields": {"masterRef": {"value": {"recordName": "master123"}}},
+                },
+            ]
+        }
+        photos = list(album._get_photos_at(3, DirectionEnum.ASCENDING, page_size))
+        assert [photo.id for photo in photos] == ["asset123"]
+        assert isinstance(photos[0], PhotoStreamAsset)
         service.session.post.assert_called_once_with(
             url="https://shared.example.com/webgetassets?dsid=12345",
             json={
@@ -590,3 +602,12 @@ def test_shared_stream_transport_and_page_size(page_size: int) -> None:
             },
             headers={"Content-Type": "plain/text"},
         )
+
+
+def test_shared_stream_changes_are_unsupported() -> None:
+    """Shared streams report an actionable error without making a request."""
+    service = MockService()
+    library = PhotoStreamLibrary(service, "https://shared.example.com/albums")
+    with pytest.raises(PhotosServiceException, match="do not support change feeds"):
+        list(library.iter_changes(since="cursor"))
+    service.session.post.assert_not_called()

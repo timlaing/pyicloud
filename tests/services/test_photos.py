@@ -6089,7 +6089,12 @@ def test_photo_asset_download_url_default_parameter() -> None:
     assert asset.download_url() == "http://example.com/original.jpg"
 
 
-def test_shared_libraries_remain_available_during_private_indexing() -> None:
+@pytest.mark.parametrize(
+    "error_type", [PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError]
+)
+def test_shared_libraries_remain_available_during_private_indexing(
+    error_type: type[Exception],
+) -> None:
     """Partial discovery preserves shared access and retries private indexing."""
     service = PhotosService(
         service_root="https://example.com",
@@ -6101,15 +6106,89 @@ def test_shared_libraries_remain_available_during_private_indexing() -> None:
     with patch.object(
         service,
         "_get_root_library",
-        side_effect=PyiCloudServiceNotActivatedException("Not indexed"),
+        side_effect=error_type("Private library unavailable"),
     ):
         assert service.libraries == {"shared": service._shared_library}
         assert service._libraries is None
         service._shared_library = None
-        with pytest.raises(PyiCloudServiceNotActivatedException):
+        with pytest.raises(error_type):
             _ = service.libraries
     with (
         patch.object(service, "_get_root_library") as root,
         patch.object(service, "_discover_legacy_zones"),
     ):
         assert service.libraries == {"root": root.return_value}
+
+
+@pytest.mark.parametrize(
+    "error_type", [PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError]
+)
+@pytest.mark.parametrize("shared_streams", [False, True])
+def test_shared_cloudkit_discovery_without_private_library(
+    error_type: type[Exception], shared_streams: bool
+) -> None:
+    """Shared CloudKit zones stay accessible independently of private indexing."""
+    service = PhotosService(
+        service_root="https://example.com",
+        session=MagicMock(),
+        params={"dsid": "12345"},
+        upload_url=None,
+        shared_streams_url="https://shared.example.com" if shared_streams else None,
+    )
+    shared_client = MagicMock()
+    shared_client.zones_list.return_value = CKZoneListResponse.model_validate({
+        "zones": [{"zoneID": {"zoneName": "Family"}, "syncToken": "shared-token"}]
+    })
+    private_client = MagicMock()
+    service._shared_client = shared_client
+    service._private_client = private_client
+    with (
+        patch.object(
+            service, "_get_root_library", side_effect=error_type("Unavailable")
+        ),
+        patch(
+            "pyicloud.services.photos.service._can_use_typed_cloudkit",
+            return_value=True,
+        ),
+        patch.object(BasePhotoLibrary, "_ensure_indexing_ready"),
+    ):
+        libraries = service.libraries
+    shared = libraries["shared:Family"]
+    assert isinstance(shared, PhotoLibrary)
+    assert shared._client is shared_client
+    assert shared.scope == "shared-library"
+    assert ("shared" in libraries) is shared_streams
+    assert "root" not in libraries
+    assert service._libraries is None
+    private_client.zones_list.assert_not_called()
+    shared_client.zones_list.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "error_type", [PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError]
+)
+def test_recovered_libraries_keep_configured_shared_library(
+    error_type: type[Exception],
+) -> None:
+    """Successful rediscovery retains shared streams and caches both libraries."""
+    service = PhotosService(
+        service_root="https://example.com",
+        session=MagicMock(),
+        params={"dsid": "12345"},
+        upload_url=None,
+        shared_streams_url="https://shared.example.com",
+    )
+    shared_library = service._shared_library
+    with patch.object(
+        service, "_get_root_library", side_effect=error_type("Unavailable")
+    ):
+        assert service.libraries == {"shared": shared_library}
+        assert service._libraries is None
+    with (
+        patch.object(service, "_get_root_library") as root,
+        patch.object(service, "_discover_legacy_zones"),
+    ):
+        libraries = service.libraries
+        assert libraries == {"shared": shared_library, "root": root.return_value}
+        assert service.libraries is libraries
+        root.assert_called_once()
