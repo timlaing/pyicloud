@@ -2451,25 +2451,27 @@ class PhotosService(BaseService):
         """Return the available photo libraries, discovering them on first access."""
         # pylint: disable=import-outside-toplevel
 
-        if self._libraries is None:
-            libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]" = {}
-            if self._shared_library is not None:
-                libraries["shared"] = self._shared_library
-            try:
-                libraries["root"] = self._get_root_library()
-            except (PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError):
-                if _can_use_typed_cloudkit(self.session):
-                    self._discover_shared_typed_zones(libraries)
-                if not libraries:
-                    raise
-                # Do not cache a partial discovery: private indexing may finish later.
-                return libraries
+        if self._libraries is not None:
+            return self._libraries
+
+        libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]" = {}
+        if self._shared_library is not None:
+            libraries["shared"] = self._shared_library
+        try:
+            libraries["root"] = self._get_root_library()
+        except (PyiCloudServiceNotActivatedException, PhotosZoneNotFoundError):
             if _can_use_typed_cloudkit(self.session):
-                if not self._discover_typed_zones(libraries):
-                    return libraries
-            else:
-                self._discover_legacy_zones(libraries)
-            self._libraries = libraries
+                self._discover_shared_typed_zones(libraries)
+            if not libraries:
+                raise
+            # Do not cache a partial discovery: private indexing may finish later.
+            return libraries
+        if _can_use_typed_cloudkit(self.session):
+            if not self._discover_typed_zones(libraries):
+                return libraries
+        else:
+            self._discover_legacy_zones(libraries)
+        self._libraries = libraries
         return self._libraries
 
     def _discover_typed_zones(
