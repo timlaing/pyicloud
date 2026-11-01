@@ -45,6 +45,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Recover from persisted session JSON rejected by the parser's integer-size limit without exposing saved values or losing independently valid cookies.
 - Recover from non-object, malformed or invalidly encoded session JSON without discarding valid cookies; distinguish missing and unreadable session files in safe diagnostics.
 - Replace session and cookie files atomically after successful writes, preserving the previous file on write failures and restricting replacement files to owner access on POSIX systems.
+- Keep authentication staging filenames short so valid near-limit destination names remain saveable.
 
 - Preserve cached Photos counts on malformed count refreshes, and use safe metadata defaults for shared-stream records with invalid fields or out-of-range timestamps.
 

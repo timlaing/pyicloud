@@ -15,7 +15,7 @@ def atomic_path(filename: str) -> Generator[str, None, None]:
     """
     destination = os.path.abspath(filename)
     descriptor, temporary = tempfile.mkstemp(
-        prefix=f".{os.path.basename(destination)}.",
+        prefix=".pyicloud-",
         suffix=".tmp",
         dir=os.path.dirname(destination),
     )

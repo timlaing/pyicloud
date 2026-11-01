@@ -40,6 +40,20 @@ def directory_fixture() -> Iterator[Path]:
         directory.rmdir()
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX filesystem component limits")
+def test_long_destination_basename_keeps_staging_name_bounded(directory: Path) -> None:
+    """A valid near-limit destination must not acquire a longer staging basename."""
+    destination = directory / ("x" * 250)
+    destination.write_text("previous", encoding="utf-8")
+    with atomic_path(str(destination)) as temporary:
+        staged = Path(temporary)
+        assert staged.parent == directory
+        assert len(staged.name) < 40
+        staged.write_text("replacement", encoding="utf-8")
+    assert destination.read_text(encoding="utf-8") == "replacement"
+    assert list(directory.iterdir()) == [destination]
+
+
 @pytest.mark.parametrize("existing", [False, True])
 @pytest.mark.parametrize("failure", ["write", "replace"])
 def test_atomic_failure_preserves_destination(
