@@ -46,7 +46,15 @@ class UrgentPresentationAlarms(FrozenServiceModel):
     checksum: str | None = None
 
 
-class Reminder(MutableServiceModel):
+class ZonedRemindersRecord(MutableServiceModel):
+    """A record's database scope and zone identity, retained for later operations."""
+
+    scope: str = "private"
+    zone_name: str = "Reminders"
+    zone_owner: str | None = None
+
+
+class Reminder(ZonedRemindersRecord):
     """A reminder in a reminders list with metadata and related IDs."""
 
     id: str
@@ -93,13 +101,10 @@ class ReminderChangeEvent(FrozenServiceModel):
     reminder: Reminder | None = None
 
 
-class RemindersList(MutableServiceModel):
+class RemindersList(ZonedRemindersRecord):
     """A collection of reminders with list metadata."""
 
     id: str
-    scope: str = "private"
-    zone_name: str = "Reminders"
-    zone_owner: str | None = None
     title: str
     color: str | None = None
     count: int = 0
@@ -115,7 +120,7 @@ class RemindersList(MutableServiceModel):
 # --- Alarm records ---
 
 
-class Alarm(MutableServiceModel):
+class Alarm(ZonedRemindersRecord):
     """Container for alarm triggers, referenced by Reminder.alarm_ids."""
 
     id: str
@@ -132,7 +137,7 @@ class Proximity(IntEnum):
     LEAVING = 2
 
 
-class LocationTrigger(MutableServiceModel):
+class LocationTrigger(ZonedRemindersRecord):
     """Location-based alarm trigger (geofence)."""
 
     id: str
@@ -175,7 +180,7 @@ class DateComponents(FrozenServiceModel):
     time_zone: str | None = None
 
 
-class DateTrigger(MutableServiceModel):
+class DateTrigger(ZonedRemindersRecord):
     """Date-based (temporal) alarm trigger."""
 
     id: str
@@ -187,7 +192,7 @@ class DateTrigger(MutableServiceModel):
 # --- Attachment records ---
 
 
-class URLAttachment(MutableServiceModel):
+class URLAttachment(ZonedRemindersRecord):
     """URL attachment on a reminder."""
 
     id: str
@@ -197,7 +202,7 @@ class URLAttachment(MutableServiceModel):
     record_change_tag: str | None = None
 
 
-class ImageAttachment(MutableServiceModel):
+class ImageAttachment(ZonedRemindersRecord):
     """Image attachment on a reminder."""
 
     id: str
@@ -214,7 +219,7 @@ class ImageAttachment(MutableServiceModel):
 # --- Hashtag records ---
 
 
-class Hashtag(MutableServiceModel):
+class Hashtag(ZonedRemindersRecord):
     """Tag associated with a reminder."""
 
     id: str
@@ -243,7 +248,7 @@ class RecurrenceFrequency(IntEnum):
     YEARLY = 3
 
 
-class RecurrenceRule(MutableServiceModel):
+class RecurrenceRule(ZonedRemindersRecord):
     """Recurrence rule for a repeating reminder."""
 
     id: str

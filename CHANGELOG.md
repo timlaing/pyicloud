@@ -50,6 +50,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Preserve authentication destination symlinks by atomically updating their resolved targets.
 - Reject cyclic authentication destination symlinks before staging and document the writable target-directory requirement for atomic saves.
 
+- Discover uncached Reminders list IDs before selecting their database scope, so shared-list queries work on fresh service instances.
+- Preserve Reminders lists and reminders with identical IDs in different zones; accept a full list model for unambiguous queries and reject ambiguous string list IDs.
+- Retain shared Reminders zone metadata for reminder updates, deletions, and related-record operations; allow single-reminder lookups with explicit list context.
+- Continue discovering shared Reminders lists when an individual shared zone is unavailable, while propagating authentication failures.
 - Preserve cached Photos counts on malformed count refreshes, and use safe metadata defaults for shared-stream records with invalid fields or out-of-range timestamps.
 
 - Read shared-stream REST metadata from nested fields, tolerate malformed like counts, and preserve boolean write results for record-level rejections while propagating transport and account errors. Indexed Photos reads no longer reject available assets based on stale cached counts.

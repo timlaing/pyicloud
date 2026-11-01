@@ -38,6 +38,7 @@ repos:
           - --no-progress
           - --no-summary
       - id: cspell # Spell check the commit message
+        language_version: 22.18.0
         name: check commit message spelling
         args:
           - --no-must-find-files

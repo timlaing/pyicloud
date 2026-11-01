@@ -63,7 +63,7 @@ def test_reminders_service_reminders_aggregates_list_snapshots(
 
     assert list(service.reminders()) == [reminder]
     list_reminders_mock.assert_called_once_with(
-        list_id=list_id,
+        list_id=RemindersList(id=list_id, title="Work"),
         include_completed=True,
         results_limit=200,
     )
