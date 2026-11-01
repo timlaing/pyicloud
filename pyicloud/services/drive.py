@@ -206,6 +206,9 @@ class DriveService(BaseService):
         **kwargs: Any,
     ) -> None:
         """Send new file to iCloud Drive."""
+        # This public option was historically ignored; keep it from colliding
+        # with the private helper's operation-local parameter snapshot.
+        kwargs.pop("request_params", None)
         # Keep the upload token on both document requests, without changing the
         # dictionary shared with the account and its other services. Use one
         # snapshot even if an HTTP response refreshes the cookie jar mid-upload.

@@ -14,6 +14,7 @@ from pyicloud.services.base import BaseService
 from pyicloud.services.drive import (
     CLOUD_DOCS_ZONE,
     COOKIE_APPLE_WEBAUTH_VALIDATE,
+    DriveNode,
     DriveService,
 )
 
@@ -146,3 +147,53 @@ def test_preparation_alone_preserves_shared_parameters(
     assert drive.params == original
     assert transport.call_args.kwargs["params"] == {**original, "token": "768y9u"}
     assert transport.call_args.kwargs["params"] is not drive.params
+
+
+@pytest.mark.parametrize("through_node", [False, True])
+def test_upload_ignores_caller_request_params(
+    mock_service_with_cookies: PyiCloudService, through_node: bool
+) -> None:
+    """Unknown public options cannot collide with the internal parameter snapshot."""
+    drive = mock_service_with_cookies.drive
+    original = dict(drive.params)
+    ignored_params = {"token": "caller-supplied"}
+    responses = [
+        [{"document_id": "document", "url": "https://content.example.test/upload"}],
+        {
+            "singleFile": {
+                "fileChecksum": "sum",
+                "wrappingKey": "key",
+                "referenceChecksum": "ref",
+                "size": 0,
+            }
+        },
+        {"status": "OK"},
+    ]
+    with (
+        patch.object(
+            drive.session,
+            "post",
+            side_effect=[
+                Mock(ok=True, json=lambda value=value: value) for value in responses
+            ],
+        ) as transport,
+        patch("mimetypes.guess_type", return_value=("application/octet-stream", None)),
+    ):
+        if through_node:
+            node = DriveNode(drive, {"docwsid": "folder", "zone": CLOUD_DOCS_ZONE})
+            node.upload(UploadFile(), request_params=ignored_params, mtime=1, ctime=2)
+        else:
+            drive.send_file(
+                "folder", UploadFile(), request_params=ignored_params, mtime=1, ctime=2
+            )
+
+    assert transport.call_count == 3
+    finalisation = transport.call_args_list[2]
+    assert finalisation.args == (
+        drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
+    )
+    assert finalisation.kwargs["params"] == {**original, "token": "768y9u"}
+    assert finalisation.kwargs["json"]["mtime"] == 1000
+    assert finalisation.kwargs["json"]["btime"] == 2000
+    assert drive.params == original
+    assert ignored_params == {"token": "caller-supplied"}
