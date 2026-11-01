@@ -40,6 +40,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Keep Drive upload tokens local to each upload while preserving preparation and finalisation request parameters; uploads no longer add credentials to shared service parameters.
+
 - Preserve cached Photos counts on malformed count refreshes, and use safe metadata defaults for shared-stream records with invalid fields or out-of-range timestamps.
 
 - Read shared-stream REST metadata from nested fields, tolerate malformed like counts, and preserve boolean write results for record-level rejections while propagating transport and account errors. Indexed Photos reads no longer reject available assets based on stale cached counts.

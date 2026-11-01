@@ -117,6 +117,7 @@ class DriveService(BaseService):
         self,
         file_object: IO[bytes],
         zone: str = CLOUD_DOCS_ZONE,
+        request_params: dict[str, Any] | None = None,
     ) -> tuple[str, str]:
         """Get the contentWS endpoint URL to add a new file."""
 
@@ -130,8 +131,11 @@ class DriveService(BaseService):
         file_size: int = file_object.tell()
         file_object.seek(orig_pos, os.SEEK_SET)
 
-        file_params: dict[str, Any] = self.params
-        file_params.update(self._get_token_from_cookie())
+        file_params: dict[str, Any] = dict(
+            self.params if request_params is None else request_params
+        )
+        if request_params is None:
+            file_params.update(self._get_token_from_cookie())
 
         request: Response = self.session.post(
             self._document_root + f"/ws/{zone}/upload/web",
@@ -154,6 +158,7 @@ class DriveService(BaseService):
         document_id: str,
         file_object: IO[bytes],
         zone: str = CLOUD_DOCS_ZONE,
+        request_params: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Any:
         data: dict[str, Any] = {
@@ -186,7 +191,7 @@ class DriveService(BaseService):
 
         request: Response = self.session.post(
             self._document_root + f"/ws/{zone}/update/documents",
-            params=self.params,
+            params=self.params if request_params is None else request_params,
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=data,
         )
@@ -201,8 +206,13 @@ class DriveService(BaseService):
         **kwargs: Any,
     ) -> None:
         """Send new file to iCloud Drive."""
+        # Keep the upload token on both document requests, without changing the
+        # dictionary shared with the account and its other services. Use one
+        # snapshot even if an HTTP response refreshes the cookie jar mid-upload.
+        upload_params = dict(self.params)
+        upload_params.update(self._get_token_from_cookie())
         document_id, content_url = self._get_upload_contentws_url(
-            file_object=file_object, zone=zone
+            file_object, zone, upload_params
         )
 
         request: Response = self.session.post(
@@ -216,6 +226,7 @@ class DriveService(BaseService):
             document_id,
             file_object,
             zone,
+            upload_params,
             **kwargs,
         )
 
