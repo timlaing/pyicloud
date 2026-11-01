@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 import requests
 from requests.models import Response
 
+from pyicloud._atomic import atomic_path
 from pyicloud.const import (
     CONTENT_TYPE,
     CONTENT_TYPE_JSON,
@@ -166,7 +167,10 @@ class PyiCloudSession(requests.Session):
         """Save session_data to file."""
         if self._cookie_directory and not os.path.isdir(self._cookie_directory):
             os.makedirs(self._cookie_directory, exist_ok=True)
-        with open(self.session_path, "w", encoding="utf-8") as outfile:
+        with (
+            atomic_path(self.session_path) as temporary,
+            open(temporary, "w", encoding="utf-8") as outfile,
+        ):
             # Copy to avoid dict mutation during concurrent access
             dump(
                 {

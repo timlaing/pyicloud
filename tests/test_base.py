@@ -520,6 +520,7 @@ def test_validate_2fa_code_legacy_409_uses_security_code_verdict(
     [pytest.param(True, True, id="valid"), pytest.param(False, False, id="invalid")],
 )
 def test_validate_2fa_code_legacy_hsa2_409_through_session(
+    _mock_atomic_paths: None,
     pyicloud_service: PyiCloudService,
     monkeypatch: pytest.MonkeyPatch,
     valid: bool,
@@ -623,6 +624,7 @@ def test_validate_2fa_code_sms_409_uses_security_code_verdict(
     [pytest.param(True, True, id="valid"), pytest.param(False, False, id="invalid")],
 )
 def test_validate_2fa_code_sms_hsa2_409_through_session(
+    _mock_atomic_paths: None,
     pyicloud_service: PyiCloudService,
     monkeypatch: pytest.MonkeyPatch,
     valid: bool,
@@ -680,6 +682,7 @@ def test_validate_2fa_code_sms_hsa2_409_through_session(
     ],
 )
 def test_validate_2fa_code_sms_412_repair_through_session(
+    _mock_atomic_paths: None,
     pyicloud_service: PyiCloudService,
     monkeypatch: pytest.MonkeyPatch,
     headers: dict[str, str],
@@ -1972,7 +1975,9 @@ def test_is_trusted_session_property(pyicloud_service: PyiCloudService) -> None:
     assert not pyicloud_service.is_trusted_session
 
 
-def test_request_success(pyicloud_service_working: PyiCloudService) -> None:
+def test_request_success(
+    _mock_atomic_paths: None, pyicloud_service_working: PyiCloudService
+) -> None:
     """Test the request method with a successful response."""
     with (
         patch("requests.Session.request") as mock_request,
@@ -2088,7 +2093,9 @@ def test_session_persistence_excludes_trusted_device_bridge_state(
             assert secret_value not in persisted_cookiejar
 
 
-def test_request_failure(pyicloud_service_working: PyiCloudService) -> None:
+def test_request_failure(
+    _mock_atomic_paths: None, pyicloud_service_working: PyiCloudService
+) -> None:
     """Test the request method with a failure response."""
 
     with (
@@ -2170,6 +2177,7 @@ def test_describe_endpoint_is_safe_to_quote(url: str | bytes, expected: str) -> 
 
 @pytest.mark.parametrize("json_body", [True, False])
 def test_request_reports_a_withdrawn_endpoint(
+    _mock_atomic_paths: None,
     pyicloud_service_working: PyiCloudService,
     json_body: bool,
 ) -> None:
@@ -2251,7 +2259,9 @@ def test_request_raw_normalizes_transport_failure(
             pyicloud_session.request_raw("GET", "https://example.com")
 
 
-def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) -> None:
+def test_request_with_custom_headers(
+    _mock_atomic_paths: None, pyicloud_service_working: PyiCloudService
+) -> None:
     """Test the request method with custom headers."""
     with (
         patch("requests.Session.request") as mock_request,
@@ -2296,7 +2306,9 @@ def test_request_with_custom_headers(pyicloud_service_working: PyiCloudService) 
         mock_save.assert_called_once()
 
 
-def test_request_error_handling_for_response_conditions() -> None:
+def test_request_error_handling_for_response_conditions(
+    _mock_atomic_paths: None,
+) -> None:
     """Mock the get_webservice_url to return a valid fmip_url."""
     pyicloud_service = MagicMock(spec=PyiCloudService)
     with (  # noqa: S5778

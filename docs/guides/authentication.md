@@ -1,5 +1,13 @@
 # Authentication
 
+Session and cookie writes use separate temporary files in the same directory,
+closed before atomic replacement. On POSIX, replacements are owner-readable and
+owner-writable only. This protects the previous file from failed writes, but it
+is not a transaction across both files and does not call `fsync`: power-loss
+durability is not guaranteed. Use one owning process per cookie directory;
+atomic replacement does not prevent stale writers or make shared sessions
+thread-safe. Store the directory in a private location you control.
+
 [← Back to the documentation index](../index.md)
 
 Authentication without using a saved password is as simple as passing your username and password to the `PyiCloudService` class:

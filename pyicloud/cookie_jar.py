@@ -5,6 +5,8 @@ from http.cookiejar import Cookie, LWPCookieJar
 
 from requests.cookies import RequestsCookieJar
 
+from pyicloud._atomic import atomic_path
+
 _FMIP_AUTH_COOKIE_NAME: str = "X-APPLE-WEBAUTH-FMIP"
 
 
@@ -72,12 +74,13 @@ class PyiCloudCookieJar(RequestsCookieJar, LWPCookieJar):
         # when concurrent HTTP responses modify the cookie jar
         try:
             temp_jar: PyiCloudCookieJar = self.copy()
-            LWPCookieJar.save(
-                temp_jar,
-                filename=resolved,
-                ignore_discard=ignore_discard,
-                ignore_expires=ignore_expires,
-            )
+            with atomic_path(resolved) as temporary:
+                LWPCookieJar.save(
+                    temp_jar,
+                    filename=temporary,
+                    ignore_discard=ignore_discard,
+                    ignore_expires=ignore_expires,
+                )
         except RuntimeError:
             # If we still hit a race, silently skip this save
             pass

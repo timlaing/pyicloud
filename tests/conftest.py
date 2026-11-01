@@ -4,7 +4,7 @@
 # pylint: disable=redefined-outer-name
 
 from collections.abc import Generator, Iterator
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import ExitStack, contextmanager, nullcontext, suppress
 from contextvars import ContextVar
 import io
 import os
@@ -39,6 +39,13 @@ from tests.fixture_loader import fixture_read_allowed
 
 BUILTINS_OPEN: str = "builtins.open"
 EXAMPLE_DOMAIN: str = "https://example.com"
+
+
+@pytest.fixture
+def _mock_atomic_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock staging only in tests that already mock all persistence file I/O."""
+    monkeypatch.setattr("pyicloud.session.atomic_path", nullcontext)
+    monkeypatch.setattr("pyicloud.cookie_jar.atomic_path", nullcontext)
 
 
 class FileSystemAccessError(Exception):
