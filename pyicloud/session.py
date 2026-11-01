@@ -143,12 +143,24 @@ class PyiCloudSession(requests.Session):
         self._data = {}
         try:
             with open(self.session_path, encoding="utf-8") as session_f:
-                self._data = load(session_f)
-        except (
-            JSONDecodeError,
-            OSError,
-        ):
+                data = load(session_f)
+            if isinstance(data, dict):
+                self._data = data
+            else:
+                self._logger.info(
+                    "Session file is not a JSON object; ignoring persisted state"
+                )
+        except FileNotFoundError:
             self._logger.info("Session file does not exist")
+        except ValueError:
+            # Includes JSONDecodeError, UnicodeDecodeError, and JSON integer limits.
+            self._logger.info(
+                "Session file has invalid JSON or encoding; ignoring persisted state"
+            )
+        except OSError:
+            self._logger.info(
+                "Session file could not be read; ignoring persisted state"
+            )
 
     def _save_session_data(self) -> None:
         """Save session_data to file."""
