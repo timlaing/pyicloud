@@ -26,6 +26,7 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
+          - "3.15"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -59,6 +60,24 @@ jobs:
             --cov-report=xml:coverage.xml \
             --timeout=30
 
+      - name: Check installed distributions on Python 3.15
+        if: matrix.python-version == '3.15'
+        run: |
+          set -euo pipefail
+          .venv/bin/pip install build
+          .venv/bin/python -m build
+          CHECK_SCRIPT="$PWD/scripts/check/installed.py"
+          SMOKE_ROOT="$(mktemp -d "$RUNNER_TEMP/pyicloud-installed.XXXXXX")"
+          python -m venv "$SMOKE_ROOT/runtime"
+          "$SMOKE_ROOT/runtime/bin/pip" install dist/*.whl
+          python -m venv "$SMOKE_ROOT/cli"
+          WHEEL=("$PWD"/dist/*.whl)
+          "$SMOKE_ROOT/cli/bin/pip" install "${WHEEL[0]}[cli]"
+          cd "$SMOKE_ROOT"
+          "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT"
+          "$SMOKE_ROOT/cli/bin/python" -I "$CHECK_SCRIPT" --cli
+
+      # Keep one report per run, from a version supported by the Sonar analyzer.
       - name: Upload coverage report
         if: matrix.python-version == '3.14'
         uses: actions/upload-artifact@v7
