@@ -47,8 +47,9 @@ def test_signature_regressions_are_detected(
 
 def test_missing_supported_symbol_fails() -> None:
     """A removed root export must not be blessed by generating a new baseline."""
+    manifest = baseline()
     with patch("pyicloud.PyiCloudService", None), pytest.raises(TypeError):
-        check_manifest(baseline())
+        check_manifest(manifest)
 
 
 def test_exception_regression_fails() -> None:
