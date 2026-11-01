@@ -97,6 +97,9 @@ class RemindersList(MutableServiceModel):
     """A collection of reminders with list metadata."""
 
     id: str
+    scope: str = "private"
+    zone_name: str = "Reminders"
+    zone_owner: str | None = None
     title: str
     color: str | None = None
     count: int = 0

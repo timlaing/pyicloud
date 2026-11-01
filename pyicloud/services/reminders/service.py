@@ -110,12 +110,24 @@ class RemindersService(BaseService):
             base_params,
             validation_extra=cloudkit_validation_extra,
         )
+        shared_endpoint = (
+            f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}/shared"
+        )
+        self._shared_raw = CloudKitRemindersClient(
+            shared_endpoint,
+            session,
+            base_params,
+            validation_extra=cloudkit_validation_extra,
+        )
+        self._list_zones: dict[str, tuple[str, str, str | None]] = {}
 
         def get_raw() -> CloudKitRemindersClient:
             return self._raw
 
         self._mapper = RemindersRecordMapper(get_raw, LOGGER)
-        self._reads = RemindersReadAPI(get_raw, self._mapper, LOGGER)
+        self._reads = RemindersReadAPI(
+            get_raw, self._mapper, LOGGER, lambda: self._shared_raw
+        )
         self._writes = RemindersWriteAPI(
             get_raw,
             self._mapper,
@@ -130,7 +142,17 @@ class RemindersService(BaseService):
         Use this to discover available lists and obtain the ``list_id`` values
         needed by creation and query helpers.
         """
-        return self._reads.lists()
+
+        def iter_lists() -> Iterable[RemindersList]:
+            for item in self._reads.lists():
+                self._list_zones[item.id] = (
+                    item.scope,
+                    item.zone_name,
+                    item.zone_owner,
+                )
+                yield item
+
+        return iter_lists()
 
     def reminders(
         self,
@@ -431,10 +453,16 @@ class RemindersService(BaseService):
         The result includes the list's reminders plus related alarms,
         triggers, attachments, hashtags, and recurrence rules keyed by ID.
         """
+        scope, zone_name, zone_owner = self._list_zones.get(
+            list_id, ("private", "Reminders", None)
+        )
         return self._reads.list_reminders(
             list_id=list_id,
             include_completed=include_completed,
             results_limit=results_limit,
+            scope=scope,
+            zone_name=zone_name,
+            zone_owner=zone_owner,
         )
 
     def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:

@@ -34,6 +34,8 @@ from pyicloud.common.cloudkit import (
     CKZoneChangesZoneReq,
     CKZoneID,
     CKZoneIDReq,
+    CKZoneListResponse,
+    CKZoneListZone,
 )
 from pyicloud.common.cloudkit.base import resolve_cloudkit_validation_extra
 from pyicloud.common.cloudkit.models import CKStringListField
@@ -2745,10 +2747,43 @@ class TestReminderReadPaths:
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(zones=[])
 
         out = list(svc.lists())
         assert not out
         assert svc._raw.changes.call_count == 1
+        svc._shared_raw.zones_list.assert_called_once_with()
+
+    def test_lists_includes_lists_from_shared_zones(self) -> None:
+        """Shared list discovery reads each zone and retains its routing data."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        shared_zone = CKZoneID(
+            zoneName="Reminders",
+            ownerRecordName="OWNER",
+            zoneType="REGULAR_CUSTOM_ZONE",
+        )
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(
+            zones=[CKZoneListZone(zoneID=shared_zone)]
+        )
+        svc._shared_raw.changes.return_value = self._changes_response(
+            [_ck_record("List", "List/SHARED", {"Name": {"value": "Shared"}})],
+            sync_token="shared-token",
+            more_coming=False,
+        )
+
+        lists = list(svc.lists())
+
+        assert len(lists) == 1
+        assert (lists[0].scope, lists[0].zone_name, lists[0].zone_owner) == (
+            "shared",
+            "Reminders",
+            "OWNER",
+        )
+        svc._shared_raw.changes.assert_called_once()
 
     def test_lists_raises_on_error_item(self) -> None:
         """lists() raises on a per-record error item."""

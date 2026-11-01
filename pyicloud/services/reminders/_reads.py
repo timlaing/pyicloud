@@ -48,10 +48,12 @@ class RemindersReadAPI:
         get_raw: Callable[[], Any],
         mapper: RemindersRecordMapper,
         logger: logging.Logger,
+        get_shared: Callable[[], Any] | None = None,
     ) -> None:
         self._get_raw = get_raw
         self._mapper = mapper
         self._logger = logger
+        self._get_shared = get_shared
 
     def _iter_zone_change_pages(
         self,
@@ -92,6 +94,35 @@ class RemindersReadAPI:
                 if not isinstance(rec, CKRecord) or rec.recordType != "List":
                     continue
                 yield self._mapper.record_to_list(rec)
+        if self._get_shared is None:
+            return
+        shared = self._get_shared()
+        for listed_zone in shared.zones_list().zones:
+            zid = listed_zone.zoneID
+            if listed_zone.deleted:
+                continue
+            sync_token: str | None = None
+            more_coming = True
+            while more_coming:
+                response = shared.changes(
+                    zone_req=CKZoneChangesZoneReq(
+                        zoneID=zid,
+                        desiredRecordTypes=["List"],
+                        syncToken=sync_token,
+                    )
+                )
+                more_coming = False
+                for zone in response.zones:
+                    _assert_read_success(zone.records, "Fetch shared reminder lists")
+                    sync_token = zone.syncToken
+                    more_coming = more_coming or bool(zone.moreComing)
+                    for rec in zone.records:
+                        if isinstance(rec, CKRecord) and rec.recordType == "List":
+                            item = self._mapper.record_to_list(rec)
+                            item.scope = "shared"
+                            item.zone_name = zid.zoneName
+                            item.zone_owner = zid.ownerRecordName
+                            yield item
 
     def reminders(self, list_id: str | None = None) -> Iterable[Reminder]:
         """Fetch reminders as a full snapshot, optionally filtered by list."""
@@ -286,6 +317,9 @@ class RemindersReadAPI:
         list_id: str,
         include_completed: bool = False,
         results_limit: int = 200,
+        scope: str = "private",
+        zone_name: str = "Reminders",
+        zone_owner: str | None = None,
     ) -> ListRemindersResult:
         """Fetch all records for a list using the compound ``reminderList`` query."""
         query = CKQueryObject(
@@ -324,9 +358,18 @@ class RemindersReadAPI:
 
         continuation: str | None = None
         while True:
-            resp = self._get_raw().query(
+            raw = (
+                self._get_shared()
+                if scope == "shared" and self._get_shared
+                else self._get_raw()
+            )
+            resp = raw.query(
                 query=query,
-                zone_id=_REMINDERS_ZONE_REQ,
+                zone_id=type(_REMINDERS_ZONE_REQ)(
+                    zoneName=zone_name,
+                    zoneType="REGULAR_CUSTOM_ZONE",
+                    ownerRecordName=zone_owner,
+                ),
                 results_limit=results_limit,
                 continuation=continuation,
             )
