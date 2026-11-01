@@ -23,3 +23,6 @@ jobs:
 
       - name: Check component labelling
         run: node --test .github/scripts/component-labels.test.cjs
+
+      - name: Check Sonar workflow isolation
+        run: python3 -I .github/scripts/test_sonar_workflow.py

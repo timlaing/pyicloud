@@ -13,11 +13,18 @@ jobs:
     permissions:
       actions: read
       contents: read
-      pull-requests: write
+      pull-requests: read
     env:
       SONAR_HOST_URL: https://sonarcloud.io
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
+      - name: Set scan paths
+        run: echo "COVERAGE_DIR=$RUNNER_TEMP/sonar-coverage-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+
+      - name: Require SonarQube credentials
+        env:
+          HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}
+        run: test "$HAS_SONAR_TOKEN" = true
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -26,40 +33,62 @@ jobs:
           # workflow_run runs with the base repository's GITHUB_TOKEN, secrets and
           # runner, so actions/checkout v7 refuses fork PR code by default and the
           # scan failed for every fork PR. The untrusted surface is bounded below:
-          # scanner config is deleted, the token is not persisted, and the coverage
-          # artifact is size-limited and screened before it is parsed.
+          # no PR code is executed, symlinks and scanner config are rejected or
+          # removed, and isolated validation runs without the Sonar token.
           allow-unsafe-pr-checkout: true
 
-      - name: Require SonarQube credentials
-        if: env.SONAR_TOKEN == ''
-        run: exit 1
+      - name: Prepare scan inputs
+        run: |
+          python3 -I - <<'PY'
+          import os
+          from pathlib import Path
+
+          # Do not follow PR-controlled links into runner files or configuration.
+          for root, dirs, files in os.walk('.'):
+              if root == '.':
+                  dirs[:] = [name for name in dirs if name != '.git']
+              for name in dirs + files:
+                  candidate = Path(root) / name
+                  if candidate.is_symlink():
+                      raise SystemExit(f'Symlink is not a scan input: {candidate}')
+          Path('sonar-project.properties').unlink(missing_ok=True)
+          PY
 
       - name: Download coverage report
         uses: actions/download-artifact@v8
         with:
           name: coverage-report
-          path: .coverage
+          path: ${{ env.COVERAGE_DIR }}
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ github.event.workflow_run.id }}
 
-      - name: Remove pull-request-controlled scanner configuration
-        run: rm -f sonar-project.properties
-
       - name: Validate coverage report
         run: |
-          set -euo pipefail
-          test -f .coverage/coverage.xml || { echo "Coverage report missing"; exit 1; }
-          # For fork PRs this artifact is uploaded by the triggering run, so it is
-          # untrusted input. Reject entity declarations before parsing: xml.etree
-          # does not resolve external entities but is still exposed to entity
-          # expansion. A plain DOCTYPE is left alone, because the Cobertura
-          # writers have historically emitted one.
-          if grep -qi '<!ENTITY' .coverage/coverage.xml; then
-            echo "Coverage report contains an entity declaration"; exit 1
-          fi
-          test "$(wc -c < .coverage/coverage.xml)" -lt 10000000 || { echo "Coverage report too large"; exit 1; }
-          python3 -c "import sys, xml.etree.ElementTree as ET; ET.parse(sys.argv[1])" .coverage/coverage.xml
+          python3 -I - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import xml.etree.ElementTree as ET
+
+          directory = Path(os.environ['COVERAGE_DIR'])
+          report = directory / 'coverage.xml'
+          if directory.is_symlink() or report.is_symlink() or not report.is_file():
+              raise SystemExit('Coverage report missing or symlinked')
+          # Bound the read as well as the file size. Accept UTF-8 Cobertura only;
+          # other encodings must not bypass the entity-declaration check.
+          if report.stat().st_size >= 10_000_000:
+              raise SystemExit('Coverage report too large')
+          with report.open('rb') as stream:
+              data = stream.read(10_000_000)
+          if len(data) >= 10_000_000:
+              raise SystemExit('Coverage report too large')
+          text = data.decode('utf-8-sig')
+          if '\x00' in text or re.search(r'<!ENTITY', text, re.IGNORECASE):
+              raise SystemExit('Coverage report contains an entity or invalid encoding')
+          # A plain DOCTYPE is allowed for older Cobertura writers.
+          ET.fromstring(text)
+          PY
 
       - name: Validate run metadata
         id: validate
@@ -67,6 +96,10 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_EVENT: ${{ github.event.workflow_run.event }}
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_REF: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
+          BASE_REF: ${{ github.event.workflow_run.pull_requests[0].base.ref }}
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid HEAD_SHA"; exit 1; }
@@ -74,20 +107,17 @@ jobs:
           if [[ "$RUN_EVENT" != "pull_request" ]]; then
             exit 0
           fi
-          PR_NUMBER="${{ github.event.workflow_run.pull_requests[0].number }}"
           if [[ -z "$PR_NUMBER" ]]; then
             # workflow_run.pull_requests is empty for fork PRs; resolve via the API.
             PR_FILE="$(mktemp)"
-            gh pr list --state open --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
-            PR_MATCH="$(jq -c ".[] | select(.headRefOid == \"$HEAD_SHA\")" "$PR_FILE" | head -n 1)"
+            gh pr list --state open --limit 1000 --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
+            PR_MATCH="$(jq -c --arg sha "$HEAD_SHA" '[.[] | select(.headRefOid == $sha)][0] // empty' "$PR_FILE")"
+            rm -f "$PR_FILE"
             if [[ -n "$PR_MATCH" ]]; then
               PR_NUMBER="$(jq -r '.number' <<< "$PR_MATCH")"
               HEAD_REF="$(jq -r '.headRefName' <<< "$PR_MATCH")"
               BASE_REF="$(jq -r '.baseRefName' <<< "$PR_MATCH")"
             fi
-          else
-            HEAD_REF="${{ github.event.workflow_run.pull_requests[0].head.ref }}"
-            BASE_REF="${{ github.event.workflow_run.pull_requests[0].base.ref }}"
           fi
           if [[ -z "$PR_NUMBER" || -z "$HEAD_REF" || -z "$BASE_REF" ]]; then
             echo "Could not resolve pull request metadata for $HEAD_SHA"; exit 1
@@ -95,13 +125,17 @@ jobs:
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid PR number"; exit 1; }
           [[ "$HEAD_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid head branch"; exit 1; }
           [[ "$BASE_REF" =~ ^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$ ]] || { echo "Invalid base branch"; exit 1; }
-          echo "pr-number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "head-ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
-          echo "base-ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+          {
+            echo "pr-number=$PR_NUMBER"
+            echo "head-ref=$HEAD_REF"
+            echo "base-ref=$BASE_REF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: SonarQube Scan (branch)
         if: github.event.workflow_run.event == 'push'
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >-
             -Dsonar.projectKey=timlaing_pyicloud
@@ -109,7 +143,8 @@ jobs:
             -Dsonar.projectName=pyicloud
             -Dsonar.sources=pyicloud
             -Dsonar.tests=tests
-            -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
+            -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
+            -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
             -Dsonar.python.version=3.10
             -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
             -Dsonar.qualitygate.wait=true
@@ -117,6 +152,8 @@ jobs:
       - name: SonarQube Scan (pull request)
         if: github.event.workflow_run.event == 'pull_request'
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
           args: >-
             -Dsonar.projectKey=timlaing_pyicloud
@@ -124,7 +161,8 @@ jobs:
             -Dsonar.projectName=pyicloud
             -Dsonar.sources=pyicloud
             -Dsonar.tests=tests
-            -Dsonar.python.coverage.reportPaths=.coverage/coverage.xml
+            -Dsonar.python.coverage.reportPaths=${{ env.COVERAGE_DIR }}/coverage.xml
+            -Dsonar.working.directory=${{ runner.temp }}/sonar-work-${{ github.run_id }}-${{ github.run_attempt }}
             -Dsonar.python.version=3.10,3.11,3.12,3.13,3.14
             -Dsonar.scm.revision=${{ steps.validate.outputs.head-sha }}
             -Dsonar.pullrequest.key=${{ steps.validate.outputs.pr-number }}
