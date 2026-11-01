@@ -76,6 +76,7 @@ def test_malformed_url_logging_preserves_transport_error(
     """Invalid URLs reach the transport and retain its public exception mapping."""
     session = real_session
     url = "https://[invalid-host?token=synthetic-signature"
+    request = getattr(session, method)
     with (
         patch(
             "requests.Session.request", side_effect=InvalidURL("Invalid URL")
@@ -83,7 +84,7 @@ def test_malformed_url_logging_preserves_transport_error(
         caplog.at_level(logging.DEBUG, logger="pyicloud.session"),
         pytest.raises(PyiCloudAPIResponseException, match="Request failed to iCloud"),
     ):
-        getattr(session, method)("GET", url)
+        request("GET", url)
     assert "GET <invalid-url>" in caplog.messages
     assert "synthetic-signature" not in caplog.text
     assert transport.call_args.kwargs["url"] == url
