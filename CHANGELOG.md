@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Redact signed URL queries, user information and numeric account IDs from session request debug logs without changing the URLs sent to Apple or public request errors.
+
 - Isolate Sonar coverage validation from pull-request Python modules, restrict the Sonar token to scan steps, and reject linked scan inputs while retaining fork pull-request analysis. Reject ambiguous fork PR matches rather than attributing analysis to the first PR sharing a commit.
 
 ### Added

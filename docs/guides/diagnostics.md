@@ -54,6 +54,15 @@ Services Apple advertises that pyicloud does not wrap are listed as
 context rather than as problems, and `--format json` returns the whole
 report, including every finding, for use in bug reports and scripts.
 
+## Sharing debug logs
+
+The session logger records the HTTP method and a sanitised host/path. It removes
+URL queries, fragments and user information, and masks long numeric path IDs.
+The URL sent to Apple is unchanged. This redaction does not cover response
+bodies, public exception payloads or logs from Requests, urllib3 and other
+third-party HTTP tooling. Check those separately for signed URLs, tokens and
+account details before sharing diagnostics.
+
 ## Probing the services (`--probe`)
 
 The service map only shows what Apple _advertises_. A host can be

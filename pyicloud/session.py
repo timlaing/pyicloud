@@ -70,7 +70,12 @@ def describe_endpoint(url: str | bytes) -> str:
     """
 
     text: str = url.decode("utf-8", "replace") if isinstance(url, bytes) else str(url)
-    parts = urlsplit(text)
+    try:
+        parts = urlsplit(text)
+    except ValueError:
+        # Logging must neither disclose malformed URLs nor replace the
+        # transport's existing error handling with a URL parsing exception.
+        return "<invalid-url>"
     segments: list[str] = [
         "<id>" if segment.isdigit() and len(segment) >= 6 else segment
         for segment in parts.path.split("/")
@@ -297,7 +302,7 @@ class PyiCloudSession(requests.Session):
         self.logger.debug(
             "%s %s",
             method,
-            url,
+            describe_endpoint(url),
         )
         try:
             response: Response = super().request(
@@ -321,7 +326,7 @@ class PyiCloudSession(requests.Session):
         self.logger.debug(
             "%s %s",
             method,
-            url,
+            describe_endpoint(url),
         )
 
         try:
