@@ -3,15 +3,41 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from pyicloud.common.cloudkit import (
     CKFVInt64,
     CKFVString,
     CKQueryFilterBy,
     CKQueryObject,
+    CKQueryRequest,
+    CKZoneIDReq,
 )
 
 from .constants import DirectionEnum, ListTypeEnum
+
+
+def record_name_filter(record_name_value: str) -> CKQueryFilterBy:
+    """Return a typed record-name equality filter."""
+    return _string_filter("recordName", record_name_value)
+
+
+def query_request_payload(
+    *,
+    query: CKQueryObject,
+    zone_id: dict[str, str],
+    desired_keys: list[str] | None = None,
+    results_limit: int | None = None,
+    continuation: str | None = None,
+) -> dict[str, Any]:
+    """Serialize a typed request for raw callers without mutating query inputs."""
+    return CKQueryRequest(
+        query=query,
+        zoneID=CKZoneIDReq(**zone_id),
+        desiredKeys=desired_keys,
+        resultsLimit=results_limit,
+        continuationMarker=continuation,
+    ).model_dump(mode="json", exclude_none=True)
 
 
 def _string_filter(field_name: str, value: str) -> CKQueryFilterBy:

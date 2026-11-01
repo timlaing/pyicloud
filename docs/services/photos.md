@@ -4,6 +4,13 @@
 
 You can access the iCloud Photo Library through the `photos` property.
 
+The public Photos classes remain in `pyicloud.services.photos.service` with
+package re-exports unchanged. The private `queries` module owns typed query
+construction and raw request serialization, including zone owner, projections
+and continuation markers. Libraries and albums still own caches and request
+ordering; materialization remains in `materialize`. These internal module
+boundaries are not additional public import guarantees.
+
 ## Photos CLI
 
 The Photos CLI is split into browse commands and sync commands:
