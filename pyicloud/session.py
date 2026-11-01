@@ -152,7 +152,8 @@ class PyiCloudSession(requests.Session):
                 )
         except FileNotFoundError:
             self._logger.info("Session file does not exist")
-        except (JSONDecodeError, UnicodeDecodeError):
+        except ValueError:
+            # Includes JSONDecodeError, UnicodeDecodeError, and JSON integer limits.
             self._logger.info(
                 "Session file has invalid JSON or encoding; ignoring persisted state"
             )

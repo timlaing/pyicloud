@@ -74,6 +74,32 @@ def test_valid_session_keeps_existing_values(
     assert restored.data == values
 
 
+def test_session_parser_value_error_recovers_with_cookies(
+    pyicloud_service_working: PyiCloudService,
+    session_directory: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Parser limits raise ValueError rather than JSONDecodeError on some inputs."""
+    session = PyiCloudSession(pyicloud_service_working, "old", str(session_directory))
+    Path(session.session_path).write_text("{}", encoding="utf-8")
+    session.cookies.set("retained", "cookie-secret", domain="icloud.com", path="/")
+    assert isinstance(session.cookies, PyiCloudCookieJar)
+    session.cookies.save()
+    caplog.clear()
+    with (
+        patch("pyicloud.session.load", side_effect=ValueError("secret-marker")),
+        caplog.at_level(logging.INFO, logger="pyicloud.session"),
+    ):
+        recovered = PyiCloudSession(
+            pyicloud_service_working, "fresh", str(session_directory)
+        )
+    assert recovered.data == {"client_id": "fresh"}
+    assert recovered.cookies.get("retained") == "cookie-secret"
+    assert "ignoring persisted state" in caplog.text
+    assert "secret-marker" not in caplog.text
+    assert "cookie-secret" not in caplog.text
+
+
 @pytest.mark.parametrize(
     ("error", "message"),
     [
