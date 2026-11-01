@@ -390,6 +390,21 @@ class RemindersWriteAPI:
                 f"{reminder_record_name}"
             )
 
+        child_route = (
+            getattr(child, "scope", "private"),
+            getattr(child, "zone_name", "Reminders"),
+            getattr(child, "zone_owner", None),
+        )
+        writer_route = (
+            self._route["scope"],
+            self._route["zone_name"],
+            self._route["zone_owner"],
+        )
+        if child_route != writer_route:
+            raise ValueError(
+                f"{prefix} child {child_record_name} has a different zone route"
+            )
+
         linked_ids = [
             _as_raw_id(x, prefix)
             for x in (getattr(reminder, reminder_ids_attr) or [])

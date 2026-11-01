@@ -11,6 +11,27 @@ reminders = api.reminders
 The high-level Reminders service exposes typed list, reminder, alarm, hashtag,
 attachment, and recurrence-rule models for both snapshot reads and mutations.
 
+## Shared list routing
+
+Discovery includes available shared lists with `scope`, `zone_name` and
+`zone_owner` metadata. Pass the full list model to `list_reminders()` or `create()`
+when IDs might collide across zones. String IDs are supported when their route
+is unique; ambiguous IDs are rejected rather than choosing a zone silently.
+
+Fetched reminders and linked records retain their route for later reads/writes.
+For a single shared reminder, use
+`reminders.get(reminder_id, list_context=shared_list)` explicitly. The CLI preserves
+successful private lookups and searches shared list contexts after a private miss;
+several shared matches are rejected. For explicit scope selection (including an
+ID that also exists privately), use the library with a list context.
+
+Unavailable shared zones or rejected shared pages do not hide usable private lists
+or later shares; authentication failures still propagate. Targeted string-ID route
+discovery reads routing metadata without decoding unrelated membership payloads.
+Completed list snapshots replace the route cache; partial iteration does not
+invalidate a prior complete snapshot. Caller-supplied linked children must belong
+to the same resolved scope and zone as the parent before mutation is submitted.
+
 _List reminder lists:_
 
 ```python

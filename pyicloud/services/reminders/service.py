@@ -144,15 +144,15 @@ class RemindersService(BaseService):
         needed by creation and query helpers.
         """
 
-        def iter_lists() -> Iterable[RemindersList]:
-            """Cache every list using its complete database and zone identity."""
-            for item in self._reads.lists():
-                self._list_zones[
-                    (item.id, item.scope, item.zone_name, item.zone_owner)
-                ] = item
-                yield item
+        return self._cache_lists(self._reads.lists())
 
-        return iter_lists()
+    def _cache_lists(self, items: Iterable[RemindersList]) -> Iterable[RemindersList]:
+        """Replace the routing snapshot only when discovery completes."""
+        discovered: dict[tuple[str, str, str, str | None], RemindersList] = {}
+        for item in items:
+            discovered[(item.id, item.scope, item.zone_name, item.zone_owner)] = item
+            yield item
+        self._list_zones = discovered
 
     def reminders(
         self,
@@ -218,7 +218,7 @@ class RemindersService(BaseService):
         """Resolve a unique cached list route, rejecting ambiguous record IDs."""
         matches = [item for key, item in self._list_zones.items() if key[0] == list_id]
         if not matches and discover:
-            list(self.lists())
+            list(self._cache_lists(self._reads.lists(routing_only=True)))
             matches = [
                 item for key, item in self._list_zones.items() if key[0] == list_id
             ]
@@ -237,7 +237,7 @@ class RemindersService(BaseService):
         """Build immutable per-operation routing without changing private helpers."""
         route = (record.scope, record.zone_name, record.zone_owner)
         if isinstance(record, Reminder) and "scope" not in record.model_fields_set:
-            route = self._list_route(record.list_id)
+            route = self._list_route(record.list_id, discover=True)
         scope, zone_name, zone_owner = route
         if route == ("private", "Reminders", None):
             return self._reads, self._writes
@@ -279,9 +279,18 @@ class RemindersService(BaseService):
         reads = self._reads if list_context is None else self._apis_for(list_context)[0]
         return reads.get(reminder_id)
 
+    def _list_context(self, value: str | RemindersList) -> RemindersList:
+        """Retain an explicit route or resolve a unique string list identity."""
+        if isinstance(value, RemindersList):
+            return value
+        scope, zone_name, zone_owner = self._list_route(value, discover=True)
+        return RemindersList(
+            id=value, title="", scope=scope, zone_name=zone_name, zone_owner=zone_owner
+        )
+
     def create(
         self,
-        list_id: str,
+        list_id: str | RemindersList,
         title: str,
         desc: str = "",
         completed: bool = False,
@@ -310,8 +319,9 @@ class RemindersService(BaseService):
                 ``UTC`` for naive and UTC due dates (not for all-day ones).
             parent_reminder_id: Optional parent reminder ID for subtasks.
         """
-        return self._writes.create(
-            list_id=list_id,
+        context = self._list_context(list_id)
+        return self._apis_for(context)[1].create(
+            list_id=context.id,
             title=title,
             desc=desc,
             completed=completed,

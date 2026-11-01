@@ -91,36 +91,62 @@ class RemindersReadAPI:
                 next_sync_token = zone.syncToken
                 more_coming = more_coming or bool(zone.moreComing)
 
-    def lists(self) -> Iterable[RemindersList]:
-        """Fetch reminders lists as a full snapshot."""
+    def lists(self, *, routing_only: bool = False) -> Iterable[RemindersList]:
+        """Fetch lists, optionally reading only identity/zone routing metadata."""
         for zone in self._iter_zone_change_pages(desired_record_types=["List"]):
             _assert_read_success(zone.records, "Fetch reminder lists")
             for rec in zone.records:
                 if not isinstance(rec, CKRecord) or rec.recordType != "List":
                     continue
-                yield self._mapper.record_to_list(rec)
+                yield self._list_record(rec, routing_only=routing_only)
         if self._get_shared is None:
             return
-        yield from self._shared_lists()
+        yield from self._shared_lists(routing_only=routing_only)
 
-    def _shared_lists(self) -> Iterable[RemindersList]:
+    def _list_record(self, record: CKRecord, *, routing_only: bool) -> RemindersList:
+        """Route lookup does not require unrelated membership assets to decode."""
+        if routing_only:
+            return RemindersList(id=record.recordName, title="")
+        return self._mapper.record_to_list(record)
+
+    def _shared_lists(self, *, routing_only: bool = False) -> Iterable[RemindersList]:
         """Discover lists in available, non-deleted shared zones."""
         if self._get_shared is None:
             return
         shared = self._get_shared()
-        for listed_zone in shared.zones_list().zones:
+        try:
+            listed_zones = shared.zones_list().zones
+        except RemindersApiError:
+            self._logger.warning("Skipping unavailable shared Reminders zones")
+            return
+        for listed_zone in listed_zones:
             zid = listed_zone.zoneID
             if listed_zone.deleted:
                 continue
-            for zone in self._iter_shared_list_pages(shared, zid):
+            yield from self._shared_zone_lists(shared, zid, routing_only=routing_only)
+
+    def _shared_zone_lists(
+        self, shared: Any, zone_id: CKZoneID, *, routing_only: bool
+    ) -> Iterable[RemindersList]:
+        """Validate each shared page before exposing models; errors stay zone-local."""
+        for zone in self._iter_shared_list_pages(shared, zone_id):
+            try:
                 _assert_read_success(zone.records, "Fetch shared reminder lists")
-                for rec in zone.records:
-                    if isinstance(rec, CKRecord) and rec.recordType == "List":
-                        item = self._mapper.record_to_list(rec)
-                        item.scope = "shared"
-                        item.zone_name = zid.zoneName
-                        item.zone_owner = zid.ownerRecordName
-                        yield item
+                items = [
+                    self._list_record(record, routing_only=routing_only)
+                    for record in zone.records
+                    if isinstance(record, CKRecord) and record.recordType == "List"
+                ]
+            except RemindersApiError:
+                self._logger.warning(
+                    "Skipping shared Reminders zone with record errors"
+                )
+                return
+            for item in items:
+                item.scope = "shared"
+                item.zone_name = zone_id.zoneName
+                item.zone_owner = zone_id.ownerRecordName
+                yield item
 
     def _iter_shared_list_pages(
         self, shared: Any, zone_id: CKZoneID

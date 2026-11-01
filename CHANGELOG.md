@@ -50,6 +50,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Preserve authentication destination symlinks by atomically updating their resolved targets.
 - Reject cyclic authentication destination symlinks before staging and document the writable target-directory requirement for atomic saves.
 
+- Contain shared Reminders discovery failures, refresh routing snapshots, validate linked-child zone identities, and route shared creation and CLI lookups safely; routing discovery no longer decodes unrelated membership payloads.
 - Discover uncached Reminders list IDs before selecting their database scope, so shared-list queries work on fresh service instances.
 - Preserve Reminders lists and reminders with identical IDs in different zones; accept a full list model for unambiguous queries and reject ambiguous string list IDs.
 - Retain shared Reminders zone metadata for reminder updates, deletions, and related-record operations; allow single-reminder lookups with explicit list context.

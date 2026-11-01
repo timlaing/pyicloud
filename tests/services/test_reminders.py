@@ -78,7 +78,9 @@ def test_reminders_service_create_delegates_to_write_api(
     create_mock = MagicMock(return_value=created)
     monkeypatch.setattr(service._writes, "create", create_mock)
 
-    result = service.create("List/WORK", "New Task", desc="Description")
+    result = service.create(
+        RemindersList(id="List/WORK", title="Work"), "New Task", desc="Description"
+    )
 
     assert result == created
     create_mock.assert_called_once_with(
@@ -100,7 +102,9 @@ def test_reminders_service_delete_delegates_to_write_api(
 ) -> None:
     """The reminders facade should forward deletion to the write API."""
     service = RemindersService("https://example.com", MagicMock(), {"dsid": "12345"})
-    reminder = Reminder(id="Reminder/1", list_id="List/WORK", title="Delete me")
+    reminder = Reminder(
+        id="Reminder/1", list_id="List/WORK", title="Delete me", scope="private"
+    )
     delete_mock = MagicMock()
     monkeypatch.setattr(service._writes, "delete", delete_mock)
 
