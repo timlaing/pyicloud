@@ -8,6 +8,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Security
+
+- Isolate Sonar coverage validation from pull-request Python modules, restrict the Sonar token to scan steps, and reject linked scan inputs while retaining fork pull-request analysis. Reject ambiguous fork PR matches rather than attributing analysis to the first PR sharing a commit.
+
 ### Added
 
 - Validate standard Python 3.15 with the full offline suite and clean runtime-only and CLI package installation checks, retaining Python 3.10 support. CLI checks clear inherited Python environment overrides so checkout sources cannot hide a broken wheel.
