@@ -18,6 +18,29 @@ import tempfile
 from unittest.mock import patch
 
 
+def check_cli() -> None:
+    """Exercise the console entry point without Python import-path overrides."""
+    executable = Path(sys.executable).with_name(
+        "icloud.exe" if os.name == "nt" else "icloud"
+    )
+    # The parent uses -I, but a console script starts a fresh interpreter.
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("PYTHON")
+    }
+    for command in (("--help",), ("--version",), ("photos", "--help")):
+        result = subprocess.run(
+            [str(executable), *command],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=environment,
+        )
+        assert result.stdout.strip()
+        if command == ("--version",):
+            assert result.stdout.strip() == version("pyicloud")
+
+
 def main() -> None:
     """Check installed imports, offline construction and the optional CLI."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -63,20 +86,7 @@ def main() -> None:
         api.session.close()
 
     if args.cli:
-        executable = Path(sys.executable).with_name(
-            "icloud.exe" if os.name == "nt" else "icloud"
-        )
-        for command in (("--help",), ("--version",), ("photos", "--help")):
-            result = subprocess.run(
-                [str(executable), *command],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            assert result.stdout.strip()
-            if command == ("--version",):
-                assert result.stdout.strip() == version("pyicloud")
+        check_cli()
     else:
         for name in ("click", "typer", "rich"):
             assert importlib.util.find_spec(name) is None, name
