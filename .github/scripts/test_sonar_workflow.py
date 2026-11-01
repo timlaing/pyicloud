@@ -147,6 +147,21 @@ class SonarWorkflowTests(unittest.TestCase):
                 self.assertNotEqual(self.execute("Prepare scan inputs").returncode, 0)
                 link.unlink()
 
+    def test_prepare_rejects_nested_linked_inputs(self) -> None:
+        """Preparation rejects nested file and directory links, not just roots."""
+        source = self.checkout / "pyicloud"
+        source.mkdir()
+        for name, target in (("nested", self.coverage), ("nested.py", self.report)):
+            with self.subTest(name=name):
+                link = source / name
+                link.symlink_to(target)
+                result = self.execute("Prepare scan inputs")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    f"Symlink is not a scan input: pyicloud/{name}", result.stderr
+                )
+                link.unlink()
+
     def test_push_metadata(self) -> None:
         """A branch scan keeps revision attribution without PR outputs."""
         self.env["RUN_EVENT"] = "push"
@@ -164,13 +179,22 @@ class SonarWorkflowTests(unittest.TestCase):
             "head-ref=contributor/topic\nbase-ref=main\n",
         )
 
-    def test_fork_metadata(self) -> None:
-        """Fork runs resolve by exact head SHA without invoking real gh."""
+    def mock_fork_prs(self, response: list[dict[str, str | int]]) -> None:
+        """Supply synthetic fork API results without invoking real gh."""
         self.env["PR_NUMBER"] = ""
         binary_dir = self.root / "bin"
         binary_dir.mkdir()
         fake_gh = binary_dir / "gh"
-        response = json.dumps([
+        response_file = self.root / "prs.json"
+        response_file.write_text(json.dumps(response), encoding="utf-8")
+        self.env["FAKE_PRS"] = str(response_file)
+        fake_gh.write_text('#!/bin/sh\ncat "$FAKE_PRS"\n', encoding="utf-8")
+        fake_gh.chmod(0o700)
+        self.env["PATH"] = str(binary_dir) + os.pathsep + self.env["PATH"]
+
+    def test_fork_metadata(self) -> None:
+        """Fork runs resolve by exact head SHA without invoking real gh."""
+        self.mock_fork_prs([
             {"number": 1, "headRefOid": "b" * 40},
             {
                 "number": 456,
@@ -179,14 +203,33 @@ class SonarWorkflowTests(unittest.TestCase):
                 "baseRefName": "main",
             },
         ])
-        fake_gh.write_text(
-            f"#!/bin/sh\nprintf '%s\\n' '{response}'\n", encoding="utf-8"
-        )
-        fake_gh.chmod(0o700)
-        self.env["PATH"] = str(binary_dir) + os.pathsep + self.env["PATH"]
         result = self.execute("Validate run metadata")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("pr-number=456\nhead-ref=fork/topic\n", self.output.read_text())
+
+    def test_fork_metadata_rejects_ambiguous_matches(self) -> None:
+        """Shared commit IDs must not attribute coverage to an arbitrary PR."""
+        self.mock_fork_prs([
+            {
+                "number": number,
+                "headRefOid": HEAD_SHA,
+                "headRefName": f"fork/topic-{number}",
+                "baseRefName": "main",
+            }
+            for number in (123, 456)
+        ])
+        result = self.execute("Validate run metadata")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Multiple open PRs match", result.stdout)
+        self.assertEqual(self.output.read_text(), f"head-sha={HEAD_SHA}\n")
+
+    def test_fork_metadata_rejects_no_matches(self) -> None:
+        """An empty lookup keeps the existing explicit resolution failure."""
+        self.mock_fork_prs([])
+        result = self.execute("Validate run metadata")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Could not resolve pull request metadata", result.stdout)
+        self.assertEqual(self.output.read_text(), f"head-sha={HEAD_SHA}\n")
 
     def test_untrusted_metadata_is_not_executed(self) -> None:
         """Shell metacharacters in branch names are data, then rejected."""
@@ -199,7 +242,7 @@ class SonarWorkflowTests(unittest.TestCase):
         """The real token is absent from job and validation environments."""
         workflow = WORKFLOW.read_text(encoding="utf-8")
         prefix, scanners = workflow.split("      - name: SonarQube Scan (branch)", 1)
-        self.assertNotIn("SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}", prefix)
+        self.assertEqual(len(re.findall(r"secrets\.SONAR_TOKEN\b", prefix)), 1)
         self.assertEqual(scanners.count("SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}"), 2)
         self.assertIn("HAS_SONAR_TOKEN: ${{ secrets.SONAR_TOKEN != '' }}", prefix)
         self.assertNotIn("pull-requests: write", workflow)

@@ -10,7 +10,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
-- Isolate Sonar coverage validation from pull-request Python modules, restrict the Sonar token to scan steps, and reject linked scan inputs while retaining fork pull-request analysis.
+- Isolate Sonar coverage validation from pull-request Python modules, restrict the Sonar token to scan steps, and reject linked scan inputs while retaining fork pull-request analysis. Reject ambiguous fork PR matches rather than attributing analysis to the first PR sharing a commit.
 
 ### Added
 

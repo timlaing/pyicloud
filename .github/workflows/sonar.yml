@@ -111,8 +111,12 @@ jobs:
             # workflow_run.pull_requests is empty for fork PRs; resolve via the API.
             PR_FILE="$(mktemp)"
             gh pr list --state open --limit 1000 --json number,headRefName,headRefOid,baseRefName > "$PR_FILE"
-            PR_MATCH="$(jq -c --arg sha "$HEAD_SHA" '[.[] | select(.headRefOid == $sha)][0] // empty' "$PR_FILE")"
+            PR_MATCHES="$(jq -c --arg sha "$HEAD_SHA" '[.[] | select(.headRefOid == $sha)]' "$PR_FILE")"
             rm -f "$PR_FILE"
+            if [[ "$(jq 'length' <<< "$PR_MATCHES")" -gt 1 ]]; then
+              echo "Multiple open PRs match $HEAD_SHA"; exit 1
+            fi
+            PR_MATCH="$(jq -c '.[0] // empty' <<< "$PR_MATCHES")"
             if [[ -n "$PR_MATCH" ]]; then
               PR_NUMBER="$(jq -r '.number' <<< "$PR_MATCH")"
               HEAD_REF="$(jq -r '.headRefName' <<< "$PR_MATCH")"
