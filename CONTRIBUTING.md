@@ -33,6 +33,13 @@ dev, and CLI work via `requirements_all.txt`. Activate the environment with
 
 ## Code style & checks
 
+The test workflow gates standard CPython 3.10 through 3.15. Python 3.15 also
+checks clean runtime-only and CLI wheel installations outside the source tree.
+Free-threaded Python is not part of this support claim. Coverage is uploaded
+only from 3.14: the [Sonar Python analyzer](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/languages/python/)
+currently documents support through 3.14, so the analyzer settings intentionally
+stop there even though runtime tests include 3.15.
+
 The project uses **Ruff** as its sole formatter and linter (line length 88,
 `preview=true`), plus **mypy** (strict), **pylint**, **cspell**, **yamllint**,
 and **prettier**. Pre-commit hooks are managed with **`prek`** (a pre-commit
