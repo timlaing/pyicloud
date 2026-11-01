@@ -76,8 +76,9 @@ def test_shared_cli_lookup_rejects_ambiguous_shared_ids() -> None:
         for owner in ["A", "B"]
     ]
     reminders.get.side_effect = shared_lookup
+    api = api_for(reminders)
     with pytest.raises(CLIAbort, match="Ambiguous shared"):
-        _resolve_reminder(api_for(reminders), "Reminder/R")
+        _resolve_reminder(api, "Reminder/R")
 
 
 def test_shared_cli_lookup_propagates_auth_failure() -> None:
@@ -85,5 +86,6 @@ def test_shared_cli_lookup_propagates_auth_failure() -> None:
     reminders = MagicMock()
     reminders.get.side_effect = LookupError("Missing")
     reminders.lists.side_effect = RemindersAuthError("Authentication")
+    api = api_for(reminders)
     with pytest.raises(CLIAbort, match="Authentication"):
-        _resolve_reminder(api_for(reminders), "Reminder/R")
+        _resolve_reminder(api, "Reminder/R")

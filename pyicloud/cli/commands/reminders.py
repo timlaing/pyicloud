@@ -168,6 +168,19 @@ def _reminders_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
         raise CLIAbort(str(err)) from err
 
 
+def _shared_reminder_matches(reminders: Any, reminder_id: str) -> list[Reminder]:
+    """Probe explicit shared contexts, retaining all matching zone identities."""
+    matches: list[Reminder] = []
+    for context in reminders.lists():
+        if getattr(context, "scope", "private") != "shared":
+            continue
+        try:
+            matches.append(reminders.get(reminder_id, list_context=context))
+        except LookupError:
+            continue
+    return matches
+
+
 def _resolve_reminder(api: PyiCloudService, reminder_id: str) -> Reminder:
     """Return one reminder by id."""
 
@@ -178,14 +191,7 @@ def _resolve_reminder(api: PyiCloudService, reminder_id: str) -> Reminder:
         try:
             return cast(Reminder, reminders.get(reminder_id))
         except LookupError as private_error:
-            matches: list[Reminder] = []
-            for context in reminders.lists():
-                if getattr(context, "scope", "private") != "shared":
-                    continue
-                try:
-                    matches.append(reminders.get(reminder_id, list_context=context))
-                except LookupError:
-                    continue
+            matches = _shared_reminder_matches(reminders, reminder_id)
             if len(matches) > 1:
                 raise CLIAbort(
                     "Ambiguous shared reminder ID; "
