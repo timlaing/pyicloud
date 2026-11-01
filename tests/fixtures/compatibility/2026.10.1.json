@@ -1,0 +1,162 @@
+{
+  "baseline": {
+    "release": "2026.10.1",
+    "commit": "2d3d137e17cdd06e4e58a4d0e0e400dccb31b08f"
+  },
+  "class_modules": {
+    "pyicloud.PyiCloudService": "pyicloud.base",
+    "pyicloud.AppleDevice": "pyicloud.services.findmyiphone",
+    "pyicloud.services.AccountService": "pyicloud.services.account",
+    "pyicloud.services.CalendarService": "pyicloud.services.calendar",
+    "pyicloud.services.ContactsService": "pyicloud.services.contacts",
+    "pyicloud.services.DriveService": "pyicloud.services.drive",
+    "pyicloud.services.FindMyiPhoneServiceManager": "pyicloud.services.findmyiphone",
+    "pyicloud.services.HideMyEmailService": "pyicloud.services.hidemyemail",
+    "pyicloud.services.NotesService": "pyicloud.services.notes.service",
+    "pyicloud.services.PhotosService": "pyicloud.services.photos.service",
+    "pyicloud.services.RemindersService": "pyicloud.services.reminders.service",
+    "pyicloud.services.UbiquityService": "pyicloud.services.ubiquity"
+  },
+  "cli": { "lists_exit": 0, "usage_exit": 2 },
+  "cookie_header": "#LWP-Cookies-2.0",
+  "decisions": [
+    "PhotosService module metadata intentionally changed from pyicloud.services.photos_cloudkit.service to pyicloud.services.photos.service in PR #472; the supported facade constructor remains unchanged. Mail and Invites are later additions, not removals from this released baseline."
+  ],
+  "exceptions": {
+    "pyicloud.exceptions.PyiCloudException": ["builtins.Exception"],
+    "pyicloud.exceptions.PyiCloudAPIResponseException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudConnectionException": [
+      "pyicloud.exceptions.PyiCloudAPIResponseException"
+    ],
+    "pyicloud.exceptions.PyiCloudEndpointGoneException": [
+      "pyicloud.exceptions.PyiCloudAPIResponseException"
+    ],
+    "pyicloud.exceptions.PyiCloudFailedLoginException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudAccountLockedException": [
+      "pyicloud.exceptions.PyiCloudFailedLoginException"
+    ],
+    "pyicloud.exceptions.PyiCloudPasswordException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudServiceUnavailable": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.TokenException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudServiceNotActivatedException": [
+      "pyicloud.exceptions.PyiCloudAPIResponseException"
+    ],
+    "pyicloud.exceptions.PyiCloudPCSTimeoutException": [
+      "pyicloud.exceptions.PyiCloudAPIResponseException"
+    ],
+    "pyicloud.exceptions.PyiCloudAcceptTermsException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloud2FARequiredException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloud2SARequiredException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudAuthRequiredException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudNoTrustedNumberAvailable": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudTrustedDevicePromptException": [
+      "pyicloud.exceptions.PyiCloudAPIResponseException"
+    ],
+    "pyicloud.exceptions.PyiCloudTrustedDeviceVerificationException": [
+      "pyicloud.exceptions.PyiCloudAPIResponseException"
+    ],
+    "pyicloud.exceptions.PyiCloudSecurityKeyException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudSecurityKeyTimeoutException": [
+      "pyicloud.exceptions.PyiCloudSecurityKeyException"
+    ],
+    "pyicloud.exceptions.PyiCloudNoStoredPasswordAvailableException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ],
+    "pyicloud.exceptions.PyiCloudNoDevicesException": [
+      "pyicloud.exceptions.PyiCloudException"
+    ]
+  },
+  "list_shape": {
+    "id": "List/X",
+    "title": "Synthetic",
+    "color": null,
+    "count": 0,
+    "badge_emblem": null,
+    "sorting_style": null,
+    "is_group": false,
+    "deleted": false,
+    "reminder_ids": [],
+    "guid": null,
+    "record_change_tag": null
+  },
+  "reminder_shape": {
+    "id": "Reminder/X",
+    "list_id": "List/X",
+    "title": "Synthetic",
+    "desc": "",
+    "completed": false,
+    "completed_date": null,
+    "due_date": null,
+    "start_date": null,
+    "priority": 0,
+    "flagged": false,
+    "all_day": false,
+    "deleted": false,
+    "time_zone": null,
+    "alarm_ids": [],
+    "hashtag_ids": [],
+    "attachment_ids": [],
+    "recurrence_rule_ids": [],
+    "parent_reminder_id": null,
+    "early_reminders": [],
+    "urgent": null,
+    "created": null,
+    "modified": null,
+    "record_change_tag": null,
+    "undecodable_text_fields": [],
+    "server_title": null,
+    "server_desc": null,
+    "early_reminder_account_id": null
+  },
+  "session": {
+    "client_id": "compatibility-client",
+    "session_token": "synthetic",
+    "future_field": { "value": [1, true] }
+  },
+  "signatures": {
+    "pyicloud.PyiCloudService": "(apple_id, password=None, cookie_directory=None, verify=True, client_id=None, with_family=True, china_mainland=None, accept_terms=False, refresh_interval=300.0, family_poll_delay=0.5, family_poll_max_retries=5, locate=False, *, authenticate=True, cloudkit_validation_extra=None, pause_2fa=False, upload_hydration_timeout=60.0, upload_hydration_interval=2.0)",
+    "pyicloud.AppleDevice": "(content, params, manager, sound_url, lost_url, erase_url, erase_token_url, message_url)",
+    "pyicloud.PyiCloudService.authenticate": "(self, force_refresh=False, service=None, pause_2fa=None)",
+    "pyicloud.PyiCloudService.validate_2fa_code": "(self, code)",
+    "pyicloud.PyiCloudService.trust_session": "(self)",
+    "pyicloud.services.AccountService": "(service_root, session, china_mainland, params)",
+    "pyicloud.services.CalendarService": "(service_root, session, params)",
+    "pyicloud.services.ContactsService": "(service_root, session, params)",
+    "pyicloud.services.DriveService": "(service_root, document_root, session, params)",
+    "pyicloud.services.DriveService.send_file": "(self, folder_id, file_object, zone='com.apple.CloudDocs', **kwargs)",
+    "pyicloud.services.drive.DriveNode.upload": "(self, file_object, **kwargs)",
+    "pyicloud.services.FindMyiPhoneServiceManager": "(service_root, token_endpoint, session, params, with_family=False, refresh_interval=300.0, family_poll_delay=0.5, family_poll_max_retries=5, locate=False)",
+    "pyicloud.services.HideMyEmailService": "(service_root, session, params)",
+    "pyicloud.services.NotesService": "(service_root, session, params, *, cloudkit_validation_extra=None)",
+    "pyicloud.services.PhotosService": "(service_root, session, params, upload_url, shared_streams_url, photos_upload_url=None, upload_hydration_timeout=60.0, upload_hydration_interval=2.0)",
+    "pyicloud.services.RemindersService": "(service_root, session, params, *, cloudkit_validation_extra=None)",
+    "pyicloud.services.UbiquityService": "(service_root, session, params)",
+    "pyicloud.services.RemindersService.get": "(self, reminder_id)",
+    "pyicloud.services.RemindersService.list_reminders": "(self, list_id, include_completed=False, results_limit=200)",
+    "pyicloud.services.RemindersService.create": "(self, list_id, title, desc='', completed=False, due_date=None, priority=0, flagged=False, all_day=False, time_zone=None, parent_reminder_id=None)",
+    "pyicloud.services.RemindersService.update": "(self, reminder)",
+    "pyicloud.services.RemindersService.delete": "(self, reminder)"
+  }
+}

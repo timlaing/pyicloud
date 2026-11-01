@@ -65,17 +65,22 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/pip install build
-          .venv/bin/python -m build
+          .venv/bin/python -m build --sdist --wheel
           CHECK_SCRIPT="$PWD/scripts/check/installed.py"
+          MANIFEST="$PWD/tests/fixtures/compatibility/2026.10.1.json"
           SMOKE_ROOT="$(mktemp -d "$RUNNER_TEMP/pyicloud-installed.XXXXXX")"
           python -m venv "$SMOKE_ROOT/runtime"
           "$SMOKE_ROOT/runtime/bin/pip" install dist/*.whl
           python -m venv "$SMOKE_ROOT/cli"
           WHEEL=("$PWD"/dist/*.whl)
           "$SMOKE_ROOT/cli/bin/pip" install "${WHEEL[0]}[cli]"
+          .venv/bin/pip wheel --no-deps --wheel-dir dist/from-sdist dist/*.tar.gz
+          python -m venv "$SMOKE_ROOT/sdist"
+          "$SMOKE_ROOT/sdist/bin/pip" install dist/from-sdist/*.whl
           cd "$SMOKE_ROOT"
-          "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT"
-          "$SMOKE_ROOT/cli/bin/python" -I "$CHECK_SCRIPT" --cli
+          "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT" --manifest "$MANIFEST"
+          "$SMOKE_ROOT/cli/bin/python" -I "$CHECK_SCRIPT" --manifest "$MANIFEST" --cli
+          "$SMOKE_ROOT/sdist/bin/python" -I "$CHECK_SCRIPT" --manifest "$MANIFEST"
 
       # Keep one report per run, from a version supported by the Sonar analyzer.
       - name: Upload coverage report
@@ -86,3 +91,29 @@ jobs:
           path: coverage.xml
           if-no-files-found: error
           retention-days: 7
+
+  installed-minimum:
+    name: Installed runtime minimum dependencies (3.10)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+      - name: Build and check an isolated minimum-runtime installation
+        run: |
+          set -euo pipefail
+          python -m pip install build
+          python scripts/check/minimum.py requirements.txt requirements_min.txt
+          python -m build
+          CHECK_SCRIPT="$PWD/scripts/check/installed.py"
+          MANIFEST="$PWD/tests/fixtures/compatibility/2026.10.1.json"
+          SMOKE_ROOT="$(mktemp -d "$RUNNER_TEMP/pyicloud-minimum.XXXXXX")"
+          python -m venv "$SMOKE_ROOT/runtime"
+          "$SMOKE_ROOT/runtime/bin/pip" install -c requirements_min.txt dist/*.whl
+          "$SMOKE_ROOT/runtime/bin/pip" check
+          cd "$SMOKE_ROOT"
+          "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT" --manifest "$MANIFEST"
