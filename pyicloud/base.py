@@ -27,6 +27,11 @@ from requests import HTTPError
 from requests.models import Response
 import srp
 
+from pyicloud._auth_protocol import (
+    accepted_security_code_conflict,
+    accepted_security_code_repair,
+    build_auth_headers,
+)
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
 from pyicloud.const import (
     ACCOUNT_NAME,
@@ -841,26 +846,14 @@ class PyiCloudService:
         self, overrides: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Build Apple auth headers for IDMS, bridge, and verification requests."""
-        headers: dict[str, Any] = _AUTH_HEADERS_JSON.copy()
-        headers.update({
-            "Referer": self._idmsa_endpoint,
-            "X-Apple-OAuth-Redirect-URI": self._home_endpoint,
-            "X-Apple-OAuth-State": self._client_id,
-            "X-Apple-Frame-Id": self._client_id,
-        })
-
-        if self.session.data.get("scnt"):
-            headers["scnt"] = self.session.data["scnt"]
-
-        if self.session.data.get("session_id"):
-            headers["X-Apple-ID-Session-Id"] = self.session.data["session_id"]
-        if self.session.data.get("auth_attributes"):
-            headers["X-Apple-Auth-Attributes"] = self.session.data["auth_attributes"]
-
-        if overrides:
-            headers.update(overrides)
-
-        return headers
+        return build_auth_headers(
+            _AUTH_HEADERS_JSON,
+            self._idmsa_endpoint,
+            self._home_endpoint,
+            self._client_id,
+            self.session.data,
+            overrides,
+        )
 
     @property
     def session(self) -> PyiCloudSession:
@@ -1424,31 +1417,13 @@ class PyiCloudService:
     def _is_accepted_security_code_conflict(response: Response | None) -> bool:
         """Return whether a 409 verify response reports the code as valid."""
 
-        if (
-            response is None
-            or response.status_code != AppleAuthError.TWO_FACTOR_REQUIRED
-        ):
-            return False
-        try:
-            body = response.json()
-        except ValueError:
-            return False
-        if not isinstance(body, dict):
-            return False
-        security_code = body.get("securityCode")
-        return isinstance(security_code, dict) and security_code.get("valid") is True
+        return accepted_security_code_conflict(response)
 
     @staticmethod
     def _is_accepted_security_code_repair(response: Response | None) -> bool:
         """Return whether a 412 verify response opened a repair session."""
 
-        # Observed: Apple answers a correct code with 412 and a repair session
-        # when the account has pending repair steps (e.g. updated terms).
-        return (
-            response is not None
-            and response.status_code == AppleAuthError.REPAIR_REQUIRED
-            and bool(response.headers.get("X-Apple-Repair-Session-Token"))
-        )
+        return accepted_security_code_repair(response)
 
     def _validate_sms_code(self, code: str) -> None:
         """Verifies a verification code received via Apple's SMS system."""
