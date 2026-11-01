@@ -513,7 +513,7 @@ def test_send_file_success(mock_service_with_cookies: PyiCloudService) -> None:
         # Assert _update_contentws call
         mock_post.assert_any_call(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
-            params=drive.params,
+            params={**drive.params, "token": "768y9u"},
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=ANY,
         )
@@ -624,7 +624,7 @@ def test_send_file_update_error(mock_service_with_cookies: PyiCloudService) -> N
         # Assert _update_contentws call
         mock_post.assert_any_call(
             drive._document_root + f"/ws/{CLOUD_DOCS_ZONE}/update/documents",
-            params=drive.params,
+            params={**drive.params, "token": "768y9u"},
             headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             json=ANY,
         )
