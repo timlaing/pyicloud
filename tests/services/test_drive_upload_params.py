@@ -131,6 +131,7 @@ def test_preparation_alone_preserves_shared_parameters(
     response.json.return_value = [
         {"document_id": "document", "url": "https://content.example.test/upload"}
     ]
+    file = UploadFile()
     with (
         patch.object(drive.session, "post", return_value=response) as transport,
         patch("mimetypes.guess_type", return_value=("application/octet-stream", None)),
@@ -139,9 +140,9 @@ def test_preparation_alone_preserves_shared_parameters(
             with pytest.raises(
                 PyiCloudAPIResponseException, match="Synthetic rejection"
             ):
-                drive._get_upload_contentws_url(UploadFile())
+                drive._get_upload_contentws_url(file)
         else:
-            drive._get_upload_contentws_url(UploadFile())
+            drive._get_upload_contentws_url(file)
     assert drive.params == original
     assert transport.call_args.kwargs["params"] == {**original, "token": "768y9u"}
     assert transport.call_args.kwargs["params"] is not drive.params
