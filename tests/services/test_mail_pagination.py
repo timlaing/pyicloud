@@ -95,6 +95,26 @@ def test_iteration_is_lazy_and_does_not_prefetch(pagination: PaginationCase) -> 
     page.close.assert_called_once()
 
 
+def test_invalid_next_page_is_closed_before_any_record_is_exposed(
+    pagination: PaginationCase,
+) -> None:
+    """An inconsistent second page must not leak an apparently valid first record."""
+    service, session, folders, folder = pagination
+    first = response([record(10), record(9)])
+    second = response([record(8), record(8, identifier="conflicting")])
+    session.post.side_effect = [first, second]
+    iterator = service.iter_messages(folder, page_size=2)
+    assert next(iterator).uid == 10
+    assert next(iterator).uid == 9
+    with pytest.raises(MailError, match="conflicting identities"):
+        next(iterator)
+    assert session.post.call_count == 2
+    assert folders.call_count == 3
+    assert session.post.call_args.kwargs["json"]["predicate"]["and"][-1]["value"] == 9
+    first.close.assert_called_once()
+    second.close.assert_called_once()
+
+
 def test_empty_mailbox_is_exhausted(pagination: PaginationCase) -> None:
     """A verified empty first page is a successful empty enumeration."""
     service, session, _, folder = pagination

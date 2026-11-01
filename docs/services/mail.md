@@ -1,5 +1,11 @@
 # Mail
 
+The public `MailService` remains defined in `pyicloud.services.mail.service`.
+Private `_pagination` helpers own query construction and whole-page validation;
+the facade still owns transport, mailbox epoch checks, request timing and iterator
+laziness. Existing draft, folder and sync helpers retain their separate ownership.
+These private module boundaries do not change public imports or authorize retries.
+
 Mail support is **experimental**, using the iCloud web interface's undocumented
 HTTP API. Read operations have been verified on one account. Explicit
 single-message read/unread, flag/unflag, and ordinary mailbox moves are available
