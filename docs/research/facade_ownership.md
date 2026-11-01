@@ -23,6 +23,14 @@ unchanged. Publishing `py.typed`, migrating public models or enforcing a new sta
 consumer contract requires a separate decision and downstream consumer checks;
 none is included in these runtime refactors.
 
+Before any typed-package publication, agree the exported typed names and supported
+checker versions. Validate frozen downstream snippets against an installed wheel
+with both mypy and Pyright: root/service construction, optional CLI imports, typed
+return models, exception handling, callbacks and generated protobuf annotations.
+Include expected-success and expected-error examples, runtime-only and CLI-extra
+environments, and minimum/latest dependency versions. Do not infer a consumer
+typing guarantee from the repository's strict internal mypy run alone.
+
 Owning behavior tests were added and run before extraction, then rerun after it.
 Keep the released signature/identity manifest and installed-package smokes as
 prerequisites. Existing meaningful `test_cov_*` edge assertions remain unless the
