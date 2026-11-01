@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from scripts.check.installed import check_cli
+from tests.fixture_loader import load_fixture
 
 
 def test_cli_children_ignore_python_environment(
@@ -19,7 +20,13 @@ def test_cli_children_ignore_python_environment(
     for name in ("PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONOPTIMIZE"):
         monkeypatch.setenv(name, "checkout-override")
     monkeypatch.setenv("PYICLOUD_SMOKE_SENTINEL", "preserved")
-    outputs = ["Usage: icloud", "2026.10.1", "Usage: icloud photos"]
+    outputs = [
+        "Usage: icloud",
+        "2026.10.1",
+        "Usage: icloud photos",
+        "Usage: icloud reminders",
+        "Usage: icloud mail",
+    ]
     with (
         patch("scripts.check.installed.version", return_value="2026.10.1"),
         patch(
@@ -29,12 +36,14 @@ def test_cli_children_ignore_python_environment(
             ],
         ) as run,
     ):
-        check_cli()
+        check_cli(load_fixture("compatibility", "2026.10.1.json"))
 
     assert [call.args[0][1:] for call in run.call_args_list] == [
         ["--help"],
         ["--version"],
         ["photos", "--help"],
+        ["reminders", "--help"],
+        ["mail", "--help"],
     ]
     for call in run.call_args_list:
         assert Path(call.args[0][0]).parent == Path(sys.executable).parent
