@@ -63,6 +63,7 @@ validation:
 nav:
   - Home: index.md
   - Guides:
+      - Compatibility and Guarantees: guides/compatibility.md
       - Authentication: guides/authentication.md
       - Command-Line Interface: guides/cli.md
       - Diagnostics: guides/diagnostics.md

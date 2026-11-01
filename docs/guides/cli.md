@@ -2,6 +2,9 @@
 
 [← Back to the documentation index](../index.md)
 
+See [Compatibility and operational guarantees](compatibility.md) before relying
+on CLI JSON fields, exit codes, shared state or mutation retries in automation.
+
 The `icloud` command line interface is organized around top-level
 subcommands such as `auth`, `account`, `devices`, `calendar`,
 `contacts`, `drive`, `photos`, `hidemyemail`, `mail`, `notes`, `reminders`, and

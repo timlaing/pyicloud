@@ -76,6 +76,7 @@ It is also published, with a generated API reference, at
 
 ### Guides
 
+- **[Compatibility and Guarantees](https://github.com/timlaing/pyicloud/blob/main/docs/guides/compatibility.md)** — supported imports, CalVer decisions, offline setup, persistence and timeout limits
 - **[Authentication](https://github.com/timlaing/pyicloud/blob/main/docs/guides/authentication.md)** — login, `pause_2fa`, and 2SA/2FA
 - **[Command-Line Interface](https://github.com/timlaing/pyicloud/blob/main/docs/guides/cli.md)** — the `icloud` command, auth/session management, and keyring storage
 - **[Diagnostics](https://github.com/timlaing/pyicloud/blob/main/docs/guides/diagnostics.md)** — `icloud doctor` and its exit codes

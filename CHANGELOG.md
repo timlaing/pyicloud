@@ -16,6 +16,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Publish a supported compatibility and operational-guarantees guide, and enforce the agreed per-file combined line-and-branch coverage policy alongside the existing aggregate gate.
 - Check released public compatibility contracts and installed runtime-only, CLI, and source-distribution packages offline, including declared minimum runtime dependencies.
 - Validate standard Python 3.15 with the full offline suite and clean runtime-only and CLI package installation checks, retaining Python 3.10 support. CLI checks clear inherited Python environment overrides so checkout sources cannot hide a broken wheel.
 

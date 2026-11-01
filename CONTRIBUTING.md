@@ -11,6 +11,9 @@ mindful of Apple's Terms of Service.
 
 ## Getting started
 
+Read the [compatibility contract](docs/guides/compatibility.md) before changing
+public imports, parameter order, defaults, serialized fields or persisted formats.
+
 1. Fork the repository and clone it locally.
 2. Create a branch for your change (`git checkout -b feature/your-branch`).
 3. Set up a development environment (see below).
@@ -108,11 +111,22 @@ Run coverage to review what your change exercises:
 pytest --cov=pyicloud --cov-branch --cov-report=term-missing
 ```
 
-Inspect the per-file table before claiming compliance; the aggregate percentage
-does not tell you which files are under-covered. The project requires every
-source file to stay above 90% coverage, but the CI workflow and the manual
-`pytest` prek hook enforce an aggregate `--cov-fail-under=90` threshold. Coverage
-is also reported to SonarQube Cloud. Pull requests must not introduce new
+Every measured source file must have **strictly above 90% combined line-and-branch
+coverage**, and aggregate coverage must remain **at least 90%**. Existing generated
+protobuf omissions are unchanged. Empty modules have no executable opportunities;
+an empty measured inventory is an error. Exact counts, not rounded display values,
+decide the per-file gate. CI and the manual `pytest` hook enforce both requirements:
+
+```sh
+python scripts/check/tests.py
+prek run --hook-stage manual pytest --all-files
+python scripts/check/file_coverage.py coverage.xml  # inspect a completed report
+```
+
+Failures name offending files and show covered/possible line-plus-branch counts.
+Historical [#394](https://github.com/timlaing/pyicloud/issues/394) is policy context,
+not evidence of a current low-coverage defect. Coverage is also reported to
+SonarQube Cloud. Pull requests must not introduce new
 SonarQube issues; the SonarQube workflow waits for the quality gate configured
 in SonarQube Cloud. The filesystem guard allows coverage's own metadata
 resolution, package-source reads, and write-only `coverage.xml` output, so these
