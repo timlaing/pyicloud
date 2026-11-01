@@ -42,6 +42,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Ignore caller-supplied `request_params` in Drive uploads without interrupting finalisation or replacing the operation-local upload token.
 - Keep Drive upload tokens local to each upload while preserving preparation and finalisation request parameters; uploads no longer add credentials to shared service parameters.
+- Recover from non-object, malformed or invalidly encoded session JSON without discarding valid cookies; distinguish missing and unreadable session files in safe diagnostics.
 
 - Preserve cached Photos counts on malformed count refreshes, and use safe metadata defaults for shared-stream records with invalid fields or out-of-range timestamps.
 
