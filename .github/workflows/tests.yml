@@ -65,17 +65,27 @@ jobs:
         run: |
           set -euo pipefail
           .venv/bin/pip install build
-          .venv/bin/python -m build
+          .venv/bin/python -m build --wheel --outdir dist/direct
+          .venv/bin/python -m build --sdist --outdir dist/source
+          .venv/bin/pip wheel --no-deps dist/source/*.tar.gz --wheel-dir dist/from-sdist
           CHECK_SCRIPT="$PWD/scripts/check/installed.py"
+          CONTRACT_SCRIPT="$PWD/scripts/check/compatibility.py"
+          CONTRACT="$PWD/tests/fixtures/compatibility/public.json"
           SMOKE_ROOT="$(mktemp -d "$RUNNER_TEMP/pyicloud-installed.XXXXXX")"
           python -m venv "$SMOKE_ROOT/runtime"
-          "$SMOKE_ROOT/runtime/bin/pip" install dist/*.whl
+          "$SMOKE_ROOT/runtime/bin/pip" install dist/direct/*.whl
           python -m venv "$SMOKE_ROOT/cli"
-          WHEEL=("$PWD"/dist/*.whl)
+          WHEEL=("$PWD"/dist/direct/*.whl)
           "$SMOKE_ROOT/cli/bin/pip" install "${WHEEL[0]}[cli]"
+          python -m venv "$SMOKE_ROOT/sdist"
+          "$SMOKE_ROOT/sdist/bin/pip" install dist/from-sdist/*.whl
           cd "$SMOKE_ROOT"
           "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT"
           "$SMOKE_ROOT/cli/bin/python" -I "$CHECK_SCRIPT" --cli
+          "$SMOKE_ROOT/sdist/bin/python" -I "$CHECK_SCRIPT"
+          for installation in runtime cli sdist; do
+            "$SMOKE_ROOT/$installation/bin/python" -I "$CONTRACT_SCRIPT" "$CONTRACT"
+          done
 
       # Keep one report per run, from a version supported by the Sonar analyzer.
       - name: Upload coverage report
@@ -86,3 +96,33 @@ jobs:
           path: coverage.xml
           if-no-files-found: error
           retention-days: 7
+
+  minimum-runtime:
+    name: Minimum runtime dependencies (3.10)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+      - name: Build and install with lowest compatible direct dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install build uv
+          python -m build --wheel
+          CHECK_SCRIPT="$PWD/scripts/check/installed.py"
+          CONTRACT_SCRIPT="$PWD/scripts/check/compatibility.py"
+          CONTRACT="$PWD/tests/fixtures/compatibility/public.json"
+          SMOKE_ROOT="$(mktemp -d "$RUNNER_TEMP/pyicloud-minimum.XXXXXX")"
+          python -m venv "$SMOKE_ROOT/runtime"
+          uv pip install --python "$SMOKE_ROOT/runtime/bin/python" \
+            --resolution lowest-direct -r requirements.txt
+          "$SMOKE_ROOT/runtime/bin/pip" install --no-deps dist/*.whl
+          "$SMOKE_ROOT/runtime/bin/pip" check
+          "$SMOKE_ROOT/runtime/bin/pip" freeze
+          cd "$SMOKE_ROOT"
+          "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT"
+          "$SMOKE_ROOT/runtime/bin/python" -I "$CONTRACT_SCRIPT" "$CONTRACT"

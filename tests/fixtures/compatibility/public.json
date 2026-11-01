@@ -1,0 +1,523 @@
+{
+  "auth_status_keys": [
+    "authenticated",
+    "trusted_session",
+    "requires_2fa",
+    "requires_2sa"
+  ],
+  "baseline": {
+    "release": "2026.10.0",
+    "scope": "Retained core, Drive, Calendar and Contacts interfaces. Additions allowed; removals or changed defaults require explicit review."
+  },
+  "doctor_keys": [
+    "ok",
+    "environment",
+    "session",
+    "webservices",
+    "probes",
+    "services_at_risk"
+  ],
+  "exception_bases": {
+    "pyicloud.exceptions:PyiCloudAPIResponseException": "pyicloud.exceptions:PyiCloudException",
+    "pyicloud.exceptions:PyiCloudAuthRequiredException": "pyicloud.exceptions:PyiCloudException"
+  },
+  "imports": [
+    "pyicloud:PyiCloudService",
+    "pyicloud:AppleDevice",
+    "pyicloud:PyiCloudService",
+    "pyicloud.services.drive:DriveService",
+    "pyicloud.services.calendar:CalendarService",
+    "pyicloud.services.contacts:ContactsService"
+  ],
+  "properties": ["pyicloud.services.contacts:ContactsService.all"],
+  "saved_cookies": "#LWP-Cookies-2.0\nSet-Cookie3: compatibility=synthetic-cookie; path=\"/\"; domain=example.invalid; path_spec; discard; HttpOnly=None; version=0\n",
+  "saved_session": {
+    "client_id": "synthetic-client",
+    "session_token": "synthetic-token",
+    "future_field": {
+      "retained": true
+    }
+  },
+  "signatures": {
+    "pyicloud:PyiCloudService.__init__": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "apple_id",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "password",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "cookie_directory",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "verify",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "True",
+        "required": false
+      },
+      {
+        "name": "client_id",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "with_family",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "True",
+        "required": false
+      },
+      {
+        "name": "china_mainland",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "accept_terms",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "False",
+        "required": false
+      },
+      {
+        "name": "refresh_interval",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "300.0",
+        "required": false
+      },
+      {
+        "name": "family_poll_delay",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "0.5",
+        "required": false
+      },
+      {
+        "name": "family_poll_max_retries",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "5",
+        "required": false
+      },
+      {
+        "name": "locate",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "False",
+        "required": false
+      },
+      {
+        "name": "authenticate",
+        "kind": "KEYWORD_ONLY",
+        "default": "True",
+        "required": false
+      },
+      {
+        "name": "cloudkit_validation_extra",
+        "kind": "KEYWORD_ONLY",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "pause_2fa",
+        "kind": "KEYWORD_ONLY",
+        "default": "False",
+        "required": false
+      },
+      {
+        "name": "upload_hydration_timeout",
+        "kind": "KEYWORD_ONLY",
+        "default": "60.0",
+        "required": false
+      },
+      {
+        "name": "upload_hydration_interval",
+        "kind": "KEYWORD_ONLY",
+        "default": "2.0",
+        "required": false
+      }
+    ],
+    "pyicloud:PyiCloudService.authenticate": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "force_refresh",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "False",
+        "required": false
+      },
+      {
+        "name": "service",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "pause_2fa",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      }
+    ],
+    "pyicloud:PyiCloudService.logout": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "keep_trusted",
+        "kind": "KEYWORD_ONLY",
+        "default": "False",
+        "required": false
+      },
+      {
+        "name": "all_sessions",
+        "kind": "KEYWORD_ONLY",
+        "default": "False",
+        "required": false
+      },
+      {
+        "name": "clear_local_session",
+        "kind": "KEYWORD_ONLY",
+        "default": "True",
+        "required": false
+      }
+    ],
+    "pyicloud:PyiCloudService.get_auth_status": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud:PyiCloudService.get_webservice_url": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "ws_key",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud:PyiCloudService.validate_2fa_code": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "code",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud:PyiCloudService.trust_session": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud:PyiCloudService.request_2fa_code": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud.services.drive:DriveService.__init__": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "service_root",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "document_root",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "session",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "params",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud.services.drive:DriveService.get_file": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "file_id",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "zone",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "'com.apple.CloudDocs'",
+        "required": false
+      },
+      {
+        "name": "owner_record_name",
+        "kind": "KEYWORD_ONLY",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "kwargs",
+        "kind": "VAR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud.services.drive:DriveService.get_node_data": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "drivewsid",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "share_id",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      }
+    ],
+    "pyicloud.services.drive:DriveService.send_file": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "folder_id",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "file_object",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "zone",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "'com.apple.CloudDocs'",
+        "required": false
+      },
+      {
+        "name": "kwargs",
+        "kind": "VAR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud.services.drive:DriveService.create_folders": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "parent",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "name",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud.services.drive:DriveService.delete_items": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "node_id",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "etag",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud.services.calendar:CalendarService.__init__": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "service_root",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "session",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "params",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ],
+    "pyicloud.services.calendar:CalendarService.get_events": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "from_dt",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "to_dt",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "None",
+        "required": false
+      },
+      {
+        "name": "period",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "'month'",
+        "required": false
+      },
+      {
+        "name": "as_objs",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "False",
+        "required": false
+      }
+    ],
+    "pyicloud.services.calendar:CalendarService.get_event_detail": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "pguid",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "guid",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "as_obj",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": "False",
+        "required": false
+      }
+    ],
+    "pyicloud.services.contacts:ContactsService.__init__": [
+      {
+        "name": "self",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "service_root",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "session",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      },
+      {
+        "name": "params",
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "default": null,
+        "required": true
+      }
+    ]
+  }
+}

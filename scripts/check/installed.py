@@ -10,6 +10,7 @@ import argparse
 import importlib
 from importlib.metadata import version
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -87,11 +88,39 @@ def main() -> None:
 
     if args.cli:
         check_cli()
+        check_cli_json()
     else:
         for name in ("click", "typer", "rich"):
             assert importlib.util.find_spec(name) is None, name
 
     print(f"Installed package checks passed on Python {sys.version.split()[0]}")
+
+
+def check_cli_json() -> None:
+    """Exercise installed CLI serialization and failure status without an account."""
+    from typer.testing import CliRunner  # pylint: disable=import-outside-toplevel
+
+    from pyicloud.cli.app import app  # pylint: disable=import-outside-toplevel
+
+    with patch(
+        "pyicloud.cli.commands.doctor._session_report",
+        return_value=({"authenticated": False}, None),
+    ):
+        result = CliRunner().invoke(app, ["doctor", "--format", "json"])
+    assert result.exit_code == 1, (result.output, result.exception)
+    payload = json.loads(result.output)
+    assert set(payload) == {
+        "ok",
+        "environment",
+        "session",
+        "webservices",
+        "probes",
+        "services_at_risk",
+    }
+    assert payload["ok"] is False
+    assert payload["session"]["authenticated"] is False
+    assert payload["webservices"] == []
+    assert payload["probes"] == []
 
 
 if __name__ == "__main__":

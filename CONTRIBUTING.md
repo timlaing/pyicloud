@@ -40,6 +40,32 @@ only from 3.14: the [Sonar Python analyzer](https://docs.sonarsource.com/sonarqu
 currently documents support through 3.14, so the analyzer settings intentionally
 stop there even though runtime tests include 3.15.
 
+PRs also install a direct wheel and an sdist-derived wheel in clean environments
+outside the checkout. Runtime-only imports must not require the CLI extra.
+The Python 3.10 minimum-runtime job resolves the lowest compatible direct runtime
+dependencies, prints the resolved versions, and runs the installed-package
+checks; transitive dependencies remain resolver-selected. Existing matrix check
+names are unchanged; the minimum-runtime job is an additional check.
+
+### Public compatibility baseline
+
+`tests/fixtures/compatibility/public.json` records retained interfaces captured
+from this repository's `2026.10.0` release tag. It is a focused baseline rather
+than an exhaustive claim about every historical service. In particular, the
+later Photos migration and experimental Mail APIs are covered by current
+behaviour and facade-identity regressions, not by inventing released contracts.
+The manifest checks import paths, parameter order/kinds/defaults, exception
+inheritance and properties. Tests also cover representative authentication,
+doctor JSON/exit status, and persisted JSON/cookie formats. Installed-wheel
+checks run the same import/signature manifest using isolated interpreters.
+
+Do not regenerate expectations from the implementation under test. A baseline
+change requires an explicit compatibility decision in the PR: name the affected
+client interface, explain why it changes, provide migration guidance and a
+changelog entry, and obtain maintainer review. Optional additions can be tested
+without changing the retained baseline. No live Apple or downstream-client
+compatibility is implied by these offline checks.
+
 The project uses **Ruff** as its sole formatter and linter (line length 88,
 `preview=true`), plus **mypy** (strict), **pylint**, **cspell**, **yamllint**,
 and **prettier**. Pre-commit hooks are managed with **`prek`** (a pre-commit
