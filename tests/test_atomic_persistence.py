@@ -1,6 +1,7 @@
 """Atomic replacement preserves old authentication files on failed writes."""
 
 # pylint: disable=protected-access
+# cspell:ignore pathconf
 
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
@@ -43,15 +44,37 @@ def directory_fixture() -> Iterator[Path]:
 @pytest.mark.skipif(os.name != "posix", reason="POSIX filesystem component limits")
 def test_long_destination_basename_keeps_staging_name_bounded(directory: Path) -> None:
     """A valid near-limit destination must not acquire a longer staging basename."""
+    name_limit = os.pathconf(directory, "PC_NAME_MAX")
+    if 0 <= name_limit < 250:
+        pytest.skip("Sandbox filesystem does not support a 250-byte basename")
     destination = directory / ("x" * 250)
     destination.write_text("previous", encoding="utf-8")
     with atomic_path(str(destination)) as temporary:
         staged = Path(temporary)
-        assert staged.parent == directory
+        assert staged.parent == directory.resolve()
         assert len(staged.name) < 40
         staged.write_text("replacement", encoding="utf-8")
     assert destination.read_text(encoding="utf-8") == "replacement"
     assert list(directory.iterdir()) == [destination]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink semantics")
+@pytest.mark.parametrize("existing", [False, True])
+def test_atomic_save_preserves_destination_symlink(
+    directory: Path, existing: bool
+) -> None:
+    """Direct-write compatibility includes updating existing or dangling targets."""
+    target = directory / "target"
+    link = directory / "link"
+    if existing:
+        target.write_text("previous", encoding="utf-8")
+    link.symlink_to(target)
+    with atomic_path(str(link)) as temporary:
+        Path(temporary).write_text("replacement", encoding="utf-8")
+    assert link.is_symlink()
+    assert target.read_text(encoding="utf-8") == "replacement"
+    assert link.read_text(encoding="utf-8") == "replacement"
+    assert set(directory.iterdir()) == {target, link}
 
 
 @pytest.mark.parametrize("existing", [False, True])

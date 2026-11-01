@@ -12,8 +12,9 @@ def atomic_path(filename: str) -> Generator[str, None, None]:
 
     Atomic visibility is per file, not a cross-file transaction or a guarantee
     against power loss. The caller must close its writer before leaving the block.
+    Existing destination symlinks are retained; replacement updates their target.
     """
-    destination = os.path.abspath(filename)
+    destination = os.path.realpath(filename)
     descriptor, temporary = tempfile.mkstemp(
         prefix=".pyicloud-",
         suffix=".tmp",
