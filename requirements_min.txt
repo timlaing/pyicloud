@@ -1,5 +1,5 @@
 # Exact declared runtime lower bounds; transitive dependencies remain resolver-owned.
-certifi==2026.4.22
+certifi==2026.10.23
 cryptography==50.0.0
 fido2==2.2.1
 keyring==25.7.0
