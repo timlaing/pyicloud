@@ -31,12 +31,14 @@ repos:
     rev: v10.1.0
     hooks:
       - id: cspell
+        language_version: 22.18.0
         args:
           - --config=.vscode/cspell.json
           - --no-must-find-files
           - --no-progress
           - --no-summary
       - id: cspell # Spell check the commit message
+        language_version: 22.18.0
         name: check commit message spelling
         args:
           - --no-must-find-files

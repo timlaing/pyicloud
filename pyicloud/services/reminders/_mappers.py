@@ -46,9 +46,18 @@ class RemindersRecordMapper:
         self,
         get_raw: Callable[[], Any],
         logger: logging.Logger,
+        *,
+        scope: str = "private",
+        zone_name: str = "Reminders",
+        zone_owner: str | None = None,
     ) -> None:
         self._get_raw = get_raw
         self._logger = logger
+        self._route: dict[str, Any] = {
+            "scope": scope,
+            "zone_name": zone_name,
+            "zone_owner": zone_owner,
+        }
         self._warned_trigger_types: set[str] = set()
 
     @staticmethod
@@ -151,6 +160,7 @@ class RemindersRecordMapper:
             count = len(reminder_ids)
 
         return RemindersList(
+            **self._route,
             id=rec.recordName,
             title=str(title) if title else "Untitled",
             color=str(color) if color else None,
@@ -235,6 +245,7 @@ class RemindersRecordMapper:
         )
 
         return Reminder(
+            **self._route,
             id=rec.recordName,
             list_id=_ref_name(fields, "List"),
             title=title,
@@ -278,6 +289,7 @@ class RemindersRecordMapper:
         """Map a CloudKit alarm record to an ``Alarm`` domain model."""
         fields = rec.fields
         return Alarm(
+            **self._route,
             id=rec.recordName,
             alarm_uid=fields.get_value("AlarmUID") or "",
             reminder_id=_ref_name(fields, "Reminder"),
@@ -306,6 +318,7 @@ class RemindersRecordMapper:
                 proximity = Proximity.ARRIVING
 
             return LocationTrigger(
+                **self._route,
                 id=rec.recordName,
                 alarm_id=alarm_id,
                 title=fields.get_value("Title") or "",
@@ -320,6 +333,7 @@ class RemindersRecordMapper:
 
         if trigger_type == "Date":
             return DateTrigger(
+                **self._route,
                 id=rec.recordName,
                 alarm_id=alarm_id,
                 date_components=_decode_nsdatecomponents(
@@ -347,6 +361,7 @@ class RemindersRecordMapper:
 
         if att_type == "URL":
             return URLAttachment(
+                **self._route,
                 id=rec.recordName,
                 reminder_id=reminder_id,
                 url=_decode_attachment_url(fields.get_value("URL") or ""),
@@ -361,6 +376,7 @@ class RemindersRecordMapper:
                 download_url = file_asset.downloadURL or ""
 
             return ImageAttachment(
+                **self._route,
                 id=rec.recordName,
                 reminder_id=reminder_id,
                 file_asset_url=download_url,
@@ -383,6 +399,7 @@ class RemindersRecordMapper:
         """Map a CloudKit hashtag record to a ``Hashtag`` domain model."""
         fields = rec.fields
         return Hashtag(
+            **self._route,
             id=rec.recordName,
             name=self._coerce_text(
                 fields.get_value("Name"),
@@ -470,6 +487,7 @@ class RemindersRecordMapper:
                 )
                 freq = RecurrenceFrequency.DAILY
         return RecurrenceRule(
+            **self._route,
             id=rec.recordName,
             reminder_id=_ref_name(fields, "Reminder"),
             frequency=freq,

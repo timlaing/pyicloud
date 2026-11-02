@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 import logging
 from typing import Any, Literal, TypeVar, cast
 
@@ -17,6 +18,8 @@ from pyicloud.common.cloudkit import (
     CKTombstoneRecord,
     CKZoneChangesZone,
     CKZoneChangesZoneReq,
+    CKZoneID,
+    CKZoneIDReq,
 )
 
 from ._constants import _REMINDERS_ZONE, _REMINDERS_ZONE_REQ
@@ -40,6 +43,13 @@ from .models import (
 TRelated = TypeVar("TRelated")  # pylint: disable=invalid-name
 
 
+@dataclass
+class ListDiscoveryState:
+    """Completion outcome owned by one list discovery, never shared by iterators."""
+
+    complete: bool = True
+
+
 class RemindersReadAPI:
     """Encapsulates read/query behavior for the Reminders service."""
 
@@ -48,10 +58,15 @@ class RemindersReadAPI:
         get_raw: Callable[[], Any],
         mapper: RemindersRecordMapper,
         logger: logging.Logger,
+        get_shared: Callable[[], Any] | None = None,
+        *,
+        zone_id: CKZoneIDReq | None = None,
     ) -> None:
         self._get_raw = get_raw
         self._mapper = mapper
         self._logger = logger
+        self._get_shared = get_shared
+        self._zone_id = zone_id or _REMINDERS_ZONE_REQ
 
     def _iter_zone_change_pages(
         self,
@@ -84,14 +99,108 @@ class RemindersReadAPI:
                 next_sync_token = zone.syncToken
                 more_coming = more_coming or bool(zone.moreComing)
 
-    def lists(self) -> Iterable[RemindersList]:
-        """Fetch reminders lists as a full snapshot."""
+    def lists(
+        self, *, routing_only: bool = False, state: ListDiscoveryState | None = None
+    ) -> Iterable[RemindersList]:
+        """Fetch lists, optionally reading only identity/zone routing metadata."""
+        outcome = state if state is not None else ListDiscoveryState()
         for zone in self._iter_zone_change_pages(desired_record_types=["List"]):
             _assert_read_success(zone.records, "Fetch reminder lists")
             for rec in zone.records:
                 if not isinstance(rec, CKRecord) or rec.recordType != "List":
                     continue
-                yield self._mapper.record_to_list(rec)
+                yield self._list_record(rec, routing_only=routing_only)
+        if self._get_shared is None:
+            return
+        yield from self._shared_lists(routing_only=routing_only, state=outcome)
+
+    def _list_record(self, record: CKRecord, *, routing_only: bool) -> RemindersList:
+        """Route lookup does not require unrelated membership assets to decode."""
+        if routing_only:
+            return RemindersList(
+                id=record.recordName,
+                title="",
+                deleted=bool(record.fields.get_value("Deleted")),
+            )
+        return self._mapper.record_to_list(record)
+
+    def _shared_lists(
+        self, *, routing_only: bool, state: ListDiscoveryState
+    ) -> Iterable[RemindersList]:
+        """Discover lists in available, non-deleted shared zones."""
+        if self._get_shared is None:
+            return
+        shared = self._get_shared()
+        try:
+            listed_zones = shared.zones_list().zones
+        except RemindersApiError:
+            state.complete = False
+            self._logger.warning("Skipping unavailable shared Reminders zones")
+            return
+        for listed_zone in listed_zones:
+            zid = listed_zone.zoneID
+            if listed_zone.deleted:
+                continue
+            yield from self._shared_zone_lists(
+                shared, zid, routing_only=routing_only, state=state
+            )
+
+    def _shared_zone_lists(
+        self,
+        shared: Any,
+        zone_id: CKZoneID,
+        *,
+        routing_only: bool,
+        state: ListDiscoveryState,
+    ) -> Iterable[RemindersList]:
+        """Validate each shared page before exposing models; errors stay zone-local."""
+        for zone in self._iter_shared_list_pages(shared, zone_id, state=state):
+            try:
+                _assert_read_success(zone.records, "Fetch shared reminder lists")
+            except RemindersApiError:
+                state.complete = False
+                self._logger.warning(
+                    "Skipping shared Reminders zone with record errors"
+                )
+                return
+            for record in zone.records:
+                if not isinstance(record, CKRecord) or record.recordType != "List":
+                    continue
+                try:
+                    item = self._list_record(record, routing_only=routing_only)
+                except (RemindersApiError, ValueError):
+                    state.complete = False
+                    self._logger.warning("Skipping malformed shared Reminders list")
+                    continue
+                item.scope = "shared"
+                item.zone_name = zone_id.zoneName
+                item.zone_owner = zone_id.ownerRecordName
+                yield item
+
+    def _iter_shared_list_pages(
+        self, shared: Any, zone_id: CKZoneID, *, state: ListDiscoveryState
+    ) -> Iterable[CKZoneChangesZone]:
+        """Page one shared zone, stopping locally on API but not auth failures."""
+        sync_token: str | None = None
+        more_coming = True
+        while more_coming:
+            try:
+                response = shared.changes(
+                    zone_req=CKZoneChangesZoneReq(
+                        zoneID=zone_id,
+                        desiredRecordTypes=["List"],
+                        syncToken=sync_token,
+                    )
+                )
+            except RemindersApiError:
+                state.complete = False
+                self._logger.warning("Skipping unavailable shared Reminders zone")
+                return
+            more_coming = False
+            for zone in response.zones:
+                yield zone
+                sync_token = zone.syncToken
+                more_coming = more_coming or bool(zone.moreComing)
 
     def reminders(self, list_id: str | None = None) -> Iterable[Reminder]:
         """Fetch reminders as a full snapshot, optionally filtered by list."""
@@ -180,7 +289,7 @@ class RemindersReadAPI:
         record_name = _as_record_name(reminder_id, "Reminder")
         resp = self._get_raw().lookup(
             record_names=[record_name],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
         )
         _assert_read_success(resp.records, "Lookup reminder")
 
@@ -210,7 +319,7 @@ class RemindersReadAPI:
 
         resp = self._get_raw().lookup(
             record_names=[_as_record_name(uid, prefix) for uid in raw_ids],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
         )
         _assert_read_success(resp.records, operation_name)
 
@@ -286,6 +395,9 @@ class RemindersReadAPI:
         list_id: str,
         include_completed: bool = False,
         results_limit: int = 200,
+        scope: str = "private",
+        zone_name: str = "Reminders",
+        zone_owner: str | None = None,
     ) -> ListRemindersResult:
         """Fetch all records for a list using the compound ``reminderList`` query."""
         query = CKQueryObject(
@@ -324,9 +436,18 @@ class RemindersReadAPI:
 
         continuation: str | None = None
         while True:
-            resp = self._get_raw().query(
+            raw = (
+                self._get_shared()
+                if scope == "shared" and self._get_shared
+                else self._get_raw()
+            )
+            resp = raw.query(
                 query=query,
-                zone_id=_REMINDERS_ZONE_REQ,
+                zone_id=type(_REMINDERS_ZONE_REQ)(
+                    zoneName=zone_name,
+                    zoneType="REGULAR_CUSTOM_ZONE",
+                    ownerRecordName=zone_owner,
+                ),
                 results_limit=results_limit,
                 continuation=continuation,
             )
@@ -400,7 +521,7 @@ class RemindersReadAPI:
 
         resp = self._get_raw().lookup(
             record_names=[_as_record_name(uid, "Alarm") for uid in reminder.alarm_ids],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
         )
         _assert_read_success(resp.records, "Lookup alarms")
 
@@ -419,7 +540,7 @@ class RemindersReadAPI:
         if trigger_ids:
             trigger_response = self._get_raw().lookup(
                 record_names=trigger_ids,
-                zone_id=_REMINDERS_ZONE_REQ,
+                zone_id=self._zone_id,
             )
             _assert_read_success(trigger_response.records, "Lookup alarm triggers")
             for rec in trigger_response.records:

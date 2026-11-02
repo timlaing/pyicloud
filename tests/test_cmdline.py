@@ -871,11 +871,13 @@ class FakeReminders:
 
     def list_reminders(
         self,
-        list_id: str,
+        list_id: str | RemindersList,
         include_completed: bool = False,
         results_limit: int = 200,
     ) -> ListRemindersResult:
         """Return a snapshot of reminders for the given list."""
+        if isinstance(list_id, RemindersList):
+            list_id = list_id.id
         normalized = list_id if list_id.startswith("List/") else f"List/{list_id}"
         self.snapshot_requests.append({
             "list_id": normalized,

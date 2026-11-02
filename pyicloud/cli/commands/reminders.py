@@ -168,11 +168,47 @@ def _reminders_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
         raise CLIAbort(str(err)) from err
 
 
+def _shared_reminder_matches(reminders: Any, reminder_id: str) -> list[Reminder]:
+    """Probe explicit shared contexts, retaining all matching zone identities."""
+    matches: dict[tuple[str, str, str | None, str], Reminder] = {}
+    for context in reminders.lists():
+        if getattr(context, "scope", "private") != "shared":
+            continue
+        try:
+            reminder = reminders.get(reminder_id, list_context=context)
+        except (LookupError, RemindersApiError):
+            continue
+        identity = (
+            reminder.scope,
+            reminder.zone_name,
+            reminder.zone_owner,
+            reminder.id,
+        )
+        matches[identity] = reminder
+    return list(matches.values())
+
+
 def _resolve_reminder(api: PyiCloudService, reminder_id: str) -> Reminder:
     """Return one reminder by id."""
 
     reminders = _reminders_service(api)
-    return cast(Reminder, _reminders_call(api, lambda: reminders.get(reminder_id)))
+
+    def resolve() -> Reminder:
+        """Preserve private lookups; only a missing record probes shared contexts."""
+        try:
+            return cast(Reminder, reminders.get(reminder_id))
+        except LookupError as private_error:
+            matches = _shared_reminder_matches(reminders, reminder_id)
+            if len(matches) > 1:
+                raise CLIAbort(
+                    "Ambiguous shared reminder ID; "
+                    "use a list context through the library"
+                ) from private_error
+            if not matches:
+                raise private_error
+            return matches[0]
+
+    return cast(Reminder, _reminders_call(api, resolve))
 
 
 def _list_reminder_rows(
@@ -199,21 +235,27 @@ def _list_reminder_rows(
         return cast(list[Reminder], snapshot.reminders[:limit])
 
     rows: list[Reminder] = []
-    seen_ids: set[str] = set()
+    seen_ids: set[tuple[str, str, str | None, str]] = set()
     for reminder_list in _reminders_call(api, lambda: list(reminders.lists())):
         snapshot = _reminders_call(
             api,
             partial(
                 reminders.list_reminders,
-                list_id=reminder_list.id,
+                list_id=reminder_list,
                 include_completed=include_completed,
                 results_limit=results_limit,
             ),
         )
         for reminder in snapshot.reminders:
-            if reminder.id in seen_ids:
+            identity = (
+                reminder.scope,
+                reminder.zone_name,
+                reminder.zone_owner,
+                reminder.id,
+            )
+            if identity in seen_ids:
                 continue
-            seen_ids.add(reminder.id)
+            seen_ids.add(identity)
             rows.append(reminder)
             if len(rows) >= limit:
                 return rows

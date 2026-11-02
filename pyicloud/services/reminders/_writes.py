@@ -18,6 +18,7 @@ from pyicloud.common.cloudkit import (
     CKWriteFields,
     CKWriteParent,
     CKWriteRecord,
+    CKZoneIDReq,
 )
 
 from ._constants import _REMINDERS_ZONE_REQ
@@ -112,8 +113,16 @@ class RemindersWriteAPI:
         logger: logging.Logger,
         *,
         account_id: str | None = None,
+        zone_id: CKZoneIDReq | None = None,
+        scope: str = "private",
     ) -> None:
         self._get_raw = get_raw
+        self._zone_id = zone_id or _REMINDERS_ZONE_REQ
+        self._route: dict[str, Any] = {
+            "scope": scope,
+            "zone_name": self._zone_id.zoneName,
+            "zone_owner": self._zone_id.ownerRecordName,
+        }
         self._mapper = mapper
         self._logger = logger
         # The signed-in account's directory id; Apple stores it in the
@@ -287,7 +296,7 @@ class RemindersWriteAPI:
         )
         modify_response = self._get_raw().modify(
             operations=[op],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
         )
         _assert_modify_success(modify_response, operation_name)
         _refresh_record_change_tag(modify_response, model_obj, record_name)
@@ -297,7 +306,7 @@ class RemindersWriteAPI:
         """Fetch a freshly-created reminder by record name."""
         resp = self._get_raw().lookup(
             record_names=[record_name],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
         )
         _assert_read_success(resp.records, "Lookup reminder")
 
@@ -346,7 +355,7 @@ class RemindersWriteAPI:
 
         modify_response = self._get_raw().modify(
             operations=[reminder_op, child_op],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
             atomic=True,
         )
         _assert_modify_success(modify_response, operation_name)
@@ -379,6 +388,21 @@ class RemindersWriteAPI:
                 f"{prefix} child {child_record_name} is linked to "
                 f"{self._reminder_record_name(child_reminder_id)}, not "
                 f"{reminder_record_name}"
+            )
+
+        child_route = (
+            getattr(child, "scope", "private"),
+            getattr(child, "zone_name", "Reminders"),
+            getattr(child, "zone_owner", None),
+        )
+        writer_route = (
+            self._route["scope"],
+            self._route["zone_name"],
+            self._route["zone_owner"],
+        )
+        if child_route != writer_route:
+            raise ValueError(
+                f"{prefix} child {child_record_name} has a different zone route"
             )
 
         linked_ids = [
@@ -417,7 +441,7 @@ class RemindersWriteAPI:
 
         modify_response = self._get_raw().modify(
             operations=[reminder_op, child_op],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
             atomic=True,
         )
         _assert_modify_success(modify_response, operation_name)
@@ -521,7 +545,7 @@ class RemindersWriteAPI:
 
         modify_response = self._get_raw().modify(
             operations=[op],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
         )
         _assert_modify_success(modify_response, "Create reminder")
 
@@ -536,7 +560,7 @@ class RemindersWriteAPI:
         """
         resp = self._get_raw().lookup(
             record_names=[record_name],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
         )
         records = getattr(resp, "records", None) or []
         _raise_record_errors(
@@ -902,7 +926,7 @@ class RemindersWriteAPI:
             field_name="UrgentPresentationAlarmsAsData",
             record_name=reminder_record_name,
             data=asset_bytes,
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
         )
         checksum = hashlib.sha512(asset_bytes).hexdigest()
         now_ms = int(time.time() * 1000)
@@ -1079,7 +1103,7 @@ class RemindersWriteAPI:
 
         modify_response = self._get_raw().modify(
             operations=[reminder_op, alarm_op, trigger_op],
-            zone_id=_REMINDERS_ZONE_REQ,
+            zone_id=self._zone_id,
             atomic=True,
         )
         _assert_modify_success(modify_response, "Add location trigger")
@@ -1088,6 +1112,7 @@ class RemindersWriteAPI:
         _refresh_record_change_tag(modify_response, reminder, reminder_record_name)
 
         alarm = Alarm(
+            **self._route,
             id=alarm_record_name,
             alarm_uid=alarm_uuid,
             reminder_id=reminder_record_name,
@@ -1101,6 +1126,9 @@ class RemindersWriteAPI:
             modify_response,
             trigger_record_name,
         )
+        trigger.scope = self._route["scope"]
+        trigger.zone_name = self._route["zone_name"]
+        trigger.zone_owner = self._route["zone_owner"]
         return alarm, trigger
 
     def create_hashtag(self, reminder: Reminder, name: str) -> Hashtag:
@@ -1129,6 +1157,7 @@ class RemindersWriteAPI:
             operation_name="Create hashtag",
         )
         return Hashtag(
+            **self._route,
             id=hashtag_record_name,
             name=name,
             reminder_id=reminder_record_name,
@@ -1212,6 +1241,7 @@ class RemindersWriteAPI:
             operation_name="Create attachment",
         )
         return URLAttachment(
+            **self._route,
             id=attachment_record_name,
             reminder_id=reminder_record_name,
             url=url,
@@ -1377,6 +1407,9 @@ class RemindersWriteAPI:
             modify_response,
             recurrence_record_name,
         )
+        validated_rule.scope = self._route["scope"]
+        validated_rule.zone_name = self._route["zone_name"]
+        validated_rule.zone_owner = self._route["zone_owner"]
         return validated_rule
 
     def update_recurrence_rule(

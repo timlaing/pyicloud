@@ -38,7 +38,7 @@ from datetime import datetime
 import logging
 from typing import Any, Union
 
-from pyicloud.common.cloudkit import CKRecord
+from pyicloud.common.cloudkit import CKRecord, CKZoneIDReq
 from pyicloud.common.cloudkit.base import CloudKitExtraMode
 from pyicloud.services.base import BaseService
 
@@ -48,7 +48,7 @@ from ._protocol import (
     _encode_crdt_document,
     _generate_resolution_token_map,
 )
-from ._reads import RemindersReadAPI
+from ._reads import ListDiscoveryState, RemindersReadAPI
 from ._writes import RemindersWriteAPI
 from .client import CloudKitRemindersClient
 from .models import (
@@ -68,6 +68,7 @@ from .models import (
     RemindersList,
     URLAttachment,
 )
+from .models.domain import ZonedRemindersRecord
 
 LOGGER = logging.getLogger(__name__)
 
@@ -110,12 +111,26 @@ class RemindersService(BaseService):
             base_params,
             validation_extra=cloudkit_validation_extra,
         )
+        shared_endpoint = (
+            f"{self.service_root}/database/1/{self._CONTAINER}/{self._ENV}/shared"
+        )
+        self._shared_raw = CloudKitRemindersClient(
+            shared_endpoint,
+            session,
+            base_params,
+            validation_extra=cloudkit_validation_extra,
+        )
+        self._list_zones: dict[tuple[str, str, str, str | None], RemindersList] = {}
+        self._discovery_order = 0
+        self._committed_discovery_order = 0
 
         def get_raw() -> CloudKitRemindersClient:
             return self._raw
 
         self._mapper = RemindersRecordMapper(get_raw, LOGGER)
-        self._reads = RemindersReadAPI(get_raw, self._mapper, LOGGER)
+        self._reads = RemindersReadAPI(
+            get_raw, self._mapper, LOGGER, lambda: self._shared_raw
+        )
         self._writes = RemindersWriteAPI(
             get_raw,
             self._mapper,
@@ -130,11 +145,30 @@ class RemindersService(BaseService):
         Use this to discover available lists and obtain the ``list_id`` values
         needed by creation and query helpers.
         """
-        return self._reads.lists()
+
+        state = ListDiscoveryState()
+        return self._cache_lists(self._reads.lists(state=state), state=state)
+
+    def _cache_lists(
+        self, items: Iterable[RemindersList], *, state: ListDiscoveryState
+    ) -> Iterable[RemindersList]:
+        """Replace the routing snapshot only when discovery completes."""
+        self._discovery_order += 1
+        order = self._discovery_order
+        discovered: dict[tuple[str, str, str, str | None], RemindersList] = {}
+        for item in items:
+            if not item.deleted:
+                discovered[(item.id, item.scope, item.zone_name, item.zone_owner)] = (
+                    item
+                )
+            yield item
+        if state.complete and order > self._committed_discovery_order:
+            self._list_zones = discovered
+            self._committed_discovery_order = order
 
     def reminders(
         self,
-        list_id: str | None = None,
+        list_id: str | RemindersList | None = None,
     ) -> Iterable[Reminder]:
         """
         Yield reminders across all lists or for a specific list.
@@ -143,9 +177,11 @@ class RemindersService(BaseService):
             list_id: Optional list identifier. When provided, only reminders in
                 that list are returned.
         """
-        reminder_map: dict[str, Reminder] = {}
+        reminder_map: dict[tuple[str, str, str | None, str], Reminder] = {}
 
-        list_ids: list[str] = [list_id] if list_id else [lst.id for lst in self.lists()]
+        list_ids: list[str | RemindersList] = (
+            [list_id] if list_id else list(self.lists())
+        )
 
         for lid in list_ids:
             batch = self.list_reminders(
@@ -154,7 +190,14 @@ class RemindersService(BaseService):
                 results_limit=200,
             )
             for reminder in batch.reminders:
-                reminder_map[reminder.id] = reminder
+                reminder_map[
+                    (
+                        reminder.scope,
+                        reminder.zone_name,
+                        reminder.zone_owner,
+                        reminder.id,
+                    )
+                ] = reminder
 
         yield from reminder_map.values()
 
@@ -181,18 +224,94 @@ class RemindersService(BaseService):
         """
         return self._reads.iter_changes(since=since)
 
-    def get(self, reminder_id: str) -> Reminder:
+    def _list_route(
+        self, list_id: str, *, discover: bool = False
+    ) -> tuple[str, str, str | None]:
+        """Resolve a unique cached list route, rejecting ambiguous record IDs."""
+        matches = [item for key, item in self._list_zones.items() if key[0] == list_id]
+        if not matches and discover:
+            state = ListDiscoveryState()
+            list(
+                self._cache_lists(
+                    self._reads.lists(routing_only=True, state=state), state=state
+                )
+            )
+            matches = [
+                item for key, item in self._list_zones.items() if key[0] == list_id
+            ]
+        if len(matches) > 1:
+            raise ValueError(
+                "Ambiguous list ID; pass a RemindersList with zone metadata"
+            )
+        if matches:
+            item = matches[0]
+            return item.scope, item.zone_name, item.zone_owner
+        return "private", "Reminders", None
+
+    def _apis_for(
+        self, record: ZonedRemindersRecord
+    ) -> tuple[RemindersReadAPI, RemindersWriteAPI]:
+        """Build immutable per-operation routing without changing private helpers."""
+        route = (record.scope, record.zone_name, record.zone_owner)
+        if (
+            isinstance(record, Reminder)
+            and "scope" not in record.model_fields_set
+            and not {"zone_name", "zone_owner"} & record.model_fields_set
+        ):
+            route = self._list_route(record.list_id, discover=True)
+        scope, zone_name, zone_owner = route
+        if route == ("private", "Reminders", None):
+            return self._reads, self._writes
+        raw = self._shared_raw if scope == "shared" else self._raw
+        mapper = RemindersRecordMapper(
+            lambda: raw,
+            LOGGER,
+            scope=scope,
+            zone_name=zone_name,
+            zone_owner=zone_owner,
+        )
+        zone_id = CKZoneIDReq(
+            zoneName=zone_name,
+            ownerRecordName=zone_owner,
+            zoneType="REGULAR_CUSTOM_ZONE",
+        )
+        return (
+            RemindersReadAPI(lambda: raw, mapper, LOGGER, zone_id=zone_id),
+            RemindersWriteAPI(
+                lambda: raw,
+                mapper,
+                LOGGER,
+                zone_id=zone_id,
+                account_id=self.params.get("dsid"),
+                scope=scope,
+            ),
+        )
+
+    def get(
+        self, reminder_id: str, *, list_context: RemindersList | Reminder | None = None
+    ) -> Reminder:
         """
         Return a single reminder by ID.
 
         Args:
             reminder_id: The full reminder record identifier.
+            list_context: List or reminder carrying the shared zone identity.
         """
-        return self._reads.get(reminder_id)
+        reads = self._reads if list_context is None else self._apis_for(list_context)[0]
+        return reads.get(reminder_id)
+
+    def _list_context(self, value: str | RemindersList) -> RemindersList:
+        """Retain an explicit route or resolve a unique string list identity."""
+        if isinstance(value, RemindersList):
+            return value
+        scope, zone_name, zone_owner = self._list_route(value, discover=True)
+        return RemindersList(
+            id=value, title="", scope=scope, zone_name=zone_name, zone_owner=zone_owner
+        )
 
     def create(
         self,
-        list_id: str,
+        list_id: str | RemindersList,
         title: str,
         desc: str = "",
         completed: bool = False,
@@ -221,8 +340,9 @@ class RemindersService(BaseService):
                 ``UTC`` for naive and UTC due dates (not for all-day ones).
             parent_reminder_id: Optional parent reminder ID for subtasks.
         """
-        return self._writes.create(
-            list_id=list_id,
+        context = self._list_context(list_id)
+        return self._apis_for(context)[1].create(
+            list_id=context.id,
             title=title,
             desc=desc,
             completed=completed,
@@ -241,7 +361,7 @@ class RemindersService(BaseService):
         Fetch the reminder, mutate its fields locally, then pass it to
         ``update()``.
         """
-        self._writes.update(reminder)
+        self._apis_for(reminder)[1].update(reminder)
 
     def delete(self, reminder: Reminder) -> None:
         """
@@ -250,7 +370,7 @@ class RemindersService(BaseService):
         The provided ``Reminder`` model is marked deleted and the remote record
         is updated accordingly.
         """
-        self._writes.delete(reminder)
+        self._apis_for(reminder)[1].delete(reminder)
 
     def set_early_reminders(
         self,
@@ -268,7 +388,7 @@ class RemindersService(BaseService):
         an account's first early reminder. Pass an empty ``alerts`` sequence
         to remove them all.
         """
-        self._writes.set_early_reminders(reminder, alerts)
+        self._apis_for(reminder)[1].set_early_reminders(reminder, alerts)
 
     def set_urgent(
         self,
@@ -286,7 +406,7 @@ class RemindersService(BaseService):
         The checksum Apple writes is not reproducible; the SHA-512 of the
         asset bytes is written in its place, which the server accepted.
         """
-        self._writes.set_urgent(reminder, enabled, person_id=person_id)
+        self._apis_for(reminder)[1].set_urgent(reminder, enabled, person_id=person_id)
 
     def add_location_trigger(
         self,
@@ -303,7 +423,7 @@ class RemindersService(BaseService):
 
         Returns the created ``Alarm`` and ``LocationTrigger`` records.
         """
-        return self._writes.add_location_trigger(
+        return self._apis_for(reminder)[1].add_location_trigger(
             reminder=reminder,
             title=title,
             address=address,
@@ -315,7 +435,7 @@ class RemindersService(BaseService):
 
     def create_hashtag(self, reminder: Reminder, name: str) -> Hashtag:
         """Create and attach a hashtag to ``reminder``."""
-        return self._writes.create_hashtag(reminder, name)
+        return self._apis_for(reminder)[1].create_hashtag(reminder, name)
 
     def update_hashtag(self, hashtag: Hashtag, name: str) -> None:
         """
@@ -325,11 +445,11 @@ class RemindersService(BaseService):
         effectively read-only in some live flows, so rename behavior may not be
         reflected consistently outside the API.
         """
-        self._writes.update_hashtag(hashtag, name)
+        self._apis_for(hashtag)[1].update_hashtag(hashtag, name)
 
     def delete_hashtag(self, reminder: Reminder, hashtag: Hashtag) -> None:
         """Detach and delete a hashtag from ``reminder``."""
-        self._writes.delete_hashtag(reminder, hashtag)
+        self._apis_for(reminder)[1].delete_hashtag(reminder, hashtag)
 
     def create_url_attachment(
         self,
@@ -338,7 +458,7 @@ class RemindersService(BaseService):
         uti: str = "public.url",
     ) -> URLAttachment:
         """Create a URL attachment on ``reminder``."""
-        return self._writes.create_url_attachment(reminder, url, uti)
+        return self._apis_for(reminder)[1].create_url_attachment(reminder, url, uti)
 
     def update_attachment(
         self,
@@ -357,7 +477,7 @@ class RemindersService(BaseService):
         URL attachments can update ``url`` and ``uti``. Image attachments can
         update metadata such as filename, size, and dimensions.
         """
-        self._writes.update_attachment(
+        self._apis_for(attachment)[1].update_attachment(
             attachment,
             url=url,
             uti=uti,
@@ -369,7 +489,7 @@ class RemindersService(BaseService):
 
     def delete_attachment(self, reminder: Reminder, attachment: Attachment) -> None:
         """Detach and delete an attachment from ``reminder``."""
-        self._writes.delete_attachment(reminder, attachment)
+        self._apis_for(reminder)[1].delete_attachment(reminder, attachment)
 
     def create_recurrence_rule(
         self,
@@ -385,7 +505,7 @@ class RemindersService(BaseService):
 
         ``occurrence_count=0`` means the recurrence is open-ended.
         """
-        return self._writes.create_recurrence_rule(
+        return self._apis_for(reminder)[1].create_recurrence_rule(
             reminder,
             frequency=frequency,
             interval=interval,
@@ -403,7 +523,7 @@ class RemindersService(BaseService):
         first_day_of_week: int | None = None,
     ) -> None:
         """Update fields on an existing recurrence rule."""
-        self._writes.update_recurrence_rule(
+        self._apis_for(recurrence_rule)[1].update_recurrence_rule(
             recurrence_rule,
             frequency=frequency,
             interval=interval,
@@ -417,11 +537,11 @@ class RemindersService(BaseService):
         recurrence_rule: RecurrenceRule,
     ) -> None:
         """Detach and delete a recurrence rule from ``reminder``."""
-        self._writes.delete_recurrence_rule(reminder, recurrence_rule)
+        self._apis_for(reminder)[1].delete_recurrence_rule(reminder, recurrence_rule)
 
     def list_reminders(
         self,
-        list_id: str,
+        list_id: str | RemindersList,
         include_completed: bool = False,
         results_limit: int = 200,
     ) -> ListRemindersResult:
@@ -431,27 +551,48 @@ class RemindersService(BaseService):
         The result includes the list's reminders plus related alarms,
         triggers, attachments, hashtags, and recurrence rules keyed by ID.
         """
-        return self._reads.list_reminders(
+        if isinstance(list_id, RemindersList):
+            scope, zone_name, zone_owner = (
+                list_id.scope,
+                list_id.zone_name,
+                list_id.zone_owner,
+            )
+            list_id = list_id.id
+        else:
+            scope, zone_name, zone_owner = self._list_route(list_id, discover=True)
+        reads = self._apis_for(
+            RemindersList(
+                id=list_id,
+                title="",
+                scope=scope,
+                zone_name=zone_name,
+                zone_owner=zone_owner,
+            )
+        )[0]
+        return reads.list_reminders(
             list_id=list_id,
             include_completed=include_completed,
             results_limit=results_limit,
+            scope=scope,
+            zone_name=zone_name,
+            zone_owner=zone_owner,
         )
 
     def alarms_for(self, reminder: Reminder) -> list[AlarmWithTrigger]:
         """Return alarm rows, including attached location or date triggers."""
-        return self._reads.alarms_for(reminder)
+        return self._apis_for(reminder)[0].alarms_for(reminder)
 
     def tags_for(self, reminder: Reminder) -> list[Hashtag]:
         """Return hashtags currently attached to ``reminder``."""
-        return self._reads.tags_for(reminder)
+        return self._apis_for(reminder)[0].tags_for(reminder)
 
     def attachments_for(self, reminder: Reminder) -> list[Attachment]:
         """Return attachments currently attached to ``reminder``."""
-        return self._reads.attachments_for(reminder)
+        return self._apis_for(reminder)[0].attachments_for(reminder)
 
     def recurrence_rules_for(self, reminder: Reminder) -> list[RecurrenceRule]:
         """Return recurrence rules currently attached to ``reminder``."""
-        return self._reads.recurrence_rules_for(reminder)
+        return self._apis_for(reminder)[0].recurrence_rules_for(reminder)
 
     # Compatibility wrappers for the service's tested helper surface.
     def _decode_crdt_document(self, encrypted_value: str | bytes) -> str:

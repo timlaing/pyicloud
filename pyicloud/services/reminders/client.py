@@ -16,6 +16,7 @@ from pyicloud.common.cloudkit import (
     CKZoneChangesResponse,
     CKZoneChangesZoneReq,
     CKZoneIDReq,
+    CKZoneListResponse,
     CloudKitExtraMode,
 )
 from pyicloud.common.cloudkit.client import (
@@ -65,6 +66,13 @@ class CloudKitRemindersClient:
             handle_rate_limits=False,
         )
         self._validation_extra = validation_extra
+
+    def zones_list(self) -> CKZoneListResponse:
+        """List zones in this CloudKit database scope."""
+        try:
+            return self._client.zones_list()
+        except (CloudKitApiError, CloudKitAuthError, CloudKitRateLimited) as exc:
+            self._raise_reminders_error(exc)
 
     @staticmethod
     def _raise_reminders_error(exc: Exception) -> NoReturn:

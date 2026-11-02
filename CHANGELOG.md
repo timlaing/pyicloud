@@ -24,6 +24,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Include shared Reminders lists alongside private lists and route reminder queries through each shared list's CloudKit zone.
+- Preserve Reminders routes through incomplete shared discovery, exclude deleted lists from routing, skip malformed shared list records individually, and retain explicit zone metadata. CLI listings preserve list contexts and deduplicate shared reminder matches while continuing past zone-local API errors.
+- Isolate Reminders discovery outcomes per iterator so overlapping enumerations cannot replace complete routing snapshots with partial results; malformed shared list counts do not hide later usable lists.
+- Prevent older Reminders discovery iterators from overwriting newer completed snapshots and document explicit refresh requirements for cached string-ID routes.
 - Raise the Photos service's own error types instead of raw CloudKit errors: Photos client methods raise `PhotosApiError` in place of `CloudKitApiError`, `PhotosRateLimited` in place of `CloudKitRateLimited`, and `PhotosAuthError` in place of `CloudKitAuthError`, each with the same message. Session-raised transport failures that previously surfaced as `PyiCloudAPIResponseException` are mapped the same way the other CloudKit services map them: a missing zone keeps `PhotosZoneNotFoundError`, 401/403 become `PhotosAuthError`, 429 becomes `PhotosRateLimited` (carrying `Retry-After` when Apple sends one), and everything else (including connection failures) becomes `PhotosApiError`. An authentication failure during upload hydration now surfaces immediately as `PhotosAuthError` instead of being retried until the hydration deadline. Existing handlers for `PhotosServiceException` or `PyiCloudException` keep catching all of these.
 
 ### Refactored
@@ -49,6 +53,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Preserve authentication destination symlinks by atomically updating their resolved targets.
 - Reject cyclic authentication destination symlinks before staging and document the writable target-directory requirement for atomic saves.
 
+- Contain shared Reminders discovery failures, refresh routing snapshots, validate linked-child zone identities, and route shared creation and CLI lookups safely; routing discovery no longer decodes unrelated membership payloads.
+- Discover uncached Reminders list IDs before selecting their database scope, so shared-list queries work on fresh service instances.
+- Preserve Reminders lists and reminders with identical IDs in different zones; accept a full list model for unambiguous queries and reject ambiguous string list IDs.
+- Retain shared Reminders zone metadata for reminder updates, deletions, and related-record operations; allow single-reminder lookups with explicit list context.
+- Continue discovering shared Reminders lists when an individual shared zone is unavailable, while propagating authentication failures.
 - Preserve cached Photos counts on malformed count refreshes, and use safe metadata defaults for shared-stream records with invalid fields or out-of-range timestamps.
 
 - Read shared-stream REST metadata from nested fields, tolerate malformed like counts, and preserve boolean write results for record-level rejections while propagating transport and account errors. Indexed Photos reads no longer reject available assets based on stale cached counts.

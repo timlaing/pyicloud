@@ -11,6 +11,35 @@ reminders = api.reminders
 The high-level Reminders service exposes typed list, reminder, alarm, hashtag,
 attachment, and recurrence-rule models for both snapshot reads and mutations.
 
+## Shared list routing
+
+Discovery includes available shared lists with `scope`, `zone_name` and
+`zone_owner` metadata. Pass the full list model to `list_reminders()` or `create()`
+when IDs might collide across zones. String IDs are supported when their route
+is unique; ambiguous IDs are rejected rather than choosing a zone silently.
+
+Fetched reminders and linked records retain their route for later reads/writes.
+For a single shared reminder, use
+`reminders.get(reminder_id, list_context=shared_list)` explicitly. The CLI preserves
+successful private lookups and searches shared list contexts after a private miss;
+several shared matches are rejected. For explicit scope selection (including an
+ID that also exists privately), use the library with a list context.
+
+Unavailable shared zones or rejected shared pages do not hide usable private lists
+or later shares; authentication failures still propagate. Targeted string-ID route
+discovery reads routing metadata without decoding unrelated membership payloads.
+Completed list snapshots replace the route cache; partial iteration does not
+invalidate a prior complete snapshot. Caller-supplied linked children must belong
+to the same resolved scope and zone as the parent before mutation is submitted.
+
+String-ID routing uses the most recent fully consumed, successful discovery
+snapshot. A cached match does not trigger another discovery, so a newly shared
+list with the same ID is not detected until you refresh with
+`list(reminders.lists())`. Refresh before using string IDs when sharing or access
+has changed, or pass the intended list model explicitly. Incomplete discovery
+retains the prior snapshot and is not proof that a cached share remains accessible.
+Older overlapping iterators cannot overwrite a newer completed snapshot.
+
 _List reminder lists:_
 
 ```python
@@ -25,7 +54,7 @@ reminders = api.reminders
 
 target_list = next(iter(reminders.lists()), None)
 if target_list:
-    for reminder in reminders.reminders(list_id=target_list.id):
+    for reminder in reminders.reminders(list_id=target_list):
         print(reminder.id, reminder.title, reminder.completed)
 
 for reminder in reminders.reminders():
@@ -54,7 +83,7 @@ if target_list is None:
     raise RuntimeError("No reminder lists found")
 
 created = reminders.create(
-    list_id=target_list.id,
+    list_id=target_list,
     title="Buy milk",
     desc="2 percent",
     due_date=datetime.now(timezone.utc) + timedelta(days=1),
@@ -66,7 +95,7 @@ created.desc = "2 percent organic"
 created.completed = True
 reminders.update(created)
 
-fresh = reminders.get(created.id)
+fresh = reminders.get(created.id, list_context=created)
 reminders.delete(fresh)
 ```
 
@@ -82,7 +111,7 @@ if target_list is None:
     raise RuntimeError("No reminder lists found")
 
 result = api.reminders.list_reminders(
-    list_id=target_list.id,
+    list_id=target_list,
     include_completed=True,
     results_limit=200,
 )

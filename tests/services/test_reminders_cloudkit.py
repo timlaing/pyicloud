@@ -34,6 +34,8 @@ from pyicloud.common.cloudkit import (
     CKZoneChangesZoneReq,
     CKZoneID,
     CKZoneIDReq,
+    CKZoneListResponse,
+    CKZoneListZone,
 )
 from pyicloud.common.cloudkit.base import resolve_cloudkit_validation_extra
 from pyicloud.common.cloudkit.models import CKStringListField
@@ -53,6 +55,7 @@ from pyicloud.services.reminders._protocol import (
 from pyicloud.services.reminders.client import (
     CloudKitRemindersClient,
     RemindersApiError,
+    RemindersAuthError,
 )
 from pyicloud.services.reminders.models import (
     Alarm,
@@ -2728,12 +2731,12 @@ class TestReminderReadPaths:
         assert [r.id for r in out] == ["Reminder/A", "Reminder/B"]
         assert list_reminders_mock.call_count == 2
         assert list_reminders_mock.call_args_list[0].kwargs == {
-            "list_id": self.LIST_A,
+            "list_id": RemindersList(id=self.LIST_A, title="List A"),
             "include_completed": True,
             "results_limit": 200,
         }
         assert list_reminders_mock.call_args_list[1].kwargs == {
-            "list_id": self.LIST_B,
+            "list_id": RemindersList(id=self.LIST_B, title="List B"),
             "include_completed": True,
             "results_limit": 200,
         }
@@ -2745,10 +2748,306 @@ class TestReminderReadPaths:
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
         svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(zones=[])
 
         out = list(svc.lists())
         assert not out
         assert svc._raw.changes.call_count == 1
+        svc._shared_raw.zones_list.assert_called_once_with()
+
+    def test_lists_includes_lists_from_shared_zones(self) -> None:
+        """Shared list discovery reads each zone and retains its routing data."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        shared_zone = CKZoneID(
+            zoneName="Reminders",
+            ownerRecordName="OWNER",
+            zoneType="REGULAR_CUSTOM_ZONE",
+        )
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(
+            zones=[CKZoneListZone(zoneID=shared_zone)]
+        )
+        svc._shared_raw.changes.return_value = self._changes_response(
+            [_ck_record("List", "List/SHARED", {"Name": {"value": "Shared"}})],
+            sync_token="shared-token",
+            more_coming=False,
+        )
+
+        lists = list(svc.lists())
+
+        assert len(lists) == 1
+        assert (lists[0].scope, lists[0].zone_name, lists[0].zone_owner) == (
+            "shared",
+            "Reminders",
+            "OWNER",
+        )
+        svc._shared_raw.changes.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "entry_point", ["list_reminders", "reminders", "discovered"]
+    )
+    def test_shared_list_query_resolves_scope(self, entry_point: str) -> None:
+        """Both fresh-ID queries and discovered-list queries use the shared owner."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(
+            zones=[
+                CKZoneListZone(
+                    zoneID=CKZoneID(
+                        zoneName="SharedZone",
+                        ownerRecordName="OWNER",
+                        zoneType="REGULAR_CUSTOM_ZONE",
+                    )
+                )
+            ]
+        )
+        svc._shared_raw.changes.return_value = self._changes_response(
+            [_ck_record("List", "List/SHARED", {"Name": {"value": "Shared"}})],
+            sync_token="shared-token",
+            more_coming=False,
+        )
+        svc._shared_raw.query.return_value = CKQueryResponse(records=[])
+
+        if entry_point == "reminders":
+            assert not list(svc.reminders(list_id="List/SHARED"))
+        else:
+            if entry_point == "discovered":
+                assert list(svc.lists())[0].id == "List/SHARED"
+            svc.list_reminders(list_id="List/SHARED")
+
+        zone_id = svc._shared_raw.query.call_args.kwargs["zone_id"]
+        assert (zone_id.zoneName, zone_id.ownerRecordName) == ("SharedZone", "OWNER")
+        svc._shared_raw.zones_list.assert_called_once()
+        svc._raw.query.assert_not_called()
+
+    def test_lists_continues_after_shared_zone_error(self) -> None:
+        """An unavailable shared zone does not hide lists in later zones."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(
+            zones=[
+                CKZoneListZone(
+                    zoneID=CKZoneID(
+                        zoneName="Reminders",
+                        ownerRecordName=owner,
+                        zoneType="REGULAR_CUSTOM_ZONE",
+                    )
+                )
+                for owner in ["UNAVAILABLE", "AVAILABLE"]
+            ]
+        )
+        svc._shared_raw.changes.side_effect = [
+            RemindersApiError("Zone changes failed"),
+            self._changes_response(
+                [_ck_record("List", "List/SHARED", {"Name": {"value": "Shared"}})],
+                sync_token="shared-token",
+                more_coming=False,
+            ),
+        ]
+
+        lists = list(svc.lists())
+
+        assert [(item.id, item.zone_owner) for item in lists] == [
+            ("List/SHARED", "AVAILABLE")
+        ]
+        assert svc._shared_raw.changes.call_count == 2
+
+    def test_duplicate_list_ids_retain_distinct_shared_routes(self) -> None:
+        """List models disambiguate IDs that exist in multiple shared zones."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(
+            zones=[
+                CKZoneListZone(
+                    zoneID=CKZoneID(
+                        zoneName="Reminders",
+                        ownerRecordName=owner,
+                        zoneType="REGULAR_CUSTOM_ZONE",
+                    )
+                )
+                for owner in ["OWNER-A", "OWNER-B"]
+            ]
+        )
+        svc._shared_raw.changes.return_value = self._changes_response(
+            [_ck_record("List", "List/SAME", {"Name": {"value": "Shared"}})],
+            sync_token="shared-token",
+            more_coming=False,
+        )
+        svc._shared_raw.query.return_value = CKQueryResponse(
+            records=[
+                _ck_record(
+                    "Reminder",
+                    "Reminder/SAME",
+                    {
+                        "List": {
+                            "type": "REFERENCE",
+                            "value": {"recordName": "List/SAME", "action": "VALIDATE"},
+                        }
+                    },
+                )
+            ]
+        )
+
+        lists = list(svc.lists())
+        assert len(svc._list_zones) == 2
+        for item in lists:
+            batch = svc.list_reminders(item)
+            assert (
+                svc._shared_raw.query.call_args.kwargs["zone_id"].ownerRecordName
+                == item.zone_owner
+            )
+            assert batch.reminders[0].zone_owner == item.zone_owner
+        with pytest.raises(ValueError, match="Ambiguous list ID"):
+            svc.list_reminders("List/SAME")
+        reminders = list(svc.reminders())
+        assert [(item.id, item.zone_owner) for item in reminders] == [
+            ("Reminder/SAME", "OWNER-A"),
+            ("Reminder/SAME", "OWNER-B"),
+        ]
+        svc._raw.query.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            "update",
+            "delete",
+            "tags_for",
+            "attachments_for",
+            "recurrence_rules_for",
+            "alarms_for",
+        ],
+    )
+    def test_shared_reminder_operations_use_shared_zone(self, operation: str) -> None:
+        """Follow-up operations retain the shared database and owner."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.lookup.return_value = CKLookupResponse(records=[])
+        svc._shared_raw.modify.return_value = CKModifyResponse(
+            records=[], syncToken="mock"
+        )
+        reminder = Reminder(
+            id="Reminder/SHARED",
+            list_id="List/SHARED",
+            title="Shared",
+            scope="shared",
+            zone_name="SharedZone",
+            zone_owner="OWNER",
+            alarm_ids=["ALARM"],
+            hashtag_ids=["TAG"],
+            attachment_ids=["ATTACHMENT"],
+            recurrence_rule_ids=["RULE"],
+        )
+
+        getattr(svc, operation)(reminder)
+
+        calls = (
+            svc._shared_raw.lookup.call_args_list
+            + svc._shared_raw.modify.call_args_list
+        )
+        assert calls
+        for call in calls:
+            assert call.kwargs["zone_id"].zoneName == "SharedZone"
+            assert call.kwargs["zone_id"].ownerRecordName == "OWNER"
+        svc._raw.lookup.assert_not_called()
+        svc._raw.modify.assert_not_called()
+
+    def test_shared_get_retains_route_for_later_operations(self) -> None:
+        """Explicit list context routes lookup and remains on the returned model."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.lookup.return_value = CKLookupResponse(
+            records=[
+                _ck_record(
+                    "Reminder",
+                    "Reminder/SHARED",
+                    {
+                        "List": {
+                            "type": "REFERENCE",
+                            "value": {
+                                "recordName": "List/SHARED",
+                                "action": "VALIDATE",
+                            },
+                        },
+                    },
+                )
+            ]
+        )
+        context = RemindersList(
+            id="List/SHARED",
+            title="Shared",
+            scope="shared",
+            zone_name="SharedZone",
+            zone_owner="OWNER",
+        )
+
+        reminder = svc.get("Reminder/SHARED", list_context=context)
+
+        assert (reminder.scope, reminder.zone_name, reminder.zone_owner) == (
+            "shared",
+            "SharedZone",
+            "OWNER",
+        )
+        assert (
+            svc._shared_raw.lookup.call_args.kwargs["zone_id"].ownerRecordName
+            == "OWNER"
+        )
+        svc._raw.lookup.assert_not_called()
+
+    def test_explicit_private_reminder_route_ignores_shared_id_collision(self) -> None:
+        """A fetched private reminder remains private even if its list ID collides."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._shared_raw = MagicMock()
+        for scope, owner in [("private", None), ("shared", "OWNER")]:
+            item = RemindersList(
+                id="List/SAME", title="Same", scope=scope, zone_owner=owner
+            )
+            svc._list_zones[(item.id, item.scope, item.zone_name, item.zone_owner)] = (
+                item
+            )
+        reminder = Reminder(
+            id="Reminder/SAME", list_id="List/SAME", title="Private", scope="private"
+        )
+        svc._raw.lookup.return_value = CKLookupResponse(records=[])
+        svc._raw.modify.return_value = CKModifyResponse(records=[], syncToken="mock")
+
+        svc.update(reminder)
+
+        assert svc._raw.modify.call_args.kwargs["zone_id"].ownerRecordName is None
+        svc._shared_raw.modify.assert_not_called()
+
+    def test_lists_propagates_shared_zone_auth_error(self) -> None:
+        """Authentication failures must not be mistaken for unavailable zones."""
+        svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
+        svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(
+            zones=[
+                CKZoneListZone(
+                    zoneID=CKZoneID(
+                        zoneName="Reminders", zoneType="REGULAR_CUSTOM_ZONE"
+                    )
+                )
+            ]
+        )
+        svc._shared_raw.changes.side_effect = RemindersAuthError(
+            "Authentication failed"
+        )
+
+        with pytest.raises(RemindersAuthError, match="Authentication failed"):
+            list(svc.lists())
 
     def test_lists_raises_on_error_item(self) -> None:
         """lists() raises on a per-record error item."""
@@ -2808,6 +3107,9 @@ class TestReminderReadPaths:
         """Related records are scoped to the requested list."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(zones=[])
 
         rem_a = self._reminder_record("Reminder/A", self.LIST_A)
         rem_b = self._reminder_record("Reminder/B", self.LIST_B)
@@ -2866,6 +3168,9 @@ class TestReminderReadPaths:
         """A fixture query response is mapped into a list result."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(zones=[])
         svc._raw.query.return_value = CKQueryResponse.model_validate(
             load_reminders_fixture("reminders_query_reminders_response.json")
         )
@@ -2885,6 +3190,9 @@ class TestReminderReadPaths:
         """A compound snapshot retains date and location triggers with fields."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(zones=[])
         svc._raw.query.return_value = CKQueryResponse.model_validate(
             load_reminders_fixture(DATE_TRIGGER_FIXTURE)
         )
@@ -2916,6 +3224,9 @@ class TestReminderReadPaths:
         """Repeated compound reads of known trigger types stay silent."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(zones=[])
         svc._raw.query.return_value = CKQueryResponse.model_validate(
             load_reminders_fixture(DATE_TRIGGER_FIXTURE)
         )
@@ -2930,6 +3241,9 @@ class TestReminderReadPaths:
         """Query results are paginated via continuation markers."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(zones=[])
 
         rem_a = self._reminder_record("Reminder/A", self.LIST_A)
         rem_b = self._reminder_record("Reminder/B", self.LIST_A)
@@ -2956,6 +3270,9 @@ class TestReminderReadPaths:
         """list_reminders() raises on a per-record error item."""
         svc = RemindersService("https://ckdatabasews.icloud.com", MagicMock(), {})
         svc._raw = MagicMock()
+        svc._raw.changes.return_value = CKZoneChangesResponse(zones=[])
+        svc._shared_raw = MagicMock()
+        svc._shared_raw.zones_list.return_value = CKZoneListResponse(zones=[])
         svc._raw.query.return_value = CKQueryResponse(
             records=[
                 CKErrorItem(
