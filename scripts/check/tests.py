@@ -9,6 +9,7 @@ import sys
 
 def run_checks() -> int:
     """Never inspect a stale report when pytest or aggregate coverage fails."""
+    Path("coverage.xml").unlink(missing_ok=True)
     result = subprocess.run(
         [
             sys.executable,

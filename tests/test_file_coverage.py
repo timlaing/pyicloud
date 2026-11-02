@@ -74,6 +74,7 @@ def test_manual_gate_only_checks_fresh_successful_reports(exit_code: int) -> Non
     """A failed aggregate/test run never falls through to a stale XML report."""
     with (
         patch("scripts.check.tests.sys.argv", ["checks"]),
+        patch("scripts.check.tests.Path.unlink") as unlink,
         patch(
             "scripts.check.tests.subprocess.run",
             side_effect=[
@@ -84,3 +85,29 @@ def test_manual_gate_only_checks_fresh_successful_reports(exit_code: int) -> Non
     ):
         assert run_checks() == exit_code
     assert run.call_count == (1 if exit_code else 2)
+    unlink.assert_called_once_with(missing_ok=True)
+
+
+def test_manual_gate_removes_stale_report_before_pytest() -> None:
+    """A successful runner that writes no report cannot leave old coverage in place."""
+    events: list[str] = []
+
+    def run_step(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Model pytest success followed by missing-report validation failure."""
+        events.append("run")
+        return subprocess.CompletedProcess([], 0 if len(events) == 2 else 1)
+
+    with (
+        patch("scripts.check.tests.sys.argv", ["checks"]),
+        patch(
+            "scripts.check.tests.Path.unlink",
+            side_effect=lambda **_kwargs: events.append("unlink"),
+        ),
+        patch(
+            "scripts.check.tests.subprocess.run",
+            side_effect=run_step,
+        ) as run,
+    ):
+        assert run_checks() == 1
+    assert events == ["unlink", "run", "run"]
+    assert run.call_count == 2

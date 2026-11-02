@@ -17,8 +17,10 @@ python -m venv .venv
 ```
 
 On Windows, use `.venv\Scripts\python` instead. The library does not require the
-CLI extra. Install the CLI separately with `python -m pip install "pyicloud[cli]"`;
-then run `icloud --help` or `icloud --version`.
+CLI extra. Install the CLI separately with
+`.venv/bin/python -m pip install "pyicloud[cli]"`; then run
+`.venv/bin/icloud --help` or `.venv/bin/icloud --version`. On Windows, use
+`.venv\Scripts\python` and `.venv\Scripts\icloud` for these commands.
 
 This complete example constructs a client without contacting Apple or consulting
 the password keyring. It needs no real account credentials:
