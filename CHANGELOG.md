@@ -16,7 +16,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
-- Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, initially exposing offline local status only. No Apple account is authenticated automatically.
+- Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, with offline status and explicitly enabled read-only Calendar/Reminders tools. Saved-session probes never fall back to credential login. Operations are serialized and bounded, shared lists use opaque route handles, and private upstream errors are sanitized.
 
 - Publish a supported compatibility and operational-guarantees guide, and enforce the agreed per-file combined line-and-branch coverage policy alongside the existing aggregate gate.
 - Check released public compatibility contracts and installed runtime-only, CLI, and source-distribution packages offline, including declared minimum runtime dependencies.

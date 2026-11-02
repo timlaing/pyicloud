@@ -1,13 +1,14 @@
 """Offline extension launch and protocol registration contracts."""
 
 import builtins
+import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 from mcp.types import CallToolResult
 import pytest
 
-from pyicloud.mcp.cmdline import main
+from pyicloud.mcp.cmdline import main, quiet_library_logging
 from pyicloud.mcp.server import ServerStatus, build_server
 
 
@@ -33,9 +34,33 @@ def test_launcher_runs_stdio_only() -> None:
         patch("sys.argv", ["icloud-mcp"]),
         patch("pyicloud.mcp.cmdline.version", return_value="synthetic"),
         patch("pyicloud.mcp.server.build_server", return_value=server),
+        patch("pyicloud.mcp.cmdline.quiet_library_logging"),
     ):
         main()
     server.run.assert_called_once_with(transport="stdio")
+
+
+def test_invalid_launch_configuration(capsys: pytest.CaptureFixture[str]) -> None:
+    """An account cannot be enabled without its explicit session directory."""
+    with (
+        patch("sys.argv", ["icloud-mcp", "--username", "synthetic"]),
+        patch("pyicloud.mcp.cmdline.version", return_value="synthetic"),
+        pytest.raises(SystemExit) as caught,
+    ):
+        main()
+    assert caught.value.code == 2
+    assert "supplied together" in capsys.readouterr().err
+
+
+def test_private_logging_is_not_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Process-level launch logging must not leak library messages to the host."""
+    logger = logging.getLogger("pyicloud")
+    for name in ("disabled", "level", "propagate", "handlers"):
+        monkeypatch.setattr(logger, name, getattr(logger, name))
+    monkeypatch.setattr(logger, "handlers", list(logger.handlers))
+    quiet_library_logging()
+    assert logger.disabled and not logger.propagate
+    assert logger.level > logging.CRITICAL
 
 
 def test_status_defaults_are_non_sensitive() -> None:
@@ -53,7 +78,7 @@ async def test_status_tool_contract() -> None:
     """The SDK advertises and serializes the local-only structured tool."""
     server = build_server()
     tools = await server.list_tools()
-    assert [tool.name for tool in tools] == ["icloud_status"]
+    assert [tool.name for tool in tools] == ["icloud_status", "icloud_capabilities"]
     result = await server.call_tool("icloud_status", {})
     assert isinstance(result, CallToolResult)
     assert result.structured_content == ServerStatus().model_dump()

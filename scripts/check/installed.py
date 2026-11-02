@@ -22,7 +22,7 @@ import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 
@@ -106,7 +106,7 @@ def check_mcp() -> None:
         """No Apple account or transport is created for this installed smoke."""
         server = build_server()
         tools = await server.list_tools()
-        assert [tool.name for tool in tools] == ["icloud_status"]
+        assert [tool.name for tool in tools] == ["icloud_status", "icloud_capabilities"]
         result = await server.call_tool("icloud_status", {})
         from mcp.types import CallToolResult  # pylint: disable=import-outside-toplevel
 
@@ -116,6 +116,67 @@ def check_mcp() -> None:
         assert not result.is_error
 
     asyncio.run(verify_tool())
+    asyncio.run(check_mcp_stdio(executable, environment))
+
+
+async def check_mcp_stdio(executable: Path, environment: dict[str, str]) -> None:
+    """Exercise real stdio framing and structured results without an Apple account."""
+    process = await asyncio.create_subprocess_exec(
+        str(executable),
+        env=environment,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    assert process.stdin is not None and process.stdout is not None
+
+    async def request(
+        identifier: int, method: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Require a JSON-RPC response, not log output on stdout."""
+        assert process.stdin is not None and process.stdout is not None
+        message = {
+            "jsonrpc": "2.0",
+            "id": identifier,
+            "method": method,
+            "params": params,
+        }
+        process.stdin.write((json.dumps(message) + "\n").encode())
+        await process.stdin.drain()
+        response = json.loads(await asyncio.wait_for(process.stdout.readline(), 30))
+        assert response["id"] == identifier and "result" in response, response
+        return cast(dict[str, Any], response["result"])
+
+    try:
+        await request(
+            1,
+            "initialize",
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "pyicloud-installed-smoke", "version": "1"},
+            },
+        )
+        process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+        await process.stdin.drain()
+        tools = await request(2, "tools/list", {})
+        assert {tool["name"] for tool in tools["tools"]} == {
+            "icloud_status",
+            "icloud_capabilities",
+        }
+        result = await request(
+            3, "tools/call", {"name": "icloud_status", "arguments": {}}
+        )
+        assert result["structuredContent"]["authenticated"] is False
+        assert not result.get("isError", False)
+    finally:
+        if process.returncode is None:
+            process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), 5)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
 
 
 def check_persistence(api: Any, manifest: dict[str, Any], cookie_dir: str) -> None:

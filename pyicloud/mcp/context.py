@@ -52,6 +52,7 @@ class BoundedAdapter(HTTPAdapter):
         super().__init__(max_retries=0)
         self.timeout = timeout
         self.deadline: float | None = None
+        self.requests_left = 32
 
     def send(
         self,
@@ -63,6 +64,9 @@ class BoundedAdapter(HTTPAdapter):
         proxies: Any = None,
     ) -> Response:
         remaining = self.timeout
+        if self.requests_left <= 0:
+            raise ToolFailure("request_budget_exceeded")
+        self.requests_left -= 1
         if self.deadline is not None:
             remaining = min(remaining, self.deadline - time.monotonic())
         if remaining <= 0:
@@ -121,6 +125,7 @@ class SessionOwner:
                 self._client = self._factory()
             if self._adapter is not None:
                 self._adapter.deadline = time.monotonic() + self.config.timeout
+                self._adapter.requests_left = 32
             self.authenticated = False
             status = self._client.get_auth_status()
             if status.get("requires_2fa") or status.get("requires_2sa"):
@@ -142,7 +147,8 @@ class SessionOwner:
         if self._pending >= self.config.queue_limit:
             raise ToolFailure("busy")
         self._pending += 1
-        future = asyncio.wrap_future(self._executor.submit(self._invoke, operation))
+        work = self._executor.submit(self._invoke, operation)
+        future = asyncio.wrap_future(work)
 
         def completed(done: asyncio.Future[T]) -> None:
             self._pending -= 1
@@ -153,7 +159,12 @@ class SessionOwner:
         try:
             return await asyncio.wait_for(asyncio.shield(future), self.config.timeout)
         except asyncio.TimeoutError as error:
+            # Only queued work is cancellable; running work retains ownership.
+            work.cancel()
             raise ToolFailure("timeout") from error
+        except asyncio.CancelledError:
+            work.cancel()
+            raise
 
     async def close(self) -> None:
         """Drain on the same lane before closing; never close an active session."""

@@ -53,6 +53,10 @@ def test_transport_timeout_and_deadline() -> None:
     with patch("requests.adapters.HTTPAdapter.send", return_value=response) as send:
         assert adapter.send(request, timeout=None) is response
         assert send.call_args.kwargs["timeout"] == (5, 10)
+        adapter.requests_left = 0
+        with pytest.raises(ToolFailure, match="request_budget_exceeded"):
+            adapter.send(request)
+        adapter.requests_left = 1
         adapter.deadline = 9
         with (
             patch("pyicloud.mcp.context.time.monotonic", return_value=10),
@@ -186,3 +190,29 @@ async def test_missing_or_public_storage_rejected(
                 await owner.run(lambda _: None)
         finally:
             await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_queued_operation_never_contacts_account() -> None:
+    """A cancelled request waiting behind active work must not execute later."""
+    started, release = Event(), Event()
+    client = MagicMock()
+    client.get_auth_status.return_value = {"authenticated": True}
+    owner = SessionOwner(configuration(), lambda: client)
+
+    def blocked(_client: object) -> None:
+        started.set()
+        release.wait(1)
+
+    first = asyncio.create_task(owner.run(blocked))
+    await asyncio.to_thread(started.wait, 1)
+    operation = MagicMock()
+    queued = asyncio.create_task(owner.run(operation))
+    await asyncio.sleep(0)
+    queued.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await queued
+    release.set()
+    await first
+    await owner.close()
+    operation.assert_not_called()
