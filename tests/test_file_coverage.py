@@ -64,8 +64,9 @@ def test_invalid_branch_counts_fail(condition: str) -> None:
 
 def test_empty_report_fails() -> None:
     """An absent measured inventory must not pass vacuously."""
+    report = ElementTree.fromstring("<coverage/>")
     with pytest.raises(ValueError, match="no measured"):
-        coverage_failures(ElementTree.fromstring("<coverage/>"))
+        coverage_failures(report)
 
 
 @pytest.mark.parametrize("exit_code", [0, 1])
