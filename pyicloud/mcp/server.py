@@ -72,7 +72,7 @@ def build_server(
         """Describe configured services without an availability probe."""
         return {
             "enabled_services": list(context.config.services),
-            "availability": "unknown_until_read",
+            "availability": dict(reads.availability),
             "read_only": True,
             "max_records": 200,
             "max_calendar_days": 31,

@@ -51,3 +51,10 @@ Follow-up qualification covers body-read transport exceptions (including wrapped
 urllib3 timeouts and truncated chunks), sanitized session cleanup failures, and
 Calendar's inclusive end-date semantics. Transport dispatch and body policy have
 separate responsibilities to keep their cognitive complexity within quality gates.
+
+Configured stdio checks now run the real serialized worker against synthetic
+Calendar/Reminders services with outbound IPv4/IPv6 sockets blocked. On installed
+wheels for Python 3.10 and 3.15 they verify inclusive date bounds, colliding
+private/shared routes, minimized wire fields, authentication challenge results,
+availability observations, and exact-once cleanup without private stderr output.
+These checks are part of the installed-extra CI matrix, not live account tests.

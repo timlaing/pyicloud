@@ -90,6 +90,9 @@ async def test_errors_never_expose_upstream_payload(
         "complete": False,
         "error": code,
     }
+    assert tools.availability["calendar"] == (
+        "unavailable" if code == "service_unavailable" else "unknown"
+    )
 
 
 @pytest.mark.asyncio
@@ -134,6 +137,7 @@ async def test_calendar_fields_are_minimized_and_scoped() -> None:
     ]
     tools = ReadTools(owner_for(client))
     assert (await tools.calendars(50)).records == [{"id": "C", "title": "Calendar"}]
+    assert tools.availability["calendar"] == "available"
     result = await tools.events("C", "2026-01-01", "2026-01-01", 50)
     assert result.records == [
         {

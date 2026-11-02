@@ -7,7 +7,7 @@ from datetime import date, datetime, time
 import json
 from secrets import token_urlsafe
 import time as clock
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -64,6 +64,9 @@ class ReadTools:
     def __init__(self, owner: SessionOwner) -> None:
         self.owner = owner
         self._routes: dict[str, tuple[RemindersList, float]] = {}
+        self.availability: dict[str, Literal["unknown", "available", "unavailable"]] = {
+            service: "unknown" for service in owner.config.services
+        }
 
     async def execute(
         self, service: str, limit: int, operation: Callable[[Any], ReadResult]
@@ -73,6 +76,17 @@ class ReadTools:
             return ReadResult(error="service_disabled")
         if not 1 <= limit <= 200:
             return ReadResult(error="invalid_argument")
+        result = await self._read(operation)
+        if result.error is None:
+            self.availability[service] = "available"
+        elif result.error == "service_unavailable":
+            self.availability[service] = "unavailable"
+        else:
+            self.availability[service] = "unknown"
+        return result
+
+    async def _read(self, operation: Callable[[Any], ReadResult]) -> ReadResult:
+        """Map service failures without leaking private upstream details."""
         try:
             return await self.owner.run(operation)
         except ToolFailure as error:

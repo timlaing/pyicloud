@@ -4,6 +4,8 @@ Run with the target environment's ``python -I``; add ``--cli`` for the CLI extra
 This check intentionally uses only the standard library and installed package.
 """
 
+# cspell:words errlog
+
 # Imports of optional dependencies must remain behind the CLI-extra check.
 # pylint: disable=import-outside-toplevel
 
@@ -118,6 +120,78 @@ def check_mcp() -> None:
     asyncio.run(verify_tool())
     asyncio.run(check_mcp_stdio(executable, environment))
     asyncio.run(check_mcp_sdk_client(executable, environment))
+    asyncio.run(check_configured_mcp(environment, challenge=False))
+    asyncio.run(check_configured_mcp(environment, challenge=True))
+
+
+async def check_configured_mcp(environment: dict[str, str], *, challenge: bool) -> None:
+    """Exercise worker ownership through stdio with network-blocked data."""
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    arguments = ["-I", str(Path(__file__).with_name("mcp_fixture.py"))]
+    if challenge:
+        arguments.append("--challenge")
+    parameters = StdioServerParameters(
+        command=sys.executable, args=arguments, env=environment
+    )
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as diagnostics:
+        async with stdio_client(parameters, errlog=diagnostics) as (read, write):
+            connection = ClientSession(read, write, read_timeout_seconds=30)
+            async with connection as session:
+                await session.initialize()
+                await exercise_configured_mcp(session, challenge=challenge)
+        diagnostics.seek(0)
+        output = diagnostics.read()
+        assert output.count("MCP_SYNTHETIC_CLOSED") == 1
+        assert "OMIT_ME" not in output
+
+
+async def exercise_configured_mcp(session: Any, *, challenge: bool) -> None:
+    """Validate configured tools through the wire, never direct adapter calls."""
+    status = await session.call_tool("icloud_status", {})
+    assert status.structured_content is not None
+    assert status.structured_content["authenticated"] is False
+    calendars = await session.call_tool("icloud_calendar_list", {})
+    assert calendars.structured_content is not None
+    if challenge:
+        assert calendars.structured_content["error"] == "verification_required"
+        assert not calendars.structured_content["records"]
+        return
+    assert calendars.structured_content["records"] == [
+        {"id": "C", "title": "Synthetic calendar"}
+    ]
+    events = await session.call_tool(
+        "icloud_calendar_events",
+        {
+            "calendar_id": "C",
+            "start": "2026-01-01",
+            "end": "2026-01-01",
+        },
+    )
+    assert events.structured_content is not None
+    assert [item["id"] for item in events.structured_content["records"]] == ["E"]
+    assert events.structured_content["records"][0]["start"] == "2026-01-01T12:00:00"
+    lists = await session.call_tool("icloud_reminders_lists", {})
+    assert lists.structured_content is not None
+    assert len(lists.structured_content["records"]) == 2
+    assert "OMIT_ME" not in json.dumps(lists.structured_content)
+    for row in lists.structured_content["records"]:
+        reminders = await session.call_tool(
+            "icloud_reminders_list", {"handle": row["handle"]}
+        )
+        assert reminders.structured_content is not None
+        assert reminders.structured_content["records"][0]["title"] == row["title"]
+        assert "OMIT_ME" not in json.dumps(reminders.structured_content)
+    status = await session.call_tool("icloud_status", {})
+    assert status.structured_content is not None
+    assert status.structured_content["authenticated"] is True
+    capabilities = await session.call_tool("icloud_capabilities", {})
+    assert capabilities.structured_content is not None
+    assert capabilities.structured_content["availability"] == {
+        "calendar": "available",
+        "reminders": "available",
+    }
 
 
 async def check_mcp_sdk_client(executable: Path, environment: dict[str, str]) -> None:

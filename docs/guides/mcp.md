@@ -77,6 +77,10 @@ implied by the offline test suite.
 
 Data tools are registered only for services selected with `--service`. A model
 cannot enable other services. Default result limit is 50, hard maximum 200.
+Capabilities report each enabled service as `unknown`, `available`, or `unavailable`
+based on its last read outcome. Authentication and transient transport failures
+leave availability unknown, not unavailable. These are observations, not background
+probes or guarantees that every shared zone remains accessible.
 Responses are capped below 256 KiB and contain `records`, `complete`, and `error`.
 No resumable cursor is fabricated for truncated results. Narrow your query if
 `complete` is false. Shared-list enumeration always reports `complete=false`:
