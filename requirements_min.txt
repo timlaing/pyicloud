@@ -1,6 +1,6 @@
 # Exact declared runtime lower bounds; transitive dependencies remain resolver-owned.
 certifi==2026.4.22
-cryptography==50.0.0
+cryptography==50.0.2
 fido2==2.2.1
 keyring==25.7.0
 keyrings.alt==5.0.2
