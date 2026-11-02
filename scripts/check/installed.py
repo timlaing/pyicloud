@@ -122,9 +122,12 @@ def check_mcp() -> None:
     asyncio.run(check_mcp_sdk_client(executable, environment))
     asyncio.run(check_configured_mcp(environment, challenge=False))
     asyncio.run(check_configured_mcp(environment, challenge=True))
+    asyncio.run(check_configured_mcp(environment, challenge=False, content=True))
 
 
-async def check_configured_mcp(environment: dict[str, str], *, challenge: bool) -> None:
+async def check_configured_mcp(
+    environment: dict[str, str], *, challenge: bool, content: bool = False
+) -> None:
     """Exercise worker ownership through stdio with network-blocked data."""
     from mcp import ClientSession
     from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -132,6 +135,8 @@ async def check_configured_mcp(environment: dict[str, str], *, challenge: bool) 
     arguments = ["-I", str(Path(__file__).with_name("mcp_fixture.py"))]
     if challenge:
         arguments.append("--challenge")
+    if content:
+        arguments.append("--content")
     parameters = StdioServerParameters(
         command=sys.executable, args=arguments, env=environment
     )
@@ -141,6 +146,8 @@ async def check_configured_mcp(environment: dict[str, str], *, challenge: bool) 
             async with connection as session:
                 await session.initialize()
                 await exercise_configured_mcp(session, challenge=challenge)
+                if content:
+                    await exercise_content_mcp(session)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -242,6 +249,50 @@ async def exercise_additional_mcp(session: Any) -> None:
         {"folder_handle": folders[0]["handle"], "query": "Synthetic"},
     )
     assert search[0]["thread_id"] == "T"
+
+
+async def exercise_content_mcp(session: Any) -> None:
+    """Check opt-in content and resumed binary downloads through actual stdio."""
+
+    async def records(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Every response must have data, not a silently masked service error."""
+        result = await session.call_tool(name, arguments)
+        assert result.structured_content is not None
+        assert result.structured_content["error"] is None
+        assert "OMIT_ME" not in json.dumps(result.structured_content)
+        return cast(dict[str, Any], result.structured_content)
+
+    notes = await records("icloud_notes_list", {})
+    note = await records(
+        "icloud_note_content", {"handle": notes["records"][0]["handle"]}
+    )
+    assert note["records"][0]["text"] == "Synthetic note body"
+    folders = await records("icloud_mail_folders", {})
+    messages = await records(
+        "icloud_mail_messages", {"folder_handle": folders["records"][0]["handle"]}
+    )
+    mail = await records(
+        "icloud_mail_content", {"handle": messages["records"][0]["handle"]}
+    )
+    assert mail["records"][0]["parts"] == [{"content": "Synthetic mail body"}]
+    drive = await records("icloud_drive_list", {})
+    libraries = await records("icloud_photos_libraries", {})
+    albums = await records(
+        "icloud_photos_albums", {"library_handle": libraries["records"][0]["handle"]}
+    )
+    photos = await records(
+        "icloud_photos_list", {"album_handle": albums["records"][0]["handle"]}
+    )
+    for name, handle in [
+        ("icloud_drive_download", drive["records"][0]["handle"]),
+        ("icloud_photo_download", photos["records"][0]["handle"]),
+    ]:
+        first = await records(name, {"handle": handle, "offset": 0, "max_bytes": 4})
+        assert first["records"][0]["data_base64"] == "YWJjZA=="
+        assert first["records"][0]["next_offset"] == 4
+        last = await records(name, {"handle": handle, "offset": 4, "max_bytes": 4})
+        assert last["records"][0]["data_base64"] == "ZWZnaA=="
+        assert last["complete"] is True
 
 
 async def check_mcp_sdk_client(executable: Path, environment: dict[str, str]) -> None:

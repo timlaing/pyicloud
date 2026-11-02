@@ -69,3 +69,12 @@ routes and typed subject-only mailbox queries. All eight isolated install modes
 on Python 3.10.22/3.15.2 pass again with the expanded fixture; no outbound Apple
 requests or real credentials are used. The transport refuses PCS device-consent
 negotiation rather than triggering device notifications in protected account modes.
+
+Installed content qualification also runs an explicit content-enabled stdio process.
+The synthetic fixture verifies note plaintext, fresh typed MIME mail content,
+header/URL minimization, and two-chunk Drive/Photos assembly with stable ETags and
+If-Match. All eight isolated install combinations on Python 3.10/3.15 pass after
+these checks were added. Networking remains denied; no actual data is downloaded.
+The latest full offline suite after internal Reminders write adapters is 4,779
+tests plus 69 subtests, 98.35% combined coverage, with every measured source file
+strictly above 90%. Runtime writes still await an independent approval channel.

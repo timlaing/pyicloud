@@ -8,11 +8,14 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterator
 from datetime import datetime
+import re
 import socket
 import sys
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
+
+from requests import Response
 
 from pyicloud.mcp.context import SUPPORTED_SERVICES, ServerConfig, SessionOwner
 from pyicloud.mcp.server import build_server
@@ -81,15 +84,65 @@ class SyntheticReminders:
         )
 
 
+def range_response(headers: dict[str, str]) -> Response:
+    """Synthetic bytes with stable version identity; never open an outbound socket."""
+    matched = re.fullmatch(r"bytes=(\d+)-(\d+)", headers.get("Range", ""))
+    assert matched is not None
+    first, last = map(int, matched.groups())
+    assert 0 <= first <= last < 8
+    if "If-Match" in headers:
+        assert headers["If-Match"] == "synthetic-v1"
+    response = Response()
+    response.status_code = 206
+    response.headers.update({
+        "Content-Range": f"bytes {first}-{last}/8",
+        "ETag": "synthetic-v1",
+    })
+    response._content = b"abcdefgh"[first : last + 1]  # pylint: disable=protected-access
+    vars(response)["_content_consumed"] = True
+    return response
+
+
+class SyntheticFile:
+    """Only a discovered synthetic remote file, never a local output path."""
+
+    name = "Synthetic.txt"
+    type = "file"
+    size = 8
+    date_modified = None
+
+    def open(
+        self, *, stream: bool, headers: dict[str, str], allow_redirects: bool
+    ) -> Response:
+        """The adapter must request a bounded range without following redirects."""
+        assert stream is True
+        assert allow_redirects is False
+        return range_response(headers)
+
+
 class SyntheticFolder:
     """Drive metadata only; no local paths or file-opening method."""
 
     type = "folder"
 
-    def get_children(self, *, force: bool) -> list[SimpleNamespace]:
+    def get_children(self, *, force: bool) -> list[SyntheticFile]:
         """Ensure the adapter refreshes metadata without requesting content."""
         assert force is True
-        return [SimpleNamespace(name="Synthetic.txt", type="file", date_modified=None)]
+        return [SyntheticFile()]
+
+
+class SyntheticAsset:
+    """Signed-resource metadata never leaves the server in tool output."""
+
+    id = "P"
+    filename = "Synthetic.jpg"
+    created = datetime(2026, 1, 1)
+    latitude = "OMIT_ME"
+
+    def download_url(self, version: str) -> str:
+        """Only the discovered original variant is part of this fixture."""
+        assert version == "original"
+        return "https://cvws.icloud-content.com/synthetic?signature=OMIT_ME"
 
 
 class SyntheticAlbum:
@@ -97,14 +150,8 @@ class SyntheticAlbum:
 
     title = "Synthetic album"
 
-    def __iter__(self) -> Iterator[SimpleNamespace]:
-        yield SimpleNamespace(
-            id="P",
-            filename="Synthetic.jpg",
-            created=datetime(2026, 1, 1),
-            download_url="OMIT_ME",
-            latitude="OMIT_ME",
-        )
+    def __iter__(self) -> Iterator[SyntheticAsset]:
+        yield SyntheticAsset()
 
 
 class SyntheticNotes:
@@ -120,6 +167,14 @@ class SyntheticNotes:
             is_locked=False,
             is_deleted=False,
             snippet="OMIT_ME",
+        )
+
+    def get(self, identifier: str, *, with_attachments: bool) -> SimpleNamespace:
+        """Only explicit plaintext; attachment retrieval remains disabled."""
+        assert identifier == "N"
+        assert with_attachments is False
+        return SimpleNamespace(
+            title="Synthetic note", text="Synthetic note body", is_locked=False
         )
 
 
@@ -162,6 +217,20 @@ class SyntheticMail:
             ]
         )
 
+    def message(self, folder: MailFolder, identifier: str) -> MailMessage:
+        """Refresh one typed message scope before content retrieval."""
+        assert identifier == "M"
+        return cast(MailMessage, self.messages(folder, limit=50).messages[0])
+
+    def body(self, message: MailMessage) -> SimpleNamespace:
+        """Headers remain private and HTML is returned only as untrusted data."""
+        assert message.folder is self.folder
+        return SimpleNamespace(
+            content_type="text/plain",
+            headers="OMIT_ME",
+            parts=[SimpleNamespace(content="Synthetic mail body")],
+        )
+
 
 class SyntheticClient:
     """Saved-session state only; there is deliberately no credential-login method."""
@@ -188,7 +257,16 @@ class SyntheticClient:
             libraries={"synthetic": SimpleNamespace(all=album, albums=[album])}
         )
         self.mail = SyntheticMail()
-        self.session = SimpleNamespace(close=self.close)
+        self.session = SimpleNamespace(close=self.close, get=self.get_resource)
+
+    def get_resource(
+        self, url: str, *, stream: bool, headers: dict[str, str], allow_redirects: bool
+    ) -> Response:
+        """No network: verify selected variant, range and redirect policy directly."""
+        assert url == "https://cvws.icloud-content.com/synthetic?signature=OMIT_ME"
+        assert stream is True
+        assert allow_redirects is False
+        return range_response(headers)
 
     def close(self) -> None:
         """Emit only a deterministic synthetic cleanup marker on stderr."""
@@ -203,6 +281,7 @@ def main() -> None:
     """Launch only a synthetic configured server with outbound networking denied."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--challenge", action="store_true")
+    parser.add_argument("--content", action="store_true")
     args = parser.parse_args()
     original_socket = socket.socket
 
@@ -216,6 +295,7 @@ def main() -> None:
         username="synthetic@example.invalid",
         session_dir="not-read",
         services=SUPPORTED_SERVICES,
+        content_services=("drive", "notes", "photos", "mail") if args.content else (),
     )
     owner = SessionOwner(config, lambda: SyntheticClient(args.challenge))
     with patch("socket.socket", side_effect=local_socket):
