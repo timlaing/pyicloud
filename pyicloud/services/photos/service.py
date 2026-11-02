@@ -21,11 +21,9 @@ if TYPE_CHECKING:
 
 from pyicloud.common.cloudkit import (
     CKErrorItem,
-    CKFVString,
     CKModifyOperation,
     CKQueryFilterBy,
     CKQueryObject,
-    CKQueryRequest,
     CKRecord,
     CKTombstoneRecord,
     CKWriteRecord,
@@ -85,6 +83,8 @@ from .queries import (
     list_query,
     parent_filter,
     photo_lookup_query,
+    query_request_payload,
+    record_name_filter,
     smart_album_filter,
 )
 from .sync import PhotoSyncOptions, PhotoSyncResult, run_photo_sync, watch_photo_sync
@@ -101,13 +101,8 @@ def _new_album_position() -> int:
 
 
 def _record_name_filter(record_name_value: str) -> CKQueryFilterBy:
-    """Return a typed record-name equality filter."""
-
-    return CKQueryFilterBy(
-        comparator="EQUALS",
-        fieldName="recordName",
-        fieldValue=CKFVString(type="STRING", value=record_name_value),
-    )
+    """Retain the facade helper while query construction lives in queries."""
+    return record_name_filter(record_name_value)
 
 
 def _query_request_payload(
@@ -118,15 +113,14 @@ def _query_request_payload(
     results_limit: int | None = None,
     continuation: str | None = None,
 ) -> dict[str, Any]:
-    """Serialize a typed CloudKit query request for legacy/raw callers."""
-
-    return CKQueryRequest(
+    """Retain the helper signature while queries owns request serialization."""
+    return query_request_payload(
         query=query,
-        zoneID=CKZoneIDReq(**zone_id),
-        desiredKeys=desired_keys,
-        resultsLimit=results_limit,
-        continuationMarker=continuation,
-    ).model_dump(mode="json", exclude_none=True)
+        zone_id=zone_id,
+        desired_keys=desired_keys,
+        results_limit=results_limit,
+        continuation=continuation,
+    )
 
 
 PHOTO_DESIRED_KEYS = [
