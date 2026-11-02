@@ -32,6 +32,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Refactored
 
+- Separate private Mail query and pagination validation helpers from the unchanged facade, preserving lazy requests, mailbox checks and whole-page error handling.
 - Move each service's exception classes into a dedicated `exceptions` module (`notes`, `reminders`, `invites`, `mail`, `photos`); supported import paths re-export the same classes.
 - Share the session-error mapping helpers between the Invites and Photos services in a new `pyicloud.common.cloudkit.errors` module: HTTP-status extraction, `Retry-After` parsing, and the unauthorized/rate-limited status constants now live in one place instead of per service.
 - Simplify Mail draft validation and failure-path tests without changing write outcomes, safety checks, or retry behavior.
