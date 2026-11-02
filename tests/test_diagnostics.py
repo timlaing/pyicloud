@@ -7,7 +7,7 @@ invented ones.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -319,6 +319,8 @@ def test_probes_report_each_service_answering() -> None:
     """The happy path returns one OK result per probed service."""
 
     api = _probe_api()
+    mail_folders = MagicMock(return_value=[])
+    api.mail.folders = mail_folders
 
     results = probe_services(api)
 
@@ -332,7 +334,7 @@ def test_probes_report_each_service_answering() -> None:
     api.notes.sync_cursor.assert_called_once()
     api.reminders.lists.assert_not_called()
     api.notes.folders.assert_not_called()
-    cast(MagicMock, api.mail.folders).assert_called_once()
+    mail_folders.assert_called_once_with()
 
 
 def test_the_find_my_probe_does_not_ask_devices_to_report_location() -> None:
