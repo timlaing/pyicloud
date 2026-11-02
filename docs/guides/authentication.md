@@ -15,6 +15,9 @@ the file itself. For a session or cookie file that is a symlink, staging and
 replacement use the resolved target's directory, which must be writable by the
 process. Cyclic symlinks are rejected without staging or changing the destination.
 
+See [Compatibility and operational guarantees](compatibility.md) for offline
+construction, saved-state ownership, permissions, recovery and atomicity limits.
+
 Authentication without using a saved password is as simple as passing your username and password to the `PyiCloudService` class:
 
 ```python

@@ -60,6 +60,9 @@ jobs:
             --cov-report=xml:coverage.xml \
             --timeout=30
 
+      - name: Enforce per-file combined line-and-branch coverage
+        run: .venv/bin/python scripts/check/file_coverage.py coverage.xml
+
       - name: Check installed distributions on Python 3.15
         if: matrix.python-version == '3.15'
         run: |

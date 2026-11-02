@@ -160,12 +160,7 @@ repos:
           # END GENERATED REQUIREMENTS
       - id: pytest
         name: PyTest
-        entry: pytest
-        args:
-          - "--cov=pyicloud"
-          - "--cov-branch"
-          - "--cov-report=term-missing"
-          - "--cov-fail-under=90"
+        entry: python scripts/check/tests.py
         language: python
         stages: [manual]
         pass_filenames: false
