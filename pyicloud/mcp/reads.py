@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 import json
 from secrets import token_urlsafe
 import time as clock
@@ -129,7 +129,8 @@ class ReadTools:
         def read(client: Any) -> ReadResult:
             rows = client.calendar.get_events(
                 from_dt=datetime.combine(first, time()),
-                to_dt=datetime.combine(last + timedelta(days=1), time()),
+                # The public Calendar API treats the end date as inclusive.
+                to_dt=datetime.combine(last, time()),
             )
             return bounded_result(
                 (

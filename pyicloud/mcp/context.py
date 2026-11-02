@@ -13,8 +13,8 @@ from typing import Any, Literal, TypeVar
 
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
-from requests.exceptions import ConnectionError as RequestConnectionError
-from requests.exceptions import Timeout
+from requests.exceptions import RequestException, Timeout
+from urllib3.exceptions import ReadTimeoutError
 
 from pyicloud import PyiCloudService
 
@@ -23,6 +23,16 @@ T = TypeVar("T")
 
 class ToolFailure(Exception):
     """A fixed safe error code, not an upstream exception or account payload."""
+
+
+def transport_failure(error: RequestException) -> ToolFailure:
+    """Requests wraps urllib3 body-read timeouts in ConnectionError."""
+    wrapped = (error.__context__, error.__cause__, *error.args)
+    if isinstance(error, Timeout) or any(
+        isinstance(item, ReadTimeoutError) for item in wrapped
+    ):
+        return ToolFailure("timeout")
+    return ToolFailure("upstream_failure")
 
 
 @dataclass(frozen=True)
@@ -87,10 +97,12 @@ class BoundedAdapter(HTTPAdapter):
                 cert=cert,
                 proxies=proxies,
             )
-        except Timeout as error:
-            raise ToolFailure("timeout") from error
-        except RequestConnectionError as error:
-            raise ToolFailure("upstream_failure") from error
+        except RequestException as error:
+            raise transport_failure(error) from error
+        return self._read_response(response)
+
+    def _read_response(self, response: Response) -> Response:
+        """Apply response policy and consume a bounded body before releasing it."""
         try:
             # Keep transport failures distinct before get_auth_status normalizes them.
             if response.status_code == 429:
@@ -117,6 +129,8 @@ class BoundedAdapter(HTTPAdapter):
             response._content = bytes(body)  # pylint: disable=protected-access
             vars(response)["_content_consumed"] = True
             return response
+        except RequestException as error:
+            raise transport_failure(error) from error
         finally:
             response.close()
 
@@ -213,10 +227,19 @@ class SessionOwner:
 
         def release() -> None:
             if self._client is not None:
-                self._client.session.close()
+                try:
+                    self._client.session.close()
+                except Exception:
+                    raise ToolFailure("shutdown_failure") from None
 
         try:
             future = asyncio.wrap_future(self._executor.submit(release))
+
+            def released(done: asyncio.Future[None]) -> None:
+                if not done.cancelled():
+                    done.exception()
+
+            future.add_done_callback(released)
             try:
                 await asyncio.wait_for(asyncio.shield(future), self.config.timeout + 2)
             except asyncio.TimeoutError as error:

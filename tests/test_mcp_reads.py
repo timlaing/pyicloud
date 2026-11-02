@@ -146,7 +146,7 @@ async def test_calendar_fields_are_minimized_and_scoped() -> None:
     ]
     assert client.calendar.get_events.call_args.kwargs == {
         "from_dt": datetime(2026, 1, 1),
-        "to_dt": datetime(2026, 1, 2),
+        "to_dt": datetime(2026, 1, 1),
     }
 
 

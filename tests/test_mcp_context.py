@@ -11,8 +11,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from requests import PreparedRequest, Response
+from requests.exceptions import ChunkedEncodingError, Timeout
 from requests.exceptions import ConnectionError as RequestConnectionError
-from requests.exceptions import Timeout
+from urllib3.exceptions import ReadTimeoutError
 
 from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.mcp.context import BoundedAdapter, ServerConfig, SessionOwner, ToolFailure
@@ -288,6 +289,38 @@ def test_transport_failure_cannot_be_swallowed_by_auth_probe(
         adapter.send(request)
 
 
+@pytest.mark.parametrize(
+    "error,code",
+    [
+        (Timeout("private"), "timeout"),
+        (RequestConnectionError("private"), "upstream_failure"),
+        (
+            RequestConnectionError(ReadTimeoutError(MagicMock(), None, "private")),
+            "timeout",
+        ),
+        (ChunkedEncodingError("private"), "upstream_failure"),
+    ],
+)
+def test_body_transport_errors_preserve_probe_failure_category(
+    error: Exception, code: str
+) -> None:
+    """Errors raised after headers still bypass generic auth-probe conversion."""
+    adapter = BoundedAdapter(5)
+    request = PreparedRequest()
+    request.url = "https://example.invalid"
+    request.prepare_headers({})
+    response = MagicMock(spec=Response)
+    response.status_code = 200
+    response.headers = {}
+    response.iter_content.side_effect = error
+    with (
+        patch("requests.adapters.HTTPAdapter.send", return_value=response),
+        pytest.raises(ToolFailure, match=code),
+    ):
+        adapter.send(request)
+    response.close.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_shutdown_drain_timeout_does_not_close_an_active_session() -> None:
     """Bound close's await, leaving the queued release behind the running owner."""
@@ -343,3 +376,16 @@ async def test_rate_limited_probe_is_not_converted_to_login_failure() -> None:
             assert client.session.data == {"session_token": "synthetic"}
         finally:
             await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_failure_is_sanitized() -> None:
+    """Even custom session cleanup failures must not expose upstream messages."""
+    client = MagicMock()
+    client.get_auth_status.return_value = {"authenticated": True}
+    client.session.close.side_effect = RuntimeError("private account payload")
+    owner = SessionOwner(configuration(), lambda: client)
+    await owner.run(lambda _: None)
+    with pytest.raises(ToolFailure, match="shutdown_failure") as caught:
+        await owner.close()
+    assert "private" not in str(caught.value)

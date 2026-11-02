@@ -15,7 +15,7 @@ Implemented phases are committed separately on `feature/mcp-extension`:
 
 Local qualification on 2026-11-02:
 
-- Full offline suite: 4,717 tests and 69 subtests, 98.36% combined coverage.
+- Full offline suite: 4,722 tests and 69 subtests, 98.36% combined coverage.
 - Every measured source file strictly exceeds 90% combined line/branch coverage.
 - All hooks pass; no coverage exclusions or network/filesystem guard weakening.
 - Wheel built from source distribution with optional requirements included.
@@ -46,3 +46,8 @@ saved-session probe can classify them as credential failures. CLI parser errors
 never echo unsupported or malformed option values. A caller timeout is not a hard
 kill of custom worker code; see the operator guide's process-exit caveats. Saved
 sessions must not be concurrently owned by CLI/server.
+
+Follow-up qualification covers body-read transport exceptions (including wrapped
+urllib3 timeouts and truncated chunks), sanitized session cleanup failures, and
+Calendar's inclusive end-date semantics. Transport dispatch and body policy have
+separate responsibilities to keep their cognitive complexity within quality gates.
