@@ -121,6 +121,8 @@ class RemindersService(BaseService):
             validation_extra=cloudkit_validation_extra,
         )
         self._list_zones: dict[tuple[str, str, str, str | None], RemindersList] = {}
+        self._discovery_order = 0
+        self._committed_discovery_order = 0
 
         def get_raw() -> CloudKitRemindersClient:
             return self._raw
@@ -151,6 +153,8 @@ class RemindersService(BaseService):
         self, items: Iterable[RemindersList], *, state: ListDiscoveryState
     ) -> Iterable[RemindersList]:
         """Replace the routing snapshot only when discovery completes."""
+        self._discovery_order += 1
+        order = self._discovery_order
         discovered: dict[tuple[str, str, str, str | None], RemindersList] = {}
         for item in items:
             if not item.deleted:
@@ -158,8 +162,9 @@ class RemindersService(BaseService):
                     item
                 )
             yield item
-        if state.complete:
+        if state.complete and order > self._committed_discovery_order:
             self._list_zones = discovered
+            self._committed_discovery_order = order
 
     def reminders(
         self,

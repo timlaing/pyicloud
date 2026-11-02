@@ -191,6 +191,41 @@ def test_completed_list_snapshot_removes_stale_routes(
     assert len(service._list_zones) == 1
 
 
+def test_older_complete_discovery_cannot_overwrite_newer_snapshot(service: Any) -> None:
+    """Completion order must not resurrect routes removed by a newer discovery."""
+    older_context = RemindersList(
+        id="List/L", title="Older", scope="shared", zone_owner="OLD"
+    )
+    newer_context = RemindersList(
+        id="List/L", title="Newer", scope="shared", zone_owner="NEW"
+    )
+    service._reads.lists = MagicMock(side_effect=[[older_context], [newer_context]])
+    older = iter(service.lists())
+    assert next(older) is older_context
+    list(service.lists())
+    assert not list(older)
+    assert service._list_route("List/L") == ("shared", "Reminders", "NEW")
+
+
+def test_refresh_detects_new_collision_in_cached_string_route(service: Any) -> None:
+    """Explicit refresh exposes changed sharing; models remain the precise route."""
+    private = RemindersList(id="List/L", title="Private")
+    shared = RemindersList(
+        id="List/L", title="Shared", scope="shared", zone_owner="OWNER"
+    )
+    service._reads.lists = MagicMock(side_effect=[[private], [private, shared]])
+    list(service.lists())
+    assert service._list_route(private.id, discover=True) == (
+        "private",
+        "Reminders",
+        None,
+    )
+    assert service._reads.lists.call_count == 1
+    list(service.lists())
+    with pytest.raises(ValueError, match="Ambiguous list ID"):
+        service._list_route(private.id, discover=True)
+
+
 def test_partial_list_iteration_does_not_replace_complete_cache(
     service: Any,
 ) -> None:

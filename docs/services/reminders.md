@@ -32,6 +32,14 @@ Completed list snapshots replace the route cache; partial iteration does not
 invalidate a prior complete snapshot. Caller-supplied linked children must belong
 to the same resolved scope and zone as the parent before mutation is submitted.
 
+String-ID routing uses the most recent fully consumed, successful discovery
+snapshot. A cached match does not trigger another discovery, so a newly shared
+list with the same ID is not detected until you refresh with
+`list(reminders.lists())`. Refresh before using string IDs when sharing or access
+has changed, or pass the intended list model explicitly. Incomplete discovery
+retains the prior snapshot and is not proof that a cached share remains accessible.
+Older overlapping iterators cannot overwrite a newer completed snapshot.
+
 _List reminder lists:_
 
 ```python
