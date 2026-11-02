@@ -1,0 +1,52 @@
+name: Dependabot Auto Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Dependabot-triggered pull_request runs get a read-only GITHUB_TOKEN by
+# default. Declaring permissions here is what elevates it; the write scopes
+# themselves are scoped to the job below so any future job starts read-only.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  auto-merge:
+    # Gate on the PR author, not github.actor: actor flips to whoever triggered
+    # the latest event (e.g. a human running "Update branch"), user.login does not.
+    # head.repo check blocks fork PRs and satisfies the same-repo guard.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # required for the mergePullRequest mutation behind `gh pr merge --auto`
+      pull-requests: write  # required for `gh pr review --approve`
+    steps:
+      - name: Get Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ github.token }}
+
+      # update-type is the HIGHEST semver bump in the PR, so a group containing
+      # any major reports semver-major and is held back here. An empty value
+      # fails safe: neither condition matches, nothing merges.
+      - name: Approve patch/minor update
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr review --approve "$PR_URL"
+
+      - name: Enable auto-merge for patch and minor updates
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
