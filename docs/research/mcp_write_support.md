@@ -38,6 +38,14 @@ server itself.
 
 ## Sequencing and validation
 
+The first executable adapter module, `pyicloud.mcp.reminder_writes`, now supports
+verified Reminders create/update/delete callbacks with synthetic tests. Preview
+paths do not mutate; scoped list/reminder state is re-read before approval
+consumption, account/route/revision changes fail closed, and uncertain callbacks
+retire the approval before reporting a sanitized failure. It is intentionally
+**not registered as a live MCP tool** until the independent operator channel is
+implemented. The other service writers and documented API gaps remain outstanding.
+
 1. Finish independent read validation; defer CodeRabbit until implementation end.
 2. Validate approval snapshots, expiration, replay, account/route mismatch and
    revision changes using synthetic data. No runtime writes enabled at this phase.

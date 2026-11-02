@@ -78,6 +78,13 @@ class ReadTools:
             service: "unknown" for service in owner.config.services
         }
 
+    def resolve_list(self, handle: str) -> RemindersList:
+        """Resolve one existing route without accepting a caller-supplied owner/zone."""
+        route = self._routes.get(handle)
+        if route is None or route[1] <= clock.monotonic():
+            raise ToolFailure("expired_or_unknown_handle")
+        return route[0]
+
     async def execute(
         self, service: str, limit: int, operation: Callable[[Any], ReadResult]
     ) -> ReadResult:
