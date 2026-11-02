@@ -111,8 +111,10 @@ def _bare_service(*, session: Any = None) -> Any:
 
     service: Any = PhotosService.__new__(PhotosService)
     service.service_endpoint = "https://example.com"
-    service._BaseService__params = {"dsid": "12345"}
-    service._BaseService__session = session if session is not None else object()
+    vars(service).update({
+        "_BaseService__params": {"dsid": "12345"},
+        "_BaseService__session": session if session is not None else object(),
+    })
     service._private_client = MagicMock()
     service._shared_client = MagicMock()
     service._root_library = SimpleNamespace(current_sync_token=None)
