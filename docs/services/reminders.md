@@ -46,7 +46,7 @@ reminders = api.reminders
 
 target_list = next(iter(reminders.lists()), None)
 if target_list:
-    for reminder in reminders.reminders(list_id=target_list.id):
+    for reminder in reminders.reminders(list_id=target_list):
         print(reminder.id, reminder.title, reminder.completed)
 
 for reminder in reminders.reminders():
@@ -75,7 +75,7 @@ if target_list is None:
     raise RuntimeError("No reminder lists found")
 
 created = reminders.create(
-    list_id=target_list.id,
+    list_id=target_list,
     title="Buy milk",
     desc="2 percent",
     due_date=datetime.now(timezone.utc) + timedelta(days=1),
@@ -103,7 +103,7 @@ if target_list is None:
     raise RuntimeError("No reminder lists found")
 
 result = api.reminders.list_reminders(
-    list_id=target_list.id,
+    list_id=target_list,
     include_completed=True,
     results_limit=200,
 )

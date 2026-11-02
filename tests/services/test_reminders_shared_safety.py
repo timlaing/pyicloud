@@ -330,3 +330,75 @@ def test_routing_discovery_keeps_duplicate_id_ambiguity(
         service.list_reminders("List/L")
     service._raw.query.assert_not_called()
     service._shared_raw.query.assert_not_called()
+
+
+def test_deleted_shared_list_does_not_create_route_ambiguity(service: Any) -> None:
+    """Routing-only reads must honor soft deletion without decoding membership."""
+    discover_shared(service)
+    deleted = list_record("List/PRIVATE").model_dump()
+    deleted["fields"]["Deleted"] = {"type": "INT64", "value": 1}
+    service._shared_raw.changes.return_value = changes([
+        CKRecord.model_validate(deleted)
+    ])
+    service._raw.query.return_value = CKQueryResponse(records=[])
+    service.list_reminders("List/PRIVATE")
+    service._raw.query.assert_called_once()
+    service._shared_raw.query.assert_not_called()
+
+
+def test_malformed_shared_list_does_not_hide_later_valid_lists(service: Any) -> None:
+    """One bad membership field cannot discard a later valid list on the page."""
+    discover_shared(service)
+    malformed = list_record("List/BROKEN").model_dump()
+    malformed["fields"]["ReminderIDs"] = {"type": "INT64", "value": 42}
+    service._shared_raw.changes.return_value = changes([
+        CKRecord.model_validate(malformed),
+        list_record("List/GOOD"),
+    ])
+    assert [item.id for item in service.lists()] == ["List/PRIVATE", "List/GOOD"]
+    assert not service._reads.list_discovery_complete
+
+
+@pytest.mark.parametrize("failure", ["zones", "changes", "records"])
+def test_incomplete_discovery_preserves_cached_shared_routes(
+    service: Any, failure: str
+) -> None:
+    """Suppressed availability failures cannot replace a complete routing snapshot."""
+    discover_shared(service)
+    list(service.lists())
+    original = dict(service._list_zones)
+    if failure == "zones":
+        service._shared_raw.zones_list.side_effect = RemindersApiError("Unavailable")
+    elif failure == "changes":
+        service._shared_raw.changes.side_effect = RemindersApiError("Unavailable")
+    else:
+        service._shared_raw.changes.return_value = changes([
+            CKErrorItem(serverErrorCode="ACCESS_DENIED", recordName="List/L")
+        ])
+    assert [item.id for item in service.lists()] == ["List/PRIVATE"]
+    assert service._list_zones == original
+    assert service._list_route("List/L") == ("shared", "Shared", "OWNER")
+
+
+@pytest.mark.parametrize("operation", ["update", "delete"])
+def test_explicit_zone_without_scope_does_not_discover(
+    service: Any, operation: str
+) -> None:
+    """Custom zone values keep the default private scope instead of being discarded."""
+    service._raw.modify.return_value = CKModifyResponse(
+        records=[], syncToken="synthetic"
+    )
+    service._raw.lookup.return_value = CKLookupResponse(records=[])
+    reminder = Reminder(
+        id="Reminder/R",
+        list_id="List/L",
+        title="Synthetic",
+        zone_name="Custom",
+        zone_owner="OWNER",
+    )
+    getattr(service, operation)(reminder)
+    zone = service._raw.modify.call_args.kwargs["zone_id"]
+    assert (zone.zoneName, zone.ownerRecordName) == ("Custom", "OWNER")
+    service._shared_raw.modify.assert_not_called()
+    service._raw.changes.assert_not_called()
+    service._shared_raw.zones_list.assert_not_called()

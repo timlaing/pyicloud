@@ -59,6 +59,7 @@ class RemindersReadAPI:
         self._logger = logger
         self._get_shared = get_shared
         self._zone_id = zone_id or _REMINDERS_ZONE_REQ
+        self.list_discovery_complete = True
 
     def _iter_zone_change_pages(
         self,
@@ -93,6 +94,7 @@ class RemindersReadAPI:
 
     def lists(self, *, routing_only: bool = False) -> Iterable[RemindersList]:
         """Fetch lists, optionally reading only identity/zone routing metadata."""
+        self.list_discovery_complete = True
         for zone in self._iter_zone_change_pages(desired_record_types=["List"]):
             _assert_read_success(zone.records, "Fetch reminder lists")
             for rec in zone.records:
@@ -106,7 +108,11 @@ class RemindersReadAPI:
     def _list_record(self, record: CKRecord, *, routing_only: bool) -> RemindersList:
         """Route lookup does not require unrelated membership assets to decode."""
         if routing_only:
-            return RemindersList(id=record.recordName, title="")
+            return RemindersList(
+                id=record.recordName,
+                title="",
+                deleted=bool(record.fields.get_value("Deleted")),
+            )
         return self._mapper.record_to_list(record)
 
     def _shared_lists(self, *, routing_only: bool = False) -> Iterable[RemindersList]:
@@ -117,6 +123,7 @@ class RemindersReadAPI:
         try:
             listed_zones = shared.zones_list().zones
         except RemindersApiError:
+            self.list_discovery_complete = False
             self._logger.warning("Skipping unavailable shared Reminders zones")
             return
         for listed_zone in listed_zones:
@@ -132,17 +139,21 @@ class RemindersReadAPI:
         for zone in self._iter_shared_list_pages(shared, zone_id):
             try:
                 _assert_read_success(zone.records, "Fetch shared reminder lists")
-                items = [
-                    self._list_record(record, routing_only=routing_only)
-                    for record in zone.records
-                    if isinstance(record, CKRecord) and record.recordType == "List"
-                ]
             except RemindersApiError:
+                self.list_discovery_complete = False
                 self._logger.warning(
                     "Skipping shared Reminders zone with record errors"
                 )
                 return
-            for item in items:
+            for record in zone.records:
+                if not isinstance(record, CKRecord) or record.recordType != "List":
+                    continue
+                try:
+                    item = self._list_record(record, routing_only=routing_only)
+                except RemindersApiError:
+                    self.list_discovery_complete = False
+                    self._logger.warning("Skipping malformed shared Reminders list")
+                    continue
                 item.scope = "shared"
                 item.zone_name = zone_id.zoneName
                 item.zone_owner = zone_id.ownerRecordName
@@ -164,6 +175,7 @@ class RemindersReadAPI:
                     )
                 )
             except RemindersApiError:
+                self.list_discovery_complete = False
                 self._logger.warning("Skipping unavailable shared Reminders zone")
                 return
             more_coming = False

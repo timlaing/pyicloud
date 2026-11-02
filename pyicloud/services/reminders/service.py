@@ -150,9 +150,13 @@ class RemindersService(BaseService):
         """Replace the routing snapshot only when discovery completes."""
         discovered: dict[tuple[str, str, str, str | None], RemindersList] = {}
         for item in items:
-            discovered[(item.id, item.scope, item.zone_name, item.zone_owner)] = item
+            if not item.deleted:
+                discovered[(item.id, item.scope, item.zone_name, item.zone_owner)] = (
+                    item
+                )
             yield item
-        self._list_zones = discovered
+        if self._reads.list_discovery_complete:
+            self._list_zones = discovered
 
     def reminders(
         self,
@@ -236,7 +240,11 @@ class RemindersService(BaseService):
     ) -> tuple[RemindersReadAPI, RemindersWriteAPI]:
         """Build immutable per-operation routing without changing private helpers."""
         route = (record.scope, record.zone_name, record.zone_owner)
-        if isinstance(record, Reminder) and "scope" not in record.model_fields_set:
+        if (
+            isinstance(record, Reminder)
+            and "scope" not in record.model_fields_set
+            and not {"zone_name", "zone_owner"} & record.model_fields_set
+        ):
             route = self._list_route(record.list_id, discover=True)
         scope, zone_name, zone_owner = route
         if route == ("private", "Reminders", None):

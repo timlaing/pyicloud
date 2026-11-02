@@ -170,15 +170,22 @@ def _reminders_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
 
 def _shared_reminder_matches(reminders: Any, reminder_id: str) -> list[Reminder]:
     """Probe explicit shared contexts, retaining all matching zone identities."""
-    matches: list[Reminder] = []
+    matches: dict[tuple[str, str, str | None, str], Reminder] = {}
     for context in reminders.lists():
         if getattr(context, "scope", "private") != "shared":
             continue
         try:
-            matches.append(reminders.get(reminder_id, list_context=context))
-        except LookupError:
+            reminder = reminders.get(reminder_id, list_context=context)
+        except (LookupError, RemindersApiError):
             continue
-    return matches
+        identity = (
+            reminder.scope,
+            reminder.zone_name,
+            reminder.zone_owner,
+            reminder.id,
+        )
+        matches[identity] = reminder
+    return list(matches.values())
 
 
 def _resolve_reminder(api: PyiCloudService, reminder_id: str) -> Reminder:
@@ -234,9 +241,7 @@ def _list_reminder_rows(
             api,
             partial(
                 reminders.list_reminders,
-                list_id=reminder_list
-                if getattr(reminder_list, "scope", "private") == "shared"
-                else reminder_list.id,
+                list_id=reminder_list,
                 include_completed=include_completed,
                 results_limit=results_limit,
             ),

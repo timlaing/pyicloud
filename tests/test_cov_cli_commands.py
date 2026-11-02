@@ -84,7 +84,7 @@ class DuplicateReminders(FakeReminders):
 
     def list_reminders(
         self,
-        list_id: str,
+        list_id: str | RemindersList,
         include_completed: bool = False,
         results_limit: int = 200,
     ) -> ListRemindersResult:

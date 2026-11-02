@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from pyicloud import PyiCloudService
-from pyicloud.cli.commands.reminders import _resolve_reminder
+from pyicloud.cli.commands.reminders import _list_reminder_rows, _resolve_reminder
 from pyicloud.cli.context import CLIAbort
-from pyicloud.services.reminders.exceptions import RemindersAuthError
+from pyicloud.services.reminders.exceptions import RemindersApiError, RemindersAuthError
 from pyicloud.services.reminders.models import Reminder, RemindersList
 
 
@@ -89,3 +89,55 @@ def test_shared_cli_lookup_propagates_auth_failure() -> None:
     api = api_for(reminders)
     with pytest.raises(CLIAbort, match="Authentication"):
         _resolve_reminder(api, "Reminder/R")
+
+
+def test_shared_lookup_deduplicates_lists_in_one_zone() -> None:
+    """Several lists in one zone must not make one record appear ambiguous."""
+    reminders = MagicMock()
+    reminders.lists.return_value = [
+        RemindersList(id=identifier, title="Shared", scope="shared", zone_owner="A")
+        for identifier in ["List/A", "List/B"]
+    ]
+    reminders.get.side_effect = shared_lookup
+    assert _resolve_reminder(api_for(reminders), "Reminder/R").id == "Reminder/R"
+
+
+@pytest.mark.parametrize("authentication", [False, True])
+def test_shared_lookup_zone_errors(authentication: bool) -> None:
+    """API errors stay zone-local, but authentication must not be hidden."""
+    reminders = MagicMock()
+    reminders.lists.return_value = [
+        RemindersList(id="List/L", title="Shared", scope="shared", zone_owner=owner)
+        for owner in ["BAD", "GOOD"]
+    ]
+    result = Reminder(id="Reminder/R", list_id="List/L", title="Shared", scope="shared")
+    error = (
+        RemindersAuthError("Authentication")
+        if authentication
+        else RemindersApiError("Unavailable")
+    )
+    reminders.get.side_effect = [LookupError("Missing"), error, result]
+    if authentication:
+        with pytest.raises(CLIAbort, match="Authentication"):
+            _resolve_reminder(api_for(reminders), result.id)
+        assert reminders.get.call_count == 2
+    else:
+        assert _resolve_reminder(api_for(reminders), result.id) is result
+        assert reminders.get.call_count == 3
+
+
+def test_global_listing_preserves_private_and_shared_list_contexts() -> None:
+    """Colliding list IDs must retain route models for both scopes."""
+    reminders = MagicMock()
+    contexts = [
+        RemindersList(id="List/L", title="Private"),
+        RemindersList(id="List/L", title="Shared", scope="shared", zone_owner="A"),
+    ]
+    reminders.lists.return_value = contexts
+    reminders.list_reminders.return_value = SimpleNamespace(reminders=[])
+    assert (
+        _list_reminder_rows(api_for(reminders), include_completed=True, limit=10) == []
+    )
+    assert [
+        call.kwargs["list_id"] for call in reminders.list_reminders.call_args_list
+    ] == contexts
