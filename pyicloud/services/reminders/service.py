@@ -48,7 +48,7 @@ from ._protocol import (
     _encode_crdt_document,
     _generate_resolution_token_map,
 )
-from ._reads import RemindersReadAPI
+from ._reads import ListDiscoveryState, RemindersReadAPI
 from ._writes import RemindersWriteAPI
 from .client import CloudKitRemindersClient
 from .models import (
@@ -144,9 +144,12 @@ class RemindersService(BaseService):
         needed by creation and query helpers.
         """
 
-        return self._cache_lists(self._reads.lists())
+        state = ListDiscoveryState()
+        return self._cache_lists(self._reads.lists(state=state), state=state)
 
-    def _cache_lists(self, items: Iterable[RemindersList]) -> Iterable[RemindersList]:
+    def _cache_lists(
+        self, items: Iterable[RemindersList], *, state: ListDiscoveryState
+    ) -> Iterable[RemindersList]:
         """Replace the routing snapshot only when discovery completes."""
         discovered: dict[tuple[str, str, str, str | None], RemindersList] = {}
         for item in items:
@@ -155,7 +158,7 @@ class RemindersService(BaseService):
                     item
                 )
             yield item
-        if self._reads.list_discovery_complete:
+        if state.complete:
             self._list_zones = discovered
 
     def reminders(
@@ -222,7 +225,12 @@ class RemindersService(BaseService):
         """Resolve a unique cached list route, rejecting ambiguous record IDs."""
         matches = [item for key, item in self._list_zones.items() if key[0] == list_id]
         if not matches and discover:
-            list(self._cache_lists(self._reads.lists(routing_only=True)))
+            state = ListDiscoveryState()
+            list(
+                self._cache_lists(
+                    self._reads.lists(routing_only=True, state=state), state=state
+                )
+            )
             matches = [
                 item for key, item in self._list_zones.items() if key[0] == list_id
             ]

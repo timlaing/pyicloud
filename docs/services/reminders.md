@@ -87,7 +87,7 @@ created.desc = "2 percent organic"
 created.completed = True
 reminders.update(created)
 
-fresh = reminders.get(created.id)
+fresh = reminders.get(created.id, list_context=created)
 reminders.delete(fresh)
 ```
 

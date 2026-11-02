@@ -356,7 +356,7 @@ def test_malformed_shared_list_does_not_hide_later_valid_lists(service: Any) -> 
         list_record("List/GOOD"),
     ])
     assert [item.id for item in service.lists()] == ["List/PRIVATE", "List/GOOD"]
-    assert not service._reads.list_discovery_complete
+    assert not service._list_zones
 
 
 @pytest.mark.parametrize("failure", ["zones", "changes", "records"])
@@ -402,3 +402,67 @@ def test_explicit_zone_without_scope_does_not_discover(
     service._shared_raw.modify.assert_not_called()
     service._raw.changes.assert_not_called()
     service._shared_raw.zones_list.assert_not_called()
+
+
+def test_interleaved_discovery_cannot_commit_an_earlier_partial_snapshot(
+    service: Any,
+) -> None:
+    """A later successful iterator cannot change the earlier iterator's outcome."""
+    discover_shared(service)
+    service._shared_raw.zones_list.return_value = CKZoneListResponse(
+        zones=[
+            CKZoneListZone(
+                zoneID=CKZoneID(
+                    zoneName="Shared",
+                    ownerRecordName=owner,
+                    zoneType="REGULAR_CUSTOM_ZONE",
+                )
+            )
+            for owner in ["BAD", "GOOD"]
+        ]
+    )
+    service._shared_raw.changes.side_effect = [
+        RemindersApiError("Unavailable"),
+        changes([list_record("List/EARLIER")]),
+        changes([list_record("List/LATER")]),
+        changes([list_record("List/LATER2")]),
+    ]
+    earlier = iter(service.lists())
+    assert next(earlier).id == "List/PRIVATE"
+    assert next(earlier).id == "List/EARLIER"
+    list(service.lists())
+    completed = dict(service._list_zones)
+    assert any(item.id == "List/LATER" for item in completed.values())
+    assert not list(earlier)
+    assert service._list_zones == completed
+
+
+def test_invalid_shared_count_does_not_hide_later_records_or_zones(
+    service: Any,
+) -> None:
+    """Malformed integer fields are local to the record, not the discovery."""
+    discover_shared(service)
+    service._shared_raw.zones_list.return_value = CKZoneListResponse(
+        zones=[
+            CKZoneListZone(
+                zoneID=CKZoneID(
+                    zoneName="Shared",
+                    ownerRecordName=owner,
+                    zoneType="REGULAR_CUSTOM_ZONE",
+                )
+            )
+            for owner in ["FIRST", "SECOND"]
+        ]
+    )
+    malformed = list_record("List/BROKEN").model_dump()
+    malformed["fields"]["Count"] = {"type": "STRING", "value": "not-a-number"}
+    service._shared_raw.changes.side_effect = [
+        changes([CKRecord.model_validate(malformed), list_record("List/GOOD")]),
+        changes([list_record("List/LATER")]),
+    ]
+    assert [item.id for item in service.lists()] == [
+        "List/PRIVATE",
+        "List/GOOD",
+        "List/LATER",
+    ]
+    assert not service._list_zones

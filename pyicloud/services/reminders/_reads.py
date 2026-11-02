@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 import logging
 from typing import Any, Literal, TypeVar, cast
 
@@ -42,6 +43,13 @@ from .models import (
 TRelated = TypeVar("TRelated")  # pylint: disable=invalid-name
 
 
+@dataclass
+class ListDiscoveryState:
+    """Completion outcome owned by one list discovery, never shared by iterators."""
+
+    complete: bool = True
+
+
 class RemindersReadAPI:
     """Encapsulates read/query behavior for the Reminders service."""
 
@@ -59,7 +67,6 @@ class RemindersReadAPI:
         self._logger = logger
         self._get_shared = get_shared
         self._zone_id = zone_id or _REMINDERS_ZONE_REQ
-        self.list_discovery_complete = True
 
     def _iter_zone_change_pages(
         self,
@@ -92,9 +99,11 @@ class RemindersReadAPI:
                 next_sync_token = zone.syncToken
                 more_coming = more_coming or bool(zone.moreComing)
 
-    def lists(self, *, routing_only: bool = False) -> Iterable[RemindersList]:
+    def lists(
+        self, *, routing_only: bool = False, state: ListDiscoveryState | None = None
+    ) -> Iterable[RemindersList]:
         """Fetch lists, optionally reading only identity/zone routing metadata."""
-        self.list_discovery_complete = True
+        outcome = state if state is not None else ListDiscoveryState()
         for zone in self._iter_zone_change_pages(desired_record_types=["List"]):
             _assert_read_success(zone.records, "Fetch reminder lists")
             for rec in zone.records:
@@ -103,7 +112,7 @@ class RemindersReadAPI:
                 yield self._list_record(rec, routing_only=routing_only)
         if self._get_shared is None:
             return
-        yield from self._shared_lists(routing_only=routing_only)
+        yield from self._shared_lists(routing_only=routing_only, state=outcome)
 
     def _list_record(self, record: CKRecord, *, routing_only: bool) -> RemindersList:
         """Route lookup does not require unrelated membership assets to decode."""
@@ -115,7 +124,9 @@ class RemindersReadAPI:
             )
         return self._mapper.record_to_list(record)
 
-    def _shared_lists(self, *, routing_only: bool = False) -> Iterable[RemindersList]:
+    def _shared_lists(
+        self, *, routing_only: bool, state: ListDiscoveryState
+    ) -> Iterable[RemindersList]:
         """Discover lists in available, non-deleted shared zones."""
         if self._get_shared is None:
             return
@@ -123,24 +134,31 @@ class RemindersReadAPI:
         try:
             listed_zones = shared.zones_list().zones
         except RemindersApiError:
-            self.list_discovery_complete = False
+            state.complete = False
             self._logger.warning("Skipping unavailable shared Reminders zones")
             return
         for listed_zone in listed_zones:
             zid = listed_zone.zoneID
             if listed_zone.deleted:
                 continue
-            yield from self._shared_zone_lists(shared, zid, routing_only=routing_only)
+            yield from self._shared_zone_lists(
+                shared, zid, routing_only=routing_only, state=state
+            )
 
     def _shared_zone_lists(
-        self, shared: Any, zone_id: CKZoneID, *, routing_only: bool
+        self,
+        shared: Any,
+        zone_id: CKZoneID,
+        *,
+        routing_only: bool,
+        state: ListDiscoveryState,
     ) -> Iterable[RemindersList]:
         """Validate each shared page before exposing models; errors stay zone-local."""
-        for zone in self._iter_shared_list_pages(shared, zone_id):
+        for zone in self._iter_shared_list_pages(shared, zone_id, state=state):
             try:
                 _assert_read_success(zone.records, "Fetch shared reminder lists")
             except RemindersApiError:
-                self.list_discovery_complete = False
+                state.complete = False
                 self._logger.warning(
                     "Skipping shared Reminders zone with record errors"
                 )
@@ -150,8 +168,8 @@ class RemindersReadAPI:
                     continue
                 try:
                     item = self._list_record(record, routing_only=routing_only)
-                except RemindersApiError:
-                    self.list_discovery_complete = False
+                except (RemindersApiError, ValueError):
+                    state.complete = False
                     self._logger.warning("Skipping malformed shared Reminders list")
                     continue
                 item.scope = "shared"
@@ -160,7 +178,7 @@ class RemindersReadAPI:
                 yield item
 
     def _iter_shared_list_pages(
-        self, shared: Any, zone_id: CKZoneID
+        self, shared: Any, zone_id: CKZoneID, *, state: ListDiscoveryState
     ) -> Iterable[CKZoneChangesZone]:
         """Page one shared zone, stopping locally on API but not auth failures."""
         sync_token: str | None = None
@@ -175,7 +193,7 @@ class RemindersReadAPI:
                     )
                 )
             except RemindersApiError:
-                self.list_discovery_complete = False
+                state.complete = False
                 self._logger.warning("Skipping unavailable shared Reminders zone")
                 return
             more_coming = False
