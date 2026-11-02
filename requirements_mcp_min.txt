@@ -1,0 +1,2 @@
+# Exact lower bound for the optional SDK; runtime floors stay in requirements_min.txt.
+mcp==2.3.0

@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
-from importlib.metadata import version
+from importlib.metadata import metadata, version
 from importlib.resources import files
 import importlib.util
 import json
@@ -117,6 +117,23 @@ def check_mcp() -> None:
 
     asyncio.run(verify_tool())
     asyncio.run(check_mcp_stdio(executable, environment))
+    asyncio.run(check_mcp_sdk_client(executable, environment))
+
+
+async def check_mcp_sdk_client(executable: Path, environment: dict[str, str]) -> None:
+    """Use the maintained SDK client independently of the raw JSON-RPC harness."""
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    parameters = StdioServerParameters(command=str(executable), env=environment)
+    async with stdio_client(parameters) as (read, write):
+        connection = ClientSession(read, write, read_timeout_seconds=30)
+        async with connection as session:
+            await session.initialize()
+            result = await session.call_tool("icloud_capabilities", {})
+            assert result.structured_content is not None
+            assert result.structured_content["enabled_services"] == []
+            assert not result.is_error
 
 
 async def check_mcp_stdio(executable: Path, environment: dict[str, str]) -> None:
@@ -216,6 +233,19 @@ def main() -> None:
     parser.add_argument("--mcp", action="store_true")
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
+    requirements = metadata("pyicloud").get_all("Requires-Dist") or []
+
+    def extra_requirements(extra: str) -> set[str]:
+        """Validate optional metadata without depending on a resolver package."""
+        return {
+            requirement.split(";")[0].strip()
+            for requirement in requirements
+            if f'extra == "{extra}"' in requirement
+        }
+
+    assert extra_requirements("all") == extra_requirements("cli") | extra_requirements(
+        "mcp"
+    )
     with args.manifest.open(encoding="utf-8") as handle:
         manifest = json.load(handle)
     spec = importlib.util.spec_from_file_location(
@@ -228,6 +258,8 @@ def main() -> None:
 
     # A source-tree import can otherwise hide missing wheel files/dependencies.
     import pyicloud  # pylint: disable=import-outside-toplevel
+
+    assert "mcp" not in sys.modules, "Core import eagerly loaded the optional SDK"
 
     assert pyicloud.__file__ is not None
     assert Path(pyicloud.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
