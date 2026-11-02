@@ -5,6 +5,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
+import errno
 import json
 import os
 from pathlib import Path
@@ -75,6 +76,22 @@ def test_atomic_save_preserves_destination_symlink(
     assert target.read_text(encoding="utf-8") == "replacement"
     assert link.read_text(encoding="utf-8") == "replacement"
     assert set(directory.iterdir()) == {target, link}
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlink semantics")
+def test_atomic_save_rejects_cyclic_destination_before_staging(directory: Path) -> None:
+    """A cyclic link must retain direct-open ELOOP behavior rather than be replaced."""
+    link = directory / "cycle"
+    link.symlink_to(link)
+    with (
+        patch("pyicloud._atomic.tempfile.mkstemp", wraps=tempfile.mkstemp) as staging,
+        pytest.raises(OSError) as caught,
+    ):
+        write_staged(link, False)
+    staging.assert_not_called()
+    assert caught.value.errno == errno.ELOOP
+    assert link.is_symlink()
+    assert list(directory.iterdir()) == [link]
 
 
 @pytest.mark.parametrize("existing", [False, True])

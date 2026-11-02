@@ -14,7 +14,12 @@ def atomic_path(filename: str) -> Generator[str, None, None]:
     against power loss. The caller must close its writer before leaving the block.
     Existing destination symlinks are retained; replacement updates their target.
     """
-    destination = os.path.realpath(filename)
+    try:
+        destination = os.path.realpath(filename, strict=True)
+    except FileNotFoundError:
+        # Missing destinations (including dangling links) are valid new saves.
+        # Other resolution errors, notably symlink cycles, must propagate.
+        destination = os.path.realpath(filename)
     descriptor, temporary = tempfile.mkstemp(
         prefix=".pyicloud-",
         suffix=".tmp",

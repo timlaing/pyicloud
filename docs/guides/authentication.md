@@ -10,6 +10,11 @@ durability is not guaranteed. Use one owning process per cookie directory;
 atomic replacement does not prevent stale writers or make shared sessions
 thread-safe. Store the directory in a private location you control.
 
+Atomic saving requires write permission on the destination directory, not only on
+the file itself. For a session or cookie file that is a symlink, staging and
+replacement use the resolved target's directory, which must be writable by the
+process. Cyclic symlinks are rejected without staging or changing the destination.
+
 Authentication without using a saved password is as simple as passing your username and password to the `PyiCloudService` class:
 
 ```python
