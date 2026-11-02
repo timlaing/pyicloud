@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import date, datetime, time, timedelta
-from itertools import islice
 import json
 from secrets import token_urlsafe
 import time as clock
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from pyicloud.exceptions import (
     PyiCloudAPIResponseException,
@@ -29,7 +28,7 @@ from .context import SessionOwner, ToolFailure
 class ReadResult(BaseModel):
     """Explicit result envelope; errors never contain upstream data or tracebacks."""
 
-    records: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = Field(default_factory=list)
     complete: bool = False
     error: str | None = None
 
@@ -121,6 +120,7 @@ class ReadTools:
                 not calendar_id
                 or len(calendar_id) > 512
                 or not 0 <= (last - first).days < 31
+                or last == date.max
             ):
                 return ReadResult(error="invalid_argument")
         except ValueError:
@@ -156,7 +156,7 @@ class ReadTools:
             records: list[dict[str, Any]] = []
             iterator = iter(client.reminders.lists())
             try:
-                for item in islice(iterator, limit + 1):
+                for item in iterator:
                     if item.deleted:
                         continue
                     handle = token_urlsafe(24)
@@ -166,6 +166,8 @@ class ReadTools:
                         "title": item.title[:4096],
                         "scope": item.scope,
                     })
+                    if len(records) >= limit:
+                        break
             finally:
                 close = getattr(iterator, "close", None)
                 if close is not None:

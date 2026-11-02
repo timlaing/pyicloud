@@ -46,7 +46,8 @@ def test_response_budgets() -> None:
     assert bounded_result([{"x": 1}], 1).complete
     assert not bounded_result([{"x": 1}, {"x": 2}], 1).complete
     result = bounded_result([{"x": "x" * 250_000}], 1)
-    assert not result.records and not result.complete
+    assert not result.records
+    assert not result.complete
 
 
 @pytest.mark.parametrize(
@@ -106,6 +107,7 @@ async def test_allowlist_and_input_limits_precede_requests() -> None:
         ("2026-01-01", "2026-03-01", "id"),
         ("2026-01-02", "2026-01-01", "id"),
         ("2026-01-01", "2026-01-01", ""),
+        ("9999-12-31", "9999-12-31", "C"),
     ]:
         assert (
             await tools.events(identifier, start, end, 50)
@@ -173,7 +175,8 @@ async def test_reminder_handles_preserve_colliding_private_shared_routes() -> No
     )
     tools = ReadTools(owner_for(client))
     lists = await tools.lists(50)
-    assert len(lists.records) == 2 and not lists.complete
+    assert len(lists.records) == 2
+    assert not lists.complete
     assert "SECRET_OWNER" not in lists.model_dump_json()
     handles = [row["handle"] for row in lists.records]
     for handle, context in zip(handles, contexts[:2], strict=True):
@@ -240,5 +243,21 @@ async def test_partial_list_iterator_is_closed() -> None:
     client = MagicMock()
     client.reminders.lists.return_value = contexts()
     result = await ReadTools(owner_for(client)).lists(1)
-    assert len(result.records) == 1 and not result.complete
+    assert len(result.records) == 1
+    assert not result.complete
     assert closed == [True]
+
+
+@pytest.mark.asyncio
+async def test_deleted_lists_do_not_consume_live_discovery_limit() -> None:
+    """Many tombstones cannot hide the next usable shared context."""
+    client = MagicMock()
+    deleted = RemindersList(id="deleted", title="Deleted", deleted=True)
+    client.reminders.lists.return_value = iter([
+        deleted,
+        deleted,
+        deleted,
+        RemindersList(id="live", title="Live", scope="shared"),
+    ])
+    result = await ReadTools(owner_for(client)).lists(1)
+    assert [row["title"] for row in result.records] == ["Live"]

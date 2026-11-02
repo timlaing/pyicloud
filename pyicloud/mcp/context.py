@@ -13,6 +13,8 @@ from typing import Any, Literal, TypeVar
 
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
+from requests.exceptions import ConnectionError as RequestConnectionError
+from requests.exceptions import Timeout
 
 from pyicloud import PyiCloudService
 
@@ -63,6 +65,8 @@ class BoundedAdapter(HTTPAdapter):
         cert: Any = None,
         proxies: Any = None,
     ) -> Response:
+        if not (request.url or "").startswith("https://"):
+            raise ToolFailure("insecure_transport")
         remaining = self.timeout
         if self.requests_left <= 0:
             raise ToolFailure("request_budget_exceeded")
@@ -72,15 +76,49 @@ class BoundedAdapter(HTTPAdapter):
         if remaining <= 0:
             raise ToolFailure("timeout")
         # Caller-controlled upstream defaults cannot remove this extension's bound.
-        timeout = (min(5.0, remaining), remaining)
-        return super().send(
-            request,
-            stream=stream,
-            timeout=timeout,
-            verify=verify,
-            cert=cert,
-            proxies=proxies,
-        )
+        bounded_timeout = (min(5.0, remaining), min(1.0, remaining))
+        request.headers["Accept-Encoding"] = "identity"
+        try:
+            response = super().send(
+                request,
+                stream=True,
+                timeout=bounded_timeout,
+                verify=verify,
+                cert=cert,
+                proxies=proxies,
+            )
+        except Timeout as error:
+            raise ToolFailure("timeout") from error
+        except RequestConnectionError as error:
+            raise ToolFailure("upstream_failure") from error
+        try:
+            # Keep transport failures distinct before get_auth_status normalizes them.
+            if response.status_code == 429:
+                raise ToolFailure("rate_limited")
+            if response.status_code is not None and response.status_code >= 500:
+                raise ToolFailure("upstream_failure")
+            if response.headers.get("Content-Encoding", "identity").lower() not in {
+                "",
+                "identity",
+            }:
+                raise ToolFailure("unsupported_content_encoding")
+            body = bytearray()
+            deadline = self.deadline or (time.monotonic() + self.timeout)
+            # One-byte reads prevent a slow trickle from filling a buffered chunk
+            # indefinitely. Identity encoding also avoids decompressor buffering.
+            for chunk in response.iter_content(chunk_size=1):
+                if time.monotonic() >= deadline:
+                    raise ToolFailure("timeout")
+                body.extend(chunk)
+                if len(body) > 4 * 1024 * 1024:
+                    raise ToolFailure("response_too_large")
+            # Requests has no public content setter. Cache the bounded body so its
+            # normal Session/JSON/cookie pipeline remains intact after closure.
+            response._content = bytes(body)  # pylint: disable=protected-access
+            vars(response)["_content_consumed"] = True
+            return response
+        finally:
+            response.close()
 
 
 class SessionOwner:
@@ -116,7 +154,8 @@ class SessionOwner:
         )
         self._adapter = BoundedAdapter(self.config.timeout)
         client.session.mount("https://", self._adapter)
-        client.session.mount("http://", self._adapter)
+        # The broad prefix also intercepts plaintext requests, which send rejects.
+        client.session.mount("http", self._adapter)
         return client
 
     def _invoke(self, operation: Callable[[Any], T]) -> T:
@@ -177,6 +216,11 @@ class SessionOwner:
                 self._client.session.close()
 
         try:
-            await asyncio.shield(asyncio.wrap_future(self._executor.submit(release)))
+            future = asyncio.wrap_future(self._executor.submit(release))
+            try:
+                await asyncio.wait_for(asyncio.shield(future), self.config.timeout + 2)
+            except asyncio.TimeoutError as error:
+                # The queued release still closes only AFTER running work ends.
+                raise ToolFailure("shutdown_timeout") from error
         finally:
             self._executor.shutdown(wait=False)

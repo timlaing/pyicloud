@@ -9,8 +9,16 @@ import argparse
 from importlib.metadata import version
 import logging
 import sys
+from typing import NoReturn
 
 from .context import ServerConfig
+
+
+class SafeArgumentParser(argparse.ArgumentParser):
+    """Do not echo mistakenly supplied credentials or other option values."""
+
+    def error(self, message: str) -> NoReturn:
+        self.exit(2, f"{self.prog}: invalid arguments; see --help\n")
 
 
 def quiet_library_logging() -> None:
@@ -24,7 +32,7 @@ def quiet_library_logging() -> None:
 
 def main() -> None:
     """Parse offline options before loading the optional protocol implementation."""
-    parser = argparse.ArgumentParser(
+    parser = SafeArgumentParser(
         prog="icloud-mcp", description="Run the local PyiCloud MCP server over stdio."
     )
     parser.add_argument("--version", action="version", version=version("pyicloud"))

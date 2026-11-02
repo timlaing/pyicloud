@@ -49,7 +49,31 @@ def test_invalid_launch_configuration(capsys: pytest.CaptureFixture[str]) -> Non
     ):
         main()
     assert caught.value.code == 2
-    assert "supplied together" in capsys.readouterr().err
+    assert "invalid arguments" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--password", "SECRET_VALUE"],
+        ["--service", "SECRET_VALUE"],
+        ["--timeout", "SECRET_VALUE"],
+    ],
+)
+def test_invalid_argument_values_are_not_echoed(
+    arguments: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Neither unknown nor known-but-invalid options leak values to stderr."""
+    with (
+        patch("sys.argv", ["icloud-mcp", *arguments]),
+        patch("pyicloud.mcp.cmdline.version", return_value="synthetic"),
+        pytest.raises(SystemExit) as caught,
+    ):
+        main()
+    assert caught.value.code == 2
+    output = capsys.readouterr()
+    assert "SECRET_VALUE" not in output.err
+    assert not output.out
 
 
 def test_private_logging_is_not_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -59,7 +83,8 @@ def test_private_logging_is_not_forwarded(monkeypatch: pytest.MonkeyPatch) -> No
         monkeypatch.setattr(logger, name, getattr(logger, name))
     monkeypatch.setattr(logger, "handlers", list(logger.handlers))
     quiet_library_logging()
-    assert logger.disabled and not logger.propagate
+    assert logger.disabled
+    assert not logger.propagate
     assert logger.level > logging.CRITICAL
 
 

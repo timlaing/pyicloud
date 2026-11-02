@@ -11,7 +11,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from requests import PreparedRequest, Response
+from requests.exceptions import ConnectionError as RequestConnectionError
+from requests.exceptions import Timeout
 
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.mcp.context import BoundedAdapter, ServerConfig, SessionOwner, ToolFailure
 
 
@@ -50,9 +53,21 @@ def test_transport_timeout_and_deadline() -> None:
     """Requests inherit bounds even when their caller specifies no timeout."""
     adapter = BoundedAdapter(10)
     request, response = PreparedRequest(), Response()
+    request.url = "https://example.invalid"
+    request.prepare_headers({})
+    response._content = b"{}"
+    vars(response)["_content_consumed"] = True
+    response.raw = MagicMock()
+    response.status_code = 200
     with patch("requests.adapters.HTTPAdapter.send", return_value=response) as send:
         assert adapter.send(request, timeout=None) is response
-        assert send.call_args.kwargs["timeout"] == (5, 10)
+        assert response.json() == {}
+        assert send.call_args.kwargs["timeout"] == (5, 1)
+        assert send.call_args.kwargs["stream"] is True
+        request.url = "http" + "://example.invalid"
+        with pytest.raises(ToolFailure, match="insecure_transport"):
+            adapter.send(request)
+        request.url = "https://example.invalid"
         adapter.requests_left = 0
         with pytest.raises(ToolFailure, match="request_budget_exceeded"):
             adapter.send(request)
@@ -216,3 +231,115 @@ async def test_cancelled_queued_operation_never_contacts_account() -> None:
     await first
     await owner.close()
     operation.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "kind,code",
+    [
+        ("rate", "rate_limited"),
+        ("upstream", "upstream_failure"),
+        ("encoding", "unsupported_content_encoding"),
+        ("deadline", "timeout"),
+        ("size", "response_too_large"),
+    ],
+)
+def test_response_reads_are_bounded_and_always_closed(kind: str, code: str) -> None:
+    """A trickling or oversized body cannot occupy the lane indefinitely."""
+    adapter = BoundedAdapter(5)
+    adapter.deadline = 5
+    request = PreparedRequest()
+    request.url = "https://example.invalid"
+    request.prepare_headers({})
+    response = MagicMock(spec=Response)
+    response.status_code = {"rate": 429, "upstream": 503}.get(kind, 200)
+    response.headers = {"Content-Encoding": "gzip"} if kind == "encoding" else {}
+    response.iter_content.return_value = iter([
+        b"x" * (4 * 1024 * 1024 + 1) if kind == "size" else b"x"
+    ])
+    times = [1, 6] if kind == "deadline" else [1, 1]
+    with (
+        patch("requests.adapters.HTTPAdapter.send", return_value=response),
+        patch("pyicloud.mcp.context.time.monotonic", side_effect=times),
+        pytest.raises(ToolFailure, match=code),
+    ):
+        adapter.send(request)
+    response.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "error,code",
+    [
+        (Timeout("private"), "timeout"),
+        (RequestConnectionError("private"), "upstream_failure"),
+    ],
+)
+def test_transport_failure_cannot_be_swallowed_by_auth_probe(
+    error: Exception, code: str
+) -> None:
+    """Connection and timeout failures stay distinct from credential rejection."""
+    adapter = BoundedAdapter(5)
+    request = PreparedRequest()
+    request.url = "https://example.invalid"
+    request.prepare_headers({})
+    with (
+        patch("requests.adapters.HTTPAdapter.send", side_effect=error),
+        pytest.raises(ToolFailure, match=code),
+    ):
+        adapter.send(request)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_drain_timeout_does_not_close_an_active_session() -> None:
+    """Bound close's await, leaving the queued release behind the running owner."""
+    started, release = Event(), Event()
+    client = MagicMock()
+    client.get_auth_status.return_value = {"authenticated": True}
+    owner = SessionOwner(configuration(), lambda: client)
+
+    def blocked(_client: object) -> None:
+        started.set()
+        release.wait(1)
+
+    task = asyncio.create_task(owner.run(blocked))
+    await asyncio.to_thread(started.wait, 1)
+    with (
+        patch(
+            "pyicloud.mcp.context.asyncio.wait_for", side_effect=asyncio.TimeoutError
+        ),
+        pytest.raises(ToolFailure, match="shutdown_timeout"),
+    ):
+        await owner.close()
+    client.session.close.assert_not_called()
+    release.set()
+    await task
+
+
+@pytest.mark.asyncio
+async def test_rate_limited_probe_is_not_converted_to_login_failure() -> None:
+    """Intercept 429 before the public probe catches generic API response errors."""
+    adapter = BoundedAdapter(5)
+    response = MagicMock(spec=Response)
+    response.status_code = 429
+    request = PreparedRequest()
+    request.url = "https://example.invalid"
+    request.prepare_headers({})
+    client = MagicMock()
+    client.session.data = {"session_token": "synthetic"}
+
+    def probe() -> dict[str, bool]:
+        try:
+            adapter.send(request)
+        except PyiCloudAPIResponseException:
+            return {"authenticated": False}
+        return {"authenticated": True}
+
+    client.get_auth_status.side_effect = probe
+    owner = SessionOwner(configuration(), lambda: client)
+    owner._adapter = adapter
+    with patch("requests.adapters.HTTPAdapter.send", return_value=response):
+        try:
+            with pytest.raises(ToolFailure, match="rate_limited"):
+                await owner.run(lambda _: None)
+            assert client.session.data == {"session_token": "synthetic"}
+        finally:
+            await owner.close()

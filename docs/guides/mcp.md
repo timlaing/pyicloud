@@ -102,14 +102,20 @@ One worker serializes account operations. Defaults are a 30-second caller wait a
 at most eight pending calls; configure `--timeout` (maximum 120 seconds) and
 `--queue-limit` (maximum 32). Transport requests also have bounded connect/read
 timeouts, an operation deadline checked before each request, and a 32-request
-budget. There are no automatic extension retries.
+budget. Response bodies are requested with identity encoding, limited to 4 MiB,
+and consumed under deadline checks between individual bytes. A server that forces
+compressed encoding is rejected with `unsupported_content_encoding`; bodies over
+the bound return `response_too_large`. Only HTTPS requests are allowed. There are
+no automatic extension retries.
 
 Cancellation removes queued work when possible. It **does not kill running HTTP
 work** or release its session ownership prematurely. Late results are discarded;
-shutdown drains the worker before closing the session. Requests read timeouts are
-inactivity limits, not a hard total-time guarantee for a streaming response. A
-stalled upstream or custom transport may delay process exit; an operator/host can
-terminate the process, but must not assume a caller timeout means the worker ended.
+shutdown waits at most the configured timeout plus two seconds for a drain. If
+that await expires, it reports `shutdown_timeout`; session closure remains queued
+behind the owner rather than closing an actively used session. Default body reads
+enforce a deadline, but DNS resolution or a custom transport can still delay worker
+termination and process exit. An operator/host can terminate the process, but must
+not assume a caller timeout means the worker ended.
 
 No listener, write tools, arbitrary URL/path tools, or implicit account discovery
 is enabled. Stdout is exclusively protocol traffic. Library logging is suppressed

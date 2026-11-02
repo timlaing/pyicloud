@@ -15,7 +15,7 @@ Implemented phases are committed separately on `feature/mcp-extension`:
 
 Local qualification on 2026-11-02:
 
-- Full offline suite: 4,704 tests and 69 subtests, 98.36% combined coverage.
+- Full offline suite: 4,717 tests and 69 subtests, 98.36% combined coverage.
 - Every measured source file strictly exceeds 90% combined line/branch coverage.
 - All hooks pass; no coverage exclusions or network/filesystem guard weakening.
 - Wheel built from source distribution with optional requirements included.
@@ -39,6 +39,10 @@ Deferred by design: write tools, remote hosting, multiple accounts per process,
 arbitrary URL/path access, contact/mail/photo/device adapters and typing publication.
 They are not enabled implicitly and are not prerequisites for this local MVP.
 
-Shutdown waits for the active worker before closing the session. A caller timeout
-is not a hard kill of running HTTP work; see the operator guide's inactivity and
-process-exit caveats. Saved sessions must not be concurrently owned by CLI/server.
+Shutdown has a bounded drain await and queues closure after active work. Bodies
+use identity encoding, per-byte deadline checks and a 4 MiB bound; non-HTTPS
+requests are rejected. Transport/429 failures are intercepted before the public
+saved-session probe can classify them as credential failures. CLI parser errors
+never echo unsupported or malformed option values. A caller timeout is not a hard
+kill of custom worker code; see the operator guide's process-exit caveats. Saved
+sessions must not be concurrently owned by CLI/server.
