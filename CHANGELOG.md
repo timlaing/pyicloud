@@ -16,6 +16,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add separately opted-in MCP note/mail content reads, version-bound Drive/Photos download chunks, and bounded Notes/Drive/Photos searches. Mail body/all-field search requires content permission; multi-account access remains excluded.
+
 - Extend the opt-in MCP tools with Contacts name search and selected details, Drive folder metadata, recent Notes title search, scoped Photos library/album metadata, and Mail folder/subject summaries. Bodies, downloads and writes remain disabled.
 
 - Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, with offline status and explicitly enabled read-only Calendar/Reminders tools. Saved-session probes never fall back to credential login. Operations are serialized and bounded, shared lists use opaque route handles, and private upstream errors are sanitized.

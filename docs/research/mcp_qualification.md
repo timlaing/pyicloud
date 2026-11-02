@@ -36,8 +36,10 @@ No live Apple credentials were read and no account requests were performed in
 qualification. Host-specific configuration and Apple's undocumented behavior may
 still vary. Read-only does not make exposed account data non-sensitive.
 
-Deferred by design: write tools, remote hosting, multiple accounts per process,
-arbitrary URL/path access, device actions, bodies/downloads and typing publication.
+Excluded by design: remote hosting, multiple accounts per process, arbitrary
+URL/path access, device actions and typing publication. The user subsequently
+authorized separately opted-in bodies/downloads and write implementation; metadata
+defaults remain unchanged and live mutations are not enabled by the approval foundation.
 They are not enabled implicitly and are not prerequisites for this local MVP.
 
 Shutdown has a bounded drain await and queues closure after active work. Bodies

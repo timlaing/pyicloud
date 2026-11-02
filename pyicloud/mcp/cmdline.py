@@ -41,6 +41,12 @@ def main() -> None:
     parser.add_argument(
         "--service", choices=SUPPORTED_SERVICES, action="append", default=[]
     )
+    parser.add_argument(
+        "--content-service",
+        choices=["drive", "notes", "photos", "mail"],
+        action="append",
+        default=[],
+    )
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--queue-limit", type=int, default=8)
     parser.add_argument("--china-mainland", action="store_true")
@@ -50,6 +56,7 @@ def main() -> None:
             username=args.username,
             session_dir=args.session_dir,
             services=tuple(args.service),
+            content_services=tuple(args.content_service),
             timeout=args.timeout,
             queue_limit=args.queue_limit,
             china_mainland=args.china_mainland,

@@ -4,13 +4,14 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
 from .additional import AdditionalReads
+from .content import ContentReads
 from .context import ServerConfig, SessionOwner
 from .reads import ReadResult, ReadTools
 
@@ -30,6 +31,7 @@ def build_server(
     context = owner or SessionOwner(config or ServerConfig())
     reads = ReadTools(context)
     additional = AdditionalReads(reads)
+    content = ContentReads(additional)
 
     @asynccontextmanager
     async def lifespan(_server: Any) -> AsyncIterator[None]:
@@ -74,6 +76,8 @@ def build_server(
         """Describe configured services without an availability probe."""
         return {
             "enabled_services": list(context.config.services),
+            "content_services": list(context.config.content_services),
+            "single_account": True,
             "availability": dict(reads.availability),
             "read_only": True,
             "max_records": 200,
@@ -172,9 +176,78 @@ def build_server(
 
         @server.tool(name="icloud_mail_search", annotations=read_annotations)
         async def mail_search(
-            folder_handle: str, query: str, limit: int = 50
+            folder_handle: str,
+            query: str,
+            limit: int = 50,
+            field: Literal["subject", "from", "to", "body", "all"] = "subject",
         ) -> ReadResult:
             """Search subject headers only; previews and bodies are omitted."""
-            return await additional.mail_search(folder_handle, query, limit)
+            return await additional.mail_search(folder_handle, query, limit, field)
+
+    if "notes" in context.config.services:
+
+        @server.tool(name="icloud_notes_search", annotations=read_annotations)
+        async def notes_search(
+            query: str, limit: int = 50, scan_limit: int = 500
+        ) -> ReadResult:
+            """Search bounded all-note title metadata, not just recents or bodies."""
+            return await additional.search("notes", "", query, limit, scan_limit)
+
+    if "photos" in context.config.services:
+
+        @server.tool(name="icloud_photos_search", annotations=read_annotations)
+        async def photos_search(
+            album_handle: str, query: str, limit: int = 50, scan_limit: int = 500
+        ) -> ReadResult:
+            """Search filenames inside one discovered album under a scan budget."""
+            return await additional.search(
+                "photos", album_handle, query, limit, scan_limit
+            )
+
+    if "drive" in context.config.services:
+
+        @server.tool(name="icloud_drive_search", annotations=read_annotations)
+        async def drive_search(
+            query: str, folder_handle: str = "", limit: int = 50, scan_limit: int = 500
+        ) -> ReadResult:
+            """Search remote names across at most sixteen folders and bounded rows."""
+            return await additional.search(
+                "drive", folder_handle, query, limit, scan_limit
+            )
+
+    if "notes" in context.config.content_services:
+
+        @server.tool(name="icloud_note_content", annotations=read_annotations)
+        async def note_content(handle: str, max_bytes: int = 16384) -> ReadResult:
+            """Read bounded untrusted note plaintext; no attachment or rendering."""
+            return await content.note(handle, max_bytes)
+
+    if "mail" in context.config.content_services:
+
+        @server.tool(name="icloud_mail_content", annotations=read_annotations)
+        async def mail_content(handle: str, max_bytes: int = 16384) -> ReadResult:
+            """Read bounded untrusted MIME text; never render HTML or expose headers."""
+            return await content.mail_body(handle, max_bytes)
+
+    if "drive" in context.config.content_services:
+
+        @server.tool(name="icloud_drive_download", annotations=read_annotations)
+        async def drive_download(
+            handle: str, offset: int = 0, max_bytes: int = 65536
+        ) -> ReadResult:
+            """Return version-bound base64 chunks for a discovered file, no paths."""
+            return await content.file("drive", handle, offset, max_bytes)
+
+    if "photos" in context.config.content_services:
+
+        @server.tool(name="icloud_photo_download", annotations=read_annotations)
+        async def photo_download(
+            handle: str,
+            version: str = "original",
+            offset: int = 0,
+            max_bytes: int = 65536,
+        ) -> ReadResult:
+            """Download only a discovered Apple asset version; no arbitrary URL."""
+            return await content.file("photos", handle, offset, max_bytes, version)
 
     return server

@@ -55,6 +55,7 @@ class ServerConfig:
     username: str | None = None
     session_dir: str | None = None
     services: tuple[ServiceName, ...] = ()
+    content_services: tuple[ServiceName, ...] = ()
     timeout: float = 30.0
     queue_limit: int = 8
     china_mainland: bool = False
@@ -66,6 +67,10 @@ class ServerConfig:
             raise ValueError("Enabling services requires an explicit account")
         if set(self.services) - set(SUPPORTED_SERVICES):
             raise ValueError("Unsupported service")
+        if set(self.content_services) - {"drive", "notes", "photos", "mail"}:
+            raise ValueError("Unsupported content service")
+        if not set(self.content_services) <= set(self.services):
+            raise ValueError("Content access also requires the service opt-in")
         if not 0 < self.timeout <= 120 or not 1 <= self.queue_limit <= 32:
             raise ValueError("Invalid execution limits")
 

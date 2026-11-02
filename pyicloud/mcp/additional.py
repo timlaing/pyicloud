@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -63,6 +64,14 @@ class AdditionalReads:
         if route is None or route[0] != kind or route[2] <= time.monotonic():
             raise ToolFailure("expired_or_unknown_handle")
         return route[1]
+
+    def remember(self, kind: str, resource: Any) -> str:
+        """Share scoped resources with separately authorized content/write adapters."""
+        return self._store(kind, resource)
+
+    def resolve(self, kind: str, handle: str) -> Any:
+        """Resolve only an existing, expiring resource of the requested kind."""
+        return self._get(kind, handle)
 
     async def _run(
         self,
@@ -153,6 +162,8 @@ class AdditionalReads:
                 }
                 if kind in {"folder", "app_library"}:
                     record["handle"] = self._store("drive-folder", child)
+                elif kind == "file":
+                    record["handle"] = self._store("drive-file", child)
                 records.append(record)
                 if len(records) >= limit:
                     break
@@ -171,6 +182,7 @@ class AdditionalReads:
                     if item.is_deleted or query.casefold() not in title.casefold():
                         continue
                     records.append({
+                        "handle": self._store("note", item.id),
                         "id": text(item.id),
                         "title": title,
                         "modified": timestamp(item.modified_at),
@@ -231,6 +243,7 @@ class AdditionalReads:
                     (
                         {
                             "id": text(asset.id),
+                            "handle": self._store("photo-asset", asset),
                             "filename": text(asset.filename),
                             "created": timestamp(asset.created),
                         }
@@ -269,6 +282,7 @@ class AdditionalReads:
                 (
                     {
                         "id": text(item.id),
+                        "handle": self._store("mail-message", item),
                         "subject": text(item.subject),
                         "flags": item.flags,
                     }
@@ -281,15 +295,22 @@ class AdditionalReads:
         return await self.reads.execute("mail", limit, read)
 
     async def mail_search(
-        self, folder_handle: str, query: str, limit: int
+        self, folder_handle: str, query: str, limit: int, field: str = "subject"
     ) -> ReadResult:
         """Search subject headers only; never return previews or search body bytes."""
         if not query.strip():
             return ReadResult(error="invalid_argument")
+        if field not in {"subject", "from", "to", "body", "all"}:
+            return ReadResult(error="invalid_argument")
+        if (
+            field in {"body", "all"}
+            and "mail" not in self.reads.owner.config.content_services
+        ):
+            return ReadResult(error="content_disabled")
 
         def read(client: Any) -> ReadResult:
             folder = self._get("mail-folder", folder_handle)
-            page = client.mail.search(folder, query, field="subject", limit=limit)
+            page = client.mail.search(folder, query, field=field, limit=limit)
             return bounded_result(
                 (
                     {"thread_id": text(item.id), "subject": text(item.subject)}
@@ -300,3 +321,86 @@ class AdditionalReads:
             )
 
         return await self._run("mail", query, limit, read)
+
+    async def search(
+        self, service: str, handle: str, query: str, limit: int, scan_limit: int
+    ) -> ReadResult:
+        """Bounded metadata searches, not whole-account completeness claims."""
+        if (
+            not query.strip()
+            or not 1 <= scan_limit <= 2000
+            or service not in {"notes", "photos", "drive"}
+        ):
+            return ReadResult(error="invalid_argument")
+
+        def read(client: Any) -> ReadResult:
+            sources: dict[str, Callable[[], Iterable[Any]]] = {
+                "notes": client.notes.iter_all,
+                "photos": lambda: self._get("photo-album", handle),
+                "drive": lambda: self._drive_search_nodes(client, handle),
+            }
+            records = []
+            with window(sources[service](), scan_limit) as items:
+                for item in items:
+                    record = self._search_record(service, item, query)
+                    if record is not None:
+                        records.append(record)
+                        if len(records) >= limit:
+                            break
+            return bounded_result(records, limit, complete=False)
+
+        return await self._run(service, query, limit, read)
+
+    def _search_record(
+        self, service: str, item: Any, query: str
+    ) -> dict[str, Any] | None:
+        if service == "notes":
+            name = text(item.title)
+            if item.is_deleted:
+                return None
+            record = {
+                "id": text(item.id),
+                "title": name,
+                "modified": timestamp(item.modified_at),
+                "locked": item.is_locked,
+            }
+            kind, resource = "note", item.id
+        elif service == "photos":
+            name = text(item.filename)
+            record = {
+                "id": text(item.id),
+                "filename": name,
+                "created": timestamp(item.created),
+            }
+            kind, resource = "photo-asset", item
+        else:
+            name = text(item.name)
+            record = {
+                "name": name,
+                "type": text(item.type),
+                "modified": timestamp(item.date_modified),
+            }
+            kind, resource = (
+                "drive-file" if item.type == "file" else "drive-folder",
+                item,
+            )
+        if query.casefold() not in name.casefold():
+            return None
+        record["handle"] = self._store(kind, resource)
+        return record
+
+    def _drive_search_nodes(self, client: Any, handle: str) -> Iterator[Any]:
+        """Remote folder BFS only; at most sixteen folder fetches and bounded rows."""
+        pending = deque([
+            self._get("drive-folder", handle) if handle else client.drive.root
+        ])
+        fetched = 0
+        while pending and fetched < 16:
+            folder = pending.popleft()
+            if folder.type not in {"folder", "app_library"}:
+                raise ToolFailure("invalid_argument")
+            fetched += 1
+            for item in folder.get_children(force=True):
+                yield item
+                if item.type in {"folder", "app_library"}:
+                    pending.append(item)

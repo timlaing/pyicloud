@@ -47,6 +47,9 @@ for both CLI and MCP support (excluding development tools). MCP provides local
 status and explicitly enabled read-only Calendar, Reminders, Contacts, Drive,
 Notes, Photos, and Mail tools using saved
 sessions. See the [MCP guide](docs/guides/mcp.md).
+Content access and downloads require separate `--content-service` opt-ins; all
+tools operate on a single account. Writes remain disabled while approval/adapters
+are under implementation.
 
 This installs the `icloud` command line interface alongside the Python package. To install the library on its own run pip without the `cli` extra.
 

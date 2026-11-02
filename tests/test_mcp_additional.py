@@ -131,7 +131,10 @@ async def test_drive_browses_discovered_folders_without_local_paths_or_downloads
     result = await tools.drive("", "SHARED", 1)
     handle = result.records[0]["handle"]
     nested = await tools.drive(handle, "", 50)
-    assert nested.records == [{"name": "File.txt", "type": "file", "modified": None}]
+    assert [
+        {key: value for key, value in row.items() if key != "handle"}
+        for row in nested.records
+    ] == [{"name": "File.txt", "type": "file", "modified": None}]
     folder.get_children.assert_called_once_with(force=True)
     client.drive.get_file.assert_not_called()
     bad = tools._store("drive-folder", SimpleNamespace(type="file"))
@@ -169,9 +172,10 @@ async def test_notes_scan_recent_titles_only_and_close_generator() -> None:
 
     client.notes.recents.side_effect = recents
     result = await adapters(client).notes("find", 1)
-    assert result.records == [
-        {"id": "N", "title": "Find", "modified": None, "locked": True}
-    ]
+    assert [
+        {key: value for key, value in row.items() if key != "handle"}
+        for row in result.records
+    ] == [{"id": "N", "title": "Find", "modified": None, "locked": True}]
     assert not result.complete
     assert closed == [True]
     client.notes.get.assert_not_called()
@@ -233,9 +237,11 @@ async def test_mail_metadata_and_subject_search_never_expose_bodies_or_previews(
     )
     tools = adapters(client)
     handle = (await tools.mail_folders(50)).records[0]["handle"]
-    assert (await tools.mail_messages(handle, 50)).records == [
-        {"id": "M", "subject": "Synthetic", "flags": 1}
-    ]
+    messages = (await tools.mail_messages(handle, 50)).records
+    assert [
+        {key: value for key, value in row.items() if key != "handle"}
+        for row in messages
+    ] == [{"id": "M", "subject": "Synthetic", "flags": 1}]
     result = await tools.mail_search(handle, "Match", 50)
     assert result.records == [{"thread_id": "T", "subject": "Match"}]
     assert client.mail.search.call_args.kwargs == {"field": "subject", "limit": 50}
@@ -277,7 +283,7 @@ async def test_additional_tool_registration_and_disabled_default() -> None:
     client.mail.folders.return_value = []
     server = build_server(owner=owner_for(client))
     tools = await server.list_tools()
-    assert len(tools) == 16
+    assert len(tools) == 19
     for name, args in [
         ("icloud_contacts_list", {}),
         ("icloud_contact_details", {"handle": "unknown"}),
