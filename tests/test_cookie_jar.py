@@ -36,6 +36,7 @@ def test_load_no_filename() -> None:
 
 
 def test_load_with_filename_preserves_fmip_cookie(
+    _mock_atomic_paths: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that loading a jar preserves the persisted FMIP credential."""
@@ -66,6 +67,7 @@ def test_load_with_filename_preserves_fmip_cookie(
 
 
 def test_load_with_custom_filename_argument_preserves_fmip_cookie(
+    _mock_atomic_paths: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that loading a jar preserves the persisted FMIP credential."""
@@ -92,6 +94,7 @@ def test_load_with_custom_filename_argument_preserves_fmip_cookie(
 
 
 def test_load_handles_keyerror_on_clear(
+    _mock_atomic_paths: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that load handles KeyError from clear gracefully."""

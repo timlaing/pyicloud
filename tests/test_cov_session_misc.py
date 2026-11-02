@@ -188,6 +188,7 @@ def test_load_session_data_warns_and_clears_cookies_on_failure(
 
 
 def test_save_session_data_creates_missing_cookie_directory(
+    _mock_atomic_paths: None,
     pyicloud_service: Any,
 ) -> None:
     """_save_session_data creates the cookie directory when it is missing."""
@@ -205,6 +206,7 @@ def test_save_session_data_creates_missing_cookie_directory(
 
 
 def test_save_session_data_warns_when_cookie_save_fails(
+    _mock_atomic_paths: None,
     pyicloud_session: PyiCloudSession,
 ) -> None:
     """A failed cookie save logs a warning instead of raising."""
@@ -243,7 +245,9 @@ def test_clear_persistence_keeps_files_when_requested(
     mock_remove.assert_not_called()
 
 
-def test_request_raw_success(pyicloud_service_working: Any) -> None:
+def test_request_raw_success(
+    _mock_atomic_paths: None, pyicloud_service_working: Any
+) -> None:
     """request_raw returns the response and persists session state."""
     with (
         patch("requests.Session.request") as mock_request,
@@ -260,6 +264,7 @@ def test_request_raw_success(pyicloud_service_working: Any) -> None:
 
 
 def test_request_returns_non_json_response_without_decoding(
+    _mock_atomic_paths: None,
     pyicloud_service_working: Any,
 ) -> None:
     """A successful non-JSON response is returned without JSON decoding."""
