@@ -44,7 +44,8 @@ $ pip install "pyicloud[cli]"
 
 For the optional local MCP extension, install `pyicloud[mcp]`; use `pyicloud[all]`
 for both CLI and MCP support (excluding development tools). MCP provides local
-status and explicitly enabled read-only Calendar/Reminders tools using saved
+status and explicitly enabled read-only Calendar, Reminders, Contacts, Drive,
+Notes, Photos, and Mail tools using saved
 sessions. See the [MCP guide](docs/guides/mcp.md).
 
 This installs the `icloud` command line interface alongside the Python package. To install the library on its own run pip without the `cli` extra.

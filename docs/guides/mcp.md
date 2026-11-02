@@ -1,7 +1,8 @@
 # MCP extension
 
 The optional local Model Context Protocol (MCP) extension exposes bounded,
-read-only Calendar and Reminders tools. Account access is disabled unless the
+read-only Calendar, Reminders, Contacts, Drive, Notes, Photos and Mail tools.
+Account access is disabled unless the
 operator explicitly selects an account, saved-session directory, and services.
 
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
@@ -64,6 +65,13 @@ saved state and uses the public saved-session probe; it does not fall back to lo
 authentication interactively, then restart it. No live Apple compatibility is
 implied by the offline test suite.
 
+The MCP transport also refuses PCS device-consent/cookie-negotiation endpoints;
+lazy service getters cannot trigger unsolicited device notifications. Account
+modes that require PCS negotiation on every access may keep protected services
+unavailable under this policy, even with a valid login. This is not a reason to
+disable account security; supporting that flow requires a separately reviewed
+operator-approval mechanism, not a model-controlled bypass.
+
 ## Tools and limits
 
 | Tool                     | Purpose                                                                    |
@@ -77,6 +85,31 @@ implied by the offline test suite.
 
 Data tools are registered only for services selected with `--service`. A model
 cannot enable other services. Default result limit is 50, hard maximum 200.
+
+Additional service opt-ins and tools:
+
+| Opt-in               | Tools                                                                   | Data exposed                                                                                                                                                        |
+| -------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--service contacts` | `icloud_contacts_list`, `icloud_contact_details`                        | Name search and expiring contact handles. Email/phone fields require explicit `include_emails`/`include_phones`; no photos or raw cards.                            |
+| `--service drive`    | `icloud_drive_list`                                                     | Root/folder metadata and discovered folder handles. `query` filters names within the selected folder only; no recursive/global search or local filesystem paths.    |
+| `--service notes`    | `icloud_notes_list`                                                     | Titles and modification/lock metadata within the 200 most recent summaries. `query` searches that title window only; no snippets, bodies, rendering or attachments. |
+| `--service photos`   | `icloud_photos_libraries`, `icloud_photos_albums`, `icloud_photos_list` | Library/album handles and bounded filename/capture metadata. Handles retain the selected library even where IDs collide; no coordinates, URLs or downloads.         |
+| `--service mail`     | `icloud_mail_folders`, `icloud_mail_messages`, `icloud_mail_search`     | Discovered typed mailbox handles, subjects and flags. Search is subject-only and thread-grouped; no previews, addresses, bodies or attachments.                     |
+
+Additional handles expire after ten minutes or restart and are service-specific;
+they cannot be exchanged between tools, accounts or server processes. Their bounded
+registry retains at most 1,000 entries; older entries can be evicted. Refresh
+discovery when a handle expires or sharing/mailbox state changes. They are opaque
+server capabilities, not filesystem paths or caller-supplied URLs.
+
+Extra-service lists conservatively report `complete=false` except a completed
+mailbox-folder enumeration and individual contact-details response. Metadata APIs
+can fetch an upstream index before local filtering; transport/body limits remain
+in force and overly large indexes can return `response_too_large` instead of
+silently bypassing the bound. Enabling a service permits its metadata tools; the
+model cannot enable additional services. Returned names/subjects are still private
+and untrusted content, even with body/download tools disabled.
+
 Capabilities report each enabled service as `unknown`, `available`, or `unavailable`
 based on its last read outcome. Authentication and transient transport failures
 leave availability unknown, not unavailable. These are observations, not background

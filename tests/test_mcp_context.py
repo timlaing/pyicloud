@@ -37,7 +37,7 @@ def configuration(**kwargs: Any) -> ServerConfig:
         {"username": "x"},
         {"session_dir": "x"},
         {"services": ("calendar",)},
-        {"services": ("mail",)},
+        {"username": "x", "session_dir": "x", "services": ("unsupported",)},
         {"timeout": 0},
         {"timeout": 121},
         {"queue_limit": 0},
@@ -79,6 +79,21 @@ def test_transport_timeout_and_deadline() -> None:
             pytest.raises(ToolFailure, match="timeout"),
         ):
             adapter.send(request)
+
+
+@pytest.mark.parametrize("endpoint", ["enableDeviceConsentForPCS", "requestPCS"])
+def test_transport_never_sends_pcs_consent_or_device_requests(endpoint: str) -> None:
+    """Lazy service access cannot initiate approval/device-cookie notifications."""
+    adapter = BoundedAdapter(5)
+    request = PreparedRequest()
+    request.url = f"https://example.invalid/{endpoint}?clientId=synthetic"
+    request.prepare_headers({})
+    with (
+        patch("requests.adapters.HTTPAdapter.send") as send,
+        pytest.raises(ToolFailure, match="verification_required"),
+    ):
+        adapter.send(request)
+    send.assert_not_called()
 
 
 @pytest.mark.asyncio

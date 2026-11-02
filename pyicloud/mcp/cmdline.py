@@ -11,7 +11,7 @@ import logging
 import sys
 from typing import NoReturn
 
-from .context import ServerConfig
+from .context import SUPPORTED_SERVICES, ServerConfig
 
 
 class SafeArgumentParser(argparse.ArgumentParser):
@@ -39,7 +39,7 @@ def main() -> None:
     parser.add_argument("--username")
     parser.add_argument("--session-dir")
     parser.add_argument(
-        "--service", choices=["calendar", "reminders"], action="append", default=[]
+        "--service", choices=SUPPORTED_SERVICES, action="append", default=[]
     )
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--queue-limit", type=int, default=8)

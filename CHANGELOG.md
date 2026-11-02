@@ -16,6 +16,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Extend the opt-in MCP tools with Contacts name search and selected details, Drive folder metadata, recent Notes title search, scoped Photos library/album metadata, and Mail folder/subject summaries. Bodies, downloads and writes remain disabled.
+
 - Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, with offline status and explicitly enabled read-only Calendar/Reminders tools. Saved-session probes never fall back to credential login. Operations are serialized and bounded, shared lists use opaque route handles, and private upstream errors are sanitized.
 - Reject plaintext MCP account requests, bound response bodies and shutdown waits, preserve transport/rate-limit errors during saved-session probes, and redact argument-parsing failures. Deleted reminder lists do not consume live result limits.
 

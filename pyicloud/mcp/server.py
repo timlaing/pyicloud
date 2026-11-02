@@ -10,6 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel
 
+from .additional import AdditionalReads
 from .context import ServerConfig, SessionOwner
 from .reads import ReadResult, ReadTools
 
@@ -28,6 +29,7 @@ def build_server(
     """Build the protocol server without constructing a client or reading secrets."""
     context = owner or SessionOwner(config or ServerConfig())
     reads = ReadTools(context)
+    additional = AdditionalReads(reads)
 
     @asynccontextmanager
     async def lifespan(_server: Any) -> AsyncIterator[None]:
@@ -106,5 +108,73 @@ def build_server(
         ) -> ReadResult:
             """Read a discovered handle without ambiguous route fallback."""
             return await reads.reminders(handle, include_completed, limit)
+
+    if "contacts" in context.config.services:
+
+        @server.tool(name="icloud_contacts_list", annotations=read_annotations)
+        async def contacts(query: str = "", limit: int = 50) -> ReadResult:
+            """Search contact names; phones/emails are excluded from list output."""
+            return await additional.contacts(query, limit)
+
+        @server.tool(name="icloud_contact_details", annotations=read_annotations)
+        async def contact_details(
+            handle: str, include_emails: bool = False, include_phones: bool = False
+        ) -> ReadResult:
+            """Read explicitly selected email/phone fields for a discovered handle."""
+            return await additional.contact_details(
+                handle, include_emails, include_phones
+            )
+
+    if "drive" in context.config.services:
+
+        @server.tool(name="icloud_drive_list", annotations=read_annotations)
+        async def drive(
+            folder_handle: str = "", query: str = "", limit: int = 50
+        ) -> ReadResult:
+            """Browse root or a discovered folder; local name filter, no downloads."""
+            return await additional.drive(folder_handle, query, limit)
+
+    if "notes" in context.config.services:
+
+        @server.tool(name="icloud_notes_list", annotations=read_annotations)
+        async def notes(query: str = "", limit: int = 50) -> ReadResult:
+            """Search titles within 200 recent summaries; no text or attachments."""
+            return await additional.notes(query, limit)
+
+    if "photos" in context.config.services:
+
+        @server.tool(name="icloud_photos_libraries", annotations=read_annotations)
+        async def photo_libraries(limit: int = 50) -> ReadResult:
+            """Discover expiring library contexts without exposing zone owners."""
+            return await additional.photo_libraries(limit)
+
+        @server.tool(name="icloud_photos_albums", annotations=read_annotations)
+        async def photo_albums(library_handle: str, limit: int = 50) -> ReadResult:
+            """Browse one discovered library; album handles retain its route."""
+            return await additional.photo_albums(library_handle, limit)
+
+        @server.tool(name="icloud_photos_list", annotations=read_annotations)
+        async def photos(album_handle: str, limit: int = 50) -> ReadResult:
+            """Read bounded photo metadata without coordinates or signed URLs."""
+            return await additional.photos(album_handle, limit)
+
+    if "mail" in context.config.services:
+
+        @server.tool(name="icloud_mail_folders", annotations=read_annotations)
+        async def mail_folders(limit: int = 50) -> ReadResult:
+            """Discover typed mailbox handles for metadata-only operations."""
+            return await additional.mail_folders(limit)
+
+        @server.tool(name="icloud_mail_messages", annotations=read_annotations)
+        async def mail_messages(folder_handle: str, limit: int = 50) -> ReadResult:
+            """Read subjects/flags in one mailbox; no bodies or addresses."""
+            return await additional.mail_messages(folder_handle, limit)
+
+        @server.tool(name="icloud_mail_search", annotations=read_annotations)
+        async def mail_search(
+            folder_handle: str, query: str, limit: int = 50
+        ) -> ReadResult:
+            """Search subject headers only; previews and bodies are omitted."""
+            return await additional.mail_search(folder_handle, query, limit)
 
     return server

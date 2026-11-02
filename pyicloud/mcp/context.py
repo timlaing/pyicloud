@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import time
 from typing import Any, Literal, TypeVar
+from urllib.parse import urlsplit
 
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
@@ -19,6 +20,18 @@ from urllib3.exceptions import ReadTimeoutError
 from pyicloud import PyiCloudService
 
 T = TypeVar("T")
+ServiceName = Literal[
+    "calendar", "reminders", "contacts", "drive", "notes", "photos", "mail"
+]
+SUPPORTED_SERVICES: tuple[ServiceName, ...] = (
+    "calendar",
+    "reminders",
+    "contacts",
+    "drive",
+    "notes",
+    "photos",
+    "mail",
+)
 
 
 class ToolFailure(Exception):
@@ -41,7 +54,7 @@ class ServerConfig:
 
     username: str | None = None
     session_dir: str | None = None
-    services: tuple[Literal["calendar", "reminders"], ...] = ()
+    services: tuple[ServiceName, ...] = ()
     timeout: float = 30.0
     queue_limit: int = 8
     china_mainland: bool = False
@@ -51,7 +64,7 @@ class ServerConfig:
             raise ValueError("Username and session directory must be supplied together")
         if self.services and not self.username:
             raise ValueError("Enabling services requires an explicit account")
-        if set(self.services) - {"calendar", "reminders"}:
+        if set(self.services) - set(SUPPORTED_SERVICES):
             raise ValueError("Unsupported service")
         if not 0 < self.timeout <= 120 or not 1 <= self.queue_limit <= 32:
             raise ValueError("Invalid execution limits")
@@ -77,6 +90,9 @@ class BoundedAdapter(HTTPAdapter):
     ) -> Response:
         if not (request.url or "").startswith("https://"):
             raise ToolFailure("insecure_transport")
+        endpoint = urlsplit(request.url or "").path.rsplit("/", 1)[-1]
+        if endpoint in {"enableDeviceConsentForPCS", "requestPCS"}:
+            raise ToolFailure("verification_required")
         remaining = self.timeout
         if self.requests_left <= 0:
             raise ToolFailure("request_budget_exceeded")

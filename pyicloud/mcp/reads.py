@@ -16,6 +16,16 @@ from pyicloud.exceptions import (
     PyiCloudServiceNotActivatedException,
     PyiCloudServiceUnavailable,
 )
+from pyicloud.services.notes.exceptions import (
+    NotesAuthError,
+    NotesRateLimited,
+    NotesZoneNotFoundError,
+)
+from pyicloud.services.photos.exceptions import (
+    PhotosAuthError,
+    PhotosRateLimited,
+    PhotosZoneNotFoundError,
+)
 from pyicloud.services.reminders.exceptions import (
     RemindersAuthError,
     RemindersZoneNotFoundError,
@@ -91,15 +101,19 @@ class ReadTools:
             return await self.owner.run(operation)
         except ToolFailure as error:
             return ReadResult(error=str(error))
-        except RemindersAuthError:
+        except (RemindersAuthError, NotesAuthError, PhotosAuthError):
             self.owner.authenticated = False
             return ReadResult(error="authentication_required")
         except (
             PyiCloudServiceNotActivatedException,
             PyiCloudServiceUnavailable,
             RemindersZoneNotFoundError,
+            NotesZoneNotFoundError,
+            PhotosZoneNotFoundError,
         ):
             return ReadResult(error="service_unavailable")
+        except (NotesRateLimited, PhotosRateLimited):
+            return ReadResult(error="rate_limited")
         except PyiCloudAPIResponseException as error:
             if str(error.code) in {"401", "403"}:
                 self.owner.authenticated = False

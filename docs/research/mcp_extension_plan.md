@@ -28,6 +28,12 @@ Decisions:
 
 ## Scope and non-goals
 
+The user subsequently authorized Contacts, Drive metadata, Notes metadata, Photos
+metadata and Mail summaries in the same extension. These are explicit read-only
+service opt-ins, not authorization for note/message bodies, downloads, writes or
+remote hosting. Bounded metadata tools and scoped expiring handles cover this
+expanded scope; full-text/global searches are not claimed where APIs lack them.
+
 The first release provides authentication/capability status plus bounded calendar
 and Reminders reads. Additional read adapters are admitted individually after
 their behavior, privacy exposure, and service-specific limitations are tested.

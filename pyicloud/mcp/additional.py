@@ -1,0 +1,302 @@
+"""Opt-in Contacts, Drive, Notes, Photos and Mail metadata adapters."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+from datetime import datetime
+from itertools import islice
+from secrets import token_urlsafe
+import time
+from typing import Any
+
+from .context import ToolFailure
+from .reads import ReadResult, ReadTools, bounded_result
+
+
+def text(value: Any) -> str:
+    """Expose only strings, never stringified nested upstream private fields."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ToolFailure("upstream_failure")
+    return value[:4096]
+
+
+def timestamp(value: Any) -> str | None:
+    """Datetime metadata keeps its existing zone; no invented UTC conversion."""
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        raise ToolFailure("upstream_failure")
+    return value.isoformat()
+
+
+@contextmanager
+def window(items: Iterable[Any], limit: int) -> Iterator[Iterator[Any]]:
+    """Stop and close lazy service generators before loading further pages."""
+    iterator = iter(items)
+    try:
+        yield islice(iterator, limit)
+    finally:
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            close()
+
+
+class AdditionalReads:
+    """Single-account, expiring handles bound to service and discovered objects."""
+
+    def __init__(self, reads: ReadTools) -> None:
+        self.reads = reads
+        self._handles: dict[str, tuple[str, Any, float]] = {}
+
+    def _store(self, kind: str, value: Any) -> str:
+        if len(self._handles) >= 1000:
+            del self._handles[next(iter(self._handles))]
+        handle = token_urlsafe(24)
+        self._handles[handle] = (kind, value, time.monotonic() + 600)
+        return handle
+
+    def _get(self, kind: str, handle: str) -> Any:
+        route = self._handles.get(handle)
+        if route is None or route[0] != kind or route[2] <= time.monotonic():
+            raise ToolFailure("expired_or_unknown_handle")
+        return route[1]
+
+    async def _run(
+        self,
+        service: str,
+        query: str,
+        limit: int,
+        operation: Callable[[Any], ReadResult],
+    ) -> ReadResult:
+        if len(query) > 256:
+            return ReadResult(error="invalid_argument")
+        return await self.reads.execute(service, limit, operation)
+
+    async def contacts(self, query: str, limit: int) -> ReadResult:
+        """Search names; addresses/phones require a separate explicit call."""
+
+        def read(client: Any) -> ReadResult:
+            rows = client.contacts.all
+            if rows is None:
+                raise ToolFailure("upstream_failure")
+            records = []
+            for row in rows:
+                first, last = text(row.get("firstName")), text(row.get("lastName"))
+                if query.casefold() not in f"{first} {last}".casefold():
+                    continue
+                handle = self._store(
+                    "contact",
+                    {
+                        "first_name": first,
+                        "last_name": last,
+                        "emails": row.get("emails", []),
+                        "phones": row.get("phones", []),
+                    },
+                )
+                records.append({
+                    "handle": handle,
+                    "first_name": first,
+                    "last_name": last,
+                })
+                if len(records) >= limit:
+                    break
+            return bounded_result(records, limit, complete=False)
+
+        return await self._run("contacts", query, limit, read)
+
+    async def contact_details(
+        self, handle: str, include_emails: bool, include_phones: bool
+    ) -> ReadResult:
+        """Return explicitly requested details; no photos or raw payload."""
+
+        def read(_client: Any) -> ReadResult:
+            contact = self._get("contact", handle)
+            record = {
+                "first_name": contact["first_name"],
+                "last_name": contact["last_name"],
+            }
+            for enabled, key in [
+                (include_emails, "emails"),
+                (include_phones, "phones"),
+            ]:
+                if enabled:
+                    record[key] = [
+                        text(item.get("field")) for item in contact[key][:20]
+                    ]
+            return bounded_result([record], 1)
+
+        return await self.reads.execute("contacts", 1, read)
+
+    async def drive(self, folder_handle: str, query: str, limit: int) -> ReadResult:
+        """Browse one folder; filter names locally, never local paths."""
+
+        def read(client: Any) -> ReadResult:
+            node = (
+                self._get("drive-folder", folder_handle)
+                if folder_handle
+                else client.drive.root
+            )
+            if node.type not in {"folder", "app_library"}:
+                raise ToolFailure("invalid_argument")
+            records = []
+            for child in node.get_children(force=True):
+                name, kind = text(child.name), text(child.type)
+                if query.casefold() not in name.casefold():
+                    continue
+                record = {
+                    "name": name,
+                    "type": kind,
+                    "modified": timestamp(child.date_modified),
+                }
+                if kind in {"folder", "app_library"}:
+                    record["handle"] = self._store("drive-folder", child)
+                records.append(record)
+                if len(records) >= limit:
+                    break
+            return bounded_result(records, limit, complete=False)
+
+        return await self._run("drive", query, limit, read)
+
+    async def notes(self, query: str, limit: int) -> ReadResult:
+        """Search 200 recent titles; omit snippets and bodies."""
+
+        def read(client: Any) -> ReadResult:
+            records = []
+            with window(client.notes.recents(limit=200), 200) as items:
+                for item in items:
+                    title = text(item.title)
+                    if item.is_deleted or query.casefold() not in title.casefold():
+                        continue
+                    records.append({
+                        "id": text(item.id),
+                        "title": title,
+                        "modified": timestamp(item.modified_at),
+                        "locked": item.is_locked,
+                    })
+                    if len(records) >= limit:
+                        break
+            return bounded_result(records, limit, complete=False)
+
+        return await self._run("notes", query, limit, read)
+
+    async def photo_libraries(self, limit: int) -> ReadResult:
+        """Discover library handles without exposing zone-owner identifiers."""
+
+        def read(client: Any) -> ReadResult:
+            records = []
+            for index, library in enumerate(client.photos.libraries.values()):
+                records.append({
+                    "handle": self._store("photo-library", library),
+                    "label": f"Library {index + 1}",
+                })
+                if len(records) >= limit:
+                    break
+            return bounded_result(records, limit, complete=False)
+
+        return await self.reads.execute("photos", limit, read)
+
+    async def photo_albums(self, library_handle: str, limit: int) -> ReadResult:
+        """Album handles retain the discovered library, including shared ownership."""
+
+        def read(_client: Any) -> ReadResult:
+            library = self._get("photo-library", library_handle)
+            records = [
+                {
+                    "handle": self._store("photo-album", library.all),
+                    "title": "All photos",
+                }
+            ]
+            with window(library.albums, limit) as albums:
+                for album in albums:
+                    if len(records) >= limit:
+                        break
+                    records.append({
+                        "handle": self._store("photo-album", album),
+                        "title": text(album.title),
+                    })
+            return bounded_result(records, limit, complete=False)
+
+        return await self.reads.execute("photos", limit, read)
+
+    async def photos(self, album_handle: str, limit: int) -> ReadResult:
+        """Project asset filename/capture metadata only, never URLs or downloads."""
+
+        def read(_client: Any) -> ReadResult:
+            album = self._get("photo-album", album_handle)
+            with window(album, limit) as assets:
+                return bounded_result(
+                    (
+                        {
+                            "id": text(asset.id),
+                            "filename": text(asset.filename),
+                            "created": timestamp(asset.created),
+                        }
+                        for asset in assets
+                    ),
+                    limit,
+                    complete=False,
+                )
+
+        return await self.reads.execute("photos", limit, read)
+
+    async def mail_folders(self, limit: int) -> ReadResult:
+        """Discover typed mailbox contexts without UID-validity or account internals."""
+
+        def read(client: Any) -> ReadResult:
+            return bounded_result(
+                (
+                    {
+                        "handle": self._store("mail-folder", folder),
+                        "name": text(folder.name),
+                    }
+                    for folder in client.mail.folders()
+                ),
+                limit,
+            )
+
+        return await self.reads.execute("mail", limit, read)
+
+    async def mail_messages(self, folder_handle: str, limit: int) -> ReadResult:
+        """Read bounded subjects and flags, without bodies, addresses or attachments."""
+
+        def read(client: Any) -> ReadResult:
+            folder = self._get("mail-folder", folder_handle)
+            page = client.mail.messages(folder, limit=limit)
+            return bounded_result(
+                (
+                    {
+                        "id": text(item.id),
+                        "subject": text(item.subject),
+                        "flags": item.flags,
+                    }
+                    for item in page.messages
+                ),
+                limit,
+                complete=False,
+            )
+
+        return await self.reads.execute("mail", limit, read)
+
+    async def mail_search(
+        self, folder_handle: str, query: str, limit: int
+    ) -> ReadResult:
+        """Search subject headers only; never return previews or search body bytes."""
+        if not query.strip():
+            return ReadResult(error="invalid_argument")
+
+        def read(client: Any) -> ReadResult:
+            folder = self._get("mail-folder", folder_handle)
+            page = client.mail.search(folder, query, field="subject", limit=limit)
+            return bounded_result(
+                (
+                    {"thread_id": text(item.id), "subject": text(item.subject)}
+                    for item in page.results
+                ),
+                limit,
+                complete=False,
+            )
+
+        return await self._run("mail", query, limit, read)
