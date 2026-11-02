@@ -118,6 +118,7 @@ repos:
           - click>=8.4.1
           - rich>=15.0.0
           - typer>=0.16.1
+          - mcp>=2.3.0,<3
           # END GENERATED REQUIREMENTS
       - id: pylint
         name: Pylint
@@ -157,6 +158,7 @@ repos:
           - click>=8.4.1
           - rich>=15.0.0
           - typer>=0.16.1
+          - mcp>=2.3.0,<3
           # END GENERATED REQUIREMENTS
       - id: pytest
         name: PyTest
@@ -193,6 +195,7 @@ repos:
           - click>=8.4.1
           - rich>=15.0.0
           - typer>=0.16.1
+          - mcp>=2.3.0,<3
           # END GENERATED REQUIREMENTS
       - id: check-prek-deps
         name: Check prek dependency sync

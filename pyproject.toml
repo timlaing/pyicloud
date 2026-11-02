@@ -34,6 +34,7 @@ repository = "https://github.com/timlaing/pyicloud"
 
 [project.scripts]
 icloud = "pyicloud.cmdline:main"
+icloud-mcp = "pyicloud.mcp.cmdline:main"
 
 [build-system]
 requires = ["setuptools >= 77.0,< 84.3", "setuptools-scm"]
@@ -60,7 +61,7 @@ include = ["pyicloud*"]
 [tool.setuptools.dynamic]
 readme = {file = "README.md", content-type = "text/markdown"}
 dependencies = {file = ["requirements.txt"]}
-optional-dependencies = { dev = { file = ["requirements_dev.txt", "requirements_cli.txt"] }, cli = { file = ["requirements_cli.txt"] } }
+optional-dependencies = { dev = { file = ["requirements_dev.txt", "requirements_cli.txt", "requirements_mcp.txt"] }, cli = { file = ["requirements_cli.txt"] }, mcp = { file = ["requirements_mcp.txt"] }, all = { file = ["requirements_cli.txt", "requirements_mcp.txt"] } }
 
 
 [tool.ruff]
