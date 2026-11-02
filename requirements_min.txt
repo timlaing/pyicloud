@@ -4,7 +4,7 @@ cryptography==50.0.0
 fido2==2.2.1
 keyring==25.7.0
 keyrings.alt==5.0.2
-protobuf==6.33.5
+protobuf==7.36.2
 pydantic==2.13.4
 requests==2.33.0
 srp==1.0.22
