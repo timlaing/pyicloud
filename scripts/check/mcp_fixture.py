@@ -14,8 +14,9 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-from pyicloud.mcp.context import ServerConfig, SessionOwner
+from pyicloud.mcp.context import SUPPORTED_SERVICES, ServerConfig, SessionOwner
 from pyicloud.mcp.server import build_server
+from pyicloud.services.mail.models import MailFolder, MailMessage, MailSearchHit
 from pyicloud.services.reminders.models import Reminder, RemindersList
 
 
@@ -80,6 +81,88 @@ class SyntheticReminders:
         )
 
 
+class SyntheticFolder:
+    """Drive metadata only; no local paths or file-opening method."""
+
+    type = "folder"
+
+    def get_children(self, *, force: bool) -> list[SimpleNamespace]:
+        """Ensure the adapter refreshes metadata without requesting content."""
+        assert force is True
+        return [SimpleNamespace(name="Synthetic.txt", type="file", date_modified=None)]
+
+
+class SyntheticAlbum:
+    """Photo metadata iterator with a signed URL that must never be exposed."""
+
+    title = "Synthetic album"
+
+    def __iter__(self) -> Iterator[SimpleNamespace]:
+        yield SimpleNamespace(
+            id="P",
+            filename="Synthetic.jpg",
+            created=datetime(2026, 1, 1),
+            download_url="OMIT_ME",
+            latitude="OMIT_ME",
+        )
+
+
+class SyntheticNotes:
+    """Only recent summaries; no method can retrieve bodies or attachments."""
+
+    def recents(self, *, limit: int) -> Iterator[SimpleNamespace]:
+        """Bound the scan window and include a snippet to test minimization."""
+        assert limit == 200
+        yield SimpleNamespace(
+            id="N",
+            title="Synthetic note",
+            modified_at=None,
+            is_locked=False,
+            is_deleted=False,
+            snippet="OMIT_ME",
+        )
+
+
+class SyntheticMail:
+    """Typed mailbox/metadata APIs only, deliberately without body methods."""
+
+    def __init__(self) -> None:
+        self.folder = MailFolder(identifier="F", name="Inbox", uidValidity=1)
+
+    def folders(self) -> list[MailFolder]:
+        """Expose the one explicitly selectable mailbox."""
+        return [self.folder]
+
+    def messages(self, folder: MailFolder, *, limit: int) -> SimpleNamespace:
+        """Use the discovered typed route, not caller-supplied identifiers."""
+        assert folder is self.folder
+        assert limit == 50
+        message = MailMessage.model_validate({
+            "identifier": "M",
+            "uid": 1,
+            "mboxRef": {"id": "F"},
+            "folder": folder,
+            "subject": "Synthetic message",
+            "flags": 1,
+            "from": "OMIT_ME",
+        })
+        return SimpleNamespace(messages=[message])
+
+    def search(
+        self, folder: MailFolder, query: str, *, field: str, limit: int
+    ) -> SimpleNamespace:
+        """Search subject headers only and never expose returned previews."""
+        assert folder is self.folder
+        assert (query, field, limit) == ("Synthetic", "subject", 50)
+        return SimpleNamespace(
+            results=[
+                MailSearchHit(
+                    identifier="T", subject="Synthetic message", preview="OMIT_ME"
+                )
+            ]
+        )
+
+
 class SyntheticClient:
     """Saved-session state only; there is deliberately no credential-login method."""
 
@@ -87,6 +170,24 @@ class SyntheticClient:
         self.challenge = challenge
         self.calendar = SyntheticCalendar()
         self.reminders = SyntheticReminders()
+        self.contacts = SimpleNamespace(
+            all=[
+                {
+                    "firstName": "Synthetic",
+                    "lastName": "Contact",
+                    "photo": "OMIT_ME",
+                    "emails": [{"field": "synthetic@example.invalid"}],
+                    "phones": [{"field": "000"}],
+                }
+            ]
+        )
+        self.drive = SimpleNamespace(root=SyntheticFolder())
+        self.notes = SyntheticNotes()
+        album = SyntheticAlbum()
+        self.photos = SimpleNamespace(
+            libraries={"synthetic": SimpleNamespace(all=album, albums=[album])}
+        )
+        self.mail = SyntheticMail()
         self.session = SimpleNamespace(close=self.close)
 
     def close(self) -> None:
@@ -114,7 +215,7 @@ def main() -> None:
     config = ServerConfig(
         username="synthetic@example.invalid",
         session_dir="not-read",
-        services=("calendar", "reminders"),
+        services=SUPPORTED_SERVICES,
     )
     owner = SessionOwner(config, lambda: SyntheticClient(args.challenge))
     with patch("socket.socket", side_effect=local_socket):

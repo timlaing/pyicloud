@@ -186,12 +186,62 @@ async def exercise_configured_mcp(session: Any, *, challenge: bool) -> None:
     status = await session.call_tool("icloud_status", {})
     assert status.structured_content is not None
     assert status.structured_content["authenticated"] is True
+    await exercise_additional_mcp(session)
     capabilities = await session.call_tool("icloud_capabilities", {})
     assert capabilities.structured_content is not None
     assert capabilities.structured_content["availability"] == {
-        "calendar": "available",
-        "reminders": "available",
+        name: "available"
+        for name in (
+            "calendar",
+            "reminders",
+            "contacts",
+            "drive",
+            "notes",
+            "photos",
+            "mail",
+        )
     }
+
+
+async def exercise_additional_mcp(session: Any) -> None:
+    """New opt-ins are checked through the wire with private fields omitted."""
+
+    async def records(name: str, arguments: dict[str, Any]) -> list[dict[str, Any]]:
+        """Reject hidden adapter failures rather than passing on an empty response."""
+        result = await session.call_tool(name, arguments)
+        assert result.structured_content is not None
+        assert result.structured_content["error"] is None
+        assert "OMIT_ME" not in json.dumps(result.structured_content)
+        return cast(list[dict[str, Any]], result.structured_content["records"])
+
+    contacts = await records("icloud_contacts_list", {"query": "Synthetic"})
+    assert set(contacts[0]) == {"handle", "first_name", "last_name"}
+    details = await records(
+        "icloud_contact_details",
+        {"handle": contacts[0]["handle"], "include_emails": True},
+    )
+    assert details[0]["emails"] == ["synthetic@example.invalid"]
+    assert "phones" not in details[0]
+    drive = await records("icloud_drive_list", {})
+    assert drive[0]["name"] == "Synthetic.txt"
+    notes = await records("icloud_notes_list", {"query": "Synthetic"})
+    assert notes[0]["title"] == "Synthetic note"
+    libraries = await records("icloud_photos_libraries", {})
+    albums = await records(
+        "icloud_photos_albums", {"library_handle": libraries[0]["handle"]}
+    )
+    photos = await records("icloud_photos_list", {"album_handle": albums[0]["handle"]})
+    assert photos[0]["filename"] == "Synthetic.jpg"
+    folders = await records("icloud_mail_folders", {})
+    messages = await records(
+        "icloud_mail_messages", {"folder_handle": folders[0]["handle"]}
+    )
+    assert messages[0]["subject"] == "Synthetic message"
+    search = await records(
+        "icloud_mail_search",
+        {"folder_handle": folders[0]["handle"], "query": "Synthetic"},
+    )
+    assert search[0]["thread_id"] == "T"
 
 
 async def check_mcp_sdk_client(executable: Path, environment: dict[str, str]) -> None:

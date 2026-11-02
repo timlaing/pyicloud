@@ -15,7 +15,8 @@ Implemented phases are committed separately on `feature/mcp-extension`:
 
 Local qualification on 2026-11-02:
 
-- Full offline suite: 4,722 tests and 69 subtests, 98.36% combined coverage.
+- Full offline suite after service expansion: 4,738 tests and 69 subtests,
+  98.37% combined coverage.
 - Every measured source file strictly exceeds 90% combined line/branch coverage.
 - All hooks pass; no coverage exclusions or network/filesystem guard weakening.
 - Wheel built from source distribution with optional requirements included.
@@ -36,7 +37,7 @@ qualification. Host-specific configuration and Apple's undocumented behavior may
 still vary. Read-only does not make exposed account data non-sensitive.
 
 Deferred by design: write tools, remote hosting, multiple accounts per process,
-arbitrary URL/path access, contact/mail/photo/device adapters and typing publication.
+arbitrary URL/path access, device actions, bodies/downloads and typing publication.
 They are not enabled implicitly and are not prerequisites for this local MVP.
 
 Shutdown has a bounded drain await and queues closure after active work. Bodies
@@ -58,3 +59,11 @@ wheels for Python 3.10 and 3.15 they verify inclusive date bounds, colliding
 private/shared routes, minimized wire fields, authentication challenge results,
 availability observations, and exact-once cleanup without private stderr output.
 These checks are part of the installed-extra CI matrix, not live account tests.
+
+The authorized expansion adds Contacts, Drive, Notes, Photos and Mail metadata
+opt-ins. Configured stdio checks exercise all seven services, including explicit
+contact detail fields, recent-title-only Notes search, opaque photo-library/album
+routes and typed subject-only mailbox queries. All eight isolated install modes
+on Python 3.10.22/3.15.2 pass again with the expanded fixture; no outbound Apple
+requests or real credentials are used. The transport refuses PCS device-consent
+negotiation rather than triggering device notifications in protected account modes.
