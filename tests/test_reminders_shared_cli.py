@@ -117,9 +117,10 @@ def test_shared_lookup_zone_errors(authentication: bool) -> None:
         else RemindersApiError("Unavailable")
     )
     reminders.get.side_effect = [LookupError("Missing"), error, result]
+    api = api_for(reminders)
     if authentication:
         with pytest.raises(CLIAbort, match="Authentication"):
-            _resolve_reminder(api_for(reminders), result.id)
+            _resolve_reminder(api, result.id)
         assert reminders.get.call_count == 2
     else:
         assert _resolve_reminder(api_for(reminders), result.id) is result
