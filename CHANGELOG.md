@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add receipt-gated Mail read/flag patches and single-message moves with exact typed acknowledgements explicitly reporting `final_state_verified: false`, metadata-bound previews, source retirement and no automatic mutation retries.
+
 - Expose elevated private Photos uploads with bounded in-memory byte staging, separately selected exact transfer-host policy, immutable content/timestamp previews, single-use stage retirement and independent indexed asset/master verification. Installed network-blocked stdio scenarios qualify verified and uncertain outcomes without live uploads.
 
 - Add an elevated Photos upload adapter binding staged bytes, private-library revisions, routes and trusted transfer-host policy, retiring bytes before dispatch and requiring independent indexed asset/master identity proof.

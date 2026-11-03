@@ -239,6 +239,30 @@ Results are not claimed to be a complete inventory. Listing does not recover or
 permanently delete anything. Recovery remains unavailable; permanent trash-file
 deletion has a separate elevated opt-in workflow below.
 
+## Acknowledged Mail flags and moves
+
+Enable `--service mail`, a private approval directory and the desired standard
+actions `mail.set_read`, `mail.set_flagged` or `mail.move_message`. These use one
+discovered `mail-message` `target_handle`. Flag payloads contain exactly
+`{"enabled": true}` or `{"enabled": false}`. Moves use `{}` and a discovered
+`mail-folder` `destination_handle`; no caller IDs, numeric masks, bulk selectors
+or confirmation fields are accepted. Bodies and attachments are not read.
+
+Fresh message/UID/mailbox-incarnation metadata, account, route, destination and
+exact requested change are bound to the independent single-use approval. Source
+handles are retired before dispatch. Successful results explicitly contain
+`acknowledged: true` and `final_state_verified: false`: Apple acknowledged the
+exact operation, but later flag state or destination message identity has not been
+independently verified. No destination message handle is minted from a move
+acknowledgement. Rediscover fresh metadata before another write.
+
+An uncertain submission returns `mutation_uncertain`, not an acknowledgement or
+an instruction to retry. Neither uncertainty nor acknowledgement may trigger an
+automatic replay. Acknowledgement-only semantics are user-approved for operations
+whose existing API does not establish independently verified final state; they do
+not relax route/identity/approval guards or elevated authorization for high-risk
+operations. Other adapters that provide stronger verification retain it.
+
 ## Opt-in elevated private Photos uploads
 
 Select `--service photos`, `--write-action photos.upload_file`,

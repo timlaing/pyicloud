@@ -1,5 +1,20 @@
 # Remaining MCP write-contract evidence
 
+## User-approved outcome semantics
+
+The user explicitly approved "acknowledged, final state not verified" for remaining
+existing API/CLI writers. Missing final-state correlation is therefore not itself
+an implementation blocker: adapters may return `acknowledged: true` with
+`final_state_verified: false` only after validating the existing operation's exact
+acknowledgement. They must not invent identities, return verified success, mint
+unverified destination handles, retry ambiguous writes or weaken preflight/approval
+and transport safeguards. Stronger existing verification remains unchanged.
+
+Mail flags/moves now implement these semantics using typed facade acknowledgements,
+metadata/namespace-bound receipts, one dispatch and pre-dispatch source retirement.
+The evidence gaps listed below describe stronger optional verification, not required
+final-state proof for these acknowledged-only operations.
+
 This is an implementation acceptance checklist, not permission for account access
 or live writes. Unqualified operations remain disabled. Synthetic fixtures can test
 an established contract; invented success envelopes cannot establish one.

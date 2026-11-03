@@ -28,9 +28,11 @@ from pyicloud.services.mail.models import (
     MailBody,
     MailBodyPart,
     MailDraft,
+    MailFlagUpdate,
     MailFolder,
     MailMessage,
     MailMessageDeletion,
+    MailMoveUpdate,
     MailSearchHit,
     MailSender,
     MailSendUpdate,
@@ -845,6 +847,9 @@ class SyntheticMail:
             if uid in self.deleted_uids:
                 return None
             return next((item for item in self.trash_messages if item.uid == uid), None)
+        if folder == self.folder:
+            assert uid == 1
+            return self.message(folder, "M")
         assert folder == self.drafts
         return next(
             (saved.message for saved in self.saved if saved.message.uid == uid), None
@@ -940,6 +945,40 @@ class SyntheticMail:
             )
         assert identifier == "M"
         return cast(MailMessage, self.messages(folder, limit=50).messages[0])
+
+    def check_move(self, message: MailMessage, destination: MailFolder) -> str:
+        """Synthetic discovered mailbox/namespace preflight, no mutation."""
+        assert message.folder == self.folder and destination == self.trash
+        assert self.message_by_uid(message.folder, message.uid) == message
+        return "12345"
+
+    def move(self, message: MailMessage, destination: MailFolder) -> MailMoveUpdate:
+        """Source acknowledgement only; intentionally does not change fake state."""
+        self.check_move(message, destination)
+        print("MCP_SYNTHETIC_MAIL_MOVED_ACK", file=sys.stderr, flush=True)
+        return MailMoveUpdate(
+            source_message_id=message.id,
+            source_folder_id=message.folder.id,
+            destination_folder_id=destination.id,
+        )
+
+    def set_read(self, message: MailMessage, *, read: bool) -> MailFlagUpdate:
+        """Typed named patch acknowledgement only; no numeric flag inference."""
+        assert message.folder == self.folder and isinstance(read, bool)
+        print("MCP_SYNTHETIC_MAIL_FLAG_ACK", file=sys.stderr, flush=True)
+        return MailFlagUpdate(
+            message_id=message.id, flag="seen", enabled=read, modseq=101
+        )
+
+    def set_flagged(self, message: MailMessage, *, flagged: bool) -> MailFlagUpdate:
+        """Second flag dispatch is ambiguous and must not be replayed."""
+        assert message.folder == self.folder and isinstance(flagged, bool)
+        print("MCP_SYNTHETIC_MAIL_FLAG_ACK", file=sys.stderr, flush=True)
+        if not flagged:
+            raise OSError("Synthetic uncertain flag submission")
+        return MailFlagUpdate(
+            message_id=message.id, flag="flagged", enabled=flagged, modseq=102
+        )
 
     def body(self, message: MailMessage) -> SimpleNamespace | MailBody:
         """Headers remain private and HTML is returned only as untrusted data."""
@@ -1076,6 +1115,9 @@ def main() -> None:
             "mail.delete_forever_message",
             "mail.create_folder",
             "mail.rename_folder",
+            "mail.set_read",
+            "mail.set_flagged",
+            "mail.move_message",
             "photos.set_favorite",
             "photos.rename_album",
             "photos.create_album",

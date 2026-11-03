@@ -185,6 +185,9 @@ async def check_configured_mcp(
                     )
                     await exercise_mail_delete_gate_mcp(session, approval_directory)
                     await exercise_photo_upload_gate_mcp(session, approval_directory)
+                    await exercise_mail_acknowledged_gate_mcp(
+                        session, approval_directory
+                    )
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -205,6 +208,8 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_DRAFT_SUBMITTED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRIVE_PERMANENT") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_MAIL_PERMANENT") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_MAIL_FLAG_ACK") == (3 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_MAIL_MOVED_ACK") == (1 if writes else 0)
         for marker in (
             "MCP_SYNTHETIC_PHOTO_RESERVED",
             "MCP_SYNTHETIC_PHOTO_TRANSFERRED",
@@ -1353,6 +1358,77 @@ async def exercise_photo_upload_gate_mcp(session: Any, directory: str) -> None:
         assert (
             repeated.structured_content is not None
             and repeated.structured_content["error"] == "expired_or_unknown_upload"
+        )
+
+
+async def exercise_mail_acknowledged_gate_mcp(session: Any, directory: str) -> None:
+    """Typed source acknowledgements must not masquerade as verified final state."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    class SyntheticTerminal(io.StringIO):
+        """Fake independent operator decision for a standard named patch/move."""
+
+        def isatty(self) -> bool:
+            return True
+
+    folders = await session.call_tool("icloud_mail_folders", {})
+    assert folders.structured_content is not None
+    rows = {row["name"]: row["handle"] for row in folders.structured_content["records"]}
+    for action, payload, expected in (
+        ("mail.set_read", {"enabled": True}, None),
+        ("mail.set_flagged", {"enabled": True}, None),
+        ("mail.set_flagged", {"enabled": False}, "mutation_uncertain"),
+        ("mail.move_message", {}, None),
+    ):
+        found = await session.call_tool(
+            "icloud_mail_messages", {"folder_handle": rows["Inbox"]}
+        )
+        assert found.structured_content is not None
+        handle = found.structured_content["records"][0]["handle"]
+        args = {"action": action, "target_handle": handle, "payload": payload}
+        if action == "mail.move_message":
+            args["destination_handle"] = rows["Deleted Messages"]
+        prepared = await session.call_tool("icloud_write_preview", args)
+        assert (
+            prepared.structured_content is not None
+            and prepared.structured_content["error"] is None
+        )
+        preview = prepared.structured_content["preview"]
+        identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            denied.structured_content is not None
+            and denied.structured_content["error"] == "approval_record_unavailable"
+        )
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                identifier, SyntheticTerminal("APPROVE " + identifier), io.StringIO()
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            result.structured_content is not None
+            and result.structured_content["error"] == expected
+        )
+        assert result.structured_content["result"] == (
+            {"action": action, "acknowledged": True, "final_state_verified": False}
+            if expected is None
+            else None
+        )
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            replay.structured_content is not None
+            and replay.structured_content["error"] == "unknown_or_consumed_preview"
+        )
+        repeated = await session.call_tool("icloud_write_preview", args)
+        assert (
+            repeated.structured_content is not None
+            and repeated.structured_content["error"] == "expired_or_unknown_handle"
         )
 
 
