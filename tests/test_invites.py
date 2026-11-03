@@ -170,6 +170,8 @@ class DtoTest(unittest.TestCase):
 class InvitesServiceTest(unittest.TestCase):
     """Tests for Invites service."""
 
+    _monkeypatch: pytest.MonkeyPatch
+
     def setUp(self) -> None:
         self.service = InvitesService(
             service_root="https://example.com",
@@ -178,7 +180,7 @@ class InvitesServiceTest(unittest.TestCase):
         )
 
     @pytest.fixture(autouse=True)
-    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _inject_monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Expose pytest's monkeypatch fixture to unittest-style tests."""
         self._monkeypatch = monkeypatch
 
@@ -1177,6 +1179,8 @@ def _existing_going_rsvp() -> Rsvp:
 class RsvpWriteTest(unittest.TestCase):
     """Tests for RSVP write operations."""
 
+    _monkeypatch: pytest.MonkeyPatch
+
     def setUp(self) -> None:
         self.service = InvitesService(
             service_root="https://example.com",
@@ -1188,7 +1192,7 @@ class RsvpWriteTest(unittest.TestCase):
         )
 
     @pytest.fixture(autouse=True)
-    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _inject_monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Expose pytest's monkeypatch fixture to unittest-style tests."""
         self._monkeypatch = monkeypatch
 
@@ -1399,6 +1403,8 @@ def _cancellable_event(scope: EventScope = EventScope.PRIVATE) -> Event:
 class CancelTest(unittest.TestCase):
     """Tests for cancelling and reinstating an event."""
 
+    _monkeypatch: pytest.MonkeyPatch
+
     def setUp(self) -> None:
         self.service = InvitesService(
             service_root="https://example.com",
@@ -1416,7 +1422,7 @@ class CancelTest(unittest.TestCase):
         )
 
     @pytest.fixture(autouse=True)
-    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _inject_monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Expose pytest's monkeypatch fixture to unittest-style tests."""
         self._monkeypatch = monkeypatch
 
@@ -1684,6 +1690,8 @@ class FeatureAccessRequestTest(unittest.TestCase):
 class EntitlementTokenTest(unittest.TestCase):
     """Tests for fetching and caching the event-editing entitlement."""
 
+    _monkeypatch: pytest.MonkeyPatch
+
     def setUp(self) -> None:
         self.service = InvitesService(
             service_root="https://example.com",
@@ -1692,7 +1700,7 @@ class EntitlementTokenTest(unittest.TestCase):
         )
 
     @pytest.fixture(autouse=True)
-    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _inject_monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Expose pytest's monkeypatch fixture to unittest-style tests."""
         self._monkeypatch = monkeypatch
 
