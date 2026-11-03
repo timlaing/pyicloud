@@ -1,4 +1,4 @@
-"""Internal top-level Mail folder creation; no runtime action enabled yet."""
+"""Receipt-gated top-level Mail folder creation with fresh namespace proof."""
 
 from __future__ import annotations
 
@@ -11,6 +11,23 @@ from pyicloud.services.mail.models import MailFolder
 
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 from .reads import ReadTools
+
+
+def folder_name(payload: dict[str, Any]) -> str:
+    """Conservative unencoded custom leaf names, never protected system names."""
+    name = payload.get("name")
+    if (
+        set(payload) != {"name"}
+        or not isinstance(name, str)
+        or not name.strip()
+        or not name.isascii()
+        or name != name.strip()
+        or len(name) > 255
+        or any(not (char.isalnum() or char in {" ", "_", "-"}) for char in name)
+        or name.casefold() in SYSTEM_FOLDERS | {"sent", "trash"}
+    ):
+        raise WriteDenied("invalid_payload")
+    return name
 
 
 class MailFolderWrites:
@@ -53,19 +70,7 @@ class MailFolderWrites:
         """Capture namespace metadata only; this is not server-side atomicity."""
         if "mail" not in self.reads.owner.config.services:
             raise WriteDenied("write_disabled")
-        name = payload.get("name")
-        if (
-            set(payload) != {"name"}
-            or not isinstance(name, str)
-            or not name.strip()
-            or not name.isascii()
-            or name != name.strip()
-            or len(name) > 255
-            or any(not (char.isalnum() or char in {" ", "_", "-"}) for char in name)
-            or name.casefold() in SYSTEM_FOLDERS | {"sent", "trash"}
-            or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name)
-        ):
-            raise WriteDenied("invalid_payload")
+        name = folder_name(payload)
 
         def prepare(client: Any) -> MutationPreview:
             account, route, revision, folders = self._fresh(client)

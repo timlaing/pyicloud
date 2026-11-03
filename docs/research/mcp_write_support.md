@@ -65,6 +65,17 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`mail_folder_renames.py` is an internal adapter for conservative top-level custom
+folder renames through verified `MailService.rename_folder`, not yet a runtime tool.
+Sources are discovered typed handles with positive UID validity and safe custom
+ASCII names. System folders, encoded/nested names, unchanged names, descendants and
+case-insensitive destination conflicts are rejected. Namespace snapshot, exact
+source ID/name/UID validity, account and endpoint bind a single-use operator receipt;
+snapshot preflight is not atomic. After one approved dispatch, fresh metadata must
+preserve ID/UID validity and contain exactly the requested name with no alias. A
+typed acknowledgement alone is uncertain and cannot replay approval. Gateway/schema
+and installed rename qualification remain pending; no live Mail account was accessed.
+
 Mail folder preview system-name checks reuse the verified library `SYSTEM_FOLDERS`
 set rather than an incomplete duplicate. In particular, `Sent Messages` and
 `Deleted Messages` are rejected ignoring case before namespace discovery or approval
