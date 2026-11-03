@@ -65,6 +65,20 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Typed Photos create-album acknowledgements must additionally preserve the exact
+submitted `albumNameEnc` and contain a nonempty, unpadded, non-sentinel revision tag
+before conversion/cache/return. Missing or mismatched name/tag data is uncertain
+after one dispatch, not proof that creation failed. Synthetic regressions cover these
+cases with matching request ID/type to isolate payload/revision verification. No MCP
+creation action is enabled yet: independent fresh post-create proof must still avoid
+pending local caches, and REST creation remains unqualified for that adapter.
+
+`PhotoLibrary.server_albums()` now exposes the existing raw album-read path without
+pending-creation merging or cache replacement. Synthetic tests prove acknowledged
+local albums are absent from an empty server read and caches remain unchanged. This
+provides an independent read boundary for future create/rename post-state verification;
+it does not itself enable another MCP mutation or prove any live account behavior.
+
 Typed Photos album creation now requires exactly one `CPLAlbum` response with the
 record ID already generated for the submitted create operation before returning or
 caching a handle. Unrelated IDs/types or multiple records are uncertain after one

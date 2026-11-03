@@ -824,6 +824,15 @@ class PhotoLibrary(BasePhotoLibrary):
                 albums.append(album)
         return albums
 
+    def server_albums(self) -> AlbumContainer:
+        """Read albums without merging locally pending creation acknowledgements.
+
+        Unlike refresh_albums, this does not update caches or include pending local
+        albums as proof of server visibility. Use fresh observed records to verify
+        post-write identity; virtual albums still do not carry mutation revisions.
+        """
+        return self._get_albums()
+
     def create_album(
         self,
         name: str,
@@ -876,6 +885,12 @@ class PhotoLibrary(BasePhotoLibrary):
             or not isinstance(resp.records[0], CKRecord)
             or resp.records[0].recordName != expected_id
             or resp.records[0].recordType != "CPLAlbum"
+            or resp.records[0].fields.get_value("albumNameEnc") != encoded
+            or not isinstance(resp.records[0].recordChangeTag, str)
+            or not resp.records[0].recordChangeTag.strip()
+            or resp.records[0].recordChangeTag
+            != resp.records[0].recordChangeTag.strip()
+            or resp.records[0].recordChangeTag.casefold() == "null"
         ):
             raise PhotosServiceException(
                 "Album creation outcome is uncertain; refresh before retrying"

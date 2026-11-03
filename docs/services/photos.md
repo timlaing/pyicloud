@@ -300,6 +300,11 @@ except PyiCloudException as err:
 
 ## Album mutation identity metadata
 
+`PhotoLibrary.server_albums()` queries albums without merging pending local creation
+acknowledgements or replacing existing caches. Use it when independent server
+visibility is needed; `refresh_albums()` can retain locally pending albums. Virtual
+albums remain present but do not supply valid mutation revisions.
+
 `PhotoAlbum.record_change_tag`, `zone_id`, `parent_id`, and `object_type` expose the
 observed identity/revision metadata without fetching data or mutating an album.
 `zone_id` returns a detached copy; changing it cannot redirect later writes.

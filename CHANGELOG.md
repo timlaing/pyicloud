@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Require typed Photos album-creation acknowledgements to preserve the exact requested name and contain a real revision before returning or caching a handle; incomplete/mismatched responses remain uncertain.
+
 - Require typed Photos album-creation responses to match the submitted record ID and type before returning or caching an album; ambiguous responses are uncertain and must not be blindly retried.
 
 - Reject missing, malformed and deleted-state sentinel Drive etags before MCP mutation previews, and require bound account/endpoint plus a real revision in rename post-write proof.
@@ -23,6 +25,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Bind Drive, Calendar, and Reminders MCP operator approvals to the discovered service endpoint as well as account/resource/revision; changed or unavailable endpoints cannot dispatch approved mutations.
 
 ### Added
+
+- Add Photos `server_albums()` reads that bypass pending creation caches for independent server visibility checks without changing existing album caching behavior.
 
 - Add bounded MCP Recently Deleted Drive metadata with distinct opaque trash handles; restoration paths/content remain private and recovery/deletion are not enabled.
 
