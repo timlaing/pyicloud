@@ -56,6 +56,8 @@ def _resolve_cloudkit_shim_attr(name: str) -> Any:
 class NotesServiceTest(unittest.TestCase):
     """Tests for the Notes service."""
 
+    _monkeypatch: pytest.MonkeyPatch
+
     def setUp(self) -> None:
         """Set up the test case."""
         self.service = NotesService(
@@ -65,7 +67,7 @@ class NotesServiceTest(unittest.TestCase):
         )
 
     @pytest.fixture(autouse=True)
-    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _inject_monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Expose pytest's monkeypatch fixture to unittest-style tests."""
         self._monkeypatch = monkeypatch
 
