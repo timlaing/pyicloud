@@ -880,16 +880,7 @@ class MailService(BaseService):
         refer to the old identifier only; fetch new destination metadata before
         another write. No retry or compensating move is performed.
         """
-        if not isinstance(destination, MailFolder):
-            raise ValueError("A discovered destination MailFolder is required")
-        validity = destination.uid_validity
-        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
-            raise ValueError("A positive destination UID validity is required")
-        if isinstance(message, MailMessage) and message.folder.id == destination.id:
-            raise ValueError("Source and destination folders must differ")
-        account_id = self._write_identity(message)
-        self._move_folder(message.folder)
-        self._move_folder(destination)
+        account_id = self.check_move(message, destination)
         request = MoveRequest(
             batchUpdate=(
                 MoveOperation(
@@ -909,6 +900,26 @@ class MailService(BaseService):
             source_folder_id=message.folder.id,
             destination_folder_id=destination.id,
         )
+
+    def check_move(self, message: MailMessage, destination: MailFolder) -> str:
+        """Read-only move preflight; return the validated account identity.
+
+        Checks current source identity and selectable source/destination capabilities.
+        Does not submit a mutation, reserve a destination UID, grant approval, or
+        provide an atomic snapshot. The move method repeats this check before its
+        single submission; callers must not infer post-move identity from preflight.
+        """
+        if not isinstance(destination, MailFolder):
+            raise ValueError("A discovered destination MailFolder is required")
+        validity = destination.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive destination UID validity is required")
+        if isinstance(message, MailMessage) and message.folder.id == destination.id:
+            raise ValueError("Source and destination folders must differ")
+        account_id = self._write_identity(message)
+        self._move_folder(message.folder)
+        self._move_folder(destination)
+        return account_id
 
     def delete_permanently(
         self, message: MailMessage, *, confirm: bool = False

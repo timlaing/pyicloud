@@ -65,6 +65,16 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Mail move inspection confirms typed acknowledgements refer only to the old source
+message ID; `MailMoveUpdate` deliberately does not map the new destination UID/ID.
+Matching subject/sender or guessing rotated IDs is not independent identity proof.
+`MailService.check_move` now exposes the existing verified read-only source and folder
+capability preflight for future previews, returning the bound account identity without
+mutation. `move` reuses it before the same single request, preserving public signature,
+wire payload/order and no-retry behavior. Synthetic tests prove preflight rejects
+unsafe contexts and invokes metadata reads only. MCP moves remain disabled until
+exact destination identity/post-state correlation is established; no live access.
+
 `photo_relations.py` adds a private add-to-album adapter selected by the separately
 opted-in runtime `photos.add_to_album` action. It resolves discovered album/asset handles, revalidates album server records
 and asset/master/zone/tag identity, checks typed correlated-add support, and obtains

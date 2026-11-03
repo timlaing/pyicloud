@@ -1231,3 +1231,17 @@ Bodies, subjects, addresses, previews, and filenames are omitted from the models
 default representations where practical, but remain accessible through explicit
 attributes and serialization. Treat them as private mail data. Raw captures and
 authentication cookies must never be committed to a repository.
+
+## Read-only move preflight
+
+`MailService.check_move(message, destination)` repeats the verified source-identity
+and source/destination capability checks without submitting a write. It returns the
+validated account identity for internal binding, not approval or a destination UID.
+Labels, non-selectable folders, unsupported system destinations and unknown UID
+validity are refused. It does not reserve a destination or provide an atomic snapshot;
+`move()` calls it again before its single mutation submission.
+
+Move acknowledgements refer only to the old source identifier. Do not infer the new
+destination ID/UID from this preflight or claim exact post-move identity by matching
+subject/sender alone. MCP message moves remain disabled pending verified post-state
+correlation; no live account validation is claimed.

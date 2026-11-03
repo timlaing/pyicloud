@@ -28,6 +28,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Expose read-only Mail move preflight for exact source identity and folder capability checks without mutation or destination-UID guesses; existing move request behavior is unchanged.
+
 - Qualify installed Photos add-to-album receipts, independent membership proof, acknowledgement-only uncertainty and approved no-op replay rejection with network-blocked synthetic state.
 
 - Enable separately opted-in MCP private Photos add-to-album writes with discovered asset/album handles, exact receipts, two-target revisions and independent scoped membership proof; uploads and relation removal remain unavailable.
