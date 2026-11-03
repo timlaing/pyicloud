@@ -274,15 +274,25 @@ def build_server(
                 "reminders.update",
                 "reminders.delete",
                 "drive.rename",
+                "calendar.create_event",
+                "calendar.delete_event",
             ],
             list_handle: str = "",
             payload: dict[str, Any] | None = None,
             reminder_id: str | None = None,
             target_handle: str | None = None,
+            calendar_id: str | None = None,
+            event_id: str | None = None,
         ) -> WriteResult:
             """Read current state and publish a preview; never mutate remotely."""
             return await writes.prepare(
-                action, list_handle, payload or {}, reminder_id, target_handle
+                action,
+                list_handle,
+                payload or {},
+                reminder_id,
+                target_handle,
+                calendar_id,
+                event_id,
             )
 
         @server.tool(

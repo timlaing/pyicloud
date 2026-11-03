@@ -65,6 +65,12 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Verified Calendar `add_event`/`remove_event` now have runtime create/delete adapters.
+Creation fixes its GUID during preview and checks the fetched post-state; deletion
+uses the fresh etag/ifMatch path and requires follow-up absence proof. Account,
+calendar and event revisions remain part of single-use approval. No update/upsert
+endpoint or high-risk invitation/recurrence semantics were invented.
+
 The first executable adapter module, `pyicloud.mcp.reminder_writes`, now supports
 verified Reminders create/update/delete callbacks with synthetic tests. Preview
 paths do not mutate; scoped list/reminder state is re-read before approval

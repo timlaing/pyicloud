@@ -211,6 +211,28 @@ and require manual reconciliation. Already-correct names consume approval withou
 an unnecessary mutation. Trash, restore, move, permanent delete and uploads are
 not enabled by this flag.
 
+## Opt-in Calendar event create/delete
+
+The supported action flags are `calendar.create_event` and
+`calendar.delete_event`, alongside `--service calendar` and the private approval
+directory. They use the same separate terminal receipt and single-use HMAC workflow.
+`icloud_write_preview` accepts `calendar_id`, optional `event_id` for deletion,
+and the exact action payload.
+
+Creation requires exactly `title`, `start`, `end`, and `timezone`. Start/end are
+explicit naive ISO wall-clock datetimes; timezone is explicit rather than inferred
+from the server process. The server allocates one preview GUID and does not accept
+a caller-supplied existing GUID for creation. After dispatch it fetches the new
+event and verifies calendar/GUID/title/time/zone instead of trusting an `OK` value.
+
+Deletion takes an empty payload and explicit event ID. The event must still belong
+to the selected accessible calendar and have a verified etag. The library's
+`remove_event` uses that etag in its `ifMatch` request; successful follow-up absence
+must be established, otherwise the result is uncertain. Invitation, recurrence and
+attachment-bearing deletions are rejected rather than implying safe cancellation
+support. Calendar updates are **not** implemented by guessing `add_event` behavior;
+a verified update contract is still needed.
+
 ## Additional searches
 
 - `icloud_notes_search`: bounded all-note **title metadata** scanning, beyond the

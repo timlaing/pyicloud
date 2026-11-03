@@ -37,6 +37,8 @@ SUPPORTED_WRITE_ACTIONS = (
     "reminders.update",
     "reminders.delete",
     "drive.rename",
+    "calendar.create_event",
+    "calendar.delete_event",
 )
 
 

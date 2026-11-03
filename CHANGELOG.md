@@ -16,6 +16,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add separately opted-in Calendar event creation/deletion with exact operator previews, fixed creation GUIDs, fresh calendar/event revision checks, and post-write verification. Undocumented updates and invitation/recurrence deletion flows remain unsupported.
+
 - Add opted-in private Drive rename through scoped metadata handles and independent operator approval, with fresh etag/account checks and post-write verification. Unverified shared-owner mutations, virtual/root targets and other Drive writes remain unavailable.
 
 - Add explicitly opted-in Reminders create/update/soft-delete MCP execution guarded by private interactive operator receipts, HMAC-bound single-use previews, and fresh account/route/revision checks. Default installations remain read-only; other service write adapters are not yet enabled.

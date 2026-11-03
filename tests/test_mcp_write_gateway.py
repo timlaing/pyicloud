@@ -17,6 +17,8 @@ from tests.test_mcp_approval_channel import (
     sandbox_directory as sandbox_directory_fixture,
 )
 from tests.test_mcp_approval_channel import terminal
+from tests.test_mcp_calendar_writes import payload as calendar_payload
+from tests.test_mcp_calendar_writes import setup_calendar
 from tests.test_mcp_drive_writes import setup_writer
 from tests.test_mcp_reminder_writes import writer
 
@@ -239,3 +241,39 @@ async def test_drive_gateway_shares_registry_and_operator_gate() -> None:
     client.drive.rename_items.side_effect = rename
     assert (await gateway.apply(preview["request_id"])).error is None
     client.drive.rename_items.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_calendar_gateway_binds_fixed_creation_guid() -> None:
+    """The common gateway uses exactly the approved Calendar creation selector."""
+    calendar_writer, client, _event = setup_calendar()
+    owner = cast(Any, calendar_writer.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("calendar",),
+        write_actions=("calendar.create_event",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(calendar_writer.reads)
+    prepared = await gateway.prepare(
+        "calendar.create_event", "", calendar_payload(), None, calendar_id="C"
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+
+    def accept(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = accept
+
+    def create(event: Any) -> dict[str, Any]:
+        client.calendar.get_event_detail.return_value = event
+        return {}
+
+    client.calendar.add_event.side_effect = create
+    assert (await gateway.apply(preview["request_id"])).error is None
+    client.calendar.add_event.assert_called_once()
