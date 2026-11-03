@@ -98,8 +98,9 @@ terminal approval dispatches exactly one fake save. The different-body result is
 `mutation_uncertain`, returns no success identity, and cannot replay its consumed
 approval. Independent literal escaped HTML in the synthetic facade checks the
 body conversion rather than reusing the verifier to generate expectations. Stderr
-markers count two total Mail saves and one cleanup, with recipient/body data absent.
-The fixture has no sending or upload methods, and outbound sockets remain blocked.
+markers count two Mail saves in these scenarios and one server cleanup, with
+recipient/body data absent. These scenarios invoke no submission or upload methods,
+and outbound sockets remain blocked.
 This is installed protocol qualification, not live Apple Mail wire validation.
 
 Private Photos favorites are now exercised through installed stdio with discovered
@@ -172,8 +173,8 @@ UID and verifies exact new body before returning a replacement handle. A second
 rotates but exposes an unverified body, returning uncertainty without a retry handle.
 Both deny without private receipts, dispatch once after simulated terminal approval,
 reject request replay and reject previewing retired old handles. Exactly two edit
-markers and one cleanup are required. No sending/upload methods or live Mail calls
-are present; old/current records and bodies are entirely synthetic.
+markers and one cleanup are required. Edit scenarios invoke no submission/upload
+methods or live Mail calls; old/current records and bodies are entirely synthetic.
 
 Installed elevated Calendar deletion explicitly selects both write and high-risk
 startup allowlists. A preview is high risk and execution first denies without a
@@ -182,3 +183,12 @@ receipt; ordinary `APPROVE` terminal input is rejected. Only simulated
 absence and request replay denial. Stderr requires one deletion marker and one
 cleanup, alongside all prior scenario counts. All events are synthetic; no real
 Calendar deletion or credential access occurs and outbound sockets remain blocked.
+
+Installed elevated Mail submission creates two fresh verified fake drafts with
+monotonic UID/ID allocation. Exact sender/body/recipient roles are previewed with
+high risk; ordinary terminal approval is rejected. One elevated fake submission
+returns typed acknowledgement with no delivery confirmation, while a second consumes
+the source then raises uncertainty. Both deny before receipts, dispatch once and
+reject request/source-handle replay afterward. Stderr requires four total fake creates,
+two submissions and one cleanup, preserving prior scenario counts. The fixture has
+no real mail transport or upload method, and outbound sockets remain blocked.

@@ -31,6 +31,7 @@ from pyicloud.services.mail.models import (
     MailMessage,
     MailSearchHit,
     MailSender,
+    MailSendUpdate,
 )
 from pyicloud.services.photos.constants import (
     DirectionEnum,
@@ -568,7 +569,7 @@ class SyntheticNotes:
 
 
 class SyntheticMail:
-    """Typed synthetic reads and draft saves; no sending or upload methods."""
+    """Typed synthetic reads/draft callbacks; no real sending or upload transport."""
 
     def __init__(self) -> None:
         self.folder = MailFolder(identifier="F", name="Inbox", uidValidity=1)
@@ -576,6 +577,7 @@ class SyntheticMail:
         self.drafts = MailFolder(identifier="D", name="Drafts", uidValidity=2)
         self.sender = MailSender(address="synthetic@example.invalid")
         self.saved: list[MailDraft] = []
+        self.next_uid = 101
         self.created_folders: list[MailFolder] = []
 
     def create_folder(self, name: str) -> MailFolder:
@@ -617,10 +619,11 @@ class SyntheticMail:
     ) -> MailDraft:
         """Count synthetic dispatches without logging sender, recipients or body."""
         assert sender == self.sender.address
-        assert subject in {"Approved", "Uncertain"}
+        assert subject in {"Approved", "Uncertain", "Sendable", "Uncertain send"}
         assert text == "Approved <text>\nsecond line"
         assert (to, cc, bcc) == (("recipient@example.invalid",), (), ())
-        uid = 101 + len(self.saved)
+        uid = self.next_uid
+        self.next_uid += 1
         message = MailMessage.model_validate({
             "identifier": f"draft-{uid}",
             "uid": uid,
@@ -670,7 +673,8 @@ class SyntheticMail:
         assert text == "Edited <text>\nsecond line"
         assert html == "" and attachments == ()
         assert (to, cc, bcc) == (draft.to, draft.cc, draft.bcc)
-        uid = max(saved.message.uid for saved in self.saved) + 1
+        uid = self.next_uid
+        self.next_uid += 1
         message = draft.message.model_copy(
             update={"id": f"draft-{uid}", "uid": uid, "subject": subject}
         )
@@ -683,6 +687,23 @@ class SyntheticMail:
         self.saved.append(saved)
         print("MCP_SYNTHETIC_DRAFT_EDITED", file=sys.stderr, flush=True)
         return saved
+
+    def send_draft(self, draft: MailDraft, *, confirm: bool = False) -> MailSendUpdate:
+        """Fake submission only; ambiguous second send consumes its source as well."""
+        assert confirm is True
+        self.check_draft(draft)
+        assert draft.message.subject in {"Sendable", "Uncertain send"}
+        self.saved = [
+            saved for saved in self.saved if saved.message.uid != draft.message.uid
+        ]
+        print("MCP_SYNTHETIC_DRAFT_SUBMITTED", file=sys.stderr, flush=True)
+        if draft.message.subject == "Uncertain send":
+            raise OSError("Synthetic outcome unknown after submission")
+        return MailSendUpdate(
+            source_message_id=draft.message.id,
+            source_folder_id=draft.message.folder.id,
+            source_uid=draft.message.uid,
+        )
 
     def messages(self, folder: MailFolder, *, limit: int) -> SimpleNamespace:
         """Use the discovered typed route, not caller-supplied identifiers."""
@@ -845,6 +866,7 @@ def main() -> None:
             "reminders.create",
             "mail.create_draft",
             "mail.edit_draft",
+            "mail.send_draft",
             "mail.create_folder",
             "mail.rename_folder",
             "photos.set_favorite",
@@ -858,7 +880,9 @@ def main() -> None:
         if args.approval_dir
         else (),
         approval_dir=args.approval_dir,
-        high_risk_actions=("calendar.delete_event",) if args.approval_dir else (),
+        high_risk_actions=("calendar.delete_event", "mail.send_draft")
+        if args.approval_dir
+        else (),
     )
     owner = SessionOwner(
         config, lambda: SyntheticClient(args.challenge, bool(args.approval_dir))

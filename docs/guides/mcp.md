@@ -372,8 +372,8 @@ Success reports `acknowledged: true, delivery_confirmed: false`: it is not SMTP
 delivery proof. Uncertainty may already have sent the message and leaves no retry
 handle. Inspect Drafts/Sent independently before any new request; never blindly
 retry. The SDK preflight is not atomic with another editor. Arbitrary account drafts,
-attachments and scheduled sending are unsupported. Gateway tests are synthetic;
-send-specific installed stdio qualification is pending and no live send is claimed.
+attachments and scheduled sending are unsupported. Gateway and send-specific installed
+stdio tests use network-blocked fake submissions; no live send is claimed.
 
 ## Opt-in saved Mail draft edits
 

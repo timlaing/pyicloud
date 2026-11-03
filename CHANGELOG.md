@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Qualify installed elevated saved-draft submission with exact content/role previews, ordinary-approval denial, typed acknowledgement without delivery claims, and uncertainty after source consumption with no replay or retry handle.
+
 - Enable separately opted-in elevated MCP saved-draft submission with mandatory content consent, exact saved-content previews and source retirement; ordinary approval/model confirmation cannot send, and no delivery or retry claim is made.
 
 - Add synthetic qualification of an internal elevated saved-draft send adapter with exact body/recipient previews, pre-dispatch handle retirement, single submission and no delivery/retry claim; runtime sending remains disabled pending integration.

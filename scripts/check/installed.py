@@ -179,12 +179,13 @@ async def check_configured_mcp(
                     await exercise_elevated_calendar_gate_mcp(
                         session, approval_directory
                     )
+                    await exercise_elevated_send_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
         assert "OMIT_ME" not in output
         assert output.count("MCP_SYNTHETIC_MUTATED") == (1 if writes else 0)
-        assert output.count("MCP_SYNTHETIC_MAIL_SAVED") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_MAIL_SAVED") == (4 if writes else 0)
         assert output.count("MCP_SYNTHETIC_PHOTO_MUTATED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRIVE_RENAMED") == (1 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRIVE_TRASHED") == (2 if writes else 0)
@@ -196,6 +197,7 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_RELATION_ADDED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRAFT_EDITED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_CALENDAR_DELETED") == (1 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_DRAFT_SUBMITTED") == (2 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -912,6 +914,113 @@ async def exercise_elevated_calendar_gate_mcp(session: Any, directory: str) -> N
     replay = await session.call_tool("icloud_write_execute", {"request_id": identifier})
     assert replay.structured_content is not None
     assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+
+
+async def exercise_elevated_send_gate_mcp(session: Any, directory: str) -> None:
+    """Elevated synthetic send receipts never imply delivery or permit source retry."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+    from pyicloud.mcp.authorization import WriteDenied
+
+    class SyntheticTerminal(io.StringIO):
+        """Simulated operator decisions authorize fake callbacks only."""
+
+        def isatty(self) -> bool:
+            """Exercise independent private terminal input."""
+            return True
+
+    for subject, expected in (
+        ("Sendable", None),
+        ("Uncertain send", "mutation_uncertain"),
+    ):
+        payload = {
+            "sender": "synthetic@example.invalid",
+            "subject": subject,
+            "text": "Approved <text>\nsecond line",
+            "to": ["recipient@example.invalid"],
+            "cc": [],
+            "bcc": [],
+        }
+        created = await session.call_tool(
+            "icloud_write_preview", {"action": "mail.create_draft", "payload": payload}
+        )
+        assert (
+            created.structured_content is not None
+            and created.structured_content["error"] is None
+        )
+        create_id = created.structured_content["preview"]["request_id"]
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                create_id, SyntheticTerminal("APPROVE " + create_id), io.StringIO()
+            )
+        saved = await session.call_tool(
+            "icloud_write_execute", {"request_id": create_id}
+        )
+        assert (
+            saved.structured_content is not None
+            and saved.structured_content["error"] is None
+        )
+        handle = saved.structured_content["result"]["handle"]
+        prepared = await session.call_tool(
+            "icloud_write_preview",
+            {"action": "mail.send_draft", "target_handle": handle, "payload": {}},
+        )
+        assert (
+            prepared.structured_content is not None
+            and prepared.structured_content["error"] is None
+        )
+        preview = prepared.structured_content["preview"]
+        assert preview["risk"] == "high" and preview["payload"] == payload
+        identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert denied.structured_content is not None
+        assert denied.structured_content["error"] == "approval_record_unavailable"
+        with ApprovalMailbox(directory) as operator:
+            try:
+                operator.decide(
+                    identifier,
+                    SyntheticTerminal("APPROVE " + identifier),
+                    io.StringIO(),
+                )
+            except WriteDenied as error:
+                assert str(error) == "operator_declined"
+            else:
+                raise AssertionError("Ordinary approval authorized elevated send")
+            operator.decide(
+                identifier,
+                SyntheticTerminal("APPROVE HIGH-RISK " + identifier),
+                io.StringIO(),
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert result.structured_content is not None
+        assert result.structured_content["error"] == expected
+        assert result.structured_content["result"] == (
+            {
+                "action": "mail.send_draft",
+                "acknowledged": True,
+                "delivery_confirmed": False,
+            }
+            if expected is None
+            else None
+        )
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            replay.structured_content is not None
+            and replay.structured_content["error"] == "unknown_or_consumed_preview"
+        )
+        retired = await session.call_tool(
+            "icloud_write_preview",
+            {"action": "mail.send_draft", "target_handle": handle, "payload": {}},
+        )
+        assert (
+            retired.structured_content is not None
+            and retired.structured_content["error"] == "expired_or_unknown_handle"
+        )
 
 
 async def exercise_configured_mcp(session: Any, *, challenge: bool) -> None:

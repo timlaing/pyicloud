@@ -80,7 +80,9 @@ and cannot replay or recover a retry handle. No delivery/atomic-preflight claim.
 Gateway/schema integration now requires matching ordinary/elevated startup selection
 and Mail content consent. Synthetic gateway tests reject model confirmation and
 standard receipts, permit one elevated fake dispatch and retire uncertain sources.
-Installed send-specific qualification remains pending; no live mail was used.
+Installed send-specific qualification now verifies exact previews, ordinary terminal
+phrase denial, one typed fake acknowledgement and one ambiguous consumed-source
+submission, with request/source replay rejection. No live mail was used.
 
 Deletion risk audit: Reminders `delete` is the verified CloudKit soft update
 `Deleted: 1`, while Calendar `remove_event` submits DELETE/ifMatch without a reviewed
