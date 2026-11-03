@@ -29,6 +29,7 @@ from pyicloud.services.mail.models import (
     MailDraft,
     MailFolder,
     MailMessage,
+    MailMessageDeletion,
     MailSearchHit,
     MailSender,
     MailSendUpdate,
@@ -605,6 +606,40 @@ class SyntheticMail:
         self.saved: list[MailDraft] = []
         self.next_uid = 101
         self.created_folders: list[MailFolder] = []
+        self.deleted_uids: set[int] = set()
+        self.trash = MailFolder(
+            identifier="TR", name="Deleted Messages", uidValidity=88
+        )
+        self.trash_messages = [
+            MailMessage.model_validate({
+                "identifier": f"trash-{uid}",
+                "uid": uid,
+                "mboxRef": {"id": "TR"},
+                "folder": self.trash,
+                "subject": "Verified deletion" if uid == 7 else "Uncertain deletion",
+            })
+            for uid in (7, 8)
+        ]
+
+    def check_delete_permanently(self, message: MailMessage) -> str:
+        """Metadata-only synthetic preflight; never a mutation or body read."""
+        assert message.folder == self.trash
+        assert self.message_by_uid(message.folder, message.uid) == message
+        return "12345"
+
+    def delete_permanently(
+        self, message: MailMessage, *, confirm: bool = False
+    ) -> MailMessageDeletion:
+        """First fake deletion disappears; second acknowledgement lacks ID absence."""
+        assert confirm is True
+        self.check_delete_permanently(message)
+        self.deleted_uids.add(message.uid)
+        if message.uid == 7:
+            self.trash_messages.remove(message)
+        print("MCP_SYNTHETIC_MAIL_PERMANENT", file=sys.stderr, flush=True)
+        return MailMessageDeletion(
+            message_id=message.id, folder_id=message.folder.id, uid=message.uid
+        )
 
     def create_folder(self, name: str) -> MailFolder:
         """Only the first fake create appears in authoritative namespace metadata."""
@@ -664,7 +699,7 @@ class SyntheticMail:
 
     def folders(self) -> list[MailFolder]:
         """Expose the one explicitly selectable mailbox."""
-        return [self.folder, *self.created_folders]
+        return [self.folder, self.trash, *self.created_folders]
 
     def check_draft(self, draft: MailDraft) -> MailMessage:
         """Read-only exact fake saved identity, never an ID-only reconstruction."""
@@ -676,6 +711,10 @@ class SyntheticMail:
 
     def message_by_uid(self, folder: MailFolder, uid: int) -> MailMessage | None:
         """Independent old-UID absence comes from authoritative fake draft records."""
+        if folder == self.trash:
+            if uid in self.deleted_uids:
+                return None
+            return next((item for item in self.trash_messages if item.uid == uid), None)
         assert folder == self.drafts
         return next(
             (saved.message for saved in self.saved if saved.message.uid == uid), None
@@ -733,6 +772,9 @@ class SyntheticMail:
 
     def messages(self, folder: MailFolder, *, limit: int) -> SimpleNamespace:
         """Use the discovered typed route, not caller-supplied identifiers."""
+        if folder == self.trash:
+            assert limit == 50
+            return SimpleNamespace(messages=list(self.trash_messages))
         assert folder is self.folder
         assert limit == 50
         message = MailMessage.model_validate({
@@ -760,8 +802,12 @@ class SyntheticMail:
             ]
         )
 
-    def message(self, folder: MailFolder, identifier: str) -> MailMessage:
+    def message(self, folder: MailFolder, identifier: str) -> MailMessage | None:
         """Refresh one typed message scope before content retrieval."""
+        if folder == self.trash:
+            return next(
+                (item for item in self.trash_messages if item.id == identifier), None
+            )
         assert identifier == "M"
         return cast(MailMessage, self.messages(folder, limit=50).messages[0])
 
@@ -893,6 +939,7 @@ def main() -> None:
             "mail.create_draft",
             "mail.edit_draft",
             "mail.send_draft",
+            "mail.delete_forever_message",
             "mail.create_folder",
             "mail.rename_folder",
             "photos.set_favorite",
@@ -910,6 +957,7 @@ def main() -> None:
         high_risk_actions=(
             "calendar.delete_event",
             "mail.send_draft",
+            "mail.delete_forever_message",
             "drive.delete_forever_file",
         )
         if args.approval_dir

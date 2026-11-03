@@ -75,7 +75,10 @@ This is not atomic against external changes and grants no bulk deletion capabili
 Gateway/schema selects `mail.delete_forever_message` only with ordinary and elevated
 startup choices. Synthetic gateway tests reject caller confirmation and standard
 receipts and verify uncertain dispatch retires its source without replay. The
-deletion-specific installed-protocol fixture remains outstanding.
+deletion-specific installed-protocol fixture now checks separate elevated receipts,
+one verified fake deletion and one UID-absent but ID-present uncertain outcome,
+exactly two fake dispatches, retired handles and replay rejection on Python 3.10/3.15.
+No live account or destruction is involved.
 
 The verified Mail permanent-message facade already destroys exactly one current
 Trash ID through raw no-retry submission, checks typed acknowledgement and separately

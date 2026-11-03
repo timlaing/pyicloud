@@ -183,6 +183,7 @@ async def check_configured_mcp(
                     await exercise_permanent_delete_gate_mcp(
                         session, approval_directory
                     )
+                    await exercise_mail_delete_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -202,6 +203,7 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_CALENDAR_DELETED") == (1 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRAFT_SUBMITTED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRIVE_PERMANENT") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_MAIL_PERMANENT") == (2 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -1114,6 +1116,99 @@ async def exercise_permanent_delete_gate_mcp(session: Any, directory: str) -> No
                 "payload": {},
             },
         )
+        assert (
+            retired.structured_content is not None
+            and retired.structured_content["error"] == "expired_or_unknown_handle"
+        )
+
+
+async def exercise_mail_delete_gate_mcp(session: Any, directory: str) -> None:
+    """Installed wire checks for elevated one-message deletion and uncertain absence."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+    from pyicloud.mcp.authorization import WriteDenied
+
+    class SyntheticTerminal(io.StringIO):
+        """Fake independent approval, not live operator authorization."""
+
+        def isatty(self) -> bool:
+            return True
+
+    folders = await session.call_tool("icloud_mail_folders", {})
+    assert folders.structured_content is not None
+    folder = next(
+        row
+        for row in folders.structured_content["records"]
+        if row["name"] == "Deleted Messages"
+    )
+    discovered = await session.call_tool(
+        "icloud_mail_messages", {"folder_handle": folder["handle"]}
+    )
+    assert discovered.structured_content is not None
+    rows = {
+        row["subject"]: row["handle"]
+        for row in discovered.structured_content["records"]
+    }
+    for name, expected in (
+        ("Verified deletion", None),
+        ("Uncertain deletion", "mutation_uncertain"),
+    ):
+        handle = rows[name]
+        arguments = {
+            "action": "mail.delete_forever_message",
+            "target_handle": handle,
+            "payload": {},
+        }
+        prepared = await session.call_tool("icloud_write_preview", arguments)
+        assert (
+            prepared.structured_content is not None
+            and prepared.structured_content["error"] is None
+        )
+        preview = prepared.structured_content["preview"]
+        assert preview["risk"] == "high" and preview["payload"]["permanent"] is True
+        identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            denied.structured_content is not None
+            and denied.structured_content["error"] == "approval_record_unavailable"
+        )
+        with ApprovalMailbox(directory) as operator:
+            try:
+                operator.decide(
+                    identifier,
+                    SyntheticTerminal("APPROVE " + identifier),
+                    io.StringIO(),
+                )
+            except WriteDenied as error:
+                assert str(error) == "operator_declined"
+            else:
+                raise AssertionError("Ordinary approval authorized Mail destruction")
+            operator.decide(
+                identifier,
+                SyntheticTerminal("APPROVE HIGH-RISK " + identifier),
+                io.StringIO(),
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            result.structured_content is not None
+            and result.structured_content["error"] == expected
+        )
+        assert result.structured_content["result"] == (
+            {"action": "mail.delete_forever_message", "permanent": True}
+            if expected is None
+            else None
+        )
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            replay.structured_content is not None
+            and replay.structured_content["error"] == "unknown_or_consumed_preview"
+        )
+        retired = await session.call_tool("icloud_write_preview", arguments)
         assert (
             retired.structured_content is not None
             and retired.structured_content["error"] == "expired_or_unknown_handle"

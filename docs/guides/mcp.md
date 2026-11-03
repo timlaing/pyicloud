@@ -251,8 +251,9 @@ to the single-use preview. The independent terminal requires the elevated phrase
 The source handle is retired before one SDK call; success requires exact typed
 acknowledgement and independent UID and ID absence checks. Ambiguity is uncertain,
 not a retry instruction. Revalidation is not atomic against external mailbox changes.
-Gateway tests are synthetic; deletion-specific installed stdio qualification remains
-pending. No live destruction is claimed.
+Gateway and deletion-specific installed stdio tests are synthetic and network-blocked.
+They verify exact-once dispatch, dual absence, uncertainty and retired-handle/replay
+rejection. No live destruction is claimed.
 
 ## Opt-in elevated private trash-file permanent deletion
 

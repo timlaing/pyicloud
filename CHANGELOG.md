@@ -32,7 +32,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
-- Expose single-message Mail Trash permanent deletion through separately selected elevated MCP approval, with metadata-bound previews, handle retirement and no bulk or automatic retry path; deletion-specific installed protocol qualification remains pending.
+- Qualify elevated single-message Mail Trash deletion through network-blocked installed MCP stdio tests, including independent UID/ID absence, uncertain outcomes and retired-handle/replay rejection.
+
+- Expose single-message Mail Trash permanent deletion through separately selected elevated MCP approval, with metadata-bound previews, handle retirement and no bulk or automatic retry path.
 
 - Add an elevated single-Mail-Trash-message deletion adapter with exact metadata-bound previews, pre-dispatch source retirement and independent identity absence checks.
 
