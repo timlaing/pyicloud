@@ -371,8 +371,8 @@ body/identity revision bind a separate single-use receipt. Approval and old hand
 are consumed before one edit. Success requires a rotated ID/UID, old-UID absence,
 same folder/sender/roles and exact fresh canonical body, then returns a replacement
 opaque handle. Uncertain outcomes retire both request and old handle with no retry.
-The SDK preflight is not atomic with save. Gateway tests are synthetic; edit-specific
-installed stdio qualification is pending and no live Apple validation is claimed.
+The SDK preflight is not atomic with save. Gateway and edit-specific installed stdio
+tests use network-blocked synthetic state; no live Apple validation is claimed.
 
 ## Opt-in Mail draft creation
 

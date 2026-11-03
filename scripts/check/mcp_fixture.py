@@ -604,6 +604,53 @@ class SyntheticMail:
         """Expose the one explicitly selectable mailbox."""
         return [self.folder, *self.created_folders]
 
+    def check_draft(self, draft: MailDraft) -> MailMessage:
+        """Read-only exact fake saved identity, never an ID-only reconstruction."""
+        matches = [
+            saved for saved in self.saved if saved.message.uid == draft.message.uid
+        ]
+        assert len(matches) == 1 and matches[0] == draft
+        return matches[0].message
+
+    def message_by_uid(self, folder: MailFolder, uid: int) -> MailMessage | None:
+        """Independent old-UID absence comes from authoritative fake draft records."""
+        assert folder == self.drafts
+        return next(
+            (saved.message for saved in self.saved if saved.message.uid == uid), None
+        )
+
+    def edit_draft(
+        self,
+        draft: MailDraft,
+        *,
+        subject: str,
+        text: str,
+        html: str,
+        to: tuple[str, ...],
+        cc: tuple[str, ...],
+        bcc: tuple[str, ...],
+        attachments: tuple[Any, ...],
+    ) -> MailDraft:
+        """Rotate one fake identity; second edit has unverified post-save body."""
+        self.check_draft(draft)
+        assert subject in {"Edited", "Uncertain edit"}
+        assert text == "Edited <text>\nsecond line"
+        assert html == "" and attachments == ()
+        assert (to, cc, bcc) == (draft.to, draft.cc, draft.bcc)
+        uid = max(saved.message.uid for saved in self.saved) + 1
+        message = draft.message.model_copy(
+            update={"id": f"draft-{uid}", "uid": uid, "subject": subject}
+        )
+        saved = draft.model_copy(update={"message": message})
+        self.saved = [
+            current
+            for current in self.saved
+            if current.message.uid != draft.message.uid
+        ]
+        self.saved.append(saved)
+        print("MCP_SYNTHETIC_DRAFT_EDITED", file=sys.stderr, flush=True)
+        return saved
+
     def messages(self, folder: MailFolder, *, limit: int) -> SimpleNamespace:
         """Use the discovered typed route, not caller-supplied identifiers."""
         assert folder is self.folder
@@ -646,6 +693,10 @@ class SyntheticMail:
             content = "<div>Approved &lt;text&gt;<br>second line</div>"
             if message.subject == "Uncertain":
                 content = "<div>Different content</div>"
+            elif message.subject == "Edited":
+                content = "<div>Edited &lt;text&gt;<br>second line</div>"
+            elif message.subject == "Uncertain edit":
+                content = "<div>Unverified edit content</div>"
             return MailBody(
                 guid=f"message:Drafts/{message.uid}",
                 longHeader=(
@@ -751,10 +802,15 @@ def main() -> None:
         username="synthetic@example.invalid",
         session_dir="not-read",
         services=SUPPORTED_SERVICES,
-        content_services=("drive", "notes", "photos", "mail") if args.content else (),
+        content_services=("drive", "notes", "photos", "mail")
+        if args.content
+        else ("mail",)
+        if args.approval_dir
+        else (),
         write_actions=(
             "reminders.create",
             "mail.create_draft",
+            "mail.edit_draft",
             "mail.create_folder",
             "mail.rename_folder",
             "photos.set_favorite",

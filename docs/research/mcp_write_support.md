@@ -76,7 +76,9 @@ replacement handle is issued. Uncertain outcomes retire request and old handle,
 without retry or compensating mutations. Preflight is not atomic with save.
 Gateway/schema integration enforces Mail content opt-in at startup. Synthetic gateway
 tests verify receipt denial, one uncertain dispatch, source retirement and replay
-rejection. Installed edit-specific qualification remains pending; no live access.
+rejection. Installed edit-specific qualification now covers a verified rotated UID/
+handle followed by an unverified-body edit. Old handles and requests cannot replay;
+uncertainty exposes no replacement handle. All state is synthetic; no live access.
 
 `draft_revalidation.py` is a read-only editing foundation, not an edit action. It
 requires Mail metadata and content opt-ins before reading an opaque server-created

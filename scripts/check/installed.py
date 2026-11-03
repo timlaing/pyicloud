@@ -162,7 +162,9 @@ async def check_configured_mcp(
                     await exercise_content_mcp(session)
                 if writes:
                     await exercise_write_gate_mcp(session, approval_directory)
-                    await exercise_mail_write_gate_mcp(session, approval_directory)
+                    saved_draft = await exercise_mail_write_gate_mcp(
+                        session, approval_directory
+                    )
                     await exercise_photo_write_gate_mcp(session, approval_directory)
                     await exercise_drive_write_gate_mcp(session, approval_directory)
                     await exercise_drive_move_gate_mcp(session, approval_directory)
@@ -171,6 +173,9 @@ async def check_configured_mcp(
                     await exercise_album_rename_gate_mcp(session, approval_directory)
                     await exercise_album_create_gate_mcp(session, approval_directory)
                     await exercise_relation_gate_mcp(session, approval_directory)
+                    await exercise_draft_edit_gate_mcp(
+                        session, approval_directory, saved_draft
+                    )
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -186,6 +191,7 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_ALBUM_RENAMED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_ALBUM_CREATED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_RELATION_ADDED") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_DRAFT_EDITED") == (2 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -234,7 +240,7 @@ async def exercise_write_gate_mcp(session: Any, directory: str) -> None:
     assert replay.structured_content["error"] == "unknown_or_consumed_preview"
 
 
-async def exercise_mail_write_gate_mcp(session: Any, directory: str) -> None:
+async def exercise_mail_write_gate_mcp(session: Any, directory: str) -> str:
     """Synthetic successful and uncertain saves each dispatch once, never replay."""
     from pyicloud.mcp.approval_channel import ApprovalMailbox
 
@@ -245,6 +251,7 @@ async def exercise_mail_write_gate_mcp(session: Any, directory: str) -> None:
             """Exercise the terminal-only decision path in this isolated fixture."""
             return True
 
+    saved_handle = ""
     for subject, expected_error in (
         ("Approved", None),
         ("Uncertain", "mutation_uncertain"),
@@ -286,6 +293,7 @@ async def exercise_mail_write_gate_mcp(session: Any, directory: str) -> None:
             assert created["action"] == "mail.create_draft"
             assert created["id"] == "draft-101"
             assert isinstance(created["handle"], str) and created["handle"]
+            saved_handle = created["handle"]
         else:
             assert result.structured_content["result"] is None
         replay = await session.call_tool(
@@ -293,6 +301,8 @@ async def exercise_mail_write_gate_mcp(session: Any, directory: str) -> None:
         )
         assert replay.structured_content is not None
         assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+    assert saved_handle
+    return saved_handle
 
 
 async def exercise_photo_write_gate_mcp(session: Any, directory: str) -> None:
@@ -774,6 +784,72 @@ async def exercise_relation_gate_mcp(session: Any, directory: str) -> None:
         )
         assert replay.structured_content is not None
         assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+
+
+async def exercise_draft_edit_gate_mcp(
+    session: Any, directory: str, handle: str
+) -> None:
+    """Installed edit success rotates the handle; uncertainty leaves no retry source."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    class SyntheticTerminal(io.StringIO):
+        """Only fake test decisions, never real operator authorization."""
+
+        def isatty(self) -> bool:
+            """Exercise separate terminal-only receipt input."""
+            return True
+
+    for subject, expected in (
+        ("Edited", None),
+        ("Uncertain edit", "mutation_uncertain"),
+    ):
+        payload = {
+            "subject": subject,
+            "text": "Edited <text>\nsecond line",
+            "to": ["recipient@example.invalid"],
+            "cc": [],
+            "bcc": [],
+        }
+        prepared = await session.call_tool(
+            "icloud_write_preview",
+            {"action": "mail.edit_draft", "target_handle": handle, "payload": payload},
+        )
+        assert prepared.structured_content is not None
+        assert prepared.structured_content["error"] is None
+        identifier = prepared.structured_content["preview"]["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert denied.structured_content is not None
+        assert denied.structured_content["error"] == "approval_record_unavailable"
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                identifier, SyntheticTerminal("APPROVE " + identifier), io.StringIO()
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert result.structured_content is not None
+        assert result.structured_content["error"] == expected
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert replay.structured_content is not None
+        assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+        retired = await session.call_tool(
+            "icloud_write_preview",
+            {"action": "mail.edit_draft", "target_handle": handle, "payload": payload},
+        )
+        assert retired.structured_content is not None
+        assert retired.structured_content["error"] == "expired_or_unknown_handle"
+        if expected is None:
+            edited = result.structured_content["result"]
+            assert edited["action"] == "mail.edit_draft"
+            assert edited["id"] == "draft-103"
+            assert isinstance(edited["handle"], str) and edited["handle"] != handle
+            handle = edited["handle"]
+        else:
+            assert result.structured_content["result"] is None
 
 
 async def exercise_configured_mcp(session: Any, *, challenge: bool) -> None:

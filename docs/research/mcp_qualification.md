@@ -165,3 +165,12 @@ deny without private receipts and reject replay afterward; only two mutation mar
 and one cleanup are allowed. Unverified membership returns uncertainty with no
 success result. Real typed acknowledgement/filter guards are qualified separately
 by library tests; the protocol fixture performs no live CloudKit requests or uploads.
+
+Installed saved-draft edits start from a verified server-created handle and explicitly
+opt the write fixture into Mail content. One fake edit rotates ID/UID, removes the old
+UID and verifies exact new body before returning a replacement handle. A second
+rotates but exposes an unverified body, returning uncertainty without a retry handle.
+Both deny without private receipts, dispatch once after simulated terminal approval,
+reject request replay and reject previewing retired old handles. Exactly two edit
+markers and one cleanup are required. No sending/upload methods or live Mail calls
+are present; old/current records and bodies are entirely synthetic.
