@@ -211,6 +211,18 @@ and require manual reconciliation. Already-correct names consume approval withou
 an unnecessary mutation. Trash, restore, move, permanent delete and uploads are
 not enabled by this flag.
 
+## Opt-in private Drive file trashing
+
+Enable `--service drive`, `--write-action drive.trash_file`, and the private
+approval directory. Preview a discovered file `target_handle` with an empty
+payload. Only private files outside Recently Deleted are supported, not folders,
+shared nodes, permanent deletion, or uploads. Approval binds the account, endpoint,
+file/zone identity and fresh etag; it is consumed before the existing etag-bearing
+`move_to_trash` call. An independent Recently Deleted listing must contain exactly
+that item, and refreshed metadata must expose a nonempty `restorePath` and valid
+etag. Generic acknowledgements or disappearance alone are not proof. Failures after
+dispatch are uncertain and cannot replay approval. No live Drive account was used.
+
 ## Opt-in private Photos favorites
 
 With `--service photos`, `--write-action photos.set_favorite`, and the private

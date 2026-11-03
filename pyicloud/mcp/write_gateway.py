@@ -71,9 +71,12 @@ class WriteGateway:
                     event_id,
                     publish=self.mailbox.publish,
                 )
-            elif action == "drive.rename":
+            elif action in {"drive.rename", "drive.trash_file"}:
                 preview = await self.drive.prepare(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
+                    target_handle or list_handle,
+                    payload,
+                    publish=self.mailbox.publish,
+                    action=action,
                 )
             else:
                 preview = await self.writer.prepare(
@@ -121,7 +124,7 @@ class WriteGateway:
                 adapter = self.mail
             elif action.startswith("calendar."):
                 adapter = self.calendar
-            elif action == "drive.rename":
+            elif action in {"drive.rename", "drive.trash_file"}:
                 adapter = self.drive
             else:
                 adapter = self.writer

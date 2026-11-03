@@ -65,6 +65,13 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Private file-only Drive trashing uses the existing `move_to_trash`/`moveItemsToTrash`
+contract with etag. Existing `tests/const/const_drive.py` trash fixtures establish
+Recently Deleted `restorePath` metadata, also used by the public recover method.
+The adapter requires exact trash-list membership plus fresh identity/zone/etag and
+nonempty restore path after one approved dispatch. No folder/permanent deletion or
+guessed delete endpoint is enabled. Installed trash-specific protocol remains pending.
+
 Drive, Calendar and Reminders approval resource bindings additionally include the
 discovered service root. Changing the endpoint after preview now invalidates the
 receipt even when account/resource IDs and revisions are identical; missing or

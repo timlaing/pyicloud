@@ -274,6 +274,7 @@ def build_server(
                 "reminders.update",
                 "reminders.delete",
                 "drive.rename",
+                "drive.trash_file",
                 "calendar.create_event",
                 "calendar.delete_event",
                 "mail.create_draft",
