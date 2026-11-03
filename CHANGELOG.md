@@ -20,6 +20,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Expose read-only Photos album change-tag, zone, parent and object-type metadata for revision-bound adapters; zone mappings are detached copies and missing tags remain unknown.
+
 - Enable opt-in MCP custom Mail folder renames using discovered handles, exact receipts and same-ID/UID verification; installed tests cover verified and uncertain outcomes without live accounts.
 
 - Add synthetic qualification of an internal custom Mail folder-rename adapter with discovered handles, namespace-bound receipts, system/child-folder guards and same-ID post-write verification; runtime rename tools remain disabled pending integration.

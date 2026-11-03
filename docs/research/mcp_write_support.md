@@ -65,6 +65,15 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Photos album rename uses the verified `PhotoAlbum.rename` method and one revision-
+bearing CloudKit update. Album revision, zone, parent and type previously required
+private-field access, so read-only `record_change_tag`, `zone_id`, `parent_id` and
+`object_type` properties now expose only observed metadata. Zone mappings are copied,
+missing revisions are not inferred, and reads do not dispatch transport. These are
+snapshots: a future MCP adapter must refresh private-library albums before preview/
+execution and independently verify the same album ID/parent/zone and requested name
+after rename. No album MCP action is enabled by this metadata milestone.
+
 `mail_folder_renames.py` is an internal adapter for conservative top-level custom
 folder renames through verified `MailService.rename_folder`, now selected by the
 separately opted-in runtime `mail.rename_folder` action.

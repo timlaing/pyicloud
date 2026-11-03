@@ -297,3 +297,13 @@ except PhotosZoneNotFoundError:
 except PyiCloudException as err:
     print(f"Photos failed: {err}")
 ```
+
+## Album mutation identity metadata
+
+`PhotoAlbum.record_change_tag`, `zone_id`, `parent_id`, and `object_type` expose the
+observed identity/revision metadata without fetching data or mutating an album.
+`zone_id` returns a detached copy; changing it cannot redirect later writes.
+`record_change_tag` may be `None`: callers must not invent a revision for approval
+or concurrency checks. These properties are snapshots, not fresh server reads.
+Refresh the library's albums and verify post-write state independently when using
+revision-bound mutation adapters. This does not enable MCP album rename or deletion.

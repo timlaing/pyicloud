@@ -1529,6 +1529,26 @@ class PhotoAlbum(BasePhotoAlbum):
         return self._record_id
 
     @property
+    def record_change_tag(self) -> str | None:
+        """Return the observed album revision, never infer a missing write tag."""
+        return self._record_change_tag
+
+    @property
+    def zone_id(self) -> dict[str, str]:
+        """Return a detached zone identity; callers cannot change mutation routing."""
+        return dict(self._zone_id)
+
+    @property
+    def parent_id(self) -> str | None:
+        """Return the observed parent link without fetching an ancestor tree."""
+        return self._parent_id
+
+    @property
+    def object_type(self) -> ObjectTypeEnum:
+        """Identify user containers separately from virtual or unsupported albums."""
+        return self._obj_type
+
+    @property
     def fullname(self) -> str:
         return self.fullname_guard(seen=set())
 
