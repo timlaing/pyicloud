@@ -65,6 +65,20 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`upload_staging.py` is an internal byte-staging foundation, not a runtime upload
+tool or approval path. Strict remote leaf names only, no caller filesystem paths or
+URLs. Defaults reserve at most 4 MiB per file, 8 MiB aggregate and eight stages for
+five minutes; reservation accounting includes incomplete declared sizes. Strict
+Base64 chunks are bounded to 64 KiB and exact next offsets. Only exact final size
+and independently computed SHA-256 matching the declaration can seal immutable
+bytes. Sealed data cannot be appended or replaced, and take consumes it once.
+Expiry, mismatch, discard and close release store references; this is not a promise
+of cryptographic memory erasure. Representations do not expose contents. No file,
+network, credential, destination or approval access exists in this module. Future
+adapters must bind exact name/size/digest plus destination/account/route/revision to
+independent elevated receipts, and validate verified upload responses/post-state.
+Uploads remain runtime-disabled; no endpoint is guessed or enabled.
+
 `drive_deletions.py` is selected by the separately opted-in elevated runtime
 `drive.delete_forever_file` action. Only discovered typed private `drive-trash-file` handles reach fresh
 identity/zone checks, literal top-level `TRASH_ROOT` membership and valid non-sentinel
