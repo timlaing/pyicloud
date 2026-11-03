@@ -51,7 +51,7 @@ class DriveWrites:
 
     def _bindings(
         self, client: Any, target: DriveTarget, node: DriveNode
-    ) -> tuple[str, str, str | None]:
+    ) -> tuple[str, str, str]:
         account = client.params.get("dsid")
         if account is None or isinstance(account, bool):
             raise WriteDenied("account_unavailable")
