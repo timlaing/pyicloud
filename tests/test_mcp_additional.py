@@ -112,6 +112,29 @@ async def test_handle_binding_expiration_and_registry_budget() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fields", [{}, {"emails": None}, {"phones": None}, {"emails": None, "phones": None}]
+)
+async def test_null_contact_fields_keep_names_and_explicit_selection(
+    fields: dict[str, Any],
+) -> None:
+    """Missing and null fields expose empty lists only when explicitly requested."""
+    client = MagicMock()
+    client.contacts.all = [{"firstName": "Alice", "lastName": "Example", **fields}]
+    tools = adapters(client)
+    result = await tools.contacts("Alice", 50)
+    assert result.error is None
+    handle = result.records[0]["handle"]
+    minimal = await tools.contact_details(handle, False, False)
+    assert minimal.records == [{"first_name": "Alice", "last_name": "Example"}]
+    details = await tools.contact_details(handle, True, True)
+    assert details.error is None
+    assert details.records == [
+        {"first_name": "Alice", "last_name": "Example", "emails": [], "phones": []}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_drive_browses_discovered_folders_without_local_paths_or_downloads() -> (
     None
 ):
@@ -284,6 +307,11 @@ async def test_additional_tool_registration_and_disabled_default() -> None:
     server = build_server(owner=owner_for(client))
     tools = await server.list_tools()
     assert len(tools) == 20
+    mail_search = next(tool for tool in tools if tool.name == "icloud_mail_search")
+    assert mail_search.description is not None
+    assert "subject/from/to/body/all" in mail_search.description
+    assert "body/all require Mail content opt-in" in mail_search.description
+    assert "no previews or bodies" in mail_search.description
     for name, args in [
         ("icloud_contacts_list", {}),
         ("icloud_contact_details", {"handle": "unknown"}),

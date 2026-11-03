@@ -219,6 +219,36 @@ async def test_note_and_mail_content_are_explicit_and_bounded() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("parts", "maximum", "expected", "complete"),
+    [
+        (["éé"], 4, ["éé"], True),
+        (["é", "é"], 4, ["é", "é"], True),
+        (["éé", "later"], 4, ["éé"], False),
+        (["éé"], 3, ["é"], False),
+    ],
+)
+async def test_mail_body_exact_budget_completeness(
+    parts: list[str], maximum: int, expected: list[str], complete: bool
+) -> None:
+    """Exact final UTF-8 budgets are complete, unlike clipped or omitted parts."""
+    client = MagicMock()
+    tools = content_for(client)
+    handle = tools.additional.remember(
+        "mail-message", SimpleNamespace(folder="F", id="M")
+    )
+    client.mail.message.return_value = SimpleNamespace(subject="Subject")
+    client.mail.body.return_value = SimpleNamespace(
+        content_type="text/plain",
+        parts=[SimpleNamespace(content=part) for part in parts],
+    )
+    result = await tools.mail_body(handle, maximum)
+    assert result.error is None
+    assert result.records[0]["parts"] == [{"content": part} for part in expected]
+    assert result.complete is complete
+
+
+@pytest.mark.asyncio
 async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
     """Downloads require discovered resources and preserve range/version state."""
     client = MagicMock()

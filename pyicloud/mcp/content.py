@@ -153,13 +153,13 @@ class ContentReads:
             body = client.mail.body(message)
             remaining, complete = maximum, True
             parts = []
-            for part in body.parts:
+            for index, part in enumerate(body.parts):
                 content, whole = clipped_text(part.content, remaining)
                 parts.append({"content": content})
                 remaining -= len(content.encode("utf-8"))
                 complete = complete and whole
                 if remaining <= 0:
-                    complete = False
+                    complete = complete and index == len(body.parts) - 1
                     break
             return bounded_result(
                 [

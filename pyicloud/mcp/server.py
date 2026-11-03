@@ -193,7 +193,10 @@ def build_server(
             limit: int = 50,
             field: Literal["subject", "from", "to", "body", "all"] = "subject",
         ) -> ReadResult:
-            """Search subject headers only; previews and bodies are omitted."""
+            """Search subject/from/to/body/all; body/all require Mail content opt-in.
+
+            Results contain thread IDs and subjects only; no previews or bodies.
+            """
             return await additional.mail_search(folder_handle, query, limit, field)
 
     if "notes" in context.config.services:

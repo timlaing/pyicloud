@@ -113,8 +113,8 @@ class AdditionalReads:
                     {
                         "first_name": first,
                         "last_name": last,
-                        "emails": row.get("emails", []),
-                        "phones": row.get("phones", []),
+                        "emails": row.get("emails") or [],
+                        "phones": row.get("phones") or [],
                     },
                 )
                 records.append({
@@ -333,7 +333,10 @@ class AdditionalReads:
     async def mail_search(
         self, folder_handle: str, query: str, limit: int, field: str = "subject"
     ) -> ReadResult:
-        """Search subject headers only; never return previews or search body bytes."""
+        """Search subject/from/to/body/all; body/all require Mail content opt-in.
+
+        Results contain thread IDs and subjects only; no previews or bodies.
+        """
         if not query.strip():
             return ReadResult(error="invalid_argument")
         if field not in {"subject", "from", "to", "body", "all"}:

@@ -172,6 +172,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Correct MCP Mail-search descriptions to list all supported fields and required body/all content opt-ins, without changing metadata-only results.
+
+- Report MCP Mail bodies as complete when the final part exactly fills the UTF-8 budget, while keeping clipped or omitted parts incomplete.
+
+- Treat null contact email and phone fields as empty lists in MCP contact details, retaining available names and explicit field-selection privacy.
+
 - Accept owned PrimarySync Photos zone metadata only when its owner matches observed private-zone discovery, retaining account/route/owner bindings and rejecting foreign, shared or unverified owners without adding network activity to passive capability checks.
 
 - Fix consumed approval-record cleanup, remaining-deadline socket read timeouts, zero-byte Drive downloads, recovery summary/detail identity comparisons and bounded container-scoped Photos membership queries; align published MCP write-support documentation with implemented opt-in actions.
