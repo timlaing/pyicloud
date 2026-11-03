@@ -113,7 +113,19 @@ async def test_elevated_exact_once_upload_and_independent_proof(case: str) -> No
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "case",
-    ["hosts", "shared", "root", "service", "timestamp", "target", "stage", "params"],
+    [
+        "hosts",
+        "shared",
+        "root",
+        "service",
+        "timestamp",
+        "target",
+        "stage",
+        "params",
+        "insecure",
+        "query",
+        "identity",
+    ],
 )
 async def test_unsupported_context_never_dispatches(case: str) -> None:
     """Unsafe library/staging/route selections cannot reserve upload resources."""
@@ -134,6 +146,13 @@ async def test_unsupported_context_never_dispatches(case: str) -> None:
         upload.staging.discard(token)
     elif case == "params":
         client.photos.params["dsid"] = "456"
+    elif case == "insecure":
+        client.photos.upload_root = "http://upload.example.test"
+    elif case == "query":
+        client.photos.upload_root = "https://upload.example.test?dsid=other"
+    elif case == "identity":
+        client.params["dsid"] = "not-account"
+        client.photos.params["dsid"] = "not-account"
     with pytest.raises(WriteDenied):
         await upload.prepare_upload(
             handle, token, True if case == "timestamp" else 1000

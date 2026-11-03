@@ -182,6 +182,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Reject insecure, query-bearing or credential-bearing Photos upload routes and invalid account identities during preview, before consuming approval or staged bytes.
+
 - Ignore caller-supplied `request_params` in Drive uploads without interrupting finalisation or replacing the operation-local upload token.
 - Keep Drive upload tokens local to each upload while preserving preparation and finalisation request parameters; uploads no longer add credentials to shared service parameters.
 - Recover from persisted session JSON rejected by the parser's integer-size limit without exposing saved values or losing independently valid cookies.

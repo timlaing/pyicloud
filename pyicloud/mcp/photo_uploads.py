@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 from pyicloud.services.photos.mappers import record_change_tag
 from pyicloud.services.photos.service import PhotoAsset, PhotoLibrary
@@ -56,6 +57,14 @@ class PhotoUploads:
         root = client.photos.upload_root
         if not isinstance(root, str) or not root:
             raise WriteDenied("route_unavailable")
+        parsed = urlsplit(root)
+        checked_upload_url(
+            root, frozenset({parsed.hostname}) if parsed.hostname else frozenset()
+        )
+        if parsed.query or parsed.fragment:
+            raise WriteDenied("unsupported_upload_route")
+        if not account.isascii() or not account.isdecimal():
+            raise WriteDenied("account_unavailable")
         if client.photos.params.get("dsid") != account:
             raise WriteDenied("account_unavailable")
         # Host policy is independent of the server-provided transfer URL.
