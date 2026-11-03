@@ -20,6 +20,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Enable opt-in MCP private top-level Photos album renames with exact receipts and independent fresh identity/name proof; installed tests cover verified and uncertain outcomes without live CloudKit access.
+
 - Add synthetic qualification of an internal private top-level Photos album-rename adapter with discovered handles, fresh revision bindings, and independent post-write identity/name proof; runtime album renames remain disabled pending integration.
 
 - Expose read-only Photos album change-tag, zone, parent and object-type metadata for revision-bound adapters; zone mappings are detached copies and missing tags remain unknown.

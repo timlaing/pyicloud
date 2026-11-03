@@ -241,6 +241,23 @@ that item, and refreshed metadata must expose a nonempty `restorePath` and valid
 etag. Generic acknowledgements or disappearance alone are not proof. Failures after
 dispatch are uncertain and cannot replay approval. No live Drive account was used.
 
+## Opt-in private Photos album renames
+
+Enable `--service photos`, `--write-action photos.rename_album`, and the private
+approval directory. Preview a discovered custom album `target_handle` with exactly
+`{"name": "Renamed album"}`. Only private top-level container albums with an explicit
+zone and observed record change tag are supported. Virtual, nested, shared-owner or
+targets without revisions and unbounded/path-like titles are rejected.
+
+Account, Photos endpoint, zone/album identity/parent and fresh record tag/name bind
+the exact single-use receipt. Refresh the private library before preview and apply;
+consume approval before one public rename. Independent post-refresh must preserve
+identity/route/parent and verify the requested name with a valid tag. Reusing the
+mutated album object is not proof, because local pending caches can survive refresh.
+Unverified outcomes are uncertain and cannot replay approval; no-op also consumes
+approval. Gateway and installed tests are network-blocked synthetic checks, not live
+Apple validation. Album creation/deletion and shared mutation remain unavailable.
+
 ## Opt-in private Photos favorites
 
 With `--service photos`, `--write-action photos.set_favorite`, and the private

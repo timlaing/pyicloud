@@ -45,6 +45,7 @@ SUPPORTED_WRITE_ACTIONS = (
     "mail.create_folder",
     "mail.rename_folder",
     "photos.set_favorite",
+    "photos.rename_album",
 )
 
 

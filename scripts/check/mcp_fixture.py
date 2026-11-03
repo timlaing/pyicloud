@@ -6,7 +6,7 @@ Never opens an Apple account or saved-state directory; outbound sockets are deni
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from datetime import datetime
 import re
 import socket
@@ -30,7 +30,16 @@ from pyicloud.services.mail.models import (
     MailSearchHit,
     MailSender,
 )
-from pyicloud.services.photos.service import PhotoAsset
+from pyicloud.services.photos.constants import (
+    DirectionEnum,
+    ListTypeEnum,
+    ObjectTypeEnum,
+)
+from pyicloud.services.photos.service import (
+    PhotoAlbum,
+    PhotoAlbumRecordState,
+    PhotoAsset,
+)
 from pyicloud.services.reminders.models import Reminder, RemindersList
 
 
@@ -346,6 +355,57 @@ class SyntheticWritableAlbum:
         return SyntheticWritableAsset(self)
 
 
+class SyntheticNamedAlbum(PhotoAlbum):
+    """Fresh typed album snapshot; no CloudKit method or endpoint is called."""
+
+    def __init__(self, library: SyntheticPrivateLibrary) -> None:
+        self.fake_library = library
+        super().__init__(
+            cast(Any, library),
+            name=library.album_name,
+            record_id="ALBUM",
+            obj_type=ObjectTypeEnum.CONTAINER,
+            list_type=ListTypeEnum.DEFAULT,
+            direction=DirectionEnum.ASCENDING,
+            zone_id=library.zone_id,
+            record=PhotoAlbumRecordState(record_change_tag=library.album_tag),
+        )
+
+    def __iter__(self) -> Generator[PhotoAsset]:
+        """Preserve existing bounded metadata fixtures without transport."""
+        yield SyntheticWritableAsset(self.fake_library.all)
+
+    def rename(self, value: str) -> None:
+        """Second fake rename acknowledges without changing authoritative name."""
+        assert value in {"Renamed album", "Uncertain album"}
+        if value == "Renamed album":
+            self.fake_library.album_name = value
+            self.fake_library.album_tag = "A2"
+        print("MCP_SYNTHETIC_ALBUM_RENAMED", file=sys.stderr, flush=True)
+
+
+class SyntheticPrivateLibrary:
+    """Fresh typed album-list reads distinct from optimistic mutation objects."""
+
+    scope = "private"
+    zone_id = {"zoneName": "Z"}
+
+    def __init__(self, service: Any, all_photos: SyntheticWritableAlbum) -> None:
+        self.service = service
+        self.all = all_photos
+        self.album_name = "Synthetic album"
+        self.album_tag = "A1"
+
+    @property
+    def albums(self) -> list[SyntheticNamedAlbum]:
+        """Read-only discovered synthetic album handles."""
+        return self.refresh_albums()
+
+    def refresh_albums(self) -> list[SyntheticNamedAlbum]:
+        """Return new instances from authoritative fake state on every refresh."""
+        return [SyntheticNamedAlbum(self)]
+
+
 class SyntheticNotes:
     """Only recent summaries; no method can retrieve bodies or attachments."""
 
@@ -540,6 +600,13 @@ class SyntheticClient:
                 )
             },
         )
+        if writes:
+            self.photos.params = {}
+            self.photos.libraries = {
+                "synthetic": SyntheticPrivateLibrary(
+                    self.photos, cast(SyntheticWritableAlbum, album)
+                )
+            }
         self.mail = SyntheticMail()
         self.session = SimpleNamespace(close=self.close, get=self.get_resource)
 
@@ -587,6 +654,7 @@ def main() -> None:
             "mail.create_folder",
             "mail.rename_folder",
             "photos.set_favorite",
+            "photos.rename_album",
             "drive.rename",
             "drive.trash_file",
             "drive.move_file",

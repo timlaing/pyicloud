@@ -140,3 +140,11 @@ second rename. Both first deny without receipt, dispatch once after simulated te
 approval and reject replay. Only the verified new namespace returns a success identity;
 the second result is uncertain. Two rename markers and one cleanup are required.
 All namespace data is synthetic and networking remains blocked.
+
+Installed private Photos album rename uses typed snapshots freshly reconstructed
+from authoritative fake library state. One rename changes that state and verifies
+same album ID/zone/parent with new name/tag; a second only acknowledges and returns
+uncertainty with no success result. Both deny before simulated terminal receipts,
+dispatch exactly once afterward and reject replay. Two album rename markers and
+one cleanup are required. No local mutation object supplies independent proof, and
+there is no live Photos or CloudKit access.

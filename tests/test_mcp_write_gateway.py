@@ -24,6 +24,7 @@ from tests.test_mcp_drive_writes import setup_writer
 from tests.test_mcp_mail_folder_renames import setup_rename
 from tests.test_mcp_mail_folders import setup_folders
 from tests.test_mcp_mail_writes import setup_mail
+from tests.test_mcp_photo_album_writes import setup_album
 from tests.test_mcp_photo_writes import setup_photos
 from tests.test_mcp_reminder_writes import writer
 
@@ -32,6 +33,44 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+@pytest.mark.asyncio
+async def test_album_gateway_shares_discovered_registry_and_receipt() -> None:
+    """Even a synthetic already-correct album name requires exact approval."""
+    albums, _client, _album, handle = setup_album()
+    owner = cast(Any, albums.additional.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("photos",),
+        write_actions=("photos.rename_album",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(albums.additional.reads, albums.additional)
+    prepared = await gateway.prepare(
+        "photos.rename_album", "", {"name": "Before"}, None, handle
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+    mailbox.accept.side_effect = WriteDenied("operator_approval_required")
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "operator_approval_required"
+
+    def accept(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = accept
+    result = await gateway.apply(preview["request_id"])
+    assert result.error is None
+    assert result.result == {"action": "photos.rename_album", "changed": False}
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
 
 
 @pytest.mark.asyncio

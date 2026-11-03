@@ -168,6 +168,7 @@ async def check_configured_mcp(
                     await exercise_drive_move_gate_mcp(session, approval_directory)
                     await exercise_mail_folder_gate_mcp(session, approval_directory)
                     await exercise_mail_rename_gate_mcp(session, approval_directory)
+                    await exercise_album_rename_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -180,6 +181,7 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_DRIVE_MOVED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_MAIL_FOLDER_CREATED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_MAIL_FOLDER_RENAMED") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_ALBUM_RENAMED") == (2 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -569,6 +571,72 @@ async def exercise_mail_rename_gate_mcp(session: Any, directory: str) -> None:
         assert result.structured_content["error"] == expected
         assert result.structured_content["result"] == (
             {"action": "mail.rename_folder", "id": "Verified Folder"}
+            if expected is None
+            else None
+        )
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert replay.structured_content is not None
+        assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+
+
+async def exercise_album_rename_gate_mcp(session: Any, directory: str) -> None:
+    """Installed album rename success needs a new independently refreshed snapshot."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    class SyntheticTerminal(io.StringIO):
+        """Simulated private terminal decision, not actual account authorization."""
+
+        def isatty(self) -> bool:
+            """Exercise the operator-only receipt path."""
+            return True
+
+    libraries = await session.call_tool("icloud_photos_libraries", {})
+    assert libraries.structured_content is not None
+    library = libraries.structured_content["records"][0]["handle"]
+    for original, name, expected in (
+        ("Synthetic album", "Renamed album", None),
+        ("Renamed album", "Uncertain album", "mutation_uncertain"),
+    ):
+        albums = await session.call_tool(
+            "icloud_photos_albums", {"library_handle": library}
+        )
+        assert albums.structured_content is not None
+        handle = next(
+            row["handle"]
+            for row in albums.structured_content["records"]
+            if row["title"] == original
+        )
+        prepared = await session.call_tool(
+            "icloud_write_preview",
+            {
+                "action": "photos.rename_album",
+                "target_handle": handle,
+                "payload": {"name": name},
+            },
+        )
+        assert prepared.structured_content is not None
+        assert prepared.structured_content["error"] is None
+        preview = prepared.structured_content["preview"]
+        assert preview["target"] == original
+        identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert denied.structured_content is not None
+        assert denied.structured_content["error"] == "approval_record_unavailable"
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                identifier, SyntheticTerminal("APPROVE " + identifier), io.StringIO()
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert result.structured_content is not None
+        assert result.structured_content["error"] == expected
+        assert result.structured_content["result"] == (
+            {"action": "photos.rename_album", "changed": True}
             if expected is None
             else None
         )

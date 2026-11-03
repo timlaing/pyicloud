@@ -65,8 +65,8 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
-`photo_album_writes.py` is an internal private top-level album-rename adapter, not
-yet a runtime action. It resolves typed discovered albums, rejects unsupported
+`photo_album_writes.py` is a private top-level album-rename adapter selected by the
+separately opted-in runtime `photos.rename_album` action. It resolves typed discovered albums, rejects unsupported
 object types/parents/shared owners, and requires exactly one matching private library
 and refreshed album identity with a real revision tag. Account/endpoint/zone/ID/parent
 and fresh tag/name bind the exact single-use receipt. One verified public rename is
@@ -74,8 +74,9 @@ followed by another independent album refresh requiring matching identity/name a
 valid tag. Reusing the mutated album object is rejected: locally pending albums can
 survive a refresh, so their optimistic state is not independent proof. No-op consumes
 approval without dispatch; unverified post-state is uncertain and cannot replay.
-Gateway/schema and installed album-rename qualification remain pending. No live
-Photos account or CloudKit mutation was used.
+Gateway/schema and installed album-rename qualification now cover receipt denial,
+one approved fresh-snapshot verified rename, acknowledgement-only uncertainty and
+replay rejection. No live Photos account or CloudKit mutation was used.
 
 Photos album rename uses the verified `PhotoAlbum.rename` method and one revision-
 bearing CloudKit update. Album revision, zone, parent and type previously required

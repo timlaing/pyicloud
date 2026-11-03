@@ -282,6 +282,7 @@ def build_server(
                 "mail.create_folder",
                 "mail.rename_folder",
                 "photos.set_favorite",
+                "photos.rename_album",
             ],
             list_handle: str = "",
             payload: dict[str, Any] | None = None,

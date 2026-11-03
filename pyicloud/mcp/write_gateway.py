@@ -16,6 +16,7 @@ from .drive_writes import DriveWrites
 from .mail_folder_renames import MailFolderRenames
 from .mail_folders import MailFolderWrites
 from .mail_writes import MailWrites
+from .photo_album_writes import PhotoAlbumWrites
 from .photo_writes import PhotoWrites
 from .reads import ReadTools
 from .reminder_writes import ReminderWrites
@@ -47,6 +48,7 @@ class WriteGateway:
         self.mail_folders = MailFolderWrites(reads, self.ledger)
         self.mail_renames = MailFolderRenames(self.drive.additional, self.ledger)
         self.photos = PhotoWrites(self.drive.additional, self.ledger)
+        self.photo_albums = PhotoAlbumWrites(self.drive.additional, self.ledger)
         self._actions: dict[str, str] = {}
 
     async def prepare(
@@ -70,6 +72,10 @@ class WriteGateway:
                     destination_handle or "",
                     payload,
                     publish=self.mailbox.publish,
+                )
+            elif action == "photos.rename_album":
+                preview = await self.photo_albums.prepare(
+                    target_handle or list_handle, payload, publish=self.mailbox.publish
                 )
             elif action == "photos.set_favorite":
                 preview = await self.photos.prepare(
@@ -143,10 +149,13 @@ class WriteGateway:
                 | ReminderWrites
                 | MailWrites
                 | PhotoWrites
+                | PhotoAlbumWrites
                 | MailFolderWrites
             )
             if action == "drive.move_file":
                 adapter = self.moves
+            elif action == "photos.rename_album":
+                adapter = self.photo_albums
             elif action == "photos.set_favorite":
                 adapter = self.photos
             elif action == "mail.rename_folder":

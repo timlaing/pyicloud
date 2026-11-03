@@ -1,4 +1,4 @@
-"""Internal private top-level Photos album rename; no runtime tool enabled yet."""
+"""Receipt-gated private top-level Photos album rename with independent proof."""
 
 from __future__ import annotations
 

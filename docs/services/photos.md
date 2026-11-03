@@ -306,4 +306,6 @@ observed identity/revision metadata without fetching data or mutating an album.
 `record_change_tag` may be `None`: callers must not invent a revision for approval
 or concurrency checks. These properties are snapshots, not fresh server reads.
 Refresh the library's albums and verify post-write state independently when using
-revision-bound mutation adapters. This does not enable MCP album rename or deletion.
+revision-bound mutation adapters. These metadata reads do not grant mutation approval;
+MCP album rename has separate opt-in flags and operator receipts. Deletion is not
+enabled by these properties.
