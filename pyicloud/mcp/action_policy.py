@@ -7,6 +7,8 @@ STANDARD_WRITE_ACTIONS = (
     "drive.rename",
     "drive.trash_file",
     "drive.move_file",
+    "drive.create_folder",
+    "drive.recover_item",
     "calendar.create_event",
     "mail.create_draft",
     "mail.edit_draft",

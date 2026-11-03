@@ -236,6 +236,9 @@ class SyntheticWritableDrive:
     service_root = "https://drive.example.test"
 
     def __init__(self) -> None:
+        self.params = {"dsid": "12345"}
+        self.session = self
+        self.recover_dispatches = 0
         self.records: dict[str, dict[str, Any]] = {
             identifier: {
                 "drivewsid": identifier,
@@ -276,6 +279,55 @@ class SyntheticWritableDrive:
         self.trash_dispatches = 0
         self.root = SimpleNamespace(type="folder", get_children=self.children)
         self.trash = SimpleNamespace(get_children=self.trashed)
+
+    def request_raw(self, method: str, url: str, **kwargs: Any) -> Response:
+        """Existing create/recover envelopes; fake namespace deliberately unchanged."""
+        assert (
+            method == "POST"
+            and kwargs["allow_redirects"] is False
+            and kwargs["stream"] is True
+        )
+        body = kwargs["json"]
+        if "/createFolders?" in url:
+            assert (
+                body["destinationDrivewsId"]
+                == "FOLDER::com.apple.CloudDocs::Destination"
+            )
+            assert kwargs["headers"] == {"Content-Type": "plain/text"}
+            assert len(body["folders"]) == 1 and body["folders"][0][
+                "clientId"
+            ].startswith("FOLDER::UNKNOWN_ZONE::TempId-")
+            name = body["folders"][0]["name"]
+            assert name in {"Acknowledged folder", "Uncertain folder"}
+            self.records["FILE::com.apple.CloudDocs::RECOVER"] = {
+                "drivewsid": "FILE::com.apple.CloudDocs::RECOVER",
+                "zone": "com.apple.CloudDocs",
+                "type": "FILE",
+                "name": "Recover",
+                "extension": "txt",
+                "etag": "T1",
+                "parentId": "TRASH_ROOT",
+                "restorePath": "Original/Recover.txt",
+            }
+            print("MCP_SYNTHETIC_DRIVE_CREATE_ACK", file=sys.stderr, flush=True)
+            return upload_response(
+                {"folders": [{"name": name}]}
+                if name == "Acknowledged folder"
+                else {"folders": []}
+            )
+        assert "/putBackItemsFromTrash?" in url
+        assert body == {
+            "items": [{"drivewsid": "FILE::com.apple.CloudDocs::RECOVER", "etag": "T1"}]
+        }
+        self.recover_dispatches += 1
+        print("MCP_SYNTHETIC_DRIVE_RECOVER_ACK", file=sys.stderr, flush=True)
+        if self.recover_dispatches == 2:
+            raise OSError("Synthetic uncertain recovery")
+        return upload_response({
+            "items": [
+                {"drivewsid": "FILE::com.apple.CloudDocs::RECOVER", "status": "OK"}
+            ]
+        })
 
     def children(self, *, force: bool) -> list[DriveNode]:
         """Fresh typed records discovered through ordinary metadata tools."""
@@ -1126,6 +1178,8 @@ def main() -> None:
             "drive.trash_file",
             "drive.delete_forever_file",
             "drive.move_file",
+            "drive.create_folder",
+            "drive.recover_item",
         )
         if args.approval_dir
         else (),

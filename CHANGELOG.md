@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add receipt-gated private Drive folder creation and Trash recovery using bounded raw no-retry requests and explicit acknowledgement-only results; no created/recovered node identity or final destination state is fabricated.
+
 - Add receipt-gated Mail read/flag patches and single-message moves with exact typed acknowledgements explicitly reporting `final_state_verified: false`, metadata-bound previews, source retirement and no automatic mutation retries.
 
 - Expose elevated private Photos uploads with bounded in-memory byte staging, separately selected exact transfer-host policy, immutable content/timestamp previews, single-use stage retirement and independent indexed asset/master verification. Installed network-blocked stdio scenarios qualify verified and uncertain outcomes without live uploads.

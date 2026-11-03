@@ -13,6 +13,7 @@ from .calendar_writes import CalendarWrites
 from .context import ToolFailure
 from .draft_edits import DraftEdits
 from .draft_sends import DraftSends
+from .drive_acknowledged import DriveAcknowledged
 from .drive_deletions import DriveDeletions
 from .drive_moves import DriveMoves
 from .drive_writes import DriveWrites
@@ -56,6 +57,7 @@ class WriteGateway:
         self.drive = DriveWrites(additional or AdditionalReads(reads), self.ledger)
         self.deletions = DriveDeletions(self.drive)
         self.moves = DriveMoves(self.drive)
+        self.drive_acknowledged = DriveAcknowledged(self.drive)
         self.calendar = CalendarWrites(reads, self.ledger)
         self.mail = MailWrites(reads, self.ledger, self.drive.additional)
         self.draft_edits = DraftEdits(self.mail)
@@ -105,6 +107,15 @@ class WriteGateway:
                     target_handle or list_handle,
                     payload["stage_handle"],
                     payload["modified_ms"],
+                    publish=self.mailbox.publish,
+                )
+            elif action in {"drive.create_folder", "drive.recover_item"}:
+                if destination_handle is not None:
+                    raise WriteDenied("invalid_payload")
+                preview = await self.drive_acknowledged.prepare_acknowledged(
+                    action,
+                    target_handle or list_handle,
+                    payload,
                     publish=self.mailbox.publish,
                 )
             elif action == "drive.delete_forever_file":
@@ -265,6 +276,7 @@ class WriteGateway:
             adapter: (
                 CalendarWrites
                 | DriveWrites
+                | DriveAcknowledged
                 | ReminderWrites
                 | MailWrites
                 | DraftEdits
@@ -280,6 +292,8 @@ class WriteGateway:
                 if self.photo_uploads is None:
                     raise WriteDenied("write_disabled")
                 adapter = self.photo_uploads
+            elif action in {"drive.create_folder", "drive.recover_item"}:
+                adapter = self.drive_acknowledged
             elif action == "drive.delete_forever_file":
                 adapter = self.deletions
             elif action == "drive.move_file":

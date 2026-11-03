@@ -188,6 +188,9 @@ async def check_configured_mcp(
                     await exercise_mail_acknowledged_gate_mcp(
                         session, approval_directory
                     )
+                    await exercise_drive_acknowledged_gate_mcp(
+                        session, approval_directory
+                    )
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -210,6 +213,8 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_MAIL_PERMANENT") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_MAIL_FLAG_ACK") == (3 if writes else 0)
         assert output.count("MCP_SYNTHETIC_MAIL_MOVED_ACK") == (1 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_DRIVE_CREATE_ACK") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_DRIVE_RECOVER_ACK") == (2 if writes else 0)
         for marker in (
             "MCP_SYNTHETIC_PHOTO_RESERVED",
             "MCP_SYNTHETIC_PHOTO_TRANSFERRED",
@@ -1395,6 +1400,76 @@ async def exercise_mail_acknowledged_gate_mcp(session: Any, directory: str) -> N
         )
         preview = prepared.structured_content["preview"]
         identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            denied.structured_content is not None
+            and denied.structured_content["error"] == "approval_record_unavailable"
+        )
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                identifier, SyntheticTerminal("APPROVE " + identifier), io.StringIO()
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            result.structured_content is not None
+            and result.structured_content["error"] == expected
+        )
+        assert result.structured_content["result"] == (
+            {"action": action, "acknowledged": True, "final_state_verified": False}
+            if expected is None
+            else None
+        )
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            replay.structured_content is not None
+            and replay.structured_content["error"] == "unknown_or_consumed_preview"
+        )
+        repeated = await session.call_tool("icloud_write_preview", args)
+        assert (
+            repeated.structured_content is not None
+            and repeated.structured_content["error"] == "expired_or_unknown_handle"
+        )
+
+
+async def exercise_drive_acknowledged_gate_mcp(session: Any, directory: str) -> None:
+    """Raw create/recover acknowledgements never manufacture final node identities."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    class SyntheticTerminal(io.StringIO):
+        """Separate fake standard operator receipt, not real Drive permission."""
+
+        def isatty(self) -> bool:
+            return True
+
+    for action, payload, expected in (
+        ("drive.create_folder", {"name": "Acknowledged folder"}, None),
+        ("drive.create_folder", {"name": "Uncertain folder"}, "mutation_uncertain"),
+        ("drive.recover_item", {}, None),
+        ("drive.recover_item", {}, "mutation_uncertain"),
+    ):
+        create = action == "drive.create_folder"
+        discovered = await session.call_tool(
+            "icloud_drive_list" if create else "icloud_drive_trash_list", {}
+        )
+        assert discovered.structured_content is not None
+        handle = next(
+            row["handle"]
+            for row in discovered.structured_content["records"]
+            if row["name"] == ("Destination" if create else "Recover.txt")
+        )
+        args = {"action": action, "target_handle": handle, "payload": payload}
+        prepared = await session.call_tool("icloud_write_preview", args)
+        assert (
+            prepared.structured_content is not None
+            and prepared.structured_content["error"] is None
+        )
+        identifier = prepared.structured_content["preview"]["request_id"]
         denied = await session.call_tool(
             "icloud_write_execute", {"request_id": identifier}
         )

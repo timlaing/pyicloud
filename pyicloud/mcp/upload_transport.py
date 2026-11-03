@@ -87,10 +87,16 @@ class UploadTransport:
 
     @staticmethod
     def register(
-        session: Any, url: str, hosts: frozenset[str], payload: dict[str, Any]
+        session: Any,
+        url: str,
+        hosts: frozenset[str],
+        payload: dict[str, Any],
+        *,
+        headers: dict[str, str] | None = None,
     ) -> Any:
         """One raw account-service request; no authentication recovery/replay."""
         target = checked_upload_url(url, hosts)
+        options: dict[str, Any] = {"headers": headers} if headers is not None else {}
         try:
             response = session.request_raw(
                 "POST",
@@ -99,6 +105,7 @@ class UploadTransport:
                 timeout=(10.0, 60.0),
                 allow_redirects=False,
                 stream=True,
+                **options,
             )
             return bounded_upload_json(response)
         except Exception:

@@ -15,6 +15,16 @@ metadata/namespace-bound receipts, one dispatch and pre-dispatch source retireme
 The evidence gaps listed below describe stronger optional verification, not required
 final-state proof for these acknowledged-only operations.
 
+Drive folder creation and recovery now use the existing raw request bodies and
+bounded response acknowledgements. Creation requires a private non-root destination
+and leaf name with fresh conflict checks; response name must match exactly. Recovery
+binds current exact Trash membership, etag, name and server-recorded restorePath;
+its acknowledgement must name the exact selected node. Recorded location/conflict
+behaviour is disclosed rather than guessed, with no caller destination override.
+Both retire source handles and report final-state verification false. Installed
+synthetic scenarios deliberately leave namespace state unchanged after acknowledgements
+and separately exercise malformed/uncertain responses without replay.
+
 This is an implementation acceptance checklist, not permission for account access
 or live writes. Unqualified operations remain disabled. Synthetic fixtures can test
 an established contract; invented success envelopes cannot establish one.

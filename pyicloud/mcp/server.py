@@ -299,6 +299,8 @@ def build_server(
                 "drive.trash_file",
                 "drive.delete_forever_file",
                 "drive.move_file",
+                "drive.create_folder",
+                "drive.recover_item",
                 "calendar.create_event",
                 "calendar.delete_event",
                 "mail.create_draft",

@@ -239,6 +239,30 @@ Results are not claimed to be a complete inventory. Listing does not recover or
 permanently delete anything. Recovery remains unavailable; permanent trash-file
 deletion has a separate elevated opt-in workflow below.
 
+## Acknowledged Drive creation and recovery
+
+Enable `--service drive`, private approval storage, and the standard write actions
+`drive.create_folder` or `drive.recover_item`. Creation accepts a discovered private
+non-root `drive-folder` `target_handle` and exactly `{"name": "New folder"}`.
+It checks fresh destination etag/scope and current case-insensitive name conflicts.
+Revalidation is not atomic against another client's concurrent changes.
+
+Recovery accepts a discovered `drive-trash-file` or `drive-trash-folder` handle and
+`{}`. It checks exact current Trash membership, private scope, etag and recorded
+`restorePath`. The existing API selects its recorded location: MCP accepts no caller
+destination/path override and does not fabricate a destination ID. The preview
+explicitly identifies server-managed restoration and unverified conflict behaviour.
+Recovery of a folder may restore its contents. Review the recorded location before
+approving; collision/overwrite handling and final destination are not independently
+verified, and no compensation or automatic retry is performed.
+
+Both operations use the independent single-use receipt and one bounded raw request.
+Source handles are retired before dispatch. Results contain `acknowledged: true`
+and `final_state_verified: false` only when the existing response acknowledgement
+matches the submitted operation. No created/recovered node handle is minted.
+Rediscover fresh metadata before subsequent operations. Missing, conflicting or
+ambiguous outcomes return `mutation_uncertain`, never automatic replay.
+
 ## Acknowledged Mail flags and moves
 
 Enable `--service mail`, a private approval directory and the desired standard
