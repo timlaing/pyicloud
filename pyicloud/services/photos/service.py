@@ -2613,6 +2613,11 @@ class PhotosService(BaseService):
         return self._private_client
 
     @property
+    def upload_root(self) -> str | None:
+        """Return the observed modern Photos upload service route, without fallback."""
+        return self._photos_upload_url
+
+    @property
     def libraries(self) -> "dict[str, BasePhotoLibrary | PhotoStreamLibrary]":
         """Return the available photo libraries, discovering them on first access."""
         # pylint: disable=import-outside-toplevel

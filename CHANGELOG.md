@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add an internal elevated Photos upload adapter binding staged bytes, private-library revisions, routes and trusted transfer-host policy, retiring bytes before dispatch and requiring independent indexed asset/master identity proof. Runtime staging/upload exposure remains pending qualification.
+
 - Add an internal path-free Photos upload pipeline using existing typed reservation, receipt and asset-registration contracts with immutable staged bytes and no mutation replay. Returned IDs still require independent indexing and elevated adapter qualification; runtime uploads remain disabled.
 
 - Add an internal bounded upload-transport foundation with exact trusted HTTPS hosts, isolated credential-free byte transfers, redirect refusal, raw no-retry registration and bounded response cleanup. Runtime uploads remain disabled pending adapter qualification.

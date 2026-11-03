@@ -22,8 +22,18 @@ validated account identity. It checks reservation UUID, receipt size/fields and 
 typed registration with asset/master identities; 409 duplicates preserve the existing
 identity semantics. UTC metadata is explicit. Failures never retry or silently clean
 up potentially stored bytes. It returns registration only, not verified upload success.
-The receipt-bound adapter, protected-mode checks and independent indexing verification
-remain outstanding; no upload tool is exposed.
+The byte pipeline alone grants no approval or verified success; no upload tool is
+exposed. The internal adapter qualification is described below.
+
+`photo_uploads.py` now implements the internal elevated adapter: exact staged-byte
+metadata/timestamp, private PrimarySync library revision, account and both service
+routes plus independently selected transfer hosts are bound to approval. Stage bytes
+are consumed before dispatch, and independent private-library asset lookup must match
+both registration identities with a real change tag. Missing indexing is uncertain,
+not a retry instruction. Source byte staging and request replay are unavailable after
+dispatch. Existing owner transport refuses PCS consent/device negotiation requests;
+library reads failing authentication cannot produce a preview. Runtime configuration,
+staging tool registration and installed upload-specific qualification remain pending.
 
 ## Drive upload
 
