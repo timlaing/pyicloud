@@ -211,6 +211,28 @@ and require manual reconciliation. Already-correct names consume approval withou
 an unnecessary mutation. Trash, restore, move, permanent delete and uploads are
 not enabled by this flag.
 
+## Opt-in Mail draft creation
+
+Enable `--service mail`, `--write-action mail.create_draft`, and the private approval
+directory to expose draft creation through the existing preview/execute tools.
+The payload must contain exactly `sender`, `subject`, `text`, `to`, `cc`, and `bcc`.
+Recipients are explicit arrays (including empty arrays), at most 50 per field;
+subject/text are bounded to 4 KiB/32 KiB. HTML, attachments, uploading, sending,
+editing, and deleting drafts are not supported by this action.
+
+Preview discovery requires an enabled sender (never inferred from login) and one
+canonical selectable Drafts mailbox with UID validity. Account, discovered Mail
+route, mailbox identity/UID validity, and sender address/display name are bound to
+the exact single-use operator receipt and revalidated on the serialized worker.
+Approval is consumed before saving; saving is not atomic with the preceding read.
+
+After saving once, the returned draft identity, sender, recipients and folder must
+match, and a fresh body must contain exactly the canonical escaped plain-text HTML
+and expected Drafts body-part identity. Alternate MIME layouts or server formatting
+fail closed as `mutation_uncertain`, even if saving actually succeeded. Inspect
+the mailbox independently before deciding whether to request another preview;
+never blindly retry. HTML remains untrusted data and is never rendered.
+
 ## Opt-in Calendar event create/delete
 
 The supported action flags are `calendar.create_event` and

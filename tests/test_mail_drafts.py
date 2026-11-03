@@ -91,6 +91,14 @@ def draft_case() -> DraftCase:
     return build_draft_case()
 
 
+def test_public_draft_folder_is_read_only(case: DraftCase) -> None:
+    """Expose the existing canonical selectable Drafts discovery without saving."""
+    folder = case.service.draft_folder()
+    assert folder.name == "Drafts"
+    assert folder.uid_validity
+    assert not case.wrote
+
+
 @pytest.fixture(name="tmp_path")
 def draft_directory() -> Iterator[Path]:
     """Use the same sandbox factory as the conversation-draft tests."""

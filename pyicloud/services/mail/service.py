@@ -750,6 +750,10 @@ class MailService(BaseService):
             self.params.get("dsid", ""),
         )
 
+    def draft_folder(self) -> MailFolder:
+        """Read the current canonical selectable Drafts identity without saving."""
+        return self._draft_folder(None)
+
     def _draft_folder(self, previous: MailFolder | None) -> MailFolder:
         """The browser's canonical Drafts namespace must be current and selectable."""
         matches = [f for f in self._mailbox_inventory() if f.name == "Drafts"]

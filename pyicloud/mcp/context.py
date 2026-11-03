@@ -39,6 +39,7 @@ SUPPORTED_WRITE_ACTIONS = (
     "drive.rename",
     "calendar.create_event",
     "calendar.delete_event",
+    "mail.create_draft",
 )
 
 

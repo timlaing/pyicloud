@@ -66,14 +66,17 @@ name semantics preserve the existing extension metadata.
 ## Sequencing and validation
 
 Mail draft preparation now has an internal exact-body verification foundation
-(`pyicloud/mcp/mail_writes.py`), not an enabled mutation adapter. It reproduces the
+(`pyicloud/mcp/mail_writes.py`). The first foundation milestone reproduced the
 library's escaped plain-only HTML conversion, then requires matching Drafts UID,
 one matching body part, `text/html`, and byte-for-byte canonical content. Alternate
 MIME layouts and server transformations fail closed; post-dispatch rejection must
 remain uncertain and must never trigger a retry. Synthetic tests qualify this
-policy only, not live server behavior. Remaining integration must bind a freshly
-discovered enabled sender and canonical selectable Drafts identity/UID validity
-to the exact operator preview before consuming approval and saving once.
+policy only, not live server behavior. The runtime `mail.create_draft` adapter now
+binds a freshly discovered enabled sender and canonical selectable Drafts identity/
+UID validity, account and Mail route to the exact operator preview before consuming
+approval and saving once. It rechecks returned draft identity and fresh body headers/
+content; any post-dispatch failure is uncertain with no approval replay. Sending,
+attachments, edits and deletions remain unsupported. No live Mail account was used.
 
 Verified Calendar `add_event`/`remove_event` now have runtime create/delete adapters.
 Creation fixes its GUID during preview and checks the fetched post-state; deletion

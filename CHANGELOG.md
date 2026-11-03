@@ -16,6 +16,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add separately opted-in MCP Mail draft creation with exact operator receipts, fresh enabled-sender and Drafts identity bindings, and fail-closed body verification; sending and attachments remain unavailable.
+
 - Add synthetic qualification of exact Mail draft body verification for future MCP write integration; Mail mutation tools remain disabled.
 
 - Add separately opted-in Calendar event creation/deletion with exact operator previews, fixed creation GUIDs, fresh calendar/event revision checks, and post-write verification. Undocumented updates and invitation/recurrence deletion flows remain unsupported.

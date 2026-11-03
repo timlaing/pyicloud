@@ -20,6 +20,7 @@ from tests.test_mcp_approval_channel import terminal
 from tests.test_mcp_calendar_writes import payload as calendar_payload
 from tests.test_mcp_calendar_writes import setup_calendar
 from tests.test_mcp_drive_writes import setup_writer
+from tests.test_mcp_mail_writes import setup_mail
 from tests.test_mcp_reminder_writes import writer
 
 
@@ -27,6 +28,34 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+@pytest.mark.asyncio
+async def test_mail_gateway_uses_private_receipt() -> None:
+    """Dispatch a single synthetic draft save through the shared mailbox gate."""
+    mail_writer, client, payload = setup_mail()
+    owner = cast(Any, mail_writer.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("mail",),
+        write_actions=("mail.create_draft",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(mail_writer.reads)
+    prepared = await gateway.prepare("mail.create_draft", "", payload, None)
+    assert prepared.preview is not None
+    preview = prepared.preview
+
+    def accept(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = accept
+    assert (await gateway.apply(preview["request_id"])).error is None
+    client.mail.create_draft.assert_called_once()
 
 
 @pytest.mark.parametrize(

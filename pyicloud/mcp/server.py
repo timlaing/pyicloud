@@ -276,6 +276,7 @@ def build_server(
                 "drive.rename",
                 "calendar.create_event",
                 "calendar.delete_event",
+                "mail.create_draft",
             ],
             list_handle: str = "",
             payload: dict[str, Any] | None = None,

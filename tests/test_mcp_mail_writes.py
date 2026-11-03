@@ -1,10 +1,23 @@
 """Synthetic exact-content checks, not evidence of live server transformations."""
 
+from typing import Any
+from unittest.mock import MagicMock
+
 import pytest
 
-from pyicloud.mcp.authorization import WriteDenied
-from pyicloud.mcp.mail_writes import canonical_draft_html, verify_draft_body
-from pyicloud.services.mail.models import MailBody, MailBodyPart
+from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
+from pyicloud.mcp.mail_writes import MailWrites, canonical_draft_html, verify_draft_body
+from pyicloud.mcp.reads import ReadTools
+from pyicloud.services.mail.models import (
+    MailBody,
+    MailBodyPart,
+    MailboxReference,
+    MailDraft,
+    MailFolder,
+    MailMessage,
+    MailSender,
+)
+from tests.test_mcp_additional import owner_for
 
 
 @pytest.mark.parametrize(
@@ -28,7 +41,7 @@ def test_postsave_body_requires_exact_identity_and_content(case: str) -> None:
     """Generic acknowledgements and equivalent-looking HTML are not proof."""
     body = MailBody(
         guid="message:Drafts/101",
-        longHeader="untrusted",
+        longHeader="From: user@example.test\r\nSubject: Approved\r\n",
         contentType="text/html",
         parts=[
             MailBodyPart(guid="messagepart:Drafts/101-1", content="<div>Approved</div>")
@@ -67,3 +80,151 @@ def test_postsave_body_requires_exact_identity_and_content(case: str) -> None:
     else:
         with pytest.raises(WriteDenied, match="mutation_unverified"):
             verify_draft_body(body, 101, "Approved")
+
+
+def setup_mail() -> tuple[MailWrites, MagicMock, dict[str, Any]]:
+    """No account or transport; only verified typed facade results."""
+    client = MagicMock()
+    client.params = {"dsid": "123"}
+    client.mail.service_root = "https://example.test"
+    folder = MailFolder(identifier="drafts", name="Drafts", uidValidity=1)
+    sender = MailSender(address="user@example.test", display_name="Synthetic")
+    client.mail.draft_folder.return_value = folder
+    client.mail.senders.return_value = [sender]
+    client.mail.create_draft.return_value = MailDraft(
+        message=MailMessage(
+            identifier="draft-101",
+            uid=101,
+            mboxRef=MailboxReference(id="drafts"),
+            subject="Approved",
+            folder=folder,
+        ),
+        sender=sender,
+    )
+    client.mail.body.return_value = MailBody(
+        guid="message:Drafts/101",
+        longHeader="From: user@example.test\r\nSubject: Approved\r\n",
+        contentType="text/html",
+        parts=[
+            MailBodyPart(guid="messagepart:Drafts/101-1", content="<div>Approved</div>")
+        ],
+    )
+    data = {
+        "sender": sender.address,
+        "subject": "Approved",
+        "text": "Approved",
+        "to": [],
+        "cc": [],
+        "bcc": [],
+    }
+    return (
+        MailWrites(
+            ReadTools(owner_for(client)),
+            ApprovalLedger(frozenset({"mail.create_draft"})),
+        ),
+        client,
+        data,
+    )
+
+
+@pytest.mark.asyncio
+async def test_draft_requires_receipt_then_saves_once() -> None:
+    """Preview is read-only; one exact receipt permits one non-sending save."""
+    writes, client, data = setup_mail()
+    publish = MagicMock()
+    preview = await writes.prepare(data, publish)
+    publish.assert_called_once_with(preview)
+    client.mail.create_draft.assert_not_called()
+    with pytest.raises(WriteDenied, match="operator_approval_required"):
+        await writes.apply(preview.request_id)
+
+    def accept(identifier: str) -> None:
+        writes.ledger.approve_from_operator(identifier, preview.digest)
+
+    assert await writes.apply(preview.request_id, accept) == {
+        "action": "mail.create_draft",
+        "id": "draft-101",
+    }
+    client.mail.create_draft.assert_called_once_with(
+        sender="user@example.test",
+        subject="Approved",
+        text="Approved",
+        to=(),
+        cc=(),
+        bcc=(),
+    )
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writes.apply(preview.request_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case", ["account", "route", "folder", "sender", "missing", "invalid"]
+)
+async def test_mail_fresh_bindings_prevent_changed_target(case: str) -> None:
+    """Disabled sender, mailbox incarnation or route changes cannot dispatch."""
+    writes, client, data = setup_mail()
+    preview = await writes.prepare(data)
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    if case == "account":
+        client.params["dsid"] = "124"
+    elif case == "route":
+        client.mail.service_root = "https://other.example.test"
+    elif case == "folder":
+        client.mail.draft_folder.return_value = (
+            client.mail.draft_folder.return_value.model_copy(update={"uid_validity": 2})
+        )
+    elif case == "sender":
+        client.mail.senders.return_value = [
+            MailSender(address="user@example.test", display_name="Changed")
+        ]
+    elif case == "missing":
+        client.mail.senders.return_value = []
+    else:
+        client.params = {}
+    with pytest.raises(WriteDenied):
+        await writes.apply(preview.request_id)
+    client.mail.create_draft.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["body", "identity", "transport"])
+async def test_mail_uncertainty_never_retries(case: str) -> None:
+    """All post-dispatch failures retire approval regardless of acknowledgements."""
+    writes, client, data = setup_mail()
+    preview = await writes.prepare(data)
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    if case == "body":
+        client.mail.body.return_value = client.mail.body.return_value.model_copy(
+            update={"parts": []}
+        )
+    elif case == "identity":
+        client.mail.create_draft.return_value = None
+    else:
+        client.mail.create_draft.side_effect = OSError("private")
+    with pytest.raises(WriteDenied, match="mutation_uncertain"):
+        await writes.apply(preview.request_id)
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writes.apply(preview.request_id)
+    client.mail.create_draft.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"html": "markup"},
+        {"text": "x" * 32769},
+        {"subject": "x" * 4097},
+        {"to": "user@example.test"},
+        {"to": ["not an address"]},
+        {"cc": ["user@example.test"] * 51},
+        {"subject": "bad\nheader"},
+    ],
+)
+async def test_mail_payload_invalid_before_discovery(change: dict[str, Any]) -> None:
+    """No implicit recipient conversions, HTML, attachments or unbounded content."""
+    writes, client, data = setup_mail()
+    with pytest.raises(WriteDenied, match="invalid_payload"):
+        await writes.prepare({**data, **change})
+    client.mail.draft_folder.assert_not_called()

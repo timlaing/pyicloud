@@ -12,6 +12,7 @@ from .authorization import ApprovalLedger, WriteDenied
 from .calendar_writes import CalendarWrites
 from .context import ToolFailure
 from .drive_writes import DriveWrites
+from .mail_writes import MailWrites
 from .reads import ReadTools
 from .reminder_writes import ReminderWrites
 
@@ -37,6 +38,7 @@ class WriteGateway:
         self.writer = ReminderWrites(reads, self.ledger)
         self.drive = DriveWrites(additional or AdditionalReads(reads), self.ledger)
         self.calendar = CalendarWrites(reads, self.ledger)
+        self.mail = MailWrites(reads, self.ledger)
         self._actions: dict[str, str] = {}
 
     async def prepare(
@@ -53,7 +55,9 @@ class WriteGateway:
         if action not in self.config.write_actions:
             return WriteResult(error="write_disabled")
         try:
-            if action.startswith("calendar."):
+            if action == "mail.create_draft":
+                preview = await self.mail.prepare(payload, publish=self.mailbox.publish)
+            elif action.startswith("calendar."):
                 preview = await self.calendar.prepare(
                     action,
                     calendar_id or "",
@@ -102,8 +106,10 @@ class WriteGateway:
 
         try:
             action = self._actions.get(request_id, "")
-            adapter: CalendarWrites | DriveWrites | ReminderWrites
-            if action.startswith("calendar."):
+            adapter: CalendarWrites | DriveWrites | ReminderWrites | MailWrites
+            if action == "mail.create_draft":
+                adapter = self.mail
+            elif action.startswith("calendar."):
                 adapter = self.calendar
             elif action == "drive.rename":
                 adapter = self.drive
