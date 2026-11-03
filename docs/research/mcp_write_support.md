@@ -75,8 +75,10 @@ success requires a new returned ID and requested name independently observed in
 `server_albums()`, with matching private identity/route and a distinct object from
 the creation acknowledgement cache. Missing/unverified visibility is uncertain and
 never retried. Snapshot preflight is not a server-side atomic namespace condition.
-Gateway/schema integration and synthetic receipt/new-ID/replay tests are complete;
-installed create-specific qualification remains pending. No live account was used.
+Gateway/schema integration and synthetic receipt/new-ID/replay tests are complete.
+Installed create-specific qualification additionally verifies independent server
+visibility versus pending-only acknowledgements, using a typed synthetic private
+library with no transport calls. No live account was used.
 
 `PhotoLibrary.create_album_correlated()` exposes a typed-only private creation path
 for future adapters. It refuses absent/untyped clients, mock/unsupported sessions,

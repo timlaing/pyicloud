@@ -265,8 +265,8 @@ then is consumed before one correlated create. Snapshot preflight is not an atom
 server namespace condition. Success requires a new returned ID/name/revision and a
 distinct independently observed matching album in `server_albums()`; a local pending
 acknowledgement cannot supply proof. Missing visibility is uncertain and cannot
-replay approval: do not blindly retry. Gateway tests are synthetic; create-specific
-installed stdio qualification is pending and no live Apple validation is claimed.
+replay approval: do not blindly retry. Gateway and create-specific installed stdio
+tests use network-blocked synthetic libraries; no live Apple validation is claimed.
 
 ## Opt-in private Photos album renames
 

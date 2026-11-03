@@ -28,6 +28,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Qualify installed Photos album-creation receipts and independent new-ID server visibility, rejecting cached-only acknowledgements as uncertain with replay denied.
+
 - Enable separately opted-in MCP typed-only private Photos album creation with discovered library handles, exact operator receipts, snapshot checks and independent new-ID proof; no REST fallback or blind retries.
 
 - Add synthetic qualification of an internal typed-only Photos album-creation adapter with exact receipts, private library snapshots and independent new-ID server proof; runtime creation remains disabled pending integration.

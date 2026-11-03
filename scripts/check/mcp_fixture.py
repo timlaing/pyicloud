@@ -36,9 +36,11 @@ from pyicloud.services.photos.constants import (
     ObjectTypeEnum,
 )
 from pyicloud.services.photos.service import (
+    AlbumContainer,
     PhotoAlbum,
     PhotoAlbumRecordState,
     PhotoAsset,
+    PhotoLibrary,
 )
 from pyicloud.services.reminders.models import Reminder, RemindersList
 
@@ -391,7 +393,9 @@ class SyntheticNamedAlbum(PhotoAlbum):
 
     def __iter__(self) -> Generator[PhotoAsset]:
         """Preserve existing bounded metadata fixtures without transport."""
-        yield SyntheticWritableAsset(self.fake_library.all)
+        yield SyntheticWritableAsset(
+            cast(SyntheticWritableAlbum, self.fake_library.all)
+        )
 
     def rename(self, value: str) -> None:
         """Second fake rename acknowledges without changing authoritative name."""
@@ -404,31 +408,81 @@ class SyntheticNamedAlbum(PhotoAlbum):
         print("MCP_SYNTHETIC_ALBUM_RENAMED", file=sys.stderr, flush=True)
 
 
-class SyntheticPrivateLibrary:
+class SyntheticPrivateLibrary(PhotoLibrary):
     """Fresh typed album-list reads distinct from optimistic mutation objects."""
 
     scope = "private"
     zone_id = {"zoneName": "Z"}
 
     def __init__(self, service: Any, all_photos: SyntheticWritableAlbum) -> None:
-        self.service = service
-        self.all = all_photos
+        super().__init__(
+            service,
+            zone_id={"zoneName": "Z"},
+            client=cast(Any, SimpleNamespace()),
+            check_indexing=False,
+        )
+        self.fake_all = all_photos
         self.album_name = "Synthetic album"
         self.album_tag = "A1"
         self.pending_name: str | None = None
+        self.created_records: list[tuple[str, str]] = []
+        self.pending_created: list[PhotoAlbum] = []
 
     @property
-    def albums(self) -> list[SyntheticNamedAlbum]:
+    def all(self) -> PhotoAlbum:
+        """Preserve the existing synthetic asset lookup without transport."""
+        return cast(PhotoAlbum, self.fake_all)
+
+    @property
+    def correlated_album_creation_available(self) -> bool:
+        """Only qualify fake dispatch; this is not a real transport capability claim."""
+        return True
+
+    def _created_snapshot(self, name: str, identifier: str) -> PhotoAlbum:
+        """Construct a new typed snapshot, not a mutable pending cache reference."""
+        return PhotoAlbum(
+            self,
+            name=name,
+            record_id=identifier,
+            obj_type=ObjectTypeEnum.CONTAINER,
+            list_type=ListTypeEnum.DEFAULT,
+            direction=DirectionEnum.ASCENDING,
+            zone_id=self.zone_id,
+            record=PhotoAlbumRecordState(record_change_tag="C1"),
+        )
+
+    def create_album_correlated(self, name: str) -> PhotoAlbum:
+        """Second fake creation only populates pending local acknowledgement state."""
+        assert name in {"Created album", "Uncertain creation"}
+        identifier = "NEW1" if name == "Created album" else "NEW2"
+        result = self._created_snapshot(name, identifier)
+        self.pending_created.append(result)
+        if name == "Created album":
+            self.created_records.append((name, identifier))
+        print("MCP_SYNTHETIC_ALBUM_CREATED", file=sys.stderr, flush=True)
+        return result
+
+    @property
+    def albums(self) -> AlbumContainer:
         """Read-only discovered synthetic album handles."""
         return self.refresh_albums()
 
-    def refresh_albums(self) -> list[SyntheticNamedAlbum]:
+    def refresh_albums(self) -> AlbumContainer:
         """Include optimistic local names, which must never prove server visibility."""
-        return [SyntheticNamedAlbum(self, self.pending_name)]
+        return AlbumContainer([
+            SyntheticNamedAlbum(self, self.pending_name),
+            *self.pending_created,
+        ])
 
-    def server_albums(self) -> list[SyntheticNamedAlbum]:
+    def server_albums(self) -> AlbumContainer:
         """Authoritative fake observations, never a locally pending creation cache."""
-        return [SyntheticNamedAlbum(self)]
+        return AlbumContainer([
+            SyntheticNamedAlbum(self),
+            *[
+                self._created_snapshot(name, identifier)
+                for name, identifier in self.created_records
+            ],
+        ])
 
 
 class SyntheticNotes:
@@ -680,6 +734,7 @@ def main() -> None:
             "mail.rename_folder",
             "photos.set_favorite",
             "photos.rename_album",
+            "photos.create_album",
             "drive.rename",
             "drive.trash_file",
             "drive.move_file",

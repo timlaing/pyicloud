@@ -148,3 +148,12 @@ uncertainty with no success result. Both deny before simulated terminal receipts
 dispatch exactly once afterward and reject replay. Two album rename markers and
 one cleanup are required. No local mutation object supplies independent proof, and
 there is no live Photos or CloudKit access.
+
+Installed Photos album creation uses a typed synthetic private-library subclass and
+explicit fake creation capability. One correlated fake create returns a new ID that
+appears in fresh server reads; a second returns a new ID present only in pending local
+cache. Both first deny without receipt, dispatch once after simulated terminal
+approval and reject replay. Only independent new-ID server visibility returns
+success; pending-only state is uncertain. Exactly two creation markers and one cleanup
+are required. Real typed transport correlation is qualified separately by library
+tests; this fixture performs no live Photos, REST, upload or CloudKit requests.
