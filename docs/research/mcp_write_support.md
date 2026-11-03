@@ -65,6 +65,23 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`pyicloud/mcp/mail_folders.py` adds an internal top-level folder-creation adapter,
+not a runtime action yet. It uses the existing verified `MailService.create_folder`
+facade and independently requires a new matching typed folder in fresh namespace
+metadata. Account/endpoint and a canonical snapshot of folder IDs/names/UID validity
+are approval bindings; this snapshot is not an atomic server-side revision condition.
+For this first conservative adapter only ASCII letters/digits, spaces, underscores
+and hyphens are accepted, excluding system names and surrounding whitespace. This
+avoids guessing encoded server-name transformations. Existing names collide ignoring
+case. Single-use approval is consumed before one create; uncertain post-dispatch
+proof must not cause retries. Runtime/schema and installed qualification are pending.
+
+Additional investigation: current Drive `create_folders` tests only acknowledge a
+name, without proving response correlation to the request's temporary client ID.
+Mail flag methods verify typed acknowledgement/modseq, but no inspected fixture
+establishes numeric flag-bit meanings for independent exact-state verification.
+Neither missing contract is guessed or enabled by this milestone.
+
 `pyicloud/mcp/drive_moves.py` is a private file-only move adapter. The existing
 `move_nodes_to_node` method supplies the source
 etag to `/moveItems`; `parentId` and destination children are established by existing

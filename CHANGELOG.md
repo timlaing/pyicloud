@@ -18,6 +18,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add synthetic qualification of internal top-level Mail folder creation with exact receipts and namespace identity checks; runtime folder tools remain disabled pending integration.
+
 - Qualify installed private Drive moves with separate source/destination handles, receipt gating, authoritative parent/membership checks, and replay denial for uncertain acknowledgements.
 
 - Enable separately opted-in MCP private Drive file moves with discovered source/destination handles, exact receipts, fresh two-node revision checks, and post-move membership proof. Shared/folder moves remain unavailable.
