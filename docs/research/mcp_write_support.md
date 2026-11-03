@@ -51,6 +51,12 @@ do not claim hardware-backed presence. Windows live-write approval is not suppor
 until a reviewed native channel exists. Server publication/acceptance wiring and
 live mutation tool registration are still outstanding; read-only remains default.
 
+Runtime Reminders publication/acceptance wiring is now implemented behind explicit
+`--write-action` flags plus `--service reminders` and `--approval-dir`. Only preview
+and execute tools are exposed; no approval tool exists. Mailbox decisions and ledger
+consumption execute on the same owner lane, and operator descriptors drain after
+active work. All other writers/API-gap milestones remain incomplete.
+
 ## Sequencing and validation
 
 The first executable adapter module, `pyicloud.mcp.reminder_writes`, now supports

@@ -153,6 +153,47 @@ is a distinct operator decision, not a flag the model can grant itself. Bodies a
 downloads remain disabled unless selected. Arbitrary account IDs, URLs, local
 output paths, and multi-account selectors are not exposed.
 
+## Opt-in Reminders writes
+
+Writes remain disabled by default. The verified first runtime actions are
+`reminders.create`, `reminders.update`, and `reminders.delete` (soft deletion).
+Select **each** allowed action at trusted startup alongside `--service reminders`
+and a dedicated private `--approval-dir`. Example additional host arguments:
+
+```text
+--service reminders --write-action reminders.create --approval-dir /private/approvals
+```
+
+The directory must already exist, be POSIX operator-owned with mode `0700`, and
+be inaccessible to agents through other filesystem/shell tools. The channel assumes
+a trusted OS/host; it is not hardware-backed proof of human presence. Windows
+write approval currently fails closed. Multi-account operation is not supported.
+
+1. Discover the exact list handle via `icloud_reminders_lists`.
+2. Call `icloud_write_preview` with the allowed action, list handle and exact
+   payload. Create supports `title`, `description`, `completed`. Update supports
+   those fields and requires the reminder ID from the selected list. Delete takes
+   an empty payload and the reminder ID. No mutation occurs during preparation.
+3. In a **separate operator terminal**, run:
+   `icloud-mcp --approval-dir /private/approvals --approve-request REQUEST_ID`.
+   Review the escaped exact preview and type `APPROVE REQUEST_ID`. No piped `--yes`,
+   model confirmation flag or model-callable approval tool exists.
+4. Call `icloud_write_execute(request_id=REQUEST_ID)`. The owner lane re-fetches
+   scope/revision, accepts the private receipt and consumes the HMAC-bound approval
+   before the mutation. Account/route/revision mismatch, expired decisions or replay
+   are rejected. A missing revision cannot be invented or bypassed.
+
+Previews expire after five minutes; requests and payloads are bounded. If execution
+reports `mutation_uncertain`, reconcile remote state before preparing anything
+again. Never blindly retry. Approval storage contains private payloads: manage it
+as sensitive local state, not a shared agent workspace. The mailbox caps records
+at 256 and can require operator cleanup after many expired previews.
+
+Other service writers and the Contacts/Notes/Calendar-update API gaps are still
+under development. They are not enabled by these flags, and unsupported actions
+do not claim success. Sending mail, permanent deletion and uploads remain separate
+high-risk future actions.
+
 ## Additional searches
 
 - `icloud_notes_search`: bounded all-note **title metadata** scanning, beyond the
@@ -195,8 +236,9 @@ enforce a deadline, but DNS resolution or a custom transport can still delay wor
 termination and process exit. An operator/host can terminate the process, but must
 not assume a caller timeout means the worker ended.
 
-No listener, write tools, arbitrary URL/path tools, or implicit account discovery
-is enabled. Stdout is exclusively protocol traffic. Library logging is suppressed
+No listener, arbitrary URL/path tools, or implicit account discovery is enabled.
+Writes require the explicit startup allowlist and operator channel above.
+Stdout is exclusively protocol traffic. Library logging is suppressed
 in the launched process to prevent private upstream errors reaching host logs;
 tool errors contain fixed categories, not payloads or tracebacks. `busy`, `timeout`,
 `request_budget_exceeded`, `service_disabled`, and `expired_or_unknown_handle` are

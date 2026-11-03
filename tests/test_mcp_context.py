@@ -404,3 +404,18 @@ async def test_shutdown_failure_is_sanitized() -> None:
     with pytest.raises(ToolFailure, match="shutdown_failure") as caught:
         await owner.close()
     assert "private" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_additional_cleanup_is_drained_and_sanitized() -> None:
+    """Operator descriptors close on the lane, even if session cleanup fails."""
+    owner = SessionOwner(ServerConfig())
+    cleanup = MagicMock()
+    failed = MagicMock(side_effect=RuntimeError("private directory"))
+    owner.add_cleanup(cleanup)
+    owner.add_cleanup(failed)
+    with pytest.raises(ToolFailure, match="shutdown_failure"):
+        await owner.close()
+    cleanup.assert_called_once()
+    with pytest.raises(ToolFailure, match="server_closed"):
+        owner.add_cleanup(cleanup)

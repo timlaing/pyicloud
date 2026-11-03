@@ -14,6 +14,7 @@ from .additional import AdditionalReads
 from .content import ContentReads
 from .context import ServerConfig, SessionOwner
 from .reads import ReadResult, ReadTools
+from .write_gateway import WriteGateway, WriteResult
 
 
 class ServerStatus(BaseModel):
@@ -32,6 +33,7 @@ def build_server(
     reads = ReadTools(context)
     additional = AdditionalReads(reads)
     content = ContentReads(additional)
+    writes = WriteGateway(reads) if context.config.write_actions else None
 
     @asynccontextmanager
     async def lifespan(_server: Any) -> AsyncIterator[None]:
@@ -79,7 +81,8 @@ def build_server(
             "content_services": list(context.config.content_services),
             "single_account": True,
             "availability": dict(reads.availability),
-            "read_only": True,
+            "read_only": writes is None,
+            "write_actions": list(context.config.write_actions),
             "max_records": 200,
             "max_calendar_days": 31,
         }
@@ -249,5 +252,38 @@ def build_server(
         ) -> ReadResult:
             """Download only a discovered Apple asset version; no arbitrary URL."""
             return await content.file("photos", handle, offset, max_bytes, version)
+
+    if writes is not None:
+
+        @server.tool(
+            name="icloud_write_preview",
+            annotations=ToolAnnotations(
+                read_only_hint=False,
+                destructive_hint=False,
+                idempotent_hint=False,
+                open_world_hint=True,
+            ),
+        )
+        async def write_preview(
+            action: Literal["reminders.create", "reminders.update", "reminders.delete"],
+            list_handle: str,
+            payload: dict[str, Any],
+            reminder_id: str | None = None,
+        ) -> WriteResult:
+            """Read current state and publish a preview; never mutate remotely."""
+            return await writes.prepare(action, list_handle, payload, reminder_id)
+
+        @server.tool(
+            name="icloud_write_execute",
+            annotations=ToolAnnotations(
+                read_only_hint=False,
+                destructive_hint=True,
+                idempotent_hint=False,
+                open_world_hint=True,
+            ),
+        )
+        async def write_execute(request_id: str) -> WriteResult:
+            """Execute once after operator approval and fresh revalidation."""
+            return await writes.apply(request_id)
 
     return server

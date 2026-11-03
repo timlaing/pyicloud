@@ -11,7 +11,7 @@ import logging
 import sys
 from typing import NoReturn
 
-from .context import SUPPORTED_SERVICES, ServerConfig
+from .context import SUPPORTED_SERVICES, SUPPORTED_WRITE_ACTIONS, ServerConfig
 
 
 class SafeArgumentParser(argparse.ArgumentParser):
@@ -52,6 +52,9 @@ def main() -> None:
     parser.add_argument("--china-mainland", action="store_true")
     parser.add_argument("--approve-request", metavar="REQUEST_ID")
     parser.add_argument("--approval-dir")
+    parser.add_argument(
+        "--write-action", choices=SUPPORTED_WRITE_ACTIONS, action="append", default=[]
+    )
     args = parser.parse_args()
     if args.approve_request:
         if (
@@ -60,6 +63,7 @@ def main() -> None:
             or args.session_dir
             or args.service
             or args.content_service
+            or args.write_action
         ):
             parser.error("Invalid operator approval options")
         from .approval_channel import approve_interactively
@@ -70,7 +74,7 @@ def main() -> None:
         except WriteDenied as error:
             parser.exit(2, f"{parser.prog}: {error}\n")
         return
-    if args.approval_dir:
+    if args.approval_dir and not args.write_action:
         parser.error("Approval directory currently requires operator mode")
     try:
         config = ServerConfig(
@@ -78,6 +82,8 @@ def main() -> None:
             session_dir=args.session_dir,
             services=tuple(args.service),
             content_services=tuple(args.content_service),
+            write_actions=tuple(args.write_action),
+            approval_dir=args.approval_dir,
             timeout=args.timeout,
             queue_limit=args.queue_limit,
             china_mainland=args.china_mainland,
@@ -98,4 +104,10 @@ def main() -> None:
         )
         raise SystemExit(2) from error
     quiet_library_logging()
-    build_server(config).run(transport="stdio")
+    from .authorization import WriteDenied
+
+    try:
+        server = build_server(config)
+    except WriteDenied as error:
+        parser.exit(2, f"{parser.prog}: {error}\n")
+    server.run(transport="stdio")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import json
 from typing import Any
@@ -113,6 +114,7 @@ class ReminderWrites:
         list_handle: str,
         payload: dict[str, Any],
         reminder_id: str | None = None,
+        publish: Callable[[MutationPreview], None] | None = None,
     ) -> MutationPreview:
         """Capture exact route and revision; never call create/update/delete here."""
         if (
@@ -142,11 +144,15 @@ class ReminderWrites:
             if len(self._targets) >= 256:
                 del self._targets[next(iter(self._targets))]
             self._targets[result.request_id] = target
+            if publish is not None:
+                publish(result)
             return result
 
         return await self.reads.owner.run(prepare)
 
-    async def apply(self, request_id: str) -> dict[str, Any]:
+    async def apply(
+        self, request_id: str, accept: Callable[[str], None] | None = None
+    ) -> dict[str, Any]:
         """Revalidate state, consume approval, then dispatch exactly once."""
         target = self._targets.get(request_id)
         if target is None:
@@ -157,6 +163,8 @@ class ReminderWrites:
             account, resource, revision = self._bindings(
                 client, target, fresh, reminder
             )
+            if accept is not None:
+                accept(request_id)
             approved = self.approvals.consume(
                 request_id,
                 account_binding=account,

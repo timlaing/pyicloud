@@ -32,6 +32,7 @@ SUPPORTED_SERVICES: tuple[ServiceName, ...] = (
     "photos",
     "mail",
 )
+SUPPORTED_WRITE_ACTIONS = ("reminders.create", "reminders.update", "reminders.delete")
 
 
 class ToolFailure(Exception):
@@ -56,6 +57,8 @@ class ServerConfig:
     session_dir: str | None = None
     services: tuple[ServiceName, ...] = ()
     content_services: tuple[ServiceName, ...] = ()
+    write_actions: tuple[str, ...] = ()
+    approval_dir: str | None = None
     timeout: float = 30.0
     queue_limit: int = 8
     china_mainland: bool = False
@@ -71,6 +74,16 @@ class ServerConfig:
             raise ValueError("Unsupported content service")
         if not set(self.content_services) <= set(self.services):
             raise ValueError("Content access also requires the service opt-in")
+        if set(self.write_actions) - set(SUPPORTED_WRITE_ACTIONS):
+            raise ValueError("Unsupported write action")
+        if self.write_actions and (
+            "reminders" not in self.services or not self.approval_dir
+        ):
+            raise ValueError(
+                "Writes require the service opt-in and private approval directory"
+            )
+        if self.approval_dir and not self.write_actions:
+            raise ValueError("Approval storage requires explicit write actions")
         if not 0 < self.timeout <= 120 or not 1 <= self.queue_limit <= 32:
             raise ValueError("Invalid execution limits")
 
@@ -172,6 +185,13 @@ class SessionOwner:
         self._pending = 0
         self._closed = False
         self.authenticated = False
+        self._cleanup: list[Callable[[], None]] = []
+
+    def add_cleanup(self, callback: Callable[[], None]) -> None:
+        """Trusted resource cleanup is drained on the same ownership lane."""
+        if self._closed:
+            raise ToolFailure("server_closed")
+        self._cleanup.append(callback)
 
     def _create_client(self) -> PyiCloudService:
         """Open only the operator's existing private storage, with login disabled."""
@@ -247,11 +267,19 @@ class SessionOwner:
         self._closed = True
 
         def release() -> None:
-            if self._client is not None:
-                try:
+            failed = False
+            try:
+                if self._client is not None:
                     self._client.session.close()
+            except Exception:
+                failed = True
+            for callback in self._cleanup:
+                try:
+                    callback()
                 except Exception:
-                    raise ToolFailure("shutdown_failure") from None
+                    failed = True
+            if failed:
+                raise ToolFailure("shutdown_failure")
 
         try:
             future = asyncio.wrap_future(self._executor.submit(release))
