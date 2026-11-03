@@ -28,6 +28,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add synthetic qualification of an internal typed-only Photos album-creation adapter with exact receipts, private library snapshots and independent new-ID server proof; runtime creation remains disabled pending integration.
+
 - Add typed-only private Photos `create_album_correlated()` with bounded names and no REST fallback; acknowledgement correlation remains distinct from independent server visibility.
 
 - Add Photos `server_albums()` reads that bypass pending creation caches for independent server visibility checks without changing existing album caching behavior.

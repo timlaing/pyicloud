@@ -846,6 +846,17 @@ class PhotoLibrary(BasePhotoLibrary):
             return self._create_album_typed(client, encoded, album_type, position)
         return self._create_album_rest(encoded, album_type, position)
 
+    @property
+    def correlated_album_creation_available(self) -> bool:
+        """Report typed private creation support without probing or dispatching."""
+        return (
+            isinstance(self._client, PhotosCloudKitClient)
+            and _can_use_typed_cloudkit(self.service.session)
+            and self.scope == "private"
+            and bool(self.zone_id.get("zoneName"))
+            and not self.zone_id.get("ownerRecordName")
+        )
+
     def create_album_correlated(self, name: str) -> PhotoAlbum | None:
         """Create a private album only through the typed correlated-response path.
 
@@ -863,13 +874,7 @@ class PhotoLibrary(BasePhotoLibrary):
                 "A bounded non-blank album name without controls is required"
             )
         client = self._client
-        if (
-            not isinstance(client, PhotosCloudKitClient)
-            or not _can_use_typed_cloudkit(self.service.session)
-            or self.scope != "private"
-            or not self.zone_id.get("zoneName")
-            or self.zone_id.get("ownerRecordName")
-        ):
+        if not self.correlated_album_creation_available or client is None:
             raise PhotosServiceException(
                 "Correlated private album creation is unavailable"
             )

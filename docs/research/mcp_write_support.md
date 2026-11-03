@@ -65,6 +65,18 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`photo_album_creates.py` is an internal typed-only creation adapter, not yet an MCP
+runtime action. It resolves a discovered private `PhotoLibrary`, requires non-mutating
+`correlated_album_creation_available`, and reads an independent bounded server album
+inventory with real tags and unique IDs. Exact name, account/endpoint/private zone and
+canonical inventory snapshot bind a single-use receipt. Names colliding ignoring
+case are rejected. Approval is consumed before one `create_album_correlated` call;
+success requires a new returned ID and requested name independently observed in
+`server_albums()`, with matching private identity/route and a distinct object from
+the creation acknowledgement cache. Missing/unverified visibility is uncertain and
+never retried. Snapshot preflight is not a server-side atomic namespace condition.
+Gateway/schema and installed create qualification are pending; no live account used.
+
 `PhotoLibrary.create_album_correlated()` exposes a typed-only private creation path
 for future adapters. It refuses absent/untyped clients, mock/unsupported sessions,
 shared scopes/owners and invalid names before invoking the existing correlated create

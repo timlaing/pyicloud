@@ -308,6 +308,10 @@ It does not prove independent server visibility: use `server_albums()` afterward
 and never blindly retry an uncertain result. Existing `create_album()` behavior
 outside its typed-response verification is unchanged; MCP creation stays disabled.
 
+`correlated_album_creation_available` reports whether that typed private route is
+available without a network probe. It does not grant operator approval or guarantee
+the next request will succeed.
+
 `PhotoLibrary.server_albums()` queries albums without merging pending local creation
 acknowledgements or replacing existing caches. Use it when independent server
 visibility is needed; `refresh_albums()` can retain locally pending albums. Virtual
