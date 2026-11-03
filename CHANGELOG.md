@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Constrain MCP operator approval directories to the OS account's private application approval root after canonical containment validation, rejecting path escapes and final symlinks before opening storage; existing arbitrary approval locations require explicit operator migration.
+
 - Conservatively require separate startup high-risk selection and elevated private-terminal approval for Calendar event deletion, whose recovery contract is unverified; Reminders deletion remains the verified soft update.
 
 - Bind approval risk tiers to action policy and exact HMAC previews; supported high-risk actions require separate startup selection and distinct private-terminal approval, and unclassified actions fail closed.

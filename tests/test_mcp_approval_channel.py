@@ -13,7 +13,11 @@ from unittest.mock import patch
 
 import pytest
 
-from pyicloud.mcp.approval_channel import ApprovalMailbox, approve_interactively
+from pyicloud.mcp.approval_channel import (
+    ApprovalMailbox,
+    approval_base_directory,
+    approve_interactively,
+)
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
 
 
@@ -37,6 +41,14 @@ def sandbox_directory() -> Iterator[Path]:
 
     try:
         with (
+            patch(
+                "pyicloud.mcp.approval_channel.approval_base_directory",
+                return_value=str(directory),
+            ),
+            patch(
+                "pyicloud.mcp.approval_channel.os.path.realpath",
+                side_effect=os.path.abspath,
+            ),
             patch("pyicloud.mcp.approval_channel.os.open", side_effect=anchored_open),
             patch(
                 "pyicloud.mcp.approval_channel.os.unlink", side_effect=anchored_unlink
@@ -60,6 +72,54 @@ class SyntheticTerminal(io.StringIO):
 def terminal(value: str) -> io.StringIO:
     """A synthetic terminal response, never actual operator/account input."""
     return SyntheticTerminal(value)
+
+
+@pytest.mark.parametrize("kind", ["parent", "sibling_prefix", "symlink"])
+def test_approval_root_escape_is_rejected_before_open(
+    directory: Path, kind: str
+) -> None:
+    """Canonical traversal and partial-prefix tricks cannot select another mailbox."""
+    target = (
+        directory / ".." / "outside"
+        if kind == "parent"
+        else Path(str(directory) + "-outside")
+        if kind == "sibling_prefix"
+        else directory
+    )
+    with (
+        patch(
+            "pyicloud.mcp.approval_channel.os.path.islink",
+            return_value=kind == "symlink",
+        ),
+        patch("pyicloud.mcp.approval_channel.os.open") as opened,
+    ):
+        with pytest.raises(WriteDenied):
+            ApprovalMailbox(str(target))
+        opened.assert_not_called()
+
+
+def test_default_approval_root_comes_from_os_identity(directory: Path) -> None:
+    """OS account home, not caller-controlled input, defines containment."""
+    from types import SimpleNamespace  # pylint: disable=import-outside-toplevel
+
+    with patch("pwd.getpwuid", return_value=SimpleNamespace(pw_dir=str(directory))):
+        assert approval_base_directory() == str(
+            directory / ".local" / "share" / "pyicloud" / "mcp-approvals"
+        )
+
+
+@pytest.mark.parametrize("bad", ["", "control", "large"])
+def test_invalid_approval_directory_is_rejected_before_open(
+    directory: Path, bad: str
+) -> None:
+    """Empty/control/oversized CLI directory data cannot reach filesystem opens."""
+    value = (
+        "" if not bad else str(directory) + "\x00" if bad == "control" else "x" * 4097
+    )
+    with patch("pyicloud.mcp.approval_channel.os.open") as opened:
+        with pytest.raises(WriteDenied, match="invalid_approval_directory"):
+            ApprovalMailbox(value)
+        opened.assert_not_called()
 
 
 def test_operator_decision_is_out_of_band_and_single_use(directory: Path) -> None:

@@ -9,6 +9,7 @@ import argparse
 from collections.abc import Generator, Iterator
 from datetime import datetime
 import json
+import os
 import re
 import socket
 import sys
@@ -1260,6 +1261,12 @@ def main() -> None:
     )
     with (
         patch("socket.socket", side_effect=local_socket),
+        patch(
+            "pyicloud.mcp.approval_channel.approval_base_directory",
+            return_value=os.path.realpath(args.approval_dir)
+            if args.approval_dir
+            else "unused",
+        ),
         patch("pyicloud.mcp.upload_transport.Session", SyntheticUploadContent),
     ):
         build_server(owner=owner).run(transport="stdio")

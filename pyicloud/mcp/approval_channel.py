@@ -21,12 +21,41 @@ PENDING_SUFFIX = ".pending.json"
 APPROVED_SUFFIX = ".approved.json"
 
 
+def approval_base_directory() -> str:
+    """Use the OS account's private application area, not agent workspace input."""
+    import pwd  # pylint: disable=import-outside-toplevel
+
+    home = pwd.getpwuid(os.geteuid()).pw_dir
+    return os.path.realpath(
+        os.path.join(home, ".local", "share", "pyicloud", "mcp-approvals")
+    )
+
+
+def checked_approval_directory(directory: str) -> str:
+    """Canonicalize and constrain CLI paths before opening an operator mailbox."""
+    if (
+        not isinstance(directory, str)
+        or not directory
+        or len(directory.encode("utf-8")) > 4096
+        or any(ord(char) < 32 or ord(char) == 127 for char in directory)
+    ):
+        raise WriteDenied("invalid_approval_directory")
+    resolved = os.path.realpath(directory)
+    base = approval_base_directory()
+    if resolved != base and not resolved.startswith(base + os.sep):
+        raise WriteDenied("approval_directory_outside_private_root")
+    if os.path.islink(directory):
+        raise WriteDenied("approval_directory_unavailable")
+    return resolved
+
+
 class ApprovalMailbox:
     """POSIX descriptor-anchored files; no symlinks or implicit creation."""
 
     def __init__(self, directory: str) -> None:
         if os.name != "posix" or not hasattr(os, "O_NOFOLLOW"):
             raise WriteDenied("operator_channel_unsupported")
+        directory = checked_approval_directory(directory)
         try:
             self._fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError:

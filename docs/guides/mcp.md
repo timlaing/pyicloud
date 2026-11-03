@@ -156,13 +156,27 @@ output paths, and multi-account selectors are not exposed.
 
 ## Opt-in Reminders writes
 
+Approval storage must be under the OS account's private application root:
+`OS_HOME/.local/share/pyicloud/mcp-approvals`, or a child directory beneath it.
+`OS_HOME` is a placeholder for the OS-reported absolute home; replace it before
+using the examples below.
+The root is derived from the OS account database, not an agent-selected workspace
+or a caller-controlled environment override. Use a dedicated account-specific child
+when running more than one separately configured server. Operators must create the
+chosen directory privately (`0700`) before startup; the server never creates it.
+Canonical escapes and sibling-prefix tricks are refused, and final directory
+symlinks remain refused. The chosen directory must also remain inaccessible to the
+agent through other filesystem/shell tools. Older arbitrary locations such as
+`/private/approvals` must be migrated by the operator before enabling writes; do not
+automatically copy or reuse old approval receipts.
+
 Writes remain disabled by default. The verified first runtime actions are
 `reminders.create`, `reminders.update`, and `reminders.delete` (soft deletion).
 Select **each** allowed action at trusted startup alongside `--service reminders`
 and a dedicated private `--approval-dir`. Example additional host arguments:
 
 ```text
---service reminders --write-action reminders.create --approval-dir /private/approvals
+--service reminders --write-action reminders.create --approval-dir OS_HOME/.local/share/pyicloud/mcp-approvals
 ```
 
 The directory must already exist, be POSIX operator-owned with mode `0700`, and
@@ -176,7 +190,7 @@ write approval currently fails closed. Multi-account operation is not supported.
    those fields and requires the reminder ID from the selected list. Delete takes
    an empty payload and the reminder ID. No mutation occurs during preparation.
 3. In a **separate operator terminal**, run:
-   `icloud-mcp --approval-dir /private/approvals --approve-request REQUEST_ID`.
+   `icloud-mcp --approval-dir OS_HOME/.local/share/pyicloud/mcp-approvals --approve-request REQUEST_ID`.
    Review the escaped exact preview and type `APPROVE REQUEST_ID`. No piped `--yes`,
    model confirmation flag or model-callable approval tool exists.
 4. Call `icloud_write_execute(request_id=REQUEST_ID)`. The owner lane re-fetches
@@ -197,7 +211,7 @@ selected high-risk workflows are documented below; unsupported actions remain de
 
 ## Opt-in private Drive rename
 
-`--service drive --write-action drive.rename --approval-dir /private/approvals`
+`--service drive --write-action drive.rename --approval-dir OS_HOME/.local/share/pyicloud/mcp-approvals`
 enables only the verified rename action, under the same separate terminal workflow
 above. Discover a file/folder handle, then call `icloud_write_preview` with
 `action="drive.rename"`, `target_handle=HANDLE`, and `payload={"name":"New base name"}`.

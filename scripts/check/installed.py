@@ -147,6 +147,10 @@ async def check_configured_mcp(
     with (
         tempfile.TemporaryDirectory() as approval_directory,
         tempfile.TemporaryFile(mode="w+", encoding="utf-8") as diagnostics,
+        patch(
+            "pyicloud.mcp.approval_channel.approval_base_directory",
+            side_effect=lambda: os.path.realpath(approval_directory),
+        ),
     ):
         if writes:
             arguments.extend(["--approval-dir", approval_directory])
