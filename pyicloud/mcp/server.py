@@ -263,7 +263,9 @@ def build_server(
             return await content.file("photos", handle, offset, max_bytes, version)
 
     if writes is not None:
-        if "photos.upload_file" in context.config.write_actions:
+        if {"photos.upload_file", "drive.upload_file"} & set(
+            context.config.write_actions
+        ):
 
             @server.tool(
                 name="icloud_upload_stage",
@@ -301,6 +303,7 @@ def build_server(
                 "drive.move_file",
                 "drive.create_folder",
                 "drive.recover_item",
+                "drive.upload_file",
                 "calendar.create_event",
                 "calendar.delete_event",
                 "mail.create_draft",

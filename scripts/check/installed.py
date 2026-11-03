@@ -191,6 +191,7 @@ async def check_configured_mcp(
                     await exercise_drive_acknowledged_gate_mcp(
                         session, approval_directory
                     )
+                    await exercise_drive_upload_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -215,6 +216,12 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_MAIL_MOVED_ACK") == (1 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRIVE_CREATE_ACK") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRIVE_RECOVER_ACK") == (2 if writes else 0)
+        for marker in (
+            "MCP_SYNTHETIC_DRIVE_UPLOAD_RESERVED",
+            "MCP_SYNTHETIC_DRIVE_UPLOAD_TRANSFERRED",
+            "MCP_SYNTHETIC_DRIVE_UPLOAD_COMMITTED",
+        ):
+            assert output.count(marker) == (2 if writes else 0)
         for marker in (
             "MCP_SYNTHETIC_PHOTO_RESERVED",
             "MCP_SYNTHETIC_PHOTO_TRANSFERRED",
@@ -1499,6 +1506,143 @@ async def exercise_drive_acknowledged_gate_mcp(session: Any, directory: str) -> 
         assert (
             replay.structured_content is not None
             and replay.structured_content["error"] == "unknown_or_consumed_preview"
+        )
+        repeated = await session.call_tool("icloud_write_preview", args)
+        assert (
+            repeated.structured_content is not None
+            and repeated.structured_content["error"] == "expired_or_unknown_handle"
+        )
+
+
+async def exercise_drive_upload_gate_mcp(session: Any, directory: str) -> None:
+    """Elevated multipart bytes, acknowledgement-only commit and no replay."""
+    import base64
+    import hashlib
+
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+    from pyicloud.mcp.authorization import WriteDenied
+
+    class SyntheticTerminal(io.StringIO):
+        """Separate fake elevated operator, not live upload authorization."""
+
+        def isatty(self) -> bool:
+            return True
+
+    data = b"drive bytes"
+    for name, expected in (
+        ("Acknowledged.txt", None),
+        ("Uncertain.txt", "mutation_uncertain"),
+    ):
+        discovered = await session.call_tool("icloud_drive_list", {})
+        assert discovered.structured_content is not None
+        handle = next(
+            row["handle"]
+            for row in discovered.structured_content["records"]
+            if row["name"] == "Destination"
+        )
+        begun = await session.call_tool(
+            "icloud_upload_stage",
+            {
+                "operation": "begin",
+                "payload": {
+                    "name": name,
+                    "size": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                },
+            },
+        )
+        assert (
+            begun.structured_content is not None
+            and begun.structured_content["error"] is None
+        )
+        token = begun.structured_content["result"]["stage_handle"]
+        for operation, payload in (
+            (
+                "append",
+                {
+                    "stage_handle": token,
+                    "offset": 0,
+                    "base64": base64.b64encode(data).decode(),
+                },
+            ),
+            ("seal", {"stage_handle": token}),
+        ):
+            staged = await session.call_tool(
+                "icloud_upload_stage", {"operation": operation, "payload": payload}
+            )
+            assert (
+                staged.structured_content is not None
+                and staged.structured_content["error"] is None
+            )
+        args = {
+            "action": "drive.upload_file",
+            "target_handle": handle,
+            "payload": {"stage_handle": token, "modified_ms": 1000},
+        }
+        prepared = await session.call_tool("icloud_write_preview", args)
+        assert (
+            prepared.structured_content is not None
+            and prepared.structured_content["error"] is None
+        )
+        preview = prepared.structured_content["preview"]
+        assert (
+            preview["risk"] == "high" and preview["payload"]["allow_conflict"] is True
+        )
+        assert preview["payload"]["sha256"] == hashlib.sha256(data).hexdigest()
+        identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            denied.structured_content is not None
+            and denied.structured_content["error"] == "approval_record_unavailable"
+        )
+        with ApprovalMailbox(directory) as operator:
+            try:
+                operator.decide(
+                    identifier,
+                    SyntheticTerminal("APPROVE " + identifier),
+                    io.StringIO(),
+                )
+            except WriteDenied as error:
+                assert str(error) == "operator_declined"
+            else:
+                raise AssertionError("Ordinary receipt authorized Drive upload")
+            operator.decide(
+                identifier,
+                SyntheticTerminal("APPROVE HIGH-RISK " + identifier),
+                io.StringIO(),
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            result.structured_content is not None
+            and result.structured_content["error"] == expected
+        )
+        assert result.structured_content["result"] == (
+            {
+                "action": "drive.upload_file",
+                "acknowledged": True,
+                "final_state_verified": False,
+            }
+            if expected is None
+            else None
+        )
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            replay.structured_content is not None
+            and replay.structured_content["error"] == "unknown_or_consumed_preview"
+        )
+        retired = await session.call_tool(
+            "icloud_upload_stage",
+            {"operation": "describe", "payload": {"stage_handle": token}},
+        )
+        assert (
+            retired.structured_content is not None
+            and retired.structured_content["error"] == "expired_or_unknown_upload"
         )
         repeated = await session.call_tool("icloud_write_preview", args)
         assert (

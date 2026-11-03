@@ -239,6 +239,38 @@ Results are not claimed to be a complete inventory. Listing does not recover or
 permanently delete anything. Recovery remains unavailable; permanent trash-file
 deletion has a separate elevated opt-in workflow below.
 
+## Opt-in elevated acknowledged Drive uploads
+
+Select `--service drive`, `--write-action drive.upload_file`,
+`--high-risk-action drive.upload_file`, private approval storage and independently
+reviewed exact `--upload-transfer-host HOST` policy. Use `icloud_upload_stage` as
+described in the Photos upload section; Drive and Photos share the same bounded
+stage store when both are enabled. Drive also permits zero-byte files.
+
+Discover a private non-root CloudDocs `drive-folder` handle and preview
+`drive.upload_file` with that `target_handle` and exactly `stage_handle` plus integer
+`modified_ms`. Modification and creation times both use that approved epoch-millisecond
+value. Approval binds exact immutable name/size/SHA-256, destination identity/etag,
+both service routes, document destination, timestamp and transfer-host policy.
+Current case-insensitive name conflicts are refused; the SDK's existing commit flags
+`allow_conflict: true` and `create_short_guid: true` are explicitly included in the
+preview. Collision handling is not atomic or independently verified; do not interpret
+approval as permission to retry an ambiguous upload.
+
+The independent terminal requires `APPROVE HIGH-RISK REQUEST_ID`. Stage and
+destination handles are retired before dispatch. The existing allocation/multipart/
+commit flow uses operation-local upload credentials on account-service requests
+only; transfer hosts receive no account cookies, authorization or environment
+credentials. HTTPS exact-host policy, redirect refusal, no mutation retries and
+bounded request/body budgets remain mandatory.
+
+An accepted commit returns `acknowledged: true, final_state_verified: false`.
+Allocation IDs are not reported as final file IDs, and no file handle is fabricated.
+Rediscover metadata to inspect the outcome. Missing/malformed/conflicting receipts
+or commits and transport failures return uncertainty, never implicit retry or cleanup.
+Installed stdio qualification uses fake raw/isolated transport and unchanged fake
+destination state; it does not claim live Apple upload or independent final-state proof.
+
 ## Acknowledged Drive creation and recovery
 
 Enable `--service drive`, private approval storage, and the standard write actions

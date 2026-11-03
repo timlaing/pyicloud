@@ -66,6 +66,13 @@ No live upload is claimed.
 
 ## Drive upload
 
+The acknowledged-only Drive upload adapter now reuses the existing reservation,
+multipart receipt and commit payload, with isolated bounded transfer and raw service
+requests. Exact destination/byte/host policy and timestamps are elevated-receipt-bound,
+stages/destination handles retire before dispatch and results do not fabricate final
+identity. Existing allocation/final-ID correlation gaps below apply only to a future
+stronger verified-final-state mode, not the user-approved acknowledgement mode.
+
 Local evidence: `pyicloud/services/drive.py` reserves a document ID, transfers to a
 returned URL, then commits with `create_short_guid: true` and `allow_conflict: true`.
 `tests/services/test_drive_upload_params.py` uses only `{"status": "OK"}` as the

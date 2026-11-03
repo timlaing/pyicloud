@@ -16,6 +16,7 @@ from .draft_sends import DraftSends
 from .drive_acknowledged import DriveAcknowledged
 from .drive_deletions import DriveDeletions
 from .drive_moves import DriveMoves
+from .drive_uploads import DriveUploads
 from .drive_writes import DriveWrites
 from .mail_acknowledged import MailAcknowledged
 from .mail_deletions import MailDeletions
@@ -69,13 +70,32 @@ class WriteGateway:
         self.photos = PhotoWrites(self.drive.additional, self.ledger)
         self.photo_albums = PhotoAlbumWrites(self.drive.additional, self.ledger)
         self.photo_creates = PhotoAlbumCreates(self.photo_albums)
+        self.upload_staging = (
+            UploadStaging()
+            if {"photos.upload_file", "drive.upload_file"}
+            & set(self.config.write_actions)
+            else None
+        )
+        if self.upload_staging is not None:
+            reads.owner.add_cleanup(self.upload_staging.close)
+        self.drive_uploads = (
+            DriveUploads(
+                self.drive,
+                self.upload_staging,
+                frozenset(self.config.upload_transfer_hosts),
+            )
+            if "drive.upload_file" in self.config.write_actions
+            and self.upload_staging is not None
+            else None
+        )
         self.photo_uploads = (
             PhotoUploads(
                 self.photo_creates,
-                UploadStaging(),
+                self.upload_staging,
                 frozenset(self.config.upload_transfer_hosts),
             )
             if "photos.upload_file" in self.config.write_actions
+            and self.upload_staging is not None
             else None
         )
         self.photo_relations = PhotoRelations(self.photo_albums)
@@ -96,14 +116,19 @@ class WriteGateway:
         if action not in self.config.write_actions:
             return WriteResult(error="write_disabled")
         try:
-            if action == "photos.upload_file":
-                if self.photo_uploads is None:
+            if action in {"photos.upload_file", "drive.upload_file"}:
+                upload = (
+                    self.photo_uploads
+                    if action == "photos.upload_file"
+                    else self.drive_uploads
+                )
+                if upload is None:
                     raise WriteDenied("write_disabled")
                 if set(payload) != {"stage_handle", "modified_ms"} or not isinstance(
                     payload["stage_handle"], str
                 ):
                     raise WriteDenied("invalid_payload")
-                preview = await self.photo_uploads.prepare_upload(
+                preview = await upload.prepare_upload(
                     target_handle or list_handle,
                     payload["stage_handle"],
                     payload["modified_ms"],
@@ -225,12 +250,11 @@ class WriteGateway:
 
     async def stage(self, operation: str, payload: dict[str, Any]) -> WriteResult:
         """Serialize bounded local staging; no URL, path or approval input accepted."""
-        upload = self.photo_uploads
-        if upload is None:
+        store = self.upload_staging
+        if store is None:
             return WriteResult(error="write_disabled")
 
         def stage(_client: Any) -> dict[str, Any]:
-            store = upload.staging
             if operation == "begin" and set(payload) == {"name", "size", "sha256"}:
                 token = store.begin(payload["name"], payload["size"], payload["sha256"])
                 return {"stage_handle": token, **store.describe(token)}
@@ -259,7 +283,9 @@ class WriteGateway:
             raise WriteDenied("invalid_payload")
 
         try:
-            return WriteResult(result=await upload.additional.reads.owner.run(stage))
+            return WriteResult(
+                result=await self.drive.additional.reads.owner.run(stage)
+            )
         except (WriteDenied, ToolFailure) as error:
             return WriteResult(error=str(error))
         except Exception:
@@ -277,6 +303,7 @@ class WriteGateway:
                 CalendarWrites
                 | DriveWrites
                 | DriveAcknowledged
+                | DriveUploads
                 | ReminderWrites
                 | MailWrites
                 | DraftEdits
@@ -288,10 +315,15 @@ class WriteGateway:
                 | PhotoAlbumWrites
                 | MailFolderWrites
             )
-            if action == "photos.upload_file":
-                if self.photo_uploads is None:
+            if action in {"photos.upload_file", "drive.upload_file"}:
+                upload = (
+                    self.photo_uploads
+                    if action == "photos.upload_file"
+                    else self.drive_uploads
+                )
+                if upload is None:
                     raise WriteDenied("write_disabled")
-                adapter = self.photo_uploads
+                adapter = upload
             elif action in {"drive.create_folder", "drive.recover_item"}:
                 adapter = self.drive_acknowledged
             elif action == "drive.delete_forever_file":

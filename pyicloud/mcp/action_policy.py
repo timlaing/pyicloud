@@ -25,6 +25,7 @@ STANDARD_WRITE_ACTIONS = (
 
 # No verified Calendar event recovery contract: classify deletion conservatively.
 SUPPORTED_HIGH_RISK_ACTIONS = (
+    "drive.upload_file",
     "photos.upload_file",
     "calendar.delete_event",
     "mail.send_draft",

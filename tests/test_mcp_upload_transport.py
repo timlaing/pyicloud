@@ -111,3 +111,26 @@ def test_service_registration_is_one_raw_request(fail: bool) -> None:
         assert UploadTransport.register(*args) == []
     session.request_raw.assert_called_once()
     session.post.assert_not_called()
+
+
+@pytest.mark.parametrize("name", ["file.txt", "../file.txt"])
+def test_multipart_transfer_keeps_filename_local_and_auth_isolated(name: str) -> None:
+    """Empty Drive files are allowed; multipart names cannot select filesystem paths."""
+    session = MagicMock()
+    response = session.post.return_value
+    response.status_code = 200
+    response.iter_content.return_value = [b'{"singleFile":{}}']
+    with patch("pyicloud.mcp.upload_transport.Session") as factory:
+        factory.return_value.__enter__.return_value = session
+        if name.startswith("../"):
+            with pytest.raises(WriteDenied):
+                UploadTransport(frozenset({"content.example.test"})).transfer(
+                    "https://content.example.test/upload", b"", multipart_name=name
+                )
+            factory.assert_not_called()
+        else:
+            assert UploadTransport(frozenset({"content.example.test"})).transfer(
+                "https://content.example.test/upload", b"", multipart_name=name
+            ) == {"singleFile": {}}
+            assert session.trust_env is False
+            assert session.post.call_args.kwargs["files"] == {name: (name, b"")}

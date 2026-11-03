@@ -84,9 +84,11 @@ class ServerConfig:
             raise ValueError("Content access also requires the service opt-in")
         if set(self.write_actions) - set(SUPPORTED_WRITE_ACTIONS):
             raise ValueError("Unsupported write action")
-        uploading = "photos.upload_file" in self.write_actions
+        uploading = bool(
+            {"photos.upload_file", "drive.upload_file"} & set(self.write_actions)
+        )
         if uploading != bool(self.upload_transfer_hosts):
-            raise ValueError("Photos uploads require explicit transfer-host policy")
+            raise ValueError("Uploads require explicit transfer-host policy")
         if len(self.upload_transfer_hosts) > 8 or any(
             not isinstance(host, str)
             or not 1 < len(host) <= 253

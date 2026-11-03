@@ -60,10 +60,30 @@ class UploadTransport:
     def __init__(self, transfer_hosts: frozenset[str]) -> None:
         self.transfer_hosts = transfer_hosts
 
-    def transfer(self, url: str, data: bytes, *, deadline: float | None = None) -> Any:
+    def transfer(
+        self,
+        url: str,
+        data: bytes,
+        *,
+        deadline: float | None = None,
+        multipart_name: str | None = None,
+    ) -> Any:
         """Send bounded immutable bytes without account auth, proxies or redirects."""
         target = checked_upload_url(url, self.transfer_hosts)
-        if not isinstance(data, bytes) or not 0 < len(data) <= 4 * 1024 * 1024:
+        if (
+            not isinstance(data, bytes)
+            or len(data) > 4 * 1024 * 1024
+            or (not data and multipart_name is None)
+        ):
+            raise WriteDenied("invalid_upload_bytes")
+        if multipart_name is not None and (
+            not isinstance(multipart_name, str)
+            or not multipart_name
+            or multipart_name in {".", ".."}
+            or any(
+                ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in multipart_name
+            )
+        ):
             raise WriteDenied("invalid_upload_bytes")
         with Session() as session:
             # A fresh requests session has no account cookies/auth and no retries.
@@ -76,7 +96,11 @@ class UploadTransport:
             try:
                 response = session.post(
                     target,
-                    data=data,
+                    **(
+                        {"data": data}
+                        if multipart_name is None
+                        else {"files": {multipart_name: (multipart_name, data)}}
+                    ),
                     timeout=(10.0, 60.0),
                     allow_redirects=False,
                     stream=True,

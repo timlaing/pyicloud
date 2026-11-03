@@ -234,6 +234,7 @@ class SyntheticWritableDrive:
     """Private synthetic metadata/mutation callbacks; no real storage operations."""
 
     service_root = "https://drive.example.test"
+    document_root = "https://documents.example.test"
 
     def __init__(self) -> None:
         self.params = {"dsid": "12345"}
@@ -259,6 +260,7 @@ class SyntheticWritableDrive:
             identifier = f"FOLDER::com.apple.CloudDocs::{name}"
             self.records[identifier] = {
                 "drivewsid": identifier,
+                "docwsid": identifier.rsplit("::", 1)[-1],
                 "zone": "com.apple.CloudDocs",
                 "type": "FOLDER",
                 "name": name,
@@ -288,6 +290,32 @@ class SyntheticWritableDrive:
             and kwargs["stream"] is True
         )
         body = kwargs["json"]
+        if "/upload/web?" in url:
+            assert body["type"] == "FILE" and body["size"] == len(b"drive bytes")
+            assert body["filename"] in {"Acknowledged.txt", "Uncertain.txt"}
+            print("MCP_SYNTHETIC_DRIVE_UPLOAD_RESERVED", file=sys.stderr, flush=True)
+            return upload_response([
+                {
+                    "document_id": "allocated-synthetic",
+                    "url": "https://content.example.test/drive-upload",
+                }
+            ])
+        if "/update/documents?" in url:
+            assert (
+                body["document_id"] == "allocated-synthetic"
+                and body["path"]["starting_document_id"] == "Destination"
+            )
+            assert (
+                body["mtime"] == body["btime"] == 1000
+                and body["allow_conflict"] is True
+            )
+            assert body["create_short_guid"] is True and body["data"]["size"] == len(
+                b"drive bytes"
+            )
+            print("MCP_SYNTHETIC_DRIVE_UPLOAD_COMMITTED", file=sys.stderr, flush=True)
+            return upload_response({
+                "status": "OK" if body["path"]["path"] == "Acknowledged.txt" else "NO"
+            })
         if "/createFolders?" in url:
             assert (
                 body["destinationDrivewsId"]
@@ -338,6 +366,10 @@ class SyntheticWritableDrive:
             if not data.get("restorePath")
             and data["parentId"] == "FOLDER::com.apple.CloudDocs::root"
         ]
+
+    def _get_token_from_cookie(self) -> dict[str, str]:
+        """Synthetic operation-local upload credential, never a real account token."""
+        return {"token": "synthetic-drive"}
 
     def trashed(self, *, force: bool) -> list[DriveNode]:
         """Only authoritative fake Recently Deleted membership proves trashing."""
@@ -714,6 +746,24 @@ class SyntheticUploadContent:
     def post(self, url: str, **kwargs: Any) -> Response:
         """Count exactly one transfer per approved fake upload."""
         assert not self.trust_env
+        if url == "https://content.example.test/drive-upload":
+            files = kwargs["files"]
+            assert len(files) == 1
+            name, data = next(iter(files.values()))
+            assert (
+                name in {"Acknowledged.txt", "Uncertain.txt"} and data == b"drive bytes"
+            )
+            assert kwargs["stream"] is True and kwargs["allow_redirects"] is False
+            print("MCP_SYNTHETIC_DRIVE_UPLOAD_TRANSFERRED", file=sys.stderr, flush=True)
+            return upload_response({
+                "singleFile": {
+                    "size": len(data),
+                    "fileChecksum": "synthetic",
+                    "referenceChecksum": "synthetic",
+                    "wrappingKey": "synthetic",
+                    "receipt": "synthetic",
+                }
+            })
         assert url == "https://content.example.test/upload"
         assert kwargs["data"] == b"x" * 3105
         assert kwargs["stream"] is True and kwargs["allow_redirects"] is False
@@ -1180,11 +1230,13 @@ def main() -> None:
             "drive.move_file",
             "drive.create_folder",
             "drive.recover_item",
+            "drive.upload_file",
         )
         if args.approval_dir
         else (),
         approval_dir=args.approval_dir,
         high_risk_actions=(
+            "drive.upload_file",
             "photos.upload_file",
             "calendar.delete_event",
             "mail.send_draft",
