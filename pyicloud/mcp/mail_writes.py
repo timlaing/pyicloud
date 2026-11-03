@@ -155,6 +155,12 @@ class MailWrites:
 
         return await self.reads.owner.run(prepare)
 
+    def binding_context(
+        self, client: Any, payload: dict[str, Any]
+    ) -> tuple[str, str, str, MailFolder, MailSender]:
+        """Read current account/route/Drafts/sender bindings without mutation."""
+        return self._fresh(client, payload)
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:

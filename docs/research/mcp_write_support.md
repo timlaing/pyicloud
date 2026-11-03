@@ -65,6 +65,16 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`draft_revalidation.py` is a read-only editing foundation, not an edit action. It
+requires Mail metadata and content opt-ins before reading an opaque server-created
+saved draft. Fresh account/route/Drafts/sender bindings must match saved expectations;
+the public SDK preflight and exact current UID/folder/subject/canonical body/recipient/
+threading/sender-header checks reject external changes. Private frozen state binds
+current identity plus digests of approved payload and fresh body; fresh text/headers
+are not exposed to MCP. Retained versions and unsupported contexts fail closed.
+It has no mutation/approval method. Receipt-bound editing, old-handle retirement,
+rotating UID/old absence and new-body post-proof remain pending; no live account used.
+
 Verified `mail.create_draft` now returns a `mail-draft` opaque expiring handle in the
 shared server registry after all body/identity/header checks pass. Private frozen
 `SavedDraftContext` retains the typed draft, canonical approved payload JSON and
