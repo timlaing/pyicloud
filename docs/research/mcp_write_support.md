@@ -65,6 +65,15 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Private Photos `set_favorite` uses the existing revision-aware public method, which
+dispatches one modify operation and does not retry mutation. The MCP adapter adds
+opaque discovered handles, fresh private-zone lookup, asset/master identity and
+account/endpoint/revision bindings, independent receipts and post-read verification.
+The facade can optimistically update local fields after an incomplete response, so
+the adapter never treats that local state or a boolean acknowledgement as proof.
+Shared-owner zones, deletion and uploads remain unavailable; no live Photos account
+was accessed. Installed Photos-specific receipt qualification remains pending.
+
 Mail draft preparation now has an internal exact-body verification foundation
 (`pyicloud/mcp/mail_writes.py`). The first foundation milestone reproduced the
 library's escaped plain-only HTML conversion, then requires matching Drafts UID,

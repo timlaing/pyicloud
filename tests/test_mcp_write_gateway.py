@@ -21,6 +21,7 @@ from tests.test_mcp_calendar_writes import payload as calendar_payload
 from tests.test_mcp_calendar_writes import setup_calendar
 from tests.test_mcp_drive_writes import setup_writer
 from tests.test_mcp_mail_writes import setup_mail
+from tests.test_mcp_photo_writes import setup_photos
 from tests.test_mcp_reminder_writes import writer
 
 
@@ -28,6 +29,38 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+@pytest.mark.asyncio
+async def test_photo_gateway_shares_discovered_registry() -> None:
+    """An approved synthetic no-op proves dispatch and single-use gating."""
+    photo_writer, _client, _asset, handle = setup_photos()
+    reads = photo_writer.additional.reads
+    owner = cast(Any, reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("photos",),
+        write_actions=("photos.set_favorite",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(reads, photo_writer.additional)
+    prepared = await gateway.prepare(
+        "photos.set_favorite", "", {"favorite": False}, None, handle
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+
+    def accept(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = accept
+    result = await gateway.apply(preview["request_id"])
+    assert result.error is None
+    assert result.result == {"action": "photos.set_favorite", "changed": False}
 
 
 @pytest.mark.asyncio

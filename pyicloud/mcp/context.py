@@ -40,6 +40,7 @@ SUPPORTED_WRITE_ACTIONS = (
     "calendar.create_event",
     "calendar.delete_event",
     "mail.create_draft",
+    "photos.set_favorite",
 )
 
 

@@ -211,6 +211,23 @@ and require manual reconciliation. Already-correct names consume approval withou
 an unnecessary mutation. Trash, restore, move, permanent delete and uploads are
 not enabled by this flag.
 
+## Opt-in private Photos favorites
+
+With `--service photos`, `--write-action photos.set_favorite`, and the private
+approval directory, preview a discovered photo `target_handle` with exactly
+`{"favorite": true}` or `{"favorite": false}`. No raw IDs or caller-selected zones
+are accepted. The adapter requires one current private library matching the asset
+zone, unchanged asset/master identities, an explicit favorite state, and a current
+asset record change tag. Shared-owner/unsupported zones fail closed.
+
+Account, Photos endpoint, zone, asset/master identities and record revision are
+bound to the single-use receipt and revalidated before the verified library
+`set_favorite` method. Approval is consumed even for no-ops. After a mutation, an
+independent library lookup must verify the desired state and valid revision;
+an acknowledgement or local optimistic update alone is insufficient. Any failure
+after dispatch is uncertain and cannot replay approval. This action does not
+enable shared-library mutation, deletion, or upload, and has only synthetic tests.
+
 ## Opt-in Mail draft creation
 
 Enable `--service mail`, `--write-action mail.create_draft`, and the private approval

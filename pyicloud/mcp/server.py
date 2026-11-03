@@ -277,6 +277,7 @@ def build_server(
                 "calendar.create_event",
                 "calendar.delete_event",
                 "mail.create_draft",
+                "photos.set_favorite",
             ],
             list_handle: str = "",
             payload: dict[str, Any] | None = None,

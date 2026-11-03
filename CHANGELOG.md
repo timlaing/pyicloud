@@ -16,6 +16,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add opt-in private Photos favorite changes with discovered asset handles, exact operator receipts, fresh record revisions, and independent post-write verification; shared writes, deletion, and uploads remain unsupported.
+
 - Qualify installed MCP Mail draft receipts and replay rejection for both verified and uncertain synthetic saves, with networking blocked and no sending/upload capabilities.
 
 - Add separately opted-in MCP Mail draft creation with exact operator receipts, fresh enabled-sender and Drafts identity bindings, and fail-closed body verification; sending and attachments remain unavailable.

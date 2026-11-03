@@ -13,6 +13,7 @@ from .calendar_writes import CalendarWrites
 from .context import ToolFailure
 from .drive_writes import DriveWrites
 from .mail_writes import MailWrites
+from .photo_writes import PhotoWrites
 from .reads import ReadTools
 from .reminder_writes import ReminderWrites
 
@@ -39,6 +40,7 @@ class WriteGateway:
         self.drive = DriveWrites(additional or AdditionalReads(reads), self.ledger)
         self.calendar = CalendarWrites(reads, self.ledger)
         self.mail = MailWrites(reads, self.ledger)
+        self.photos = PhotoWrites(self.drive.additional, self.ledger)
         self._actions: dict[str, str] = {}
 
     async def prepare(
@@ -55,7 +57,11 @@ class WriteGateway:
         if action not in self.config.write_actions:
             return WriteResult(error="write_disabled")
         try:
-            if action == "mail.create_draft":
+            if action == "photos.set_favorite":
+                preview = await self.photos.prepare(
+                    target_handle or list_handle, payload, publish=self.mailbox.publish
+                )
+            elif action == "mail.create_draft":
                 preview = await self.mail.prepare(payload, publish=self.mailbox.publish)
             elif action.startswith("calendar."):
                 preview = await self.calendar.prepare(
@@ -106,8 +112,12 @@ class WriteGateway:
 
         try:
             action = self._actions.get(request_id, "")
-            adapter: CalendarWrites | DriveWrites | ReminderWrites | MailWrites
-            if action == "mail.create_draft":
+            adapter: (
+                CalendarWrites | DriveWrites | ReminderWrites | MailWrites | PhotoWrites
+            )
+            if action == "photos.set_favorite":
+                adapter = self.photos
+            elif action == "mail.create_draft":
                 adapter = self.mail
             elif action.startswith("calendar."):
                 adapter = self.calendar
