@@ -55,6 +55,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Bind correlated Photos relation eligibility to the supplied asset's originating account and service endpoint, accepting equivalent same-account service instances while refusing foreign or unknown provenance before lookup or mutation.
+
 - Refuse photo membership lookups and correlated photo additions for album folders, including top-level folders with container metadata, before any lookup or mutation dispatch.
 
 - Ignore caller-supplied `request_params` in Drive uploads without interrupting finalisation or replacing the operation-local upload token.
