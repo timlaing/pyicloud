@@ -22,6 +22,14 @@ def test_exact_bytes_seal_is_immutable_private_and_single_use() -> None:
     store = UploadStaging()
     data = b"private synthetic bytes"
     token = store.begin("Synthetic.txt", len(data), digest(data))
+    assert store.describe(token) == {
+        "name": "Synthetic.txt",
+        "size": len(data),
+        "sha256": digest(data),
+        "sealed": False,
+    }
+    with pytest.raises(WriteDenied, match="upload_not_sealed"):
+        store.peek(token)
     assert store.append(token, 0, base64.b64encode(data[:4]).decode()) == 4
     with pytest.raises(WriteDenied, match="incomplete_upload"):
         store.seal(token)

@@ -173,6 +173,23 @@ class UploadStaging:
         del self._stages[token]
         return stage
 
+    def peek(self, token: str) -> StagedUpload:
+        """Read sealed immutable bytes for exact preview binding, never approval."""
+        stage = self._get(token)
+        if not isinstance(stage, StagedUpload):
+            raise WriteDenied("upload_not_sealed")
+        return stage
+
+    def describe(self, token: str) -> dict[str, str | int | bool]:
+        """Bounded metadata only; no byte content, local path or transfer URL."""
+        stage = self._get(token)
+        return {
+            "name": stage.name,
+            "size": stage.size,
+            "sha256": stage.sha256,
+            "sealed": isinstance(stage, StagedUpload),
+        }
+
     def discard(self, token: str) -> None:
         """Discard only a selected stage; does not touch user files or remote data."""
         self._get(token)

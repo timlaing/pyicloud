@@ -65,6 +65,20 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`upload_previews.py` binds sealed stage name/size/SHA-256 and opaque stage identity to
+a fresh private folder, account, etag and both Drive/document-service routes. Child
+refreshes are revalidated for scope changes, and case-insensitive name conflicts
+fail closed. Owner shutdown releases staging references. `describe` returns bounded
+metadata only; `peek` requires immutable sealed bytes. Even an elevated approval
+cannot execute an upload here: `apply` explicitly returns execution-unavailable.
+The existing Drive upload facade discards document identity, enables conflict handling,
+and uses ordinary requests/server-provided transfer URLs; safe raw no-retry transport,
+URL/redirect policy and independent commit correlation remain unverified for MCP.
+In particular, the commit uses `create_short_guid: true`; existing mocked responses
+do not establish allocation-ID to final-node correlation. Name/size matching alone
+is insufficient. A redacted commit/lookup contract fixture is needed before enablement.
+No upload endpoint or staging tools are enabled by this preview foundation.
+
 `upload_staging.py` is an internal byte-staging foundation, not a runtime upload
 tool or approval path. Strict remote leaf names only, no caller filesystem paths or
 URLs. Defaults reserve at most 4 MiB per file, 8 MiB aggregate and eight stages for

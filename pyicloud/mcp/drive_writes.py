@@ -32,6 +32,12 @@ class DriveWrites:
 
     def _fresh(self, client: Any, target: DriveTarget) -> DriveNode:
         data = client.drive.get_node_data(target.identifier)
+        return self._validated_node(client, target, data)
+
+    def _validated_node(
+        self, client: Any, target: DriveTarget, data: dict[str, Any]
+    ) -> DriveNode:
+        """Recheck identity/scope even when a child refresh replaced node metadata."""
         node = DriveNode(client.drive, data)
         if (
             data.get("drivewsid") != target.identifier
