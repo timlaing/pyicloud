@@ -178,6 +178,30 @@ class AdditionalReads:
 
         return await self._run("drive", query, limit, read)
 
+    async def drive_trash(self, query: str, limit: int) -> ReadResult:
+        """Bounded Recently Deleted metadata with separate opaque trash selectors."""
+
+        def read(client: Any) -> ReadResult:
+            records = []
+            for child in client.drive.trash.get_children(force=True):
+                name, kind = text(child.name), text(child.type)
+                if (
+                    kind not in {"file", "folder"}
+                    or query.casefold() not in name.casefold()
+                ):
+                    continue
+                records.append({
+                    "handle": self._store("drive-trash-" + kind, child),
+                    "name": name,
+                    "type": kind,
+                    "modified": timestamp(child.date_modified),
+                })
+                if len(records) >= limit:
+                    break
+            return bounded_result(records, limit, complete=False)
+
+        return await self._run("drive", query, limit, read)
+
     async def notes(self, query: str, limit: int) -> ReadResult:
         """Search 200 recent titles; omit snippets and bodies."""
 

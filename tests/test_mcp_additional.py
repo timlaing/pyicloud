@@ -283,11 +283,12 @@ async def test_additional_tool_registration_and_disabled_default() -> None:
     client.mail.folders.return_value = []
     server = build_server(owner=owner_for(client))
     tools = await server.list_tools()
-    assert len(tools) == 19
+    assert len(tools) == 20
     for name, args in [
         ("icloud_contacts_list", {}),
         ("icloud_contact_details", {"handle": "unknown"}),
         ("icloud_drive_list", {}),
+        ("icloud_drive_trash_list", {}),
         ("icloud_notes_list", {}),
         ("icloud_photos_libraries", {}),
         ("icloud_photos_albums", {"library_handle": "unknown"}),

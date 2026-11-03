@@ -173,6 +173,22 @@ class SyntheticFolder:
         return [SyntheticFile()]
 
 
+class SyntheticTrash:
+    """Metadata only; no recovery/delete/content methods are present."""
+
+    def get_children(self, *, force: bool) -> list[SimpleNamespace]:
+        """Keep restoration paths private even when listing a discovered trash item."""
+        assert force is True
+        return [
+            SimpleNamespace(
+                name="Deleted.txt",
+                type="file",
+                date_modified=None,
+                restorePath="OMIT_ME",
+            )
+        ]
+
+
 class SyntheticWritableDrive:
     """Private synthetic metadata and mutation methods, no permanent deletion."""
 
@@ -585,7 +601,7 @@ class SyntheticClient:
         self.drive = (
             SyntheticWritableDrive()
             if writes
-            else SimpleNamespace(root=SyntheticFolder())
+            else SimpleNamespace(root=SyntheticFolder(), trash=SyntheticTrash())
         )
         self.notes = SyntheticNotes()
         album = SyntheticWritableAlbum() if writes else SyntheticAlbum()

@@ -724,6 +724,10 @@ async def exercise_additional_mcp(session: Any) -> None:
     assert "phones" not in details[0]
     drive = await records("icloud_drive_list", {})
     assert drive[0]["name"] == "Synthetic.txt"
+    trash = await records("icloud_drive_trash_list", {})
+    for item in trash:
+        assert set(item) == {"handle", "name", "type", "modified"}
+        assert item["name"] == "Deleted.txt"
     notes = await records("icloud_notes_list", {"query": "Synthetic"})
     assert notes[0]["title"] == "Synthetic note"
     libraries = await records("icloud_photos_libraries", {})

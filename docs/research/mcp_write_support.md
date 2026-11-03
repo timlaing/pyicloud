@@ -65,6 +65,19 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Drive recovery investigation requires explicitly discovered Recently Deleted targets,
+not reusing ordinary file handles. `icloud_drive_trash_list` now projects bounded
+metadata from the existing public trash listing with separate `drive-trash-file`/
+`drive-trash-folder` selectors. Restore paths/raw IDs/content are not exposed, and
+these handles cannot resolve as ordinary Drive targets. Synthetic adapter tests and
+installed read fixtures qualify the discovery boundary only. Recovery and permanent
+deletion remain disabled pending exact route/revision/restore-target/post-state proof.
+
+Photos create-album inspection shows generated typed record names and a REST path
+without caller-bound record IDs plus pending local album caching. Creation is not
+enabled by this milestone; acknowledgement/local cache alone cannot prove the exact
+new album or independently verified post-state.
+
 `photo_album_writes.py` is a private top-level album-rename adapter selected by the
 separately opted-in runtime `photos.rename_album` action. It resolves typed discovered albums, rejects unsupported
 object types/parents/shared owners, and requires exactly one matching private library

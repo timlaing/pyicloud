@@ -138,6 +138,11 @@ def build_server(
 
     if "drive" in context.config.services:
 
+        @server.tool(name="icloud_drive_trash_list", annotations=read_annotations)
+        async def drive_trash(query: str = "", limit: int = 50) -> ReadResult:
+            """List bounded trash metadata, never restore paths or content."""
+            return await additional.drive_trash(query, limit)
+
         @server.tool(name="icloud_drive_list", annotations=read_annotations)
         async def drive(
             folder_handle: str = "", query: str = "", limit: int = 50

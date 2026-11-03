@@ -20,6 +20,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add bounded MCP Recently Deleted Drive metadata with distinct opaque trash handles; restoration paths/content remain private and recovery/deletion are not enabled.
+
 - Enable opt-in MCP private top-level Photos album renames with exact receipts and independent fresh identity/name proof; installed tests cover verified and uncertain outcomes without live CloudKit access.
 
 - Add synthetic qualification of an internal private top-level Photos album-rename adapter with discovered handles, fresh revision bindings, and independent post-write identity/name proof; runtime album renames remain disabled pending integration.

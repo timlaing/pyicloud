@@ -229,6 +229,15 @@ child. Failures are uncertain and cannot replay approval; never blindly retry.
 Runtime gateway/schema and installed stdio tests use network-blocked synthetic
 facades; live account validation is not claimed.
 
+## Recently Deleted Drive metadata
+
+With `--service drive`, `icloud_drive_trash_list` lists bounded Recently Deleted
+names/types/modification times with optional `query` and `limit`. It never exposes
+restoration paths, raw IDs, content or download URLs. Distinct expiring trash handles
+cannot be used as ordinary Drive file/folder handles for writes or downloads.
+Results are not claimed to be a complete inventory. Listing does not recover or
+permanently delete anything; those actions remain unavailable.
+
 ## Opt-in private Drive file trashing
 
 Enable `--service drive`, `--write-action drive.trash_file`, and the private
