@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Require typed Photos album-creation responses to match the submitted record ID and type before returning or caching an album; ambiguous responses are uncertain and must not be blindly retried.
+
 - Reject missing, malformed and deleted-state sentinel Drive etags before MCP mutation previews, and require bound account/endpoint plus a real revision in rename post-write proof.
 
 - Reject Mail system mailbox names in MCP folder previews using the verified library name set, including Sent Messages and Deleted Messages, before reads or approval publication.

@@ -65,6 +65,18 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Typed Photos album creation now requires exactly one `CPLAlbum` response with the
+record ID already generated for the submitted create operation before returning or
+caching a handle. Unrelated IDs/types or multiple records are uncertain after one
+dispatch and must not be blindly retried. Existing success fixtures now correlate
+their response to the actual submitted ID rather than returning an unrelated fixed
+ID. The REST path and independent post-create/cache verification still need evidence
+before an MCP create-album action is enabled.
+
+Mail filtered-message scans evaluate flags per page and are explicitly not consistent
+membership snapshots. Absence from a bounded unread/flagged scan cannot establish an
+exact individual flag state, so no flag-bit masks or negative-state proof are guessed.
+
 Drive recovery investigation found literal `etag: "null"` in existing deleted-state
 fixtures (`tests/const/const_drive.py`). A nonempty sentinel is not a safe observed
 mutation revision. Drive adapters now reject non-string, empty, whitespace-padded and

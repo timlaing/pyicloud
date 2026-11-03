@@ -844,10 +844,11 @@ class PhotoLibrary(BasePhotoLibrary):
         album_type: AlbumTypeEnum,
         position: int,
     ) -> PhotoAlbum | None:
+        expected_id = os.urandom(16).hex().upper()
         op = CKModifyOperation(
             operationType="create",
             record=CKWriteRecord(
-                recordName=os.urandom(16).hex().upper(),
+                recordName=expected_id,
                 recordType="CPLAlbum",
                 fields={
                     "albumNameEnc": {
@@ -870,6 +871,15 @@ class PhotoLibrary(BasePhotoLibrary):
         )
         if not _check_modify_response(resp.records):
             raise PhotosServiceException("Failed to create album")
+        if (
+            len(resp.records) != 1
+            or not isinstance(resp.records[0], CKRecord)
+            or resp.records[0].recordName != expected_id
+            or resp.records[0].recordType != "CPLAlbum"
+        ):
+            raise PhotosServiceException(
+                "Album creation outcome is uncertain; refresh before retrying"
+            )
         for record in resp.records:
             if isinstance(record, CKRecord):
                 album = self._convert_record_to_album(record)

@@ -5134,12 +5134,27 @@ def test_create_album_success_typed_client() -> None:
         upload_url="https://upload.example.com",
     )
 
+    expected_response = cast(CKModifyResponse, mock_client.modify.return_value)
+
+    def correlated_response(**kwargs: Any) -> CKModifyResponse:
+        record_id = kwargs["operations"][0].record.recordName
+        return expected_response.model_copy(
+            update={
+                "records": [
+                    expected_response.records[0].model_copy(
+                        update={"recordName": record_id}
+                    )
+                ]
+            }
+        )
+
+    mock_client.modify.side_effect = correlated_response
     album = library.create_album("My Album")
 
     assert album is not None
     assert album.name == "My Album"
-    assert album.id == "album123"
     op = mock_client.modify.call_args.kwargs["operations"][0]
+    assert album.id == op.record.recordName
     assert op.operationType == "create"
     assert op.record.fields.get_value("position") > 0
 
@@ -5197,6 +5212,21 @@ def test_create_album_success_typed_client_populates_uncached_album_list(
     get_albums = MagicMock(return_value=AlbumContainer())
     monkeypatch.setattr(library, "_get_albums", get_albums)
 
+    expected_response = cast(CKModifyResponse, mock_client.modify.return_value)
+
+    def correlated_response(**kwargs: Any) -> CKModifyResponse:
+        record_id = kwargs["operations"][0].record.recordName
+        return expected_response.model_copy(
+            update={
+                "records": [
+                    expected_response.records[0].model_copy(
+                        update={"recordName": record_id}
+                    )
+                ]
+            }
+        )
+
+    mock_client.modify.side_effect = correlated_response
     album = library.create_album("My Album")
 
     assert album is not None
