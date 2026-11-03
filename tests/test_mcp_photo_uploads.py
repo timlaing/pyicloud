@@ -49,7 +49,8 @@ async def test_elevated_exact_once_upload_and_independent_proof(case: str) -> No
     publish = MagicMock()
     preview = await upload.prepare_upload(handle, token, 1000, publish)
     publish.assert_called_once_with(preview)
-    assert preview.risk == "high" and preview.payload["size"] == 14
+    assert preview.risk == "high"
+    assert preview.payload["size"] == 14
     with pytest.raises(WriteDenied):
         await upload.apply(preview.request_id)
     pipeline.upload.assert_not_called()

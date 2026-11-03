@@ -39,7 +39,8 @@ async def test_real_zero_byte_drive_node_never_opens_transport(size: int | str) 
     node = DriveNode(client.drive, {"name": "empty", "type": "FILE", "size": size})
     handle = tools.additional.remember("drive-file", node)
     result = await tools.file("drive", handle, 0, 4)
-    assert result.error is None and result.records[0]["data_base64"] == ""
+    assert result.error is None
+    assert result.records[0]["data_base64"] == ""
     client.drive.get_file.assert_not_called()
     assert (await tools.file("drive", handle, 1, 4)).error == "invalid_download_range"
 

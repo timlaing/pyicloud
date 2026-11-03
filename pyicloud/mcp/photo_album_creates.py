@@ -53,6 +53,24 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
         observed = list(library.server_albums())
         if len(observed) > 1000:
             raise WriteDenied("inventory_unavailable")
+        albums = self._validated_albums(observed, zone)
+        observed_primary = getattr(client.photos, "private_primary_zone", None)
+        resource = json.dumps(
+            (
+                endpoint,
+                zone,
+                observed_primary if isinstance(observed_primary, dict) else None,
+            ),
+            separators=(",", ":"),
+        )
+        revision = json.dumps(
+            sorted((album.id, album.name, album.record_change_tag) for album in albums),
+            separators=(",", ":"),
+        )
+        return library, str(account), resource, revision, albums
+
+    def _validated_albums(self, observed: list[Any], zone: str) -> list[PhotoAlbum]:
+        """Preserve inventory identity/revision checks before creating a snapshot."""
         albums: list[PhotoAlbum] = []
         for album in observed:
             if isinstance(album, SmartPhotoAlbum):
@@ -73,20 +91,7 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
             albums.append(album)
         if len({album.id for album in albums}) != len(albums):
             raise WriteDenied("inventory_unavailable")
-        observed_primary = getattr(client.photos, "private_primary_zone", None)
-        resource = json.dumps(
-            (
-                endpoint,
-                zone,
-                observed_primary if isinstance(observed_primary, dict) else None,
-            ),
-            separators=(",", ":"),
-        )
-        revision = json.dumps(
-            sorted((album.id, album.name, album.record_change_tag) for album in albums),
-            separators=(",", ":"),
-        )
-        return library, str(account), resource, revision, albums
+        return albums
 
     async def prepare_create(
         self,

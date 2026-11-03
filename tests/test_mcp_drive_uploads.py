@@ -110,7 +110,8 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
                     drive, "folder-document", stage, modified_ms=1000
                 )
     assert drive.params == {"dsid": "123"}
-    assert transport.register.call_count <= 2 and transport.transfer.call_count <= 1
+    assert transport.register.call_count <= 2
+    assert transport.transfer.call_count <= 1
 
 
 def setup_adapter() -> tuple[DriveUploads, Any, str, str, dict[str, Any], MagicMock]:
@@ -167,7 +168,8 @@ async def test_elevated_upload_binding_retirement_and_acknowledgement(
         pipeline.upload.assert_not_called()
         return
     preview = await writes.prepare_upload(handle, token, 1000)
-    assert preview.payload["allow_conflict"] is True and preview.risk == "high"
+    assert preview.payload["allow_conflict"] is True
+    assert preview.risk == "high"
     with pytest.raises(WriteDenied):
         await writes.apply(preview.request_id)
     pipeline.upload.assert_not_called()

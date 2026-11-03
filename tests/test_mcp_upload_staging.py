@@ -37,7 +37,8 @@ def test_exact_bytes_seal_is_immutable_private_and_single_use() -> None:
         store.take(token)
     store.append(token, 4, base64.b64encode(data[4:]).decode())
     sealed = store.seal(token)
-    assert sealed.data == data and sealed.sha256 == digest(data)
+    assert sealed.data == data
+    assert sealed.sha256 == digest(data)
     assert store.seal(token) is sealed
     assert "private synthetic" not in repr(sealed)
     with pytest.raises(FrozenInstanceError):

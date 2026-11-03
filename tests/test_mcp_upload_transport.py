@@ -78,7 +78,8 @@ def test_transfer_has_no_shared_auth_environment_redirect_or_retry(case: str) ->
         else:
             assert session.trust_env is False
             adapter = session.mount.call_args.args[1]
-            assert adapter.max_retries.total == 0 and adapter.requests_left == 1
+            assert adapter.max_retries.total == 0
+            assert adapter.requests_left == 1
             assert adapter.deadline is not None
             session.post.assert_called_once_with(
                 "https://content.example.test/a",

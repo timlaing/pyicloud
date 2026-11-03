@@ -161,7 +161,8 @@ async def test_delete_gateway_rejects_standard_receipt_and_retires_source() -> N
     mailbox.accept.side_effect = elevated
     client.drive.delete_forever_from_trash.side_effect = OSError("private")
     result = await gateway.apply(preview["request_id"])
-    assert result.error == "mutation_uncertain" and result.result is None
+    assert result.error == "mutation_uncertain"
+    assert result.result is None
     with pytest.raises(ToolFailure):
         deletes.additional.resolve("drive-trash-file", handle)
     client.drive.delete_forever_from_trash.assert_called_once()
@@ -234,7 +235,8 @@ async def test_send_gateway_rejects_standard_receipt_and_retires_uncertain_sourc
     mailbox.accept.side_effect = elevated
     client.mail.send_draft.side_effect = OSError("private")
     result = await gateway.apply(preview["request_id"])
-    assert result.error == "mutation_uncertain" and result.result is None
+    assert result.error == "mutation_uncertain"
+    assert result.result is None
     with pytest.raises(ToolFailure):
         sends.additional.resolve("mail-draft", handle)
     client.mail.send_draft.assert_called_once()
