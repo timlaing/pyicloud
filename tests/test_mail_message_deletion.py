@@ -124,7 +124,9 @@ def test_delete_preflight_is_read_only_exact_metadata(case: DeleteCase) -> None:
     """Deletion capability preflight reads metadata but never submits destruction."""
     before = case.message.model_dump()
     assert case.service.check_delete_permanently(case.message) == "synthetic-account"
-    assert case.message.model_dump() == before and not case.wrote and case.present
+    assert case.message.model_dump() == before
+    assert not case.wrote
+    assert case.present
     case.session.request_raw.assert_not_called()
     assert [
         call.kwargs["json"]["domain"] for call in case.session.post.call_args_list

@@ -75,7 +75,8 @@ def test_route_and_album_metadata_are_read_only() -> None:
     with pytest.raises(AttributeError):
         object.__setattr__(drive, "document_root", "https://other.test")
     client, _library, album, _photo = objects()
-    assert album.record_change_tag == "R1" and album.parent_id is None
+    assert album.record_change_tag == "R1"
+    assert album.parent_id is None
     assert album.object_type == ObjectTypeEnum.CONTAINER
     zone = album.zone_id
     zone["zoneName"] = "OTHER"
@@ -136,7 +137,8 @@ def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:
     client.modify.side_effect = response
     if case == "exact":
         created = library.create_album_correlated("New")
-        assert created is not None and created.name == "New"
+        assert created is not None
+        assert created.name == "New"
         with patch.object(library, "_get_albums", return_value=AlbumContainer()):
             assert not library.server_albums()
     else:

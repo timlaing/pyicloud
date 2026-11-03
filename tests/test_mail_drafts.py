@@ -94,7 +94,8 @@ def draft_case() -> DraftCase:
 def test_public_draft_folder_is_read_only(case: DraftCase) -> None:
     """Expose the existing canonical selectable Drafts discovery without saving."""
     folder = case.service.draft_folder()
-    assert folder.name == "Drafts" and folder.uid_validity
+    assert folder.name == "Drafts"
+    assert folder.uid_validity
     assert not case.wrote
 
 
@@ -298,8 +299,10 @@ def test_public_saved_draft_preflight_is_read_only(case: DraftCase) -> None:
     saved = handle(case)
     before = saved.model_dump()
     current = case.service.check_draft(saved)
-    assert current.id == saved.message.id and current.uid == saved.message.uid
-    assert saved.model_dump() == before and not case.wrote
+    assert current.id == saved.message.id
+    assert current.uid == saved.message.uid
+    assert saved.model_dump() == before
+    assert not case.wrote
     case.session.request_raw.assert_not_called()
 
 
