@@ -390,6 +390,16 @@ class SyntheticMail:
         print("MCP_SYNTHETIC_MAIL_FOLDER_CREATED", file=sys.stderr, flush=True)
         return result
 
+    def rename_folder(self, folder: MailFolder, name: str) -> MailFolder:
+        """Only the first synthetic rename changes authoritative namespace data."""
+        assert folder == self.created_folders[0]
+        assert name in {"Renamed Folder", "Uncertain Rename"}
+        result = folder.model_copy(update={"name": name})
+        if name == "Renamed Folder":
+            self.created_folders[0] = result
+        print("MCP_SYNTHETIC_MAIL_FOLDER_RENAMED", file=sys.stderr, flush=True)
+        return result
+
     def draft_folder(self) -> MailFolder:
         """Return only the synthetic canonical selectable mailbox."""
         return self.drafts
@@ -575,6 +585,7 @@ def main() -> None:
             "reminders.create",
             "mail.create_draft",
             "mail.create_folder",
+            "mail.rename_folder",
             "photos.set_favorite",
             "drive.rename",
             "drive.trash_file",

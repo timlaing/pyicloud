@@ -20,6 +20,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Enable opt-in MCP custom Mail folder renames using discovered handles, exact receipts and same-ID/UID verification; installed tests cover verified and uncertain outcomes without live accounts.
+
 - Add synthetic qualification of an internal custom Mail folder-rename adapter with discovered handles, namespace-bound receipts, system/child-folder guards and same-ID post-write verification; runtime rename tools remain disabled pending integration.
 
 - Enable opt-in MCP top-level Mail folder creation with exact operator receipts and fresh namespace/new-identity verification, including installed successful/uncertain protocol qualification.

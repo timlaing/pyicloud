@@ -1,4 +1,4 @@
-"""Internal custom Mail folder rename; no runtime action enabled yet."""
+"""Receipt-gated custom Mail folder rename with exact namespace identity proof."""
 
 from __future__ import annotations
 

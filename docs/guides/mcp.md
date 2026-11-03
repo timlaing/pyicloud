@@ -258,6 +258,24 @@ an acknowledgement or local optimistic update alone is insufficient. Any failure
 after dispatch is uncertain and cannot replay approval. This action does not
 enable shared-library mutation, deletion, or upload, and has only synthetic tests.
 
+## Opt-in custom Mail folder renames
+
+Enable `--service mail`, `--write-action mail.rename_folder`, and the private
+approval directory. Preview a discovered `target_handle` from `icloud_mail_folders`
+with exactly `{"name": "Renamed Folder"}`. Only top-level custom folders with
+positive UID validity and conservative ASCII names are supported. System folders,
+nested/encoded names, unchanged names, folders with descendants, and case-insensitive
+destination conflicts are rejected. No tree moves, deletion or implicit child
+renaming are enabled.
+
+Approval binds the exact source ID/name/UID validity, account/endpoint and current
+namespace snapshot. The snapshot is a preflight check, not an atomic server revision
+condition. Consume-before-dispatch permits one public rename; fresh namespace reads
+must preserve the source ID/UID validity and expose exactly the requested name.
+Unverified results are uncertain and cannot replay approval. Rediscover the folder
+after success before requesting another change. Gateway and installed tests are
+network-blocked synthetic checks, not live account validation.
+
 ## Opt-in top-level Mail folder creation
 
 Enable `--service mail`, `--write-action mail.create_folder`, and the private approval

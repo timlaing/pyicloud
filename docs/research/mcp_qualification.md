@@ -133,3 +133,10 @@ Both are denied without a private receipt, dispatch once after simulated termina
 approval, and reject replay. Only the first returns a success identity; the second
 is uncertain. Stderr requires exactly two folder-create markers and one cleanup.
 No real account or namespace mutation is involved, and outbound sockets stay blocked.
+
+Installed custom Mail folder renames rediscover a created folder, verify one fake
+same-ID/UID rename, then rediscover the new name before an acknowledged-but-unchanged
+second rename. Both first deny without receipt, dispatch once after simulated terminal
+approval and reject replay. Only the verified new namespace returns a success identity;
+the second result is uncertain. Two rename markers and one cleanup are required.
+All namespace data is synthetic and networking remains blocked.

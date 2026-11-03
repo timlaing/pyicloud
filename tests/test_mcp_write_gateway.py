@@ -21,6 +21,7 @@ from tests.test_mcp_calendar_writes import payload as calendar_payload
 from tests.test_mcp_calendar_writes import setup_calendar
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_writes import setup_writer
+from tests.test_mcp_mail_folder_renames import setup_rename
 from tests.test_mcp_mail_folders import setup_folders
 from tests.test_mcp_mail_writes import setup_mail
 from tests.test_mcp_photo_writes import setup_photos
@@ -31,6 +32,53 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+@pytest.mark.asyncio
+async def test_mail_rename_gateway_preserves_discovered_identity() -> None:
+    """Shared registry selectors plus one private receipt authorize one rename."""
+    renames, client, handle, original = setup_rename()
+    owner = cast(Any, renames.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("mail",),
+        write_actions=("mail.rename_folder",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(renames.reads, renames.additional)
+    prepared = await gateway.prepare(
+        "mail.rename_folder", "", {"name": "Renamed"}, None, handle
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+    mailbox.accept.side_effect = WriteDenied("operator_approval_required")
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "operator_approval_required"
+    client.mail.rename_folder.assert_not_called()
+
+    def accept(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = accept
+
+    def rename(_folder: Any, name: str) -> Any:
+        result = original.model_copy(update={"name": name})
+        client.mail.folders.return_value = [client.mail.folders.return_value[0], result]
+        return result
+
+    client.mail.rename_folder.side_effect = rename
+    result = await gateway.apply(preview["request_id"])
+    assert result.error is None
+    assert result.result == {"action": "mail.rename_folder", "id": "C"}
+    client.mail.rename_folder.assert_called_once_with(original, "Renamed")
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
 
 
 @pytest.mark.asyncio
