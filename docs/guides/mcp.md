@@ -255,8 +255,8 @@ Receipt and source handle are consumed before the SDK call. Success requires bot
 trash-list absence and an independent exact 404/410 lookup under the same binding.
 Generic acknowledgements, tombstones or other lookup errors are uncertain with no
 retry source or compensation. This operation is irreversible; do not blindly retry.
-Gateway tests are synthetic; permanent-delete-specific installed stdio qualification
-is pending and no live file deletion is claimed.
+Gateway and permanent-delete-specific installed stdio tests use network-blocked fake
+records; no live file deletion is claimed.
 
 ## Opt-in private Drive file trashing
 

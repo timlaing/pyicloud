@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Qualify installed elevated private trash-file permanent deletion with ordinary-approval denial, dual absence proof, tombstone uncertainty and retired source/request replay rejection using fake records only.
+
 - Enable separately opted-in elevated MCP permanent deletion of private top-level trash files with exact receipts, source retirement and independent trash/lookup absence proof; folders/shared/root targets and model confirmation remain rejected.
 
 - Add synthetic qualification of an internal elevated permanent trash-file deletion adapter with exact private identity/etag, source retirement and two independent absence checks; runtime permanent deletion remains disabled pending integration.

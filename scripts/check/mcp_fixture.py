@@ -227,7 +227,7 @@ class SyntheticTrash:
 
 
 class SyntheticWritableDrive:
-    """Private synthetic metadata and mutation methods, no permanent deletion."""
+    """Private synthetic metadata/mutation callbacks; no real storage operations."""
 
     service_root = "https://drive.example.test"
 
@@ -258,6 +258,16 @@ class SyntheticWritableDrive:
                 "etag": "D1",
                 "parentId": "FOLDER::com.apple.CloudDocs::root",
             }
+        self.records["FILE::com.apple.CloudDocs::DELETED"] = {
+            "drivewsid": "FILE::com.apple.CloudDocs::DELETED",
+            "zone": "com.apple.CloudDocs",
+            "type": "FILE",
+            "name": "Deleted",
+            "extension": "txt",
+            "etag": "P1",
+            "parentId": "TRASH_ROOT",
+            "restorePath": "Private/Deleted.txt",
+        }
         self.move_dispatches = 0
         self.trash_dispatches = 0
         self.root = SimpleNamespace(type="folder", get_children=self.children)
@@ -286,6 +296,8 @@ class SyntheticWritableDrive:
         self, identifier: str, _share_id: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Do not reuse mutable local optimistic node data."""
+        if identifier not in self.records:
+            raise PyiCloudAPIResponseException("Synthetic absence", 404)
         data = dict(self.records[identifier])
         if data["type"] == "FOLDER":
             data["items"] = [
@@ -324,8 +336,22 @@ class SyntheticWritableDrive:
         assert self.records[identifier]["etag"] == etag
         self.trash_dispatches += 1
         if self.trash_dispatches == 1:
-            self.records[identifier].update(restorePath="Renamed.txt", etag="R3")
+            self.records[identifier].update(
+                restorePath="Renamed.txt", etag="R3", parentId="TRASH_ROOT"
+            )
         print("MCP_SYNTHETIC_DRIVE_TRASHED", file=sys.stderr, flush=True)
+        return {"status": "OK"}
+
+    def delete_forever_from_trash(self, identifier: str, etag: str) -> dict[str, str]:
+        """First fake target disappears; second persists as an unproven tombstone."""
+        assert self.records[identifier]["etag"] == etag
+        assert self.records[identifier]["parentId"] == "TRASH_ROOT"
+        if identifier.endswith("::FIRST"):
+            del self.records[identifier]
+        else:
+            assert identifier.endswith("::DELETED")
+            self.records[identifier].update(restorePath="", etag="null", isDeleted=True)
+        print("MCP_SYNTHETIC_DRIVE_PERMANENT", file=sys.stderr, flush=True)
         return {"status": "OK"}
 
 
@@ -875,12 +901,17 @@ def main() -> None:
             "photos.add_to_album",
             "drive.rename",
             "drive.trash_file",
+            "drive.delete_forever_file",
             "drive.move_file",
         )
         if args.approval_dir
         else (),
         approval_dir=args.approval_dir,
-        high_risk_actions=("calendar.delete_event", "mail.send_draft")
+        high_risk_actions=(
+            "calendar.delete_event",
+            "mail.send_draft",
+            "drive.delete_forever_file",
+        )
         if args.approval_dir
         else (),
     )

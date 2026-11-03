@@ -180,6 +180,9 @@ async def check_configured_mcp(
                         session, approval_directory
                     )
                     await exercise_elevated_send_gate_mcp(session, approval_directory)
+                    await exercise_permanent_delete_gate_mcp(
+                        session, approval_directory
+                    )
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -198,6 +201,7 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_DRAFT_EDITED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_CALENDAR_DELETED") == (1 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRAFT_SUBMITTED") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_DRIVE_PERMANENT") == (2 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -1016,6 +1020,99 @@ async def exercise_elevated_send_gate_mcp(session: Any, directory: str) -> None:
         retired = await session.call_tool(
             "icloud_write_preview",
             {"action": "mail.send_draft", "target_handle": handle, "payload": {}},
+        )
+        assert (
+            retired.structured_content is not None
+            and retired.structured_content["error"] == "expired_or_unknown_handle"
+        )
+
+
+async def exercise_permanent_delete_gate_mcp(session: Any, directory: str) -> None:
+    """Tombstones are not permanent absence, and elevated receipts cannot replay."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+    from pyicloud.mcp.authorization import WriteDenied
+
+    class SyntheticTerminal(io.StringIO):
+        """Fake private-terminal decisions, never live file authorization."""
+
+        def isatty(self) -> bool:
+            """Exercise the separate elevated receipt path."""
+            return True
+
+    discovered = await session.call_tool("icloud_drive_trash_list", {})
+    assert discovered.structured_content is not None
+    rows = {
+        row["name"]: row["handle"] for row in discovered.structured_content["records"]
+    }
+    for name, expected in (
+        ("Renamed.txt", None),
+        ("Deleted.txt", "mutation_uncertain"),
+    ):
+        handle = rows[name]
+        prepared = await session.call_tool(
+            "icloud_write_preview",
+            {
+                "action": "drive.delete_forever_file",
+                "target_handle": handle,
+                "payload": {},
+            },
+        )
+        assert (
+            prepared.structured_content is not None
+            and prepared.structured_content["error"] is None
+        )
+        preview = prepared.structured_content["preview"]
+        assert preview["risk"] == "high" and preview["payload"] == {}
+        identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            denied.structured_content is not None
+            and denied.structured_content["error"] == "approval_record_unavailable"
+        )
+        with ApprovalMailbox(directory) as operator:
+            try:
+                operator.decide(
+                    identifier,
+                    SyntheticTerminal("APPROVE " + identifier),
+                    io.StringIO(),
+                )
+            except WriteDenied as error:
+                assert str(error) == "operator_declined"
+            else:
+                raise AssertionError("Ordinary receipt authorized permanent deletion")
+            operator.decide(
+                identifier,
+                SyntheticTerminal("APPROVE HIGH-RISK " + identifier),
+                io.StringIO(),
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            result.structured_content is not None
+            and result.structured_content["error"] == expected
+        )
+        assert result.structured_content["result"] == (
+            {"action": "drive.delete_forever_file", "deleted": True}
+            if expected is None
+            else None
+        )
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert (
+            replay.structured_content is not None
+            and replay.structured_content["error"] == "unknown_or_consumed_preview"
+        )
+        retired = await session.call_tool(
+            "icloud_write_preview",
+            {
+                "action": "drive.delete_forever_file",
+                "target_handle": handle,
+                "payload": {},
+            },
         )
         assert (
             retired.structured_content is not None

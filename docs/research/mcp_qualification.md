@@ -118,7 +118,8 @@ never appears in fake Recently Deleted; the result is uncertain with no success
 identity. All three consumed receipts reject replay. Fresh copied metadata and
 independent trash membership provide the proof, not mutation acknowledgement data.
 Stderr counts exactly one rename, two trash dispatches and one server cleanup.
-There are no permanent-deletion/upload methods or live Drive calls in this fixture.
+These rename/trash scenarios invoke no permanent-deletion/upload methods or live
+Drive calls.
 
 Installed private Drive moves discover separate typed file/folder handles. The first
 fake dispatch changes authoritative parent/etag and destination membership; the second
@@ -192,3 +193,12 @@ the source then raises uncertainty. Both deny before receipts, dispatch once and
 reject request/source-handle replay afterward. Stderr requires four total fake creates,
 two submissions and one cleanup, preserving prior scenario counts. The fixture has
 no real mail transport or upload method, and outbound sockets remain blocked.
+
+Installed permanent Drive deletion discovers typed private top-level trash-file
+handles and explicitly enables ordinary plus elevated startup selections. Ordinary
+terminal approval is rejected; elevated receipts permit one fake delete per target.
+The first disappears from trash and independently raises exact 404 lookup absence;
+the second disappears from trash but remains a lookup-visible tombstone, so is
+uncertain with no success result. Both request and retired source-handle replays
+are rejected. Two permanent-delete markers and one cleanup are required. All records
+are synthetic; no real filesystem/iCloud deletion or upload occurs.

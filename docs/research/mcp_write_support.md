@@ -79,7 +79,9 @@ verified to carry HTTP status codes; no missing-response endpoint is invented.
 Gateway/schema integration now enforces matching write/elevated startup choices.
 Synthetic gateway tests deny model confirmation and standard receipts, and retire
 uncertain sources after one fake dispatch. Installed permanent-delete-specific
-qualification remains pending; no live file deletion was performed.
+qualification now verifies independent dual absence versus a lookup-visible tombstone,
+elevated phrase requirements and retired source/request replay rejection. No live
+file deletion was performed.
 
 `draft_sends.py` is selected by the separately opted-in elevated runtime
 `mail.send_draft` action.
