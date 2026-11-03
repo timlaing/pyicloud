@@ -65,6 +65,19 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`draft_sends.py` is an internal elevated send adapter, not yet a runtime action.
+Only verified server-created saved contexts with Mail content consent and exact
+current body/sender/recipient roles may reach preview. Caller payload is empty;
+the preview includes the entire saved approved content and current revision/route.
+Separate high-risk ledger selection and elevated receipt are mandatory, including
+explicit adapter checks against downgraded tiers. Consume and retire the source
+before one public `send_draft(confirm=True)` invocation; confirmation is derived
+only from the trusted receipt, never a model flag. Typed acknowledged source identity,
+stable account/namespace and old-UID absence are required. Output acknowledges
+submission with `delivery_confirmed: false`; uncertainty may already have sent mail
+and cannot replay or recover a retry handle. No delivery/atomic-preflight claim.
+Gateway/schema and installed send qualification remain pending; no live mail used.
+
 Deletion risk audit: Reminders `delete` is the verified CloudKit soft update
 `Deleted: 1`, while Calendar `remove_event` submits DELETE/ifMatch without a reviewed
 recovery contract. Calendar deletion is conservatively high risk. Runtime config

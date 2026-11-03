@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add synthetic qualification of an internal elevated saved-draft send adapter with exact body/recipient previews, pre-dispatch handle retirement, single submission and no delivery/retry claim; runtime sending remains disabled pending integration.
+
 - Qualify installed elevated Calendar deletion with explicit high-risk selection, ordinary-phrase rejection, exact-once fake dispatch, independent absence proof and replay denial.
 
 - Qualify installed saved-draft edit receipts, rotated UID/handle and exact body proof, old-source retirement and uncertain no-retry outcomes with network-blocked synthetic Mail state.
