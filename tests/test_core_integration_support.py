@@ -199,12 +199,19 @@ def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "case", ["present", "absent", "duplicate", "untyped", "wrong_master"]
+    "case",
+    ["present", "absent", "duplicate", "untyped", "wrong_master", "wrong_id", "mixed"],
 )
 def test_membership_is_one_scoped_query_without_full_album_fallback(case: str) -> None:
     """Absence is bounded and cannot turn into a paginated full-album scan."""
     client, _library, album, photo = objects()
     found: Any = photo
+    if case in {"wrong_id", "mixed"}:
+        record = photo.asset_record.model_dump(mode="json")
+        record["recordName"] = "OTHER"
+        found = PhotoAsset(
+            album.service, photo.master_record, CKRecord.model_validate(record)
+        )
     if case == "untyped":
         found = object()
     if case == "wrong_master":
@@ -220,6 +227,8 @@ def test_membership_is_one_scoped_query_without_full_album_fallback(case: str) -
     candidates = (
         [] if case == "absent" else [photo, photo] if case == "duplicate" else [found]
     )
+    if case == "mixed":
+        candidates = [photo, found]
     client.query.return_value.records = []
     client.query.return_value.syncToken = None
     with (

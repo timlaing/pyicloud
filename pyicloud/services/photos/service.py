@@ -1889,7 +1889,10 @@ class PhotoAlbum(BasePhotoAlbum):
             response.syncToken or self._library.current_sync_token
         )
         candidates = list(self._process_photo_list_response(response.records))
-        if any(not isinstance(item, PhotoAsset) for item in candidates):
+        if any(
+            not isinstance(item, PhotoAsset) or item.id != photo.id
+            for item in candidates
+        ):
             raise PhotosServiceException(
                 "Album membership returned a different asset identity"
             )
