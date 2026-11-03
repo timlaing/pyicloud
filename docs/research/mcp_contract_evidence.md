@@ -15,6 +15,16 @@ registration with no authentication replay, bounded streamed JSON and response c
 It is not wired to a runtime tool. Transfer hosts still require independently reviewed
 policy; never derive the allowlist from an untrusted reservation response.
 
+`photo_upload_bytes.py` now runs the existing typed Photos reservation, raw byte
+transfer and registration sequence without filesystem paths. It requires a private
+PrimarySync zone, exact staged digest/size/expiry, explicit modification time and
+validated account identity. It checks reservation UUID, receipt size/fields and one
+typed registration with asset/master identities; 409 duplicates preserve the existing
+identity semantics. UTC metadata is explicit. Failures never retry or silently clean
+up potentially stored bytes. It returns registration only, not verified upload success.
+The receipt-bound adapter, protected-mode checks and independent indexing verification
+remain outstanding; no upload tool is exposed.
+
 ## Drive upload
 
 Local evidence: `pyicloud/services/drive.py` reserves a document ID, transfers to a
