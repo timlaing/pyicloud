@@ -184,6 +184,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Reject insecure, query-bearing or credential-bearing Photos upload routes and invalid account identities during preview, before consuming approval or staged bytes.
 
+- Reject unexpected asset IDs in scoped Photos album-membership responses, including mixed expected/unexpected results, instead of mistaking mismatched results for absence.
+
 - Bind correlated Photos relation eligibility to the supplied asset's originating account and service endpoint, accepting equivalent same-account service instances while refusing foreign or unknown provenance before lookup or mutation.
 
 - Refuse photo membership lookups and correlated photo additions for album folders, including top-level folders with container metadata, before any lookup or mutation dispatch.
