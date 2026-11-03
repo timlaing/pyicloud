@@ -65,7 +65,7 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
-`draft_edits.py` is an internal edit adapter, not yet a runtime action. Only opaque
+`draft_edits.py` is selected by the separately opted-in runtime `mail.edit_draft` action. Only opaque
 server-created saved drafts with Mail content consent reach exact old-body/context
 revalidation. Proposed subject/text/to/cc/bcc fully replace those fields; sender,
 attachments and threading are not inferred or changed. Exact current state/new payload
@@ -74,7 +74,9 @@ before one public `edit_draft` call. New ID/UID must rotate, old UID must be abs
 and fresh account/route/folder/sender/roles/body/header proof must match before a
 replacement handle is issued. Uncertain outcomes retire request and old handle,
 without retry or compensating mutations. Preflight is not atomic with save.
-Gateway/schema and installed edit qualification remain pending; no live access.
+Gateway/schema integration enforces Mail content opt-in at startup. Synthetic gateway
+tests verify receipt denial, one uncertain dispatch, source retirement and replay
+rejection. Installed edit-specific qualification remains pending; no live access.
 
 `draft_revalidation.py` is a read-only editing foundation, not an edit action. It
 requires Mail metadata and content opt-ins before reading an opaque server-created

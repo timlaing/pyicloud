@@ -356,14 +356,33 @@ result is uncertain and cannot replay approval; never blindly retry. Network-blo
 installed tests cover verified and acknowledged-but-absent synthetic creations.
 No live account validation is claimed.
 
+## Opt-in saved Mail draft edits
+
+Enable `--service mail`, `--content-service mail`, `--write-action mail.edit_draft`,
+and the private approval directory. Missing Mail content consent is rejected at
+startup. Preview a saved `target_handle` returned by a verified `mail.create_draft`
+result with exactly `subject`, `text`, `to`, `cc`, and `bcc`. Arrays are explicit
+even when empty. Sender remains fixed; arbitrary account drafts, HTML, attachments,
+threading and retained-version handling are unsupported.
+
+Exact last-approved content/context is revalidated before preview and execution;
+external changes are rejected rather than overwritten. The new payload and current
+body/identity revision bind a separate single-use receipt. Approval and old handle
+are consumed before one edit. Success requires a rotated ID/UID, old-UID absence,
+same folder/sender/roles and exact fresh canonical body, then returns a replacement
+opaque handle. Uncertain outcomes retire both request and old handle with no retry.
+The SDK preflight is not atomic with save. Gateway tests are synthetic; edit-specific
+installed stdio qualification is pending and no live Apple validation is claimed.
+
 ## Opt-in Mail draft creation
 
 Successful verified creation also returns an opaque `handle` for the saved draft.
 It retains the typed saved context and exact approved payload privately for ten
 minutes in the current server registry. It cannot resolve as an ordinary Mail
 message/body handle or in another registry, and reveals no sender/body/binding data.
-Uncertain saves do not publish a saved handle. This is an editing foundation only;
-it does not enable draft edits, sending, or reconstruction of existing account drafts.
+Uncertain saves do not publish a saved handle. A handle does not grant edit approval:
+edits require separate opt-in flags and receipts. Sending and reconstruction of
+existing account drafts remain unavailable.
 
 Enable `--service mail`, `--write-action mail.create_draft`, and the private approval
 directory to expose draft creation through the existing preview/execute tools.

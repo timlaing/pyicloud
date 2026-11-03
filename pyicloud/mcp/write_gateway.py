@@ -11,6 +11,7 @@ from .approval_channel import ApprovalMailbox
 from .authorization import ApprovalLedger, WriteDenied
 from .calendar_writes import CalendarWrites
 from .context import ToolFailure
+from .draft_edits import DraftEdits
 from .drive_moves import DriveMoves
 from .drive_writes import DriveWrites
 from .mail_folder_renames import MailFolderRenames
@@ -47,6 +48,7 @@ class WriteGateway:
         self.moves = DriveMoves(self.drive)
         self.calendar = CalendarWrites(reads, self.ledger)
         self.mail = MailWrites(reads, self.ledger, self.drive.additional)
+        self.draft_edits = DraftEdits(self.mail)
         self.mail_folders = MailFolderWrites(reads, self.ledger)
         self.mail_renames = MailFolderRenames(self.drive.additional, self.ledger)
         self.photos = PhotoWrites(self.drive.additional, self.ledger)
@@ -103,6 +105,10 @@ class WriteGateway:
             elif action == "mail.create_folder":
                 preview = await self.mail_folders.prepare(
                     payload, publish=self.mailbox.publish
+                )
+            elif action == "mail.edit_draft":
+                preview = await self.draft_edits.prepare_edit(
+                    target_handle or list_handle, payload, publish=self.mailbox.publish
                 )
             elif action == "mail.create_draft":
                 preview = await self.mail.prepare(payload, publish=self.mailbox.publish)
@@ -163,6 +169,7 @@ class WriteGateway:
                 | DriveWrites
                 | ReminderWrites
                 | MailWrites
+                | DraftEdits
                 | PhotoWrites
                 | PhotoAlbumWrites
                 | MailFolderWrites
@@ -181,6 +188,8 @@ class WriteGateway:
                 adapter = self.mail_renames
             elif action == "mail.create_folder":
                 adapter = self.mail_folders
+            elif action == "mail.edit_draft":
+                adapter = self.draft_edits
             elif action == "mail.create_draft":
                 adapter = self.mail
             elif action.startswith("calendar."):

@@ -284,6 +284,7 @@ def build_server(
                 "calendar.create_event",
                 "calendar.delete_event",
                 "mail.create_draft",
+                "mail.edit_draft",
                 "mail.create_folder",
                 "mail.rename_folder",
                 "photos.set_favorite",

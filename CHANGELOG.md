@@ -28,6 +28,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Enable opt-in MCP saved-draft edits with mandatory Mail content consent, exact receipts, pre-dispatch source retirement and rotating identity/body proof; sending and attachments remain unavailable.
+
 - Add synthetic qualification of an internal consent/receipt-gated saved-draft edit adapter that retires old handles before one edit and verifies rotated identity, old-UID absence and exact new body before issuing a replacement; runtime editing remains disabled pending integration.
 
 - Add read-only MCP saved-draft revalidation with Mail content opt-in, exact last-approved body/context checks and private revision digests; external changes and unsupported saved contexts cannot be silently replaced.

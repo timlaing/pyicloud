@@ -42,6 +42,7 @@ SUPPORTED_WRITE_ACTIONS = (
     "calendar.create_event",
     "calendar.delete_event",
     "mail.create_draft",
+    "mail.edit_draft",
     "mail.create_folder",
     "mail.rename_folder",
     "photos.set_favorite",
@@ -92,6 +93,11 @@ class ServerConfig:
             raise ValueError("Content access also requires the service opt-in")
         if set(self.write_actions) - set(SUPPORTED_WRITE_ACTIONS):
             raise ValueError("Unsupported write action")
+        if (
+            "mail.edit_draft" in self.write_actions
+            and "mail" not in self.content_services
+        ):
+            raise ValueError("Draft edits require the Mail content opt-in")
         if self.write_actions and (
             not self.approval_dir
             or any(

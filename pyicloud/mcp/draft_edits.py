@@ -1,4 +1,4 @@
-"""Internal exact saved-draft edits; no runtime edit action enabled yet."""
+"""Exact receipt-gated saved-draft edits with pre-dispatch handle retirement."""
 
 from __future__ import annotations
 
