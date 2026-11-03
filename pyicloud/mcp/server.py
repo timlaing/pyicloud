@@ -33,7 +33,11 @@ def build_server(
     reads = ReadTools(context)
     additional = AdditionalReads(reads)
     content = ContentReads(additional)
-    writes = WriteGateway(reads) if context.config.write_actions else None
+    writes = (
+        WriteGateway(reads, additional=additional)
+        if context.config.write_actions
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(_server: Any) -> AsyncIterator[None]:
@@ -265,13 +269,21 @@ def build_server(
             ),
         )
         async def write_preview(
-            action: Literal["reminders.create", "reminders.update", "reminders.delete"],
-            list_handle: str,
-            payload: dict[str, Any],
+            action: Literal[
+                "reminders.create",
+                "reminders.update",
+                "reminders.delete",
+                "drive.rename",
+            ],
+            list_handle: str = "",
+            payload: dict[str, Any] | None = None,
             reminder_id: str | None = None,
+            target_handle: str | None = None,
         ) -> WriteResult:
             """Read current state and publish a preview; never mutate remotely."""
-            return await writes.prepare(action, list_handle, payload, reminder_id)
+            return await writes.prepare(
+                action, list_handle, payload or {}, reminder_id, target_handle
+            )
 
         @server.tool(
             name="icloud_write_execute",

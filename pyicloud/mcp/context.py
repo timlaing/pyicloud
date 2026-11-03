@@ -32,7 +32,12 @@ SUPPORTED_SERVICES: tuple[ServiceName, ...] = (
     "photos",
     "mail",
 )
-SUPPORTED_WRITE_ACTIONS = ("reminders.create", "reminders.update", "reminders.delete")
+SUPPORTED_WRITE_ACTIONS = (
+    "reminders.create",
+    "reminders.update",
+    "reminders.delete",
+    "drive.rename",
+)
 
 
 class ToolFailure(Exception):
@@ -77,7 +82,11 @@ class ServerConfig:
         if set(self.write_actions) - set(SUPPORTED_WRITE_ACTIONS):
             raise ValueError("Unsupported write action")
         if self.write_actions and (
-            "reminders" not in self.services or not self.approval_dir
+            not self.approval_dir
+            or any(
+                action.split(".", 1)[0] not in self.services
+                for action in self.write_actions
+            )
         ):
             raise ValueError(
                 "Writes require the service opt-in and private approval directory"

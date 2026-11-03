@@ -57,6 +57,12 @@ and execute tools are exposed; no approval tool exists. Mailbox decisions and le
 consumption execute on the same owner lane, and operator descriptors drain after
 active work. All other writers/API-gap milestones remain incomplete.
 
+The next verified runtime action is `drive.rename`: private discovered nodes only,
+fresh account/ID/zone/etag binding, separate operator receipt, single-use dispatch
+and post-write name verification. Shared mutation contracts, root/virtual targets
+and other Drive writes remain unsupported rather than guessed. Rename leaf/base
+name semantics preserve the existing extension metadata.
+
 ## Sequencing and validation
 
 The first executable adapter module, `pyicloud.mcp.reminder_writes`, now supports

@@ -6,9 +6,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from .additional import AdditionalReads
 from .approval_channel import ApprovalMailbox
 from .authorization import ApprovalLedger, WriteDenied
 from .context import ToolFailure
+from .drive_writes import DriveWrites
 from .reads import ReadTools
 from .reminder_writes import ReminderWrites
 
@@ -24,12 +26,16 @@ class WriteResult(BaseModel):
 class WriteGateway:
     """No model-callable approval path; every apply requires a private receipt."""
 
-    def __init__(self, reads: ReadTools) -> None:
+    def __init__(
+        self, reads: ReadTools, additional: AdditionalReads | None = None
+    ) -> None:
         self.config = reads.owner.config
         self.mailbox = ApprovalMailbox(self.config.approval_dir or "")
         reads.owner.add_cleanup(self.mailbox.close)
         self.ledger = ApprovalLedger(frozenset(self.config.write_actions))
         self.writer = ReminderWrites(reads, self.ledger)
+        self.drive = DriveWrites(additional or AdditionalReads(reads), self.ledger)
+        self._actions: dict[str, str] = {}
 
     async def prepare(
         self,
@@ -37,14 +43,27 @@ class WriteGateway:
         list_handle: str,
         payload: dict[str, Any],
         reminder_id: str | None,
+        target_handle: str | None = None,
     ) -> WriteResult:
         """Preparation publishes an exact preview but performs no mutation."""
         if action not in self.config.write_actions:
             return WriteResult(error="write_disabled")
         try:
-            preview = await self.writer.prepare(
-                action, list_handle, payload, reminder_id, publish=self.mailbox.publish
-            )
+            if action == "drive.rename":
+                preview = await self.drive.prepare(
+                    target_handle or list_handle, payload, publish=self.mailbox.publish
+                )
+            else:
+                preview = await self.writer.prepare(
+                    action,
+                    list_handle,
+                    payload,
+                    reminder_id,
+                    publish=self.mailbox.publish,
+                )
+            if len(self._actions) >= 256:
+                del self._actions[next(iter(self._actions))]
+            self._actions[preview.request_id] = action
             return WriteResult(
                 preview={
                     "request_id": preview.request_id,
@@ -70,7 +89,13 @@ class WriteGateway:
             self.mailbox.accept(identifier, self.ledger)
 
         try:
-            result = await self.writer.apply(request_id, accept=accept)
+            adapter = (
+                self.drive
+                if self._actions.get(request_id) == "drive.rename"
+                else self.writer
+            )
+            result = await adapter.apply(request_id, accept=accept)
+            self._actions.pop(request_id, None)
             return WriteResult(result=result)
         except (WriteDenied, ToolFailure) as error:
             return WriteResult(error=str(error))

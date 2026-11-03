@@ -73,6 +73,13 @@ class AdditionalReads:
         """Resolve only an existing, expiring resource of the requested kind."""
         return self._get(kind, handle)
 
+    def resolve_any(self, kinds: frozenset[str], handle: str) -> Any:
+        """Resolve only a permitted discovered kind, never an arbitrary identifier."""
+        route = self._handles.get(handle)
+        if route is None or route[0] not in kinds:
+            raise ToolFailure("expired_or_unknown_handle")
+        return self._get(route[0], handle)
+
     async def _run(
         self,
         service: str,

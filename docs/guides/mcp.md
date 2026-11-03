@@ -194,6 +194,23 @@ under development. They are not enabled by these flags, and unsupported actions
 do not claim success. Sending mail, permanent deletion and uploads remain separate
 high-risk future actions.
 
+## Opt-in private Drive rename
+
+`--service drive --write-action drive.rename --approval-dir /private/approvals`
+enables only the verified rename action, under the same separate terminal workflow
+above. Discover a file/folder handle, then call `icloud_write_preview` with
+`action="drive.rename"`, `target_handle=HANDLE`, and `payload={"name":"New base name"}`.
+The name is a remote leaf/base name, not a local path; existing file extension
+metadata is preserved by the library.
+
+The adapter refreshes the exact node ID/zone/etag before preview and execution,
+refuses root/virtual targets and all shared-owner/share-context writes lacking a
+verified mutation contract, and re-reads the target after rename. It does not
+trust a generic `OK` envelope as proof. Unverified/uncertain results retire approval
+and require manual reconciliation. Already-correct names consume approval without
+an unnecessary mutation. Trash, restore, move, permanent delete and uploads are
+not enabled by this flag.
+
 ## Additional searches
 
 - `icloud_notes_search`: bounded all-note **title metadata** scanning, beyond the

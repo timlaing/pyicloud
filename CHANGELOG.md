@@ -16,6 +16,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add opted-in private Drive rename through scoped metadata handles and independent operator approval, with fresh etag/account checks and post-write verification. Unverified shared-owner mutations, virtual/root targets and other Drive writes remain unavailable.
+
 - Add explicitly opted-in Reminders create/update/soft-delete MCP execution guarded by private interactive operator receipts, HMAC-bound single-use previews, and fresh account/route/revision checks. Default installations remain read-only; other service write adapters are not yet enabled.
 
 - Add separately opted-in MCP note/mail content reads, version-bound Drive/Photos download chunks, and bounded Notes/Drive/Photos searches. Mail body/all-field search requires content permission; multi-account access remains excluded.

@@ -17,6 +17,7 @@ from tests.test_mcp_approval_channel import (
     sandbox_directory as sandbox_directory_fixture,
 )
 from tests.test_mcp_approval_channel import terminal
+from tests.test_mcp_drive_writes import setup_writer
 from tests.test_mcp_reminder_writes import writer
 
 
@@ -200,3 +201,41 @@ async def test_real_mailbox_round_trip_gates_synthetic_mutation(
         assert (await gateway.apply(request_id)).error == "unknown_or_consumed_preview"
     finally:
         gateway.mailbox.close()
+
+
+@pytest.mark.asyncio
+async def test_drive_gateway_shares_registry_and_operator_gate() -> None:
+    """Only the discovered private node reaches the verified rename dispatcher."""
+    drive_writer, client, handle, data = setup_writer()
+    owner = cast(Any, drive_writer.additional.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("drive",),
+        write_actions=("drive.rename",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(
+            drive_writer.additional.reads, additional=drive_writer.additional
+        )
+    prepared = await gateway.prepare(
+        "drive.rename", "", {"name": "After"}, None, target_handle=handle
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+
+    def accept(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = accept
+
+    def rename(_identifier: str, _etag: str, name: str) -> dict[str, Any]:
+        data.update(name=name, etag="v2")
+        return {}
+
+    client.drive.rename_items.side_effect = rename
+    assert (await gateway.apply(preview["request_id"])).error is None
+    client.drive.rename_items.assert_called_once()
