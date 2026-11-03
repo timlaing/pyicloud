@@ -12,7 +12,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Conservatively require separate startup high-risk selection and elevated private-terminal approval for Calendar event deletion, whose recovery contract is unverified; Reminders deletion remains the verified soft update.
 
-- Bind approval risk tiers to action policy and exact HMAC previews; new/unclassified actions require a separate high-risk ledger selection and distinct private-terminal approval, with no new high-risk runtime tools enabled.
+- Bind approval risk tiers to action policy and exact HMAC previews; supported high-risk actions require separate startup selection and distinct private-terminal approval, and unclassified actions fail closed.
 
 - Use cache-independent server album reads for MCP Photos rename previews and post-write verification; locally pending album copies cannot authorize writes or prove success.
 
@@ -54,33 +54,25 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Expose verified read-only preflight for one current Mail Trash message before permanent deletion, without body reads, mutation, confirmation or bulk fallback; existing destruction payload and verification remain unchanged.
 
-- Add locally qualified read-only staged-upload previews binding exact name/size/digest to private destination revision and both service routes, with metadata-only stage descriptions and owner cleanup; execution remains unavailable pending verified upload transport/post-state contracts.
-
 - Add bounded in-memory upload staging with strict leaf names, exact ordered Base64 chunks, declared-size reservations, SHA-256 verification and immutable single-use sealed bytes; caller paths/URLs are not accepted.
 
 - Qualify installed elevated private trash-file permanent deletion with ordinary-approval denial, dual absence proof, tombstone uncertainty and retired source/request replay rejection using fake records only.
 
 - Enable separately opted-in elevated MCP permanent deletion of private top-level trash files with exact receipts, source retirement and independent trash/lookup absence proof; folders/shared/root targets and model confirmation remain rejected.
 
-- Add synthetic qualification of an internal elevated permanent trash-file deletion adapter with exact private identity/etag, source retirement and two independent absence checks; runtime permanent deletion remains disabled pending integration.
-
 - Qualify installed elevated saved-draft submission with exact content/role previews, ordinary-approval denial, typed acknowledgement without delivery claims, and uncertainty after source consumption with no replay or retry handle.
 
 - Enable separately opted-in elevated MCP saved-draft submission with mandatory content consent, exact saved-content previews and source retirement; ordinary approval/model confirmation cannot send, and no delivery or retry claim is made.
-
-- Add synthetic qualification of an internal elevated saved-draft send adapter with exact body/recipient previews, pre-dispatch handle retirement, single submission and no delivery/retry claim; runtime sending remains disabled pending integration.
 
 - Qualify installed elevated Calendar deletion with explicit high-risk selection, ordinary-phrase rejection, exact-once fake dispatch, independent absence proof and replay denial.
 
 - Qualify installed saved-draft edit receipts, rotated UID/handle and exact body proof, old-source retirement and uncertain no-retry outcomes with network-blocked synthetic Mail state.
 
-- Enable opt-in MCP saved-draft edits with mandatory Mail content consent, exact receipts, pre-dispatch source retirement and rotating identity/body proof; sending and attachments remain unavailable.
-
-- Add synthetic qualification of an internal consent/receipt-gated saved-draft edit adapter that retires old handles before one edit and verifies rotated identity, old-UID absence and exact new body before issuing a replacement; runtime editing remains disabled pending integration.
+- Enable opt-in MCP saved-draft edits with mandatory Mail content consent, exact receipts, pre-dispatch source retirement and rotating identity/body proof; sending uses its separate elevated workflow and attachment-bearing edits remain unsupported.
 
 - Add read-only MCP saved-draft revalidation with Mail content opt-in, exact last-approved body/context checks and private revision digests; external changes and unsupported saved contexts cannot be silently replaced.
 
-- Return opaque expiring handles for fully verified server-created Mail drafts, retaining private saved context and detached approved payloads for future edit binding; uncertain saves mint no handle and editing/sending remain disabled.
+- Return opaque expiring handles for fully verified server-created Mail drafts, retaining private saved context and detached approved payloads for separately selected edits and sends; uncertain saves mint no handle.
 
 - Expose read-only saved Mail draft preflight with fresh identity, namespace, sender, recipient, attachment and threading validation; it does not reconstruct ID-only drafts or submit mutations.
 
@@ -88,71 +80,56 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Qualify installed Photos add-to-album receipts, independent membership proof, acknowledgement-only uncertainty and approved no-op replay rejection with network-blocked synthetic state.
 
-- Enable separately opted-in MCP private Photos add-to-album writes with discovered asset/album handles, exact receipts, two-target revisions and independent scoped membership proof; uploads and relation removal remain unavailable.
-
-- Add synthetic qualification of an internal private Photos add-to-album adapter with two-target revision/membership bindings, exact receipts and independent post-write membership proof; runtime relation actions remain disabled pending integration.
+- Enable separately opted-in MCP private Photos add-to-album writes with discovered asset/album handles, exact receipts, two-target revisions and independent scoped membership proof; relation removal remains unsupported and uploads use their separate elevated workflow.
 
 - Add non-mutating Photos relation availability checks and exact scoped album-membership reads, rejecting unscoped/extra-filter lookups and mismatched asset identities before MCP relation integration.
-
-- Add typed-only private Photos `add_photo_correlated()` with exact relation/item/album acknowledgement checks and no REST fallback; independent membership verification and MCP relation tools remain pending.
 
 - Qualify installed Photos album-creation receipts and independent new-ID server visibility, rejecting cached-only acknowledgements as uncertain with replay denied.
 
 - Enable separately opted-in MCP typed-only private Photos album creation with discovered library handles, exact operator receipts, snapshot checks and independent new-ID proof; no REST fallback or blind retries.
 
-- Add synthetic qualification of an internal typed-only Photos album-creation adapter with exact receipts, private library snapshots and independent new-ID server proof; runtime creation remains disabled pending integration.
-
 - Add typed-only private Photos `create_album_correlated()` with bounded names and no REST fallback; acknowledgement correlation remains distinct from independent server visibility.
 
 - Add Photos `server_albums()` reads that bypass pending creation caches for independent server visibility checks without changing existing album caching behavior.
 
-- Add bounded MCP Recently Deleted Drive metadata with distinct opaque trash handles; restoration paths/content remain private and recovery/deletion are not enabled.
+- Add bounded MCP Recently Deleted Drive metadata with distinct opaque trash handles; metadata discovery alone grants no recovery or deletion approval, which require their separately selected write workflows.
 
 - Enable opt-in MCP private top-level Photos album renames with exact receipts and independent fresh identity/name proof; installed tests cover verified and uncertain outcomes without live CloudKit access.
-
-- Add synthetic qualification of an internal private top-level Photos album-rename adapter with discovered handles, fresh revision bindings, and independent post-write identity/name proof; runtime album renames remain disabled pending integration.
 
 - Expose read-only Photos album change-tag, zone, parent and object-type metadata for revision-bound adapters; zone mappings are detached copies and missing tags remain unknown.
 
 - Enable opt-in MCP custom Mail folder renames using discovered handles, exact receipts and same-ID/UID verification; installed tests cover verified and uncertain outcomes without live accounts.
 
-- Add synthetic qualification of an internal custom Mail folder-rename adapter with discovered handles, namespace-bound receipts, system/child-folder guards and same-ID post-write verification; runtime rename tools remain disabled pending integration.
-
 - Enable opt-in MCP top-level Mail folder creation with exact operator receipts and fresh namespace/new-identity verification, including installed successful/uncertain protocol qualification.
-
-- Add synthetic qualification of internal top-level Mail folder creation with exact receipts and namespace identity checks; runtime folder tools remain disabled pending integration.
 
 - Qualify installed private Drive moves with separate source/destination handles, receipt gating, authoritative parent/membership checks, and replay denial for uncertain acknowledgements.
 
 - Enable separately opted-in MCP private Drive file moves with discovered source/destination handles, exact receipts, fresh two-node revision checks, and post-move membership proof. Shared/folder moves remain unavailable.
 
-- Add synthetic qualification of an internal private Drive file-move adapter with two-node revision bindings and exact destination membership checks; runtime move tools remain disabled pending integration.
-
 - Qualify installed Drive rename/trash receipts and uncertain-outcome replay denial using fresh synthetic metadata and Recently Deleted membership checks.
 
-- Add opt-in private Drive file trashing with exact operator receipts, etag revalidation, and Recently Deleted membership proof; folder and permanent deletion remain unavailable.
+- Add opt-in private Drive file trashing with exact operator receipts, etag revalidation, and Recently Deleted membership proof; folder trashing remains unsupported and permanent trash-file deletion uses its separate elevated workflow.
 
 - Qualify installed private Photos favorite receipts, independent post-read verification, and uncertain-outcome replay denial with network-blocked synthetic assets.
 
-- Add opt-in private Photos favorite changes with discovered asset handles, exact operator receipts, fresh record revisions, and independent post-write verification; shared writes, deletion, and uploads remain unsupported.
+- Add opt-in private Photos favorite changes with discovered asset handles, exact operator receipts, fresh record revisions, and independent post-write verification; shared writes and asset deletion remain unsupported and uploads use their separate elevated workflow.
 
-- Qualify installed MCP Mail draft receipts and replay rejection for both verified and uncertain synthetic saves, with networking blocked and no sending/upload capabilities.
+- Qualify installed MCP Mail draft receipts and replay rejection for both verified and uncertain synthetic saves, with networking blocked; separately selected sending and upload workflows have their own qualification scenarios.
 
-- Add separately opted-in MCP Mail draft creation with exact operator receipts, fresh enabled-sender and Drafts identity bindings, and fail-closed body verification; sending and attachments remain unavailable.
-
-- Add synthetic qualification of exact Mail draft body verification for future MCP write integration; Mail mutation tools remain disabled.
+- Add separately opted-in MCP Mail draft creation with exact operator receipts, fresh enabled-sender and Drafts identity bindings, and fail-closed body verification; sending uses its separate elevated workflow and attachment creation remains unsupported.
 
 - Add separately opted-in Calendar event creation/deletion with exact operator previews, fixed creation GUIDs, fresh calendar/event revision checks, and post-write verification. Undocumented updates and invitation/recurrence deletion flows remain unsupported.
 
-- Add opted-in private Drive rename through scoped metadata handles and independent operator approval, with fresh etag/account checks and post-write verification. Unverified shared-owner mutations, virtual/root targets and other Drive writes remain unavailable.
+- Add opted-in private Drive rename through scoped metadata handles and independent operator approval, with fresh etag/account checks and post-write verification. Unverified shared-owner mutations and virtual/root targets remain unsupported.
 
-- Add explicitly opted-in Reminders create/update/soft-delete MCP execution guarded by private interactive operator receipts, HMAC-bound single-use previews, and fresh account/route/revision checks. Default installations remain read-only; other service write adapters are not yet enabled.
+- Add explicitly opted-in Reminders create/update/soft-delete MCP execution guarded by private interactive operator receipts, HMAC-bound single-use previews, and fresh account/route/revision checks. Default installations remain read-only; each other supported service write requires its own explicit action selection.
 
 - Add separately opted-in MCP note/mail content reads, version-bound Drive/Photos download chunks, and bounded Notes/Drive/Photos searches. Mail body/all-field search requires content permission; multi-account access remains excluded.
 
-- Extend the opt-in MCP tools with Contacts name search and selected details, Drive folder metadata, recent Notes title search, scoped Photos library/album metadata, and Mail folder/subject summaries. Bodies, downloads and writes remain disabled.
+- Extend the opt-in MCP metadata tools with Contacts name search and selected details, Drive folder metadata, recent Notes title search, scoped Photos library/album metadata, and Mail folder/subject summaries. Metadata selection alone grants no content, download or write permission; those supported capabilities require their separate opt-ins.
 
-- Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, with offline status and explicitly enabled read-only Calendar/Reminders tools. Saved-session probes never fall back to credential login. Operations are serialized and bounded, shared lists use opaque route handles, and private upstream errors are sanitized.
+- Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, with offline status and explicitly selected single-account metadata tools for Calendar, Reminders, Contacts, Drive, Notes, Photos and Mail. Reads are the default; supported content and writes require separate opt-ins. Saved-session probes never fall back to credential login. Operations are serialized and bounded, shared lists use opaque route handles, and private upstream errors are sanitized. Thanks to @ziir on Discord for the idea.
+- Keep Contacts writes, Notes writes and Calendar updates outside MCP scope because the existing API/CLI does not provide those writers; unsupported actions fail closed.
 - Reject plaintext MCP account requests, bound response bodies and shutdown waits, preserve transport/rate-limit errors during saved-session probes, and redact argument-parsing failures. Deleted reminder lists do not consume live result limits.
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
 - Add cache-independent Photos album reads and typed-only correlated album creation/relation helpers; capability checks remain passive and shared or unsupported routes fail closed.
@@ -269,7 +246,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add Mail snippets using advertised preview IDs and separate Unread/Flagged browser thread filters through the library and `icloud mail preview` / `icloud mail filter`, with mailbox identity checks and explicit bounded thread-group semantics.
 - Add explicit `MailService.iter_messages()` UID-based mailbox enumeration and `icloud mail list --all`, with mailbox identity checks, validated paging boundaries, and explicit failure on incomplete scans. Default message listing and search remain bounded; enumeration is not an atomic snapshot or synchronization API.
 - Add read-only `icloud mail` commands for folders, bounded message listings and thread-grouped search, body data, and attachment downloads to explicit non-overwriting paths.
-- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. Supported Mail writes, including folder mutations, are separate explicit operations; permanent single-message deletion remains unsupported. Confirmed folder deletion is irreversible and may remove contained messages.
+- Add experimental `PyiCloudService.mail` reads for folders, bounded message and thread-grouped search results, body retrieval without marking messages read, and context-managed attachment streaming. These read operations grant no write approval; supported Mail writes, including folder mutations and single-message Trash deletion, require their separate explicit operations. Confirmed folder deletion is irreversible and may remove contained messages.
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).

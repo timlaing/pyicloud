@@ -1,6 +1,6 @@
 # MCP extension
 
-The optional local Model Context Protocol (MCP) extension exposes bounded,
+The optional local Model Context Protocol (MCP) extension exposes bounded
 Calendar, Reminders, Contacts, Drive, Notes, Photos and Mail tools that are read-only
 by default; supported writes require separate explicit opt-ins and approval.
 Account access is disabled unless the
