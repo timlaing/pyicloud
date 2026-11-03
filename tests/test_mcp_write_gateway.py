@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from mcp.types import CallToolResult
 import pytest
 
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
 from pyicloud.mcp.context import ServerConfig, ToolFailure
 from pyicloud.mcp.server import build_server
@@ -466,6 +467,70 @@ def test_invalid_write_configuration(kwargs: dict[str, Any]) -> None:
     """Unknown actions, missing service and directory-alone fail before access."""
     with pytest.raises(ValueError):
         ServerConfig(**kwargs)
+
+
+@pytest.mark.parametrize("selection", [(), ("reminders.delete",)])
+def test_calendar_deletion_requires_exact_elevated_startup_selection(
+    selection: tuple[str, ...],
+) -> None:
+    """No default or unrelated high-risk flag can enable Calendar deletion."""
+    with pytest.raises(ValueError, match="elevated selection"):
+        ServerConfig(
+            username="synthetic",
+            session_dir="unused",
+            services=("calendar",),
+            write_actions=("calendar.delete_event",),
+            high_risk_actions=selection,
+            approval_dir="unused",
+        )
+
+
+@pytest.mark.asyncio
+async def test_calendar_delete_requires_elevated_private_terminal_receipt(
+    directory: Path,
+) -> None:
+    """Ordinary approval phrase cannot authorize even explicitly selected deletion."""
+    calendar, client, event = setup_calendar()
+    owner = cast(Any, calendar.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("calendar",),
+        write_actions=("calendar.delete_event",),
+        high_risk_actions=("calendar.delete_event",),
+        approval_dir=str(directory),
+    )
+    owner.add_cleanup = MagicMock()
+    gateway = WriteGateway(calendar.reads)
+    prepared = await gateway.prepare(
+        "calendar.delete_event", "", {}, None, calendar_id="C", event_id="E"
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+    assert preview["risk"] == "high"
+    with pytest.raises(WriteDenied, match="operator_declined"):
+        gateway.mailbox.decide(
+            preview["request_id"],
+            terminal("APPROVE " + preview["request_id"]),
+            io.StringIO(),
+        )
+    client.calendar.remove_event.assert_not_called()
+    gateway.mailbox.decide(
+        preview["request_id"],
+        terminal("APPROVE HIGH-RISK " + preview["request_id"]),
+        io.StringIO(),
+    )
+    client.calendar.get_event_detail.side_effect = [
+        event,
+        PyiCloudAPIResponseException("synthetic", 404),
+    ]
+    result = await gateway.apply(preview["request_id"])
+    assert result.error is None
+    client.calendar.remove_event.assert_called_once_with(event)
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
+    gateway.mailbox.close()
 
 
 def gateway_for() -> tuple[WriteGateway, Any, MagicMock, MagicMock]:

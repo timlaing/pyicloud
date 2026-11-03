@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Conservatively require separate startup high-risk selection and elevated private-terminal approval for Calendar event deletion, whose recovery contract is unverified; Reminders deletion remains the verified soft update.
+
 - Bind approval risk tiers to action policy and exact HMAC previews; new/unclassified actions require a separate high-risk ledger selection and distinct private-terminal approval, with no new high-risk runtime tools enabled.
 
 - Use cache-independent server album reads for MCP Photos rename previews and post-write verification; locally pending album copies cannot authorize writes or prove success.

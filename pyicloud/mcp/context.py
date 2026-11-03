@@ -19,7 +19,11 @@ from urllib3.exceptions import ReadTimeoutError
 
 from pyicloud import PyiCloudService
 
-from .action_policy import STANDARD_WRITE_ACTIONS
+from .action_policy import (
+    STANDARD_WRITE_ACTIONS,
+    SUPPORTED_HIGH_RISK_ACTIONS,
+    is_high_risk,
+)
 
 T = TypeVar("T")
 ServiceName = Literal[
@@ -34,7 +38,7 @@ SUPPORTED_SERVICES: tuple[ServiceName, ...] = (
     "photos",
     "mail",
 )
-SUPPORTED_WRITE_ACTIONS = STANDARD_WRITE_ACTIONS
+SUPPORTED_WRITE_ACTIONS = STANDARD_WRITE_ACTIONS + SUPPORTED_HIGH_RISK_ACTIONS
 
 
 class ToolFailure(Exception):
@@ -60,6 +64,7 @@ class ServerConfig:
     services: tuple[ServiceName, ...] = ()
     content_services: tuple[ServiceName, ...] = ()
     write_actions: tuple[str, ...] = ()
+    high_risk_actions: tuple[str, ...] = ()
     approval_dir: str | None = None
     timeout: float = 30.0
     queue_limit: int = 8
@@ -78,6 +83,14 @@ class ServerConfig:
             raise ValueError("Content access also requires the service opt-in")
         if set(self.write_actions) - set(SUPPORTED_WRITE_ACTIONS):
             raise ValueError("Unsupported write action")
+        selected_high = set(self.high_risk_actions)
+        required_high = {
+            action for action in self.write_actions if is_high_risk(action)
+        }
+        if selected_high != required_high:
+            raise ValueError(
+                "High-risk actions require matching separate elevated selection"
+            )
         if (
             "mail.edit_draft" in self.write_actions
             and "mail" not in self.content_services

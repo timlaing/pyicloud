@@ -11,6 +11,7 @@ import logging
 import sys
 from typing import NoReturn
 
+from .action_policy import SUPPORTED_HIGH_RISK_ACTIONS
 from .context import SUPPORTED_SERVICES, SUPPORTED_WRITE_ACTIONS, ServerConfig
 
 
@@ -55,6 +56,12 @@ def main() -> None:
     parser.add_argument(
         "--write-action", choices=SUPPORTED_WRITE_ACTIONS, action="append", default=[]
     )
+    parser.add_argument(
+        "--high-risk-action",
+        choices=SUPPORTED_HIGH_RISK_ACTIONS,
+        action="append",
+        default=[],
+    )
     args = parser.parse_args()
     if args.approve_request:
         if (
@@ -64,6 +71,7 @@ def main() -> None:
             or args.service
             or args.content_service
             or args.write_action
+            or args.high_risk_action
         ):
             parser.error("Invalid operator approval options")
         from .approval_channel import approve_interactively
@@ -83,6 +91,7 @@ def main() -> None:
             services=tuple(args.service),
             content_services=tuple(args.content_service),
             write_actions=tuple(args.write_action),
+            high_risk_actions=tuple(args.high_risk_action),
             approval_dir=args.approval_dir,
             timeout=args.timeout,
             queue_limit=args.queue_limit,

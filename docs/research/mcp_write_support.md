@@ -65,6 +65,15 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Deletion risk audit: Reminders `delete` is the verified CloudKit soft update
+`Deleted: 1`, while Calendar `remove_event` submits DELETE/ifMatch without a reviewed
+recovery contract. Calendar deletion is conservatively high risk. Runtime config
+requires matching `high_risk_actions` and enabled high-risk actions, CLI adds
+`--high-risk-action`, and the gateway forwards that separate selection to the ledger.
+Synthetic private-terminal/gateway tests reject normal approval, allow one elevated
+fake deletion and reject replay. No new send/upload/permanent-delete adapter is
+enabled, and no live account operations occur.
+
 Approval primitives now derive risk from fixed action policy rather than payload
 fields. Existing classified actions retain standard behavior; new/unclassified
 actions fail closed as high risk. The ledger requires a separate `high_risk_actions`

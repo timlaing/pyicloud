@@ -41,6 +41,37 @@ def test_launcher_runs_stdio_only() -> None:
     server.run.assert_called_once_with(transport="stdio")
 
 
+def test_calendar_delete_launcher_requires_separate_elevated_option() -> None:
+    """Parse both operator selections without opening an account or approval path."""
+    server = MagicMock()
+    arguments = [
+        "icloud-mcp",
+        "--username",
+        "synthetic",
+        "--session-dir",
+        "unused",
+        "--service",
+        "calendar",
+        "--approval-dir",
+        "unused",
+        "--write-action",
+        "calendar.delete_event",
+        "--high-risk-action",
+        "calendar.delete_event",
+    ]
+    with (
+        patch("sys.argv", arguments),
+        patch("pyicloud.mcp.cmdline.version", return_value="synthetic"),
+        patch("pyicloud.mcp.server.build_server", return_value=server) as build,
+        patch("pyicloud.mcp.cmdline.quiet_library_logging"),
+    ):
+        main()
+    config = build.call_args.args[0]
+    assert config.write_actions == ("calendar.delete_event",)
+    assert config.high_risk_actions == ("calendar.delete_event",)
+    server.run.assert_called_once_with(transport="stdio")
+
+
 def test_invalid_launch_configuration(capsys: pytest.CaptureFixture[str]) -> None:
     """An account cannot be enabled without its explicit session directory."""
     with (

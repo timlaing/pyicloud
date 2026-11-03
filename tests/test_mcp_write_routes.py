@@ -34,7 +34,9 @@ async def test_changed_endpoint_never_dispatches(
     """Approval cannot migrate to a new or unknown discovered service endpoint."""
     writes, client, preview = await prepared(service)
     ledger = writes.approvals if service == "reminders" else writes.ledger
-    ledger.approve_from_operator(preview.request_id, preview.digest)
+    ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=preview.risk == "high"
+    )
     getattr(client, service).service_root = endpoint
     with pytest.raises(WriteDenied):
         await writes.apply(preview.request_id)

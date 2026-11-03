@@ -34,7 +34,12 @@ def setup_calendar() -> tuple[CalendarWrites, MagicMock, EventObject]:
     )
     client.calendar.get_event_detail.return_value = event
     return (
-        CalendarWrites(ReadTools(owner_for(client)), ApprovalLedger(CALENDAR_ACTIONS)),
+        CalendarWrites(
+            ReadTools(owner_for(client)),
+            ApprovalLedger(
+                CALENDAR_ACTIONS, high_risk_actions=frozenset({"calendar.delete_event"})
+            ),
+        ),
         client,
         event,
     )
@@ -58,7 +63,9 @@ async def test_creation_uses_preview_guid_and_verifies_fetched_event() -> None:
     client.calendar.add_event.assert_not_called()
     with pytest.raises(WriteDenied, match="operator_approval_required"):
         await writes.apply(preview.request_id)
-    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    writes.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=preview.risk == "high"
+    )
 
     def create(event: EventObject) -> dict[str, Any]:
         assert event.guid == preview.payload["event_id"]
@@ -78,7 +85,9 @@ async def test_deletion_preserves_verified_etag_and_requires_absence_proof() -> 
     """The public remove_event method carries the captured etag as ifMatch."""
     writes, client, event = setup_calendar()
     preview = await writes.prepare("calendar.delete_event", "C", {}, "E")
-    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    writes.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=preview.risk == "high"
+    )
     client.calendar.get_event_detail.side_effect = [
         event,
         PyiCloudAPIResponseException("synthetic", 404),
@@ -105,7 +114,9 @@ async def test_changed_or_unsupported_targets_never_dispatch(case: str) -> None:
         payload() if action.endswith("create_event") else {},
         None if action.endswith("create_event") else "E",
     )
-    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    writes.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=preview.risk == "high"
+    )
     if case == "account":
         client.params["dsid"] = "B"
     elif case == "ctag":
@@ -136,7 +147,9 @@ async def test_uncertain_acknowledgement_is_retired(case: str) -> None:
         payload() if case == "create" else {},
         None if case == "create" else "E",
     )
-    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    writes.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=preview.risk == "high"
+    )
     if case == "transport":
         client.calendar.get_event_detail.side_effect = [
             event,

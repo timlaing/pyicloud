@@ -406,6 +406,14 @@ never blindly retry. HTML remains untrusted data and is never rendered.
 
 ## Opt-in Calendar event create/delete
 
+Calendar deletion additionally requires
+`--high-risk-action calendar.delete_event` alongside its ordinary `--write-action`
+selection. The operator must type `APPROVE HIGH-RISK <request_id>` in the separate
+private terminal; ordinary approval does not authorize deletion. This conservative
+tier is required because no event recovery contract is verified here. Calendar
+creation remains standard risk. New/unclassified action names default to high risk,
+but sending, upload and other permanent-delete adapters are still unavailable.
+
 The supported action flags are `calendar.create_event` and
 `calendar.delete_event`, alongside `--service calendar` and the private approval
 directory. They use the same separate terminal receipt and single-use HMAC workflow.

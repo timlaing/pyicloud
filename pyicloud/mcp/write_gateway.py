@@ -42,7 +42,10 @@ class WriteGateway:
         self.config = reads.owner.config
         self.mailbox = ApprovalMailbox(self.config.approval_dir or "")
         reads.owner.add_cleanup(self.mailbox.close)
-        self.ledger = ApprovalLedger(frozenset(self.config.write_actions))
+        self.ledger = ApprovalLedger(
+            frozenset(self.config.write_actions),
+            high_risk_actions=frozenset(self.config.high_risk_actions),
+        )
         self.writer = ReminderWrites(reads, self.ledger)
         self.drive = DriveWrites(additional or AdditionalReads(reads), self.ledger)
         self.moves = DriveMoves(self.drive)

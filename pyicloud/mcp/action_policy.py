@@ -8,7 +8,6 @@ STANDARD_WRITE_ACTIONS = (
     "drive.trash_file",
     "drive.move_file",
     "calendar.create_event",
-    "calendar.delete_event",
     "mail.create_draft",
     "mail.edit_draft",
     "mail.create_folder",
@@ -18,6 +17,9 @@ STANDARD_WRITE_ACTIONS = (
     "photos.create_album",
     "photos.add_to_album",
 )
+
+# No verified Calendar event recovery contract: classify deletion conservatively.
+SUPPORTED_HIGH_RISK_ACTIONS = ("calendar.delete_event",)
 
 
 def is_high_risk(action: str) -> bool:
