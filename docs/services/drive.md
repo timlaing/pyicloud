@@ -2,6 +2,12 @@
 
 [← Back to the documentation index](../index.md)
 
+## Read-only integration routing metadata
+
+`DriveService.document_root` exposes the observed document-service endpoint without
+making a request or accepting a caller-selected URL. It is read-only and grants no
+upload authorization; integrations remain responsible for their own transport policy.
+
 ## Ubiquity (legacy service)
 
 You can access documents stored in your iCloud account by using the

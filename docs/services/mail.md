@@ -1219,6 +1219,24 @@ The private Python sync helpers are implementation details, not a new documented
 `MailService` synchronization API. Use `mail export` or `export-eml` separately
 when an explicit single-message content export is needed.
 
+## Read-only integration preflight
+
+`MailService.draft_folder()` discovers the canonical selectable Drafts mailbox.
+`check_draft(draft)` validates a saved typed draft's current identity, mailbox
+incarnation, body/header expectations, sender, recipients, attachments and threading,
+without saving, sending or discarding. It reads content and cannot reconstruct
+missing expectations from a bare message ID.
+
+`check_move(message, destination)` reads exact source identity and selectable
+source/destination capabilities. `check_delete_permanently(message)` reads exact
+current Trash identity and mailbox capabilities. Both return the validated account
+identity without submitting a mutation; existing `move()` and `delete_permanently()`
+reuse the same checks before their unchanged wire requests.
+
+Preflight checks grant no approval and are not atomic with a later write. Move preflight
+does not reserve a destination UID or verify final destination identity. Permanent
+deletion remains irreversible and requires the existing explicit confirmation.
+
 ## Errors and Privacy
 
 `MailError`, a `PyiCloudException`, reports malformed Mail responses, unexpected
