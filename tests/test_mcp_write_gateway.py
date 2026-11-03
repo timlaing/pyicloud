@@ -22,6 +22,7 @@ from tests.test_mcp_calendar_writes import payload as calendar_payload
 from tests.test_mcp_calendar_writes import setup_calendar
 from tests.test_mcp_draft_edits import setup_edit
 from tests.test_mcp_draft_sends import setup_send
+from tests.test_mcp_drive_deletions import setup_delete
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_writes import setup_writer
 from tests.test_mcp_mail_folder_renames import setup_rename
@@ -38,6 +39,68 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+def test_permanent_delete_startup_requires_separate_elevated_choice() -> None:
+    """An ordinary write flag must not grant irreversible file deletion."""
+    with pytest.raises(ValueError, match="elevated selection"):
+        ServerConfig(
+            username="synthetic",
+            session_dir="unused",
+            services=("drive",),
+            write_actions=("drive.delete_forever_file",),
+            approval_dir="unused",
+        )
+
+
+@pytest.mark.asyncio
+async def test_delete_gateway_rejects_standard_receipt_and_retires_source() -> None:
+    """One elevated fake dispatch, no implicit confirmation or retry source."""
+    deletes, client, handle, _data = setup_delete()
+    owner = cast(Any, deletes.additional.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("drive",),
+        write_actions=("drive.delete_forever_file",),
+        high_risk_actions=("drive.delete_forever_file",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(deletes.additional.reads, deletes.additional)
+    invalid = await gateway.prepare(
+        "drive.delete_forever_file", "", {"confirm": True}, None, handle
+    )
+    assert invalid.error == "invalid_payload"
+    prepared = await gateway.prepare("drive.delete_forever_file", "", {}, None, handle)
+    assert prepared.preview is not None
+    preview = prepared.preview
+    assert preview["risk"] == "high"
+
+    def ordinary(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = ordinary
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "high_risk_operator_approval_required"
+    client.drive.delete_forever_from_trash.assert_not_called()
+
+    def elevated(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"], high_risk=True)
+
+    mailbox.accept.side_effect = elevated
+    client.drive.delete_forever_from_trash.side_effect = OSError("private")
+    result = await gateway.apply(preview["request_id"])
+    assert result.error == "mutation_uncertain" and result.result is None
+    with pytest.raises(ToolFailure):
+        deletes.additional.resolve("drive-trash-file", handle)
+    client.drive.delete_forever_from_trash.assert_called_once()
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
 
 
 @pytest.mark.parametrize(

@@ -236,7 +236,27 @@ names/types/modification times with optional `query` and `limit`. It never expos
 restoration paths, raw IDs, content or download URLs. Distinct expiring trash handles
 cannot be used as ordinary Drive file/folder handles for writes or downloads.
 Results are not claimed to be a complete inventory. Listing does not recover or
-permanently delete anything; those actions remain unavailable.
+permanently delete anything. Recovery remains unavailable; permanent trash-file
+deletion has a separate elevated opt-in workflow below.
+
+## Opt-in elevated private trash-file permanent deletion
+
+Enable `--service drive`, `--write-action drive.delete_forever_file`,
+`--high-risk-action drive.delete_forever_file`, and the private approval directory.
+Preview a discovered file `target_handle` from `icloud_drive_trash_list` with an
+empty payload. Only private top-level trash files with a real etag and current
+restoration metadata are supported. Ordinary handles, folders, shared/root targets
+and caller confirmation flags are rejected. Restore paths remain private bindings,
+not caller-selected local paths.
+
+Exact identity/name/location/revision/account/route bind an elevated receipt;
+only `APPROVE HIGH-RISK <request_id>` in the separate terminal authorizes one delete.
+Receipt and source handle are consumed before the SDK call. Success requires both
+trash-list absence and an independent exact 404/410 lookup under the same binding.
+Generic acknowledgements, tombstones or other lookup errors are uncertain with no
+retry source or compensation. This operation is irreversible; do not blindly retry.
+Gateway tests are synthetic; permanent-delete-specific installed stdio qualification
+is pending and no live file deletion is claimed.
 
 ## Opt-in private Drive file trashing
 
@@ -302,7 +322,8 @@ identity/route/parent and verify the requested name with a valid tag. Reusing th
 mutated album object is not proof, because local pending caches can survive refresh.
 Unverified outcomes are uncertain and cannot replay approval; no-op also consumes
 approval. Gateway and installed tests are network-blocked synthetic checks, not live
-Apple validation. Album creation/deletion and shared mutation remain unavailable.
+Apple validation. Album deletion and shared mutation remain unavailable; creation
+has a separate typed-only opt-in workflow above.
 
 ## Opt-in private Photos favorites
 
@@ -431,8 +452,8 @@ selection. The operator must type `APPROVE HIGH-RISK <request_id>` in the separa
 private terminal; ordinary approval does not authorize deletion. This conservative
 tier is required because no event recovery contract is verified here. Calendar
 creation remains standard risk. New/unclassified action names default to high risk,
-but upload and other permanent-delete adapters are still unavailable. Saved-draft
-submission has its own elevated opt-in workflow above.
+but upload and other permanent-delete target types remain unavailable. Private
+trash-file deletion and saved-draft submission have separate elevated workflows above.
 
 The supported action flags are `calendar.create_event` and
 `calendar.delete_event`, alongside `--service calendar` and the private approval

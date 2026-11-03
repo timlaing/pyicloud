@@ -65,8 +65,8 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
-`drive_deletions.py` is an internal elevated permanent-delete adapter, not yet a
-runtime action. Only discovered typed private `drive-trash-file` handles reach fresh
+`drive_deletions.py` is selected by the separately opted-in elevated runtime
+`drive.delete_forever_file` action. Only discovered typed private `drive-trash-file` handles reach fresh
 identity/zone checks, literal top-level `TRASH_ROOT` membership and valid non-sentinel
 etag/restore metadata. Ordinary handles, folders/shared/root targets and caller
 confirmation payloads fail closed. Exact identity/name/restore context/account/route/
@@ -76,8 +76,10 @@ lookup raising 404/410 under the same binding; tombstones/generic acknowledgemen
 other errors remain uncertain, with no source/request replay. Restore paths stay in
 private bindings, never caller-selected local paths. SDK lookup exceptions are
 verified to carry HTTP status codes; no missing-response endpoint is invented.
-Gateway/schema and installed permanent-delete qualification remain pending; no live
-file deletion was performed.
+Gateway/schema integration now enforces matching write/elevated startup choices.
+Synthetic gateway tests deny model confirmation and standard receipts, and retire
+uncertain sources after one fake dispatch. Installed permanent-delete-specific
+qualification remains pending; no live file deletion was performed.
 
 `draft_sends.py` is selected by the separately opted-in elevated runtime
 `mail.send_draft` action.

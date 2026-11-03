@@ -1,4 +1,4 @@
-"""Internal elevated permanent trash-file deletion; no runtime action enabled yet."""
+"""Elevated permanent trash-file deletion with exact receipts and absence proof."""
 
 from __future__ import annotations
 

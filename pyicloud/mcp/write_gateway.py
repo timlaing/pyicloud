@@ -13,6 +13,7 @@ from .calendar_writes import CalendarWrites
 from .context import ToolFailure
 from .draft_edits import DraftEdits
 from .draft_sends import DraftSends
+from .drive_deletions import DriveDeletions
 from .drive_moves import DriveMoves
 from .drive_writes import DriveWrites
 from .mail_folder_renames import MailFolderRenames
@@ -49,6 +50,7 @@ class WriteGateway:
         )
         self.writer = ReminderWrites(reads, self.ledger)
         self.drive = DriveWrites(additional or AdditionalReads(reads), self.ledger)
+        self.deletions = DriveDeletions(self.drive)
         self.moves = DriveMoves(self.drive)
         self.calendar = CalendarWrites(reads, self.ledger)
         self.mail = MailWrites(reads, self.ledger, self.drive.additional)
@@ -77,7 +79,11 @@ class WriteGateway:
         if action not in self.config.write_actions:
             return WriteResult(error="write_disabled")
         try:
-            if action == "drive.move_file":
+            if action == "drive.delete_forever_file":
+                preview = await self.deletions.prepare_delete(
+                    target_handle or list_handle, payload, publish=self.mailbox.publish
+                )
+            elif action == "drive.move_file":
                 preview = await self.moves.prepare_move(
                     target_handle or list_handle,
                     destination_handle or "",
@@ -185,7 +191,9 @@ class WriteGateway:
                 | PhotoAlbumWrites
                 | MailFolderWrites
             )
-            if action == "drive.move_file":
+            if action == "drive.delete_forever_file":
+                adapter = self.deletions
+            elif action == "drive.move_file":
                 adapter = self.moves
             elif action == "photos.add_to_album":
                 adapter = self.photo_relations
