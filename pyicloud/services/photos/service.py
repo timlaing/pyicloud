@@ -1815,6 +1815,7 @@ class PhotoAlbum(BasePhotoAlbum):
         zone = private_photo_zone(self.service, self._zone_id)
         return (
             isinstance(photo, PhotoAsset)
+            and not isinstance(self, PhotoAlbumFolder)
             and self._obj_type == ObjectTypeEnum.CONTAINER
             and self._parent_id is None
             and self._library.scope == "private"
