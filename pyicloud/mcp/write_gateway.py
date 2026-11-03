@@ -12,6 +12,7 @@ from .authorization import ApprovalLedger, WriteDenied
 from .calendar_writes import CalendarWrites
 from .context import ToolFailure
 from .draft_edits import DraftEdits
+from .draft_sends import DraftSends
 from .drive_moves import DriveMoves
 from .drive_writes import DriveWrites
 from .mail_folder_renames import MailFolderRenames
@@ -52,6 +53,7 @@ class WriteGateway:
         self.calendar = CalendarWrites(reads, self.ledger)
         self.mail = MailWrites(reads, self.ledger, self.drive.additional)
         self.draft_edits = DraftEdits(self.mail)
+        self.draft_sends = DraftSends(self.mail)
         self.mail_folders = MailFolderWrites(reads, self.ledger)
         self.mail_renames = MailFolderRenames(self.drive.additional, self.ledger)
         self.photos = PhotoWrites(self.drive.additional, self.ledger)
@@ -108,6 +110,10 @@ class WriteGateway:
             elif action == "mail.create_folder":
                 preview = await self.mail_folders.prepare(
                     payload, publish=self.mailbox.publish
+                )
+            elif action == "mail.send_draft":
+                preview = await self.draft_sends.prepare_send(
+                    target_handle or list_handle, payload, publish=self.mailbox.publish
                 )
             elif action == "mail.edit_draft":
                 preview = await self.draft_edits.prepare_edit(
@@ -174,6 +180,7 @@ class WriteGateway:
                 | ReminderWrites
                 | MailWrites
                 | DraftEdits
+                | DraftSends
                 | PhotoWrites
                 | PhotoAlbumWrites
                 | MailFolderWrites
@@ -192,6 +199,8 @@ class WriteGateway:
                 adapter = self.mail_renames
             elif action == "mail.create_folder":
                 adapter = self.mail_folders
+            elif action == "mail.send_draft":
+                adapter = self.draft_sends
             elif action == "mail.edit_draft":
                 adapter = self.draft_edits
             elif action == "mail.create_draft":

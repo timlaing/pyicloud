@@ -19,7 +19,7 @@ STANDARD_WRITE_ACTIONS = (
 )
 
 # No verified Calendar event recovery contract: classify deletion conservatively.
-SUPPORTED_HIGH_RISK_ACTIONS = ("calendar.delete_event",)
+SUPPORTED_HIGH_RISK_ACTIONS = ("calendar.delete_event", "mail.send_draft")
 
 
 def is_high_risk(action: str) -> bool:

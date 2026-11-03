@@ -139,14 +139,14 @@ def test_downgraded_operator_record_cannot_approve_high_risk(directory: Path) ->
         )
 
 
-def test_runtime_high_risk_actions_remain_unavailable() -> None:
-    """This primitive milestone never exposes sending/delete/upload tools."""
+def test_unimplemented_high_risk_actions_remain_unavailable() -> None:
+    """Risk primitives cannot enable an unsupported deletion or upload adapter."""
     with pytest.raises(ValueError, match="Unsupported write action"):
         ServerConfig(
             username="synthetic",
             session_dir="unused",
             services=("mail",),
-            write_actions=("mail.send_draft",),
+            write_actions=("mail.delete_permanently",),
             approval_dir="unused",
         )
 

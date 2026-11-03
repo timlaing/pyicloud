@@ -21,6 +21,7 @@ from tests.test_mcp_approval_channel import terminal
 from tests.test_mcp_calendar_writes import payload as calendar_payload
 from tests.test_mcp_calendar_writes import setup_calendar
 from tests.test_mcp_draft_edits import setup_edit
+from tests.test_mcp_draft_sends import setup_send
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_writes import setup_writer
 from tests.test_mcp_mail_folder_renames import setup_rename
@@ -37,6 +38,79 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+@pytest.mark.parametrize(
+    "content,elevated", [((), ("mail.send_draft",)), (("mail",), ())]
+)
+def test_send_startup_requires_both_content_and_elevated_selection(
+    content: tuple[str, ...], elevated: tuple[str, ...]
+) -> None:
+    """No ordinary startup selection grants permission to submit saved mail."""
+    with pytest.raises(ValueError):
+        ServerConfig(
+            username="synthetic",
+            session_dir="unused",
+            services=("mail",),
+            content_services=cast(Any, content),
+            write_actions=("mail.send_draft",),
+            high_risk_actions=elevated,
+            approval_dir="unused",
+        )
+
+
+@pytest.mark.asyncio
+async def test_send_gateway_rejects_standard_receipt_and_retires_uncertain_source() -> (
+    None
+):
+    """One simulated elevated decision permits one fake, ambiguous submission."""
+    sends, client, handle = await setup_send()
+    owner = cast(Any, sends.writer.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("mail",),
+        content_services=("mail",),
+        write_actions=("mail.send_draft",),
+        high_risk_actions=("mail.send_draft",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(sends.writer.reads, sends.additional)
+    invalid = await gateway.prepare(
+        "mail.send_draft", "", {"confirm": True}, None, handle
+    )
+    assert invalid.error == "invalid_payload"
+    prepared = await gateway.prepare("mail.send_draft", "", {}, None, handle)
+    assert prepared.preview is not None
+    preview = prepared.preview
+    assert preview["risk"] == "high"
+    assert preview["payload"]["to"] == ["recipient@example.test"]
+
+    def standard(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = standard
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "high_risk_operator_approval_required"
+    client.mail.send_draft.assert_not_called()
+
+    def elevated(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"], high_risk=True)
+
+    mailbox.accept.side_effect = elevated
+    client.mail.send_draft.side_effect = OSError("private")
+    result = await gateway.apply(preview["request_id"])
+    assert result.error == "mutation_uncertain" and result.result is None
+    with pytest.raises(ToolFailure):
+        sends.additional.resolve("mail-draft", handle)
+    client.mail.send_draft.assert_called_once()
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
 
 
 def test_draft_edit_startup_requires_explicit_mail_content_consent() -> None:

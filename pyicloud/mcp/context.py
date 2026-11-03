@@ -91,11 +91,10 @@ class ServerConfig:
             raise ValueError(
                 "High-risk actions require matching separate elevated selection"
             )
-        if (
-            "mail.edit_draft" in self.write_actions
-            and "mail" not in self.content_services
-        ):
-            raise ValueError("Draft edits require the Mail content opt-in")
+        if {"mail.edit_draft", "mail.send_draft"} & set(
+            self.write_actions
+        ) and "mail" not in self.content_services:
+            raise ValueError("Draft edits and sends require the Mail content opt-in")
         if self.write_actions and (
             not self.approval_dir
             or any(

@@ -356,6 +356,25 @@ result is uncertain and cannot replay approval; never blindly retry. Network-blo
 installed tests cover verified and acknowledged-but-absent synthetic creations.
 No live account validation is claimed.
 
+## Opt-in elevated saved Mail draft submission
+
+Enable `--service mail`, `--content-service mail`, `--write-action mail.send_draft`,
+`--high-risk-action mail.send_draft`, and the private approval directory. Both action
+selections and content consent are mandatory. Preview a verified server-created
+saved `target_handle` with an empty payload; caller confirmation flags and recipient
+changes are rejected. The preview includes the exact saved sender/subject/text and
+to/cc/bcc roles, bound to fresh identity/body/route state.
+
+Only `APPROVE HIGH-RISK <request_id>` in the separate private terminal authorizes
+one submission. Consume the receipt and retire the source handle before invoking
+the SDK; confirmation is derived from that trusted decision, not model input.
+Success reports `acknowledged: true, delivery_confirmed: false`: it is not SMTP
+delivery proof. Uncertainty may already have sent the message and leaves no retry
+handle. Inspect Drafts/Sent independently before any new request; never blindly
+retry. The SDK preflight is not atomic with another editor. Arbitrary account drafts,
+attachments and scheduled sending are unsupported. Gateway tests are synthetic;
+send-specific installed stdio qualification is pending and no live send is claimed.
+
 ## Opt-in saved Mail draft edits
 
 Enable `--service mail`, `--content-service mail`, `--write-action mail.edit_draft`,
@@ -381,8 +400,8 @@ It retains the typed saved context and exact approved payload privately for ten
 minutes in the current server registry. It cannot resolve as an ordinary Mail
 message/body handle or in another registry, and reveals no sender/body/binding data.
 Uncertain saves do not publish a saved handle. A handle does not grant edit approval:
-edits require separate opt-in flags and receipts. Sending and reconstruction of
-existing account drafts remain unavailable.
+edits and submission require separate opt-in flags and receipts. Reconstruction of
+existing account drafts remains unavailable.
 
 Enable `--service mail`, `--write-action mail.create_draft`, and the private approval
 directory to expose draft creation through the existing preview/execute tools.
@@ -412,7 +431,8 @@ selection. The operator must type `APPROVE HIGH-RISK <request_id>` in the separa
 private terminal; ordinary approval does not authorize deletion. This conservative
 tier is required because no event recovery contract is verified here. Calendar
 creation remains standard risk. New/unclassified action names default to high risk,
-but sending, upload and other permanent-delete adapters are still unavailable.
+but upload and other permanent-delete adapters are still unavailable. Saved-draft
+submission has its own elevated opt-in workflow above.
 
 The supported action flags are `calendar.create_event` and
 `calendar.delete_event`, alongside `--service calendar` and the private approval

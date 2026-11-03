@@ -1,4 +1,4 @@
-"""Internal elevated saved-draft send adapter; no runtime send action enabled yet."""
+"""Elevated saved-draft submission with exact receipts and no delivery/retry claim."""
 
 from __future__ import annotations
 
