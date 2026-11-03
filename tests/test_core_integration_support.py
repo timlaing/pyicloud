@@ -111,6 +111,57 @@ def test_album_folder_cannot_accept_photo_relations() -> None:
 
 
 @pytest.mark.parametrize(
+    "case",
+    [
+        "equivalent",
+        "integer",
+        "foreign",
+        "endpoint",
+        "missing",
+        "blank",
+        "boolean",
+        "zero",
+        "params",
+        "route_missing",
+    ],
+)
+def test_photo_relation_provenance_is_account_and_endpoint_bound(case: str) -> None:
+    """Passive guards reject foreign services but allow equivalent same-account ones."""
+    client, _library, album, photo = objects()
+    origin = MagicMock()
+    origin.params = {"dsid": "123"}
+    origin.service_endpoint = album.service.service_endpoint
+    if case == "integer":
+        origin.params["dsid"] = 123
+    elif case == "foreign":
+        origin.params["dsid"] = "456"
+    elif case == "endpoint":
+        origin.service_endpoint = "https://other.test"
+    elif case == "missing":
+        origin.params = {}
+    elif case == "blank":
+        origin.params["dsid"] = " "
+    elif case == "boolean":
+        origin.params["dsid"] = True
+    elif case == "zero":
+        origin.params["dsid"] = 0
+    elif case == "params":
+        origin.params = None
+    elif case == "route_missing":
+        cast(Any, album.service).service_endpoint = None
+    candidate = PhotoAsset(origin, photo.master_record, photo.asset_record)
+    allowed = case in {"equivalent", "integer"}
+    assert album.can_add_photo_correlated(candidate) is allowed
+    if not allowed:
+        with pytest.raises(PhotosServiceException, match="unavailable"):
+            album.contains_photo_scoped(candidate)
+        with pytest.raises(PhotosServiceException, match="unavailable"):
+            album.add_photo_correlated(candidate)
+    client.query.assert_not_called()
+    client.modify.assert_not_called()
+
+
+@pytest.mark.parametrize(
     "case", ["exact", "wrong_id", "wrong_name", "wrong_type", "missing_tag", "multiple"]
 )
 def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:

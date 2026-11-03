@@ -1810,11 +1810,44 @@ class PhotoAlbum(BasePhotoAlbum):
             success = _check_modify_response(payload.get("records", []))
         return success
 
+    @staticmethod
+    def _service_account_binding(service: Any) -> str | None:
+        """Read an existing account identifier without probing or inferring identity."""
+        params = getattr(service, "params", None)
+        if not isinstance(params, dict):
+            return None
+        account = params.get("dsid")
+        if isinstance(account, bool):
+            return None
+        if isinstance(account, int):
+            return str(account) if account > 0 else None
+        if isinstance(account, str) and account and account == account.strip():
+            return account
+        return None
+
+    def _same_photo_account(self, photo: PhotoAsset) -> bool:
+        """Require an exact account/route binding for equivalent services."""
+        # Album and asset implementations share private provenance metadata.
+        origin = photo._service  # pylint: disable=protected-access
+        if origin is self.service:
+            return True
+        expected = self._service_account_binding(self.service)
+        observed = self._service_account_binding(origin)
+        endpoint = getattr(self.service, "service_endpoint", None)
+        return (
+            expected is not None
+            and observed == expected
+            and isinstance(endpoint, str)
+            and bool(endpoint)
+            and getattr(origin, "service_endpoint", None) == endpoint
+        )
+
     def can_add_photo_correlated(self, photo: PhotoAsset) -> bool:
         """Inspect typed private relation support without probing or mutating."""
         zone = private_photo_zone(self.service, self._zone_id)
         return (
             isinstance(photo, PhotoAsset)
+            and self._same_photo_account(photo)
             and not isinstance(self, PhotoAlbumFolder)
             and self._obj_type == ObjectTypeEnum.CONTAINER
             and self._parent_id is None
