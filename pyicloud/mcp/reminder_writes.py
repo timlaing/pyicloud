@@ -77,8 +77,11 @@ class ReminderWrites:
         account = client.params.get("dsid")
         if account is None or isinstance(account, bool):
             raise WriteDenied("account_unavailable")
+        route = client.reminders.service_root
+        if not isinstance(route, str) or not route:
+            raise WriteDenied("route_unavailable")
         resource = json.dumps(
-            (context.id, *route_identity(context), target.reminder_id),
+            (route, context.id, *route_identity(context), target.reminder_id),
             separators=(",", ":"),
         )
         revision = (

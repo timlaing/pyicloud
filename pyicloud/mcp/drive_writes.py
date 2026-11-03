@@ -54,9 +54,12 @@ class DriveWrites:
         account = client.params.get("dsid")
         if account is None or isinstance(account, bool):
             raise WriteDenied("account_unavailable")
+        route = client.drive.service_root
+        if not isinstance(route, str) or not route:
+            raise WriteDenied("route_unavailable")
         return (
             str(account),
-            json.dumps((target.identifier, target.zone), separators=(",", ":")),
+            json.dumps((route, target.identifier, target.zone), separators=(",", ":")),
             node.data.get("etag"),
         )
 

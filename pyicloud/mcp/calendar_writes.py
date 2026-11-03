@@ -97,9 +97,14 @@ class CalendarWrites:
         account = client.params.get("dsid")
         if account is None or isinstance(account, bool):
             raise WriteDenied("account_unavailable")
+        route = client.calendar.service_root
+        if not isinstance(route, str) or not route:
+            raise WriteDenied("route_unavailable")
         return (
             str(account),
-            json.dumps((target.calendar_id, target.event_id), separators=(",", ":")),
+            json.dumps(
+                (route, target.calendar_id, target.event_id), separators=(",", ":")
+            ),
             revision,
         )
 

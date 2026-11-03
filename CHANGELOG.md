@@ -14,6 +14,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Isolate Sonar coverage validation from pull-request Python modules, restrict the Sonar token to scan steps, and reject linked scan inputs while retaining fork pull-request analysis. Reject ambiguous fork PR matches rather than attributing analysis to the first PR sharing a commit.
 
+- Bind Drive, Calendar, and Reminders MCP operator approvals to the discovered service endpoint as well as account/resource/revision; changed or unavailable endpoints cannot dispatch approved mutations.
+
 ### Added
 
 - Qualify installed private Photos favorite receipts, independent post-read verification, and uncertain-outcome replay denial with network-blocked synthetic assets.

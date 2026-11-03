@@ -20,6 +20,7 @@ def setup_calendar() -> tuple[CalendarWrites, MagicMock, EventObject]:
     """No transport, account, timezone filesystem or actual data is accessed."""
     client = MagicMock()
     client.params = {"dsid": "A"}
+    client.calendar.service_root = "https://calendar.example.test"
     client.calendar.get_calendars.return_value = [{"guid": "C", "title": "Calendar"}]
     client.calendar.get_ctag.return_value = "C1"
     event = EventObject(

@@ -58,6 +58,8 @@ class SyntheticCalendar:
 class SyntheticReminders:
     """Two colliding list IDs that require explicit private/shared model routes."""
 
+    service_root = "https://reminders.example.test"
+
     def lists(self) -> Iterator[RemindersList]:
         """Only route handles, titles and scopes should survive serialization."""
         yield RemindersList(id="List/SAME", title="Private", record_change_tag="L1")

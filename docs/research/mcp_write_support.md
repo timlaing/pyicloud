@@ -65,6 +65,13 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Drive, Calendar and Reminders approval resource bindings additionally include the
+discovered service root. Changing the endpoint after preview now invalidates the
+receipt even when account/resource IDs and revisions are identical; missing or
+non-string endpoints fail closed. Synthetic regressions prove no mutation dispatch
+for changed, empty or absent endpoints in all three adapters. This complements the
+existing endpoint bindings in the Mail and Photos adapters.
+
 Private Photos `set_favorite` uses the existing revision-aware public method, which
 dispatches one modify operation and does not retry mutation. The MCP adapter adds
 opaque discovered handles, fresh private-zone lookup, asset/master identity and

@@ -37,6 +37,7 @@ def writer() -> tuple[ReminderWrites, MagicMock, RemindersList, Reminder]:
     )
     client = MagicMock()
     client.params = {"dsid": "A"}
+    client.reminders.service_root = "https://reminders.example.test"
     client.reminders.lists.side_effect = lambda: iter([context])
     client.reminders.get.return_value = reminder
     client.reminders.create.return_value = reminder

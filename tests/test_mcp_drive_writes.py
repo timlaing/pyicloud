@@ -19,6 +19,7 @@ def setup_writer() -> tuple[DriveWrites, MagicMock, str, dict[str, Any]]:
     """Use actual public DriveNode methods with a fully mocked transport facade."""
     client = MagicMock()
     client.params = {"dsid": "A"}
+    client.drive.service_root = "https://drive.example.test"
     data = {
         "drivewsid": "FILE::com.apple.CloudDocs::SYNTHETIC",
         "zone": "com.apple.CloudDocs",
