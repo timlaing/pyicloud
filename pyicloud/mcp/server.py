@@ -271,7 +271,7 @@ def build_server(
                     read_only_hint=False,
                     destructive_hint=False,
                     idempotent_hint=False,
-                    open_world_hint=False,
+                    open_world_hint=True,
                 ),
             )
             async def upload_stage(

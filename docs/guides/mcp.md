@@ -258,6 +258,8 @@ Default limits are 4 MiB/file, 8 MiB aggregate, eight stages, five-minute expiry
 64 KiB decoded chunks. Bytes are staged in memory, not read from local paths. Seal
 requires independently computed size/digest agreement. Shutdown releases staging
 references; this does not promise secure memory erasure. Staging grants no approval.
+The serialized owner may validate the configured saved session before a staging
+operation; staging itself submits no upload request and reads no local source file.
 
 Discover a private `PrimarySync` library handle, then use `icloud_write_preview`
 with `action: photos.upload_file`, that `target_handle`, and payload containing
