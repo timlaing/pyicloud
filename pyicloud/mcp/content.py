@@ -197,12 +197,14 @@ class ContentReads:
             resource = self.additional.resolve(
                 "drive-file" if service == "drive" else "photo-asset", handle
             )
-            size = getattr(resource, "size", None)
-            if (
-                service == "drive"
-                and isinstance(size, int)
-                and not isinstance(size, bool)
-                and size == 0
+            size = (
+                getattr(resource, "data", {}).get("size")
+                if service == "drive"
+                else None
+            )
+            if service == "drive" and (
+                (isinstance(size, int) and not isinstance(size, bool) and size == 0)
+                or size == "0"
             ):
                 if offset:
                     raise ToolFailure("invalid_download_range")

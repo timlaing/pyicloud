@@ -13,7 +13,7 @@ from pyicloud.services.photos.constants import ListTypeEnum
 from pyicloud.services.photos.exceptions import PhotosServiceException
 from pyicloud.services.photos.queries import parent_filter
 from pyicloud.services.photos.service import PhotoAsset
-from tests.test_mcp_photo_album_writes import make_album
+from tests.test_photos_album_identity import make_album
 
 
 def setup_relation() -> tuple[Any, PhotoAsset, Any]:
@@ -114,6 +114,25 @@ def test_relation_capability_check_has_no_transport_side_effects() -> None:
     client.query.assert_not_called()
 
 
+def test_scoped_membership_rejects_duplicate_identity_without_album_scan() -> None:
+    """One exact query must not treat duplicate matches as verified membership."""
+    album, photo, client = setup_relation()
+    album._list_type = ListTypeEnum.CONTAINER
+    album._extra_filters = [parent_filter(album.id)]
+    client.query.return_value.records = []
+    client.query.return_value.syncToken = None
+    with (
+        patch.object(
+            album, "_process_photo_list_response", return_value=[photo, photo]
+        ),
+        patch.object(album, "get") as fallback,
+        pytest.raises(PhotosServiceException, match="duplicate"),
+    ):
+        album.contains_photo_scoped(photo)
+    client.query.assert_called_once()
+    fallback.assert_not_called()
+
+
 @pytest.mark.parametrize("case", ["present", "absent", "wrong_master", "untyped"])
 def test_scoped_membership_uses_exact_asset_identity(case: str) -> None:
     """Observed presence/absence must come from the exact container lookup."""
@@ -132,13 +151,26 @@ def test_scoped_membership_uses_exact_asset_identity(case: str) -> None:
             "fields": {},
         })
         found = PhotoAsset(album.service, master, photo.asset_record)
-    with patch.object(album, "get", return_value=found) as lookup:
+    client.query.return_value.records = []
+    client.query.return_value.syncToken = None
+    with (
+        patch.object(
+            album,
+            "_process_photo_list_response",
+            return_value=[] if found is None else [found],
+        ) as process,
+        patch.object(
+            album, "get", side_effect=AssertionError("Full album fallback is forbidden")
+        ) as lookup,
+    ):
         if case in {"present", "absent"}:
             assert album.contains_photo_scoped(photo) is (case == "present")
         else:
             with pytest.raises(PhotosServiceException, match="different asset"):
                 album.contains_photo_scoped(photo)
-        lookup.assert_called_once_with(photo.id)
+        lookup.assert_not_called()
+        client.query.assert_called_once()
+        process.assert_called_once_with(client.query.return_value.records)
     client.modify.assert_not_called()
 
 

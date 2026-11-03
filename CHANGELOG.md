@@ -188,6 +188,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Accept owned PrimarySync Photos zone metadata only when its owner matches observed private-zone discovery, retaining account/route/owner bindings and rejecting foreign, shared or unverified owners without adding network activity to passive capability checks.
+
+- Fix consumed approval-record cleanup, remaining-deadline socket read timeouts, zero-byte Drive downloads, recovery summary/detail identity comparisons and bounded container-scoped Photos membership queries; align published MCP write-support documentation with implemented opt-in actions.
+
 - Reject insecure, query-bearing or credential-bearing Photos upload routes and invalid account identities during preview, before consuming approval or staged bytes.
 
 - Ignore caller-supplied `request_params` in Drive uploads without interrupting finalisation or replacing the operation-local upload token.

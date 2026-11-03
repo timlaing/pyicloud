@@ -1,7 +1,8 @@
 # MCP extension
 
 The optional local Model Context Protocol (MCP) extension exposes bounded,
-read-only Calendar, Reminders, Contacts, Drive, Notes, Photos and Mail tools.
+Calendar, Reminders, Contacts, Drive, Notes, Photos and Mail tools that are read-only
+by default; supported writes require separate explicit opt-ins and approval.
 Account access is disabled unless the
 operator explicitly selects an account, saved-session directory, and services.
 
@@ -187,12 +188,12 @@ Previews expire after five minutes; requests and payloads are bounded. If execut
 reports `mutation_uncertain`, reconcile remote state before preparing anything
 again. Never blindly retry. Approval storage contains private payloads: manage it
 as sensitive local state, not a shared agent workspace. The mailbox caps records
-at 256 and can require operator cleanup after many expired previews.
+at 256. Consumed receipts remove their matching pending record; expired, unapproved
+previews still require operator cleanup.
 
-Other service writers and the Contacts/Notes/Calendar-update API gaps are still
-under development. They are not enabled by these flags, and unsupported actions
-do not claim success. Sending mail, permanent deletion and uploads remain separate
-high-risk future actions.
+Contacts writes, Notes writes and Calendar updates are excluded because the current
+API/CLI does not provide those writers. Other supported writers and separately
+selected high-risk workflows are documented below; unsupported actions remain denied.
 
 ## Opt-in private Drive rename
 

@@ -15,6 +15,7 @@ from tests.test_mcp_additional import owner_for
 def setup_folders() -> tuple[MailFolderWrites, Any]:
     """Typed namespace metadata from an entirely fake facade."""
     client = MagicMock()
+    client.mail = MagicMock()
     client.params = {"dsid": "123"}
     client.mail.service_root = "https://example.test"
     client.mail.folders.return_value = [

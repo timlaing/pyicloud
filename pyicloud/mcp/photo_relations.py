@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 from pyicloud.services.photos.mappers import record_change_tag, record_zone
-from pyicloud.services.photos.service import PhotoAlbum, PhotoAsset
+from pyicloud.services.photos.service import PhotoAlbum, PhotoAsset, private_photo_zone
 
 from .authorization import MutationPreview, WriteDenied
 from .photo_album_writes import PhotoAlbumWrites
@@ -31,7 +31,11 @@ class PhotoRelations(PhotoAlbumWrites):
             library
             for library in client.photos.libraries.values()
             if library.scope == "private"
-            and json.dumps(library.zone_id, sort_keys=True, separators=(",", ":"))
+            and json.dumps(
+                private_photo_zone(client.photos, library.zone_id),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             == zone
         ]
         if len(libraries) != 1:
@@ -41,7 +45,9 @@ class PhotoRelations(PhotoAlbumWrites):
             not isinstance(asset, PhotoAsset)
             or (asset.id, asset.master_id) != (asset_id, master_id)
             or json.dumps(
-                record_zone(asset.asset_record), sort_keys=True, separators=(",", ":")
+                private_photo_zone(client.photos, record_zone(asset.asset_record)),
+                sort_keys=True,
+                separators=(",", ":"),
             )
             != zone
         ):
@@ -60,7 +66,14 @@ class PhotoRelations(PhotoAlbumWrites):
         if not isinstance(present, bool):
             raise WriteDenied("membership_unavailable")
         resource = json.dumps(
-            (album_resource, asset_id, master_id, zone), separators=(",", ":")
+            (
+                album_resource,
+                asset_id,
+                master_id,
+                zone,
+                record_zone(asset.asset_record),
+            ),
+            separators=(",", ":"),
         )
         revision = json.dumps((album_revision, tag, present), separators=(",", ":"))
         return album, asset, account, resource, revision, present

@@ -11,7 +11,11 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from pyicloud.services.photos.mappers import record_change_tag
-from pyicloud.services.photos.service import PhotoAsset, PhotoLibrary
+from pyicloud.services.photos.service import (
+    PhotoAsset,
+    PhotoLibrary,
+    private_photo_zone,
+)
 
 from .authorization import MutationPreview, WriteDenied
 from .photo_album_creates import PhotoAlbumCreates
@@ -52,7 +56,9 @@ class PhotoUploads:
         library, account, resource, revision, _albums = self.writer._library(
             client, zone
         )  # pylint: disable=protected-access
-        if library.zone_id != {"zoneName": "PrimarySync"}:
+        if private_photo_zone(client.photos, library.zone_id) != {
+            "zoneName": "PrimarySync"
+        }:
             raise WriteDenied("unsupported_shared_write")
         root = client.photos.upload_root
         if not isinstance(root, str) or not root:
@@ -71,8 +77,10 @@ class PhotoUploads:
         for host in self.hosts:
             checked_upload_url("https://" + host + "/", self.hosts)
         stage = self.staging.peek(token)
+        observed_primary = getattr(client.photos, "private_primary_zone", None)
+        primary = observed_primary if isinstance(observed_primary, dict) else None
         resource = json.dumps(
-            (resource, root, token, sorted(self.hosts)), separators=(",", ":")
+            (resource, root, token, sorted(self.hosts), primary), separators=(",", ":")
         )
         revision = json.dumps(
             (revision, stage.name, stage.size, stage.sha256), separators=(",", ":")
@@ -96,7 +104,11 @@ class PhotoUploads:
         original = self.additional.resolve("photo-library", handle)
         if not isinstance(original, PhotoLibrary) or original.scope != "private":
             raise WriteDenied("unsupported_target")
-        zone = json.dumps(original.zone_id, sort_keys=True, separators=(",", ":"))
+        zone = json.dumps(
+            private_photo_zone(original.service, original.zone_id),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
         def prepare(client: Any) -> MutationPreview:
             _library, account, resource, revision = self._read(client, zone, token)
@@ -179,6 +191,14 @@ class PhotoUploads:
                 if (
                     after_account != account
                     or after_resource != json.loads(resource)[0]
+                    or (
+                        client.photos.private_primary_zone
+                        if isinstance(
+                            getattr(client.photos, "private_primary_zone", None), dict
+                        )
+                        else None
+                    )
+                    != json.loads(resource)[4]
                 ):
                     raise WriteDenied("mutation_unverified")
                 return {

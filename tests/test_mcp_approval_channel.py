@@ -84,6 +84,8 @@ def test_operator_decision_is_out_of_band_and_single_use(directory: Path) -> Non
         assert "\x1b" not in display.getvalue()
         assert "ACCOUNT_PRIVATE" not in display.getvalue()
         mailbox.accept(preview.request_id, ledger)
+        assert not (directory / (preview.request_id + ".pending.json")).exists()
+        assert not (directory / (preview.request_id + ".approved.json")).exists()
         accepted = ledger.consume(
             preview.request_id,
             account_binding="ACCOUNT_PRIVATE",
@@ -96,6 +98,39 @@ def test_operator_decision_is_out_of_band_and_single_use(directory: Path) -> Non
     mailbox.close()
     with pytest.raises(WriteDenied, match="operator_channel_closed"):
         mailbox.publish(preview)
+
+
+def test_consumed_receipt_tolerates_already_missing_pending_record(
+    directory: Path,
+) -> None:
+    """Receipt cleanup is exact and remains single-use when pending is absent."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = ledger.preview(
+        "reminders.update",
+        "Synthetic",
+        {},
+        account_binding="A",
+        resource_binding="R",
+        revision="v1",
+    )
+    with ApprovalMailbox(str(directory)) as mailbox:
+        mailbox.publish(preview)
+        mailbox.decide(
+            preview.request_id, terminal("APPROVE " + preview.request_id), io.StringIO()
+        )
+        (directory / (preview.request_id + ".pending.json")).unlink()
+        mailbox.accept(preview.request_id, ledger)
+        assert (
+            ledger.consume(
+                preview.request_id,
+                account_binding="A",
+                resource_binding="R",
+                revision="v1",
+            ).digest
+            == preview.digest
+        )
+        with pytest.raises(WriteDenied, match="approval_record_unavailable"):
+            mailbox.accept(preview.request_id, ledger)
 
 
 def test_non_interactive_and_declined_approval_do_not_create_receipt(

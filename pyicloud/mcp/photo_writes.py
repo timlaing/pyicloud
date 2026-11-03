@@ -11,7 +11,7 @@ from pyicloud.services.photos.mappers import (
     record_field_value,
     record_zone,
 )
-from pyicloud.services.photos.service import PhotoAsset
+from pyicloud.services.photos.service import PhotoAsset, private_photo_zone
 
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
@@ -26,13 +26,8 @@ class PhotoWrites:
         self._targets: dict[str, tuple[str, str, str]] = {}
 
     def _selector(self, asset: PhotoAsset) -> tuple[str, str, str]:
-        zone = record_zone(asset.asset_record)
-        if (
-            not zone
-            or zone.get("ownerRecordName")
-            or zone.get("zoneType") not in {None, "REGULAR_CUSTOM_ZONE"}
-            or not isinstance(zone.get("zoneName"), str)
-        ):
+        zone = private_photo_zone(asset._service, record_zone(asset.asset_record))  # pylint: disable=protected-access
+        if zone is None:
             raise WriteDenied("unsupported_shared_write")
         return (
             asset.id,
@@ -56,7 +51,11 @@ class PhotoWrites:
             library
             for library in client.photos.libraries.values()
             if library.scope == "private"
-            and json.dumps(library.zone_id, sort_keys=True, separators=(",", ":"))
+            and json.dumps(
+                private_photo_zone(client.photos, library.zone_id),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             == target[2]
         ]
         if len(libraries) != 1:
@@ -77,7 +76,19 @@ class PhotoWrites:
         return (
             asset,
             str(account),
-            json.dumps((route, target), separators=(",", ":")),
+            json.dumps(
+                (
+                    route,
+                    target,
+                    record_zone(asset.asset_record),
+                    client.photos.private_primary_zone
+                    if isinstance(
+                        getattr(client.photos, "private_primary_zone", None), dict
+                    )
+                    else None,
+                ),
+                separators=(",", ":"),
+            ),
             revision,
         )
 

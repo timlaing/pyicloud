@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 from pyicloud.services.photos.constants import ObjectTypeEnum
-from pyicloud.services.photos.service import PhotoAlbum
+from pyicloud.services.photos.service import PhotoAlbum, private_photo_zone
 
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
@@ -28,8 +28,8 @@ class PhotoAlbumWrites:
             or album.parent_id is not None
         ):
             raise WriteDenied("unsupported_target")
-        zone = album.zone_id
-        if not zone.get("zoneName") or zone.get("ownerRecordName"):
+        zone = private_photo_zone(album.service, album.zone_id)
+        if zone is None:
             raise WriteDenied("unsupported_shared_write")
         return album.id, json.dumps(zone, sort_keys=True, separators=(",", ":"))
 
@@ -48,7 +48,11 @@ class PhotoAlbumWrites:
             library
             for library in client.photos.libraries.values()
             if library.scope == "private"
-            and json.dumps(library.zone_id, sort_keys=True, separators=(",", ":"))
+            and json.dumps(
+                private_photo_zone(client.photos, library.zone_id),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             == target[1]
         ]
         if len(libraries) != 1:
@@ -62,7 +66,17 @@ class PhotoAlbumWrites:
         if not isinstance(album.record_change_tag, str) or not album.record_change_tag:
             raise WriteDenied("revision_unavailable")
         resource = json.dumps(
-            (endpoint, target, album.parent_id), separators=(",", ":")
+            (
+                endpoint,
+                target,
+                album.parent_id,
+                client.photos.private_primary_zone
+                if isinstance(
+                    getattr(client.photos, "private_primary_zone", None), dict
+                )
+                else None,
+            ),
+            separators=(",", ":"),
         )
         revision = json.dumps(
             (album.record_change_tag, album.name), separators=(",", ":")

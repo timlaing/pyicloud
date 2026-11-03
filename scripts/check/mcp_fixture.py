@@ -674,6 +674,9 @@ def upload_response(data: Any) -> Response:
 class SyntheticUploadSession:
     """Raw reservation/registration facade; never performs network requests."""
 
+    def __init__(self, service: Any) -> None:
+        self.service = service
+
     def request_raw(self, method: str, url: str, **kwargs: Any) -> Response:
         """Only first registration appears in independent indexed records."""
         global UPLOAD_CALLS  # pylint: disable=global-statement
@@ -702,7 +705,7 @@ class SyntheticUploadSession:
         master_id = "MASTER-" + identifier
         if UPLOAD_CALLS == 1:
             UPLOAD_RECORDS[identifier] = PhotoAsset(
-                cast(Any, SimpleNamespace()),
+                self.service,
                 CKRecord.model_validate({
                     "recordName": master_id,
                     "recordType": "CPLMaster",
@@ -712,7 +715,7 @@ class SyntheticUploadSession:
                     "recordName": identifier,
                     "recordType": "CPLAsset",
                     "recordChangeTag": "U1",
-                    "zoneID": {"zoneName": "PrimarySync"},
+                    "zoneID": self.service.private_primary_zone,
                     "fields": {},
                 }),
             )
@@ -1155,7 +1158,12 @@ class SyntheticClient:
         if writes:
             self.photos.params = dict(self.params)
             self.photos.upload_root = "https://photosupload.example.test"
-            self.photos.session = SyntheticUploadSession()
+            self.photos.private_primary_zone = {
+                "zoneName": "PrimarySync",
+                "ownerRecordName": "SYNTHETIC_PRIVATE_OWNER",
+                "zoneType": "REGULAR_CUSTOM_ZONE",
+            }
+            self.photos.session = SyntheticUploadSession(self.photos)
             self.photos.libraries = {
                 "synthetic": SyntheticPrivateLibrary(
                     self.photos, cast(SyntheticWritableAlbum, album)

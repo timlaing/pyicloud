@@ -142,3 +142,18 @@ async def test_unsafe_or_changed_targets_do_not_dispatch(case: str) -> None:
                     else {"name": "../bad" if case == "name" else "New"},
                 )
         raw.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_recovery_summary_and_detail_need_only_shared_identity_fields() -> None:
+    """Detail-only folder metadata must not invalidate an exact Trash summary."""
+    writer, client, handle, data = setup_action(True)
+    original = client.drive.get_node_data.side_effect
+    client.drive.get_node_data.side_effect = lambda *args: {
+        **original(*args),
+        "numberOfItems": 0,
+        "items": [],
+    }
+    preview = await writer.prepare_acknowledged("drive.recover_item", handle, {})
+    assert preview.payload["restore_path"] == data["restorePath"]
+    client.drive.session.request_raw.assert_not_called()

@@ -58,7 +58,18 @@ class DriveAcknowledged(DriveWrites):
                 for item in client.drive.trash.get_children(force=True)
                 if item.data.get("drivewsid") == target.identifier
             ]
-            if len(members) != 1 or members[0].data != node.data:
+            if len(members) != 1 or any(
+                members[0].data.get(field) != node.data.get(field)
+                for field in (
+                    "drivewsid",
+                    "etag",
+                    "restorePath",
+                    "name",
+                    "zone",
+                    "parentId",
+                    "type",
+                )
+            ):
                 raise WriteDenied("target_unavailable")
             # The existing API restores to its recorded location; it accepts no
             # destination selector. Bind that observed path without interpreting

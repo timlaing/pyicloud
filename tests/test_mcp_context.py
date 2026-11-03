@@ -63,8 +63,13 @@ def test_transport_timeout_and_deadline() -> None:
     with patch("requests.adapters.HTTPAdapter.send", return_value=response) as send:
         assert adapter.send(request, timeout=None) is response
         assert response.json() == {}
-        assert send.call_args.kwargs["timeout"] == (5, 1)
+        assert send.call_args.kwargs["timeout"] == (5, 10)
         assert send.call_args.kwargs["stream"] is True
+        adapter.deadline = 20
+        with patch("pyicloud.mcp.context.time.monotonic", return_value=16):
+            adapter.send(request)
+        assert send.call_args.kwargs["timeout"] == (4, 4)
+        adapter.deadline = None
         request.url = "http" + "://example.invalid"
         with pytest.raises(ToolFailure, match="insecure_transport"):
             adapter.send(request)
@@ -110,6 +115,7 @@ async def test_probe_does_not_fall_back_to_login(
 ) -> None:
     """Saved-session probes never become credential login or challenge tools."""
     client = MagicMock()
+    client.session = MagicMock()
     client.get_auth_status.return_value = status
     owner = SessionOwner(configuration(), lambda: client)
     owner._adapter = BoundedAdapter(1)
@@ -144,6 +150,7 @@ async def test_cancelled_or_timed_out_call_retains_lane_ownership(cancel: bool) 
     """A late result cannot allow overlapping session use or early closure."""
     started, release = Event(), Event()
     client = MagicMock()
+    client.session = MagicMock()
     client.get_auth_status.return_value = {"authenticated": True}
     owner = SessionOwner(configuration(timeout=0.05, queue_limit=1), lambda: client)
 
@@ -180,6 +187,7 @@ async def test_client_construction_is_lazy_and_private() -> None:
     fake_path.is_dir.return_value = True
     fake_path.stat.return_value = SimpleNamespace(st_mode=0o700)
     client = MagicMock()
+    client.session = MagicMock()
     client.get_auth_status.return_value = {"authenticated": True}
     with (
         patch("pyicloud.mcp.context.Path", return_value=fake_path),
@@ -228,6 +236,7 @@ async def test_cancelled_queued_operation_never_contacts_account() -> None:
     """A cancelled request waiting behind active work must not execute later."""
     started, release = Event(), Event()
     client = MagicMock()
+    client.session = MagicMock()
     client.get_auth_status.return_value = {"authenticated": True}
     owner = SessionOwner(configuration(), lambda: client)
 
@@ -341,6 +350,7 @@ async def test_shutdown_drain_timeout_does_not_close_an_active_session() -> None
     """Bound close's await, leaving the queued release behind the running owner."""
     started, release = Event(), Event()
     client = MagicMock()
+    client.session = MagicMock()
     client.get_auth_status.return_value = {"authenticated": True}
     owner = SessionOwner(configuration(), lambda: client)
 
@@ -372,6 +382,7 @@ async def test_rate_limited_probe_is_not_converted_to_login_failure() -> None:
     request.url = "https://example.invalid"
     request.prepare_headers({})
     client = MagicMock()
+    client.session = MagicMock()
     client.session.data = {"session_token": "synthetic"}
 
     def probe() -> dict[str, bool]:
@@ -397,6 +408,7 @@ async def test_rate_limited_probe_is_not_converted_to_login_failure() -> None:
 async def test_shutdown_failure_is_sanitized() -> None:
     """Even custom session cleanup failures must not expose upstream messages."""
     client = MagicMock()
+    client.session = MagicMock()
     client.get_auth_status.return_value = {"authenticated": True}
     client.session.close.side_effect = RuntimeError("private account payload")
     owner = SessionOwner(configuration(), lambda: client)

@@ -300,12 +300,22 @@ except PyiCloudException as err:
 
 ## Album mutation identity metadata
 
+Owned `PrimarySync` records may include `ownerRecordName` and `zoneType` even though
+the primary library selector contains only the zone name. Private write paths admit
+that metadata only when ownership matches the private zones inventory observed by
+the service; no owner is inferred from an account ID. The passive
+`PhotosService.private_primary_zone` property returns a detached snapshot bound to
+the observed account and route and makes no request. Unknown/foreign owners, shared
+zones and unsupported zone types remain refused. Approval bindings retain ownership
+metadata even when zone-name matching ignores harmless optional decorations.
+
 `PhotoAlbum.can_add_photo_correlated(photo)` checks observed typed private same-zone
 support without network requests or approval. `contains_photo_scoped(photo)` performs
 a read only when the album has the verified container list type and exact parent
 filter, with no extra predicates that could hide membership. Returned assets must
 match asset/master/zone identity. Presence or absence is a fresh observation, not an
-atomic snapshot with a later write. No MCP relation action is enabled by these APIs.
+atomic snapshot with a later write. These APIs back the separately opted-in MCP
+`photos.add_to_album` action; see the [MCP guide](../guides/mcp.md).
 
 `PhotoAlbum.add_photo_correlated(photo)` adds one relation only through a typed
 private same-zone route. The returned acknowledgement must match the exact relation
@@ -313,8 +323,9 @@ ID, record type, asset item ID and album container ID. It refuses nested/shared 
 unsupported transport contexts before dispatch and never falls back to REST.
 This is acknowledgement correlation, not independent album membership proof;
 refresh and query membership before claiming success, and never blindly retry an
-uncertain result. Existing `add_photo()` remains unchanged. No MCP relation action
-is enabled by this API.
+uncertain result. Existing `add_photo()` remains unchanged. MCP `photos.add_to_album`
+requires its own separate opt-in, receipt and fresh membership proof; see the
+[MCP guide](../guides/mcp.md).
 
 `PhotoLibrary.create_album_correlated(name)` is a private-library typed-client-only
 creation entry point. It validates the name, refuses shared-owner or unsupported

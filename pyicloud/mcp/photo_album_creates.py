@@ -6,7 +6,12 @@ from collections.abc import Callable
 import json
 from typing import Any
 
-from pyicloud.services.photos.service import PhotoAlbum, PhotoLibrary, SmartPhotoAlbum
+from pyicloud.services.photos.service import (
+    PhotoAlbum,
+    PhotoLibrary,
+    SmartPhotoAlbum,
+    private_photo_zone,
+)
 
 from .authorization import MutationPreview, WriteDenied
 from .photo_album_writes import PhotoAlbumWrites
@@ -35,7 +40,11 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
             for library in client.photos.libraries.values()
             if isinstance(library, PhotoLibrary)
             and library.scope == "private"
-            and json.dumps(library.zone_id, sort_keys=True, separators=(",", ":"))
+            and json.dumps(
+                private_photo_zone(client.photos, library.zone_id),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             == zone
         ]
         if len(libraries) != 1 or not libraries[0].correlated_album_creation_available:
@@ -64,7 +73,15 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
             albums.append(album)
         if len({album.id for album in albums}) != len(albums):
             raise WriteDenied("inventory_unavailable")
-        resource = json.dumps((endpoint, zone), separators=(",", ":"))
+        observed_primary = getattr(client.photos, "private_primary_zone", None)
+        resource = json.dumps(
+            (
+                endpoint,
+                zone,
+                observed_primary if isinstance(observed_primary, dict) else None,
+            ),
+            separators=(",", ":"),
+        )
         revision = json.dumps(
             sorted((album.id, album.name, album.record_change_tag) for album in albums),
             separators=(",", ":"),
@@ -93,10 +110,14 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
         if (
             not isinstance(original, PhotoLibrary)
             or original.scope != "private"
-            or original.zone_id.get("ownerRecordName")
+            or private_photo_zone(original.service, original.zone_id) is None
         ):
             raise WriteDenied("unsupported_target")
-        zone = json.dumps(original.zone_id, sort_keys=True, separators=(",", ":"))
+        zone = json.dumps(
+            private_photo_zone(original.service, original.zone_id),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
         def prepare(client: Any) -> MutationPreview:
             _library, account, resource, revision, albums = self._library(client, zone)

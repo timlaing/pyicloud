@@ -16,6 +16,25 @@ from pyicloud.services.photos.service import (
 )
 
 
+def make_album(
+    library: Any,
+    name: str = "Before",
+    tag: str | None = "R1",
+    parent: str | None = None,
+) -> PhotoAlbum:
+    """Construct a synthetic core album without any integration dependencies."""
+    return PhotoAlbum(
+        library,
+        name=name,
+        record_id="A",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.DEFAULT,
+        direction=DirectionEnum.ASCENDING,
+        zone_id={"zoneName": "Z"},
+        record=PhotoAlbumRecordState(parent_id=parent, record_change_tag=tag),
+    )
+
+
 @pytest.mark.parametrize("tag", [None, "R1"])
 @pytest.mark.parametrize("parent", [None, "PARENT"])
 def test_album_identity_accessors_are_detached_and_read_only(

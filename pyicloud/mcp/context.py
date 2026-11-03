@@ -168,7 +168,7 @@ class BoundedAdapter(HTTPAdapter):
         if remaining <= 0:
             raise ToolFailure("timeout")
         # Caller-controlled upstream defaults cannot remove this extension's bound.
-        bounded_timeout = (min(5.0, remaining), min(1.0, remaining))
+        bounded_timeout = (min(5.0, remaining), remaining)
         request.headers["Accept-Encoding"] = "identity"
         try:
             response = super().send(

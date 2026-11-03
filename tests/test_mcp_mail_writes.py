@@ -88,6 +88,7 @@ def test_postsave_body_requires_exact_identity_and_content(case: str) -> None:
 def setup_mail() -> tuple[MailWrites, MagicMock, dict[str, Any]]:
     """No account or transport; only verified typed facade results."""
     client = MagicMock()
+    client.mail = MagicMock()
     client.params = {"dsid": "123"}
     client.mail.service_root = "https://example.test"
     folder = MailFolder(identifier="drafts", name="Drafts", uidValidity=1)

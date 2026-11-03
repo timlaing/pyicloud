@@ -1241,7 +1241,8 @@ then returns the validated account identity for internal binding. It does not re
 bodies/attachments, submit destruction, grant approval or scan for bulk targets.
 `delete_permanently()` repeats this same preflight before its unchanged single raw
 request and typed acknowledgement/UID-and-ID absence verification. Preflight is
-not atomic with destruction. No MCP Mail deletion action is enabled by this API.
+not atomic with destruction. This preflight backs the separately opted-in MCP
+`mail.delete_forever_message` action; see the [MCP guide](../guides/mcp.md).
 
 ## Read-only saved draft preflight
 
@@ -1253,9 +1254,9 @@ does not infer missing expectations from a bare message ID.
 
 This grants no approval and is not atomic with later editing. The saved model does
 not capture an exact previous text revision: an adapter must separately bind and
-verify exact body state before replacing it, with appropriate content consent. MCP
-draft editing remains disabled pending scoped saved handles and receipt/post-state
-qualification. No live account validation is claimed.
+verify exact body state before replacing it, with appropriate content consent. The
+separately opted-in MCP `mail.edit_draft` action uses this preflight and scoped saved
+handles; see the [MCP guide](../guides/mcp.md). No live account validation is claimed.
 
 ## Read-only move preflight
 
@@ -1268,5 +1269,6 @@ validity are refused. It does not reserve a destination or provide an atomic sna
 
 Move acknowledgements refer only to the old source identifier. Do not infer the new
 destination ID/UID from this preflight or claim exact post-move identity by matching
-subject/sender alone. MCP message moves remain disabled pending verified post-state
-correlation; no live account validation is claimed.
+subject/sender alone. The separately opted-in MCP `mail.move_message` action reports
+acknowledgement only, with final-state verification false; see the
+[MCP guide](../guides/mcp.md). No live account validation is claimed.

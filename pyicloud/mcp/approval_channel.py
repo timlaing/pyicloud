@@ -6,6 +6,7 @@ tools. This is not protection against privileged code running as the operator.
 
 from __future__ import annotations
 
+from contextlib import suppress
 import json
 import os
 import re
@@ -159,6 +160,8 @@ class ApprovalMailbox:
         if not isinstance(risk, str) or risk not in {"standard", "high"}:
             raise WriteDenied("invalid_approval_record")
         os.unlink(self._name(request_id, ".approved.json"), dir_fd=self._fd)
+        with suppress(FileNotFoundError):
+            os.unlink(self._name(request_id, ".pending.json"), dir_fd=self._fd)
         if risk == "high":
             ledger.approve_from_operator(request_id, digest, high_risk=True)
         else:

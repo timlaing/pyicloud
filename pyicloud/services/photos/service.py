@@ -922,7 +922,12 @@ class PhotoLibrary(BasePhotoLibrary):
             or not isinstance(resp.records[0], CKRecord)
             or resp.records[0].recordName != expected_id
             or resp.records[0].recordType != "CPLAlbum"
-            or resp.records[0].fields.get_value("albumNameEnc") != encoded
+            or resp
+            .records[0]
+            .model_dump(mode="json")["fields"]
+            .get("albumNameEnc", {})
+            .get("value")
+            != encoded
             or not isinstance(resp.records[0].recordChangeTag, str)
             or not resp.records[0].recordChangeTag.strip()
             or resp.records[0].recordChangeTag
@@ -1807,13 +1812,15 @@ class PhotoAlbum(BasePhotoAlbum):
 
     def can_add_photo_correlated(self, photo: PhotoAsset) -> bool:
         """Inspect typed private relation support without probing or mutating."""
+        zone = private_photo_zone(self.service, self._zone_id)
         return (
             isinstance(photo, PhotoAsset)
             and self._obj_type == ObjectTypeEnum.CONTAINER
             and self._parent_id is None
             and self._library.scope == "private"
-            and not self._zone_id.get("ownerRecordName")
-            and record_zone(photo.asset_record) == self._zone_id
+            and zone is not None
+            and private_photo_zone(self.service, record_zone(photo.asset_record))
+            == zone
             and isinstance(self._client, PhotosCloudKitClient)
             and _can_use_typed_cloudkit(self.service.session)
         )
@@ -1832,14 +1839,43 @@ class PhotoAlbum(BasePhotoAlbum):
             raise PhotosServiceException(
                 "Scoped private album membership is unavailable"
             )
-        found = self.get(photo.id)
+        client = cast(PhotosCloudKitClient, self._client)
+        response = client.query(
+            query=photo_lookup_query(
+                list_type=self._list_type,
+                photo_id=photo.id,
+                extra_filters=self._query_filters(
+                    offset=0, direction=DirectionEnum.ASCENDING
+                ),
+            ),
+            zone_id=CKZoneIDReq(**self._zone_id),
+            results_limit=self._photo_lookup_results_limit(),
+        )
+        self._library.current_sync_token = (
+            response.syncToken or self._library.current_sync_token
+        )
+        candidates = list(self._process_photo_list_response(response.records))
+        if any(not isinstance(item, PhotoAsset) for item in candidates):
+            raise PhotosServiceException(
+                "Album membership returned a different asset identity"
+            )
+        matches = [item for item in candidates if item.id == photo.id]
+        if len(matches) > 1:
+            raise PhotosServiceException(
+                "Album membership returned duplicate asset identities"
+            )
+        found = matches[0] if matches else None
         if found is None:
             return False
         if not isinstance(found, PhotoAsset) or (
             found.id,
             found.master_id,
-            record_zone(found.asset_record),
-        ) != (photo.id, photo.master_id, self._zone_id):
+            private_photo_zone(self.service, record_zone(found.asset_record)),
+        ) != (
+            photo.id,
+            photo.master_id,
+            private_photo_zone(self.service, self._zone_id),
+        ):
             raise PhotosServiceException(
                 "Album membership returned a different asset identity"
             )
@@ -2526,6 +2562,38 @@ class PhotoAsset:
         return f"<{type(self).__name__}: id={self.id}>"
 
 
+def private_photo_zone(
+    service: Any, zone: dict[str, Any] | None
+) -> dict[str, str] | None:
+    """Canonical private zone name after passive, observed owner validation.
+
+    Primary ownership comes only from the authenticated private zones inventory,
+    never from a guessed DSID mapping. No network request is made by this helper.
+    """
+    if (
+        not zone
+        or not isinstance(zone.get("zoneName"), str)
+        or not zone["zoneName"]
+        or zone.get("zoneType") not in {None, "REGULAR_CUSTOM_ZONE"}
+        or _is_shared_library_zone_name(zone["zoneName"])
+    ):
+        return None
+    owner = zone.get("ownerRecordName")
+    if owner is not None:
+        observed = getattr(service, "private_primary_zone", None)
+        if (
+            zone["zoneName"] != PRIMARY_ZONE["zoneName"]
+            or not isinstance(owner, str)
+            or not owner
+            or not isinstance(observed, dict)
+            or observed.get("zoneName") != zone["zoneName"]
+            or observed.get("ownerRecordName") != owner
+            or observed.get("zoneType") not in {None, "REGULAR_CUSTOM_ZONE"}
+        ):
+            return None
+    return {"zoneName": zone["zoneName"]}
+
+
 class PhotosService(BaseService):
     """Modern CloudKit-backed Photos service."""
 
@@ -2549,6 +2617,8 @@ class PhotosService(BaseService):
             f"{self.service_root}/database/1/com.apple.photos.cloud/production/shared"
         )
         self.service_endpoint = private_endpoint
+        self._private_primary_zone: dict[str, str] | None = None
+        self._private_primary_binding: tuple[Any, str] | None = None
         self._private_client = PhotosCloudKitClient(
             base_url=private_endpoint,
             session=session,
@@ -2613,6 +2683,20 @@ class PhotosService(BaseService):
         return self._private_client
 
     @property
+    def private_primary_zone(self) -> dict[str, str] | None:
+        """Passive observed private PrimarySync identity, bound to its account."""
+        if self._private_primary_binding != (
+            self.params.get("dsid"),
+            self.service_endpoint,
+        ):
+            return None
+        return (
+            dict(self._private_primary_zone)
+            if self._private_primary_zone is not None
+            else None
+        )
+
+    @property
     def upload_root(self) -> str | None:
         """Return the observed modern Photos upload service route, without fallback."""
         return self._photos_upload_url
@@ -2650,12 +2734,25 @@ class PhotosService(BaseService):
         libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
     ) -> bool:
         """Discover typed zones, returning whether the result is complete."""
+        self._private_primary_zone = None
+        self._private_primary_binding = None
         try:
             private_zones = self._private_client.zones_list()
         except PyiCloudException:  # pylint: disable=broad-exception-caught
             LOGGER.debug("Private CloudKit photos zones unavailable", exc_info=True)
             self._discover_shared_typed_zones(libraries)
             return False
+        primary = [
+            zone
+            for zone in private_zones.zones
+            if not zone.deleted and zone.zoneID.zoneName == PRIMARY_ZONE["zoneName"]
+        ]
+        if len(primary) == 1:
+            self._private_primary_zone = primary[0].zoneID.model_dump(exclude_none=True)
+            self._private_primary_binding = (
+                self.params.get("dsid"),
+                self.service_endpoint,
+            )
         for zone in private_zones.zones:
             if zone.deleted:
                 continue
