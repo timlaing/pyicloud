@@ -239,6 +239,44 @@ Results are not claimed to be a complete inventory. Listing does not recover or
 permanently delete anything. Recovery remains unavailable; permanent trash-file
 deletion has a separate elevated opt-in workflow below.
 
+## Opt-in elevated private Photos uploads
+
+Select `--service photos`, `--write-action photos.upload_file`,
+`--high-risk-action photos.upload_file`, `--approval-dir`, and one or more
+`--upload-transfer-host HOST` options. Hosts are exact lowercase DNS names selected
+by the trusted operator, not URLs, IPs, wildcards or names inferred from an upload
+reservation. Do not approve a host merely because a model or service response
+suggests it. Review the host policy independently before starting the server.
+
+`icloud_upload_stage` accepts an `operation` and exact `payload`:
+
+- `begin`: `name`, integer `size`, lowercase `sha256`; returns `stage_handle`.
+- `append`: `stage_handle`, exact next integer `offset`, strict `base64` chunk.
+- `seal`, `describe`, `discard`: `stage_handle` only.
+
+Default limits are 4 MiB/file, 8 MiB aggregate, eight stages, five-minute expiry and
+64 KiB decoded chunks. Bytes are staged in memory, not read from local paths. Seal
+requires independently computed size/digest agreement. Shutdown releases staging
+references; this does not promise secure memory erasure. Staging grants no approval.
+
+Discover a private `PrimarySync` library handle, then use `icloud_write_preview`
+with `action: photos.upload_file`, that `target_handle`, and payload containing
+`stage_handle` and integer `modified_ms` (epoch milliseconds). UTC metadata is
+explicit. The independent terminal requires `APPROVE HIGH-RISK REQUEST_ID`.
+
+Approval binds exact name/size/digest/timestamp, account, both service routes, library
+revision and transfer-host policy. Bytes and request are consumed before dispatch.
+Transfers use an isolated credential-free session, no environment credentials or
+proxies, redirects or retries, and bounded request/body budgets. Registration uses
+raw no-retry account-service requests. Existing PCS consent/device-negotiation
+endpoints remain refused, not automatically activated.
+
+Success requires independently indexed matching asset/master IDs in the private
+zone with a real change tag. A duplicate returns `duplicate: true`, not a new asset
+claim. Indexing delay, absence or any post-dispatch ambiguity returns uncertainty;
+never automatically restage/retry. Installed stdio tests use synthetic receipts and
+independent fake indexed state with outbound sockets blocked, not live Apple uploads.
+
 ## Opt-in elevated single Mail Trash-message permanent deletion
 
 Select `--service mail`, `--write-action mail.delete_forever_message`,

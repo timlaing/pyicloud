@@ -31,8 +31,9 @@ class PhotoUploadBytes:
     future receipt-bound adapter can return success. No filesystem materialization.
     """
 
-    def __init__(self, transport: UploadTransport) -> None:
+    def __init__(self, transport: UploadTransport, timeout: float = 30) -> None:
         self.transport = transport
+        self.timeout = timeout
 
     def upload(
         self,
@@ -74,6 +75,7 @@ class PhotoUploadBytes:
             raise WriteDenied("account_unavailable")
         snapshot = dict(params)
         identifier = str(uuid4())
+        deadline = time.monotonic() + self.timeout
 
         def url(path: str) -> str:
             return root.rstrip("/") + path + "?" + urlencode(snapshot)
@@ -92,7 +94,9 @@ class PhotoUploadBytes:
             if set(reservation.uploadUrls) != {identifier}:
                 raise WriteDenied("upload_outcome_uncertain")
             receipt = PhotosSingleFileUploadResponse.model_validate(
-                self.transport.transfer(reservation.uploadUrls[identifier], stage.data)
+                self.transport.transfer(
+                    reservation.uploadUrls[identifier], stage.data, deadline=deadline
+                )
             ).singleFile
             if receipt.size != stage.size or not all((
                 receipt.fileChecksum,

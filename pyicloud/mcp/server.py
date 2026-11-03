@@ -263,6 +263,23 @@ def build_server(
             return await content.file("photos", handle, offset, max_bytes, version)
 
     if writes is not None:
+        if "photos.upload_file" in context.config.write_actions:
+
+            @server.tool(
+                name="icloud_upload_stage",
+                annotations=ToolAnnotations(
+                    read_only_hint=False,
+                    destructive_hint=False,
+                    idempotent_hint=False,
+                    open_world_hint=False,
+                ),
+            )
+            async def upload_stage(
+                operation: Literal["begin", "append", "seal", "describe", "discard"],
+                payload: dict[str, Any],
+            ) -> WriteResult:
+                """Stage bounded base64 bytes locally; grants no upload approval."""
+                return await writes.stage(operation, payload)
 
         @server.tool(
             name="icloud_write_preview",
@@ -294,6 +311,7 @@ def build_server(
                 "photos.rename_album",
                 "photos.create_album",
                 "photos.add_to_album",
+                "photos.upload_file",
             ],
             list_handle: str = "",
             payload: dict[str, Any] | None = None,

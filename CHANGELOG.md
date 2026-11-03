@@ -32,11 +32,13 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
-- Add an internal elevated Photos upload adapter binding staged bytes, private-library revisions, routes and trusted transfer-host policy, retiring bytes before dispatch and requiring independent indexed asset/master identity proof. Runtime staging/upload exposure remains pending qualification.
+- Expose elevated private Photos uploads with bounded in-memory byte staging, separately selected exact transfer-host policy, immutable content/timestamp previews, single-use stage retirement and independent indexed asset/master verification. Installed network-blocked stdio scenarios qualify verified and uncertain outcomes without live uploads.
 
-- Add an internal path-free Photos upload pipeline using existing typed reservation, receipt and asset-registration contracts with immutable staged bytes and no mutation replay. Returned IDs still require independent indexing and elevated adapter qualification; runtime uploads remain disabled.
+- Add an elevated Photos upload adapter binding staged bytes, private-library revisions, routes and trusted transfer-host policy, retiring bytes before dispatch and requiring independent indexed asset/master identity proof.
 
-- Add an internal bounded upload-transport foundation with exact trusted HTTPS hosts, isolated credential-free byte transfers, redirect refusal, raw no-retry registration and bounded response cleanup. Runtime uploads remain disabled pending adapter qualification.
+- Add a path-free Photos upload pipeline using existing typed reservation, receipt and asset-registration contracts with immutable staged bytes and no mutation replay. Returned IDs require independent indexing before verified success.
+
+- Add bounded upload transport with exact trusted HTTPS hosts, isolated credential-free byte transfers, redirect refusal, raw no-retry registration and bounded response cleanup.
 
 - Qualify elevated single-message Mail Trash deletion through network-blocked installed MCP stdio tests, including independent UID/ID absence, uncertain outcomes and retired-handle/replay rejection.
 
@@ -48,7 +50,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Add locally qualified read-only staged-upload previews binding exact name/size/digest to private destination revision and both service routes, with metadata-only stage descriptions and owner cleanup; execution remains unavailable pending verified upload transport/post-state contracts.
 
-- Add bounded in-memory upload staging with strict leaf names, exact ordered Base64 chunks, declared-size reservations, SHA-256 verification and immutable single-use sealed bytes; no upload tools/endpoints or caller paths/URLs are enabled.
+- Add bounded in-memory upload staging with strict leaf names, exact ordered Base64 chunks, declared-size reservations, SHA-256 verification and immutable single-use sealed bytes; caller paths/URLs are not accepted.
 
 - Qualify installed elevated private trash-file permanent deletion with ordinary-approval denial, dual absence proof, tombstone uncertainty and retired source/request replay rejection using fake records only.
 

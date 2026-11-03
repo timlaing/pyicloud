@@ -1,7 +1,7 @@
 # Remaining MCP write-contract evidence
 
 This is an implementation acceptance checklist, not permission for account access
-or live writes. All pending operations remain disabled. Synthetic fixtures can test
+or live writes. Unqualified operations remain disabled. Synthetic fixtures can test
 an established contract; invented success envelopes cannot establish one.
 
 MCP write scope is limited to existing API/CLI operations. Contacts writes, Notes
@@ -12,8 +12,9 @@ below are background only; do not add library writers to satisfy MCP.
 transfer foundation: exact trusted HTTPS hosts, no URL credentials/redirects,
 isolated credential-free sessions with environment inheritance disabled, raw service
 registration with no authentication replay, bounded streamed JSON and response cleanup.
-It is not wired to a runtime tool. Transfer hosts still require independently reviewed
-policy; never derive the allowlist from an untrusted reservation response.
+Transfer hosts require independently reviewed operator startup policy; never derive
+the allowlist from an untrusted reservation response. Isolated transfers now inherit
+a bounded no-retry adapter and the upload operation deadline.
 
 `photo_upload_bytes.py` now runs the existing typed Photos reservation, raw byte
 transfer and registration sequence without filesystem paths. It requires a private
@@ -23,7 +24,7 @@ typed registration with asset/master identities; 409 duplicates preserve the exi
 identity semantics. UTC metadata is explicit. Failures never retry or silently clean
 up potentially stored bytes. It returns registration only, not verified upload success.
 The byte pipeline alone grants no approval or verified success; no upload tool is
-exposed. The internal adapter qualification is described below.
+exposed by the byte pipeline alone. Adapter qualification is described below.
 
 `photo_uploads.py` now implements the internal elevated adapter: exact staged-byte
 metadata/timestamp, private PrimarySync library revision, account and both service
@@ -33,7 +34,10 @@ both registration identities with a real change tag. Missing indexing is uncerta
 not a retry instruction. Source byte staging and request replay are unavailable after
 dispatch. Existing owner transport refuses PCS consent/device negotiation requests;
 library reads failing authentication cannot produce a preview. Runtime configuration,
-staging tool registration and installed upload-specific qualification remain pending.
+staging/gateway/schema and installed upload-specific qualification now exercise one
+independently indexed fake upload and one uncertain registration without indexed proof, exact
+dispatch counts, elevated approval and stage/request retirement with replay rejection.
+No live upload is claimed.
 
 ## Drive upload
 

@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--china-mainland", action="store_true")
     parser.add_argument("--approve-request", metavar="REQUEST_ID")
     parser.add_argument("--approval-dir")
+    parser.add_argument("--upload-transfer-host", action="append", default=[])
     parser.add_argument(
         "--write-action", choices=SUPPORTED_WRITE_ACTIONS, action="append", default=[]
     )
@@ -72,6 +73,7 @@ def main() -> None:
             or args.content_service
             or args.write_action
             or args.high_risk_action
+            or args.upload_transfer_host
         ):
             parser.error("Invalid operator approval options")
         from .approval_channel import approve_interactively
@@ -92,6 +94,7 @@ def main() -> None:
             content_services=tuple(args.content_service),
             write_actions=tuple(args.write_action),
             high_risk_actions=tuple(args.high_risk_action),
+            upload_transfer_hosts=tuple(args.upload_transfer_host),
             approval_dir=args.approval_dir,
             timeout=args.timeout,
             queue_limit=args.queue_limit,

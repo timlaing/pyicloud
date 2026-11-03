@@ -65,6 +65,7 @@ class ServerConfig:
     content_services: tuple[ServiceName, ...] = ()
     write_actions: tuple[str, ...] = ()
     high_risk_actions: tuple[str, ...] = ()
+    upload_transfer_hosts: tuple[str, ...] = ()
     approval_dir: str | None = None
     timeout: float = 30.0
     queue_limit: int = 8
@@ -83,6 +84,28 @@ class ServerConfig:
             raise ValueError("Content access also requires the service opt-in")
         if set(self.write_actions) - set(SUPPORTED_WRITE_ACTIONS):
             raise ValueError("Unsupported write action")
+        uploading = "photos.upload_file" in self.write_actions
+        if uploading != bool(self.upload_transfer_hosts):
+            raise ValueError("Photos uploads require explicit transfer-host policy")
+        if len(self.upload_transfer_hosts) > 8 or any(
+            not isinstance(host, str)
+            or not 1 < len(host) <= 253
+            or host != host.lower()
+            or "." not in host
+            or any(
+                not part
+                or part.startswith("-")
+                or part.endswith("-")
+                or len(part) > 63
+                or not all(
+                    char.isascii() and (char.isalnum() or char == "-") for char in part
+                )
+                for part in host.split(".")
+            )
+            or all(part.isdecimal() for part in host.split("."))
+            for host in self.upload_transfer_hosts
+        ):
+            raise ValueError("Invalid upload transfer host")
         selected_high = set(self.high_risk_actions)
         required_high = {
             action for action in self.write_actions if is_high_risk(action)

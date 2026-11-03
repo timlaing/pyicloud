@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Generator, Iterator
 from datetime import datetime
+import json
 import re
 import socket
 import sys
@@ -571,6 +572,135 @@ class SyntheticPrivateLibrary(PhotoLibrary):
         ])
 
 
+UPLOAD_RECORDS: dict[str, PhotoAsset] = {}
+UPLOAD_CALLS = 0
+
+
+def upload_response(data: Any) -> Response:
+    """A bounded synthetic HTTP body, not an actual upload response."""
+    result = Response()
+    result.status_code = 200
+    result._content = json.dumps(data).encode()  # pylint: disable=protected-access
+    cast(Any, result)._content_consumed = True  # pylint: disable=protected-access
+    return result
+
+
+class SyntheticUploadSession:
+    """Raw reservation/registration facade; never performs network requests."""
+
+    def request_raw(self, method: str, url: str, **kwargs: Any) -> Response:
+        """Only first registration appears in independent indexed records."""
+        global UPLOAD_CALLS  # pylint: disable=global-statement
+        assert (
+            method == "POST"
+            and kwargs["allow_redirects"] is False
+            and kwargs["stream"] is True
+        )
+        data = kwargs["json"]
+        if "/createUploadUrl?" in url:
+            assert data["zoneName"] == "PrimarySync"
+            assert list(data["assets"].values()) == [3105]
+            print("MCP_SYNTHETIC_PHOTO_RESERVED", file=sys.stderr, flush=True)
+            return upload_response({
+                "uploadUrls": {
+                    key: "https://content.example.test/upload" for key in data["assets"]
+                }
+            })
+        assert "/putAsset?" in url and data["zoneName"] == "PrimarySync"
+        assert (
+            len(data["files"]) == 1
+            and data["files"][0]["singleFileUploadRequest"]["size"] == 3105
+        )
+        UPLOAD_CALLS += 1
+        identifier = "UP1" if UPLOAD_CALLS == 1 else "UP2"
+        master_id = "MASTER-" + identifier
+        if UPLOAD_CALLS == 1:
+            UPLOAD_RECORDS[identifier] = PhotoAsset(
+                cast(Any, SimpleNamespace()),
+                CKRecord.model_validate({
+                    "recordName": master_id,
+                    "recordType": "CPLMaster",
+                    "fields": {},
+                }),
+                CKRecord.model_validate({
+                    "recordName": identifier,
+                    "recordType": "CPLAsset",
+                    "recordChangeTag": "U1",
+                    "zoneID": {"zoneName": "PrimarySync"},
+                    "fields": {},
+                }),
+            )
+        print("MCP_SYNTHETIC_PHOTO_REGISTERED", file=sys.stderr, flush=True)
+        return upload_response([
+            {
+                "cplMaster": master_id,
+                "cplAsset": identifier,
+                "response": {"status": 200, "isRetryable": False},
+            }
+        ])
+
+
+class SyntheticUploadContent:
+    """Isolated fake content session with no network or shared account identity."""
+
+    trust_env = True
+
+    def __enter__(self) -> SyntheticUploadContent:
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        pass
+
+    def mount(self, prefix: str, adapter: Any) -> None:
+        """Assert the isolated content dispatch inherits a bounded no-retry adapter."""
+        assert prefix == "https://" and adapter.requests_left == 1
+        assert adapter.max_retries.total == 0 and adapter.deadline is not None
+        adapter.close()
+
+    def post(self, url: str, **kwargs: Any) -> Response:
+        """Count exactly one transfer per approved fake upload."""
+        assert not self.trust_env
+        assert url == "https://content.example.test/upload"
+        assert kwargs["data"] == b"x" * 3105
+        assert kwargs["stream"] is True and kwargs["allow_redirects"] is False
+        print("MCP_SYNTHETIC_PHOTO_TRANSFERRED", file=sys.stderr, flush=True)
+        return upload_response({
+            "singleFile": {
+                "size": 3105,
+                "fileChecksum": "synthetic",
+                "referenceChecksum": "synthetic",
+                "wrappingKey": "synthetic",
+                "receipt": "synthetic",
+            }
+        })
+
+
+class SyntheticUploadLibrary(PhotoLibrary):
+    """Independent indexed lookup, never a registration acknowledgement cache."""
+
+    def __init__(self, service: Any) -> None:
+        super().__init__(
+            service,
+            zone_id={"zoneName": "PrimarySync"},
+            client=cast(Any, SimpleNamespace()),
+            check_indexing=False,
+        )
+
+    @property
+    def correlated_album_creation_available(self) -> bool:
+        return True
+
+    def server_albums(self) -> AlbumContainer:
+        return AlbumContainer([])
+
+    @property
+    def all(self) -> PhotoAlbum:
+        return cast(
+            PhotoAlbum,
+            SimpleNamespace(get=UPLOAD_RECORDS.get),
+        )
+
+
 class SyntheticNotes:
     """Only recent summaries; no method can retrieve bodies or attachments."""
 
@@ -882,12 +1012,15 @@ class SyntheticClient:
             },
         )
         if writes:
-            self.photos.params = {}
+            self.photos.params = dict(self.params)
+            self.photos.upload_root = "https://photosupload.example.test"
+            self.photos.session = SyntheticUploadSession()
             self.photos.libraries = {
                 "synthetic": SyntheticPrivateLibrary(
                     self.photos, cast(SyntheticWritableAlbum, album)
                 )
             }
+            self.photos.libraries["upload"] = SyntheticUploadLibrary(self.photos)
         self.mail = SyntheticMail()
         self.session = SimpleNamespace(close=self.close, get=self.get_resource)
 
@@ -939,6 +1072,7 @@ def main() -> None:
             "mail.create_draft",
             "mail.edit_draft",
             "mail.send_draft",
+            "photos.upload_file",
             "mail.delete_forever_message",
             "mail.create_folder",
             "mail.rename_folder",
@@ -955,6 +1089,7 @@ def main() -> None:
         else (),
         approval_dir=args.approval_dir,
         high_risk_actions=(
+            "photos.upload_file",
             "calendar.delete_event",
             "mail.send_draft",
             "mail.delete_forever_message",
@@ -962,11 +1097,15 @@ def main() -> None:
         )
         if args.approval_dir
         else (),
+        upload_transfer_hosts=("content.example.test",) if args.approval_dir else (),
     )
     owner = SessionOwner(
         config, lambda: SyntheticClient(args.challenge, bool(args.approval_dir))
     )
-    with patch("socket.socket", side_effect=local_socket):
+    with (
+        patch("socket.socket", side_effect=local_socket),
+        patch("pyicloud.mcp.upload_transport.Session", SyntheticUploadContent),
+    ):
         build_server(owner=owner).run(transport="stdio")
 
 

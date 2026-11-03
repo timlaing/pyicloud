@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
 from requests import Session
 
 from .authorization import WriteDenied
+from .context import BoundedAdapter
 
 
 def checked_upload_url(url: str, hosts: frozenset[str]) -> str:
@@ -58,7 +60,7 @@ class UploadTransport:
     def __init__(self, transfer_hosts: frozenset[str]) -> None:
         self.transfer_hosts = transfer_hosts
 
-    def transfer(self, url: str, data: bytes) -> Any:
+    def transfer(self, url: str, data: bytes, *, deadline: float | None = None) -> Any:
         """Send bounded immutable bytes without account auth, proxies or redirects."""
         target = checked_upload_url(url, self.transfer_hosts)
         if not isinstance(data, bytes) or not 0 < len(data) <= 4 * 1024 * 1024:
@@ -67,6 +69,10 @@ class UploadTransport:
             # A fresh requests session has no account cookies/auth and no retries.
             # Disabling environment inheritance also excludes netrc credentials.
             session.trust_env = False
+            adapter = BoundedAdapter(30)
+            adapter.deadline = deadline or (time.monotonic() + 30)
+            adapter.requests_left = 1
+            session.mount("https://", adapter)
             try:
                 response = session.post(
                     target,

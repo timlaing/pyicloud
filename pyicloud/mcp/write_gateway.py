@@ -23,9 +23,11 @@ from .mail_writes import MailWrites
 from .photo_album_creates import PhotoAlbumCreates
 from .photo_album_writes import PhotoAlbumWrites
 from .photo_relations import PhotoRelations
+from .photo_uploads import PhotoUploads
 from .photo_writes import PhotoWrites
 from .reads import ReadTools
 from .reminder_writes import ReminderWrites
+from .upload_staging import UploadStaging
 
 
 class WriteResult(BaseModel):
@@ -63,6 +65,15 @@ class WriteGateway:
         self.photos = PhotoWrites(self.drive.additional, self.ledger)
         self.photo_albums = PhotoAlbumWrites(self.drive.additional, self.ledger)
         self.photo_creates = PhotoAlbumCreates(self.photo_albums)
+        self.photo_uploads = (
+            PhotoUploads(
+                self.photo_creates,
+                UploadStaging(),
+                frozenset(self.config.upload_transfer_hosts),
+            )
+            if "photos.upload_file" in self.config.write_actions
+            else None
+        )
         self.photo_relations = PhotoRelations(self.photo_albums)
         self._actions: dict[str, str] = {}
 
@@ -81,7 +92,20 @@ class WriteGateway:
         if action not in self.config.write_actions:
             return WriteResult(error="write_disabled")
         try:
-            if action == "drive.delete_forever_file":
+            if action == "photos.upload_file":
+                if self.photo_uploads is None:
+                    raise WriteDenied("write_disabled")
+                if set(payload) != {"stage_handle", "modified_ms"} or not isinstance(
+                    payload["stage_handle"], str
+                ):
+                    raise WriteDenied("invalid_payload")
+                preview = await self.photo_uploads.prepare_upload(
+                    target_handle or list_handle,
+                    payload["stage_handle"],
+                    payload["modified_ms"],
+                    publish=self.mailbox.publish,
+                )
+            elif action == "drive.delete_forever_file":
                 preview = await self.deletions.prepare_delete(
                     target_handle or list_handle, payload, publish=self.mailbox.publish
                 )
@@ -178,6 +202,48 @@ class WriteGateway:
         except Exception:
             return WriteResult(error="preview_failed")
 
+    async def stage(self, operation: str, payload: dict[str, Any]) -> WriteResult:
+        """Serialize bounded local staging; no URL, path or approval input accepted."""
+        upload = self.photo_uploads
+        if upload is None:
+            return WriteResult(error="write_disabled")
+
+        def stage(_client: Any) -> dict[str, Any]:
+            store = upload.staging
+            if operation == "begin" and set(payload) == {"name", "size", "sha256"}:
+                token = store.begin(payload["name"], payload["size"], payload["sha256"])
+                return {"stage_handle": token, **store.describe(token)}
+            if operation == "append" and set(payload) == {
+                "stage_handle",
+                "offset",
+                "base64",
+            }:
+                return {
+                    "offset": store.append(
+                        payload["stage_handle"], payload["offset"], payload["base64"]
+                    )
+                }
+            if set(payload) == {"stage_handle"} and isinstance(
+                payload["stage_handle"], str
+            ):
+                token = payload["stage_handle"]
+                if operation == "seal":
+                    store.seal(token)
+                    return store.describe(token)
+                if operation == "describe":
+                    return store.describe(token)
+                if operation == "discard":
+                    store.discard(token)
+                    return {"discarded": True}
+            raise WriteDenied("invalid_payload")
+
+        try:
+            return WriteResult(result=await upload.additional.reads.owner.run(stage))
+        except (WriteDenied, ToolFailure) as error:
+            return WriteResult(error=str(error))
+        except Exception:
+            return WriteResult(error="staging_failed")
+
     async def apply(self, request_id: str) -> WriteResult:
         """Revalidate and consume the trusted receipt/ledger on the serialized lane."""
 
@@ -193,12 +259,17 @@ class WriteGateway:
                 | MailWrites
                 | DraftEdits
                 | DraftSends
+                | PhotoUploads
                 | MailDeletions
                 | PhotoWrites
                 | PhotoAlbumWrites
                 | MailFolderWrites
             )
-            if action == "drive.delete_forever_file":
+            if action == "photos.upload_file":
+                if self.photo_uploads is None:
+                    raise WriteDenied("write_disabled")
+                adapter = self.photo_uploads
+            elif action == "drive.delete_forever_file":
                 adapter = self.deletions
             elif action == "drive.move_file":
                 adapter = self.moves

@@ -35,7 +35,9 @@ class PhotoUploads:
         self.ledger = writer.ledger
         self.staging = staging
         self.hosts = hosts
-        self.pipeline = pipeline or PhotoUploadBytes(UploadTransport(hosts))
+        self.pipeline = pipeline or PhotoUploadBytes(
+            UploadTransport(hosts), self.additional.reads.owner.config.timeout
+        )
         self._requests: dict[str, tuple[str, str, int]] = {}
         self.additional.reads.owner.add_cleanup(staging.close)
 
