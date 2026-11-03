@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add an internal elevated single-Mail-Trash-message deletion adapter with exact metadata-bound previews, pre-dispatch source retirement and independent identity absence checks. Runtime exposure remains disabled pending gateway and installed-protocol qualification.
+
 - Expose verified read-only preflight for one current Mail Trash message before permanent deletion, without body reads, mutation, confirmation or bulk fallback; existing destruction payload and verification remain unchanged.
 
 - Add locally qualified read-only staged-upload previews binding exact name/size/digest to private destination revision and both service routes, with metadata-only stage descriptions and owner cleanup; execution remains unavailable pending verified upload transport/post-state contracts.
