@@ -300,6 +300,14 @@ except PyiCloudException as err:
 
 ## Album mutation identity metadata
 
+`PhotoLibrary.create_album_correlated(name)` is a private-library typed-client-only
+creation entry point. It validates the name, refuses shared-owner or unsupported
+transport contexts before dispatch, and never falls back to the legacy REST path.
+The acknowledgement must match the submitted ID/name and contain a real revision.
+It does not prove independent server visibility: use `server_albums()` afterward
+and never blindly retry an uncertain result. Existing `create_album()` behavior
+outside its typed-response verification is unchanged; MCP creation stays disabled.
+
 `PhotoLibrary.server_albums()` queries albums without merging pending local creation
 acknowledgements or replacing existing caches. Use it when independent server
 visibility is needed; `refresh_albums()` can retain locally pending albums. Virtual

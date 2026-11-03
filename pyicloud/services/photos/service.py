@@ -846,6 +846,38 @@ class PhotoLibrary(BasePhotoLibrary):
             return self._create_album_typed(client, encoded, album_type, position)
         return self._create_album_rest(encoded, album_type, position)
 
+    def create_album_correlated(self, name: str) -> PhotoAlbum | None:
+        """Create a private album only through the typed correlated-response path.
+
+        This verifies acknowledgement identity/name/revision, not independent server
+        visibility. Use server_albums for post-state proof; never blindly retry an
+        uncertain outcome. Unlike create_album this never falls back to REST.
+        """
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or len(name.encode("utf-8")) > 4096
+            or any(ord(char) < 32 or char == "\x7f" for char in name)
+        ):
+            raise ValueError(
+                "A bounded non-blank album name without controls is required"
+            )
+        client = self._client
+        if (
+            not isinstance(client, PhotosCloudKitClient)
+            or not _can_use_typed_cloudkit(self.service.session)
+            or self.scope != "private"
+            or not self.zone_id.get("zoneName")
+            or self.zone_id.get("ownerRecordName")
+        ):
+            raise PhotosServiceException(
+                "Correlated private album creation is unavailable"
+            )
+        encoded = base64.b64encode(name.encode("utf-8")).decode("utf-8")
+        return self._create_album_typed(
+            client, encoded, AlbumTypeEnum.ALBUM, _new_album_position()
+        )
+
     def _create_album_typed(
         self,
         client: PhotosCloudKitClient,

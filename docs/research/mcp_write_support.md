@@ -65,6 +65,14 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`PhotoLibrary.create_album_correlated()` exposes a typed-only private creation path
+for future adapters. It refuses absent/untyped clients, mock/unsupported sessions,
+shared scopes/owners and invalid names before invoking the existing correlated create
+operation; there is no REST fallback. This verifies acknowledged ID/name/revision
+only, not independently observed server state. Tests prove every unavailable case
+dispatches neither typed creation nor REST, and the supported path invokes typed
+creation once. No MCP create action or live account access is enabled by this API.
+
 The MCP album-rename adapter now uses `server_albums()` for every fresh preview,
 apply and post-write read rather than `refresh_albums()` with pending local merging.
 Tests deliberately keep valid-looking albums (including distinct optimistic copies)
