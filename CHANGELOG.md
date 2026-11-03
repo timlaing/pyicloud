@@ -16,6 +16,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Qualify installed private Photos favorite receipts, independent post-read verification, and uncertain-outcome replay denial with network-blocked synthetic assets.
+
 - Add opt-in private Photos favorite changes with discovered asset handles, exact operator receipts, fresh record revisions, and independent post-write verification; shared writes, deletion, and uploads remain unsupported.
 
 - Qualify installed MCP Mail draft receipts and replay rejection for both verified and uncertain synthetic saves, with networking blocked and no sending/upload capabilities.

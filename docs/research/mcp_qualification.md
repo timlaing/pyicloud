@@ -101,3 +101,11 @@ body conversion rather than reusing the verifier to generate expectations. Stder
 markers count two total Mail saves and one cleanup, with recipient/body data absent.
 The fixture has no sending or upload methods, and outbound sockets remain blocked.
 This is installed protocol qualification, not live Apple Mail wire validation.
+
+Private Photos favorites are now exercised through installed stdio with discovered
+typed asset handles. One synthetic update changes authoritative fake state; a second
+acknowledges without changing it. Each first denies execution without a receipt,
+then dispatches exactly once after simulated terminal approval. Fresh lookup objects
+verify the first result and classify the second as uncertain; neither receipt can
+replay. Stderr counts exactly two photo mutations and one server cleanup. No real
+account, CloudKit write, deletion or upload is involved, and sockets remain blocked.

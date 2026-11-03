@@ -163,12 +163,14 @@ async def check_configured_mcp(
                 if writes:
                     await exercise_write_gate_mcp(session, approval_directory)
                     await exercise_mail_write_gate_mcp(session, approval_directory)
+                    await exercise_photo_write_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
         assert "OMIT_ME" not in output
         assert output.count("MCP_SYNTHETIC_MUTATED") == (1 if writes else 0)
         assert output.count("MCP_SYNTHETIC_MAIL_SAVED") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_PHOTO_MUTATED") == (2 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -272,6 +274,72 @@ async def exercise_mail_write_gate_mcp(session: Any, directory: str) -> None:
             assert result.structured_content["result"] is None
         replay = await session.call_tool(
             "icloud_write_execute", {"request_id": request_id}
+        )
+        assert replay.structured_content is not None
+        assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+
+
+async def exercise_photo_write_gate_mcp(session: Any, directory: str) -> None:
+    """One verified and one unverified synthetic favorite change cannot replay."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    class SyntheticTerminal(io.StringIO):
+        """Only simulate separate terminal input; no actual operator approval."""
+
+        def isatty(self) -> bool:
+            """Exercise terminal checks in the isolated test."""
+            return True
+
+    libraries = await session.call_tool("icloud_photos_libraries", {})
+    assert libraries.structured_content is not None
+    albums = await session.call_tool(
+        "icloud_photos_albums",
+        {"library_handle": libraries.structured_content["records"][0]["handle"]},
+    )
+    assert albums.structured_content is not None
+    photos = await session.call_tool(
+        "icloud_photos_list",
+        {"album_handle": albums.structured_content["records"][0]["handle"]},
+    )
+    assert photos.structured_content is not None
+    handle = photos.structured_content["records"][0]["handle"]
+    for value, expected in ((True, None), (False, "mutation_uncertain")):
+        prepared = await session.call_tool(
+            "icloud_write_preview",
+            {
+                "action": "photos.set_favorite",
+                "target_handle": handle,
+                "payload": {"favorite": value},
+            },
+        )
+        assert prepared.structured_content is not None
+        assert prepared.structured_content["error"] is None
+        preview = prepared.structured_content["preview"]
+        assert preview["payload"] == {"favorite": value}
+        identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert denied.structured_content is not None
+        assert denied.structured_content["error"] == "approval_record_unavailable"
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                identifier, SyntheticTerminal("APPROVE " + identifier), io.StringIO()
+            )
+        applied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert applied.structured_content is not None
+        assert applied.structured_content["error"] == expected
+        if expected is None:
+            assert applied.structured_content["result"] == {
+                "action": "photos.set_favorite",
+                "changed": True,
+            }
+        else:
+            assert applied.structured_content["result"] is None
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
         )
         assert replay.structured_content is not None
         assert replay.structured_content["error"] == "unknown_or_consumed_preview"

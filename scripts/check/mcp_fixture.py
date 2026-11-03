@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from requests import Response
 
+from pyicloud.common.cloudkit import CKRecord
 from pyicloud.mcp.context import SUPPORTED_SERVICES, ServerConfig, SessionOwner
 from pyicloud.mcp.server import build_server
 from pyicloud.services.mail.models import (
@@ -28,6 +29,7 @@ from pyicloud.services.mail.models import (
     MailSearchHit,
     MailSender,
 )
+from pyicloud.services.photos.service import PhotoAsset
 from pyicloud.services.reminders.models import Reminder, RemindersList
 
 
@@ -182,6 +184,62 @@ class SyntheticAlbum:
         yield SyntheticAsset()
 
 
+class SyntheticWritableAsset(PhotoAsset):
+    """Typed private asset; mutation updates only synthetic authoritative records."""
+
+    def __init__(self, album: SyntheticWritableAlbum) -> None:
+        self.album = album
+        master = CKRecord.model_validate({
+            "recordName": "M",
+            "recordType": "CPLMaster",
+            "fields": {},
+        })
+        record = CKRecord.model_validate({
+            "recordName": "P",
+            "recordType": "CPLAsset",
+            "recordChangeTag": "R1",
+            "zoneID": {"zoneName": "Z"},
+            "fields": {"isFavorite": {"type": "INT64", "value": album.favorite}},
+        })
+        super().__init__(cast(Any, SimpleNamespace()), master, record)
+
+    @property
+    def filename(self) -> str:
+        """Keep read-protocol projections stable."""
+        return "Synthetic.jpg"
+
+    @property
+    def created(self) -> datetime:
+        """No filesystem or account timestamps."""
+        return datetime(2026, 1, 1)
+
+    def set_favorite(self, value: bool) -> bool:
+        """Second dispatch deliberately acknowledges without changing state."""
+        self.album.dispatches += 1
+        if self.album.dispatches == 1:
+            self.album.favorite = int(value)
+        print("MCP_SYNTHETIC_PHOTO_MUTATED", file=sys.stderr, flush=True)
+        return True
+
+
+class SyntheticWritableAlbum:
+    """Fresh instances prevent local optimistic state from masquerading as reads."""
+
+    title = "Synthetic album"
+
+    def __init__(self) -> None:
+        self.favorite = 0
+        self.dispatches = 0
+
+    def __iter__(self) -> Iterator[SyntheticWritableAsset]:
+        yield SyntheticWritableAsset(self)
+
+    def get(self, identifier: str) -> SyntheticWritableAsset:
+        """Fresh authoritative fake lookup, not the previously mutated object."""
+        assert identifier == "P"
+        return SyntheticWritableAsset(self)
+
+
 class SyntheticNotes:
     """Only recent summaries; no method can retrieve bodies or attachments."""
 
@@ -322,7 +380,7 @@ class SyntheticMail:
 class SyntheticClient:
     """Saved-session state only; there is deliberately no credential-login method."""
 
-    def __init__(self, challenge: bool) -> None:
+    def __init__(self, challenge: bool, writes: bool = False) -> None:
         self.challenge = challenge
         self.params = {"dsid": "12345"}
         self.calendar = SyntheticCalendar()
@@ -340,9 +398,17 @@ class SyntheticClient:
         )
         self.drive = SimpleNamespace(root=SyntheticFolder())
         self.notes = SyntheticNotes()
-        album = SyntheticAlbum()
+        album = SyntheticWritableAlbum() if writes else SyntheticAlbum()
         self.photos = SimpleNamespace(
-            libraries={"synthetic": SimpleNamespace(all=album, albums=[album])}
+            service_endpoint="https://photos.example.test",
+            libraries={
+                "synthetic": SimpleNamespace(
+                    all=album,
+                    albums=[album],
+                    scope="private",
+                    zone_id={"zoneName": "Z"},
+                )
+            },
         )
         self.mail = SyntheticMail()
         self.session = SimpleNamespace(close=self.close, get=self.get_resource)
@@ -385,12 +451,14 @@ def main() -> None:
         session_dir="not-read",
         services=SUPPORTED_SERVICES,
         content_services=("drive", "notes", "photos", "mail") if args.content else (),
-        write_actions=("reminders.create", "mail.create_draft")
+        write_actions=("reminders.create", "mail.create_draft", "photos.set_favorite")
         if args.approval_dir
         else (),
         approval_dir=args.approval_dir,
     )
-    owner = SessionOwner(config, lambda: SyntheticClient(args.challenge))
+    owner = SessionOwner(
+        config, lambda: SyntheticClient(args.challenge, bool(args.approval_dir))
+    )
     with patch("socket.socket", side_effect=local_socket):
         build_server(owner=owner).run(transport="stdio")
 
