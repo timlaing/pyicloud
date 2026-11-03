@@ -289,6 +289,7 @@ def build_server(
                 "photos.set_favorite",
                 "photos.rename_album",
                 "photos.create_album",
+                "photos.add_to_album",
             ],
             list_handle: str = "",
             payload: dict[str, Any] | None = None,

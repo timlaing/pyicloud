@@ -250,6 +250,24 @@ that item, and refreshed metadata must expose a nonempty `restorePath` and valid
 etag. Generic acknowledgements or disappearance alone are not proof. Failures after
 dispatch are uncertain and cannot replay approval. No live Drive account was used.
 
+## Opt-in private Photos add-to-album
+
+Enable `--service photos`, `--write-action photos.add_to_album`, and the private
+approval directory. Preview a discovered asset `target_handle`, a discovered album
+`destination_handle`, and an empty payload. Only typed private same-zone assets and
+top-level user albums with exact container-scoped membership queries are supported.
+Shared/nested/unscoped targets and unknown revisions are rejected. This does not
+upload a photo, move it out of another album, remove a relation, or delete anything.
+
+Fresh asset/master/zone identity, album identity/parent, both revisions, account/
+endpoint and observed membership bind the single-use receipt. Approval is consumed
+before one correlated add; fresh pair and scoped membership reads must verify the
+exact asset is present under the same route. An already-present asset still requires
+approval for a no-op. Reads and writes are not one atomic snapshot. Unverified
+acknowledgements are uncertain and cannot replay approval; never blindly retry.
+Gateway tests are synthetic; relation-specific installed stdio qualification is
+pending and no live Apple validation is claimed.
+
 ## Opt-in typed-only private Photos album creation
 
 Enable `--service photos`, `--write-action photos.create_album`, and the private

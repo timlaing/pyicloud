@@ -1,4 +1,4 @@
-"""Internal private add-to-album adapter; no runtime relation action enabled yet."""
+"""Receipt-gated private add-to-album writes with scoped membership proof."""
 
 from __future__ import annotations
 

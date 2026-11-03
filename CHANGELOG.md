@@ -28,6 +28,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Enable separately opted-in MCP private Photos add-to-album writes with discovered asset/album handles, exact receipts, two-target revisions and independent scoped membership proof; uploads and relation removal remain unavailable.
+
 - Add synthetic qualification of an internal private Photos add-to-album adapter with two-target revision/membership bindings, exact receipts and independent post-write membership proof; runtime relation actions remain disabled pending integration.
 
 - Add non-mutating Photos relation availability checks and exact scoped album-membership reads, rejecting unscoped/extra-filter lookups and mismatched asset identities before MCP relation integration.

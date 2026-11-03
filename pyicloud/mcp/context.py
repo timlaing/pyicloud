@@ -47,6 +47,7 @@ SUPPORTED_WRITE_ACTIONS = (
     "photos.set_favorite",
     "photos.rename_album",
     "photos.create_album",
+    "photos.add_to_album",
 )
 
 
