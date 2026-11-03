@@ -120,6 +120,42 @@ def test_delete_exact_wire_and_typed_result(case: DeleteCase) -> None:
     case.response.close.assert_called_once()
 
 
+def test_delete_preflight_is_read_only_exact_metadata(case: DeleteCase) -> None:
+    """Deletion capability preflight reads metadata but never submits destruction."""
+    before = case.message.model_dump()
+    assert case.service.check_delete_permanently(case.message) == "synthetic-account"
+    assert case.message.model_dump() == before and not case.wrote and case.present
+    case.session.request_raw.assert_not_called()
+    assert [
+        call.kwargs["json"]["domain"] for call in case.session.post.call_args_list
+    ] == ["mailbox", "email", "mailbox", "mailbox"]
+
+
+@pytest.mark.parametrize(
+    "change", ["name", "uid_validity", "flags", "absent", "identifier"]
+)
+def test_delete_preflight_refuses_changed_context_without_mutation(
+    case: DeleteCase, change: str
+) -> None:
+    """Canonical Trash identity and capabilities cannot be inferred or bypassed."""
+    if change == "name":
+        case.message = case.message.model_copy(
+            update={"folder": case.message.folder.model_copy(update={"name": "INBOX"})}
+        )
+    elif change == "uid_validity":
+        case.folder["uidValidity"] = 89
+    elif change == "flags":
+        case.folder["flags"] = 1
+    elif change == "absent":
+        case.present = False
+    else:
+        case.record["identifier"] = "OTHER"
+    with pytest.raises((MailError, ValueError)):
+        case.service.check_delete_permanently(case.message)
+    case.session.request_raw.assert_not_called()
+    assert not case.wrote
+
+
 @pytest.mark.parametrize("confirm", [False, None, 1, "yes"])
 def test_confirmation_precedes_all_io(case: DeleteCase, confirm: Any) -> None:
     """Even truthy values are not irreversible-deletion authorization."""

@@ -607,6 +607,16 @@ class MailService(BaseService):
             threading=source.threading,
         )
 
+    def check_draft(self, draft: MailDraft) -> MailMessage:
+        """Read-only saved-draft preflight, including body/header expectations.
+
+        Return freshly validated metadata without saving, sending or discarding.
+        This reads body/header data, grants no approval and is not atomic with a
+        later edit. It does not reconstruct a draft from a message ID or infer
+        missing sender, recipient, attachment or threading expectations.
+        """
+        return self._draft_writer().checked(draft)
+
     def edit_draft(
         self,
         draft: MailDraft,
@@ -750,6 +760,10 @@ class MailService(BaseService):
             self.params.get("dsid", ""),
         )
 
+    def draft_folder(self) -> MailFolder:
+        """Read the current canonical selectable Drafts identity without saving."""
+        return self._draft_folder(None)
+
     def _draft_folder(self, previous: MailFolder | None) -> MailFolder:
         """The browser's canonical Drafts namespace must be current and selectable."""
         matches = [f for f in self._mailbox_inventory() if f.name == "Drafts"]
@@ -876,16 +890,7 @@ class MailService(BaseService):
         refer to the old identifier only; fetch new destination metadata before
         another write. No retry or compensating move is performed.
         """
-        if not isinstance(destination, MailFolder):
-            raise ValueError("A discovered destination MailFolder is required")
-        validity = destination.uid_validity
-        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
-            raise ValueError("A positive destination UID validity is required")
-        if isinstance(message, MailMessage) and message.folder.id == destination.id:
-            raise ValueError("Source and destination folders must differ")
-        account_id = self._write_identity(message)
-        self._move_folder(message.folder)
-        self._move_folder(destination)
+        account_id = self.check_move(message, destination)
         request = MoveRequest(
             batchUpdate=(
                 MoveOperation(
@@ -906,6 +911,26 @@ class MailService(BaseService):
             destination_folder_id=destination.id,
         )
 
+    def check_move(self, message: MailMessage, destination: MailFolder) -> str:
+        """Read-only move preflight; return the validated account identity.
+
+        Checks current source identity and selectable source/destination capabilities.
+        Does not submit a mutation, reserve a destination UID, grant approval, or
+        provide an atomic snapshot. The move method repeats this check before its
+        single submission; callers must not infer post-move identity from preflight.
+        """
+        if not isinstance(destination, MailFolder):
+            raise ValueError("A discovered destination MailFolder is required")
+        validity = destination.uid_validity
+        if isinstance(validity, bool) or not isinstance(validity, int) or validity < 1:
+            raise ValueError("A positive destination UID validity is required")
+        if isinstance(message, MailMessage) and message.folder.id == destination.id:
+            raise ValueError("Source and destination folders must differ")
+        account_id = self._write_identity(message)
+        self._move_folder(message.folder)
+        self._move_folder(destination)
+        return account_id
+
     def delete_permanently(
         self, message: MailMessage, *, confirm: bool = False
     ) -> MailMessageDeletion:
@@ -917,12 +942,7 @@ class MailService(BaseService):
         """
         if confirm is not True:
             raise ValueError("Permanent message deletion requires confirm=True")
-        if not isinstance(message, MailMessage):
-            raise ValueError("A folder-bound MailMessage is required")
-        if message.folder.name != "Deleted Messages":
-            raise ValueError("Permanent deletion requires the discovered Trash mailbox")
-        account_id = self._write_identity(message)
-        self._move_folder(message.folder)
+        account_id = self.check_delete_permanently(message)
         response = self._submit_update(
             MessageDeleteRequest(destroy=(message.id,)),
             MessageDeleteResponse,
@@ -941,6 +961,22 @@ class MailService(BaseService):
         return MailMessageDeletion(
             message_id=message.id, folder_id=message.folder.id, uid=message.uid
         )
+
+    def check_delete_permanently(self, message: MailMessage) -> str:
+        """Read-only exact Trash-message preflight; return validated account identity.
+
+        This grants no approval and submits no destruction request. Identity and
+        capability observations are not atomic with a later deletion; the mutation
+        method repeats this check before one submission. No bodies or attachments
+        are read or inferred, and no scan can turn this into bulk deletion.
+        """
+        if not isinstance(message, MailMessage):
+            raise ValueError("A folder-bound MailMessage is required")
+        if message.folder.name != "Deleted Messages":
+            raise ValueError("Permanent deletion requires the discovered Trash mailbox")
+        account_id = self._write_identity(message)
+        self._move_folder(message.folder)
+        return account_id
 
     def _move_folder(self, folder: MailFolder) -> None:
         """Require an exact current namespace and known ordinary-folder semantics."""
