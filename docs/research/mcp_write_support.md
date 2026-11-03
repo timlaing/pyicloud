@@ -36,6 +36,21 @@ not acceptable. Describe the OS/host trust boundary explicitly. Do not claim
 protection against privileged local code that can read credentials or alter the
 server itself.
 
+The local operator mailbox and standalone command are now implemented:
+`icloud-mcp --approval-dir /private/approval-directory --approve-request REQUEST_ID`.
+It reads the exact JSON-escaped preview and requires typing `APPROVE REQUEST_ID`
+on a separate interactive terminal. No piped `--yes`, model boolean or MCP approval
+tool exists. Directory/files must be owned by the operator and private; descriptor-
+relative POSIX opens reject symlinks and records are size/count bounded. Receipt
+consumption still passes through the HMAC-bound ledger and its expiry/revision rules.
+
+This channel assumes a trusted OS/host and that the model has **no filesystem/shell
+access to the approval directory through other tools**. It cannot distinguish a
+human from privileged local code able to create a terminal or edit that directory;
+do not claim hardware-backed presence. Windows live-write approval is not supported
+until a reviewed native channel exists. Server publication/acceptance wiring and
+live mutation tool registration are still outstanding; read-only remains default.
+
 ## Sequencing and validation
 
 The first executable adapter module, `pyicloud.mcp.reminder_writes`, now supports

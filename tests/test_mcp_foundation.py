@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from mcp.types import CallToolResult
 import pytest
 
+from pyicloud.mcp.authorization import WriteDenied
 from pyicloud.mcp.cmdline import main, quiet_library_logging
 from pyicloud.mcp.server import ServerStatus, build_server
 
@@ -86,6 +87,68 @@ def test_private_logging_is_not_forwarded(monkeypatch: pytest.MonkeyPatch) -> No
     assert logger.disabled
     assert not logger.propagate
     assert logger.level > logging.CRITICAL
+
+
+def test_standalone_operator_mode_does_not_start_sdk_or_account() -> None:
+    """Approval has its own terminal path, never serving protocol input."""
+    with (
+        patch(
+            "sys.argv",
+            [
+                "icloud-mcp",
+                "--approve-request",
+                "x" * 43,
+                "--approval-dir",
+                "synthetic",
+            ],
+        ),
+        patch("pyicloud.mcp.cmdline.version", return_value="synthetic"),
+        patch("pyicloud.mcp.approval_channel.approve_interactively") as approve,
+        patch("pyicloud.mcp.server.build_server") as serve,
+    ):
+        main()
+    approve.assert_called_once_with("synthetic", "x" * 43)
+    serve.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "arguments", [["--approve-request", "x" * 43], ["--approval-dir", "synthetic"]]
+)
+def test_operator_mode_requires_explicit_pair(arguments: list[str]) -> None:
+    """Do not attach approval storage to an unconfigured server."""
+    with (
+        patch("sys.argv", ["icloud-mcp", *arguments]),
+        patch("pyicloud.mcp.cmdline.version", return_value="synthetic"),
+        pytest.raises(SystemExit),
+    ):
+        main()
+
+
+def test_operator_denial_has_safe_exit_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Denied operator decisions do not produce private filesystem tracebacks."""
+    with (
+        patch(
+            "sys.argv",
+            [
+                "icloud-mcp",
+                "--approve-request",
+                "x" * 43,
+                "--approval-dir",
+                "synthetic",
+            ],
+        ),
+        patch("pyicloud.mcp.cmdline.version", return_value="synthetic"),
+        patch(
+            "pyicloud.mcp.approval_channel.approve_interactively",
+            side_effect=WriteDenied("operator_declined"),
+        ),
+        pytest.raises(SystemExit) as caught,
+    ):
+        main()
+    assert caught.value.code == 2
+    assert "operator_declined" in capsys.readouterr().err
 
 
 def test_status_defaults_are_non_sensitive() -> None:

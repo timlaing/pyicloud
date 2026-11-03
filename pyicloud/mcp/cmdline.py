@@ -50,7 +50,28 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--queue-limit", type=int, default=8)
     parser.add_argument("--china-mainland", action="store_true")
+    parser.add_argument("--approve-request", metavar="REQUEST_ID")
+    parser.add_argument("--approval-dir")
     args = parser.parse_args()
+    if args.approve_request:
+        if (
+            not args.approval_dir
+            or args.username
+            or args.session_dir
+            or args.service
+            or args.content_service
+        ):
+            parser.error("Invalid operator approval options")
+        from .approval_channel import approve_interactively
+        from .authorization import WriteDenied
+
+        try:
+            approve_interactively(args.approval_dir, args.approve_request)
+        except WriteDenied as error:
+            parser.exit(2, f"{parser.prog}: {error}\n")
+        return
+    if args.approval_dir:
+        parser.error("Approval directory currently requires operator mode")
     try:
         config = ServerConfig(
             username=args.username,
