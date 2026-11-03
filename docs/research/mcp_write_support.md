@@ -65,6 +65,18 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`photo_relations.py` adds an internal private add-to-album adapter, not yet a runtime
+action. It resolves discovered album/asset handles, revalidates album server records
+and asset/master/zone/tag identity, checks typed correlated-add support, and obtains
+exact scoped membership. Account/endpoint/zone/IDs, both revisions and observed
+membership bind a single-use receipt. Approval is consumed before one correlated add;
+fresh pair/membership reads must establish presence under the same identity/route.
+An existing member still requires receipt consumption for a no-op. Acknowledgements
+alone are uncertain and cannot replay. Reads and mutation are not one atomic snapshot.
+Synthetic tests cover stale tags/master/zone/member/route/capability, receipt denial,
+one verified add, uncertain no-replay and disabled/untyped/missing-revision cases.
+Gateway/schema and installed relation qualification remain pending; no live access.
+
 Verified Photos album construction uses `ListTypeEnum.CONTAINER` and exactly
 `parent_filter(album.id)` for container-scoped lookup. New `contains_photo_scoped`
 requires that precise shape and private typed same-zone context before delegating to

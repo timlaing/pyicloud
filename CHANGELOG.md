@@ -28,6 +28,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add synthetic qualification of an internal private Photos add-to-album adapter with two-target revision/membership bindings, exact receipts and independent post-write membership proof; runtime relation actions remain disabled pending integration.
+
 - Add non-mutating Photos relation availability checks and exact scoped album-membership reads, rejecting unscoped/extra-filter lookups and mismatched asset identities before MCP relation integration.
 
 - Add typed-only private Photos `add_photo_correlated()` with exact relation/item/album acknowledgement checks and no REST fallback; independent membership verification and MCP relation tools remain pending.
