@@ -28,6 +28,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Expose read-only saved Mail draft preflight with fresh identity, namespace, sender, recipient, attachment and threading validation; it does not reconstruct ID-only drafts or submit mutations.
+
 - Expose read-only Mail move preflight for exact source identity and folder capability checks without mutation or destination-UID guesses; existing move request behavior is unchanged.
 
 - Qualify installed Photos add-to-album receipts, independent membership proof, acknowledgement-only uncertainty and approved no-op replay rejection with network-blocked synthetic state.

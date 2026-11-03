@@ -1232,6 +1232,20 @@ default representations where practical, but remain accessible through explicit
 attributes and serialization. Treat them as private mail data. Raw captures and
 authentication cookies must never be committed to a repository.
 
+## Read-only saved draft preflight
+
+`MailService.check_draft(draft)` accepts a saved typed `MailDraft` and returns fresh
+validated message metadata without saving, sending or discarding. It checks current
+Drafts identity/UID validity, body identity, sender headers/metadata, recipients,
+attachments and threading against the saved handle. It reads body/header data and
+does not infer missing expectations from a bare message ID.
+
+This grants no approval and is not atomic with later editing. The saved model does
+not capture an exact previous text revision: an adapter must separately bind and
+verify exact body state before replacing it, with appropriate content consent. MCP
+draft editing remains disabled pending scoped saved handles and receipt/post-state
+qualification. No live account validation is claimed.
+
 ## Read-only move preflight
 
 `MailService.check_move(message, destination)` repeats the verified source-identity

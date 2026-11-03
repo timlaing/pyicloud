@@ -607,6 +607,16 @@ class MailService(BaseService):
             threading=source.threading,
         )
 
+    def check_draft(self, draft: MailDraft) -> MailMessage:
+        """Read-only saved-draft preflight, including body/header expectations.
+
+        Return freshly validated metadata without saving, sending or discarding.
+        This reads body/header data, grants no approval and is not atomic with a
+        later edit. It does not reconstruct a draft from a message ID or infer
+        missing sender, recipient, attachment or threading expectations.
+        """
+        return self._draft_writer().checked(draft)
+
     def edit_draft(
         self,
         draft: MailDraft,

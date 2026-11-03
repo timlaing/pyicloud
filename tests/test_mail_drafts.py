@@ -294,6 +294,49 @@ def addressed_draft(case: DraftCase) -> MailDraft:
     return draft
 
 
+def test_public_saved_draft_preflight_is_read_only(case: DraftCase) -> None:
+    """A typed saved handle can be verified without any mutation submission."""
+    saved = handle(case)
+    before = saved.model_dump()
+    current = case.service.check_draft(saved)
+    assert current.id == saved.message.id
+    assert current.uid == saved.message.uid
+    assert saved.model_dump() == before
+    assert not case.wrote
+    case.session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["identity", "folder", "body_identity", "sender", "recipients", "attachments"],
+)
+def test_public_draft_preflight_refuses_changed_context(
+    case: DraftCase, change: str
+) -> None:
+    """No inferred saved context or silent full replacement of changed drafts."""
+    saved = handle(case)
+    if change == "identity":
+        case.records[100]["identifier"] = "OTHER"
+    elif change == "folder":
+        case.folders[0]["uidValidity"] = 78
+    elif change == "body_identity":
+        case.body_guid = "message:Drafts/OTHER"
+    elif change == "sender":
+        case.body_headers = "From: other@example.test\r\n"
+    elif change == "recipients":
+        case.body_headers += "To: other@example.test\r\n"
+    else:
+        case.records[100]["parts"].append({
+            "partId": "2",
+            "contentType": "text/plain",
+            "attach": True,
+        })
+    with pytest.raises(MailError):
+        case.service.check_draft(saved)
+    assert not case.wrote
+    case.session.request_raw.assert_not_called()
+
+
 @pytest.mark.parametrize("confirmation", [False, None, 1, "yes"])
 def test_send_requires_explicit_confirmation(
     case: DraftCase, confirmation: Any

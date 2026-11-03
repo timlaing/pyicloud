@@ -65,6 +65,17 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Draft-edit investigation requires a saved typed `MailDraft`, not reconstruction from
+the MCP metadata message projection. New `MailService.check_draft` exposes existing
+read-only DraftWriter checks: fresh folder/UID/message identity, body GUID, sender,
+recipients, attachment expectations and threading. Seven synthetic cases verify
+successful fresh metadata and refusal of changed identity/namespace/body GUID/sender/
+recipients/parts without mutation. It reads headers/body but not an exact prior text
+revision, and is not atomic with edit. A future MCP adapter must retain scoped saved
+context, obtain required content consent, bind exact current body/payload/revision,
+consume independent approval, and verify rotating UID plus new body after one edit.
+No draft-edit MCP action is enabled by this preflight API.
+
 Mail move inspection confirms typed acknowledgements refer only to the old source
 message ID; `MailMoveUpdate` deliberately does not map the new destination UID/ID.
 Matching subject/sender or guessing rotated IDs is not independent identity proof.
