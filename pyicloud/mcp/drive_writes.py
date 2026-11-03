@@ -58,10 +58,18 @@ class DriveWrites:
         route = client.drive.service_root
         if not isinstance(route, str) or not route:
             raise WriteDenied("route_unavailable")
+        revision = node.data.get("etag")
+        if (
+            not isinstance(revision, str)
+            or not revision.strip()
+            or revision != revision.strip()
+            or revision.casefold() == "null"
+        ):
+            raise WriteDenied("revision_required")
         return (
             str(account),
             json.dumps((route, target.identifier, target.zone), separators=(",", ":")),
-            node.data.get("etag"),
+            revision,
         )
 
     async def prepare(
@@ -167,7 +175,13 @@ class DriveWrites:
             try:
                 node.rename(name)
                 verified = self._fresh(client, target)
-                if verified.data.get("name") != name or not verified.data.get("etag"):
+                verified_account, verified_resource, _revision = self._bindings(
+                    client, target, verified
+                )
+                if verified.data.get("name") != name or (
+                    verified_account,
+                    verified_resource,
+                ) != (account, resource):
                     raise WriteDenied("mutation_unverified")
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None

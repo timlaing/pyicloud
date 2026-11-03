@@ -134,3 +134,41 @@ async def test_invalid_names_unknown_permissions_and_shared_nodes_rejected() -> 
     writes.additional.reads.owner.config = type(writes.additional.reads.owner.config)()
     with pytest.raises(WriteDenied, match="write_disabled"):
         await writes.prepare(handle, {"name": "After"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revision", [None, "", " ", "null", "NULL", " v1 ", 1, True])
+async def test_invalid_or_sentinel_revision_never_publishes(revision: Any) -> None:
+    """Deleted-state sentinel etags are not valid mutation revision bindings."""
+    writes, client, handle, data = setup_writer()
+    data["etag"] = revision
+    with pytest.raises(WriteDenied, match="revision_required"):
+        await writes.prepare(handle, {"name": "After"})
+    client.drive.rename_items.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["route", "account", "sentinel"])
+async def test_rename_post_read_requires_bound_context_and_real_revision(
+    case: str,
+) -> None:
+    """Correct-looking names in unbound post-state are not proof of success."""
+    writes, client, handle, data = setup_writer()
+    preview = await writes.prepare(handle, {"name": "After"})
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+
+    def rename(_identifier: str, _etag: str, name: str) -> None:
+        data.update(name=name, etag="v2")
+        if case == "route":
+            client.drive.service_root = "https://other.test"
+        elif case == "account":
+            client.params["dsid"] = "OTHER"
+        else:
+            data["etag"] = "null"
+
+    client.drive.rename_items.side_effect = rename
+    with pytest.raises(WriteDenied, match="mutation_uncertain"):
+        await writes.apply(preview.request_id)
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writes.apply(preview.request_id)
+    client.drive.rename_items.assert_called_once()

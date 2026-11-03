@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Reject missing, malformed and deleted-state sentinel Drive etags before MCP mutation previews, and require bound account/endpoint plus a real revision in rename post-write proof.
+
 - Reject Mail system mailbox names in MCP folder previews using the verified library name set, including Sent Messages and Deleted Messages, before reads or approval publication.
 
 - Redact signed URL queries, user information and numeric account IDs from session request debug logs without changing the URLs sent to Apple or public request errors.

@@ -65,6 +65,20 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Drive recovery investigation found literal `etag: "null"` in existing deleted-state
+fixtures (`tests/const/const_drive.py`). A nonempty sentinel is not a safe observed
+mutation revision. Drive adapters now reject non-string, empty, whitespace-padded and
+`null` etags before approval binding. Rename post-write verification additionally
+rechecks account/endpoint binding and a real revision, not just the requested name.
+Synthetic tests verify no preview for malformed/sentinel tags and uncertain/no-replay
+outcomes for unbound or sentinel post-state.
+
+Recovery remains unavailable: the existing `putBackItemsFromTrash` call accepts only
+source ID/etag and does not select a destination. `restorePath` and recovery fixtures
+show where some items were restored, but do not establish a general pre-dispatch
+destination identity/collision/overwrite contract. Do not infer an arbitrary folder
+from a path string or mistake absence from trash for exact restoration proof.
+
 Drive recovery investigation requires explicitly discovered Recently Deleted targets,
 not reusing ordinary file handles. `icloud_drive_trash_list` now projects bounded
 metadata from the existing public trash listing with separate `drive-trash-file`/
