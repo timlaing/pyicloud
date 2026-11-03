@@ -288,6 +288,7 @@ def build_server(
                 "mail.rename_folder",
                 "photos.set_favorite",
                 "photos.rename_album",
+                "photos.create_album",
             ],
             list_handle: str = "",
             payload: dict[str, Any] | None = None,

@@ -24,7 +24,8 @@ from tests.test_mcp_drive_writes import setup_writer
 from tests.test_mcp_mail_folder_renames import setup_rename
 from tests.test_mcp_mail_folders import setup_folders
 from tests.test_mcp_mail_writes import setup_mail
-from tests.test_mcp_photo_album_writes import setup_album
+from tests.test_mcp_photo_album_creates import setup_create
+from tests.test_mcp_photo_album_writes import make_album, setup_album
 from tests.test_mcp_photo_writes import setup_photos
 from tests.test_mcp_reminder_writes import writer
 
@@ -33,6 +34,55 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+@pytest.mark.asyncio
+async def test_album_create_gateway_requires_receipt_and_new_server_identity() -> None:
+    """One private receipt authorizes one synthetic correlated creation."""
+    creates, _client, library, handle = setup_create()
+    owner = cast(Any, creates.additional.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("photos",),
+        write_actions=("photos.create_album",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(creates.additional.reads, creates.additional)
+    invalid = await gateway.prepare("photos.create_album", "", {"name": "New"}, None)
+    assert invalid.error is not None
+    prepared = await gateway.prepare(
+        "photos.create_album", "", {"name": "New"}, None, handle
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+    mailbox.accept.side_effect = WriteDenied("operator_approval_required")
+    with patch.object(library, "create_album_correlated") as create:
+        assert (
+            await gateway.apply(preview["request_id"])
+        ).error == "operator_approval_required"
+        create.assert_not_called()
+
+        def accept(identifier: str, ledger: ApprovalLedger) -> None:
+            ledger.approve_from_operator(identifier, preview["digest"])
+
+        mailbox.accept.side_effect = accept
+
+        def mutation(name: str) -> Any:
+            library.server_albums.return_value = [make_album(library, name, "R1")]
+            return make_album(library, name, "R1")
+
+        create.side_effect = mutation
+        result = await gateway.apply(preview["request_id"])
+        assert result.error is None
+        assert result.result == {"action": "photos.create_album", "id": "A"}
+        create.assert_called_once_with("New")
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
 
 
 @pytest.mark.asyncio

@@ -250,6 +250,24 @@ that item, and refreshed metadata must expose a nonempty `restorePath` and valid
 etag. Generic acknowledgements or disappearance alone are not proof. Failures after
 dispatch are uncertain and cannot replay approval. No live Drive account was used.
 
+## Opt-in typed-only private Photos album creation
+
+Enable `--service photos`, `--write-action photos.create_album`, and the private
+approval directory. Preview a discovered `target_handle` from
+`icloud_photos_libraries` with exactly `{"name": "New album"}`. Only a supported
+typed-client private library is accepted; the action never falls back to REST.
+Names are bounded and path-like/control-bearing titles are rejected. Unknown,
+shared, nested or user-album inventories without revisions fail closed, and existing
+name collisions are rejected ignoring case.
+
+Approval binds account/endpoint/private zone and a cache-independent album snapshot,
+then is consumed before one correlated create. Snapshot preflight is not an atomic
+server namespace condition. Success requires a new returned ID/name/revision and a
+distinct independently observed matching album in `server_albums()`; a local pending
+acknowledgement cannot supply proof. Missing visibility is uncertain and cannot
+replay approval: do not blindly retry. Gateway tests are synthetic; create-specific
+installed stdio qualification is pending and no live Apple validation is claimed.
+
 ## Opt-in private Photos album renames
 
 Enable `--service photos`, `--write-action photos.rename_album`, and the private

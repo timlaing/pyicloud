@@ -306,7 +306,8 @@ transport contexts before dispatch, and never falls back to the legacy REST path
 The acknowledgement must match the submitted ID/name and contain a real revision.
 It does not prove independent server visibility: use `server_albums()` afterward
 and never blindly retry an uncertain result. Existing `create_album()` behavior
-outside its typed-response verification is unchanged; MCP creation stays disabled.
+outside its typed-response verification is unchanged. MCP creation requires separate
+opt-in action flags and exact independent operator receipts.
 
 `correlated_album_creation_available` reports whether that typed private route is
 available without a network probe. It does not grant operator approval or guarantee

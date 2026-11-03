@@ -1,4 +1,4 @@
-"""Internal typed-only private album creation; no runtime action enabled yet."""
+"""Receipt-gated typed-only private album creation with independent new-ID proof."""
 
 from __future__ import annotations
 
