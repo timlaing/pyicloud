@@ -11,6 +11,7 @@ from .approval_channel import ApprovalMailbox
 from .authorization import ApprovalLedger, WriteDenied
 from .calendar_writes import CalendarWrites
 from .context import ToolFailure
+from .drive_moves import DriveMoves
 from .drive_writes import DriveWrites
 from .mail_writes import MailWrites
 from .photo_writes import PhotoWrites
@@ -38,6 +39,7 @@ class WriteGateway:
         self.ledger = ApprovalLedger(frozenset(self.config.write_actions))
         self.writer = ReminderWrites(reads, self.ledger)
         self.drive = DriveWrites(additional or AdditionalReads(reads), self.ledger)
+        self.moves = DriveMoves(self.drive)
         self.calendar = CalendarWrites(reads, self.ledger)
         self.mail = MailWrites(reads, self.ledger)
         self.photos = PhotoWrites(self.drive.additional, self.ledger)
@@ -52,12 +54,20 @@ class WriteGateway:
         target_handle: str | None = None,
         calendar_id: str | None = None,
         event_id: str | None = None,
+        destination_handle: str | None = None,
     ) -> WriteResult:
         """Preparation publishes an exact preview but performs no mutation."""
         if action not in self.config.write_actions:
             return WriteResult(error="write_disabled")
         try:
-            if action == "photos.set_favorite":
+            if action == "drive.move_file":
+                preview = await self.moves.prepare_move(
+                    target_handle or list_handle,
+                    destination_handle or "",
+                    payload,
+                    publish=self.mailbox.publish,
+                )
+            elif action == "photos.set_favorite":
                 preview = await self.photos.prepare(
                     target_handle or list_handle, payload, publish=self.mailbox.publish
                 )
@@ -118,7 +128,9 @@ class WriteGateway:
             adapter: (
                 CalendarWrites | DriveWrites | ReminderWrites | MailWrites | PhotoWrites
             )
-            if action == "photos.set_favorite":
+            if action == "drive.move_file":
+                adapter = self.moves
+            elif action == "photos.set_favorite":
                 adapter = self.photos
             elif action == "mail.create_draft":
                 adapter = self.mail

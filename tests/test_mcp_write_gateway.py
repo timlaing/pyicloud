@@ -19,6 +19,7 @@ from tests.test_mcp_approval_channel import (
 from tests.test_mcp_approval_channel import terminal
 from tests.test_mcp_calendar_writes import payload as calendar_payload
 from tests.test_mcp_calendar_writes import setup_calendar
+from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_writes import setup_writer
 from tests.test_mcp_mail_writes import setup_mail
 from tests.test_mcp_photo_writes import setup_photos
@@ -29,6 +30,55 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+@pytest.mark.asyncio
+async def test_drive_move_gateway_binds_two_discovered_handles() -> None:
+    """A synthetic exact receipt dispatches one verified private move."""
+    moves, client, handle, destination, data, folder = setup_move()
+    reads = moves.additional.reads
+    owner = cast(Any, reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("drive",),
+        write_actions=("drive.move_file",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(reads, moves.additional)
+    invalid = await gateway.prepare("drive.move_file", "", {}, None, handle)
+    assert invalid.error is not None
+    preview_result = await gateway.prepare(
+        "drive.move_file", "", {}, None, handle, destination_handle=destination
+    )
+    assert preview_result.preview is not None
+    preview = preview_result.preview
+    mailbox.accept.side_effect = WriteDenied("operator_approval_required")
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "operator_approval_required"
+    client.drive.move_nodes_to_node.assert_not_called()
+
+    def accept(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = accept
+
+    def move(_nodes: list[Any], _destination: Any) -> None:
+        data.update(parentId=folder["drivewsid"], etag="v2")
+        folder.update(etag="D2", items=[dict(data)])
+
+    client.drive.move_nodes_to_node.side_effect = move
+    result = await gateway.apply(preview["request_id"])
+    assert result.error is None
+    assert result.result == {"action": "drive.move_file", "changed": True}
+    client.drive.move_nodes_to_node.assert_called_once()
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
 
 
 @pytest.mark.asyncio
@@ -227,6 +277,15 @@ async def test_registration_requires_operator_startup_flags() -> None:
                 },
             ),
             ("icloud_write_execute", {"request_id": "unknown"}),
+            (
+                "icloud_write_preview",
+                {
+                    "action": "drive.move_file",
+                    "target_handle": "source",
+                    "destination_handle": "destination",
+                    "payload": {},
+                },
+            ),
         ]:
             result = await server.call_tool(name, cast(dict[str, Any], args))
             assert isinstance(result, CallToolResult)

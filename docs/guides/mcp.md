@@ -211,6 +211,24 @@ and require manual reconciliation. Already-correct names consume approval withou
 an unnecessary mutation. Trash, restore, move, permanent delete and uploads are
 not enabled by this flag.
 
+## Opt-in private Drive file moves
+
+Enable `--service drive`, `--write-action drive.move_file`, and the private approval
+directory. `icloud_write_preview` takes a discovered file `target_handle`, a
+discovered folder `destination_handle`, and an empty payload. No raw IDs, local
+paths, shared targets, root destinations, trashed nodes or folder moves are accepted.
+Destination name conflicts are rejected rather than implying overwrite support.
+
+Both current node revisions, source parent, identities/zone, account and endpoint
+are bound to the exact single-use receipt and revalidated before one move. A no-op
+also consumes approval. The library sends **only the source etag** to the server:
+destination revision/collision checks are preflight checks, not an atomic promise
+against concurrent destination changes. After dispatch, fresh reads must preserve
+identity/name and show the destination parent and exactly one matching destination
+child. Failures are uncertain and cannot replay approval; never blindly retry.
+Runtime gateway/schema tests are synthetic; installed move-specific qualification
+and live account validation are not claimed.
+
 ## Opt-in private Drive file trashing
 
 Enable `--service drive`, `--write-action drive.trash_file`, and the private

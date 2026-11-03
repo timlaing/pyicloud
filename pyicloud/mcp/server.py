@@ -275,6 +275,7 @@ def build_server(
                 "reminders.delete",
                 "drive.rename",
                 "drive.trash_file",
+                "drive.move_file",
                 "calendar.create_event",
                 "calendar.delete_event",
                 "mail.create_draft",
@@ -286,6 +287,7 @@ def build_server(
             target_handle: str | None = None,
             calendar_id: str | None = None,
             event_id: str | None = None,
+            destination_handle: str | None = None,
         ) -> WriteResult:
             """Read current state and publish a preview; never mutate remotely."""
             return await writes.prepare(
@@ -296,6 +298,7 @@ def build_server(
                 target_handle,
                 calendar_id,
                 event_id,
+                destination_handle,
             )
 
         @server.tool(

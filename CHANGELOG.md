@@ -18,6 +18,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Enable separately opted-in MCP private Drive file moves with discovered source/destination handles, exact receipts, fresh two-node revision checks, and post-move membership proof. Shared/folder moves remain unavailable.
+
 - Add synthetic qualification of an internal private Drive file-move adapter with two-node revision bindings and exact destination membership checks; runtime move tools remain disabled pending integration.
 
 - Qualify installed Drive rename/trash receipts and uncertain-outcome replay denial using fresh synthetic metadata and Recently Deleted membership checks.

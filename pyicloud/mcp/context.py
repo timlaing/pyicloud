@@ -38,6 +38,7 @@ SUPPORTED_WRITE_ACTIONS = (
     "reminders.delete",
     "drive.rename",
     "drive.trash_file",
+    "drive.move_file",
     "calendar.create_event",
     "calendar.delete_event",
     "mail.create_draft",
