@@ -46,7 +46,7 @@ class WriteGateway:
         self.drive = DriveWrites(additional or AdditionalReads(reads), self.ledger)
         self.moves = DriveMoves(self.drive)
         self.calendar = CalendarWrites(reads, self.ledger)
-        self.mail = MailWrites(reads, self.ledger)
+        self.mail = MailWrites(reads, self.ledger, self.drive.additional)
         self.mail_folders = MailFolderWrites(reads, self.ledger)
         self.mail_renames = MailFolderRenames(self.drive.additional, self.ledger)
         self.photos = PhotoWrites(self.drive.additional, self.ledger)

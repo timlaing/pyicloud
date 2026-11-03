@@ -65,6 +65,16 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Verified `mail.create_draft` now returns a `mail-draft` opaque expiring handle in the
+shared server registry after all body/identity/header checks pass. Private frozen
+`SavedDraftContext` retains the typed draft, canonical approved payload JSON and
+account/resource/revision bindings; payload access returns detached copies and its
+representation excludes private contents. Other message/body handle kinds and other
+registries cannot resolve it. Failed/uncertain saves never publish a context handle.
+This avoids reconstructing expected sender/recipients/body from metadata IDs before
+future editing. No edit/send action is enabled by this foundation; independent body
+revision checks, approval and rotating-UID post-proof are still required.
+
 Draft-edit investigation requires a saved typed `MailDraft`, not reconstruction from
 the MCP metadata message projection. New `MailService.check_draft` exposes existing
 read-only DraftWriter checks: fresh folder/UID/message identity, body GUID, sender,

@@ -15,8 +15,10 @@ from pyicloud.services.mail._drafts import (
 from pyicloud.services.mail._threading import checked_threading
 from pyicloud.services.mail.models import MailBody, MailDraft, MailFolder, MailSender
 
+from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 from .reads import ReadTools
+from .saved_drafts import SavedDraftContext
 
 
 def canonical_draft_html(text: str) -> str:
@@ -76,9 +78,15 @@ def validate_payload(payload: dict[str, Any]) -> None:
 class MailWrites:
     """Serialize revalidation, consume approval before saving, never retry a save."""
 
-    def __init__(self, reads: ReadTools, ledger: ApprovalLedger) -> None:
+    def __init__(
+        self,
+        reads: ReadTools,
+        ledger: ApprovalLedger,
+        additional: AdditionalReads | None = None,
+    ) -> None:
         self.reads = reads
         self.ledger = ledger
+        self.additional = additional or AdditionalReads(reads)
         self._payloads: dict[str, dict[str, Any]] = {}
 
     def _fresh(
@@ -201,8 +209,22 @@ class MailWrites:
                 verify_draft_body(body, saved.message.uid, payload["text"])
                 checked_recipients(body, saved)
                 checked_threading(body, None)
+                context = SavedDraftContext(
+                    saved,
+                    json.dumps(
+                        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+                    ),
+                    account,
+                    resource,
+                    revision,
+                )
+                handle = self.additional.remember("mail-draft", context)
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
-            return {"action": "mail.create_draft", "id": saved.message.id}
+            return {
+                "action": "mail.create_draft",
+                "id": saved.message.id,
+                "handle": handle,
+            }
 
         return await self.reads.owner.run(apply)

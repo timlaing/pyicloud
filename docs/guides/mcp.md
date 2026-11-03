@@ -358,6 +358,13 @@ No live account validation is claimed.
 
 ## Opt-in Mail draft creation
 
+Successful verified creation also returns an opaque `handle` for the saved draft.
+It retains the typed saved context and exact approved payload privately for ten
+minutes in the current server registry. It cannot resolve as an ordinary Mail
+message/body handle or in another registry, and reveals no sender/body/binding data.
+Uncertain saves do not publish a saved handle. This is an editing foundation only;
+it does not enable draft edits, sending, or reconstruction of existing account drafts.
+
 Enable `--service mail`, `--write-action mail.create_draft`, and the private approval
 directory to expose draft creation through the existing preview/execute tools.
 The payload must contain exactly `sender`, `subject`, `text`, `to`, `cc`, and `bcc`.

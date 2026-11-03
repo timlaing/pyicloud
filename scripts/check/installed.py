@@ -281,10 +281,11 @@ async def exercise_mail_write_gate_mcp(session: Any, directory: str) -> None:
         assert result.structured_content is not None
         assert result.structured_content["error"] == expected_error
         if expected_error is None:
-            assert result.structured_content["result"] == {
-                "action": "mail.create_draft",
-                "id": "draft-101",
-            }
+            created = result.structured_content["result"]
+            assert set(created) == {"action", "id", "handle"}
+            assert created["action"] == "mail.create_draft"
+            assert created["id"] == "draft-101"
+            assert isinstance(created["handle"], str) and created["handle"]
         else:
             assert result.structured_content["result"] is None
         replay = await session.call_tool(

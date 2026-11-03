@@ -28,6 +28,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Return opaque expiring handles for fully verified server-created Mail drafts, retaining private saved context and detached approved payloads for future edit binding; uncertain saves mint no handle and editing/sending remain disabled.
+
 - Expose read-only saved Mail draft preflight with fresh identity, namespace, sender, recipient, attachment and threading validation; it does not reconstruct ID-only drafts or submit mutations.
 
 - Expose read-only Mail move preflight for exact source identity and folder capability checks without mutation or destination-UID guesses; existing move request behavior is unchanged.

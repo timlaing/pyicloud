@@ -1,13 +1,16 @@
 """Synthetic exact-content checks, not evidence of live server transformations."""
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from pyicloud.mcp.additional import AdditionalReads
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
+from pyicloud.mcp.context import ToolFailure
 from pyicloud.mcp.mail_writes import MailWrites, canonical_draft_html, verify_draft_body
 from pyicloud.mcp.reads import ReadTools
+from pyicloud.mcp.saved_drafts import SavedDraftContext
 from pyicloud.services.mail.models import (
     MailBody,
     MailBodyPart,
@@ -141,10 +144,29 @@ async def test_draft_requires_receipt_then_saves_once() -> None:
     def accept(identifier: str) -> None:
         writes.ledger.approve_from_operator(identifier, preview.digest)
 
-    assert await writes.apply(preview.request_id, accept) == {
-        "action": "mail.create_draft",
-        "id": "draft-101",
-    }
+    result = await writes.apply(preview.request_id, accept)
+    assert result["action"] == "mail.create_draft"
+    assert result["id"] == "draft-101"
+    assert isinstance(result["handle"], str)
+    context = writes.additional.resolve("mail-draft", result["handle"])
+    assert isinstance(context, SavedDraftContext)
+    assert context.draft == client.mail.create_draft.return_value
+    assert context.payload == data
+    assert context.account_binding == "123"
+    detached = context.payload
+    detached["text"] = "Changed"
+    detached["to"].append("other@example.test")
+    assert context.payload == data
+    assert "Approved" not in repr(context)
+    with pytest.raises(ToolFailure):
+        writes.additional.resolve("mail-message", result["handle"])
+    with pytest.raises(ToolFailure):
+        AdditionalReads(writes.reads).resolve("mail-draft", result["handle"])
+    with (
+        patch("pyicloud.mcp.additional.time.monotonic", return_value=10**30),
+        pytest.raises(ToolFailure),
+    ):
+        writes.additional.resolve("mail-draft", result["handle"])
     client.mail.create_draft.assert_called_once_with(
         sender="user@example.test",
         subject="Approved",
@@ -202,8 +224,10 @@ async def test_mail_uncertainty_never_retries(case: str) -> None:
         client.mail.create_draft.return_value = None
     else:
         client.mail.create_draft.side_effect = OSError("private")
-    with pytest.raises(WriteDenied, match="mutation_uncertain"):
-        await writes.apply(preview.request_id)
+    with patch.object(writes.additional, "remember") as publish:
+        with pytest.raises(WriteDenied, match="mutation_uncertain"):
+            await writes.apply(preview.request_id)
+        publish.assert_not_called()
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         await writes.apply(preview.request_id)
     client.mail.create_draft.assert_called_once()
