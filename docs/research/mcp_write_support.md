@@ -77,15 +77,18 @@ approved dispatch, with uncertain/non-retry outcomes. Synthetic tests exercise s
 revisions, parent changes, collisions, no-ops and ambiguous acknowledgements. Runtime
 `drive.move_file` gateway/schema integration now selects this adapter using separate
 source/destination handles. Synthetic gateway tests verify denial before receipt,
-one approved verified dispatch and replay denial. Installed move-specific
-qualification is still pending; no live account or endpoint access is involved.
+one approved verified dispatch and replay denial. Installed move-specific stdio
+tests now exercise one authoritative move and one acknowledged-but-unchanged move,
+with receipt denial, exact-once dispatches and replay rejection. No live account
+or endpoint access is involved.
 
 Private file-only Drive trashing uses the existing `move_to_trash`/`moveItemsToTrash`
 contract with etag. Existing `tests/const/const_drive.py` trash fixtures establish
 Recently Deleted `restorePath` metadata, also used by the public recover method.
 The adapter requires exact trash-list membership plus fresh identity/zone/etag and
 nonempty restore path after one approved dispatch. No folder/permanent deletion or
-guessed delete endpoint is enabled. Installed trash-specific protocol remains pending.
+guessed delete endpoint is enabled. Installed trash-specific protocol also verifies
+membership and uncertain-outcome replay denial using network-blocked fake data.
 
 Drive, Calendar and Reminders approval resource bindings additionally include the
 discovered service root. Changing the endpoint after preview now invalidates the
@@ -101,7 +104,8 @@ account/endpoint/revision bindings, independent receipts and post-read verificat
 The facade can optimistically update local fields after an incomplete response, so
 the adapter never treats that local state or a boolean acknowledgement as proof.
 Shared-owner zones, deletion and uploads remain unavailable; no live Photos account
-was accessed. Installed Photos-specific receipt qualification remains pending.
+was accessed. Installed Photos-specific receipts and independent post-read checks
+are also qualified using network-blocked synthetic assets.
 
 Mail draft preparation now has an internal exact-body verification foundation
 (`pyicloud/mcp/mail_writes.py`). The first foundation milestone reproduced the

@@ -118,3 +118,11 @@ identity. All three consumed receipts reject replay. Fresh copied metadata and
 independent trash membership provide the proof, not mutation acknowledgement data.
 Stderr counts exactly one rename, two trash dispatches and one server cleanup.
 There are no permanent-deletion/upload methods or live Drive calls in this fixture.
+
+Installed private Drive moves discover separate typed file/folder handles. The first
+fake dispatch changes authoritative parent/etag and destination membership; the second
+only acknowledges. Both deny execution before a simulated independent terminal
+receipt, dispatch once afterward and reject replay. Independent fresh parent and
+child reads prove the first result and classify the second as uncertain, with no
+success result. Stderr requires exactly two move markers and one server cleanup.
+Network blocking and all existing receipt/content/download scenarios remain intact.

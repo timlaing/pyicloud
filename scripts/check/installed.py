@@ -165,6 +165,7 @@ async def check_configured_mcp(
                     await exercise_mail_write_gate_mcp(session, approval_directory)
                     await exercise_photo_write_gate_mcp(session, approval_directory)
                     await exercise_drive_write_gate_mcp(session, approval_directory)
+                    await exercise_drive_move_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -174,6 +175,7 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_PHOTO_MUTATED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRIVE_RENAMED") == (1 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRIVE_TRASHED") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_DRIVE_MOVED") == (2 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -361,7 +363,11 @@ async def exercise_drive_write_gate_mcp(session: Any, directory: str) -> None:
 
     discovered = await session.call_tool("icloud_drive_list", {})
     assert discovered.structured_content is not None
-    first, second = [row["handle"] for row in discovered.structured_content["records"]]
+    first, second = [
+        row["handle"]
+        for row in discovered.structured_content["records"]
+        if row["type"] == "file"
+    ]
     for action, handle, payload, expected in (
         ("drive.rename", first, {"name": "Renamed"}, None),
         ("drive.trash_file", first, {}, None),
@@ -392,6 +398,59 @@ async def exercise_drive_write_gate_mcp(session: Any, directory: str) -> None:
         assert applied.structured_content["error"] == expected
         assert applied.structured_content["result"] == (
             {"action": action, "changed": True} if expected is None else None
+        )
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert replay.structured_content is not None
+        assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+
+
+async def exercise_drive_move_gate_mcp(session: Any, directory: str) -> None:
+    """Independent installed parent/membership proof, no model confirmation path."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    class SyntheticTerminal(io.StringIO):
+        """Test terminal input only; never actual account authorization."""
+
+        def isatty(self) -> bool:
+            """Exercise the separate private decision channel."""
+            return True
+
+    discovered = await session.call_tool("icloud_drive_list", {})
+    assert discovered.structured_content is not None
+    rows = {
+        row["name"]: row["handle"] for row in discovered.structured_content["records"]
+    }
+    for name, expected in (("Destination", None), ("Other", "mutation_uncertain")):
+        prepared = await session.call_tool(
+            "icloud_write_preview",
+            {
+                "action": "drive.move_file",
+                "target_handle": rows["Second.txt"],
+                "destination_handle": rows[name],
+                "payload": {},
+            },
+        )
+        assert prepared.structured_content is not None
+        assert prepared.structured_content["error"] is None
+        identifier = prepared.structured_content["preview"]["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert denied.structured_content is not None
+        assert denied.structured_content["error"] == "approval_record_unavailable"
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                identifier, SyntheticTerminal("APPROVE " + identifier), io.StringIO()
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert result.structured_content is not None
+        assert result.structured_content["error"] == expected
+        assert result.structured_content["result"] == (
+            {"action": "drive.move_file", "changed": True} if expected is None else None
         )
         replay = await session.call_tool(
             "icloud_write_execute", {"request_id": identifier}

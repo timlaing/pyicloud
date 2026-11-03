@@ -226,8 +226,8 @@ destination revision/collision checks are preflight checks, not an atomic promis
 against concurrent destination changes. After dispatch, fresh reads must preserve
 identity/name and show the destination parent and exactly one matching destination
 child. Failures are uncertain and cannot replay approval; never blindly retry.
-Runtime gateway/schema tests are synthetic; installed move-specific qualification
-and live account validation are not claimed.
+Runtime gateway/schema and installed stdio tests use network-blocked synthetic
+facades; live account validation is not claimed.
 
 ## Opt-in private Drive file trashing
 

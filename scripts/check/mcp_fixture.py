@@ -170,7 +170,7 @@ class SyntheticWritableDrive:
     service_root = "https://drive.example.test"
 
     def __init__(self) -> None:
-        self.records = {
+        self.records: dict[str, dict[str, Any]] = {
             identifier: {
                 "drivewsid": identifier,
                 "zone": "com.apple.CloudDocs",
@@ -179,12 +179,24 @@ class SyntheticWritableDrive:
                 "extension": "txt",
                 "etag": "R1",
                 "size": 8,
+                "parentId": "FOLDER::com.apple.CloudDocs::root",
             }
             for identifier, name in (
                 ("FILE::com.apple.CloudDocs::FIRST", "Synthetic"),
                 ("FILE::com.apple.CloudDocs::SECOND", "Second"),
             )
         }
+        for name in ("Destination", "Other"):
+            identifier = f"FOLDER::com.apple.CloudDocs::{name}"
+            self.records[identifier] = {
+                "drivewsid": identifier,
+                "zone": "com.apple.CloudDocs",
+                "type": "FOLDER",
+                "name": name,
+                "etag": "D1",
+                "parentId": "FOLDER::com.apple.CloudDocs::root",
+            }
+        self.move_dispatches = 0
         self.trash_dispatches = 0
         self.root = SimpleNamespace(type="folder", get_children=self.children)
         self.trash = SimpleNamespace(get_children=self.trashed)
@@ -196,6 +208,7 @@ class SyntheticWritableDrive:
             DriveNode(cast(Any, self), dict(data))
             for data in self.records.values()
             if not data.get("restorePath")
+            and data["parentId"] == "FOLDER::com.apple.CloudDocs::root"
         ]
 
     def trashed(self, *, force: bool) -> list[DriveNode]:
@@ -207,9 +220,34 @@ class SyntheticWritableDrive:
             if data.get("restorePath")
         ]
 
-    def get_node_data(self, identifier: str) -> dict[str, Any]:
+    def get_node_data(
+        self, identifier: str, _share_id: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Do not reuse mutable local optimistic node data."""
-        return dict(self.records[identifier])
+        data = dict(self.records[identifier])
+        if data["type"] == "FOLDER":
+            data["items"] = [
+                dict(child)
+                for child in self.records.values()
+                if child["parentId"] == identifier and not child.get("restorePath")
+            ]
+        return data
+
+    def move_nodes_to_node(
+        self, nodes: list[DriveNode], destination: DriveNode
+    ) -> dict[str, str]:
+        """Only first dispatch changes parent and authoritative destination state."""
+        assert len(nodes) == 1
+        identifier = nodes[0].data["drivewsid"]
+        target = destination.data["drivewsid"]
+        assert self.records[identifier]["etag"] == nodes[0].data["etag"]
+        assert self.records[target]["etag"] == destination.data["etag"]
+        self.move_dispatches += 1
+        if self.move_dispatches == 1:
+            self.records[identifier].update(parentId=target, etag="M2")
+            self.records[target]["etag"] = "D2"
+        print("MCP_SYNTHETIC_DRIVE_MOVED", file=sys.stderr, flush=True)
+        return {"status": "OK"}
 
     def rename_items(self, identifier: str, etag: str, name: str) -> dict[str, str]:
         """Exactly one synthetic rename, with the freshly approved etag."""
@@ -529,6 +567,7 @@ def main() -> None:
             "photos.set_favorite",
             "drive.rename",
             "drive.trash_file",
+            "drive.move_file",
         )
         if args.approval_dir
         else (),
