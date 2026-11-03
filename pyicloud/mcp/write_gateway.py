@@ -13,6 +13,7 @@ from .calendar_writes import CalendarWrites
 from .context import ToolFailure
 from .drive_moves import DriveMoves
 from .drive_writes import DriveWrites
+from .mail_folders import MailFolderWrites
 from .mail_writes import MailWrites
 from .photo_writes import PhotoWrites
 from .reads import ReadTools
@@ -42,6 +43,7 @@ class WriteGateway:
         self.moves = DriveMoves(self.drive)
         self.calendar = CalendarWrites(reads, self.ledger)
         self.mail = MailWrites(reads, self.ledger)
+        self.mail_folders = MailFolderWrites(reads, self.ledger)
         self.photos = PhotoWrites(self.drive.additional, self.ledger)
         self._actions: dict[str, str] = {}
 
@@ -70,6 +72,10 @@ class WriteGateway:
             elif action == "photos.set_favorite":
                 preview = await self.photos.prepare(
                     target_handle or list_handle, payload, publish=self.mailbox.publish
+                )
+            elif action == "mail.create_folder":
+                preview = await self.mail_folders.prepare(
+                    payload, publish=self.mailbox.publish
                 )
             elif action == "mail.create_draft":
                 preview = await self.mail.prepare(payload, publish=self.mailbox.publish)
@@ -126,12 +132,19 @@ class WriteGateway:
         try:
             action = self._actions.get(request_id, "")
             adapter: (
-                CalendarWrites | DriveWrites | ReminderWrites | MailWrites | PhotoWrites
+                CalendarWrites
+                | DriveWrites
+                | ReminderWrites
+                | MailWrites
+                | PhotoWrites
+                | MailFolderWrites
             )
             if action == "drive.move_file":
                 adapter = self.moves
             elif action == "photos.set_favorite":
                 adapter = self.photos
+            elif action == "mail.create_folder":
+                adapter = self.mail_folders
             elif action == "mail.create_draft":
                 adapter = self.mail
             elif action.startswith("calendar."):

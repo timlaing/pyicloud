@@ -21,6 +21,7 @@ from tests.test_mcp_calendar_writes import payload as calendar_payload
 from tests.test_mcp_calendar_writes import setup_calendar
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_writes import setup_writer
+from tests.test_mcp_mail_folders import setup_folders
 from tests.test_mcp_mail_writes import setup_mail
 from tests.test_mcp_photo_writes import setup_photos
 from tests.test_mcp_reminder_writes import writer
@@ -30,6 +31,55 @@ from tests.test_mcp_reminder_writes import writer
 def approval_directory() -> Iterator[Path]:
     """Reuse the existing sandbox-only descriptor test shim, not OS permissions."""
     yield from cast(Any, sandbox_directory_fixture).__wrapped__()
+
+
+@pytest.mark.asyncio
+async def test_mail_folder_gateway_uses_exact_namespace_receipt() -> None:
+    """One approved synthetic create requires independently matching namespace."""
+    folders, client = setup_folders()
+    owner = cast(Any, folders.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("mail",),
+        write_actions=("mail.create_folder",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(folders.reads)
+    prepared = await gateway.prepare(
+        "mail.create_folder", "", {"name": "New Folder"}, None
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+    mailbox.accept.side_effect = WriteDenied("operator_approval_required")
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "operator_approval_required"
+    client.mail.create_folder.assert_not_called()
+
+    def accept(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = accept
+
+    def create(_name: str) -> Any:
+        result = client.mail.folders.return_value[0].model_copy(
+            update={"id": "NEW", "name": "New Folder"}
+        )
+        client.mail.folders.return_value = [*client.mail.folders.return_value, result]
+        return result
+
+    client.mail.create_folder.side_effect = create
+    result = await gateway.apply(preview["request_id"])
+    assert result.error is None
+    assert result.result == {"action": "mail.create_folder", "id": "NEW"}
+    client.mail.create_folder.assert_called_once()
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
 
 
 @pytest.mark.asyncio

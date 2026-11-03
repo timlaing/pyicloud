@@ -18,6 +18,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Enable opt-in MCP top-level Mail folder creation with exact operator receipts and fresh namespace/new-identity verification, including installed successful/uncertain protocol qualification.
+
 - Add synthetic qualification of internal top-level Mail folder creation with exact receipts and namespace identity checks; runtime folder tools remain disabled pending integration.
 
 - Qualify installed private Drive moves with separate source/destination handles, receipt gating, authoritative parent/membership checks, and replay denial for uncertain acknowledgements.

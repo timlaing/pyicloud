@@ -379,6 +379,16 @@ class SyntheticMail:
         self.drafts = MailFolder(identifier="D", name="Drafts", uidValidity=2)
         self.sender = MailSender(address="synthetic@example.invalid")
         self.saved: list[MailDraft] = []
+        self.created_folders: list[MailFolder] = []
+
+    def create_folder(self, name: str) -> MailFolder:
+        """Only the first fake create appears in authoritative namespace metadata."""
+        assert name in {"Verified Folder", "Uncertain Folder"}
+        result = MailFolder(identifier=name, name=name, uidValidity=3)
+        if name == "Verified Folder":
+            self.created_folders.append(result)
+        print("MCP_SYNTHETIC_MAIL_FOLDER_CREATED", file=sys.stderr, flush=True)
+        return result
 
     def draft_folder(self) -> MailFolder:
         """Return only the synthetic canonical selectable mailbox."""
@@ -418,7 +428,7 @@ class SyntheticMail:
 
     def folders(self) -> list[MailFolder]:
         """Expose the one explicitly selectable mailbox."""
-        return [self.folder]
+        return [self.folder, *self.created_folders]
 
     def messages(self, folder: MailFolder, *, limit: int) -> SimpleNamespace:
         """Use the discovered typed route, not caller-supplied identifiers."""
@@ -564,6 +574,7 @@ def main() -> None:
         write_actions=(
             "reminders.create",
             "mail.create_draft",
+            "mail.create_folder",
             "photos.set_favorite",
             "drive.rename",
             "drive.trash_file",

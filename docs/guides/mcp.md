@@ -258,6 +258,23 @@ an acknowledgement or local optimistic update alone is insufficient. Any failure
 after dispatch is uncertain and cannot replay approval. This action does not
 enable shared-library mutation, deletion, or upload, and has only synthetic tests.
 
+## Opt-in top-level Mail folder creation
+
+Enable `--service mail`, `--write-action mail.create_folder`, and the private approval
+directory. The preview payload is exactly `{"name": "New Folder"}`. This action
+creates a top-level custom folder only: ASCII letters/digits, spaces, underscores and
+hyphens, at most 255 characters, no surrounding whitespace or system folder names.
+Encoded paths, parent selectors, renaming and deletion are not supported.
+
+Fresh namespace metadata must contain unique folder IDs and no name collision
+ignoring case. Account, endpoint and a canonical folder identity/name/UID-validity
+snapshot are bound to the single-use receipt. This is a preflight snapshot, not an
+atomic server revision condition. After approval consumption and one create, fresh
+metadata must contain exactly the new matching returned identity. Otherwise the
+result is uncertain and cannot replay approval; never blindly retry. Network-blocked
+installed tests cover verified and acknowledged-but-absent synthetic creations.
+No live account validation is claimed.
+
 ## Opt-in Mail draft creation
 
 Enable `--service mail`, `--write-action mail.create_draft`, and the private approval

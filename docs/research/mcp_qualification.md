@@ -126,3 +126,10 @@ receipt, dispatch once afterward and reject replay. Independent fresh parent and
 child reads prove the first result and classify the second as uncertain, with no
 success result. Stderr requires exactly two move markers and one server cleanup.
 Network blocking and all existing receipt/content/download scenarios remain intact.
+
+Installed top-level Mail folder creation now verifies one authoritative fake namespace
+addition and one typed acknowledgement whose identity never appears in fresh metadata.
+Both are denied without a private receipt, dispatch once after simulated terminal
+approval, and reject replay. Only the first returns a success identity; the second
+is uncertain. Stderr requires exactly two folder-create markers and one cleanup.
+No real account or namespace mutation is involved, and outbound sockets stay blocked.

@@ -66,7 +66,7 @@ name semantics preserve the existing extension metadata.
 ## Sequencing and validation
 
 `pyicloud/mcp/mail_folders.py` adds an internal top-level folder-creation adapter,
-not a runtime action yet. It uses the existing verified `MailService.create_folder`
+now selected by the opt-in runtime `mail.create_folder` action. It uses the existing verified `MailService.create_folder`
 facade and independently requires a new matching typed folder in fresh namespace
 metadata. Account/endpoint and a canonical snapshot of folder IDs/names/UID validity
 are approval bindings; this snapshot is not an atomic server-side revision condition.
@@ -74,7 +74,9 @@ For this first conservative adapter only ASCII letters/digits, spaces, underscor
 and hyphens are accepted, excluding system names and surrounding whitespace. This
 avoids guessing encoded server-name transformations. Existing names collide ignoring
 case. Single-use approval is consumed before one create; uncertain post-dispatch
-proof must not cause retries. Runtime/schema and installed qualification are pending.
+proof must not cause retries. Gateway tests and installed stdio qualification cover
+receipt denial, one approved verified creation, acknowledged-but-absent uncertainty
+and consumed-request replay rejection, using fake network-blocked namespace data.
 
 Additional investigation: current Drive `create_folders` tests only acknowledge a
 name, without proving response correlation to the request's temporary client ID.
