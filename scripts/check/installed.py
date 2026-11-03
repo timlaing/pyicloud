@@ -17,6 +17,7 @@ import importlib
 from importlib.metadata import metadata, version
 from importlib.resources import files
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -123,10 +124,16 @@ def check_mcp() -> None:
     asyncio.run(check_configured_mcp(environment, challenge=False))
     asyncio.run(check_configured_mcp(environment, challenge=True))
     asyncio.run(check_configured_mcp(environment, challenge=False, content=True))
+    if os.name == "posix":
+        asyncio.run(check_configured_mcp(environment, challenge=False, writes=True))
 
 
 async def check_configured_mcp(
-    environment: dict[str, str], *, challenge: bool, content: bool = False
+    environment: dict[str, str],
+    *,
+    challenge: bool,
+    content: bool = False,
+    writes: bool = False,
 ) -> None:
     """Exercise worker ownership through stdio with network-blocked data."""
     from mcp import ClientSession
@@ -137,10 +144,15 @@ async def check_configured_mcp(
         arguments.append("--challenge")
     if content:
         arguments.append("--content")
-    parameters = StdioServerParameters(
-        command=sys.executable, args=arguments, env=environment
-    )
-    with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as diagnostics:
+    with (
+        tempfile.TemporaryDirectory() as approval_directory,
+        tempfile.TemporaryFile(mode="w+", encoding="utf-8") as diagnostics,
+    ):
+        if writes:
+            arguments.extend(["--approval-dir", approval_directory])
+        parameters = StdioServerParameters(
+            command=sys.executable, args=arguments, env=environment
+        )
         async with stdio_client(parameters, errlog=diagnostics) as (read, write):
             connection = ClientSession(read, write, read_timeout_seconds=30)
             async with connection as session:
@@ -148,10 +160,57 @@ async def check_configured_mcp(
                 await exercise_configured_mcp(session, challenge=challenge)
                 if content:
                     await exercise_content_mcp(session)
+                if writes:
+                    await exercise_write_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
         assert "OMIT_ME" not in output
+        assert output.count("MCP_SYNTHETIC_MUTATED") == (1 if writes else 0)
+
+
+async def exercise_write_gate_mcp(session: Any, directory: str) -> None:
+    """A synthetic terminal receipt gates the one fake mutation callback."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    lists = await session.call_tool("icloud_reminders_lists", {})
+    assert lists.structured_content is not None
+    handle = lists.structured_content["records"][0]["handle"]
+    prepared = await session.call_tool(
+        "icloud_write_preview",
+        {
+            "action": "reminders.create",
+            "list_handle": handle,
+            "payload": {"title": "Approved synthetic mutation"},
+        },
+    )
+    assert prepared.structured_content is not None
+    assert prepared.structured_content["error"] is None
+    request_id = prepared.structured_content["preview"]["request_id"]
+    denied = await session.call_tool("icloud_write_execute", {"request_id": request_id})
+    assert denied.structured_content is not None
+    assert denied.structured_content["error"] == "approval_record_unavailable"
+
+    class SyntheticTerminal(io.StringIO):
+        """Test input, not actual human presence or account authorization."""
+
+        def isatty(self) -> bool:
+            """Only simulate a separate interactive operator in this test."""
+            return True
+
+    with ApprovalMailbox(directory) as operator:
+        operator.decide(
+            request_id, SyntheticTerminal("APPROVE " + request_id), io.StringIO()
+        )
+    accepted = await session.call_tool(
+        "icloud_write_execute", {"request_id": request_id}
+    )
+    assert accepted.structured_content is not None
+    assert accepted.structured_content["error"] is None
+    assert accepted.structured_content["result"]["id"] == "Reminder/CREATED"
+    replay = await session.call_tool("icloud_write_execute", {"request_id": request_id})
+    assert replay.structured_content is not None
+    assert replay.structured_content["error"] == "unknown_or_consumed_preview"
 
 
 async def exercise_configured_mcp(session: Any, *, challenge: bool) -> None:

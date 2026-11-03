@@ -50,13 +50,14 @@ class SyntheticReminders:
 
     def lists(self) -> Iterator[RemindersList]:
         """Only route handles, titles and scopes should survive serialization."""
-        yield RemindersList(id="List/SAME", title="Private")
+        yield RemindersList(id="List/SAME", title="Private", record_change_tag="L1")
         yield RemindersList(
             id="List/SAME",
             title="Shared",
             scope="shared",
             zone_name="Shared",
             zone_owner="OMIT_ME",
+            record_change_tag="L1",
         )
 
     def list_reminders(
@@ -81,6 +82,25 @@ class SyntheticReminders:
                     due_date=datetime(2026, 1, 1),
                 )
             ]
+        )
+
+    def create(
+        self, context: RemindersList, title: str, *, desc: str, completed: bool
+    ) -> Reminder:
+        """Only synthetic mutation; marker permits exact-once verification."""
+        assert isinstance(context, RemindersList)
+        assert title == "Approved synthetic mutation"
+        assert desc == ""
+        assert completed is False
+        print("MCP_SYNTHETIC_MUTATED", file=sys.stderr, flush=True)
+        return Reminder(
+            id="Reminder/CREATED",
+            list_id=context.id,
+            title=title,
+            scope=context.scope,
+            zone_name=context.zone_name,
+            zone_owner=context.zone_owner,
+            record_change_tag="R1",
         )
 
 
@@ -237,6 +257,7 @@ class SyntheticClient:
 
     def __init__(self, challenge: bool) -> None:
         self.challenge = challenge
+        self.params = {"dsid": "SYNTHETIC_ACCOUNT"}
         self.calendar = SyntheticCalendar()
         self.reminders = SyntheticReminders()
         self.contacts = SimpleNamespace(
@@ -282,6 +303,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--challenge", action="store_true")
     parser.add_argument("--content", action="store_true")
+    parser.add_argument("--approval-dir")
     args = parser.parse_args()
     original_socket = socket.socket
 
@@ -296,6 +318,8 @@ def main() -> None:
         session_dir="not-read",
         services=SUPPORTED_SERVICES,
         content_services=("drive", "notes", "photos", "mail") if args.content else (),
+        write_actions=("reminders.create",) if args.approval_dir else (),
+        approval_dir=args.approval_dir,
     )
     owner = SessionOwner(config, lambda: SyntheticClient(args.challenge))
     with patch("socket.socket", side_effect=local_socket):

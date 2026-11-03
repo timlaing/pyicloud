@@ -77,4 +77,16 @@ If-Match. All eight isolated install combinations on Python 3.10/3.15 pass after
 these checks were added. Networking remains denied; no actual data is downloaded.
 The latest full offline suite after internal Reminders write adapters is 4,779
 tests plus 69 subtests, 98.35% combined coverage, with every measured source file
-strictly above 90%. Runtime writes still await an independent approval channel.
+strictly above 90%. These were earlier milestone counts, not final write qualification.
+
+The operator mailbox and opt-in Reminders/Drive-rename/Calendar create-delete runtime
+gate are implemented. The installed stdio fixture now verifies an independently
+simulated terminal decision: a missing receipt denies execution, an exact receipt
+permits exactly one synthetic callback, and replay is rejected. Mutation/cleanup
+markers on stderr establish the callback count without logging private fields.
+All eight isolated install modes on actual Python 3.10.22/3.15.2 pass with the new
+gate, content and resumed-download checks. No real account, approval or write was
+performed. The latest full offline suite is 4,820 tests plus 69 subtests, 98.34%
+combined coverage, with strict per-file coverage and all hooks passing. Remaining
+writers and unverified API gaps are still unfinished; this is not final release
+qualification or a claim of hardware-backed operator presence.
