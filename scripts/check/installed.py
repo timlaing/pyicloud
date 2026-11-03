@@ -176,6 +176,9 @@ async def check_configured_mcp(
                     await exercise_draft_edit_gate_mcp(
                         session, approval_directory, saved_draft
                     )
+                    await exercise_elevated_calendar_gate_mcp(
+                        session, approval_directory
+                    )
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -192,6 +195,7 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_ALBUM_CREATED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_RELATION_ADDED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_DRAFT_EDITED") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_CALENDAR_DELETED") == (1 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -850,6 +854,64 @@ async def exercise_draft_edit_gate_mcp(
             handle = edited["handle"]
         else:
             assert result.structured_content["result"] is None
+
+
+async def exercise_elevated_calendar_gate_mcp(session: Any, directory: str) -> None:
+    """Only an elevated private terminal receipt allows one fake Calendar deletion."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+    from pyicloud.mcp.authorization import WriteDenied
+
+    class SyntheticTerminal(io.StringIO):
+        """Simulated separate terminal, not real-account authorization."""
+
+        def isatty(self) -> bool:
+            """Exercise the independent elevated decision path."""
+            return True
+
+    prepared = await session.call_tool(
+        "icloud_write_preview",
+        {
+            "action": "calendar.delete_event",
+            "calendar_id": "C",
+            "event_id": "E",
+            "payload": {},
+        },
+    )
+    assert prepared.structured_content is not None
+    assert prepared.structured_content["error"] is None
+    preview = prepared.structured_content["preview"]
+    assert preview["risk"] == "high"
+    identifier = preview["request_id"]
+    denied = await session.call_tool("icloud_write_execute", {"request_id": identifier})
+    assert denied.structured_content is not None
+    assert denied.structured_content["error"] == "approval_record_unavailable"
+    with ApprovalMailbox(directory) as operator:
+        try:
+            operator.decide(
+                identifier, SyntheticTerminal("APPROVE " + identifier), io.StringIO()
+            )
+        except WriteDenied as error:
+            assert str(error) == "operator_declined"
+        else:
+            raise AssertionError(
+                "Ordinary phrase authorized high-risk Calendar deletion"
+            )
+        display = io.StringIO()
+        operator.decide(
+            identifier, SyntheticTerminal("APPROVE HIGH-RISK " + identifier), display
+        )
+        assert "HIGH-RISK" in display.getvalue()
+    result = await session.call_tool("icloud_write_execute", {"request_id": identifier})
+    assert result.structured_content is not None
+    assert result.structured_content["error"] is None
+    assert result.structured_content["result"] == {
+        "action": "calendar.delete_event",
+        "calendar_id": "C",
+        "event_id": "E",
+    }
+    replay = await session.call_tool("icloud_write_execute", {"request_id": identifier})
+    assert replay.structured_content is not None
+    assert replay.structured_content["error"] == "unknown_or_consumed_preview"
 
 
 async def exercise_configured_mcp(session: Any, *, challenge: bool) -> None:

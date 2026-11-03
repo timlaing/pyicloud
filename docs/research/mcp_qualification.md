@@ -174,3 +174,11 @@ Both deny without private receipts, dispatch once after simulated terminal appro
 reject request replay and reject previewing retired old handles. Exactly two edit
 markers and one cleanup are required. No sending/upload methods or live Mail calls
 are present; old/current records and bodies are entirely synthetic.
+
+Installed elevated Calendar deletion explicitly selects both write and high-risk
+startup allowlists. A preview is high risk and execution first denies without a
+receipt; ordinary `APPROVE` terminal input is rejected. Only simulated
+`APPROVE HIGH-RISK` authorizes one fake etag-bound deletion, followed by exact target
+absence and request replay denial. Stderr requires one deletion marker and one
+cleanup, alongside all prior scenario counts. All events are synthetic; no real
+Calendar deletion or credential access occurs and outbound sockets remain blocked.

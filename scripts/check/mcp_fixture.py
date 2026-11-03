@@ -18,8 +18,10 @@ from unittest.mock import patch
 from requests import Response
 
 from pyicloud.common.cloudkit import CKRecord
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.mcp.context import SUPPORTED_SERVICES, ServerConfig, SessionOwner
 from pyicloud.mcp.server import build_server
+from pyicloud.services.calendar import EventObject
 from pyicloud.services.drive import DriveNode
 from pyicloud.services.mail.models import (
     MailBody,
@@ -48,6 +50,37 @@ from pyicloud.services.reminders.models import Reminder, RemindersList
 
 class SyntheticCalendar:
     """Only bounded deterministic calendar data, including fields to omit."""
+
+    service_root = "https://calendar.example.test"
+
+    def __init__(self) -> None:
+        self.deleted = False
+        self.event = EventObject(
+            pguid="C",
+            guid="E",
+            title="Synthetic event",
+            start_date=datetime(2026, 1, 1, 12),
+            end_date=datetime(2026, 1, 1, 13),
+            tz="UTC",
+            etag="E1",
+        )
+
+    def get_event_detail(
+        self, calendar_id: str, event_id: str, *, as_obj: bool
+    ) -> EventObject:
+        """Read the exact authoritative fake identity, never an acknowledgement."""
+        assert (calendar_id, event_id, as_obj) == ("C", "E", True)
+        if self.deleted:
+            raise PyiCloudAPIResponseException("Synthetic absence", 404)
+        return self.event
+
+    def remove_event(self, event: EventObject) -> dict[str, str]:
+        """Only a fake mutation; exact captured identity/revision must be supplied."""
+        assert (event.pguid, event.guid, event.etag) == ("C", "E", "E1")
+        assert not self.deleted
+        self.deleted = True
+        print("MCP_SYNTHETIC_CALENDAR_DELETED", file=sys.stderr, flush=True)
+        return {"ignored": "Not independent proof"}
 
     def get_calendars(self) -> list[dict[str, Any]]:
         """Return one calendar with a deliberately non-public payload field."""
@@ -808,6 +841,7 @@ def main() -> None:
         if args.approval_dir
         else (),
         write_actions=(
+            "calendar.delete_event",
             "reminders.create",
             "mail.create_draft",
             "mail.edit_draft",
@@ -824,6 +858,7 @@ def main() -> None:
         if args.approval_dir
         else (),
         approval_dir=args.approval_dir,
+        high_risk_actions=("calendar.delete_event",) if args.approval_dir else (),
     )
     owner = SessionOwner(
         config, lambda: SyntheticClient(args.challenge, bool(args.approval_dir))

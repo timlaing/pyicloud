@@ -74,6 +74,11 @@ Synthetic private-terminal/gateway tests reject normal approval, allow one eleva
 fake deletion and reject replay. No new send/upload/permanent-delete adapter is
 enabled, and no live account operations occur.
 
+Installed stdio qualification now additionally verifies elevated Calendar selection,
+ordinary terminal phrase denial, one fake revision-bound deletion, independent exact
+absence and consumed-request replay rejection. This is synthetic installed protocol
+evidence, not live event recovery or permanent-deletion wire validation.
+
 Approval primitives now derive risk from fixed action policy rather than payload
 fields. Existing classified actions retain standard behavior; new/unclassified
 actions fail closed as high risk. The ledger requires a separate `high_risk_actions`
