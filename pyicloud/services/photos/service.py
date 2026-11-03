@@ -1805,6 +1805,55 @@ class PhotoAlbum(BasePhotoAlbum):
             success = _check_modify_response(payload.get("records", []))
         return success
 
+    def add_photo_correlated(self, photo: PhotoAsset) -> bool:
+        """Add one private relation with exact typed acknowledgement correlation.
+
+        This does not prove independently observed album membership. There is no
+        REST fallback or mutation retry; ambiguous outcomes require fresh reads.
+        """
+        if (
+            not isinstance(photo, PhotoAsset)
+            or self._obj_type != ObjectTypeEnum.CONTAINER
+            or self._parent_id is not None
+            or self._library.scope != "private"
+            or self._zone_id.get("ownerRecordName")
+            or record_zone(photo.asset_record) != self._zone_id
+            or not isinstance(self._client, PhotosCloudKitClient)
+            or not _can_use_typed_cloudkit(self.service.session)
+        ):
+            raise PhotosServiceException(
+                "Correlated private album relation is unavailable"
+            )
+        item_id = self._relation_item_id(photo)
+        relation_id = f"{item_id}-IN-{self._record_id}"
+        operation = CKModifyOperation(
+            operationType="create",
+            record=CKWriteRecord(
+                recordName=relation_id,
+                recordType="CPLContainerRelation",
+                fields={
+                    "itemId": {"type": "STRING", "value": item_id},
+                    "position": {"type": "INT64", "value": 1024},
+                    "containerId": {"type": "STRING", "value": self._record_id},
+                },
+            ),
+        )
+        response = self._client.modify(
+            operations=[operation], zone_id=CKZoneIDReq(**self._zone_id), atomic=True
+        )
+        if (
+            len(response.records) != 1
+            or not isinstance(response.records[0], CKRecord)
+            or response.records[0].recordName != relation_id
+            or response.records[0].recordType != "CPLContainerRelation"
+            or response.records[0].fields.get_value("itemId") != item_id
+            or response.records[0].fields.get_value("containerId") != self._record_id
+        ):
+            raise PhotosServiceException(
+                "Album relation outcome is uncertain; refresh before retrying"
+            )
+        return True
+
     def upload(self, path: str) -> PhotoAsset | None:
         """Upload a file into this album and return the created asset."""
         upload_file = getattr(self._library, "upload_file", None)

@@ -300,6 +300,15 @@ except PyiCloudException as err:
 
 ## Album mutation identity metadata
 
+`PhotoAlbum.add_photo_correlated(photo)` adds one relation only through a typed
+private same-zone route. The returned acknowledgement must match the exact relation
+ID, record type, asset item ID and album container ID. It refuses nested/shared or
+unsupported transport contexts before dispatch and never falls back to REST.
+This is acknowledgement correlation, not independent album membership proof;
+refresh and query membership before claiming success, and never blindly retry an
+uncertain result. Existing `add_photo()` remains unchanged. No MCP relation action
+is enabled by this API.
+
 `PhotoLibrary.create_album_correlated(name)` is a private-library typed-client-only
 creation entry point. It validates the name, refuses shared-owner or unsupported
 transport contexts before dispatch, and never falls back to the legacy REST path.

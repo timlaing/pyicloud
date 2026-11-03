@@ -65,6 +65,17 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Photos relation investigation confirms existing `add_photo` submits a deterministic
+`CPLContainerRelation` ID (`item-IN-album`) with explicit item/container IDs, but its
+generic boolean acknowledgement is insufficient for an exact MCP outcome. New public
+`add_photo_correlated()` uses that same verified typed operation without REST fallback
+and requires one exact matching relation ID/type/item/container response. Private
+same-zone typed routes only; shared/nested/unsupported contexts fail before dispatch.
+Synthetic tests verify exact request construction, foreign/missing/multiple response
+rejection, single dispatch and no unsupported fallback. This does not prove observed
+membership or enable an MCP action: fresh album/asset revision bindings plus independent
+container-scoped membership lookup remain required before adapter integration.
+
 `photo_album_creates.py` is a typed-only creation adapter selected by the separately
 opted-in runtime `photos.create_album` action. It resolves a discovered private `PhotoLibrary`, requires non-mutating
 `correlated_album_creation_available`, and reads an independent bounded server album
