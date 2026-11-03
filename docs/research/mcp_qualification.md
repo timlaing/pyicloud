@@ -109,3 +109,12 @@ then dispatches exactly once after simulated terminal approval. Fresh lookup obj
 verify the first result and classify the second as uncertain; neither receipt can
 replay. Stderr counts exactly two photo mutations and one server cleanup. No real
 account, CloudKit write, deletion or upload is involved, and sockets remain blocked.
+
+Installed Drive checks now discover typed file handles, deny rename/trash execution
+without receipts, and permit one synthetic rename and one verified file trash after
+simulated terminal decisions. A second file receives a trash acknowledgement but
+never appears in fake Recently Deleted; the result is uncertain with no success
+identity. All three consumed receipts reject replay. Fresh copied metadata and
+independent trash membership provide the proof, not mutation acknowledgement data.
+Stderr counts exactly one rename, two trash dispatches and one server cleanup.
+There are no permanent-deletion/upload methods or live Drive calls in this fixture.

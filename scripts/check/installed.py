@@ -164,6 +164,7 @@ async def check_configured_mcp(
                     await exercise_write_gate_mcp(session, approval_directory)
                     await exercise_mail_write_gate_mcp(session, approval_directory)
                     await exercise_photo_write_gate_mcp(session, approval_directory)
+                    await exercise_drive_write_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
@@ -171,6 +172,8 @@ async def check_configured_mcp(
         assert output.count("MCP_SYNTHETIC_MUTATED") == (1 if writes else 0)
         assert output.count("MCP_SYNTHETIC_MAIL_SAVED") == (2 if writes else 0)
         assert output.count("MCP_SYNTHETIC_PHOTO_MUTATED") == (2 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_DRIVE_RENAMED") == (1 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_DRIVE_TRASHED") == (2 if writes else 0)
         assert "recipient@example.invalid" not in output
         assert "Approved &lt;text&gt;" not in output
 
@@ -338,6 +341,58 @@ async def exercise_photo_write_gate_mcp(session: Any, directory: str) -> None:
             }
         else:
             assert applied.structured_content["result"] is None
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert replay.structured_content is not None
+        assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+
+
+async def exercise_drive_write_gate_mcp(session: Any, directory: str) -> None:
+    """Installed rename/trash results must follow exact receipts and fresh proof."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    class SyntheticTerminal(io.StringIO):
+        """Only test terminal input, never real-account authorization."""
+
+        def isatty(self) -> bool:
+            """Exercise the private terminal-only decision path."""
+            return True
+
+    discovered = await session.call_tool("icloud_drive_list", {})
+    assert discovered.structured_content is not None
+    first, second = [row["handle"] for row in discovered.structured_content["records"]]
+    for action, handle, payload, expected in (
+        ("drive.rename", first, {"name": "Renamed"}, None),
+        ("drive.trash_file", first, {}, None),
+        ("drive.trash_file", second, {}, "mutation_uncertain"),
+    ):
+        prepared = await session.call_tool(
+            "icloud_write_preview",
+            {"action": action, "target_handle": handle, "payload": payload},
+        )
+        assert prepared.structured_content is not None
+        assert prepared.structured_content["error"] is None
+        preview = prepared.structured_content["preview"]
+        assert preview["payload"] == payload
+        identifier = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert denied.structured_content is not None
+        assert denied.structured_content["error"] == "approval_record_unavailable"
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                identifier, SyntheticTerminal("APPROVE " + identifier), io.StringIO()
+            )
+        applied = await session.call_tool(
+            "icloud_write_execute", {"request_id": identifier}
+        )
+        assert applied.structured_content is not None
+        assert applied.structured_content["error"] == expected
+        assert applied.structured_content["result"] == (
+            {"action": action, "changed": True} if expected is None else None
+        )
         replay = await session.call_tool(
             "icloud_write_execute", {"request_id": identifier}
         )

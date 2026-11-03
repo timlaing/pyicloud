@@ -18,6 +18,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Qualify installed Drive rename/trash receipts and uncertain-outcome replay denial using fresh synthetic metadata and Recently Deleted membership checks.
+
 - Add opt-in private Drive file trashing with exact operator receipts, etag revalidation, and Recently Deleted membership proof; folder and permanent deletion remain unavailable.
 
 - Qualify installed private Photos favorite receipts, independent post-read verification, and uncertain-outcome replay denial with network-blocked synthetic assets.

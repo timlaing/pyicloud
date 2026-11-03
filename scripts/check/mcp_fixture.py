@@ -20,6 +20,7 @@ from requests import Response
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.mcp.context import SUPPORTED_SERVICES, ServerConfig, SessionOwner
 from pyicloud.mcp.server import build_server
+from pyicloud.services.drive import DriveNode
 from pyicloud.services.mail.models import (
     MailBody,
     MailBodyPart,
@@ -161,6 +162,71 @@ class SyntheticFolder:
         """Ensure the adapter refreshes metadata without requesting content."""
         assert force is True
         return [SyntheticFile()]
+
+
+class SyntheticWritableDrive:
+    """Private synthetic metadata and mutation methods, no permanent deletion."""
+
+    service_root = "https://drive.example.test"
+
+    def __init__(self) -> None:
+        self.records = {
+            identifier: {
+                "drivewsid": identifier,
+                "zone": "com.apple.CloudDocs",
+                "type": "FILE",
+                "name": name,
+                "extension": "txt",
+                "etag": "R1",
+                "size": 8,
+            }
+            for identifier, name in (
+                ("FILE::com.apple.CloudDocs::FIRST", "Synthetic"),
+                ("FILE::com.apple.CloudDocs::SECOND", "Second"),
+            )
+        }
+        self.trash_dispatches = 0
+        self.root = SimpleNamespace(type="folder", get_children=self.children)
+        self.trash = SimpleNamespace(get_children=self.trashed)
+
+    def children(self, *, force: bool) -> list[DriveNode]:
+        """Fresh typed records discovered through ordinary metadata tools."""
+        assert force is True
+        return [
+            DriveNode(cast(Any, self), dict(data))
+            for data in self.records.values()
+            if not data.get("restorePath")
+        ]
+
+    def trashed(self, *, force: bool) -> list[DriveNode]:
+        """Only authoritative fake Recently Deleted membership proves trashing."""
+        assert force is True
+        return [
+            DriveNode(cast(Any, self), dict(data))
+            for data in self.records.values()
+            if data.get("restorePath")
+        ]
+
+    def get_node_data(self, identifier: str) -> dict[str, Any]:
+        """Do not reuse mutable local optimistic node data."""
+        return dict(self.records[identifier])
+
+    def rename_items(self, identifier: str, etag: str, name: str) -> dict[str, str]:
+        """Exactly one synthetic rename, with the freshly approved etag."""
+        assert self.records[identifier]["etag"] == etag
+        assert name == "Renamed"
+        self.records[identifier].update(name=name, etag="R2")
+        print("MCP_SYNTHETIC_DRIVE_RENAMED", file=sys.stderr, flush=True)
+        return {"status": "OK"}
+
+    def move_items_to_trash(self, identifier: str, etag: str) -> dict[str, str]:
+        """Second dispatch acknowledges but does not change authoritative state."""
+        assert self.records[identifier]["etag"] == etag
+        self.trash_dispatches += 1
+        if self.trash_dispatches == 1:
+            self.records[identifier].update(restorePath="Renamed.txt", etag="R3")
+        print("MCP_SYNTHETIC_DRIVE_TRASHED", file=sys.stderr, flush=True)
+        return {"status": "OK"}
 
 
 class SyntheticAsset:
@@ -398,7 +464,11 @@ class SyntheticClient:
                 }
             ]
         )
-        self.drive = SimpleNamespace(root=SyntheticFolder())
+        self.drive = (
+            SyntheticWritableDrive()
+            if writes
+            else SimpleNamespace(root=SyntheticFolder())
+        )
         self.notes = SyntheticNotes()
         album = SyntheticWritableAlbum() if writes else SyntheticAlbum()
         self.photos = SimpleNamespace(
@@ -453,7 +523,13 @@ def main() -> None:
         session_dir="not-read",
         services=SUPPORTED_SERVICES,
         content_services=("drive", "notes", "photos", "mail") if args.content else (),
-        write_actions=("reminders.create", "mail.create_draft", "photos.set_favorite")
+        write_actions=(
+            "reminders.create",
+            "mail.create_draft",
+            "photos.set_favorite",
+            "drive.rename",
+            "drive.trash_file",
+        )
         if args.approval_dir
         else (),
         approval_dir=args.approval_dir,
