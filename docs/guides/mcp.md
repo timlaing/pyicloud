@@ -236,7 +236,8 @@ names/types/modification times with optional `query` and `limit`. It never expos
 restoration paths, raw IDs, content or download URLs. Distinct expiring trash handles
 cannot be used as ordinary Drive file/folder handles for writes or downloads.
 Results are not claimed to be a complete inventory. Listing does not recover or
-permanently delete anything. Recovery remains unavailable; permanent trash-file
+permanently delete anything. Recovery uses the separate acknowledged workflow;
+permanent trash-file
 deletion has a separate elevated opt-in workflow below.
 
 ## Opt-in elevated acknowledged Drive uploads
@@ -588,7 +589,7 @@ selection. The operator must type `APPROVE HIGH-RISK <request_id>` in the separa
 private terminal; ordinary approval does not authorize deletion. This conservative
 tier is required because no event recovery contract is verified here. Calendar
 creation remains standard risk. New/unclassified action names default to high risk,
-but upload and other permanent-delete target types remain unavailable. Private
+but only explicitly supported actions can be enabled. Private
 trash-file deletion, single Mail Trash-message deletion and saved-draft submission
 have separate elevated workflows above.
 
