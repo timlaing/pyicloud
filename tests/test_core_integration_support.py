@@ -22,6 +22,7 @@ from pyicloud.services.photos.queries import parent_filter
 from pyicloud.services.photos.service import (
     AlbumContainer,
     PhotoAlbum,
+    PhotoAlbumFolder,
     PhotoAlbumRecordState,
     PhotoAsset,
     PhotoLibrary,
@@ -82,6 +83,30 @@ def test_route_and_album_metadata_are_read_only() -> None:
     with pytest.raises(AttributeError):
         object.__setattr__(album, "record_change_tag", "OTHER")
     client.query.assert_not_called()
+
+
+def test_album_folder_cannot_accept_photo_relations() -> None:
+    """A top-level folder is not a photo container even with container metadata."""
+    client, library, _album, photo = objects()
+    folder = PhotoAlbumFolder(
+        library,
+        name="Folder",
+        record_id="F",
+        obj_type=ObjectTypeEnum.CONTAINER,
+        list_type=ListTypeEnum.CONTAINER,
+        direction=DirectionEnum.ASCENDING,
+        zone_id=library.zone_id,
+        query_filters=[parent_filter("F")],
+        record=PhotoAlbumRecordState(record_change_tag="R1"),
+    )
+    assert folder.parent_id is None
+    assert not folder.can_add_photo_correlated(photo)
+    with pytest.raises(PhotosServiceException, match="unavailable"):
+        folder.contains_photo_scoped(photo)
+    with pytest.raises(PhotosServiceException, match="unavailable"):
+        folder.add_photo_correlated(photo)
+    client.query.assert_not_called()
+    client.modify.assert_not_called()
 
 
 @pytest.mark.parametrize(
