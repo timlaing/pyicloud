@@ -18,6 +18,9 @@ This authorizes code and synthetic tests, not actual account mutations.
 No unsupported operation may claim success or guess an Apple endpoint. Missing
 Contacts/Notes/Calendar-update contracts are explicit blockers to those adapters.
 
+See [remaining contract evidence](mcp_contract_evidence.md) for the specific local
+evidence, missing identity/revision guarantees and transport work for pending writers.
+
 ## Approval foundation
 
 `pyicloud.mcp.authorization` provides an internal fail-closed ledger with an empty
