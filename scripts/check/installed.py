@@ -465,6 +465,15 @@ async def exercise_mail_folder_gate_mcp(session: Any, directory: str) -> None:
     """A fresh namespace, not a typed acknowledgement, proves folder creation."""
     from pyicloud.mcp.approval_channel import ApprovalMailbox
 
+    for reserved in ("Sent Messages", "deleted messages"):
+        rejected = await session.call_tool(
+            "icloud_write_preview",
+            {"action": "mail.create_folder", "payload": {"name": reserved}},
+        )
+        assert rejected.structured_content is not None
+        assert rejected.structured_content["error"] == "invalid_payload"
+        assert rejected.structured_content["preview"] is None
+
     class SyntheticTerminal(io.StringIO):
         """Simulated separate terminal input, not real operator authorization."""
 

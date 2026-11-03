@@ -96,7 +96,22 @@ async def test_unverified_creation_is_uncertain_and_replay_denied() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", ["", "Inbox", "a/b", "&encoded", "é", " x", "x" * 256])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "Inbox",
+        "a/b",
+        "&encoded",
+        "é",
+        " x",
+        "x" * 256,
+        "Sent Messages",
+        "sEnT mEsSaGeS",
+        "Deleted Messages",
+        "deleted messages",
+    ],
+)
 async def test_conservative_names_rejected_before_discovery(name: str) -> None:
     """No system folders, encoded paths or unverified name transformations."""
     writes, client = setup_folders()

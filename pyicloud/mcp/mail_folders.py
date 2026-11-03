@@ -6,6 +6,7 @@ from collections.abc import Callable
 import json
 from typing import Any
 
+from pyicloud.services.mail._folder_names import SYSTEM_FOLDERS
 from pyicloud.services.mail.models import MailFolder
 
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
@@ -61,8 +62,7 @@ class MailFolderWrites:
             or name != name.strip()
             or len(name) > 255
             or any(not (char.isalnum() or char in {" ", "_", "-"}) for char in name)
-            or name.casefold()
-            in {"inbox", "drafts", "sent", "trash", "junk", "archive"}
+            or name.casefold() in SYSTEM_FOLDERS | {"sent", "trash"}
             or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name)
         ):
             raise WriteDenied("invalid_payload")

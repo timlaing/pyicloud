@@ -65,6 +65,12 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Mail folder preview system-name checks reuse the verified library `SYSTEM_FOLDERS`
+set rather than an incomplete duplicate. In particular, `Sent Messages` and
+`Deleted Messages` are rejected ignoring case before namespace discovery or approval
+publication. The library already protects these names before dispatch; the adapter
+now rejects the invalid request at its earlier non-mutating boundary as well.
+
 `pyicloud/mcp/mail_folders.py` adds an internal top-level folder-creation adapter,
 now selected by the opt-in runtime `mail.create_folder` action. It uses the existing verified `MailService.create_folder`
 facade and independently requires a new matching typed folder in fresh namespace
