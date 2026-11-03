@@ -120,6 +120,52 @@ def test_delete_exact_wire_and_typed_result(case: DeleteCase) -> None:
     case.response.close.assert_called_once()
 
 
+def test_delete_preflight_is_read_only_exact_metadata(case: DeleteCase) -> None:
+    """Preview capability checks do not destroy, scan, read body or infer flags."""
+    before = case.message.model_dump()
+    assert case.service.check_delete_permanently(case.message) == "synthetic-account"
+    assert case.message.model_dump() == before
+    assert not case.wrote and case.present
+    case.session.request_raw.assert_not_called()
+    queries = [call.kwargs["json"] for call in case.session.post.call_args_list]
+    assert [query["domain"] for query in queries] == [
+        "mailbox",
+        "email",
+        "mailbox",
+        "mailbox",
+    ]
+    assert all(
+        call.args[0].endswith("message/list")
+        or call.kwargs["json"]["domain"] == "mailbox"
+        for call in case.session.post.call_args_list
+    )
+
+
+@pytest.mark.parametrize(
+    "change", ["name", "uid_validity", "flags", "absent", "identifier"]
+)
+def test_delete_preflight_refuses_changed_context_without_mutation(
+    case: DeleteCase, change: str
+) -> None:
+    """No guessed namespace, non-selectable target or stale source reaches deletion."""
+    if change == "name":
+        case.message = case.message.model_copy(
+            update={"folder": case.message.folder.model_copy(update={"name": "INBOX"})}
+        )
+    elif change == "uid_validity":
+        case.folder["uidValidity"] = 89
+    elif change == "flags":
+        case.folder["flags"] = 1
+    elif change == "absent":
+        case.present = False
+    else:
+        case.record["identifier"] = "OTHER"
+    with pytest.raises((MailError, ValueError)):
+        case.service.check_delete_permanently(case.message)
+    case.session.request_raw.assert_not_called()
+    assert not case.wrote
+
+
 @pytest.mark.parametrize("confirm", [False, None, 1, "yes"])
 def test_confirmation_precedes_all_io(case: DeleteCase, confirm: Any) -> None:
     """Even truthy values are not irreversible-deletion authorization."""

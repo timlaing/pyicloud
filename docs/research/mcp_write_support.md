@@ -65,6 +65,16 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+The verified Mail permanent-message facade already destroys exactly one current
+Trash ID through raw no-retry submission, checks typed acknowledgement and separately
+looks up old UID and ID for absence. New `check_delete_permanently` extracts its
+existing metadata-only identity/namespace/capability preflight for future previews.
+Six synthetic cases prove read-only exact queries, stale/unsafe context rejection and
+no mutation, retaining the existing destruction payload/order/verification tests.
+It grants no confirmation or bulk operation and is not atomic with a later write.
+An MCP adapter still needs exact snapshot/route/high-risk receipt binding and source
+retirement before that one verified call; no runtime Mail deletion is enabled yet.
+
 `upload_previews.py` binds sealed stage name/size/SHA-256 and opaque stage identity to
 a fresh private folder, account, etag and both Drive/document-service routes. Child
 refreshes are revalidated for scope changes, and case-insensitive name conflicts

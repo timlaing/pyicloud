@@ -942,12 +942,7 @@ class MailService(BaseService):
         """
         if confirm is not True:
             raise ValueError("Permanent message deletion requires confirm=True")
-        if not isinstance(message, MailMessage):
-            raise ValueError("A folder-bound MailMessage is required")
-        if message.folder.name != "Deleted Messages":
-            raise ValueError("Permanent deletion requires the discovered Trash mailbox")
-        account_id = self._write_identity(message)
-        self._move_folder(message.folder)
+        account_id = self.check_delete_permanently(message)
         response = self._submit_update(
             MessageDeleteRequest(destroy=(message.id,)),
             MessageDeleteResponse,
@@ -966,6 +961,22 @@ class MailService(BaseService):
         return MailMessageDeletion(
             message_id=message.id, folder_id=message.folder.id, uid=message.uid
         )
+
+    def check_delete_permanently(self, message: MailMessage) -> str:
+        """Read-only exact Trash-message preflight; return validated account identity.
+
+        This grants no approval and submits no destruction request. Identity and
+        capability observations are not atomic with a later deletion; the mutation
+        method repeats this check before one submission. No bodies or attachments
+        are read or inferred, and no scan can turn this into bulk deletion.
+        """
+        if not isinstance(message, MailMessage):
+            raise ValueError("A folder-bound MailMessage is required")
+        if message.folder.name != "Deleted Messages":
+            raise ValueError("Permanent deletion requires the discovered Trash mailbox")
+        account_id = self._write_identity(message)
+        self._move_folder(message.folder)
+        return account_id
 
     def _move_folder(self, folder: MailFolder) -> None:
         """Require an exact current namespace and known ordinary-folder semantics."""

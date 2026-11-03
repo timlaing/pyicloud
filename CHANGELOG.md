@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Expose verified read-only preflight for one current Mail Trash message before permanent deletion, without body reads, mutation, confirmation or bulk fallback; existing destruction payload and verification remain unchanged.
+
 - Add locally qualified read-only staged-upload previews binding exact name/size/digest to private destination revision and both service routes, with metadata-only stage descriptions and owner cleanup; execution remains unavailable pending verified upload transport/post-state contracts.
 
 - Add bounded in-memory upload staging with strict leaf names, exact ordered Base64 chunks, declared-size reservations, SHA-256 verification and immutable single-use sealed bytes; no upload tools/endpoints or caller paths/URLs are enabled.

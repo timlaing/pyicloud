@@ -1232,6 +1232,17 @@ default representations where practical, but remain accessible through explicit
 attributes and serialization. Treat them as private mail data. Raw captures and
 authentication cookies must never be committed to a repository.
 
+## Read-only single-message deletion preflight
+
+`MailService.check_delete_permanently(message)` accepts a folder-bound current
+message already in the canonical `Deleted Messages` mailbox. It checks exact ID/UID,
+mailbox identity/UID validity and selectable-folder capabilities using metadata only,
+then returns the validated account identity for internal binding. It does not read
+bodies/attachments, submit destruction, grant approval or scan for bulk targets.
+`delete_permanently()` repeats this same preflight before its unchanged single raw
+request and typed acknowledgement/UID-and-ID absence verification. Preflight is
+not atomic with destruction. No MCP Mail deletion action is enabled by this API.
+
 ## Read-only saved draft preflight
 
 `MailService.check_draft(draft)` accepts a saved typed `MailDraft` and returns fresh
