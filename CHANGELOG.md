@@ -16,6 +16,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Qualify installed MCP Mail draft receipts and replay rejection for both verified and uncertain synthetic saves, with networking blocked and no sending/upload capabilities.
+
 - Add separately opted-in MCP Mail draft creation with exact operator receipts, fresh enabled-sender and Drafts identity bindings, and fail-closed body verification; sending and attachments remain unavailable.
 
 - Add synthetic qualification of exact Mail draft body verification for future MCP write integration; Mail mutation tools remain disabled.

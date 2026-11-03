@@ -162,11 +162,15 @@ async def check_configured_mcp(
                     await exercise_content_mcp(session)
                 if writes:
                     await exercise_write_gate_mcp(session, approval_directory)
+                    await exercise_mail_write_gate_mcp(session, approval_directory)
         diagnostics.seek(0)
         output = diagnostics.read()
         assert output.count("MCP_SYNTHETIC_CLOSED") == 1
         assert "OMIT_ME" not in output
         assert output.count("MCP_SYNTHETIC_MUTATED") == (1 if writes else 0)
+        assert output.count("MCP_SYNTHETIC_MAIL_SAVED") == (2 if writes else 0)
+        assert "recipient@example.invalid" not in output
+        assert "Approved &lt;text&gt;" not in output
 
 
 async def exercise_write_gate_mcp(session: Any, directory: str) -> None:
@@ -211,6 +215,66 @@ async def exercise_write_gate_mcp(session: Any, directory: str) -> None:
     replay = await session.call_tool("icloud_write_execute", {"request_id": request_id})
     assert replay.structured_content is not None
     assert replay.structured_content["error"] == "unknown_or_consumed_preview"
+
+
+async def exercise_mail_write_gate_mcp(session: Any, directory: str) -> None:
+    """Synthetic successful and uncertain saves each dispatch once, never replay."""
+    from pyicloud.mcp.approval_channel import ApprovalMailbox
+
+    class SyntheticTerminal(io.StringIO):
+        """Only simulated test input, not a real operator authorization."""
+
+        def isatty(self) -> bool:
+            """Exercise the terminal-only decision path in this isolated fixture."""
+            return True
+
+    for subject, expected_error in (
+        ("Approved", None),
+        ("Uncertain", "mutation_uncertain"),
+    ):
+        payload = {
+            "sender": "synthetic@example.invalid",
+            "subject": subject,
+            "text": "Approved <text>\nsecond line",
+            "to": ["recipient@example.invalid"],
+            "cc": [],
+            "bcc": [],
+        }
+        prepared = await session.call_tool(
+            "icloud_write_preview", {"action": "mail.create_draft", "payload": payload}
+        )
+        assert prepared.structured_content is not None
+        assert prepared.structured_content["error"] is None
+        preview = prepared.structured_content["preview"]
+        assert preview["action"] == "mail.create_draft"
+        assert preview["payload"] == payload
+        request_id = preview["request_id"]
+        denied = await session.call_tool(
+            "icloud_write_execute", {"request_id": request_id}
+        )
+        assert denied.structured_content is not None
+        assert denied.structured_content["error"] == "approval_record_unavailable"
+        with ApprovalMailbox(directory) as operator:
+            operator.decide(
+                request_id, SyntheticTerminal("APPROVE " + request_id), io.StringIO()
+            )
+        result = await session.call_tool(
+            "icloud_write_execute", {"request_id": request_id}
+        )
+        assert result.structured_content is not None
+        assert result.structured_content["error"] == expected_error
+        if expected_error is None:
+            assert result.structured_content["result"] == {
+                "action": "mail.create_draft",
+                "id": "draft-101",
+            }
+        else:
+            assert result.structured_content["result"] is None
+        replay = await session.call_tool(
+            "icloud_write_execute", {"request_id": request_id}
+        )
+        assert replay.structured_content is not None
+        assert replay.structured_content["error"] == "unknown_or_consumed_preview"
 
 
 async def exercise_configured_mcp(session: Any, *, challenge: bool) -> None:

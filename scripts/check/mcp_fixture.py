@@ -19,7 +19,15 @@ from requests import Response
 
 from pyicloud.mcp.context import SUPPORTED_SERVICES, ServerConfig, SessionOwner
 from pyicloud.mcp.server import build_server
-from pyicloud.services.mail.models import MailFolder, MailMessage, MailSearchHit
+from pyicloud.services.mail.models import (
+    MailBody,
+    MailBodyPart,
+    MailDraft,
+    MailFolder,
+    MailMessage,
+    MailSearchHit,
+    MailSender,
+)
 from pyicloud.services.reminders.models import Reminder, RemindersList
 
 
@@ -199,10 +207,50 @@ class SyntheticNotes:
 
 
 class SyntheticMail:
-    """Typed mailbox/metadata APIs only, deliberately without body methods."""
+    """Typed synthetic reads and draft saves; no sending or upload methods."""
 
     def __init__(self) -> None:
         self.folder = MailFolder(identifier="F", name="Inbox", uidValidity=1)
+        self.service_root = "https://gateway.example.test"
+        self.drafts = MailFolder(identifier="D", name="Drafts", uidValidity=2)
+        self.sender = MailSender(address="synthetic@example.invalid")
+        self.saved: list[MailDraft] = []
+
+    def draft_folder(self) -> MailFolder:
+        """Return only the synthetic canonical selectable mailbox."""
+        return self.drafts
+
+    def senders(self) -> list[MailSender]:
+        """Explicit discovered identity, never inferred from login."""
+        return [self.sender]
+
+    def create_draft(
+        self,
+        *,
+        sender: str,
+        subject: str,
+        text: str,
+        to: tuple[str, ...],
+        cc: tuple[str, ...],
+        bcc: tuple[str, ...],
+    ) -> MailDraft:
+        """Count synthetic dispatches without logging sender, recipients or body."""
+        assert sender == self.sender.address
+        assert subject in {"Approved", "Uncertain"}
+        assert text == "Approved <text>\nsecond line"
+        assert (to, cc, bcc) == (("recipient@example.invalid",), (), ())
+        uid = 101 + len(self.saved)
+        message = MailMessage.model_validate({
+            "identifier": f"draft-{uid}",
+            "uid": uid,
+            "mboxRef": {"id": "D"},
+            "folder": self.drafts,
+            "subject": subject,
+        })
+        draft = MailDraft(message=message, sender=self.sender, to=to, cc=cc, bcc=bcc)
+        self.saved.append(draft)
+        print("MCP_SYNTHETIC_MAIL_SAVED", file=sys.stderr, flush=True)
+        return draft
 
     def folders(self) -> list[MailFolder]:
         """Expose the one explicitly selectable mailbox."""
@@ -242,8 +290,27 @@ class SyntheticMail:
         assert identifier == "M"
         return cast(MailMessage, self.messages(folder, limit=50).messages[0])
 
-    def body(self, message: MailMessage) -> SimpleNamespace:
+    def body(self, message: MailMessage) -> SimpleNamespace | MailBody:
         """Headers remain private and HTML is returned only as untrusted data."""
+        if message.folder == self.drafts:
+            assert any(draft.message == message for draft in self.saved)
+            # Literal expected wire content, not the verifier under test.
+            content = "<div>Approved &lt;text&gt;<br>second line</div>"
+            if message.subject == "Uncertain":
+                content = "<div>Different content</div>"
+            return MailBody(
+                guid=f"message:Drafts/{message.uid}",
+                longHeader=(
+                    "From: synthetic@example.invalid\r\n"
+                    "To: recipient@example.invalid\r\n"
+                ),
+                contentType="text/html",
+                parts=[
+                    MailBodyPart(
+                        guid=f"messagepart:Drafts/{message.uid}-1", content=content
+                    )
+                ],
+            )
         assert message.folder is self.folder
         return SimpleNamespace(
             content_type="text/plain",
@@ -257,7 +324,7 @@ class SyntheticClient:
 
     def __init__(self, challenge: bool) -> None:
         self.challenge = challenge
-        self.params = {"dsid": "SYNTHETIC_ACCOUNT"}
+        self.params = {"dsid": "12345"}
         self.calendar = SyntheticCalendar()
         self.reminders = SyntheticReminders()
         self.contacts = SimpleNamespace(
@@ -318,7 +385,9 @@ def main() -> None:
         session_dir="not-read",
         services=SUPPORTED_SERVICES,
         content_services=("drive", "notes", "photos", "mail") if args.content else (),
-        write_actions=("reminders.create",) if args.approval_dir else (),
+        write_actions=("reminders.create", "mail.create_draft")
+        if args.approval_dir
+        else (),
         approval_dir=args.approval_dir,
     )
     owner = SessionOwner(config, lambda: SyntheticClient(args.challenge))

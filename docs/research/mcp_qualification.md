@@ -90,3 +90,14 @@ performed. The latest full offline suite is 4,820 tests plus 69 subtests, 98.34%
 combined coverage, with strict per-file coverage and all hooks passing. Remaining
 writers and unverified API gaps are still unfinished; this is not final release
 qualification or a claim of hardware-backed operator presence.
+
+The installed stdio fixture also exercises `mail.create_draft` through the shared
+private receipt channel. Both a successful exact-body case and a deliberately
+different post-save body first deny execution without a receipt; each simulated
+terminal approval dispatches exactly one fake save. The different-body result is
+`mutation_uncertain`, returns no success identity, and cannot replay its consumed
+approval. Independent literal escaped HTML in the synthetic facade checks the
+body conversion rather than reusing the verifier to generate expectations. Stderr
+markers count two total Mail saves and one cleanup, with recipient/body data absent.
+The fixture has no sending or upload methods, and outbound sockets remain blocked.
+This is installed protocol qualification, not live Apple Mail wire validation.
