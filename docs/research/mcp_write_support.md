@@ -16,7 +16,8 @@ This authorizes code and synthetic tests, not actual account mutations.
 | Mail      | Draft creation/edit/discard, sender discovery, folders, moves, send, permanent deletion | Retain verified typed mailbox/draft handles and uncertain-write reconciliation.                                                     |
 
 No unsupported operation may claim success or guess an Apple endpoint. Missing
-Contacts/Notes/Calendar-update contracts are explicit blockers to those adapters.
+Contacts/Notes writes and Calendar updates are outside MCP scope because the existing
+API/CLI does not provide those writers. They are not MCP completion blockers.
 
 See [remaining contract evidence](mcp_contract_evidence.md) for the specific local
 evidence, missing identity/revision guarantees and transport work for pending writers.

@@ -4,6 +4,17 @@ This is an implementation acceptance checklist, not permission for account acces
 or live writes. All pending operations remain disabled. Synthetic fixtures can test
 an established contract; invented success envelopes cannot establish one.
 
+MCP write scope is limited to existing API/CLI operations. Contacts writes, Notes
+writes and Calendar updates are excluded, not completion requirements. Their notes
+below are background only; do not add library writers to satisfy MCP.
+
+`pyicloud/mcp/upload_transport.py` now provides an internal path-free bounded-byte
+transfer foundation: exact trusted HTTPS hosts, no URL credentials/redirects,
+isolated credential-free sessions with environment inheritance disabled, raw service
+registration with no authentication replay, bounded streamed JSON and response cleanup.
+It is not wired to a runtime tool. Transfer hosts still require independently reviewed
+policy; never derive the allowlist from an untrusted reservation response.
+
 ## Drive upload
 
 Local evidence: `pyicloud/services/drive.py` reserves a document ID, transfers to a
@@ -42,6 +53,8 @@ Required work/evidence:
 
 Typed registration is not independent indexing proof. Upload status alone is not
 proof that the exact approved asset is usable in the approved library.
+Existing `tests/services/test_photos.py` covers exact returned master/asset lookup in
+the selected zone and bounded indexing retries; reuse that correlation contract.
 
 ## Contacts writes
 
@@ -78,6 +91,8 @@ matching is not identity proof.
 Required for flags: verified flag encoding and authoritative per-message state
 verification, including unset flags and concurrent changes. Absence from paginated
 SEEN/FLAGGED scans is not exact flag-state proof.
+`tests/test_mail_flags.py` already establishes named `seen`/`flagged` set/clear patches
+and exact typed acknowledgement; no numeric bit inference is needed to dispatch.
 
 ## Drive folder creation and recovery
 
@@ -87,6 +102,8 @@ independent exact lookup, parent membership and collision behaviour.
 Recovery requires exact restored identity, destination parent, revision and namespace
 verification, plus missing-parent and name-collision/overwrite behaviour. A successful
 `putBackItemsFromTrash` response alone cannot bind the approved destination.
+`DRIVE_TRASH_RECOVER_WORKING` in `tests/const/const_drive.py` already supplies restored
+ID, parent, zone and etag; independent post-state/conflict qualification remains.
 
 ## Safe evidence submission
 

@@ -32,6 +32,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add an internal bounded upload-transport foundation with exact trusted HTTPS hosts, isolated credential-free byte transfers, redirect refusal, raw no-retry registration and bounded response cleanup. Runtime uploads remain disabled pending adapter qualification.
+
 - Qualify elevated single-message Mail Trash deletion through network-blocked installed MCP stdio tests, including independent UID/ID absence, uncertain outcomes and retired-handle/replay rejection.
 
 - Expose single-message Mail Trash permanent deletion through separately selected elevated MCP approval, with metadata-bound previews, handle retirement and no bulk or automatic retry path.
