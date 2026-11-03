@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 from dataclasses import dataclass, field
 import hashlib
 import re
@@ -137,7 +136,7 @@ class UploadStaging:
             raise WriteDenied("invalid_upload_chunk")
         try:
             data = base64.b64decode(encoded, validate=True)
-        except (ValueError, binascii.Error):
+        except ValueError:
             raise WriteDenied("invalid_upload_chunk") from None
         if (
             not data

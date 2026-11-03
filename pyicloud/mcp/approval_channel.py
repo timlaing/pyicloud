@@ -17,6 +17,8 @@ from typing import Any, TextIO
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 
 MAX_RECORD_BYTES = 262144
+PENDING_SUFFIX = ".pending.json"
+APPROVED_SUFFIX = ".approved.json"
 
 
 class ApprovalMailbox:
@@ -103,7 +105,7 @@ class ApprovalMailbox:
             raise WriteDenied("approval_record_too_large")
         try:
             record = json.loads(data)
-        except (ValueError, UnicodeError):
+        except ValueError:
             raise WriteDenied("invalid_approval_record") from None
         if not isinstance(record, dict) or record.get("request_id") != request_id:
             raise WriteDenied("invalid_approval_record")
@@ -113,7 +115,7 @@ class ApprovalMailbox:
         """Persist only the exact operator-visible preview, never private bindings."""
         self._write(
             preview.request_id,
-            ".pending.json",
+            PENDING_SUFFIX,
             {
                 "request_id": preview.request_id,
                 "action": preview.action,
@@ -128,7 +130,7 @@ class ApprovalMailbox:
         """Require a separate interactive terminal; no --yes or model boolean."""
         if not source.isatty():
             raise WriteDenied("operator_terminal_required")
-        record = self._read(request_id, ".pending.json")
+        record = self._read(request_id, PENDING_SUFFIX)
         digest = record.get("digest")
         if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
             raise WriteDenied("invalid_approval_record")
@@ -146,22 +148,22 @@ class ApprovalMailbox:
             raise WriteDenied("operator_declined")
         self._write(
             request_id,
-            ".approved.json",
+            APPROVED_SUFFIX,
             {"request_id": request_id, "digest": digest, "risk": risk},
         )
 
     def accept(self, request_id: str, ledger: ApprovalLedger) -> None:
         """Consume a private receipt before forwarding the exact decision."""
-        record = self._read(request_id, ".approved.json")
+        record = self._read(request_id, APPROVED_SUFFIX)
         digest = record.get("digest")
         if not isinstance(digest, str):
             raise WriteDenied("invalid_approval_record")
         risk = record.get("risk", "standard")
         if not isinstance(risk, str) or risk not in {"standard", "high"}:
             raise WriteDenied("invalid_approval_record")
-        os.unlink(self._name(request_id, ".approved.json"), dir_fd=self._fd)
+        os.unlink(self._name(request_id, APPROVED_SUFFIX), dir_fd=self._fd)
         with suppress(FileNotFoundError):
-            os.unlink(self._name(request_id, ".pending.json"), dir_fd=self._fd)
+            os.unlink(self._name(request_id, PENDING_SUFFIX), dir_fd=self._fd)
         if risk == "high":
             ledger.approve_from_operator(request_id, digest, high_risk=True)
         else:

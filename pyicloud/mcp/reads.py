@@ -74,9 +74,9 @@ class ReadTools:
     def __init__(self, owner: SessionOwner) -> None:
         self.owner = owner
         self._routes: dict[str, tuple[RemindersList, float]] = {}
-        self.availability: dict[str, Literal["unknown", "available", "unavailable"]] = {
-            service: "unknown" for service in owner.config.services
-        }
+        self.availability: dict[str, Literal["unknown", "available", "unavailable"]] = (
+            dict.fromkeys(owner.config.services, "unknown")
+        )
 
     def resolve_list(self, handle: str) -> RemindersList:
         """Resolve one existing route without accepting a caller-supplied owner/zone."""
