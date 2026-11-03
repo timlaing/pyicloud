@@ -76,8 +76,10 @@ alone are uncertain and cannot replay. Reads and mutation are not one atomic sna
 Synthetic tests cover stale tags/master/zone/member/route/capability, receipt denial,
 one verified add, uncertain no-replay and disabled/untyped/missing-revision cases.
 Gateway/schema integration and synthetic missing-destination/receipt/verified-add/
-replay tests are complete. Installed relation-specific qualification remains pending;
-no live access was used.
+replay tests are complete. Installed relation-specific qualification now covers one
+verified membership-changing add, one acknowledgement-only uncertain add, and an
+approved already-present no-op. All receipts reject replay, with exactly two fake
+mutations and no live access.
 
 Verified Photos album construction uses `ListTypeEnum.CONTAINER` and exactly
 `parent_filter(album.id)` for container-scoped lookup. New `contains_photo_scoped`

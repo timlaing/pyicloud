@@ -35,6 +35,7 @@ from pyicloud.services.photos.constants import (
     ListTypeEnum,
     ObjectTypeEnum,
 )
+from pyicloud.services.photos.queries import parent_filter
 from pyicloud.services.photos.service import (
     AlbumContainer,
     PhotoAlbum,
@@ -377,18 +378,26 @@ class SyntheticNamedAlbum(PhotoAlbum):
     """Fresh typed album snapshot; no CloudKit method or endpoint is called."""
 
     def __init__(
-        self, library: SyntheticPrivateLibrary, pending_name: str | None = None
+        self,
+        library: SyntheticPrivateLibrary,
+        pending_name: str | None = None,
+        *,
+        identifier: str = "ALBUM",
+        revision: str | None = None,
     ) -> None:
         self.fake_library = library
         super().__init__(
             cast(Any, library),
             name=pending_name or library.album_name,
-            record_id="ALBUM",
+            record_id=identifier,
             obj_type=ObjectTypeEnum.CONTAINER,
-            list_type=ListTypeEnum.DEFAULT,
+            list_type=ListTypeEnum.CONTAINER,
             direction=DirectionEnum.ASCENDING,
             zone_id=library.zone_id,
-            record=PhotoAlbumRecordState(record_change_tag=library.album_tag),
+            query_filters=[parent_filter(identifier)],
+            record=PhotoAlbumRecordState(
+                record_change_tag=revision or library.album_tag
+            ),
         )
 
     def __iter__(self) -> Generator[PhotoAsset]:
@@ -406,6 +415,29 @@ class SyntheticNamedAlbum(PhotoAlbum):
         self._name = value
         self.fake_library.pending_name = value
         print("MCP_SYNTHETIC_ALBUM_RENAMED", file=sys.stderr, flush=True)
+
+    def can_add_photo_correlated(self, photo: PhotoAsset) -> bool:
+        """Synthetic capability only; real typed transport guards are unit qualified."""
+        return (
+            photo.id == "P"
+            and photo.master_id == "M"
+            and photo.asset_record.zoneID is not None
+            and photo.asset_record.zoneID.zoneName == self.zone_id["zoneName"]
+        )
+
+    def contains_photo_scoped(self, photo: PhotoAsset) -> bool:
+        """Fresh fake authoritative membership, never mutation acknowledgement data."""
+        assert self.can_add_photo_correlated(photo)
+        return (self.id, photo.id) in self.fake_library.relations
+
+    def add_photo_correlated(self, photo: PhotoAsset) -> bool:
+        """Only the first fake relation dispatch changes authoritative membership."""
+        assert self.can_add_photo_correlated(photo)
+        self.fake_library.relation_dispatches += 1
+        if self.fake_library.relation_dispatches == 1:
+            self.fake_library.relations.add((self.id, photo.id))
+        print("MCP_SYNTHETIC_RELATION_ADDED", file=sys.stderr, flush=True)
+        return True
 
 
 class SyntheticPrivateLibrary(PhotoLibrary):
@@ -427,6 +459,8 @@ class SyntheticPrivateLibrary(PhotoLibrary):
         self.pending_name: str | None = None
         self.created_records: list[tuple[str, str]] = []
         self.pending_created: list[PhotoAlbum] = []
+        self.relations: set[tuple[str, str]] = set()
+        self.relation_dispatches = 0
 
     @property
     def all(self) -> PhotoAlbum:
@@ -440,16 +474,7 @@ class SyntheticPrivateLibrary(PhotoLibrary):
 
     def _created_snapshot(self, name: str, identifier: str) -> PhotoAlbum:
         """Construct a new typed snapshot, not a mutable pending cache reference."""
-        return PhotoAlbum(
-            self,
-            name=name,
-            record_id=identifier,
-            obj_type=ObjectTypeEnum.CONTAINER,
-            list_type=ListTypeEnum.DEFAULT,
-            direction=DirectionEnum.ASCENDING,
-            zone_id=self.zone_id,
-            record=PhotoAlbumRecordState(record_change_tag="C1"),
-        )
+        return SyntheticNamedAlbum(self, name, identifier=identifier, revision="C1")
 
     def create_album_correlated(self, name: str) -> PhotoAlbum:
         """Second fake creation only populates pending local acknowledgement state."""
@@ -735,6 +760,7 @@ def main() -> None:
             "photos.set_favorite",
             "photos.rename_album",
             "photos.create_album",
+            "photos.add_to_album",
             "drive.rename",
             "drive.trash_file",
             "drive.move_file",

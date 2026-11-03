@@ -157,3 +157,11 @@ approval and reject replay. Only independent new-ID server visibility returns
 success; pending-only state is uncertain. Exactly two creation markers and one cleanup
 are required. Real typed transport correlation is qualified separately by library
 tests; this fixture performs no live Photos, REST, upload or CloudKit requests.
+
+Installed Photos add-to-album uses separate authoritative fake relation state and
+fresh typed album/asset snapshots. One add changes membership, a second only
+acknowledges, and a third approved already-present request is a no-op. All first
+deny without private receipts and reject replay afterward; only two mutation markers
+and one cleanup are allowed. Unverified membership returns uncertainty with no
+success result. Real typed acknowledgement/filter guards are qualified separately
+by library tests; the protocol fixture performs no live CloudKit requests or uploads.

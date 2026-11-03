@@ -265,8 +265,8 @@ before one correlated add; fresh pair and scoped membership reads must verify th
 exact asset is present under the same route. An already-present asset still requires
 approval for a no-op. Reads and writes are not one atomic snapshot. Unverified
 acknowledgements are uncertain and cannot replay approval; never blindly retry.
-Gateway tests are synthetic; relation-specific installed stdio qualification is
-pending and no live Apple validation is claimed.
+Gateway and relation-specific installed stdio tests use network-blocked synthetic
+state; no live Apple validation is claimed.
 
 ## Opt-in typed-only private Photos album creation
 
