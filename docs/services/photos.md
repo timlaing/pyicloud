@@ -300,6 +300,13 @@ except PyiCloudException as err:
 
 ## Album mutation identity metadata
 
+`PhotoAlbum.can_add_photo_correlated(photo)` checks observed typed private same-zone
+support without network requests or approval. `contains_photo_scoped(photo)` performs
+a read only when the album has the verified container list type and exact parent
+filter, with no extra predicates that could hide membership. Returned assets must
+match asset/master/zone identity. Presence or absence is a fresh observation, not an
+atomic snapshot with a later write. No MCP relation action is enabled by these APIs.
+
 `PhotoAlbum.add_photo_correlated(photo)` adds one relation only through a typed
 private same-zone route. The returned acknowledgement must match the exact relation
 ID, record type, asset item ID and album container ID. It refuses nested/shared or

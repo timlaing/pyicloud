@@ -65,6 +65,17 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Verified Photos album construction uses `ListTypeEnum.CONTAINER` and exactly
+`parent_filter(album.id)` for container-scoped lookup. New `contains_photo_scoped`
+requires that precise shape and private typed same-zone context before delegating to
+the existing exact-ID lookup; extra/unscoped/foreign parent filters fail before reads.
+Returned asset/master/zone identity must match. A non-mutating
+`can_add_photo_correlated` guard now exposes observed support before operator preview
+without duplicating private fields or probing transport. Synthetic tests prove
+present/absent observations, foreign identity rejection, scope rejection and no
+mutation. These observations are not atomic with a write; MCP relation adapter and
+its exact snapshot/receipt/post-write proof qualification remain pending.
+
 Photos relation investigation confirms existing `add_photo` submits a deterministic
 `CPLContainerRelation` ID (`item-IN-album`) with explicit item/container IDs, but its
 generic boolean acknowledgement is insufficient for an exact MCP outcome. New public

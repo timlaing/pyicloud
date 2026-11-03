@@ -3,13 +3,15 @@
 # pylint: disable=protected-access
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from pyicloud.common.cloudkit import CKModifyResponse, CKRecord
 from pyicloud.services.photos.client import PhotosCloudKitClient
+from pyicloud.services.photos.constants import ListTypeEnum
 from pyicloud.services.photos.exceptions import PhotosServiceException
+from pyicloud.services.photos.queries import parent_filter
 from pyicloud.services.photos.service import PhotoAsset
 from tests.test_mcp_photo_album_writes import make_album
 
@@ -99,4 +101,69 @@ def test_relation_unsupported_routes_never_dispatch(case: str) -> None:
         album._parent_id = "PARENT"
     with pytest.raises(PhotosServiceException, match="unavailable"):
         album.add_photo_correlated(photo)
+    client.modify.assert_not_called()
+
+
+def test_relation_capability_check_has_no_transport_side_effects() -> None:
+    """Capability observations do not grant approval or send requests."""
+    album, photo, client = setup_relation()
+    assert album.can_add_photo_correlated(photo)
+    album._library.scope = "shared-library"
+    assert not album.can_add_photo_correlated(photo)
+    client.modify.assert_not_called()
+    client.query.assert_not_called()
+
+
+@pytest.mark.parametrize("case", ["present", "absent", "wrong_master", "untyped"])
+def test_scoped_membership_uses_exact_asset_identity(case: str) -> None:
+    """Observed presence/absence must come from the exact container lookup."""
+    album, photo, client = setup_relation()
+    album._list_type = ListTypeEnum.CONTAINER
+    album._extra_filters = [parent_filter(album.id)]
+    found: Any = photo
+    if case == "absent":
+        found = None
+    elif case == "untyped":
+        found = object()
+    elif case == "wrong_master":
+        master = CKRecord.model_validate({
+            "recordName": "OTHER",
+            "recordType": "CPLMaster",
+            "fields": {},
+        })
+        found = PhotoAsset(album.service, master, photo.asset_record)
+    with patch.object(album, "get", return_value=found) as lookup:
+        if case in {"present", "absent"}:
+            assert album.contains_photo_scoped(photo) is (case == "present")
+        else:
+            with pytest.raises(PhotosServiceException, match="different asset"):
+                album.contains_photo_scoped(photo)
+        lookup.assert_called_once_with(photo.id)
+    client.modify.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "case", ["list_type", "no_filter", "wrong_parent", "extra_filter", "shared"]
+)
+def test_unscoped_membership_is_refused_before_lookup(case: str) -> None:
+    """Extra predicates cannot make a false absence look like relation state."""
+    album, photo, client = setup_relation()
+    album._list_type = ListTypeEnum.CONTAINER
+    album._extra_filters = [parent_filter(album.id)]
+    if case == "list_type":
+        album._list_type = ListTypeEnum.DEFAULT
+    elif case == "no_filter":
+        album._extra_filters = []
+    elif case == "wrong_parent":
+        album._extra_filters = [parent_filter("OTHER")]
+    elif case == "extra_filter":
+        album._extra_filters.append(parent_filter("OTHER"))
+    else:
+        album._library.scope = "shared-library"
+    with (
+        patch.object(album, "get") as lookup,
+        pytest.raises(PhotosServiceException, match="unavailable"),
+    ):
+        album.contains_photo_scoped(photo)
+    lookup.assert_not_called()
     client.modify.assert_not_called()

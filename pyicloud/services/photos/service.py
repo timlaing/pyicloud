@@ -1805,22 +1805,53 @@ class PhotoAlbum(BasePhotoAlbum):
             success = _check_modify_response(payload.get("records", []))
         return success
 
+    def can_add_photo_correlated(self, photo: PhotoAsset) -> bool:
+        """Inspect typed private relation support without probing or mutating."""
+        return (
+            isinstance(photo, PhotoAsset)
+            and self._obj_type == ObjectTypeEnum.CONTAINER
+            and self._parent_id is None
+            and self._library.scope == "private"
+            and not self._zone_id.get("ownerRecordName")
+            and record_zone(photo.asset_record) == self._zone_id
+            and isinstance(self._client, PhotosCloudKitClient)
+            and _can_use_typed_cloudkit(self.service.session)
+        )
+
+    def contains_photo_scoped(self, photo: PhotoAsset) -> bool:
+        """Query exact album membership only with its verified container filter.
+
+        This is a fresh observation, not an atomic snapshot with any mutation.
+        Unknown/extra filters and mismatched returned identities fail closed.
+        """
+        if (
+            not self.can_add_photo_correlated(photo)
+            or self._list_type != ListTypeEnum.CONTAINER
+            or self._extra_filters != [parent_filter(self.id)]
+        ):
+            raise PhotosServiceException(
+                "Scoped private album membership is unavailable"
+            )
+        found = self.get(photo.id)
+        if found is None:
+            return False
+        if not isinstance(found, PhotoAsset) or (
+            found.id,
+            found.master_id,
+            record_zone(found.asset_record),
+        ) != (photo.id, photo.master_id, self._zone_id):
+            raise PhotosServiceException(
+                "Album membership returned a different asset identity"
+            )
+        return True
+
     def add_photo_correlated(self, photo: PhotoAsset) -> bool:
         """Add one private relation with exact typed acknowledgement correlation.
 
         This does not prove independently observed album membership. There is no
         REST fallback or mutation retry; ambiguous outcomes require fresh reads.
         """
-        if (
-            not isinstance(photo, PhotoAsset)
-            or self._obj_type != ObjectTypeEnum.CONTAINER
-            or self._parent_id is not None
-            or self._library.scope != "private"
-            or self._zone_id.get("ownerRecordName")
-            or record_zone(photo.asset_record) != self._zone_id
-            or not isinstance(self._client, PhotosCloudKitClient)
-            or not _can_use_typed_cloudkit(self.service.session)
-        ):
+        if not self.can_add_photo_correlated(photo) or self._client is None:
             raise PhotosServiceException(
                 "Correlated private album relation is unavailable"
             )
