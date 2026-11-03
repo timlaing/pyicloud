@@ -65,6 +65,18 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+Approval primitives now derive risk from fixed action policy rather than payload
+fields. Existing classified actions retain standard behavior; new/unclassified
+actions fail closed as high risk. The ledger requires a separate `high_risk_actions`
+constructor selection (a subset of allowed actions), binds the tier into the HMAC
+fingerprint, and refuses ordinary operator approval for elevated previews. Private
+mailbox records carry the tier and high-risk decisions require
+`APPROVE HIGH-RISK <request_id>` in a separate terminal. Downgraded displayed/receipt
+metadata cannot downgrade the ledger-bound tier. No model-callable approval flag is
+added, and no sending/permanent-deletion/upload runtime action is enabled by this
+foundation. Runtime startup risk selection, action-specific risk audit and each
+verified high-risk adapter still need qualification before enablement.
+
 `draft_edits.py` is selected by the separately opted-in runtime `mail.edit_draft` action. Only opaque
 server-created saved drafts with Mail content consent reach exact old-body/context
 revalidation. Proposed subject/text/to/cc/bcc fully replace those fields; sender,

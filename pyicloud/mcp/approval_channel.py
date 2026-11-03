@@ -119,6 +119,7 @@ class ApprovalMailbox:
                 "target": preview.target,
                 "digest": preview.digest,
                 "payload": preview.payload,
+                "risk": preview.risk,
             },
         )
 
@@ -130,16 +131,22 @@ class ApprovalMailbox:
         digest = record.get("digest")
         if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
             raise WriteDenied("invalid_approval_record")
+        risk = record.get("risk", "standard")
+        if not isinstance(risk, str) or risk not in {"standard", "high"}:
+            raise WriteDenied("invalid_approval_record")
         # JSON escapes terminal controls and never renders embedded HTML/instructions.
         display.write(
             json.dumps(record, ensure_ascii=True, sort_keys=True, indent=2) + "\n"
         )
-        display.write(f"Type APPROVE {request_id} to authorize this exact mutation: ")
+        phrase = ("APPROVE HIGH-RISK " if risk == "high" else "APPROVE ") + request_id
+        display.write(f"Type {phrase} to authorize this exact mutation: ")
         display.flush()
-        if source.readline().strip() != "APPROVE " + request_id:
+        if source.readline().strip() != phrase:
             raise WriteDenied("operator_declined")
         self._write(
-            request_id, ".approved.json", {"request_id": request_id, "digest": digest}
+            request_id,
+            ".approved.json",
+            {"request_id": request_id, "digest": digest, "risk": risk},
         )
 
     def accept(self, request_id: str, ledger: ApprovalLedger) -> None:
@@ -148,8 +155,14 @@ class ApprovalMailbox:
         digest = record.get("digest")
         if not isinstance(digest, str):
             raise WriteDenied("invalid_approval_record")
+        risk = record.get("risk", "standard")
+        if not isinstance(risk, str) or risk not in {"standard", "high"}:
+            raise WriteDenied("invalid_approval_record")
         os.unlink(self._name(request_id, ".approved.json"), dir_fd=self._fd)
-        ledger.approve_from_operator(request_id, digest)
+        if risk == "high":
+            ledger.approve_from_operator(request_id, digest, high_risk=True)
+        else:
+            ledger.approve_from_operator(request_id, digest)
 
 
 def approve_interactively(directory: str, request_id: str) -> None:

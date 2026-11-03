@@ -145,6 +145,7 @@ class WriteGateway:
                     "target": preview.target,
                     "digest": preview.digest,
                     "payload": preview.payload,
+                    "risk": preview.risk,
                     "approval": (
                         "Use the separate operator terminal; "
                         "no MCP confirmation grants approval."

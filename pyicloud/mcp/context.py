@@ -19,6 +19,8 @@ from urllib3.exceptions import ReadTimeoutError
 
 from pyicloud import PyiCloudService
 
+from .action_policy import STANDARD_WRITE_ACTIONS
+
 T = TypeVar("T")
 ServiceName = Literal[
     "calendar", "reminders", "contacts", "drive", "notes", "photos", "mail"
@@ -32,24 +34,7 @@ SUPPORTED_SERVICES: tuple[ServiceName, ...] = (
     "photos",
     "mail",
 )
-SUPPORTED_WRITE_ACTIONS = (
-    "reminders.create",
-    "reminders.update",
-    "reminders.delete",
-    "drive.rename",
-    "drive.trash_file",
-    "drive.move_file",
-    "calendar.create_event",
-    "calendar.delete_event",
-    "mail.create_draft",
-    "mail.edit_draft",
-    "mail.create_folder",
-    "mail.rename_folder",
-    "photos.set_favorite",
-    "photos.rename_album",
-    "photos.create_album",
-    "photos.add_to_album",
-)
+SUPPORTED_WRITE_ACTIONS = STANDARD_WRITE_ACTIONS
 
 
 class ToolFailure(Exception):

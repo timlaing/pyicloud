@@ -12,7 +12,9 @@ import hmac
 import json
 from secrets import token_bytes, token_urlsafe
 import time
-from typing import Any, cast
+from typing import Any, Literal, cast
+
+from .action_policy import is_high_risk
 
 
 class WriteDenied(Exception):
@@ -29,6 +31,7 @@ class MutationPreview:
     digest: str
     expires_at: float
     _payload_json: str
+    risk: Literal["standard", "high"] = "standard"
 
     @property
     def payload(self) -> dict[str, Any]:
@@ -56,10 +59,16 @@ class ApprovalLedger:
         *,
         ttl: float = 300,
         capacity: int = 64,
+        high_risk_actions: frozenset[str] = frozenset(),
     ) -> None:
         if not 0 < ttl <= 600 or not 1 <= capacity <= 256:
             raise ValueError("Invalid approval limits")
         self._allowed_actions = frozenset(allowed_actions)
+        if not high_risk_actions <= self._allowed_actions or any(
+            not is_high_risk(action) for action in high_risk_actions
+        ):
+            raise ValueError("Invalid high-risk action selection")
+        self._high_risk_actions = frozenset(high_risk_actions)
         self._ttl = ttl
         self._capacity = capacity
         self._pending: dict[str, PendingMutation] = {}
@@ -78,6 +87,11 @@ class ApprovalLedger:
         """Bind a canonical snapshot to the exact action, account, route and version."""
         if action not in self._allowed_actions:
             raise WriteDenied("write_disabled")
+        risk: Literal["standard", "high"] = (
+            "high" if is_high_risk(action) else "standard"
+        )
+        if risk == "high" and action not in self._high_risk_actions:
+            raise WriteDenied("high_risk_disabled")
         if not account_binding or not resource_binding or not target:
             raise WriteDenied("invalid_target")
         if not revision:
@@ -112,6 +126,7 @@ class ApprovalLedger:
                 "account": account_binding,
                 "resource": resource_binding,
                 "revision": revision,
+                "risk": risk,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -125,17 +140,26 @@ class ApprovalLedger:
             ).hexdigest(),
             now + self._ttl,
             encoded,
+            risk,
         )
         self._pending[request_id] = PendingMutation(
             preview, account_binding, resource_binding, revision
         )
         return preview
 
-    def approve_from_operator(self, request_id: str, digest: str) -> None:
+    def approve_from_operator(
+        self, request_id: str, digest: str, *, high_risk: bool = False
+    ) -> None:
         """Trusted local operator hook; MUST NOT be exposed as an MCP tool."""
         item = self._lookup(request_id)
         if not hmac.compare_digest(item.preview.digest, digest):
             raise WriteDenied("preview_mismatch")
+        if high_risk is not (item.preview.risk == "high"):
+            raise WriteDenied(
+                "high_risk_operator_approval_required"
+                if item.preview.risk == "high"
+                else "risk_mismatch"
+            )
         item.approved = True
 
     def consume(
