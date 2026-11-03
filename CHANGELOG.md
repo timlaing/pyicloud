@@ -18,6 +18,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add synthetic qualification of an internal private Drive file-move adapter with two-node revision bindings and exact destination membership checks; runtime move tools remain disabled pending integration.
+
 - Qualify installed Drive rename/trash receipts and uncertain-outcome replay denial using fresh synthetic metadata and Recently Deleted membership checks.
 
 - Add opt-in private Drive file trashing with exact operator receipts, etag revalidation, and Recently Deleted membership proof; folder and permanent deletion remain unavailable.

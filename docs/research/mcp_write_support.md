@@ -65,6 +65,18 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+`pyicloud/mcp/drive_moves.py` is an internal file-only move adapter, not yet an
+enabled runtime action. The existing `move_nodes_to_node` method supplies the source
+etag to `/moveItems`; `parentId` and destination children are established by existing
+Drive fixtures. The adapter resolves two discovered handles, rejects unsupported
+private/root/shared/trashed contexts and name conflicts, and binds source parent plus
+both identities/revisions and account/endpoint. Destination etag is a preflight
+binding, **not** a server-side atomic destination condition: the facade sends only
+source etag. Exact independent parent/membership verification is required after one
+approved dispatch, with uncertain/non-retry outcomes. Synthetic tests exercise stale
+revisions, parent changes, collisions, no-ops and ambiguous acknowledgements. Runtime
+gateway/schema integration and installed move protocol qualification remain pending.
+
 Private file-only Drive trashing uses the existing `move_to_trash`/`moveItemsToTrash`
 contract with etag. Existing `tests/const/const_drive.py` trash fixtures establish
 Recently Deleted `restorePath` metadata, also used by the public recover method.
