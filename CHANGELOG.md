@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Use cache-independent server album reads for MCP Photos rename previews and post-write verification; locally pending album copies cannot authorize writes or prove success.
+
 - Require typed Photos album-creation acknowledgements to preserve the exact requested name and contain a real revision before returning or caching a handle; incomplete/mismatched responses remain uncertain.
 
 - Require typed Photos album-creation responses to match the submitted record ID and type before returning or caching an album; ambiguous responses are uncertain and must not be blindly retried.

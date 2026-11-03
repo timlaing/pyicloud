@@ -54,7 +54,7 @@ class PhotoAlbumWrites:
         if len(libraries) != 1:
             raise WriteDenied("target_unavailable")
         albums = [
-            album for album in libraries[0].refresh_albums() if album.id == target[0]
+            album for album in libraries[0].server_albums() if album.id == target[0]
         ]
         if len(albums) != 1 or self._selector(albums[0]) != target:
             raise WriteDenied("target_unavailable")

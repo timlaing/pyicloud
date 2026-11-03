@@ -259,7 +259,8 @@ zone and observed record change tag are supported. Virtual, nested, shared-owner
 targets without revisions and unbounded/path-like titles are rejected.
 
 Account, Photos endpoint, zone/album identity/parent and fresh record tag/name bind
-the exact single-use receipt. Refresh the private library before preview and apply;
+the exact single-use receipt. Read through the private library's `server_albums()`
+before preview and apply, without merging pending local creation caches;
 consume approval before one public rename. Independent post-refresh must preserve
 identity/route/parent and verify the requested name with a valid tag. Reusing the
 mutated album object is not proof, because local pending caches can survive refresh.

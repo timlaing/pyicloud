@@ -65,6 +65,13 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
+The MCP album-rename adapter now uses `server_albums()` for every fresh preview,
+apply and post-write read rather than `refresh_albums()` with pending local merging.
+Tests deliberately keep valid-looking albums (including distinct optimistic copies)
+in ordinary refresh results while server reads are empty; neither preview nor success
+proof may use those copies. Post-dispatch absence remains uncertain with replay
+denied. Existing installed rename fixtures use the same independent read boundary.
+
 Typed Photos create-album acknowledgements must additionally preserve the exact
 submitted `albumNameEnc` and contain a nonempty, unpadded, non-sentinel revision tag
 before conversion/cache/return. Missing or mismatched name/tag data is uncertain

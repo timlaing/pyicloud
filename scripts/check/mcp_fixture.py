@@ -374,11 +374,13 @@ class SyntheticWritableAlbum:
 class SyntheticNamedAlbum(PhotoAlbum):
     """Fresh typed album snapshot; no CloudKit method or endpoint is called."""
 
-    def __init__(self, library: SyntheticPrivateLibrary) -> None:
+    def __init__(
+        self, library: SyntheticPrivateLibrary, pending_name: str | None = None
+    ) -> None:
         self.fake_library = library
         super().__init__(
             cast(Any, library),
-            name=library.album_name,
+            name=pending_name or library.album_name,
             record_id="ALBUM",
             obj_type=ObjectTypeEnum.CONTAINER,
             list_type=ListTypeEnum.DEFAULT,
@@ -397,6 +399,8 @@ class SyntheticNamedAlbum(PhotoAlbum):
         if value == "Renamed album":
             self.fake_library.album_name = value
             self.fake_library.album_tag = "A2"
+        self._name = value
+        self.fake_library.pending_name = value
         print("MCP_SYNTHETIC_ALBUM_RENAMED", file=sys.stderr, flush=True)
 
 
@@ -411,6 +415,7 @@ class SyntheticPrivateLibrary:
         self.all = all_photos
         self.album_name = "Synthetic album"
         self.album_tag = "A1"
+        self.pending_name: str | None = None
 
     @property
     def albums(self) -> list[SyntheticNamedAlbum]:
@@ -418,7 +423,11 @@ class SyntheticPrivateLibrary:
         return self.refresh_albums()
 
     def refresh_albums(self) -> list[SyntheticNamedAlbum]:
-        """Return new instances from authoritative fake state on every refresh."""
+        """Include optimistic local names, which must never prove server visibility."""
+        return [SyntheticNamedAlbum(self, self.pending_name)]
+
+    def server_albums(self) -> list[SyntheticNamedAlbum]:
+        """Authoritative fake observations, never a locally pending creation cache."""
         return [SyntheticNamedAlbum(self)]
 
 

@@ -50,7 +50,7 @@ def setup_album() -> tuple[PhotoAlbumWrites, Any, PhotoAlbum, str]:
     library.zone_id = {"zoneName": "Z"}
     library.scope = "private"
     album = make_album(library)
-    library.refresh_albums.return_value = [album]
+    library.server_albums.return_value = [album]
     client.photos.libraries = {"Z": library}
     additional = AdditionalReads(ReadTools(owner_for(client)))
     handle = additional.remember("photo-album", album)
@@ -78,7 +78,7 @@ async def test_rename_requires_receipt_and_fresh_independent_post_state() -> Non
 
         def rename(name: str) -> None:
             library = client.photos.libraries["Z"]
-            library.refresh_albums.return_value = [make_album(library, name, "R2")]
+            library.server_albums.return_value = [make_album(library, name, "R2")]
 
         mutate.side_effect = rename
 
@@ -104,11 +104,11 @@ async def test_changed_fresh_targets_never_dispatch(case: str) -> None:
     if case == "shared":
         library.scope = "shared-library"
     elif case == "missing":
-        library.refresh_albums.return_value = []
+        library.server_albums.return_value = []
     elif case == "route":
         client.photos.service_endpoint = "https://other.test"
     else:
-        library.refresh_albums.return_value = [
+        library.server_albums.return_value = [
             make_album(
                 library,
                 "Changed" if case == "name" else "Before",
@@ -173,7 +173,7 @@ async def test_invalid_payload_before_discovery(payload: dict[str, Any]) -> None
     writes, client, _album, handle = setup_album()
     with pytest.raises(WriteDenied, match="invalid_payload"):
         await writes.prepare(handle, payload)
-    client.photos.libraries["Z"].refresh_albums.assert_not_called()
+    client.photos.libraries["Z"].server_albums.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -201,6 +201,41 @@ async def test_unsupported_discovered_context_is_refused(case: str) -> None:
         handle = writes.additional.remember("photo-album", album)
     with pytest.raises(WriteDenied):
         await writes.prepare(handle, {"name": "After"})
+
+
+@pytest.mark.asyncio
+async def test_cached_pending_album_cannot_authorize_preview() -> None:
+    """A valid-looking local revision is not independent server visibility."""
+    writes, client, album, handle = setup_album()
+    library = client.photos.libraries["Z"]
+    library.refresh_albums.return_value = [album]
+    library.server_albums.return_value = []
+    with patch.object(album, "rename") as mutate:
+        with pytest.raises(WriteDenied, match="target_unavailable"):
+            await writes.prepare(handle, {"name": "After"})
+        mutate.assert_not_called()
+    library.refresh_albums.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_optimistic_pending_copy_cannot_prove_rename() -> None:
+    """Even a distinct locally pending object cannot substitute for a server read."""
+    writes, client, album, handle = setup_album()
+    library = client.photos.libraries["Z"]
+    preview = await writes.prepare(handle, {"name": "After"})
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+
+    def optimistic(_name: str) -> None:
+        library.refresh_albums.return_value = [make_album(library, "After", "R2")]
+        library.server_albums.return_value = []
+
+    with patch.object(album, "rename", side_effect=optimistic) as mutate:
+        with pytest.raises(WriteDenied, match="mutation_uncertain"):
+            await writes.apply(preview.request_id)
+        mutate.assert_called_once()
+    library.refresh_albums.assert_not_called()
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writes.apply(preview.request_id)
 
 
 @pytest.mark.asyncio
