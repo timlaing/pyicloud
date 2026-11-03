@@ -73,6 +73,11 @@ class AdditionalReads:
         """Resolve only an existing, expiring resource of the requested kind."""
         return self._get(kind, handle)
 
+    def retire(self, kind: str, handle: str) -> None:
+        """Retire only an exact live scoped selector before a version-changing write."""
+        self._get(kind, handle)
+        del self._handles[handle]
+
     def resolve_any(self, kinds: frozenset[str], handle: str) -> Any:
         """Resolve only a permitted discovered kind, never an arbitrary identifier."""
         route = self._handles.get(handle)
