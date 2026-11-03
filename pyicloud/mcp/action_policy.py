@@ -22,6 +22,7 @@ STANDARD_WRITE_ACTIONS = (
 SUPPORTED_HIGH_RISK_ACTIONS = (
     "calendar.delete_event",
     "mail.send_draft",
+    "mail.delete_forever_message",
     "drive.delete_forever_file",
 )
 

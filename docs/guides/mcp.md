@@ -239,6 +239,21 @@ Results are not claimed to be a complete inventory. Listing does not recover or
 permanently delete anything. Recovery remains unavailable; permanent trash-file
 deletion has a separate elevated opt-in workflow below.
 
+## Opt-in elevated single Mail Trash-message permanent deletion
+
+Select `--service mail`, `--write-action mail.delete_forever_message`,
+`--high-risk-action mail.delete_forever_message`, and a private approval directory.
+Metadata consent suffices; bodies and attachments are not read or inferred.
+Use one discovered Trash `mail-message` handle as `target_handle` and `{}` as the
+preview payload. Caller confirmation, ID selectors and bulk deletion are not supported.
+Exact ID/UID, mailbox incarnation, fresh metadata, account and service route are bound
+to the single-use preview. The independent terminal requires the elevated phrase.
+The source handle is retired before one SDK call; success requires exact typed
+acknowledgement and independent UID and ID absence checks. Ambiguity is uncertain,
+not a retry instruction. Revalidation is not atomic against external mailbox changes.
+Gateway tests are synthetic; deletion-specific installed stdio qualification remains
+pending. No live destruction is claimed.
+
 ## Opt-in elevated private trash-file permanent deletion
 
 Enable `--service drive`, `--write-action drive.delete_forever_file`,
@@ -453,7 +468,8 @@ private terminal; ordinary approval does not authorize deletion. This conservati
 tier is required because no event recovery contract is verified here. Calendar
 creation remains standard risk. New/unclassified action names default to high risk,
 but upload and other permanent-delete target types remain unavailable. Private
-trash-file deletion and saved-draft submission have separate elevated workflows above.
+trash-file deletion, single Mail Trash-message deletion and saved-draft submission
+have separate elevated workflows above.
 
 The supported action flags are `calendar.create_event` and
 `calendar.delete_event`, alongside `--service calendar` and the private approval

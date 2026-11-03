@@ -32,7 +32,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
-- Add an internal elevated single-Mail-Trash-message deletion adapter with exact metadata-bound previews, pre-dispatch source retirement and independent identity absence checks. Runtime exposure remains disabled pending gateway and installed-protocol qualification.
+- Expose single-message Mail Trash permanent deletion through separately selected elevated MCP approval, with metadata-bound previews, handle retirement and no bulk or automatic retry path; deletion-specific installed protocol qualification remains pending.
+
+- Add an elevated single-Mail-Trash-message deletion adapter with exact metadata-bound previews, pre-dispatch source retirement and independent identity absence checks.
 
 - Expose verified read-only preflight for one current Mail Trash message before permanent deletion, without body reads, mutation, confirmation or bulk fallback; existing destruction payload and verification remain unchanged.
 

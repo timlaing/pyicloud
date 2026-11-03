@@ -287,6 +287,7 @@ def build_server(
                 "mail.create_draft",
                 "mail.edit_draft",
                 "mail.send_draft",
+                "mail.delete_forever_message",
                 "mail.create_folder",
                 "mail.rename_folder",
                 "photos.set_favorite",

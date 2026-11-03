@@ -65,14 +65,17 @@ name semantics preserve the existing extension metadata.
 
 ## Sequencing and validation
 
-`mail_deletions.py` is an internal, not gateway-enabled adapter for one discovered
+`mail_deletions.py` is a gateway-enabled adapter for one discovered
 typed Trash-message handle. It accepts no caller payload, binds fresh metadata
 (without interpreting flags or claiming a body revision), account, route, ID/UID
 and folder incarnation to elevated single-use approval, and retires the handle
 before one SDK call. Typed exact acknowledgement and independent ID/UID absence
 are required; post-dispatch ambiguity is uncertain and never automatically retried.
 This is not atomic against external changes and grants no bulk deletion capability.
-Gateway/schema and installed-protocol qualification remain outstanding.
+Gateway/schema selects `mail.delete_forever_message` only with ordinary and elevated
+startup choices. Synthetic gateway tests reject caller confirmation and standard
+receipts and verify uncertain dispatch retires its source without replay. The
+deletion-specific installed-protocol fixture remains outstanding.
 
 The verified Mail permanent-message facade already destroys exactly one current
 Trash ID through raw no-retry submission, checks typed acknowledgement and separately

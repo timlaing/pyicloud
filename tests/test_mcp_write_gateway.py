@@ -25,6 +25,7 @@ from tests.test_mcp_draft_sends import setup_send
 from tests.test_mcp_drive_deletions import setup_delete
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_writes import setup_writer
+from tests.test_mcp_mail_deletions import setup_delete as setup_mail_delete
 from tests.test_mcp_mail_folder_renames import setup_rename
 from tests.test_mcp_mail_folders import setup_folders
 from tests.test_mcp_mail_writes import setup_mail
@@ -51,6 +52,72 @@ def test_permanent_delete_startup_requires_separate_elevated_choice() -> None:
             write_actions=("drive.delete_forever_file",),
             approval_dir="unused",
         )
+
+
+def test_mail_permanent_delete_requires_separate_elevated_choice() -> None:
+    """Mail metadata consent does not authorize irreversible destruction."""
+    with pytest.raises(ValueError, match="elevated selection"):
+        ServerConfig(
+            username="synthetic",
+            session_dir="unused",
+            services=("mail",),
+            write_actions=("mail.delete_forever_message",),
+            approval_dir="unused",
+        )
+
+
+@pytest.mark.asyncio
+async def test_mail_delete_gateway_requires_elevated_receipt_and_retires_source() -> (
+    None
+):
+    """One ambiguous synthetic dispatch cannot retain a reusable source."""
+    deletes, client, handle = setup_mail_delete()
+    owner = cast(Any, deletes.writer.reads.owner)
+    owner.config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("mail",),
+        write_actions=("mail.delete_forever_message",),
+        high_risk_actions=("mail.delete_forever_message",),
+        approval_dir="unused",
+    )
+    owner.add_cleanup = MagicMock()
+    mailbox = MagicMock()
+    with patch("pyicloud.mcp.write_gateway.ApprovalMailbox", return_value=mailbox):
+        gateway = WriteGateway(deletes.writer.reads, deletes.additional)
+    assert (
+        await gateway.prepare(
+            "mail.delete_forever_message", "", {"confirm": True}, None, handle
+        )
+    ).error == "invalid_payload"
+    prepared = await gateway.prepare(
+        "mail.delete_forever_message", "", {}, None, handle
+    )
+    assert prepared.preview is not None
+    preview = prepared.preview
+    assert preview["risk"] == "high"
+
+    def standard(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"])
+
+    mailbox.accept.side_effect = standard
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "high_risk_operator_approval_required"
+    client.mail.delete_permanently.assert_not_called()
+
+    def elevated(identifier: str, ledger: ApprovalLedger) -> None:
+        ledger.approve_from_operator(identifier, preview["digest"], high_risk=True)
+
+    mailbox.accept.side_effect = elevated
+    client.mail.delete_permanently.side_effect = OSError("private")
+    assert (await gateway.apply(preview["request_id"])).error == "mutation_uncertain"
+    with pytest.raises(ToolFailure):
+        deletes.additional.resolve("mail-message", handle)
+    client.mail.delete_permanently.assert_called_once()
+    assert (
+        await gateway.apply(preview["request_id"])
+    ).error == "unknown_or_consumed_preview"
 
 
 @pytest.mark.asyncio
