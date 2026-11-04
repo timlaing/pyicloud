@@ -18,6 +18,44 @@ from .upload_transport import UploadTransport, checked_upload_url
 DRIVE_CREATE_FOLDER = "drive.create_folder"
 
 
+def _invalid_folder_payload(payload: dict[str, Any], name: Any) -> bool:
+    """Keep the exact bounded leaf-name policy separate from preview routing."""
+    return (
+        set(payload) != {"name"}
+        or not isinstance(name, str)
+        or not name.strip()
+        or name in {".", ".."}
+        or len(name.encode()) > 255
+        or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name)
+    )
+
+
+def _verify_acknowledgement(
+    action: str, response: Any, name: Any, identifier: str
+) -> None:
+    """Verify existing response contracts without asserting independent final state."""
+    if action == DRIVE_CREATE_FOLDER:
+        records = response.get("folders") if isinstance(response, dict) else None
+        if (
+            not isinstance(records, list)
+            or len(records) != 1
+            or not isinstance(records[0], dict)
+            or records[0].get("name") != name
+            or records[0].get("status", "OK") != "OK"
+        ):
+            raise WriteDenied("mutation_unverified")
+    else:
+        records = response.get("items") if isinstance(response, dict) else None
+        if (
+            not isinstance(records, list)
+            or len(records) != 1
+            or not isinstance(records[0], dict)
+            or records[0].get("drivewsid") != identifier
+            or records[0].get("status") != "OK"
+        ):
+            raise WriteDenied("mutation_unverified")
+
+
 class DriveAcknowledged(DriveWrites):
     """Exact private metadata/etag binding; no invented created or recovered handles."""
 
@@ -103,14 +141,7 @@ class DriveAcknowledged(DriveWrites):
             raise WriteDenied("unsupported_action")
         name = payload.get("name")
         if action == DRIVE_CREATE_FOLDER:
-            if (
-                set(payload) != {"name"}
-                or not isinstance(name, str)
-                or not name.strip()
-                or name in {".", ".."}
-                or len(name.encode()) > 255
-                or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name)
-            ):
+            if _invalid_folder_payload(payload, name):
                 raise WriteDenied("invalid_payload")
             original = self.additional.resolve("drive-folder", handle)
         else:
@@ -218,30 +249,12 @@ class DriveAcknowledged(DriveWrites):
                     if action == DRIVE_CREATE_FOLDER
                     else None,
                 )
-                if action == DRIVE_CREATE_FOLDER:
-                    records = (
-                        response.get("folders") if isinstance(response, dict) else None
-                    )
-                    if (
-                        not isinstance(records, list)
-                        or len(records) != 1
-                        or not isinstance(records[0], dict)
-                        or records[0].get("name") != approved.payload["name"]
-                        or records[0].get("status", "OK") != "OK"
-                    ):
-                        raise WriteDenied("mutation_unverified")
-                else:
-                    records = (
-                        response.get("items") if isinstance(response, dict) else None
-                    )
-                    if (
-                        not isinstance(records, list)
-                        or len(records) != 1
-                        or not isinstance(records[0], dict)
-                        or records[0].get("drivewsid") != selector.identifier
-                        or records[0].get("status") != "OK"
-                    ):
-                        raise WriteDenied("mutation_unverified")
+                _verify_acknowledgement(
+                    action,
+                    response,
+                    approved.payload["name"] if action == DRIVE_CREATE_FOLDER else None,
+                    selector.identifier,
+                )
                 if (
                     str(client.params.get("dsid")) != account
                     or client.drive.service_root != route
