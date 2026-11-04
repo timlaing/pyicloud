@@ -51,8 +51,9 @@ def high_preview(
 )
 def test_high_risk_needs_separate_startup_selection(action: str) -> None:
     """An ordinary allowlist or caller risk field cannot grant elevated permission."""
+    ordinary = ApprovalLedger(frozenset({action}))
     with pytest.raises(WriteDenied, match="high_risk_disabled"):
-        high_preview(ApprovalLedger(frozenset({action})), action)
+        high_preview(ordinary, action)
     ledger = ApprovalLedger(frozenset({action}), high_risk_actions=frozenset({action}))
     preview = high_preview(ledger, action)
     assert preview.risk == "high"
@@ -73,12 +74,14 @@ def test_high_risk_needs_separate_startup_selection(action: str) -> None:
 
 def test_invalid_high_risk_selections_and_standard_tier_mismatch() -> None:
     """Elevated authorization cannot be attached to unrelated ordinary actions."""
+    send_actions = frozenset({"mail.send_draft"})
+    draft_actions = frozenset({"mail.create_draft"})
     with pytest.raises(ValueError):
-        ApprovalLedger(high_risk_actions=frozenset({"mail.send_draft"}))
+        ApprovalLedger(high_risk_actions=send_actions)
     with pytest.raises(ValueError):
         ApprovalLedger(
-            frozenset({"mail.create_draft"}),
-            high_risk_actions=frozenset({"mail.create_draft"}),
+            draft_actions,
+            high_risk_actions=draft_actions,
         )
     ledger = ApprovalLedger(frozenset({"mail.create_draft"}))
     preview = ledger.preview(
@@ -101,11 +104,13 @@ def test_high_risk_terminal_receipt_requires_distinct_phrase(directory: Path) ->
     preview = high_preview(ledger)
     with ApprovalMailbox(str(directory)) as mailbox:
         mailbox.publish(preview)
+        ordinary_input = terminal("APPROVE " + preview.request_id)
+        ordinary_output = io.StringIO()
         with pytest.raises(WriteDenied, match="operator_declined"):
             mailbox.decide(
                 preview.request_id,
-                terminal("APPROVE " + preview.request_id),
-                io.StringIO(),
+                ordinary_input,
+                ordinary_output,
             )
         display = io.StringIO()
         mailbox.decide(
@@ -163,11 +168,13 @@ def test_invalid_private_risk_records_are_refused(directory: Path, risk: Any) ->
         ApprovalMailbox(str(directory)) as mailbox,
         patch.object(mailbox, "_read", return_value=record),
     ):
+        operator_input = terminal("APPROVE " + preview.request_id)
+        operator_output = io.StringIO()
         with pytest.raises(WriteDenied, match="invalid_approval_record"):
             mailbox.decide(
                 preview.request_id,
-                terminal("APPROVE " + preview.request_id),
-                io.StringIO(),
+                operator_input,
+                operator_output,
             )
         with pytest.raises(WriteDenied, match="invalid_approval_record"):
             mailbox.accept(preview.request_id, ledger)
