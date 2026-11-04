@@ -1,52 +1,66 @@
 name: Dependabot Auto Merge
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
 
-# Dependabot-triggered pull_request runs get a read-only GITHUB_TOKEN by
-# default. Declaring permissions here is what elevates it; the write scopes
-# themselves are scoped to the job below so any future job starts read-only.
-permissions:
-  contents: read
-  pull-requests: read
+permissions: {}
 
 jobs:
   auto-merge:
-    # Gate on the PR author, not github.actor: actor flips to whoever triggered
-    # the latest event (e.g. a human running "Update branch"), user.login does not.
-    # head.repo check blocks fork PRs and satisfies the same-repo guard.
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
-      contents: write # required for the mergePullRequest mutation behind `gh pr merge --auto`
-      pull-requests: write # required for `gh pr review --approve`
+      contents: write
+      pull-requests: write
     steps:
+      # This workflow reads metadata only; never check out or execute PR code.
       - name: Get Dependabot metadata
         id: metadata
         uses: dependabot/fetch-metadata@v3
         with:
           github-token: ${{ github.token }}
-
-      # update-type is the HIGHEST semver bump in the PR, so a group containing
-      # any major reports semver-major and is held back here. An empty value
-      # fails safe: neither condition matches, nothing merges.
-      - name: Approve patch/minor update
+      - name: Enable protected auto-merge for patch and minor updates
         if: >-
           steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr review --approve "$PR_URL"
-
-      - name: Enable auto-merge for patch and minor updates
-        if: >-
-          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: gh pr merge --auto --squash "$PR_URL"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const rules = await github.request('GET /repos/{owner}/{repo}/rules/branches/{branch}', {
+              owner, repo, branch: pr.base.ref,
+            }).catch((error) => {
+              if ([403, 404].includes(error.status)) return { data: [] };
+              throw error;
+            });
+            const protection = await github.rest.repos.getBranchProtection({
+              owner, repo, branch: pr.base.ref,
+            }).catch((error) => {
+              if ([403, 404].includes(error.status)) return { data: {} };
+              throw error;
+            });
+            const required = rules.data.flatMap((rule) =>
+              rule.type === 'required_status_checks' ? rule.parameters.required_status_checks : [],
+            );
+            const legacy = protection.data.required_status_checks;
+            if (required.length === 0 && !(legacy?.contexts?.length || legacy?.checks?.length)) {
+              core.warning('Auto-merge withheld: configure required CI checks on the base branch first.');
+              return;
+            }
+            const { data: current } = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
+            if (current.state !== 'open' || current.draft || current.head.sha !== pr.head.sha ||
+                current.user.login !== 'dependabot[bot]' || current.head.repo?.full_name !== `${owner}/${repo}`) return;
+            await github.rest.pulls.createReview({ owner, repo, pull_number: pr.number,
+              commit_id: current.head.sha, event: 'APPROVE',
+            });
+            await github.graphql(`mutation($id: ID!) {
+              enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: SQUASH}) {
+                pullRequest { number }
+              }
+            }`, { id: current.node_id });
