@@ -19,6 +19,48 @@ from .upload_staging import StagedUpload
 from .upload_transport import UploadTransport, checked_upload_url
 
 
+def _validate_stage(stage: StagedUpload, modified_ms: int) -> None:
+    """Require unchanged, unexpired bounded bytes and a strict timestamp."""
+    if (
+        not isinstance(stage, StagedUpload)
+        or not isinstance(stage.data, bytes)
+        or not 0 <= stage.size <= 4 * 1024 * 1024
+        or len(stage.data) != stage.size
+        or hashlib.sha256(stage.data).hexdigest() != stage.sha256
+        or stage.expires_at <= time.monotonic()
+        or isinstance(modified_ms, bool)
+        or not isinstance(modified_ms, int)
+        or modified_ms < 0
+    ):
+        raise WriteDenied("invalid_upload_bytes")
+
+
+def _receipt_data(response: Any, size: int) -> dict[str, Any]:
+    """Validate the exact transfer receipt before constructing commit data."""
+    receipt = response.get("singleFile") if isinstance(response, dict) else None
+    if (
+        not isinstance(receipt, dict)
+        or isinstance(receipt.get("size"), bool)
+        or receipt.get("size") != size
+        or not all(
+            isinstance(receipt.get(key), str) and receipt[key]
+            for key in ("fileChecksum", "wrappingKey", "referenceChecksum")
+        )
+    ):
+        raise WriteDenied("upload_outcome_uncertain")
+    if size and (not isinstance(receipt.get("receipt"), str) or not receipt["receipt"]):
+        raise WriteDenied("upload_outcome_uncertain")
+    data = {
+        "signature": receipt["fileChecksum"],
+        "wrapping_key": receipt["wrappingKey"],
+        "reference_signature": receipt["referenceChecksum"],
+        "size": size,
+    }
+    if receipt.get("receipt"):
+        data["receipt"] = receipt["receipt"]
+    return data
+
+
 class DriveUploadBytes:
     """One existing upload flow; acknowledged commit is not final file identity."""
 
@@ -38,18 +80,7 @@ class DriveUploadBytes:
         checked_upload_url(root, hosts)
         if parsed.query or not isinstance(folder_id, str) or not folder_id:
             raise WriteDenied("unsupported_upload_route")
-        if (
-            not isinstance(stage, StagedUpload)
-            or not isinstance(stage.data, bytes)
-            or not 0 <= stage.size <= 4 * 1024 * 1024
-            or len(stage.data) != stage.size
-            or hashlib.sha256(stage.data).hexdigest() != stage.sha256
-            or stage.expires_at <= time.monotonic()
-            or isinstance(modified_ms, bool)
-            or not isinstance(modified_ms, int)
-            or modified_ms < 0
-        ):
-            raise WriteDenied("invalid_upload_bytes")
+        _validate_stage(stage, modified_ms)
         params = dict(drive.params)
         if (
             not isinstance(stage.name, str)
@@ -113,29 +144,7 @@ class DriveUploadBytes:
             response = self.transport.transfer(
                 target, stage.data, deadline=deadline, multipart_name=stage.name
             )
-            receipt = response.get("singleFile") if isinstance(response, dict) else None
-            if (
-                not isinstance(receipt, dict)
-                or isinstance(receipt.get("size"), bool)
-                or receipt.get("size") != stage.size
-                or not all(
-                    isinstance(receipt.get(key), str) and receipt[key]
-                    for key in ("fileChecksum", "wrappingKey", "referenceChecksum")
-                )
-            ):
-                raise WriteDenied("upload_outcome_uncertain")
-            if stage.size and (
-                not isinstance(receipt.get("receipt"), str) or not receipt["receipt"]
-            ):
-                raise WriteDenied("upload_outcome_uncertain")
-            data = {
-                "signature": receipt["fileChecksum"],
-                "wrapping_key": receipt["wrappingKey"],
-                "reference_signature": receipt["referenceChecksum"],
-                "size": stage.size,
-            }
-            if receipt.get("receipt"):
-                data["receipt"] = receipt["receipt"]
+            data = _receipt_data(response, stage.size)
             committed = self.transport.register(
                 drive.session,
                 url("/update/documents"),

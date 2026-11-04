@@ -84,12 +84,27 @@ class ServerConfig:
             raise ValueError("Content access also requires the service opt-in")
         if set(self.write_actions) - set(SUPPORTED_WRITE_ACTIONS):
             raise ValueError("Unsupported write action")
+        self._validate_upload_policy()
+        self._validate_write_policy()
+        if not 0 < self.timeout <= 120 or not 1 <= self.queue_limit <= 32:
+            raise ValueError("Invalid execution limits")
+
+    def _validate_upload_policy(self) -> None:
+        """Require exactly the selected bounded upload host policy."""
         uploading = bool(
             {"photos.upload_file", "drive.upload_file"} & set(self.write_actions)
         )
         if uploading != bool(self.upload_transfer_hosts):
             raise ValueError("Uploads require explicit transfer-host policy")
         if len(self.upload_transfer_hosts) > 8 or any(
+            self._invalid_upload_host(host) for host in self.upload_transfer_hosts
+        ):
+            raise ValueError("Invalid upload transfer host")
+
+    @staticmethod
+    def _invalid_upload_host(host: str) -> bool:
+        """Retain strict DNS label validation and reject numeric host selectors."""
+        return (
             not isinstance(host, str)
             or not 1 < len(host) <= 253
             or host != host.lower()
@@ -105,9 +120,10 @@ class ServerConfig:
                 for part in host.split(".")
             )
             or all(part.isdecimal() for part in host.split("."))
-            for host in self.upload_transfer_hosts
-        ):
-            raise ValueError("Invalid upload transfer host")
+        )
+
+    def _validate_write_policy(self) -> None:
+        """Preserve separate elevated selection, content consent and mailbox guards."""
         selected_high = set(self.high_risk_actions)
         required_high = {
             action for action in self.write_actions if is_high_risk(action)
@@ -132,8 +148,6 @@ class ServerConfig:
             )
         if self.approval_dir and not self.write_actions:
             raise ValueError("Approval storage requires explicit write actions")
-        if not 0 < self.timeout <= 120 or not 1 <= self.queue_limit <= 32:
-            raise ValueError("Invalid execution limits")
 
 
 class BoundedAdapter(HTTPAdapter):
