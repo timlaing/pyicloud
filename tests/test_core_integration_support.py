@@ -365,7 +365,8 @@ def test_creation_preserves_unicode_name_from_encrypted_bytes_acknowledgement() 
 
     client.modify.side_effect = response
     created = library.create_album_correlated("é")
-    assert created is not None and created.name == "é"
+    assert created is not None
+    assert created.name == "é"
     client.modify.assert_called_once()
 
 
@@ -382,7 +383,8 @@ def test_correlated_creation_unavailable_without_private_typed_route(case: str) 
     elif case == "empty_zone":
         library.zone_id["zoneName"] = ""
     elif case == "mock_session":
-        library.service.session = MagicMock()
+        mock_session = MagicMock()
+        cast(Any, library.service).session = mock_session
     else:
         library._client = None
     assert not library.correlated_album_creation_available
@@ -390,7 +392,7 @@ def test_correlated_creation_unavailable_without_private_typed_route(case: str) 
         library.create_album_correlated("New")
     client.modify.assert_not_called()
     if case == "mock_session":
-        library.service.session.post.assert_not_called()
+        mock_session.post.assert_not_called()
 
 
 @pytest.mark.parametrize("tag", ["", " ", " R1", "R1 ", "null", "NuLl"])
@@ -465,7 +467,7 @@ def test_relation_rejects_uncorrelated_acknowledgements(case: str) -> None:
     records = (
         [] if case == "empty" else [record, record] if case == "multiple" else [record]
     )
-    client.modify.return_value = CKModifyResponse(records=records)
+    client.modify.return_value = CKModifyResponse(records=[*records])
     with pytest.raises(PhotosServiceException, match="uncertain"):
         album.add_photo_correlated(photo)
     kwargs = client.modify.call_args.kwargs
@@ -578,7 +580,7 @@ def test_primary_zone_discovery_clears_stale_owner(case: str) -> None:
     root = PhotoLibrary(
         service, zone_id={"zoneName": "PrimarySync"}, check_indexing=False
     )
-    entries = [{"zoneID": zone}]
+    entries: list[dict[str, Any]] = [{"zoneID": zone}]
     if case == "duplicate":
         entries.append({"zoneID": zone})
     elif case == "deleted":
