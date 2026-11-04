@@ -350,7 +350,8 @@ def test_correlated_creation_accepts_byte_limit_and_preserves_wire_name() -> Non
 
     client.modify.side_effect = response
     created = library.create_album_correlated(name)
-    assert created is not None and created.name == name
+    assert created is not None
+    assert created.name == name
     client.modify.assert_called_once()
 
 
@@ -423,7 +424,8 @@ def test_creation_accepts_string_field_in_acknowledgement() -> None:
 
     client.modify.side_effect = response
     created = library.create_album_correlated("New")
-    assert created is not None and created.name == "New"
+    assert created is not None
+    assert created.name == "New"
     client.modify.assert_called_once()
 
 
