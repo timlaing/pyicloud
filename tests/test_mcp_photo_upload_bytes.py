@@ -107,9 +107,10 @@ def test_invalid_context_never_reserves(case: str) -> None:
         "size": {"size": 0},
     }
     stage = replace(stage, **updates.get(case, {}))
+    session = MagicMock()
     with pytest.raises(WriteDenied):
         uploader.upload(
-            MagicMock(),
+            session,
             "https://photosupload.example.test" + ("?bad=1" if case == "query" else ""),
             {"dsid": "bad" if case == "account" else "12345"},
             "SharedSync" if case == "zone" else "PrimarySync",

@@ -27,8 +27,9 @@ def ledger() -> ApprovalLedger:
 
 def test_default_denies_writes() -> None:
     """Read-only remains the default without explicit operator configuration."""
+    authority = ApprovalLedger()
     with pytest.raises(WriteDenied, match="write_disabled"):
-        preview(ApprovalLedger())
+        preview(authority)
 
 
 def test_exact_operator_approval_is_single_use_and_payload_is_frozen() -> None:

@@ -156,10 +156,9 @@ async def test_empty_recipient_context_never_previews_send() -> None:
     ledger = ApprovalLedger(
         frozenset({"mail.send_draft"}), high_risk_actions=frozenset({"mail.send_draft"})
     )
+    sends = DraftSends(MailWrites(reader.reads, ledger, reader.additional))
     with pytest.raises(WriteDenied, match="recipients_required"):
-        await DraftSends(
-            MailWrites(reader.reads, ledger, reader.additional)
-        ).prepare_send(handle, {})
+        await sends.prepare_send(handle, {})
     client.mail.send_draft.assert_not_called()
 
 
