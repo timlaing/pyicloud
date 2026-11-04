@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
 from .additional import AdditionalReads
 from .approval_channel import ApprovalMailbox
-from .authorization import ApprovalLedger, WriteDenied
+from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 from .calendar_writes import CalendarWrites
 from .context import ToolFailure
 from .draft_edits import DraftEdits
@@ -31,6 +32,33 @@ from .photo_writes import PhotoWrites
 from .reads import ReadTools
 from .reminder_writes import ReminderWrites
 from .upload_staging import UploadStaging
+
+PHOTOS_UPLOAD_FILE = "photos.upload_file"
+DRIVE_UPLOAD_FILE = "drive.upload_file"
+MAIL_CREATE_FOLDER = "mail.create_folder"
+
+
+class TargetPreparer(Protocol):
+    """Shared discovered-target preview contract."""
+
+    async def __call__(
+        self,
+        handle: str,
+        payload: dict[str, Any],
+        publish: Callable[[MutationPreview], None] | None = None,
+    ) -> MutationPreview:
+        """Publish only a preview requiring independent approval."""
+        ...
+
+
+class WriteAdapter(Protocol):
+    """Common receipt-gated execution contract shared by existing writers."""
+
+    async def apply(
+        self, request_id: str, accept: Callable[[str], None] | None = None
+    ) -> dict[str, Any]:
+        """Revalidate and consume authorization before dispatch."""
+        ...
 
 
 class WriteResult(BaseModel):
@@ -72,8 +100,7 @@ class WriteGateway:
         self.photo_creates = PhotoAlbumCreates(self.photo_albums)
         self.upload_staging = (
             UploadStaging()
-            if {"photos.upload_file", "drive.upload_file"}
-            & set(self.config.write_actions)
+            if {PHOTOS_UPLOAD_FILE, DRIVE_UPLOAD_FILE} & set(self.config.write_actions)
             else None
         )
         if self.upload_staging is not None:
@@ -84,7 +111,7 @@ class WriteGateway:
                 self.upload_staging,
                 frozenset(self.config.upload_transfer_hosts),
             )
-            if "drive.upload_file" in self.config.write_actions
+            if DRIVE_UPLOAD_FILE in self.config.write_actions
             and self.upload_staging is not None
             else None
         )
@@ -94,7 +121,7 @@ class WriteGateway:
                 self.upload_staging,
                 frozenset(self.config.upload_transfer_hosts),
             )
-            if "photos.upload_file" in self.config.write_actions
+            if PHOTOS_UPLOAD_FILE in self.config.write_actions
             and self.upload_staging is not None
             else None
         )
@@ -116,115 +143,44 @@ class WriteGateway:
         if action not in self.config.write_actions:
             return WriteResult(error="write_disabled")
         try:
-            if action in {"photos.upload_file", "drive.upload_file"}:
-                upload = (
-                    self.photo_uploads
-                    if action == "photos.upload_file"
-                    else self.drive_uploads
-                )
-                if upload is None:
-                    raise WriteDenied("write_disabled")
-                if set(payload) != {"stage_handle", "modified_ms"} or not isinstance(
-                    payload["stage_handle"], str
-                ):
-                    raise WriteDenied("invalid_payload")
-                preview = await upload.prepare_upload(
-                    target_handle or list_handle,
-                    payload["stage_handle"],
-                    payload["modified_ms"],
-                    publish=self.mailbox.publish,
-                )
+            handle = target_handle or list_handle
+            if action in {PHOTOS_UPLOAD_FILE, DRIVE_UPLOAD_FILE}:
+                preview = await self._prepare_upload(action, handle, payload)
             elif action in {"drive.create_folder", "drive.recover_item"}:
-                if destination_handle is not None:
-                    raise WriteDenied("invalid_payload")
-                preview = await self.drive_acknowledged.prepare_acknowledged(
-                    action,
-                    target_handle or list_handle,
-                    payload,
-                    publish=self.mailbox.publish,
-                )
-            elif action == "drive.delete_forever_file":
-                preview = await self.deletions.prepare_delete(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
+                preview = await self._prepare_drive_acknowledged(
+                    action, handle, payload, destination_handle
                 )
             elif action == "drive.move_file":
                 preview = await self.moves.prepare_move(
-                    target_handle or list_handle,
+                    handle,
                     destination_handle or "",
                     payload,
                     publish=self.mailbox.publish,
                 )
             elif action == "photos.add_to_album":
                 preview = await self.photo_relations.prepare_add(
-                    target_handle or list_handle,
+                    handle,
                     destination_handle or "",
                     payload,
                     publish=self.mailbox.publish,
                 )
-            elif action == "photos.create_album":
-                preview = await self.photo_creates.prepare_create(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
-                )
-            elif action == "photos.rename_album":
-                preview = await self.photo_albums.prepare(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
-                )
-            elif action == "photos.set_favorite":
-                preview = await self.photos.prepare(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
-                )
-            elif action == "mail.rename_folder":
-                preview = await self.mail_renames.prepare_rename(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
-                )
-            elif action == "mail.create_folder":
-                preview = await self.mail_folders.prepare(
-                    payload, publish=self.mailbox.publish
-                )
-            elif action in {"mail.set_read", "mail.set_flagged", "mail.move_message"}:
-                preview = await self.mail_acknowledged.prepare(
-                    action,
-                    target_handle or list_handle,
-                    payload,
-                    destination_handle,
-                    publish=self.mailbox.publish,
-                )
-            elif action == "mail.delete_forever_message":
-                preview = await self.mail_deletions.prepare_delete(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
-                )
-            elif action == "mail.send_draft":
-                preview = await self.draft_sends.prepare_send(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
-                )
-            elif action == "mail.edit_draft":
-                preview = await self.draft_edits.prepare_edit(
-                    target_handle or list_handle, payload, publish=self.mailbox.publish
-                )
-            elif action == "mail.create_draft":
-                preview = await self.mail.prepare(payload, publish=self.mailbox.publish)
-            elif action.startswith("calendar."):
-                preview = await self.calendar.prepare(
-                    action,
-                    calendar_id or "",
-                    payload,
-                    event_id,
-                    publish=self.mailbox.publish,
-                )
-            elif action in {"drive.rename", "drive.trash_file"}:
-                preview = await self.drive.prepare(
-                    target_handle or list_handle,
-                    payload,
-                    publish=self.mailbox.publish,
-                    action=action,
+            elif action in self._target_preparers():
+                preview = await self._prepare_target(action, handle, payload)
+            elif action in {
+                MAIL_CREATE_FOLDER,
+                "mail.set_read",
+                "mail.set_flagged",
+                "mail.move_message",
+            }:
+                preview = await self._prepare_mail_metadata(
+                    action, handle, payload, destination_handle
                 )
             else:
-                preview = await self.writer.prepare(
+                preview = await self._prepare_basic(
                     action,
-                    list_handle,
+                    handle,
                     payload,
-                    reminder_id,
-                    publish=self.mailbox.publish,
+                    (list_handle, reminder_id, calendar_id, event_id),
                 )
             if len(self._actions) >= 256:
                 del self._actions[next(iter(self._actions))]
@@ -247,6 +203,97 @@ class WriteGateway:
             return WriteResult(error=str(error))
         except Exception:
             return WriteResult(error="preview_failed")
+
+    async def _prepare_drive_acknowledged(
+        self, action: str, handle: str, payload: dict[str, Any], destination: str | None
+    ) -> MutationPreview:
+        """Reject destination overrides before Drive create/recover previews."""
+        if destination is not None:
+            raise WriteDenied("invalid_payload")
+        return await self.drive_acknowledged.prepare_acknowledged(
+            action, handle, payload, publish=self.mailbox.publish
+        )
+
+    async def _prepare_mail_metadata(
+        self, action: str, handle: str, payload: dict[str, Any], destination: str | None
+    ) -> MutationPreview:
+        """Preserve folder creation and source/destination Mail metadata routing."""
+        if action == MAIL_CREATE_FOLDER:
+            return await self.mail_folders.prepare(
+                payload, publish=self.mailbox.publish
+            )
+        return await self.mail_acknowledged.prepare(
+            action, handle, payload, destination, publish=self.mailbox.publish
+        )
+
+    async def _prepare_basic(
+        self,
+        action: str,
+        handle: str,
+        payload: dict[str, Any],
+        selectors: tuple[str, str | None, str | None, str | None],
+    ) -> MutationPreview:
+        """Keep original Mail/Calendar/Drive routing and Reminders fallback."""
+        list_handle, reminder_id, calendar_id, event_id = selectors
+        if action == "mail.create_draft":
+            return await self.mail.prepare(payload, publish=self.mailbox.publish)
+        if action.startswith("calendar."):
+            return await self.calendar.prepare(
+                action,
+                calendar_id or "",
+                payload,
+                event_id,
+                publish=self.mailbox.publish,
+            )
+        if action in {"drive.rename", "drive.trash_file"}:
+            return await self.drive.prepare(
+                handle, payload, publish=self.mailbox.publish, action=action
+            )
+        return await self.writer.prepare(
+            action, list_handle, payload, reminder_id, publish=self.mailbox.publish
+        )
+
+    async def _prepare_upload(
+        self, action: str, handle: str, payload: dict[str, Any]
+    ) -> MutationPreview:
+        """Validate the selected upload adapter and exact immutable-stage inputs."""
+        upload = (
+            self.photo_uploads if action == PHOTOS_UPLOAD_FILE else self.drive_uploads
+        )
+        if upload is None:
+            raise WriteDenied("write_disabled")
+        if set(payload) != {"stage_handle", "modified_ms"} or not isinstance(
+            payload["stage_handle"], str
+        ):
+            raise WriteDenied("invalid_payload")
+        return await upload.prepare_upload(
+            handle,
+            payload["stage_handle"],
+            payload["modified_ms"],
+            publish=self.mailbox.publish,
+        )
+
+    def _target_preparers(self) -> dict[str, TargetPreparer]:
+        """Exact existing actions sharing a discovered-target preparation signature."""
+        return {
+            "drive.delete_forever_file": self.deletions.prepare_delete,
+            "photos.create_album": self.photo_creates.prepare_create,
+            "photos.rename_album": self.photo_albums.prepare,
+            "photos.set_favorite": self.photos.prepare,
+            "mail.rename_folder": self.mail_renames.prepare_rename,
+            "mail.delete_forever_message": self.mail_deletions.prepare_delete,
+            "mail.send_draft": self.draft_sends.prepare_send,
+            "mail.edit_draft": self.draft_edits.prepare_edit,
+        }
+
+    async def _prepare_target(
+        self, action: str, handle: str, payload: dict[str, Any]
+    ) -> MutationPreview:
+        """Delegate exact targets without caller-selected methods or approval inputs."""
+        result: MutationPreview = await self._target_preparers()[action](
+            handle, payload, publish=self.mailbox.publish
+        )
+        return result
 
     async def stage(self, operation: str, payload: dict[str, Any]) -> WriteResult:
         """Serialize bounded local staging; no URL, path or approval input accepted."""
@@ -272,14 +319,7 @@ class WriteGateway:
                 payload["stage_handle"], str
             ):
                 token = payload["stage_handle"]
-                if operation == "seal":
-                    store.seal(token)
-                    return store.describe(token)
-                if operation == "describe":
-                    return store.describe(token)
-                if operation == "discard":
-                    store.discard(token)
-                    return {"discarded": True}
+                return self._stage_token(store, operation, token)
             raise WriteDenied("invalid_payload")
 
         try:
@@ -291,6 +331,21 @@ class WriteGateway:
         except Exception:
             return WriteResult(error="staging_failed")
 
+    @staticmethod
+    def _stage_token(
+        store: UploadStaging, operation: str, token: str
+    ) -> dict[str, Any]:
+        """Operate only on the already validated single opaque stage selector."""
+        if operation == "seal":
+            store.seal(token)
+            return store.describe(token)
+        if operation == "describe":
+            return store.describe(token)
+        if operation == "discard":
+            store.discard(token)
+            return {"discarded": True}
+        raise WriteDenied("invalid_payload")
+
     async def apply(self, request_id: str) -> WriteResult:
         """Revalidate and consume the trusted receipt/ledger on the serialized lane."""
 
@@ -299,65 +354,18 @@ class WriteGateway:
 
         try:
             action = self._actions.get(request_id, "")
-            adapter: (
-                CalendarWrites
-                | DriveWrites
-                | DriveAcknowledged
-                | DriveUploads
-                | ReminderWrites
-                | MailWrites
-                | DraftEdits
-                | DraftSends
-                | PhotoUploads
-                | MailDeletions
-                | MailAcknowledged
-                | PhotoWrites
-                | PhotoAlbumWrites
-                | MailFolderWrites
-            )
-            if action in {"photos.upload_file", "drive.upload_file"}:
+            adapter: WriteAdapter
+            if action in {PHOTOS_UPLOAD_FILE, DRIVE_UPLOAD_FILE}:
                 upload = (
                     self.photo_uploads
-                    if action == "photos.upload_file"
+                    if action == PHOTOS_UPLOAD_FILE
                     else self.drive_uploads
                 )
                 if upload is None:
                     raise WriteDenied("write_disabled")
                 adapter = upload
-            elif action in {"drive.create_folder", "drive.recover_item"}:
-                adapter = self.drive_acknowledged
-            elif action == "drive.delete_forever_file":
-                adapter = self.deletions
-            elif action == "drive.move_file":
-                adapter = self.moves
-            elif action == "photos.add_to_album":
-                adapter = self.photo_relations
-            elif action == "photos.create_album":
-                adapter = self.photo_creates
-            elif action == "photos.rename_album":
-                adapter = self.photo_albums
-            elif action == "photos.set_favorite":
-                adapter = self.photos
-            elif action == "mail.rename_folder":
-                adapter = self.mail_renames
-            elif action == "mail.create_folder":
-                adapter = self.mail_folders
-            elif action in {"mail.set_read", "mail.set_flagged", "mail.move_message"}:
-                adapter = self.mail_acknowledged
-            elif action == "mail.delete_forever_message":
-                adapter = self.mail_deletions
-            elif action == "mail.send_draft":
-                adapter = self.draft_sends
-            elif action == "mail.edit_draft":
-                adapter = self.draft_edits
-            elif action == "mail.create_draft":
-                adapter = self.mail
-            elif action.startswith("calendar."):
-                adapter = self.calendar
-            elif action in {"drive.rename", "drive.trash_file"}:
-                adapter = self.drive
             else:
-                adapter = self.writer
+                adapter = self._apply_adapter(action)
             result = await adapter.apply(request_id, accept=accept)
             self._actions.pop(request_id, None)
             return WriteResult(result=result)
@@ -365,3 +373,30 @@ class WriteGateway:
             return WriteResult(error=str(error))
         except Exception:
             return WriteResult(error="write_failed")
+
+    def _apply_adapter(self, action: str) -> WriteAdapter:
+        """Keep exact action routing; unknown actions retain the Reminders fallback."""
+        adapters: dict[str, WriteAdapter] = {
+            "drive.create_folder": self.drive_acknowledged,
+            "drive.recover_item": self.drive_acknowledged,
+            "drive.delete_forever_file": self.deletions,
+            "drive.move_file": self.moves,
+            "photos.add_to_album": self.photo_relations,
+            "photos.create_album": self.photo_creates,
+            "photos.rename_album": self.photo_albums,
+            "photos.set_favorite": self.photos,
+            "mail.rename_folder": self.mail_renames,
+            MAIL_CREATE_FOLDER: self.mail_folders,
+            "mail.set_read": self.mail_acknowledged,
+            "mail.set_flagged": self.mail_acknowledged,
+            "mail.move_message": self.mail_acknowledged,
+            "mail.delete_forever_message": self.mail_deletions,
+            "mail.send_draft": self.draft_sends,
+            "mail.edit_draft": self.draft_edits,
+            "mail.create_draft": self.mail,
+            "drive.rename": self.drive,
+            "drive.trash_file": self.drive,
+        }
+        if action in adapters:
+            return adapters[action]
+        return self.calendar if action.startswith("calendar.") else self.writer

@@ -123,11 +123,7 @@ class CalendarWrites:
             or "calendar" not in self.reads.owner.config.services
         ):
             raise WriteDenied("unsupported_action")
-        if (
-            not calendar_id
-            or len(calendar_id) > 512
-            or (action == "calendar.delete_event" and not event_id)
-        ):
+        if self._invalid_target(action, calendar_id, event_id):
             raise WriteDenied("invalid_target")
         target = CalendarTarget(calendar_id, event_id or str(uuid4()).upper(), action)
         if action == CALENDAR_CREATE_EVENT:
@@ -158,6 +154,15 @@ class CalendarWrites:
             return preview
 
         return await self.reads.owner.run(prepare)
+
+    @staticmethod
+    def _invalid_target(action: str, calendar_id: str, event_id: str | None) -> bool:
+        """Retain exact calendar selector bounds and required deletion identity."""
+        return (
+            not calendar_id
+            or len(calendar_id) > 512
+            or (action == "calendar.delete_event" and not event_id)
+        )
 
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None

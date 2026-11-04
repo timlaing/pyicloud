@@ -199,6 +199,21 @@ def build_server(
             """
             return await additional.mail_search(folder_handle, query, limit, field)
 
+    _register_extended_tools(
+        server, context, additional, content, writes, read_annotations
+    )
+    return server
+
+
+def _register_extended_tools(
+    server: MCPServer,
+    context: SessionOwner,
+    additional: AdditionalReads,
+    content: ContentReads,
+    writes: WriteGateway | None,
+    read_annotations: ToolAnnotations,
+) -> MCPServer:
+    """Register explicit search/content/write opt-ins without expanding permission."""
     if "notes" in context.config.services:
 
         @server.tool(name="icloud_notes_search", annotations=read_annotations)

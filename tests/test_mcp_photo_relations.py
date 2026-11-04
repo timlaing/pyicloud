@@ -156,7 +156,6 @@ async def test_invalid_payload_revision_source_and_disabled_service() -> None:
     with pytest.raises(WriteDenied, match="revision_unavailable"):
         await writes.prepare_add(source, target, {})
     disabled = AdditionalReads(ReadTools(owner_for(MagicMock(), services=("mail",))))
+    disabled_writer = PhotoRelations(PhotoAlbumWrites(disabled, writes.ledger))
     with pytest.raises(WriteDenied, match="write_disabled"):
-        await PhotoRelations(PhotoAlbumWrites(disabled, writes.ledger)).prepare_add(
-            source, target, {}
-        )
+        await disabled_writer.prepare_add(source, target, {})

@@ -21,6 +21,10 @@ class DriveTarget:
     zone: str | None
 
 
+DRIVE_RENAME = "drive.rename"
+DRIVE_TRASH_FILE = "drive.trash_file"
+
+
 class DriveWrites:
     """Rename only after exact independent approval and fresh etag checks."""
 
@@ -84,24 +88,17 @@ class DriveWrites:
         payload: dict[str, Any],
         publish: Callable[[MutationPreview], None] | None = None,
         *,
-        action: str = "drive.rename",
+        action: str = DRIVE_RENAME,
     ) -> MutationPreview:
         """Refresh the discovered target and publish a non-mutating exact preview."""
         if "drive" not in self.additional.reads.owner.config.services:
             raise WriteDenied("write_disabled")
         name = payload.get("name")
-        if action not in {"drive.rename", "drive.trash_file"}:
+        if action not in {DRIVE_RENAME, DRIVE_TRASH_FILE}:
             raise WriteDenied("unsupported_action")
-        if action == "drive.trash_file" and payload:
+        if action == DRIVE_TRASH_FILE and payload:
             raise WriteDenied("invalid_payload")
-        if action == "drive.rename" and (
-            set(payload) != {"name"}
-            or not isinstance(name, str)
-            or not name.strip()
-            or name in {".", ".."}
-            or len(name.encode("utf-8")) > 255
-            or any(char in name for char in ("/", "\\", "\x00", "\r", "\n"))
-        ):
+        if action == DRIVE_RENAME and self._invalid_rename(payload, name):
             raise WriteDenied("invalid_payload")
         original = self.additional.resolve_any(
             frozenset({"drive-file", "drive-folder"}), handle
@@ -117,15 +114,12 @@ class DriveWrites:
 
         def prepare(client: Any) -> MutationPreview:
             node = self._fresh(client, target)
-            if node.data.get("restorePath") or (
-                action == "drive.trash_file" and node.type != "file"
-            ):
-                raise WriteDenied("unsupported_target")
+            self._require_action_target(action, node)
             account, resource, revision = self._bindings(client, target, node)
             preview = self.ledger.preview(
                 action,
                 node.name,
-                {"name": name} if action == "drive.rename" else {},
+                {"name": name} if action == DRIVE_RENAME else {},
                 account_binding=account,
                 resource_binding=resource,
                 revision=revision,
@@ -142,6 +136,26 @@ class DriveWrites:
 
         return await self.additional.reads.owner.run(prepare)
 
+    @staticmethod
+    def _invalid_rename(payload: dict[str, Any], name: Any) -> bool:
+        """Preserve the exact bounded Drive rename leaf policy."""
+        return (
+            set(payload) != {"name"}
+            or not isinstance(name, str)
+            or not name.strip()
+            or name in {".", ".."}
+            or len(name.encode("utf-8")) > 255
+            or any(char in name for char in ("/", "\\", "\x00", "\r", "\n"))
+        )
+
+    @staticmethod
+    def _require_action_target(action: str, node: DriveNode) -> None:
+        """Refuse restored nodes and non-file Trash targets before authorization."""
+        if node.data.get("restorePath") or (
+            action == DRIVE_TRASH_FILE and node.type != "file"
+        ):
+            raise WriteDenied("unsupported_target")
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -153,10 +167,7 @@ class DriveWrites:
         def apply(client: Any) -> dict[str, Any]:
             node = self._fresh(client, target)
             action = self._actions[request_id]
-            if node.data.get("restorePath") or (
-                action == "drive.trash_file" and node.type != "file"
-            ):
-                raise WriteDenied("unsupported_target")
+            self._require_action_target(action, node)
             account, resource, revision = self._bindings(client, target, node)
             if accept is not None:
                 accept(request_id)
@@ -168,7 +179,7 @@ class DriveWrites:
             )
             del self._targets[request_id]
             del self._actions[request_id]
-            if action == "drive.trash_file":
+            if action == DRIVE_TRASH_FILE:
                 try:
                     node.move_to_trash()
                     self._verify_trash(client, target, account, resource)
@@ -177,23 +188,29 @@ class DriveWrites:
                 return {"action": action, "changed": True}
             name = approved.payload["name"]
             if node.data.get("name") == name:
-                return {"action": "drive.rename", "changed": False}
+                return {"action": DRIVE_RENAME, "changed": False}
             try:
                 node.rename(name)
-                verified = self._fresh(client, target)
-                verified_account, verified_resource, _revision = self._bindings(
-                    client, target, verified
-                )
-                if verified.data.get("name") != name or (
-                    verified_account,
-                    verified_resource,
-                ) != (account, resource):
-                    raise WriteDenied("mutation_unverified")
+                self._verify_rename(client, target, name, account, resource)
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
-            return {"action": "drive.rename", "changed": True}
+            return {"action": DRIVE_RENAME, "changed": True}
 
         return await self.additional.reads.owner.run(apply)
+
+    def _verify_rename(
+        self, client: Any, target: DriveTarget, name: str, account: str, resource: str
+    ) -> None:
+        """Require independent refreshed name and exact original account/route."""
+        verified = self._fresh(client, target)
+        verified_account, verified_resource, _revision = self._bindings(
+            client, target, verified
+        )
+        if verified.data.get("name") != name or (
+            verified_account,
+            verified_resource,
+        ) != (account, resource):
+            raise WriteDenied("mutation_unverified")
 
     def _verify_trash(
         self, client: Any, target: DriveTarget, account: str, resource: str

@@ -246,7 +246,6 @@ async def test_bounded_inventory_and_disabled_service() -> None:
     await writes.prepare(handle, {"name": "After"})
     assert len(writes._targets) == 256
     additional = AdditionalReads(ReadTools(owner_for(MagicMock(), services=("mail",))))
+    disabled_writer = PhotoAlbumWrites(additional, writes.ledger)
     with pytest.raises(WriteDenied, match="write_disabled"):
-        await PhotoAlbumWrites(additional, writes.ledger).prepare(
-            handle, {"name": "After"}
-        )
+        await disabled_writer.prepare(handle, {"name": "After"})

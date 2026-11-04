@@ -161,6 +161,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Refactored
 
+- Separate MCP action routing, upload/download validation and acknowledgement policies into focused helpers without changing service opt-ins, independent approval requirements, replay protection or outcome verification.
+
 - Separate private Mail query and pagination validation helpers from the unchanged facade, preserving lazy requests, mailbox checks and whole-page error handling.
 - Consolidate Photos query construction and raw request serialization behind unchanged library and album facades, retaining zone ownership and paging payloads.
 - Separate private authentication header and verification-response helpers from the unchanged core facade, retaining session ownership and request ordering.

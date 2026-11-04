@@ -54,6 +54,20 @@ def resource_url(value: str | None) -> str:
     return value or ""
 
 
+def _partial_range(response: Any, offset: int, data: bytes) -> tuple[bool, int | None]:
+    """Validate exact resumed range geometry before accepting any download bytes."""
+    matched = re.fullmatch(
+        r"bytes (\d+)-(\d+)/(\d+)", response.headers.get("Content-Range", "")
+    )
+    if matched is None:
+        raise ToolFailure("invalid_download_range")
+    first, last, total = map(int, matched.groups())
+    if first != offset or last - first + 1 != len(data) or last >= total or not data:
+        raise ToolFailure("invalid_download_range")
+    complete = last + 1 == total
+    return complete, None if complete else last + 1
+
+
 def download_chunk(
     state: DownloadState, response: Any, offset: int, maximum: int, filename: str
 ) -> ReadResult:
@@ -65,21 +79,7 @@ def download_chunk(
         if response.status_code == 200 and offset == 0:
             complete, next_offset = True, None
         elif response.status_code == 206:
-            matched = re.fullmatch(
-                r"bytes (\d+)-(\d+)/(\d+)", response.headers.get("Content-Range", "")
-            )
-            if matched is None:
-                raise ToolFailure("invalid_download_range")
-            first, last, total = map(int, matched.groups())
-            if (
-                first != offset
-                or last - first + 1 != len(data)
-                or last >= total
-                or not data
-            ):
-                raise ToolFailure("invalid_download_range")
-            complete = last + 1 == total
-            next_offset = None if complete else last + 1
+            complete, next_offset = _partial_range(response, offset, data)
         else:
             raise ToolFailure("download_rejected")
         etag = response.headers.get("ETag")
@@ -202,45 +202,68 @@ class ContentReads:
                 if service == "drive"
                 else None
             )
-            if service == "drive" and (
-                (isinstance(size, int) and not isinstance(size, bool) and size == 0)
-                or size == "0"
-            ):
-                if offset:
-                    raise ToolFailure("invalid_download_range")
-                return bounded_result(
-                    [
-                        {
-                            "filename": text(resource.name),
-                            "offset": 0,
-                            "data_base64": "",
-                            "next_offset": None,
-                        }
-                    ],
-                    1,
-                )
-            key = f"{service}:{handle}:{version}"
-            if key not in self._downloads:
-                if len(self._downloads) >= 1000:
-                    del self._downloads[next(iter(self._downloads))]
-                self._downloads[key] = DownloadState(resource)
-            state = self._downloads[key]
+            if self._empty_drive_file(service, size):
+                return self._empty_download(resource, offset)
+            state = self._download_state(f"{service}:{handle}:{version}", resource)
             if offset and state.etag is None:
                 raise ToolFailure("download_requires_strong_etag")
             headers = {"Range": f"bytes={offset}-{offset + maximum - 1}"}
             if state.etag:
                 headers["If-Match"] = state.etag
-            if service == "drive":
-                filename = text(resource.name)
-                response = resource.open(
-                    stream=True, headers=headers, allow_redirects=False
-                )
-            else:
-                filename = text(resource.filename)
-                url = resource_url(resource.download_url(version))
-                response = client.session.get(
-                    url, stream=True, headers=headers, allow_redirects=False
-                )
+            filename, response = self._open_download(
+                client, service, resource, version, headers
+            )
             return download_chunk(state, response, offset, maximum, filename)
 
         return await self._run(service, maximum, 131072, read)
+
+    @staticmethod
+    def _empty_download(resource: Any, offset: int) -> ReadResult:
+        """Return explicit empty bytes only at the beginning of a zero-size file."""
+        if offset:
+            raise ToolFailure("invalid_download_range")
+        return bounded_result(
+            [
+                {
+                    "filename": text(resource.name),
+                    "offset": 0,
+                    "data_base64": "",
+                    "next_offset": None,
+                }
+            ],
+            1,
+        )
+
+    @staticmethod
+    def _empty_drive_file(service: str, size: Any) -> bool:
+        """Recognize only the existing explicit Drive zero-size representations."""
+        return service == "drive" and (
+            (isinstance(size, int) and not isinstance(size, bool) and size == 0)
+            or size == "0"
+        )
+
+    def _download_state(self, key: str, resource: Any) -> DownloadState:
+        """Retain the bounded original resource/version-specific download registry."""
+        if key not in self._downloads:
+            if len(self._downloads) >= 1000:
+                del self._downloads[next(iter(self._downloads))]
+            self._downloads[key] = DownloadState(resource)
+        return self._downloads[key]
+
+    @staticmethod
+    def _open_download(
+        client: Any, service: str, resource: Any, version: str, headers: dict[str, str]
+    ) -> tuple[str, Any]:
+        """Use only discovered resources with the existing no-redirect range policy."""
+        if service == "drive":
+            filename = text(resource.name)
+            response = resource.open(
+                stream=True, headers=headers, allow_redirects=False
+            )
+        else:
+            filename = text(resource.filename)
+            url = resource_url(resource.download_url(version))
+            response = client.session.get(
+                url, stream=True, headers=headers, allow_redirects=False
+            )
+        return filename, response

@@ -161,8 +161,9 @@ async def test_draft_requires_receipt_then_saves_once() -> None:
     assert "Approved" not in repr(context)
     with pytest.raises(ToolFailure):
         writes.additional.resolve("mail-message", result["handle"])
+    other_registry = AdditionalReads(writes.reads)
     with pytest.raises(ToolFailure):
-        AdditionalReads(writes.reads).resolve("mail-draft", result["handle"])
+        other_registry.resolve("mail-draft", result["handle"])
     with (
         patch("pyicloud.mcp.additional.time.monotonic", return_value=10**30),
         pytest.raises(ToolFailure),

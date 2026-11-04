@@ -17,6 +17,36 @@ from pyicloud.services.mail.models import (
 from .authorization import MutationPreview, WriteDenied
 from .mail_writes import MailWrites
 
+MAIL_SET_READ = "mail.set_read"
+MAIL_MOVE_MESSAGE = "mail.move_message"
+
+
+def _verify_move(outcome: Any, message: MailMessage, folder: MailFolder | None) -> None:
+    """Require exact typed source and destination acknowledgement identity."""
+    if (
+        not isinstance(outcome, MailMoveUpdate)
+        or folder is None
+        or (
+            outcome.source_message_id,
+            outcome.source_folder_id,
+            outcome.destination_folder_id,
+        )
+        != (message.id, message.folder.id, folder.id)
+    ):
+        raise WriteDenied("mutation_unverified")
+
+
+def _verify_flag(
+    outcome: Any, message: MailMessage, action: str, enabled: bool
+) -> None:
+    """Require the exact typed requested flag acknowledgement, not inferred state."""
+    if not isinstance(outcome, MailFlagUpdate) or (
+        outcome.message_id,
+        outcome.flag,
+        outcome.enabled,
+    ) != (message.id, "seen" if action == MAIL_SET_READ else "flagged", enabled):
+        raise WriteDenied("mutation_unverified")
+
 
 class MailAcknowledged:
     """One typed source, one receipt and one SDK call; retire before dispatch."""
@@ -89,9 +119,9 @@ class MailAcknowledged:
         publish: Callable[[MutationPreview], None] | None = None,
     ) -> MutationPreview:
         """No ID selectors, flag masks, caller approval or inferred flag state."""
-        if action not in {"mail.set_read", "mail.set_flagged", "mail.move_message"}:
+        if action not in {MAIL_SET_READ, "mail.set_flagged", MAIL_MOVE_MESSAGE}:
             raise WriteDenied("unsupported_action")
-        if action == "mail.move_message":
+        if action == MAIL_MOVE_MESSAGE:
             if payload or not destination:
                 raise WriteDenied("invalid_payload")
         elif (
@@ -155,36 +185,17 @@ class MailAcknowledged:
             del self._requests[request_id]
             self.additional.retire("mail-message", handle)
             try:
-                if action == "mail.move_message":
+                if action == MAIL_MOVE_MESSAGE:
                     outcome = client.mail.move(message, folder)
-                    if (
-                        not isinstance(outcome, MailMoveUpdate)
-                        or folder is None
-                        or (
-                            outcome.source_message_id,
-                            outcome.source_folder_id,
-                            outcome.destination_folder_id,
-                        )
-                        != (message.id, message.folder.id, folder.id)
-                    ):
-                        raise WriteDenied("mutation_unverified")
+                    _verify_move(outcome, message, folder)
                 else:
                     enabled = approved.payload["enabled"]
                     outcome = (
                         client.mail.set_read(message, read=enabled)
-                        if action == "mail.set_read"
+                        if action == MAIL_SET_READ
                         else client.mail.set_flagged(message, flagged=enabled)
                     )
-                    if not isinstance(outcome, MailFlagUpdate) or (
-                        outcome.message_id,
-                        outcome.flag,
-                        outcome.enabled,
-                    ) != (
-                        message.id,
-                        "seen" if action == "mail.set_read" else "flagged",
-                        enabled,
-                    ):
-                        raise WriteDenied("mutation_unverified")
+                    _verify_flag(outcome, message, action, enabled)
                 if (
                     client.params.get("dsid") != account
                     or client.mail.service_root != json.loads(resource)[0]

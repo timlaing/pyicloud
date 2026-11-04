@@ -177,7 +177,6 @@ async def test_bounded_inventory_and_service_opt_in() -> None:
     with pytest.raises(WriteDenied, match="inventory_unavailable"):
         await writes.prepare_create(handle, {"name": "New"})
     disabled = AdditionalReads(ReadTools(owner_for(MagicMock(), services=("mail",))))
+    disabled_writer = PhotoAlbumCreates(PhotoAlbumWrites(disabled, writes.ledger))
     with pytest.raises(WriteDenied, match="write_disabled"):
-        await PhotoAlbumCreates(
-            PhotoAlbumWrites(disabled, writes.ledger)
-        ).prepare_create(handle, {"name": "New"})
+        await disabled_writer.prepare_create(handle, {"name": "New"})

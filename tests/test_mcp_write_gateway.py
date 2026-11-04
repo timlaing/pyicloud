@@ -178,12 +178,13 @@ def test_send_startup_requires_both_content_and_elevated_selection(
     content: tuple[str, ...], elevated: tuple[str, ...]
 ) -> None:
     """No ordinary startup selection grants permission to submit saved mail."""
+    selected_content = cast(Any, content)
     with pytest.raises(ValueError):
         ServerConfig(
             username="synthetic",
             session_dir="unused",
             services=("mail",),
-            content_services=cast(Any, content),
+            content_services=selected_content,
             write_actions=("mail.send_draft",),
             high_risk_actions=elevated,
             approval_dir="unused",
@@ -714,11 +715,13 @@ async def test_calendar_delete_requires_elevated_private_terminal_receipt(
     assert prepared.preview is not None
     preview = prepared.preview
     assert preview["risk"] == "high"
+    ordinary_input = terminal("APPROVE " + preview["request_id"])
+    ordinary_output = io.StringIO()
     with pytest.raises(WriteDenied, match="operator_declined"):
         gateway.mailbox.decide(
             preview["request_id"],
-            terminal("APPROVE " + preview["request_id"]),
-            io.StringIO(),
+            ordinary_input,
+            ordinary_output,
         )
     client.calendar.remove_event.assert_not_called()
     gateway.mailbox.decide(

@@ -61,6 +61,25 @@ def _receipt_data(response: Any, size: int) -> dict[str, Any]:
     return data
 
 
+def _reservation_target(reservation: Any) -> tuple[str, str]:
+    """Require one bounded allocation identity and a typed transfer target."""
+    if (
+        not isinstance(reservation, list)
+        or len(reservation) != 1
+        or not isinstance(reservation[0], dict)
+    ):
+        raise WriteDenied("upload_outcome_uncertain")
+    allocation, target = reservation[0].get("document_id"), reservation[0].get("url")
+    if (
+        not isinstance(allocation, str)
+        or not allocation
+        or len(allocation) > 512
+        or not isinstance(target, str)
+    ):
+        raise WriteDenied("upload_outcome_uncertain")
+    return allocation, target
+
+
 class DriveUploadBytes:
     """One existing upload flow; acknowledged commit is not final file identity."""
 
@@ -124,23 +143,7 @@ class DriveUploadBytes:
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            if (
-                not isinstance(reservation, list)
-                or len(reservation) != 1
-                or not isinstance(reservation[0], dict)
-            ):
-                raise WriteDenied("upload_outcome_uncertain")
-            allocation, target = (
-                reservation[0].get("document_id"),
-                reservation[0].get("url"),
-            )
-            if (
-                not isinstance(allocation, str)
-                or not allocation
-                or len(allocation) > 512
-                or not isinstance(target, str)
-            ):
-                raise WriteDenied("upload_outcome_uncertain")
+            allocation, target = _reservation_target(reservation)
             response = self.transport.transfer(
                 target, stage.data, deadline=deadline, multipart_name=stage.name
             )

@@ -172,16 +172,22 @@ class AdditionalReads:
                     "type": kind,
                     "modified": timestamp(child.date_modified),
                 }
-                if kind in {"folder", "app_library"}:
-                    record["handle"] = self._store("drive-folder", child)
-                elif kind == "file":
-                    record["handle"] = self._store("drive-file", child)
+                self._drive_record_handle(record, kind, child)
                 records.append(record)
                 if len(records) >= limit:
                     break
             return bounded_result(records, limit, complete=False)
 
         return await self._run("drive", query, limit, read)
+
+    def _drive_record_handle(
+        self, record: dict[str, Any], kind: str, child: Any
+    ) -> None:
+        """Attach only the established folder or file discovery handle kinds."""
+        if kind in {"folder", "app_library"}:
+            record["handle"] = self._store("drive-folder", child)
+        elif kind == "file":
+            record["handle"] = self._store("drive-file", child)
 
     async def drive_trash(self, query: str, limit: int) -> ReadResult:
         """Bounded Recently Deleted metadata with separate opaque trash selectors."""

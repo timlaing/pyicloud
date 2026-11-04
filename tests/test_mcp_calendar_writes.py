@@ -183,11 +183,11 @@ async def test_invalid_input_and_missing_revision_fail_closed() -> None:
         ),
     ]
     for action, calendar, data, identifier in cases:
+        selected_payload = cast(dict[str, Any], data)
         with pytest.raises(WriteDenied):
-            await writes.prepare(
-                action, calendar, cast(dict[str, Any], data), identifier
-            )
+            await writes.prepare(action, calendar, selected_payload, identifier)
     client.params = {}
+    event_payload = payload()
     with pytest.raises(WriteDenied, match="account_unavailable"):
-        await writes.prepare("calendar.create_event", "C", payload())
+        await writes.prepare("calendar.create_event", "C", event_payload)
     client.calendar.add_event.assert_not_called()

@@ -30,6 +30,12 @@ def _invalid_folder_payload(payload: dict[str, Any], name: Any) -> bool:
     )
 
 
+def _verify_after_route(client: Any, account: str, route: str) -> None:
+    """Require the same account and Drive route after acknowledgement."""
+    if str(client.params.get("dsid")) != account or client.drive.service_root != route:
+        raise WriteDenied("mutation_unverified")
+
+
 def _verify_acknowledgement(
     action: str, response: Any, name: Any, identifier: str
 ) -> None:
@@ -255,11 +261,7 @@ class DriveAcknowledged(DriveWrites):
                     approved.payload["name"] if action == DRIVE_CREATE_FOLDER else None,
                     selector.identifier,
                 )
-                if (
-                    str(client.params.get("dsid")) != account
-                    or client.drive.service_root != route
-                ):
-                    raise WriteDenied("mutation_unverified")
+                _verify_after_route(client, account, route)
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
             return {

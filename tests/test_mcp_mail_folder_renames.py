@@ -141,7 +141,6 @@ async def test_bounded_inventory_and_disabled_service() -> None:
     await writes.prepare_rename(handle, {"name": "Renamed"})
     assert len(writes._renames) == 256
     disabled = AdditionalReads(ReadTools(owner_for(MagicMock(), services=("drive",))))
+    disabled_writer = MailFolderRenames(disabled, writes.ledger)
     with pytest.raises(WriteDenied, match="write_disabled"):
-        await MailFolderRenames(disabled, writes.ledger).prepare_rename(
-            handle, {"name": "Renamed"}
-        )
+        await disabled_writer.prepare_rename(handle, {"name": "Renamed"})

@@ -43,8 +43,9 @@ def test_exact_bytes_seal_is_immutable_private_and_single_use() -> None:
     assert "private synthetic" not in repr(sealed)
     with pytest.raises(FrozenInstanceError):
         cast(Any, sealed).data = b"changed"
+    end_offset = len(data)
     with pytest.raises(WriteDenied, match="already_sealed"):
-        store.append(token, len(data), "YQ==")
+        store.append(token, end_offset, "YQ==")
     assert store.take(token) is sealed
     with pytest.raises(WriteDenied, match="expired_or_unknown"):
         store.take(token)

@@ -86,14 +86,13 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
     transport.transfer.return_value = {"singleFile": receipt}
     if case == "transport":
         transport.transfer.side_effect = OSError("private")
+    uploader = DriveUploadBytes(transport)
     with patch(
         "pyicloud.mcp.drive_upload_bytes.mimetypes.guess_type",
         return_value=("text/plain", None),
     ):
         if case in {"ok", "empty"}:
-            DriveUploadBytes(transport).upload(
-                drive, "folder-document", stage, modified_ms=1000
-            )
+            uploader.upload(drive, "folder-document", stage, modified_ms=1000)
             commit = transport.register.call_args_list[1]
             assert "token=synthetic" in commit.args[1]
             assert commit.args[3]["document_id"] == "allocated"
@@ -106,9 +105,7 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
             assert transport.transfer.call_args.kwargs["multipart_name"] == "file.txt"
         else:
             with pytest.raises(WriteDenied):
-                DriveUploadBytes(transport).upload(
-                    drive, "folder-document", stage, modified_ms=1000
-                )
+                uploader.upload(drive, "folder-document", stage, modified_ms=1000)
     assert drive.params == {"dsid": "123"}
     assert transport.register.call_count <= 2
     assert transport.transfer.call_count <= 1
