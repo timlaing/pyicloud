@@ -118,6 +118,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add `AccountService.refresh_storage()` to explicitly fetch current storage usage while preserving the cached `storage` property and retaining the previous snapshot if a refresh fails.
+
 - Add shared MCP read projections, opaque handle storage, independent approval primitives, bounded staging/transports and explicit service registration infrastructure; service tools and runtime writes are supplied by dependent integration slices.
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
 - Add cache-independent Photos album reads and typed-only correlated album creation/relation helpers; capability checks remain passive and shared or unsupported routes fail closed.

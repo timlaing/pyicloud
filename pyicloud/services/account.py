@@ -86,13 +86,19 @@ class AccountService(BaseService):
     @property
     def storage(self) -> "AccountStorage":
         """Returns storage infos."""
-        if not self._storage:
-            req: Response = self.session.post(self._acc_storage_url, params=self.params)
-            response = req.json()
-
-            self._storage = AccountStorage(response)
-
+        if self._storage is None:
+            return self.refresh_storage()
         return self._storage
+
+    def refresh_storage(self) -> "AccountStorage":
+        """Fetch current storage information and replace the cached snapshot.
+
+        A failed request or response parsing leaves the previous snapshot intact.
+        """
+        response = self.session.post(self._acc_storage_url, params=self.params)
+        storage = AccountStorage(response.json())
+        self._storage = storage
+        return storage
 
     @property
     def summary_plan(self) -> Any:
