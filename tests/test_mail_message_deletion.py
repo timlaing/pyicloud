@@ -133,6 +133,16 @@ def test_delete_preflight_is_read_only_exact_metadata(case: DeleteCase) -> None:
     ] == ["mailbox", "email", "mailbox", "mailbox"]
 
 
+def test_delete_rechecks_identity_after_preflight(case: DeleteCase) -> None:
+    """Confirmation does not bypass a fresh check of the Trash message."""
+    assert case.service.check_delete_permanently(case.message) == "synthetic-account"
+    case.present = False
+    with pytest.raises(MailError):
+        case.service.delete_permanently(case.message, confirm=True)
+    assert not case.wrote
+    case.session.request_raw.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "change", ["name", "uid_validity", "flags", "absent", "identifier"]
 )

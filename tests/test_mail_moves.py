@@ -97,6 +97,17 @@ def test_move_preflight_is_read_only_and_preserves_metadata(case: MoveCase) -> N
     assert [query["predicate"]["value"] for query in queries[1:]] == ["10", "20"]
 
 
+def test_move_rechecks_destination_after_preflight(case: MoveCase) -> None:
+    """A successful preflight does not authorize a later stale mailbox move."""
+    assert (
+        case.service.check_move(case.message, case.destination) == "synthetic-account"
+    )
+    case.capabilities["20"]["domainObjects"][0]["uidValidity"] = 9999
+    with pytest.raises(MailError):
+        case.service.move(case.message, case.destination)
+    case.session.request_raw.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "case_name", ["same_folder", "uid_validity", "non_selectable", "junk"]
 )
