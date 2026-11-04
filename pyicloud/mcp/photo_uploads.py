@@ -138,6 +138,27 @@ class PhotoUploads:
 
         return await self.additional.reads.owner.run(prepare)
 
+    def _verify_after_binding(
+        self, client: Any, zone: str, account: str, resource: str
+    ) -> None:
+        """Recheck account, CloudKit route and private zone without stage reuse."""
+        _library, after_account, after_resource, _rev, _albums = self.writer._library(
+            client, zone
+        )
+        if (
+            after_account != account
+            or after_resource != json.loads(resource)[0]
+            or (
+                client.photos.private_primary_zone
+                if isinstance(
+                    getattr(client.photos, "private_primary_zone", None), dict
+                )
+                else None
+            )
+            != json.loads(resource)[4]
+        ):
+            raise WriteDenied("mutation_unverified")
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -185,22 +206,7 @@ class PhotoUploads:
                     raise WriteDenied("mutation_unverified")
                 # Recheck the full library/account/CloudKit route without reusing
                 # a registration cache or pretending the consumed stage still exists.
-                _library, after_account, after_resource, _rev, _albums = (
-                    self.writer._library(client, zone)
-                )  # pylint: disable=protected-access
-                if (
-                    after_account != account
-                    or after_resource != json.loads(resource)[0]
-                    or (
-                        client.photos.private_primary_zone
-                        if isinstance(
-                            getattr(client.photos, "private_primary_zone", None), dict
-                        )
-                        else None
-                    )
-                    != json.loads(resource)[4]
-                ):
-                    raise WriteDenied("mutation_unverified")
+                self._verify_after_binding(client, zone, account, resource)
                 return {
                     "action": "photos.upload_file",
                     "id": asset.id,
