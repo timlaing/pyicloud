@@ -12,6 +12,8 @@ from pyicloud.services.photos.service import PhotoAlbum, private_photo_zone
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 
+PHOTOS_RENAME_ALBUM = "photos.rename_album"
+
 
 class PhotoAlbumWrites:
     """Fresh private album snapshots with exact independent single-use approval."""
@@ -106,7 +108,7 @@ class PhotoAlbumWrites:
         def prepare(client: Any) -> MutationPreview:
             album, account, resource, revision = self._fresh(client, target)
             preview = self.ledger.preview(
-                "photos.rename_album",
+                PHOTOS_RENAME_ALBUM,
                 album.name,
                 {"name": name},
                 account_binding=account,
@@ -143,7 +145,7 @@ class PhotoAlbumWrites:
             del self._targets[request_id]
             name = approved.payload["name"]
             if album.name == name:
-                return {"action": "photos.rename_album", "changed": False}
+                return {"action": PHOTOS_RENAME_ALBUM, "changed": False}
             try:
                 album.rename(name)
                 verified, current_account, current_resource, _revision = self._fresh(
@@ -161,6 +163,6 @@ class PhotoAlbumWrites:
                     raise WriteDenied("mutation_unverified")
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
-            return {"action": "photos.rename_album", "changed": True}
+            return {"action": PHOTOS_RENAME_ALBUM, "changed": True}
 
         return await self.additional.reads.owner.run(apply)

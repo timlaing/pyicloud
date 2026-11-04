@@ -13,10 +13,13 @@ from .additional import window
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 from .reads import ReadTools
 
+REMINDERS_CREATE = "reminders.create"
+REMINDERS_DELETE = "reminders.delete"
+
 REMINDER_ACTIONS = frozenset({
-    "reminders.create",
+    REMINDERS_CREATE,
     "reminders.update",
-    "reminders.delete",
+    REMINDERS_DELETE,
 })
 
 
@@ -94,12 +97,12 @@ class ReminderWrites:
     def _payload(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         allowed = (
             {"title", "description", "completed"}
-            if action != "reminders.delete"
+            if action != REMINDERS_DELETE
             else set()
         )
         if set(payload) - allowed:
             raise WriteDenied("invalid_payload")
-        if action == "reminders.create" and not payload.get("title"):
+        if action == REMINDERS_CREATE and not payload.get("title"):
             raise WriteDenied("invalid_payload")
         if action == "reminders.update" and not payload:
             raise WriteDenied("invalid_payload")
@@ -125,7 +128,7 @@ class ReminderWrites:
             or "reminders" not in self.reads.owner.config.services
         ):
             raise WriteDenied("unsupported_action")
-        if (action == "reminders.create") != (reminder_id is None):
+        if (action == REMINDERS_CREATE) != (reminder_id is None):
             raise WriteDenied("invalid_target")
         data = self._payload(action, payload)
         context = self.reads.resolve_list(list_handle).model_copy(deep=True)
@@ -191,7 +194,7 @@ class ReminderWrites:
     ) -> dict[str, Any]:
         """Only dispatch performs writes, after approval has been consumed."""
         data = approved.payload
-        if approved.action == "reminders.create":
+        if approved.action == REMINDERS_CREATE:
             created = client.reminders.create(
                 fresh,
                 data["title"],
@@ -201,7 +204,7 @@ class ReminderWrites:
             return {"id": created.id, "action": approved.action}
         if reminder is None:
             raise WriteDenied("target_unavailable")
-        if approved.action == "reminders.delete":
+        if approved.action == REMINDERS_DELETE:
             client.reminders.delete(reminder)
         else:
             if "title" in data:

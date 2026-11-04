@@ -15,7 +15,8 @@ from pyicloud.services.calendar import EventObject
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 from .reads import ReadTools
 
-CALENDAR_ACTIONS = frozenset({"calendar.create_event", "calendar.delete_event"})
+CALENDAR_CREATE_EVENT = "calendar.create_event"
+CALENDAR_ACTIONS = frozenset({CALENDAR_CREATE_EVENT, "calendar.delete_event"})
 
 
 @dataclass(frozen=True)
@@ -71,7 +72,7 @@ class CalendarWrites:
         calendars = client.calendar.get_calendars()
         if not any(item.get("guid") == target.calendar_id for item in calendars):
             raise WriteDenied("target_unavailable")
-        if target.action == "calendar.create_event":
+        if target.action == CALENDAR_CREATE_EVENT:
             return client.calendar.get_ctag(target.calendar_id), None
         event = client.calendar.get_event_detail(
             target.calendar_id, target.event_id, as_obj=True
@@ -129,7 +130,7 @@ class CalendarWrites:
         ):
             raise WriteDenied("invalid_target")
         target = CalendarTarget(calendar_id, event_id or str(uuid4()).upper(), action)
-        if action == "calendar.create_event":
+        if action == CALENDAR_CREATE_EVENT:
             if event_id is not None:
                 raise WriteDenied("invalid_target")
             event_from_payload(target, payload)
@@ -179,7 +180,7 @@ class CalendarWrites:
             )
             del self._targets[request_id]
             try:
-                if target.action == "calendar.create_event":
+                if target.action == CALENDAR_CREATE_EVENT:
                     data = approved.payload
                     data.pop("event_id")
                     requested = event_from_payload(target, data)

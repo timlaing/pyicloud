@@ -12,6 +12,8 @@ from pyicloud.services.photos.service import PhotoAlbum, PhotoAsset, private_pho
 from .authorization import MutationPreview, WriteDenied
 from .photo_album_writes import PhotoAlbumWrites
 
+PHOTOS_ADD_TO_ALBUM = "photos.add_to_album"
+
 
 class PhotoRelations(PhotoAlbumWrites):
     """Fresh two-target revisions and membership observations, never blind retries."""
@@ -102,7 +104,7 @@ class PhotoRelations(PhotoAlbumWrites):
                 client, target
             )
             preview = self.ledger.preview(
-                "photos.add_to_album",
+                PHOTOS_ADD_TO_ALBUM,
                 f"{asset.id} -> {current.name}",
                 {},
                 account_binding=account,
@@ -140,7 +142,7 @@ class PhotoRelations(PhotoAlbumWrites):
             )
             del self._relations[request_id]
             if present:
-                return {"action": "photos.add_to_album", "changed": False}
+                return {"action": PHOTOS_ADD_TO_ALBUM, "changed": False}
             try:
                 if album.add_photo_correlated(asset) is not True:
                     raise WriteDenied("mutation_unverified")
@@ -159,6 +161,6 @@ class PhotoRelations(PhotoAlbumWrites):
                     raise WriteDenied("mutation_unverified")
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
-            return {"action": "photos.add_to_album", "changed": True}
+            return {"action": PHOTOS_ADD_TO_ALBUM, "changed": True}
 
         return await self.additional.reads.owner.run(apply)

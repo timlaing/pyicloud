@@ -16,6 +16,8 @@ from pyicloud.services.photos.service import PhotoAsset, private_photo_zone
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 
+PHOTOS_SET_FAVORITE = "photos.set_favorite"
+
 
 class PhotoWrites:
     """Fresh private-zone revisions and exact independent single-use approval."""
@@ -112,7 +114,7 @@ class PhotoWrites:
         def prepare(client: Any) -> MutationPreview:
             _asset, account, resource, revision = self._fresh(client, target)
             preview = self.ledger.preview(
-                "photos.set_favorite",
+                PHOTOS_SET_FAVORITE,
                 target[0],
                 {"favorite": value},
                 account_binding=account,
@@ -149,7 +151,7 @@ class PhotoWrites:
             del self._targets[request_id]
             value = approved.payload["favorite"]
             if record_field_value(asset.asset_record, "isFavorite") == int(value):
-                return {"action": "photos.set_favorite", "changed": False}
+                return {"action": PHOTOS_SET_FAVORITE, "changed": False}
             try:
                 asset.set_favorite(value)
                 verified, _account, _resource, _revision = self._fresh(client, target)
@@ -159,6 +161,6 @@ class PhotoWrites:
                     raise WriteDenied("mutation_unverified")
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
-            return {"action": "photos.set_favorite", "changed": True}
+            return {"action": PHOTOS_SET_FAVORITE, "changed": True}
 
         return await self.additional.reads.owner.run(apply)

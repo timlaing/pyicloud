@@ -11,6 +11,8 @@ from pyicloud.services.drive import DriveNode
 from .authorization import MutationPreview, WriteDenied
 from .drive_writes import DriveTarget, DriveWrites
 
+DRIVE_MOVE_FILE = "drive.move_file"
+
 
 class DriveMoves(DriveWrites):
     """Bind both discovered nodes; no caller IDs, folders or shared writes."""
@@ -75,7 +77,7 @@ class DriveMoves(DriveWrites):
         def prepare(client: Any) -> MutationPreview:
             source, destination, account, resource, revision = self._pair(client, pair)
             preview = self.ledger.preview(
-                "drive.move_file",
+                DRIVE_MOVE_FILE,
                 f"{source.name} -> {destination.name}",
                 {},
                 account_binding=account,
@@ -122,7 +124,7 @@ class DriveMoves(DriveWrites):
             )
             del self._moves[request_id]
             if source.data["parentId"] == targets[1].identifier:
-                return {"action": "drive.move_file", "changed": False}
+                return {"action": DRIVE_MOVE_FILE, "changed": False}
             try:
                 client.drive.move_nodes_to_node([source], destination)
                 (
@@ -148,6 +150,6 @@ class DriveMoves(DriveWrites):
                     raise WriteDenied("mutation_unverified")
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
-            return {"action": "drive.move_file", "changed": True}
+            return {"action": DRIVE_MOVE_FILE, "changed": True}
 
         return await self.additional.reads.owner.run(apply)
