@@ -70,8 +70,9 @@ def test_declaration_rejects_paths_controls_sizes_and_bad_digest(
     name: str, size: Any, sha: str
 ) -> None:
     """Invalid declarations cannot reserve memory or identify local resources."""
+    store = UploadStaging()
     with pytest.raises(WriteDenied, match="invalid_upload_declaration"):
-        UploadStaging().begin(name, size, sha)
+        store.begin(name, size, sha)
 
 
 @pytest.mark.parametrize(
@@ -102,8 +103,9 @@ def test_mismatch_expiry_reservation_and_cleanup_release_capacity() -> None:
     store = UploadStaging(max_file_bytes=2, max_total_bytes=2, capacity=1, ttl=1)
     with patch("pyicloud.mcp.upload_staging.time.monotonic", return_value=0):
         token = store.begin("x", 2, digest(b"ab"))
+        other_digest = digest(b"a")
         with pytest.raises(WriteDenied, match="staging_full"):
-            store.begin("other", 1, digest(b"a"))
+            store.begin("other", 1, other_digest)
     with patch("pyicloud.mcp.upload_staging.time.monotonic", return_value=2):
         with pytest.raises(WriteDenied, match="expired_or_unknown"):
             store.seal(token)
@@ -124,13 +126,15 @@ def test_aggregate_reserves_declared_sizes_and_chunk_bound() -> None:
     """Incomplete stages cannot overbook aggregate memory or accept giant chunks."""
     store = UploadStaging(max_file_bytes=2, max_total_bytes=2, capacity=2)
     store.begin("first", 2, digest(b"ab"))
+    second_digest = digest(b"a")
     with pytest.raises(WriteDenied, match="staging_full"):
-        store.begin("second", 1, digest(b"a"))
+        store.begin("second", 1, second_digest)
     store = UploadStaging()
     large = b"a" * (MAX_CHUNK_BYTES + 1)
     token = store.begin("large", len(large), digest(large))
+    encoded = base64.b64encode(large).decode()
     with pytest.raises(WriteDenied, match="invalid_upload_chunk"):
-        store.append(token, 0, base64.b64encode(large).decode())
+        store.append(token, 0, encoded)
 
 
 @pytest.mark.parametrize(

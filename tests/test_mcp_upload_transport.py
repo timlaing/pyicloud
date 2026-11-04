@@ -27,8 +27,9 @@ from pyicloud.mcp.upload_transport import (
 )
 def test_unsafe_targets_never_dispatch(url: str) -> None:
     """Returned URLs cannot expand trusted hosts or smuggle credentials."""
+    hosts = frozenset({"content.example.test"})
     with pytest.raises(WriteDenied, match="unsupported_upload_route"):
-        checked_upload_url(url, frozenset({"content.example.test"}))
+        checked_upload_url(url, hosts)
 
 
 @pytest.mark.parametrize("case", ["ok", "redirect", "large", "invalid", "read"])
@@ -121,16 +122,17 @@ def test_multipart_transfer_keeps_filename_local_and_auth_isolated(name: str) ->
     response = session.post.return_value
     response.status_code = 200
     response.iter_content.return_value = [b'{"singleFile":{}}']
+    transport = UploadTransport(frozenset({"content.example.test"}))
     with patch("pyicloud.mcp.upload_transport.Session") as factory:
         factory.return_value.__enter__.return_value = session
         if name.startswith("../"):
             with pytest.raises(WriteDenied):
-                UploadTransport(frozenset({"content.example.test"})).transfer(
+                transport.transfer(
                     "https://content.example.test/upload", b"", multipart_name=name
                 )
             factory.assert_not_called()
         else:
-            assert UploadTransport(frozenset({"content.example.test"})).transfer(
+            assert transport.transfer(
                 "https://content.example.test/upload", b"", multipart_name=name
             ) == {"singleFile": {}}
             assert session.trust_env is False
