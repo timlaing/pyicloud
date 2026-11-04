@@ -433,6 +433,8 @@ class RawClientCoverageTest(unittest.TestCase):
 class ServiceCoverageTest(unittest.TestCase):
     """Branch coverage for ``pyicloud/services/invites/service.py``."""
 
+    _monkeypatch: pytest.MonkeyPatch
+
     def setUp(self) -> None:
         self.service = InvitesService(
             service_root="https://example.com",
@@ -441,7 +443,7 @@ class ServiceCoverageTest(unittest.TestCase):
         )
 
     @pytest.fixture(autouse=True)
-    def _monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _inject_monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Expose pytest's monkeypatch fixture to unittest-style tests."""
         self._monkeypatch = monkeypatch
 

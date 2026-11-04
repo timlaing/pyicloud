@@ -8,6 +8,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore minimum-runtime dependency pins to the declared lower bounds and separate invites and notes test fixture methods from their stored patch instances to fix CI validation.
+
 ### Security
 
 - Constrain MCP operator approval directories to the OS account's private application approval root after canonical containment validation, rejecting path escapes and final symlinks before opening storage; existing arbitrary approval locations require explicit operator migration.
