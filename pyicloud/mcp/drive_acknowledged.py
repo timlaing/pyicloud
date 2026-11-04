@@ -15,6 +15,8 @@ from .authorization import MutationPreview, WriteDenied
 from .drive_writes import DriveTarget, DriveWrites
 from .upload_transport import UploadTransport, checked_upload_url
 
+DRIVE_CREATE_FOLDER = "drive.create_folder"
+
 
 class DriveAcknowledged(DriveWrites):
     """Exact private metadata/etag binding; no invented created or recovered handles."""
@@ -35,47 +37,59 @@ class DriveAcknowledged(DriveWrites):
         checked_upload_url(route, frozenset({hostname}) if hostname else frozenset())
         if urlsplit(route).query or client.drive.params.get("dsid") != account:
             raise WriteDenied("route_unavailable")
-        if action == "drive.create_folder":
-            if node.type != "folder" or node.data.get("restorePath"):
-                raise WriteDenied("unsupported_target")
-            children = node.get_children(force=True)
-            node = self._validated_node(client, target, node.data)
-            if node.type != "folder" or node.data.get("restorePath"):
-                raise WriteDenied("unsupported_target")
-            if any(child.name.casefold() == str(name).casefold() for child in children):
-                raise WriteDenied("destination_conflict")
+        if action == DRIVE_CREATE_FOLDER:
+            node = self._creation_destination(client, target, node, name)
             account, resource, revision = self._bindings(client, target, node)
         else:
-            path = node.data.get("restorePath")
-            if (
-                node.data.get("parentId") != "TRASH_ROOT"
-                or not isinstance(path, str)
-                or not path
-            ):
-                raise WriteDenied("unsupported_target")
-            members = [
-                item
-                for item in client.drive.trash.get_children(force=True)
-                if item.data.get("drivewsid") == target.identifier
-            ]
-            if len(members) != 1 or any(
-                members[0].data.get(field) != node.data.get(field)
-                for field in (
-                    "drivewsid",
-                    "etag",
-                    "restorePath",
-                    "name",
-                    "zone",
-                    "parentId",
-                    "type",
-                )
-            ):
-                raise WriteDenied("target_unavailable")
-            # The existing API restores to its recorded location; it accepts no
-            # destination selector. Bind that observed path without interpreting
-            # it as a local filesystem path or fabricating a parent identifier.
-            resource = json.dumps((resource, node.name, path), separators=(",", ":"))
+            resource = self._recovery_resource(client, target, node, resource)
         return node, account, resource, revision
+
+    def _creation_destination(
+        self, client: Any, target: DriveTarget, node: DriveNode, name: str | None
+    ) -> DriveNode:
+        """Refresh folder children and retain all collision and target guards."""
+        if node.type != "folder" or node.data.get("restorePath"):
+            raise WriteDenied("unsupported_target")
+        children = node.get_children(force=True)
+        node = self._validated_node(client, target, node.data)
+        if node.type != "folder" or node.data.get("restorePath"):
+            raise WriteDenied("unsupported_target")
+        if any(child.name.casefold() == str(name).casefold() for child in children):
+            raise WriteDenied("destination_conflict")
+        return node
+
+    @staticmethod
+    def _recovery_resource(
+        client: Any, target: DriveTarget, node: DriveNode, resource: str
+    ) -> str:
+        """Bind recovery only to exactly matching observed Trash metadata."""
+        path = node.data.get("restorePath")
+        if (
+            node.data.get("parentId") != "TRASH_ROOT"
+            or not isinstance(path, str)
+            or not path
+        ):
+            raise WriteDenied("unsupported_target")
+        members = [
+            item
+            for item in client.drive.trash.get_children(force=True)
+            if item.data.get("drivewsid") == target.identifier
+        ]
+        if len(members) != 1 or any(
+            members[0].data.get(field) != node.data.get(field)
+            for field in (
+                "drivewsid",
+                "etag",
+                "restorePath",
+                "name",
+                "zone",
+                "parentId",
+                "type",
+            )
+        ):
+            raise WriteDenied("target_unavailable")
+        # Restore to the observed server location, never an inferred local path.
+        return json.dumps((resource, node.name, path), separators=(",", ":"))
 
     async def prepare_acknowledged(
         self,
@@ -85,10 +99,10 @@ class DriveAcknowledged(DriveWrites):
         publish: Callable[[MutationPreview], None] | None = None,
     ) -> MutationPreview:
         """A discovered private destination or Trash node, never caller IDs/paths."""
-        if action not in {"drive.create_folder", "drive.recover_item"}:
+        if action not in {DRIVE_CREATE_FOLDER, "drive.recover_item"}:
             raise WriteDenied("unsupported_action")
         name = payload.get("name")
-        if action == "drive.create_folder":
+        if action == DRIVE_CREATE_FOLDER:
             if (
                 set(payload) != {"name"}
                 or not isinstance(name, str)
@@ -113,7 +127,7 @@ class DriveAcknowledged(DriveWrites):
             node, account, resource, revision = self._read(client, action, target, name)
             data = (
                 {"name": name}
-                if action == "drive.create_folder"
+                if action == DRIVE_CREATE_FOLDER
                 else {
                     "restore_path": node.data["restorePath"],
                     "destination": "server_recorded_location",
@@ -167,13 +181,13 @@ class DriveAcknowledged(DriveWrites):
             del self._requests[request_id]
             self.additional.retire(
                 "drive-folder"
-                if action == "drive.create_folder"
+                if action == DRIVE_CREATE_FOLDER
                 else "drive-trash-" + node.type,
                 handle,
             )
             try:
                 route = client.drive.service_root
-                if action == "drive.create_folder":
+                if action == DRIVE_CREATE_FOLDER:
                     body = {
                         "destinationDrivewsId": selector.identifier,
                         "folders": [
@@ -201,10 +215,10 @@ class DriveAcknowledged(DriveWrites):
                     frozenset({str(urlsplit(route).hostname)}),
                     body,
                     headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
-                    if action == "drive.create_folder"
+                    if action == DRIVE_CREATE_FOLDER
                     else None,
                 )
-                if action == "drive.create_folder":
+                if action == DRIVE_CREATE_FOLDER:
                     records = (
                         response.get("folders") if isinstance(response, dict) else None
                     )
