@@ -13,6 +13,12 @@ from .drive_writes import DriveTarget, DriveWrites
 from .upload_staging import UploadStaging
 
 
+def _require_upload_folder(folder: DriveNode) -> None:
+    """Only a current folder outside Trash can receive staged bytes."""
+    if folder.type != "folder" or folder.data.get("restorePath"):
+        raise WriteDenied("unsupported_target")
+
+
 class UploadPreviews(DriveWrites):
     """Bind immutable byte identity to a fresh private destination without uploading."""
 
@@ -38,15 +44,13 @@ class UploadPreviews(DriveWrites):
         def prepare(client: Any) -> MutationPreview:
             staged = self.staging.peek(upload_handle)
             folder = self._fresh(client, target)
-            if folder.type != "folder" or folder.data.get("restorePath"):
-                raise WriteDenied("unsupported_target")
+            _require_upload_folder(folder)
             document_root = client.drive.document_root
             if not isinstance(document_root, str) or not document_root:
                 raise WriteDenied("route_unavailable")
             children = folder.get_children(force=True)
             folder = self._validated_node(client, target, folder.data)
-            if folder.type != "folder" or folder.data.get("restorePath"):
-                raise WriteDenied("unsupported_target")
+            _require_upload_folder(folder)
             if any(
                 child.name.casefold() == staged.name.casefold() for child in children
             ):
