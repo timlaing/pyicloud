@@ -928,6 +928,8 @@ class PhotoLibrary(BasePhotoLibrary):
             .get("albumNameEnc", {})
             .get("value")
             != encoded
+            or resp.records[0].fields.get_value("albumType") != int(album_type.value)
+            or resp.records[0].fields.get_value("isDeleted") != 0
             or not isinstance(resp.records[0].recordChangeTag, str)
             or not resp.records[0].recordChangeTag.strip()
             or resp.records[0].recordChangeTag
@@ -1889,14 +1891,18 @@ class PhotoAlbum(BasePhotoAlbum):
             response.syncToken or self._library.current_sync_token
         )
         identity_error = "Album membership returned a different asset identity"
-        if any(
-            isinstance(record, CKRecord)
-            and record.recordType == "CPLAsset"
-            and record.recordName != photo.id
+        raw_assets = [
+            record
             for record in response.records
-        ):
+            if isinstance(record, CKRecord) and record.recordType == "CPLAsset"
+        ]
+        if any(record.recordName != photo.id for record in raw_assets):
             raise PhotosServiceException(identity_error)
         candidates = list(self._process_photo_list_response(response.records))
+        if len(raw_assets) > len(candidates):
+            raise PhotosServiceException(
+                "Album membership returned an unconvertible asset"
+            )
         if any(
             not isinstance(item, PhotoAsset) or item.id != photo.id
             for item in candidates

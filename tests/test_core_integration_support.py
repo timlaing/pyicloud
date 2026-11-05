@@ -164,7 +164,19 @@ def test_photo_relation_provenance_is_account_and_endpoint_bound(case: str) -> N
 
 
 @pytest.mark.parametrize(
-    "case", ["exact", "wrong_id", "wrong_name", "wrong_type", "missing_tag", "multiple"]
+    "case",
+    [
+        "exact",
+        "wrong_id",
+        "wrong_name",
+        "wrong_type",
+        "missing_tag",
+        "multiple",
+        "folder",
+        "deleted",
+        "missing_album_type",
+        "missing_deleted",
+    ],
 )
 def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:
     """Existing creation payload is preserved; an unrelated response is uncertain."""
@@ -178,6 +190,14 @@ def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:
             data["recordName"] = "OTHER"
         if case == "wrong_type":
             data["recordType"] = "OTHER"
+        if case == "folder":
+            data["fields"]["albumType"]["value"] = AlbumTypeEnum.FOLDER.value
+        if case == "deleted":
+            data["fields"]["isDeleted"]["value"] = 1
+        if case == "missing_album_type":
+            del data["fields"]["albumType"]
+        if case == "missing_deleted":
+            del data["fields"]["isDeleted"]
         if case == "wrong_name":
             data["fields"]["albumNameEnc"]["value"] = base64.b64encode(
                 b"OTHER"
@@ -283,7 +303,16 @@ def test_relation_acknowledgement_matches_item_and_container(
 
 
 @pytest.mark.parametrize(
-    "case", ["present", "absent", "paired_foreign", "unpaired_foreign", "mixed"]
+    "case",
+    [
+        "present",
+        "absent",
+        "paired_foreign",
+        "unpaired_foreign",
+        "mixed",
+        "unpaired_matching",
+        "partly_unpaired",
+    ],
 )
 def test_scoped_membership_validates_raw_asset_identities(case: str) -> None:
     """Foreign assets cannot disappear in conversion and become apparent absence."""
@@ -298,8 +327,19 @@ def test_scoped_membership_validates_raw_asset_identities(case: str) -> None:
     records = [photo.master_record, CKRecord.model_validate(asset)]
     if case == "absent":
         records = []
-    elif case == "unpaired_foreign":
+    elif case in {"unpaired_foreign", "unpaired_matching"}:
         records = records[1:]
+    elif case == "partly_unpaired":
+        unpaired = {
+            **asset,
+            "fields": {
+                "masterRef": {
+                    "type": "REFERENCE",
+                    "value": {"recordName": "MISSING", "action": "NONE"},
+                }
+            },
+        }
+        records.append(CKRecord.model_validate(unpaired))
     elif case == "mixed":
         expected = {**asset, "recordName": "P"}
         records.append(CKRecord.model_validate(expected))
@@ -311,9 +351,12 @@ def test_scoped_membership_validates_raw_asset_identities(case: str) -> None:
         if case in {"present", "absent"}:
             assert album.contains_photo_scoped(photo) is (case == "present")
         else:
-            with pytest.raises(
-                PhotosServiceException, match="different asset identity"
-            ):
+            message = (
+                "unconvertible asset"
+                if case in {"unpaired_matching", "partly_unpaired"}
+                else "different asset identity"
+            )
+            with pytest.raises(PhotosServiceException, match=message):
                 album.contains_photo_scoped(photo)
     client.query.assert_called_once()
     client.modify.assert_not_called()
