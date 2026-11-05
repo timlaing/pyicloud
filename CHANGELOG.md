@@ -125,6 +125,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Validate Calendar timezone keys before preview creation and map preflight read failures to safe denial codes before approval consumption or mutation dispatch.
 - Distinguish unverified Calendar read-back from uncertain transport outcomes; both retire approval without permitting replay.
 - Bound exact deletion preview titles to 4,096 UTF-8 bytes and reject unsafe Calendar/event URL-path identifiers before authenticated reads.
+- Add explicitly selected MCP Drive discovery/search/download registration and existing guarded rename/move/trash/recovery/create/upload adapters; runtime write-tool wiring remains in the final integration slice.
 
 - Add shared MCP read projections, opaque handle storage, independent approval primitives, bounded staging/transports and explicit service registration infrastructure; service tools and runtime writes are supplied by dependent integration slices.
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
