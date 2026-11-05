@@ -1890,6 +1890,10 @@ class PhotoAlbum(BasePhotoAlbum):
         self._library.current_sync_token = (
             response.syncToken or self._library.current_sync_token
         )
+        if any(isinstance(record, CKErrorItem) for record in response.records):
+            raise PhotosServiceException(
+                "Album membership query returned an error item"
+            )
         identity_error = "Album membership returned a different asset identity"
         raw_assets = [
             record

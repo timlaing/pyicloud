@@ -314,8 +314,8 @@ An unrelated response is uncertain, not permission to retry a possibly completed
 
 `can_add_photo_correlated(photo)` checks typed private relation eligibility without
 requests. `contains_photo_scoped(photo)` uses one exact container-scoped query, not a
-full-album scan. Foreign assets and assets missing their master raise an error instead
-of being treated as absent. `add_photo_correlated(photo)` checks exact relation, item and container
+full-album scan. Foreign assets, assets missing their master and query error items
+raise an error instead of establishing membership. `add_photo_correlated(photo)` checks exact relation, item and container
 acknowledgement identity. Acknowledgement is not independently observed membership:
 query fresh state before asserting the final outcome; never blindly retry uncertainty.
 

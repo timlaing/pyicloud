@@ -9,7 +9,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pyicloud.common.cloudkit import CKModifyResponse, CKRecord, CKZoneListResponse
+from pyicloud.common.cloudkit import (
+    CKErrorItem,
+    CKModifyResponse,
+    CKRecord,
+    CKZoneListResponse,
+)
 from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.drive import DriveService
 from pyicloud.services.photos.client import PhotosCloudKitClient
@@ -358,6 +363,32 @@ def test_scoped_membership_validates_raw_asset_identities(case: str) -> None:
             )
             with pytest.raises(PhotosServiceException, match=message):
                 album.contains_photo_scoped(photo)
+    client.query.assert_called_once()
+    client.modify.assert_not_called()
+
+
+@pytest.mark.parametrize("matching_records", [False, True])
+def test_scoped_membership_rejects_query_error_items(matching_records: bool) -> None:
+    """Error-only and partial-error responses cannot establish membership."""
+    client, _library, album, photo = objects()
+    asset = photo.asset_record.model_dump(mode="json")
+    asset["fields"]["masterRef"] = {
+        "type": "REFERENCE",
+        "value": {"recordName": "M", "action": "NONE"},
+    }
+    records: list[CKRecord | CKErrorItem] = [
+        CKErrorItem(serverErrorCode="UNKNOWN_ITEM", reason="Unavailable")
+    ]
+    if matching_records:
+        records.extend([photo.master_record, CKRecord.model_validate(asset)])
+    client.query.return_value.records = records
+    client.query.return_value.syncToken = None
+    with patch.object(album, "_process_photo_list_response") as convert:
+        with pytest.raises(
+            PhotosServiceException, match="query returned an error item"
+        ):
+            album.contains_photo_scoped(photo)
+        convert.assert_not_called()
     client.query.assert_called_once()
     client.modify.assert_not_called()
 

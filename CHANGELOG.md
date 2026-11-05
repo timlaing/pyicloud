@@ -61,7 +61,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
-- Reject unexpected asset IDs in scoped Photos album-membership responses, including mixed expected/unexpected results and unpaired raw assets discarded by conversion, instead of mistaking mismatched results for absence. Matching assets without a master also raise an error instead of appearing absent.
+- Reject unexpected asset IDs in scoped Photos album-membership responses, including mixed expected/unexpected results and unpaired raw assets discarded by conversion, instead of mistaking mismatched results for absence. Matching assets without a master and query error items also raise an error instead of establishing absence or presence.
 
 - Bind correlated Photos relation eligibility to the supplied asset's originating account and service endpoint, accepting equivalent same-account service instances while refusing foreign or unknown provenance before lookup or mutation.
 
