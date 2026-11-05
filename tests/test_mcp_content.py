@@ -2,11 +2,12 @@
 
 # pylint: disable=protected-access
 
+import base64
 from collections.abc import Callable
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp.types import CallToolResult
 import pytest
@@ -36,13 +37,42 @@ async def test_real_zero_byte_drive_node_never_opens_transport(size: int | str) 
     """Raw zero size must work even when the public size property returns None."""
     client = MagicMock()
     tools = content_for(client)
-    node = DriveNode(client.drive, {"name": "empty", "type": "FILE", "size": size})
+    data = {"drivewsid": "F", "name": "empty", "type": "FILE", "size": size}
+    node = DriveNode(client.drive, data)
+    client.drive.get_node_data.return_value = dict(data)
     handle = tools.additional.remember("drive-file", node)
     result = await tools.file("drive", handle, 0, 4)
     assert result.error is None
     assert result.records[0]["data_base64"] == ""
     client.drive.get_file.assert_not_called()
+    client.drive.get_node_data.assert_called_once_with("F", None)
     assert (await tools.file("drive", handle, 1, 4)).error == "invalid_download_range"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [0, "0"])
+async def test_cached_empty_drive_file_can_grow_before_download(
+    size: int | str,
+) -> None:
+    """Fresh metadata prevents a cached zero from hiding newly available bytes."""
+    client = MagicMock()
+    data = {
+        "drivewsid": "F",
+        "docwsid": "D",
+        "zone": "Z",
+        "name": "file",
+        "type": "FILE",
+        "size": size,
+    }
+    client.drive.get_node_data.return_value = {**data, "size": 4}
+    client.drive.get_file.return_value = response(200, b"data")
+    tools = content_for(client)
+    handle = tools.additional.remember("drive-file", DriveNode(client.drive, data))
+    result = await tools.file("drive", handle, 0, 4)
+    assert result.error is None
+    assert result.records[0]["data_base64"] == "ZGF0YQ=="
+    client.drive.get_node_data.assert_called_once_with("F", None)
+    client.drive.get_file.assert_called_once()
 
 
 def owner_for(
@@ -274,9 +304,9 @@ async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
     assert not (await tools.file("drive", handle, 0, 4)).complete
     assert (await tools.file("drive", handle, 4, 4)).complete
     assert file.open.call_args.kwargs["headers"]["If-Match"] == "v1"
-    empty = tools.additional.remember(
-        "drive-file", SimpleNamespace(name="empty", size=None, data={"size": 0})
-    )
+    empty_data = {"drivewsid": "F", "name": "empty", "type": "FILE", "size": 0}
+    client.drive.get_node_data.return_value = dict(empty_data)
+    empty = tools.additional.remember("drive-file", DriveNode(client.drive, empty_data))
     assert (await tools.file("drive", empty, 0, 4)).records[0]["data_base64"] == ""
     assert (await tools.file("drive", empty, 1, 4)).error == "invalid_download_range"
     photo = SimpleNamespace(
@@ -349,6 +379,82 @@ async def test_searches_have_scan_budgets_and_body_permission() -> None:
     assert (
         await tools.mail_search(folder, "Match", 50, "unknown")
     ).error == "invalid_argument"
+
+
+@pytest.mark.asyncio
+async def test_valid_search_and_content_wrappers_use_their_services() -> None:
+    """Valid protocol calls preserve service routing and fixture content."""
+    client = MagicMock()
+    tools = content_for(client)
+    note = SimpleNamespace(
+        id="N",
+        title="Note",
+        is_deleted=False,
+        modified_at=None,
+        is_locked=False,
+        text="Note body",
+    )
+    client.notes.iter_all.side_effect = lambda: iter([note])
+    client.notes.get.return_value = note
+    file = SimpleNamespace(
+        name="Drive",
+        type="file",
+        date_modified=None,
+        open=MagicMock(return_value=response(200, b"drive")),
+    )
+    client.drive.root = SimpleNamespace(
+        type="folder", get_children=MagicMock(return_value=[file])
+    )
+    photo = SimpleNamespace(
+        id="P",
+        filename="Photo",
+        created=None,
+        download_url=MagicMock(return_value="https://icloud-content.com/photo"),
+    )
+    client.session.get.return_value = response(200, b"photo")
+    client.mail.message.return_value = SimpleNamespace(subject="Mail")
+    client.mail.body.return_value = SimpleNamespace(
+        content_type="text/plain", parts=[SimpleNamespace(content="Mail body")]
+    )
+    album_handle = tools.additional.remember("photo-album", [photo])
+    handles = {
+        "icloud_note_content": tools.additional.remember("note", "N"),
+        "icloud_mail_content": tools.additional.remember(
+            "mail-message", SimpleNamespace(folder="F", id="M")
+        ),
+        "icloud_drive_download": tools.additional.remember("drive-file", file),
+        "icloud_photo_download": tools.additional.remember("photo-asset", photo),
+    }
+    with patch("pyicloud.mcp.server.AdditionalReads", return_value=tools.additional):
+        server = build_server(owner=owner_for(client))
+    for name, args, field, expected in [
+        ("icloud_notes_search", {"query": "Note"}, "title", "Note"),
+        ("icloud_drive_search", {"query": "Drive"}, "name", "Drive"),
+        (
+            "icloud_photos_search",
+            {"query": "Photo", "album_handle": album_handle},
+            "filename",
+            "Photo",
+        ),
+    ]:
+        result = await server.call_tool(name, args)
+        assert isinstance(result, CallToolResult)
+        assert not result.is_error
+        assert result.structured_content is not None
+        assert result.structured_content["error"] is None
+        assert result.structured_content["records"][0][field] == expected
+    for name, field, content_value in [
+        ("icloud_note_content", "text", "Note body"),
+        ("icloud_mail_content", "parts", [{"content": "Mail body"}]),
+        ("icloud_drive_download", "data_base64", base64.b64encode(b"drive").decode()),
+        ("icloud_photo_download", "data_base64", base64.b64encode(b"photo").decode()),
+    ]:
+        result = await server.call_tool(name, {"handle": handles[name]})
+        assert isinstance(result, CallToolResult)
+        assert not result.is_error
+        assert result.structured_content is not None
+        assert result.structured_content["error"] is None
+        assert result.structured_content["records"][0][field] == content_value
 
 
 @pytest.mark.asyncio

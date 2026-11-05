@@ -5112,6 +5112,7 @@ def test_create_album_success_typed_client() -> None:
                         "value": base64.b64encode(b"My Album").decode("utf-8"),
                     },
                     "isDeleted": {"type": "INT64", "value": 0},
+                    "albumType": {"type": "INT64", "value": 0},
                 },
                 recordChangeTag="tag123",
             )
@@ -5188,6 +5189,7 @@ def test_create_album_success_typed_client_populates_uncached_album_list(
                         "value": base64.b64encode(b"My Album").decode("utf-8"),
                     },
                     "isDeleted": {"type": "INT64", "value": 0},
+                    "albumType": {"type": "INT64", "value": 0},
                 },
                 recordChangeTag="tag123",
             )

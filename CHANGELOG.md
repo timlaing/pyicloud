@@ -10,6 +10,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Revalidate cached zero-byte Drive files before returning empty downloads, count only live Reminders lists during MCP write lookup, and reject malformed Unicode reminder payloads with the existing safe error.
+
+- Preserve CloudKit query error items even when the server includes record-shaped fields, so callers can handle errors instead of mistaking them for successful query records.
+
+- Preserve Unicode Photos album names from already-decoded encrypted byte fields instead of silently discarding non-Base64 bytes during acknowledgement decoding.
+
 - Restore minimum-runtime dependency pins to the declared lower bounds and separate invites and notes test fixture methods from their stored patch instances to fix CI validation.
 
 ### Security
@@ -150,7 +156,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
-- Require typed Photos album-creation acknowledgements to match the submitted record ID, record type, encoded name and valid change tag; unrelated or ambiguous responses now raise uncertainty instead of returning an uncorrelated album. Request payloads and public signatures are unchanged.
+- Require typed Photos album-creation acknowledgements to match the submitted record ID, record type, album type, live deletion flag, encoded name and valid change tag; unrelated or ambiguous responses now raise uncertainty instead of returning an uncorrelated album. Request payloads and public signatures are unchanged.
 
 - Include shared Reminders lists alongside private lists and route reminder queries through each shared list's CloudKit zone.
 - Preserve Reminders routes through incomplete shared discovery, exclude deleted lists from routing, skip malformed shared list records individually, and retain explicit zone metadata. CLI listings preserve list contexts and deduplicate shared reminder matches while continuing past zone-local API errors.
@@ -190,7 +196,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Reject insecure, query-bearing or credential-bearing Photos upload routes and invalid account identities during preview, before consuming approval or staged bytes.
 
-- Reject unexpected asset IDs in scoped Photos album-membership responses, including mixed expected/unexpected results, instead of mistaking mismatched results for absence.
+- Reject unexpected asset IDs in scoped Photos album-membership responses, including mixed expected/unexpected results and unpaired raw assets discarded by conversion, instead of mistaking mismatched results for absence. Matching assets without a master and query error items also raise an error instead of establishing absence or presence.
 
 - Bind correlated Photos relation eligibility to the supplied asset's originating account and service endpoint, accepting equivalent same-account service instances while refusing foreign or unknown provenance before lookup or mutation.
 

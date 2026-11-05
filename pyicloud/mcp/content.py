@@ -9,6 +9,8 @@ import re
 from typing import Any
 from urllib.parse import urlsplit
 
+from pyicloud.services.drive import DriveNode
+
 from .additional import AdditionalReads, text
 from .context import ToolFailure
 from .reads import ReadResult, bounded_result
@@ -197,12 +199,11 @@ class ContentReads:
             resource = self.additional.resolve(
                 "drive-file" if service == "drive" else "photo-asset", handle
             )
-            size = (
-                getattr(resource, "data", {}).get("size")
-                if service == "drive"
-                else None
-            )
-            if self._empty_drive_file(service, size):
+            if (
+                service == "drive"
+                and isinstance(resource, DriveNode)
+                and resource._is_empty_file()  # pylint: disable=protected-access
+            ):
                 return self._empty_download(resource, offset)
             state = self._download_state(f"{service}:{handle}:{version}", resource)
             if offset and state.etag is None:
@@ -232,14 +233,6 @@ class ContentReads:
                 }
             ],
             1,
-        )
-
-    @staticmethod
-    def _empty_drive_file(service: str, size: Any) -> bool:
-        """Recognize only the existing explicit Drive zero-size representations."""
-        return service == "drive" and (
-            (isinstance(size, int) and not isinstance(size, bool) and size == 0)
-            or size == "0"
         )
 
     def _download_state(self, key: str, resource: Any) -> DownloadState:

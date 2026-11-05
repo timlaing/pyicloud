@@ -158,6 +158,7 @@ async def test_drive_browses_discovered_folders_without_local_paths_or_downloads
         {key: value for key, value in row.items() if key != "handle"}
         for row in nested.records
     ] == [{"name": "File.txt", "type": "file", "modified": None}]
+    assert all(row["handle"] for row in nested.records)
     folder.get_children.assert_called_once_with(force=True)
     client.drive.get_file.assert_not_called()
     bad = tools._store("drive-folder", SimpleNamespace(type="file"))
@@ -199,6 +200,7 @@ async def test_notes_scan_recent_titles_only_and_close_generator() -> None:
         {key: value for key, value in row.items() if key != "handle"}
         for row in result.records
     ] == [{"id": "N", "title": "Find", "modified": None, "locked": True}]
+    assert result.records[0]["handle"]
     assert not result.complete
     assert closed == [True]
     client.notes.get.assert_not_called()
@@ -261,6 +263,7 @@ async def test_mail_metadata_and_subject_search_never_expose_bodies_or_previews(
     tools = adapters(client)
     handle = (await tools.mail_folders(50)).records[0]["handle"]
     messages = (await tools.mail_messages(handle, 50)).records
+    assert all(isinstance(row.get("handle"), str) and row["handle"] for row in messages)
     assert [
         {key: value for key, value in row.items() if key != "handle"}
         for row in messages
@@ -276,21 +279,29 @@ async def test_mail_metadata_and_subject_search_never_expose_bodies_or_previews(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "error,code",
+    "service,error,code",
     [
-        (NotesAuthError("private"), "authentication_required"),
-        (PhotosAuthError("private"), "authentication_required"),
-        (NotesRateLimited("private"), "rate_limited"),
-        (PhotosRateLimited("private"), "rate_limited"),
-        (NotesZoneNotFoundError("private"), "service_unavailable"),
-        (PhotosZoneNotFoundError("private"), "service_unavailable"),
+        ("notes", NotesAuthError("private"), "authentication_required"),
+        ("photos", PhotosAuthError("private"), "authentication_required"),
+        ("notes", NotesRateLimited("private"), "rate_limited"),
+        ("photos", PhotosRateLimited("private"), "rate_limited"),
+        ("notes", NotesZoneNotFoundError("private"), "service_unavailable"),
+        ("photos", PhotosZoneNotFoundError("private"), "service_unavailable"),
     ],
 )
-async def test_additional_service_error_categories(error: Exception, code: str) -> None:
+async def test_additional_service_error_categories(
+    service: str, error: Exception, code: str
+) -> None:
     """Service-specific exceptions remain sanitized without losing their category."""
     client = MagicMock()
-    client.notes.recents.side_effect = error
-    assert (await adapters(client).notes("", 50)).error == code
+    tools = adapters(client)
+    if service == "notes":
+        client.notes.recents.side_effect = error
+        result = await tools.notes("", 50)
+    else:
+        client.photos.libraries.values.side_effect = error
+        result = await tools.photo_libraries(50)
+    assert result.error == code
 
 
 @pytest.mark.asyncio
@@ -328,6 +339,11 @@ async def test_additional_tool_registration_and_disabled_default() -> None:
         result = await server.call_tool(name, args)
         assert isinstance(result, CallToolResult)
         assert not result.is_error
+        assert result.structured_content is not None
+        if any("handle" in key for key in args):
+            assert result.structured_content["error"] == "expired_or_unknown_handle"
+        else:
+            assert result.structured_content["error"] is None
     assert len(await build_server().list_tools()) == 2
     disabled = AdditionalReads(ReadTools(owner_for(client, services=())))
     assert (await disabled.contacts("", 50)).error == "service_disabled"

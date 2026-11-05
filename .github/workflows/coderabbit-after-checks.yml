@@ -1,0 +1,219 @@
+name: CodeRabbit after checks
+
+on:
+  workflow_run:
+    workflows:
+      [
+        "Action references",
+        "Auto label issues",
+        "Auto labeller",
+        "Build and Publish Python Package",
+        "Check",
+        "Close Dependabot PR if HA older",
+        "Close stale issues",
+        "CodeQL Advanced",
+        "Dependabot Auto Merge",
+        "Docs",
+        "Linting",
+        "Release Drafter",
+        "SonarQube",
+        "Sync prek dependencies",
+        "Tests",
+      ]
+    types: [completed]
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: coderabbit-after-checks
+  cancel-in-progress: false
+
+jobs:
+  review:
+    name: CodeRabbit after checks
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.name != 'CodeRabbit after checks'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      statuses: read
+      pull-requests: write
+      issues: write
+    steps:
+      # Trusted inline code only: never check out PR code in this privileged workflow.
+      - name: Request reviews after successful checks
+        uses: actions/github-script@v9
+        env:
+          REQUIRED_CHECKS: '["test (3.10)", "test (3.11)", "test (3.12)", "test (3.13)", "test (3.14)", "Editable PR", "Run prek checks", "Analyze (actions)", "Analyze (python)", "CodeQL", "CodeRabbit", "SonarCloud Code Analysis"]'
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const gateName = "CodeRabbit after checks";
+            const reviewCheck = (name = "") => /^coderabbit(?:ai)?(?:\b|$)/i.test(name);
+            const reviewApp = (slug = "") => /^coderabbitai$/.test(slug);
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: "open",
+              per_page: 100,
+            });
+            for (const pr of prs) {
+              if (pr.user?.login === "dependabot[bot]") continue;
+              if (pr.draft || Date.now() - Date.parse(pr.updated_at) < 60000) continue;
+              let required = JSON.parse(process.env.REQUIRED_CHECKS || "[]");
+              try {
+                const rules = await github.request(
+                  "GET /repos/{owner}/{repo}/rules/branches/{branch}",
+                  {
+                    owner,
+                    repo,
+                    branch: pr.base.ref,
+                  },
+                );
+                required.push(
+                  ...rules.data.flatMap((rule) =>
+                    rule.type === "required_status_checks"
+                      ? rule.parameters.required_status_checks.map((check) => check.context)
+                      : [],
+                  ),
+                );
+                const protection = await github.rest.repos
+                  .getBranchProtection({ owner, repo, branch: pr.base.ref })
+                  .catch((error) => {
+                    if (error.status === 404) return { data: {} };
+                    throw error;
+                  });
+                const legacy = protection.data.required_status_checks;
+                required.push(
+                  ...(legacy?.contexts || []),
+                  ...(legacy?.checks || []).map((check) => check.context),
+                );
+              } catch (error) {
+                if (![403, 404].includes(error.status)) throw error;
+                core.warning(
+                  "Cannot read branch protection; retaining the configured required-check list.",
+                );
+              }
+              const sha = pr.head.sha;
+              const refs = [...new Set([sha, pr.merge_commit_sha].filter(Boolean))];
+              let count = 0;
+              let ready = true;
+              let latestActivity = 0;
+              const activity = (value) => {
+                latestActivity = Math.max(latestActivity, Date.parse(value) || 0);
+              };
+              const passed = new Set();
+              for (const ref of refs) {
+                const checks = await github.paginate(github.rest.checks.listForRef, {
+                  owner,
+                  repo,
+                  ref,
+                  filter: "latest",
+                  per_page: 100,
+                });
+                const other = checks.filter(
+                  (c) =>
+                    !reviewApp(c.app?.slug) && !reviewCheck(c.name) && c.name !== gateName,
+                );
+                for (const check of other) {
+                  activity(check.completed_at || check.started_at);
+                  // Conditional jobs that did not run are not successful test evidence.
+                  if (
+                    check.status === "completed" &&
+                    check.conclusion === "skipped" &&
+                    !required.includes(check.name)
+                  )
+                    continue;
+                  count += 1;
+                  if (check.status !== "completed" || check.conclusion !== "success")
+                    ready = false;
+                  else passed.add(check.name);
+                }
+                const statuses = await github.paginate(
+                  github.rest.repos.listCommitStatusesForRef,
+                  {
+                    owner,
+                    repo,
+                    ref,
+                    per_page: 100,
+                  },
+                );
+                const latest = new Map();
+                for (const status of statuses) {
+                  if (!reviewCheck(status.context) && !latest.has(status.context))
+                    latest.set(status.context, status);
+                }
+                count += latest.size;
+                for (const status of latest.values()) {
+                  activity(status.updated_at);
+                  if (status.state !== "success") ready = false;
+                  else passed.add(status.context);
+                }
+                const runs = await github.paginate(
+                  github.rest.actions.listWorkflowRunsForRepo,
+                  {
+                    owner,
+                    repo,
+                    head_sha: ref,
+                    per_page: 100,
+                  },
+                );
+                const latestRuns = new Map();
+                for (const run of runs) {
+                  if (run.name === gateName) continue;
+                  activity(run.updated_at);
+                  const key = `${run.workflow_id}:${run.event}`;
+                  if (!latestRuns.has(key)) latestRuns.set(key, run);
+                }
+                if (
+                  [...latestRuns.values()].some(
+                    (r) =>
+                      r.status !== "completed" ||
+                      !["success", "skipped"].includes(r.conclusion),
+                  )
+                )
+                  ready = false;
+              }
+              if (required.some((name) => !reviewCheck(name) && !passed.has(name)))
+                ready = false;
+              if (!ready || count === 0 || Date.now() - latestActivity < 90000) continue;
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: pr.number,
+                per_page: 100,
+              });
+              const requested = (marker) =>
+                comments.some(
+                  (c) =>
+                    c.user?.login === "github-actions[bot]" && c.body?.includes(marker),
+                );
+              const currentHead = async () => {
+                const { data: current } = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                });
+                return (
+                  current.state === "open" &&
+                  !current.draft &&
+                  current.head.sha === sha &&
+                  current.merge_commit_sha === pr.merge_commit_sha
+                );
+              };
+              if (!(await currentHead())) continue;
+              const rabbitMarker = `<!-- coderabbit-after-checks:${sha} -->`;
+              if (!requested(rabbitMarker)) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  body: `@coderabbitai review\n\n${rabbitMarker}`,
+                });
+              }
+            }

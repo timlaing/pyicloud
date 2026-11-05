@@ -99,6 +99,23 @@ def test_public_draft_folder_is_read_only(case: DraftCase) -> None:
     assert not case.wrote
 
 
+@pytest.mark.parametrize("change", ["missing", "duplicate", "non_selectable"])
+def test_public_draft_folder_rejects_ambiguous_inventory(
+    case: DraftCase, change: str
+) -> None:
+    """Discovery requires one selectable canonical Drafts mailbox."""
+    if change == "missing":
+        case.folders.pop(0)
+    elif change == "duplicate":
+        case.folders.append({**case.folders[0], "identifier": "other-drafts"})
+    else:
+        case.folders[0]["flags"] = 1
+    with pytest.raises(MailError):
+        case.service.draft_folder()
+    assert not case.wrote
+    case.session.request_raw.assert_not_called()
+
+
 @pytest.fixture(name="tmp_path")
 def draft_directory() -> Iterator[Path]:
     """Use the same sandbox factory as the conversation-draft tests."""

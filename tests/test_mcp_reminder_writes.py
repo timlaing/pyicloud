@@ -93,7 +93,9 @@ async def test_prepare_is_read_only_and_approved_dispatch_is_single_use(
     result = await writes.apply(item.request_id)
     assert result["id"] == reminder.id
     if action == "create":
+        client.reminders.create.assert_called_once()
         assert client.reminders.create.call_args.args[0] is context
+        assert client.reminders.create.call_args.args[1] == "After"
         assert client.reminders.create.call_args.kwargs == {
             "desc": "Body",
             "completed": True,
@@ -155,6 +157,7 @@ async def test_uncertain_acknowledgement_is_sanitized_and_not_replayed() -> None
         ("reminders.update", {"unsupported": True}, "R"),
         ("reminders.update", {"completed": "yes"}, "R"),
         ("reminders.update", {"title": None}, "R"),
+        ("reminders.update", {"title": "\ud800"}, "R"),
         ("reminders.create", {"title": "x"}, "R"),
     ],
 )
@@ -167,6 +170,18 @@ async def test_invalid_actions_and_payloads_do_not_mutate(
         await writes.prepare(action, "H", payload, identifier)
     client.reminders.create.assert_not_called()
     client.reminders.update.assert_not_called()
+    client.reminders.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_deleted_lists_do_not_consume_the_fresh_lookup_window() -> None:
+    """A live discovered list remains writable behind many deleted records."""
+    writes, client, context, _reminder = writer()
+    deleted = context.model_copy(update={"deleted": True})
+    client.reminders.lists.side_effect = lambda: iter([deleted] * 1001 + [context])
+    preview = await writes.prepare("reminders.create", "H", {"title": "After"})
+    assert preview.action == "reminders.create"
+    client.reminders.create.assert_not_called()
 
 
 @pytest.mark.asyncio

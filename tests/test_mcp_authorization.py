@@ -99,6 +99,24 @@ def test_approved_preview_cannot_cross_accounts_routes_or_revisions(
         authority.approve_from_operator(item.request_id, item.digest)
 
 
+def test_approved_preview_cannot_be_consumed_after_expiry() -> None:
+    """A prior approval never extends the original preview lifetime."""
+    authority = ApprovalLedger(frozenset({"reminders.update"}), ttl=1)
+    with patch("pyicloud.mcp.authorization.time.monotonic", return_value=1):
+        item = preview(authority)
+        authority.approve_from_operator(item.request_id, item.digest)
+    with (
+        patch("pyicloud.mcp.authorization.time.monotonic", return_value=3),
+        pytest.raises(WriteDenied, match="expired_preview"),
+    ):
+        authority.consume(
+            item.request_id,
+            account_binding="account",
+            resource_binding="route",
+            revision="v1",
+        )
+
+
 def test_expiration_and_capacity_are_fail_closed() -> None:
     """An expired approval frees space but never authorizes a subsequent write."""
     authority = ApprovalLedger(frozenset({"reminders.update"}), ttl=1, capacity=1)

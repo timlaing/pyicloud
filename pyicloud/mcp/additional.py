@@ -34,11 +34,16 @@ def timestamp(value: Any) -> str | None:
 
 
 @contextmanager
-def window(items: Iterable[Any], limit: int) -> Iterator[Iterator[Any]]:
+def window(
+    items: Iterable[Any], limit: int, *, live_only: bool = False
+) -> Iterator[Iterator[Any]]:
     """Stop and close lazy service generators before loading further pages."""
     iterator = iter(items)
     try:
-        yield islice(iterator, limit)
+        selected = (
+            (item for item in iterator if not item.deleted) if live_only else iterator
+        )
+        yield islice(selected, limit)
     finally:
         close = getattr(iterator, "close", None)
         if close is not None:

@@ -49,6 +49,10 @@ datetime.datetime(2012, 9, 13, 2, 26, 17)
 'file'
 ```
 
+Files cached as zero bytes are refreshed before `open()` returns an empty response.
+If the file has grown, its current contents are downloaded instead. The MCP download
+path uses the same check; metadata refresh failures do not establish an empty file.
+
 And when you have a file that you\'d like to download, the `open` method
 will return a response object from which you can read the `content`.
 

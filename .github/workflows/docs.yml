@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, feature/mcp-core-support]
 
 concurrency:
   group: docs-${{ github.ref }}

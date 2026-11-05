@@ -10,8 +10,12 @@ from requests import HTTPError
 
 from pyicloud import PyiCloudService
 from pyicloud.common.cloudkit import (
+    CKErrorItem,
     CKModifyOperation,
     CKQueryObject,
+    CKQueryResponse,
+    CKRecord,
+    CKTombstoneRecord,
     CKWriteRecord,
     CKZoneChangesZoneReq,
     CKZoneID,
@@ -35,6 +39,31 @@ def _json_response(
     response = MagicMock(status_code=status_code, **attrs)
     response.json.return_value = payload
     return response
+
+
+@pytest.mark.parametrize("record_shape", ["error", "record", "tombstone"])
+def test_query_response_preserves_error_classification(record_shape: str) -> None:
+    """Errors take precedence even when they also look like records or tombstones."""
+    item: dict[str, Any] = {"recordName": "P", "serverErrorCode": "CONFLICT"}
+    if record_shape == "record":
+        item.update(recordType="CPLAsset", fields={})
+    elif record_shape == "tombstone":
+        item["deleted"] = True
+    response = CKQueryResponse.model_validate({"records": [item]})
+    assert isinstance(response.records[0], CKErrorItem)
+    assert response.records[0].serverErrorCode == "CONFLICT"
+
+
+def test_query_response_preserves_success_records_and_tombstones() -> None:
+    """Explicit error precedence retains ordinary query result types."""
+    response = CKQueryResponse.model_validate({
+        "records": [
+            {"recordName": "P", "recordType": "CPLAsset", "fields": {}},
+            {"recordName": "D", "deleted": True},
+        ]
+    })
+    assert isinstance(response.records[0], CKRecord)
+    assert isinstance(response.records[1], CKTombstoneRecord)
 
 
 def test_cloudkit_client_uses_python_bool_params_by_default() -> None:

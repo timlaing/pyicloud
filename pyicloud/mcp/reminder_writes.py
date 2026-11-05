@@ -23,6 +23,16 @@ REMINDER_ACTIONS = frozenset({
 })
 
 
+def valid_payload_text(value: Any) -> bool:
+    """Reject malformed Unicode and enforce the existing UTF-8 byte budget."""
+    if not isinstance(value, str):
+        return False
+    try:
+        return len(value.encode("utf-8")) <= 32768
+    except UnicodeEncodeError:
+        return False
+
+
 @dataclass(frozen=True)
 class ReminderTarget:
     """Private route snapshot; changing a public preview cannot retarget a write."""
@@ -48,7 +58,7 @@ class ReminderWrites:
         self, client: Any, target: ReminderTarget
     ) -> tuple[RemindersList, Reminder | None]:
         context = None
-        with window(client.reminders.lists(), 1000) as items:
+        with window(client.reminders.lists(), 1000, live_only=True) as items:
             for candidate in items:
                 if (
                     candidate.id == target.context.id
@@ -110,7 +120,7 @@ class ReminderWrites:
             if key == "completed":
                 if not isinstance(value, bool):
                     raise WriteDenied("invalid_payload")
-            elif not isinstance(value, str) or len(value.encode("utf-8")) > 32768:
+            elif not valid_payload_text(value):
                 raise WriteDenied("invalid_payload")
         return dict(payload)
 

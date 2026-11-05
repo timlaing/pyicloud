@@ -364,14 +364,15 @@ records without merging pending local creation acknowledgements into visibility 
 
 `correlated_album_creation_available` is a passive capability check.
 `create_album_correlated(name)` supports typed private album creation only, without
-a REST fallback. Typed creation acknowledgements must match the submitted ID, type,
-encoded name and valid revision. Encoded name comparison uses the typed record's
+a REST fallback. Typed creation acknowledgements must match the submitted ID, record
+and album types, live deletion flag, encoded name and valid revision. Encoded name comparison uses the typed record's
 wire representation, supporting both STRING and decoded ENCRYPTED_BYTES fields.
 An unrelated response is uncertain, not permission to retry a possibly completed write.
 
 `can_add_photo_correlated(photo)` checks typed private relation eligibility without
 requests. `contains_photo_scoped(photo)` uses one exact container-scoped query, not a
-full-album scan. `add_photo_correlated(photo)` checks exact relation, item and container
+full-album scan. Foreign assets, assets missing their master and query error items
+raise an error instead of establishing membership. `add_photo_correlated(photo)` checks exact relation, item and container
 acknowledgement identity. Acknowledgement is not independently observed membership:
 query fresh state before asserting the final outcome; never blindly retry uncertainty.
 

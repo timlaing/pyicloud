@@ -120,7 +120,8 @@ async def test_allowlist_and_input_limits_precede_requests() -> None:
 
 
 @pytest.mark.asyncio
-async def test_calendar_fields_are_minimized_and_scoped() -> None:
+@pytest.mark.parametrize("end", ["2026-01-01", "2026-01-03"])
+async def test_calendar_fields_are_minimized_and_scoped(end: str) -> None:
     """Only selected-calendar fields survive the projection."""
     client = MagicMock()
     client.calendar.get_calendars.return_value = [
@@ -138,7 +139,7 @@ async def test_calendar_fields_are_minimized_and_scoped() -> None:
     tools = ReadTools(owner_for(client))
     assert (await tools.calendars(50)).records == [{"id": "C", "title": "Calendar"}]
     assert tools.availability["calendar"] == "available"
-    result = await tools.events("C", "2026-01-01", "2026-01-01", 50)
+    result = await tools.events("C", "2026-01-01", end, 50)
     assert result.records == [
         {
             "id": "E",
@@ -150,7 +151,7 @@ async def test_calendar_fields_are_minimized_and_scoped() -> None:
     ]
     assert client.calendar.get_events.call_args.kwargs == {
         "from_dt": datetime(2026, 1, 1),
-        "to_dt": datetime(2026, 1, 1),
+        "to_dt": datetime.fromisoformat(end),
     }
 
 
@@ -206,7 +207,9 @@ async def test_protocol_tool_registration_and_shutdown() -> None:
     """Every enabled tool serializes through the SDK and lifespan drains once."""
     client = MagicMock()
     client.calendar.get_calendars.return_value = []
-    client.calendar.get_events.return_value = []
+    client.calendar.get_events.return_value = [
+        {"guid": "E", "pGuid": "C", "title": "Synthetic event"}
+    ]
     client.reminders.lists.return_value = iter([])
     owner = owner_for(client)
     with patch("pyicloud.mcp.server.MCPServer", wraps=MCPServer) as factory:
@@ -229,6 +232,10 @@ async def test_protocol_tool_registration_and_shutdown() -> None:
             result = await server.call_tool(name, args)
             assert isinstance(result, CallToolResult)
             assert not result.is_error
+            if name == "icloud_calendar_events":
+                assert result.structured_content is not None
+                assert result.structured_content["error"] is None
+                assert result.structured_content["records"][0]["id"] == "E"
     cast(AsyncMock, owner.close).assert_awaited_once()
 
 

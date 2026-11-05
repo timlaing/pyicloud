@@ -9,10 +9,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from pyicloud.common.cloudkit import CKModifyResponse, CKRecord, CKZoneListResponse
+from pyicloud.common.cloudkit import (
+    CKErrorItem,
+    CKModifyResponse,
+    CKQueryResponse,
+    CKRecord,
+    CKZoneListResponse,
+)
+from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.drive import DriveService
 from pyicloud.services.photos.client import PhotosCloudKitClient
 from pyicloud.services.photos.constants import (
+    AlbumTypeEnum,
     DirectionEnum,
     ListTypeEnum,
     ObjectTypeEnum,
@@ -162,7 +170,19 @@ def test_photo_relation_provenance_is_account_and_endpoint_bound(case: str) -> N
 
 
 @pytest.mark.parametrize(
-    "case", ["exact", "wrong_id", "wrong_name", "wrong_type", "missing_tag", "multiple"]
+    "case",
+    [
+        "exact",
+        "wrong_id",
+        "wrong_name",
+        "wrong_type",
+        "missing_tag",
+        "multiple",
+        "folder",
+        "deleted",
+        "missing_album_type",
+        "missing_deleted",
+    ],
 )
 def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:
     """Existing creation payload is preserved; an unrelated response is uncertain."""
@@ -176,6 +196,14 @@ def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:
             data["recordName"] = "OTHER"
         if case == "wrong_type":
             data["recordType"] = "OTHER"
+        if case == "folder":
+            data["fields"]["albumType"]["value"] = AlbumTypeEnum.FOLDER.value
+        if case == "deleted":
+            data["fields"]["isDeleted"]["value"] = 1
+        if case == "missing_album_type":
+            del data["fields"]["albumType"]
+        if case == "missing_deleted":
+            del data["fields"]["isDeleted"]
         if case == "wrong_name":
             data["fields"]["albumNameEnc"]["value"] = base64.b64encode(
                 b"OTHER"
@@ -190,6 +218,10 @@ def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:
         created = library.create_album_correlated("New")
         assert created is not None
         assert created.name == "New"
+        assert isinstance(created, PhotoAlbum)
+        assert not isinstance(created, PhotoAlbumFolder)
+        submitted = client.modify.call_args.kwargs["operations"][0].record
+        assert submitted.fields.get_value("albumType") == AlbumTypeEnum.ALBUM.value
         with patch.object(library, "_get_albums", return_value=AlbumContainer()):
             assert not library.server_albums()
     else:
@@ -245,8 +277,10 @@ def test_membership_is_one_scoped_query_without_full_album_fallback(case: str) -
     client.query.assert_called_once()
 
 
-@pytest.mark.parametrize("wrong", [False, True])
-def test_relation_acknowledgement_matches_item_and_container(wrong: bool) -> None:
+@pytest.mark.parametrize("wrong_field", [None, "itemId", "containerId"])
+def test_relation_acknowledgement_matches_item_and_container(
+    wrong_field: str | None,
+) -> None:
     """Capability reads do not dispatch; a typed relation must acknowledge exact IDs."""
     client, _library, album, photo = objects()
     assert album.can_add_photo_correlated(photo)
@@ -255,17 +289,121 @@ def test_relation_acknowledgement_matches_item_and_container(wrong: bool) -> Non
         "recordName": "P-IN-A",
         "recordType": "CPLContainerRelation",
         "fields": {
-            "itemId": {"type": "STRING", "value": "OTHER" if wrong else "P"},
-            "containerId": {"type": "STRING", "value": "A"},
+            "itemId": {
+                "type": "STRING",
+                "value": "OTHER" if wrong_field == "itemId" else "P",
+            },
+            "containerId": {
+                "type": "STRING",
+                "value": "OTHER" if wrong_field == "containerId" else "A",
+            },
         },
     })
     client.modify.return_value = CKModifyResponse(records=[record])
-    if wrong:
+    if wrong_field:
         with pytest.raises(PhotosServiceException, match="uncertain"):
             album.add_photo_correlated(photo)
     else:
         assert album.add_photo_correlated(photo)
     client.modify.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "present",
+        "absent",
+        "paired_foreign",
+        "unpaired_foreign",
+        "mixed",
+        "unpaired_matching",
+        "partly_unpaired",
+    ],
+)
+def test_scoped_membership_validates_raw_asset_identities(case: str) -> None:
+    """Foreign assets cannot disappear in conversion and become apparent absence."""
+    client, _library, album, photo = objects()
+    asset = photo.asset_record.model_dump(mode="json")
+    asset["fields"]["masterRef"] = {
+        "type": "REFERENCE",
+        "value": {"recordName": "M", "action": "NONE"},
+    }
+    if case in {"paired_foreign", "unpaired_foreign", "mixed"}:
+        asset["recordName"] = "OTHER"
+    records = [photo.master_record, CKRecord.model_validate(asset)]
+    if case == "absent":
+        records = []
+    elif case in {"unpaired_foreign", "unpaired_matching"}:
+        records = records[1:]
+    elif case == "partly_unpaired":
+        unpaired = {
+            **asset,
+            "fields": {
+                "masterRef": {
+                    "type": "REFERENCE",
+                    "value": {"recordName": "MISSING", "action": "NONE"},
+                }
+            },
+        }
+        records.append(CKRecord.model_validate(unpaired))
+    elif case == "mixed":
+        expected = {**asset, "recordName": "P"}
+        records.append(CKRecord.model_validate(expected))
+    client.query.return_value.records = records
+    client.query.return_value.syncToken = None
+    with patch.object(
+        album, "get", side_effect=AssertionError("No full-album fallback")
+    ):
+        if case in {"present", "absent"}:
+            assert album.contains_photo_scoped(photo) is (case == "present")
+        else:
+            message = (
+                "unconvertible asset"
+                if case in {"unpaired_matching", "partly_unpaired"}
+                else "different asset identity"
+            )
+            with pytest.raises(PhotosServiceException, match=message):
+                album.contains_photo_scoped(photo)
+    client.query.assert_called_once()
+    client.modify.assert_not_called()
+
+
+@pytest.mark.parametrize("matching_records", [False, True])
+def test_scoped_membership_rejects_query_error_items(matching_records: bool) -> None:
+    """Error-only and partial-error responses cannot establish membership."""
+    client, _library, album, photo = objects()
+    asset = photo.asset_record.model_dump(mode="json")
+    asset["fields"]["masterRef"] = {
+        "type": "REFERENCE",
+        "value": {"recordName": "M", "action": "NONE"},
+    }
+    records: list[CKRecord | CKErrorItem] = [
+        CKErrorItem(serverErrorCode="UNKNOWN_ITEM", reason="Unavailable")
+    ]
+    if matching_records:
+        records.extend([photo.master_record, CKRecord.model_validate(asset)])
+    client.query.return_value.records = records
+    client.query.return_value.syncToken = None
+    with patch.object(album, "_process_photo_list_response") as convert:
+        with pytest.raises(
+            PhotosServiceException, match="query returned an error item"
+        ):
+            album.contains_photo_scoped(photo)
+        convert.assert_not_called()
+    client.query.assert_called_once()
+    client.modify.assert_not_called()
+
+
+def test_scoped_membership_rejects_record_shaped_query_error() -> None:
+    """Raw error records retain their error type before reaching membership checks."""
+    client, _library, album, photo = objects()
+    data = photo.asset_record.model_dump(mode="json")
+    data.update(serverErrorCode="CONFLICT", reason="Unavailable")
+    client.query.return_value = CKQueryResponse.model_validate({"records": [data]})
+    with pytest.raises(PhotosServiceException, match="query returned an error item"):
+        album.contains_photo_scoped(photo)
+    client.query.assert_called_once()
+    client.modify.assert_not_called()
 
 
 def test_primary_owner_is_observed_not_guessed_and_snapshot_is_passive() -> None:
@@ -319,3 +457,283 @@ def test_primary_owner_is_observed_not_guessed_and_snapshot_is_passive() -> None
         assert private_photo_zone(service, zone) is None
         inventory.assert_not_called()
     assert service.upload_root == "https://upload.test"
+
+
+@pytest.mark.parametrize(
+    "name", [None, "", "  ", "bad\nname", "bad\x7fname", "é" * 2049]
+)
+def test_correlated_creation_rejects_invalid_names_before_dispatch(name: Any) -> None:
+    """The name limit counts UTF-8 bytes and excludes controls and blank names."""
+    client, library, _album, _photo = objects()
+    with pytest.raises(ValueError, match="album name"):
+        library.create_album_correlated(name)
+    client.modify.assert_not_called()
+
+
+def test_correlated_creation_accepts_byte_limit_and_preserves_wire_name() -> None:
+    """The largest permitted multibyte name is sent without trimming or recoding."""
+    client, library, _album, _photo = objects()
+    name = "é" * 2048
+
+    def response(**kwargs: Any) -> CKModifyResponse:
+        data = kwargs["operations"][0].record.model_dump(mode="json")
+        assert (
+            data["fields"]["albumNameEnc"]["value"]
+            == base64.b64encode(name.encode("utf-8")).decode()
+        )
+        data["fields"]["albumNameEnc"]["type"] = "STRING"
+        data["recordChangeTag"] = "R1"
+        return CKModifyResponse(records=[CKRecord.model_validate(data)])
+
+    client.modify.side_effect = response
+    created = library.create_album_correlated(name)
+    assert created is not None
+    assert created.name == name
+    client.modify.assert_called_once()
+
+
+def test_creation_preserves_unicode_name_from_encrypted_bytes_acknowledgement() -> None:
+    """The acknowledged album name survives decoding of its typed byte field."""
+    client, library, _album, _photo = objects()
+
+    def response(**kwargs: Any) -> CKModifyResponse:
+        data = kwargs["operations"][0].record.model_dump(mode="json")
+        data["recordChangeTag"] = "R1"
+        return CKModifyResponse(records=[CKRecord.model_validate(data)])
+
+    client.modify.side_effect = response
+    created = library.create_album_correlated("é")
+    assert created is not None
+    assert created.name == "é"
+    client.modify.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "case", ["shared", "owner", "empty_zone", "mock_session", "client"]
+)
+def test_correlated_creation_unavailable_without_private_typed_route(case: str) -> None:
+    """Capability checks and failed creates never fall back to REST."""
+    client, library, _album, _photo = objects()
+    if case == "shared":
+        library.scope = "shared-library"
+    elif case == "owner":
+        library.zone_id["ownerRecordName"] = "owner"
+    elif case == "empty_zone":
+        library.zone_id["zoneName"] = ""
+    elif case == "mock_session":
+        mock_session = MagicMock()
+        cast(Any, library.service).session = mock_session
+    else:
+        library._client = None
+    assert not library.correlated_album_creation_available
+    with pytest.raises(PhotosServiceException, match="unavailable"):
+        library.create_album_correlated("New")
+    client.modify.assert_not_called()
+    if case == "mock_session":
+        mock_session.post.assert_not_called()
+
+
+@pytest.mark.parametrize("tag", ["", " ", " R1", "R1 ", "null", "NuLl"])
+def test_creation_rejects_invalid_acknowledgement_revision(tag: str) -> None:
+    """An acknowledgement without an exact usable revision is uncertain."""
+    client, library, _album, _photo = objects()
+
+    def response(**kwargs: Any) -> CKModifyResponse:
+        data = kwargs["operations"][0].record.model_dump(mode="json")
+        data["recordChangeTag"] = tag
+        return CKModifyResponse(records=[CKRecord.model_validate(data)])
+
+    client.modify.side_effect = response
+    with pytest.raises(PhotosServiceException, match="uncertain"):
+        library.create_album_correlated("New")
+    client.modify.assert_called_once()
+
+
+def test_creation_accepts_string_field_in_acknowledgement() -> None:
+    """A STRING acknowledgement with the same wire name is also correlated."""
+    client, library, _album, _photo = objects()
+
+    def response(**kwargs: Any) -> CKModifyResponse:
+        data = kwargs["operations"][0].record.model_dump(mode="json")
+        data["fields"]["albumNameEnc"]["type"] = "STRING"
+        data["recordChangeTag"] = "R1"
+        return CKModifyResponse(records=[CKRecord.model_validate(data)])
+
+    client.modify.side_effect = response
+    created = library.create_album_correlated("New")
+    assert created is not None
+    assert created.name == "New"
+    client.modify.assert_called_once()
+
+
+def test_server_albums_excludes_pending_and_does_not_replace_cache() -> None:
+    """A fresh server observation is distinct from the cached pending album."""
+    _client, library, album, _photo = objects()
+    library._cache_created_album(album)
+    with patch.object(library, "_fetch_album_records", return_value=[]):
+        cached = library.albums
+        assert cached.get(album.id) is album
+        observed = library.server_albums()
+    assert observed.get(album.id) is None
+    assert library.albums is cached
+    assert library.albums.get(album.id) is album
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["wrong_id", "wrong_type", "wrong_item", "wrong_container", "empty", "multiple"],
+)
+def test_relation_rejects_uncorrelated_acknowledgements(case: str) -> None:
+    """A successful response must identify exactly the submitted relation."""
+    client, _library, album, photo = objects()
+    data: dict[str, Any] = {
+        "recordName": "P-IN-A",
+        "recordType": "CPLContainerRelation",
+        "fields": {
+            "itemId": {"type": "STRING", "value": "P"},
+            "containerId": {"type": "STRING", "value": "A"},
+        },
+    }
+    if case == "wrong_id":
+        data["recordName"] = "OTHER"
+    elif case == "wrong_type":
+        data["recordType"] = "CPLAlbum"
+    elif case == "wrong_item":
+        data["fields"]["itemId"]["value"] = "OTHER"
+    elif case == "wrong_container":
+        data["fields"]["containerId"]["value"] = "OTHER"
+    record = CKRecord.model_validate(data)
+    records = (
+        [] if case == "empty" else [record, record] if case == "multiple" else [record]
+    )
+    client.modify.return_value = CKModifyResponse(records=[*records])
+    with pytest.raises(PhotosServiceException, match="uncertain"):
+        album.add_photo_correlated(photo)
+    kwargs = client.modify.call_args.kwargs
+    assert kwargs["atomic"] is True
+    assert kwargs["zone_id"].model_dump(exclude_none=True) == {"zoneName": "Z"}
+    sent = kwargs["operations"][0].model_dump(mode="json", exclude_none=True)
+    assert sent["operationType"] == "create"
+    assert sent["record"]["recordName"] == "P-IN-A"
+    assert sent["record"]["fields"]["itemId"]["value"] == "P"
+    assert sent["record"]["fields"]["containerId"]["value"] == "A"
+    client.modify.assert_called_once()
+
+
+def test_scoped_membership_query_has_exact_filters_and_updates_token() -> None:
+    """A membership read uses both exact asset and album filters in the right zone."""
+    client, library, album, photo = objects()
+    client.query.return_value.records = []
+    client.query.return_value.syncToken = "new-token"
+    with patch.object(album, "_process_photo_list_response", return_value=[]):
+        assert not album.contains_photo_scoped(photo)
+    kwargs = client.query.call_args.kwargs
+    query = kwargs["query"].model_dump(mode="json", exclude_none=True)
+    assert query["recordType"] == ListTypeEnum.CONTAINER.value
+    filters = {f["fieldName"]: f["fieldValue"]["value"] for f in query["filterBy"]}
+    assert filters == {
+        "direction": "ASCENDING",
+        "startRank": 0,
+        "recordName": "P",
+        "parentId": "A",
+    }
+    assert kwargs["zone_id"].model_dump(exclude_none=True) == {"zoneName": "Z"}
+    assert kwargs["results_limit"] > 0
+    assert library.current_sync_token == "new-token"
+    client.query.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [[], [parent_filter("OTHER")], [parent_filter("A"), parent_filter("OTHER")]],
+)
+def test_membership_rejects_unverified_filters_before_query(filters: list[Any]) -> None:
+    """Missing, wrong or additional selectors cannot broaden membership lookup."""
+    client, _library, album, photo = objects()
+    album._extra_filters = filters
+    with pytest.raises(PhotosServiceException, match="unavailable"):
+        album.contains_photo_scoped(photo)
+    client.query.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "zone",
+    [
+        None,
+        {},
+        {"zoneName": ""},
+        {"zoneName": 7},
+        {"zoneName": "Z", "zoneType": "OTHER"},
+        {"zoneName": "SharedSync-test"},
+        {"zoneName": "Z", "ownerRecordName": "owner"},
+    ],
+)
+def test_private_zone_rejects_unverified_identities(zone: Any) -> None:
+    """Only ownerless private zones or observed primary owners are accepted."""
+    service = MagicMock()
+    service.private_primary_zone = {
+        "zoneName": "PrimarySync",
+        "ownerRecordName": "owner",
+    }
+    assert private_photo_zone(service, zone) is None
+
+
+@pytest.mark.parametrize("case", ["parent", "shared", "asset_zone", "object_type"])
+def test_correlated_relation_rejects_non_private_container_context(case: str) -> None:
+    """Nested, shared, mismatched-zone and virtual albums cannot dispatch relations."""
+    client, library, album, photo = objects()
+    if case == "parent":
+        album._parent_id = "PARENT"
+    elif case == "shared":
+        library.scope = "shared-library"
+    elif case == "asset_zone":
+        data = photo.asset_record.model_dump(mode="json")
+        data["zoneID"] = {"zoneName": "OTHER"}
+        photo = PhotoAsset(
+            album.service, photo.master_record, CKRecord.model_validate(data)
+        )
+    else:
+        album._obj_type = ObjectTypeEnum.FAVORITE
+    assert not album.can_add_photo_correlated(photo)
+    with pytest.raises(PhotosServiceException, match="unavailable"):
+        album.add_photo_correlated(photo)
+    with pytest.raises(PhotosServiceException, match="unavailable"):
+        album.contains_photo_scoped(photo)
+    client.query.assert_not_called()
+    client.modify.assert_not_called()
+
+
+@pytest.mark.parametrize("case", ["duplicate", "deleted", "failure"])
+def test_primary_zone_discovery_clears_stale_owner(case: str) -> None:
+    """A new ambiguous, deleted or failed inventory invalidates prior ownership."""
+    service = PhotosService(
+        "https://photos.test",
+        cast(PyiCloudSession, object()),
+        {"dsid": "123"},
+        None,
+        None,
+    )
+    zone = {"zoneName": "PrimarySync", "ownerRecordName": "owner"}
+    service._private_primary_zone = zone.copy()
+    service._private_primary_binding = ("123", service.service_endpoint)
+    root = PhotoLibrary(
+        service, zone_id={"zoneName": "PrimarySync"}, check_indexing=False
+    )
+    entries: list[dict[str, Any]] = [{"zoneID": zone}]
+    if case == "duplicate":
+        entries.append({"zoneID": zone})
+    elif case == "deleted":
+        entries[0]["deleted"] = True
+    result = CKZoneListResponse.model_validate({"zones": entries})
+    with (
+        patch.object(service, "_get_root_library", return_value=root),
+        patch.object(service, "_discover_shared_typed_zones", return_value=True),
+        patch.object(service.private_client, "zones_list") as inventory,
+    ):
+        if case == "failure":
+            inventory.side_effect = PyiCloudException("unavailable")
+        else:
+            inventory.return_value = result
+        assert service._discover_typed_zones({}) is (case != "failure")
+        assert service.private_primary_zone is None
+        assert private_photo_zone(service, zone) is None

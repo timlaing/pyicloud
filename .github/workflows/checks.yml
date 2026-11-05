@@ -2,7 +2,7 @@ name: Check
 
 "on":
   pull_request:
-    branches: [main]
+    branches: [main, feature/mcp-core-support]
 
 concurrency:
   group: checks-${{ github.ref }}

@@ -54,6 +54,7 @@ def check_cli(manifest: dict[str, Any]) -> None:
             env=environment,
         )
         assert result.stdout.strip()
+
         if command == ("--version",):
             assert result.stdout.strip() == version("pyicloud")
 
@@ -100,6 +101,8 @@ def check_mcp() -> None:
             env=environment,
         )
         assert result.stdout.strip()
+        if option == "--version":
+            assert result.stdout.strip() == version("pyicloud")
 
     from pyicloud.mcp.server import (
         build_server,  # pylint: disable=import-outside-toplevel
@@ -1724,6 +1727,7 @@ async def exercise_additional_mcp(session: Any) -> None:
 
     contacts = await records("icloud_contacts_list", {"query": "Synthetic"})
     assert set(contacts[0]) == {"handle", "first_name", "last_name"}
+    assert await records("icloud_contacts_list", {"query": "Nobody"}) == []
     details = await records(
         "icloud_contact_details",
         {"handle": contacts[0]["handle"], "include_emails": True},
@@ -1738,6 +1742,7 @@ async def exercise_additional_mcp(session: Any) -> None:
         assert item["name"] == "Deleted.txt"
     notes = await records("icloud_notes_list", {"query": "Synthetic"})
     assert notes[0]["title"] == "Synthetic note"
+    assert await records("icloud_notes_list", {"query": "Nobody"}) == []
     libraries = await records("icloud_photos_libraries", {})
     albums = await records(
         "icloud_photos_albums", {"library_handle": libraries[0]["handle"]}
