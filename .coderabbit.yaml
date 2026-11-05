@@ -4,3 +4,6 @@ reviews:
     enabled: false
     auto_incremental_review: false
     description_keyword: ""
+  auto_approvals:
+    enabled: true
+inheritance: true
