@@ -21,6 +21,12 @@ local status and capabilities until final integration adds trusted startup
 options. Existing create/update/soft-delete adapters are internal; this slice
 exposes no runtime write or approval tool.
 
+This Notes slice adds explicitly configured SDK recent-title listing, bounded
+all-title search and separately opted-in untrusted plaintext reads. Metadata
+permission never grants body access. The launcher retains offline local status
+and capabilities until final integration adds trusted startup options. Notes
+writes remain unsupported; this slice exposes no mutation or approval tool.
+
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
 development tooling. The standalone CLI extra remains `pyicloud[cli]`.
