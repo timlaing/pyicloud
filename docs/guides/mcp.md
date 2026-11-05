@@ -27,6 +27,12 @@ permission never grants body access. The launcher retains offline local status
 and capabilities until final integration adds trusted startup options. Notes
 writes remain unsupported; this slice exposes no mutation or approval tool.
 
+This Contacts slice adds explicitly configured SDK name-search and discovered
+contact-detail tools. Email and phone fields require individual selection and
+never appear in name-search results. The launcher retains offline local status
+and capabilities until final integration adds trusted startup options. Contacts
+writes remain unsupported; this slice exposes no mutation or approval tool.
+
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
 development tooling. The standalone CLI extra remains `pyicloud[cli]`.
