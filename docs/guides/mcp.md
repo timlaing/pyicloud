@@ -2,7 +2,13 @@
 
 The optional local Model Context Protocol (MCP) extension is under development.
 Its current foundation exposes **local status and capabilities only**, without Apple authentication
-or account data tools. Calendar and Reminders adapters are not yet available.
+or account data tools through the launcher.
+
+This Calendar slice adds explicitly configured SDK tools `icloud_calendar_list`
+and `icloud_calendar_events`, using bounded inclusive date ranges and metadata
+projections. The launcher retains offline local status and capabilities until
+the final integration slice adds trusted startup options. Calendar create/delete
+adapters are internal; no runtime write or approval tool is exposed by this slice.
 
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
