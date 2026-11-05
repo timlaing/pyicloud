@@ -37,7 +37,7 @@ def decode_encrypted_text(
         return None
 
     try:
-        return base64.b64decode(raw).decode("utf-8")
+        return base64.b64decode(raw, validate=True).decode("utf-8")
     except Exception:
         try:
             return raw.decode("utf-8")

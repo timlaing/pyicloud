@@ -10,6 +10,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Preserve CloudKit query error items even when the server includes record-shaped fields, so callers can handle errors instead of mistaking them for successful query records.
+
+- Preserve Unicode Photos album names from already-decoded encrypted byte fields instead of silently discarding non-Base64 bytes during acknowledgement decoding.
+
 - Restore minimum-runtime dependency pins to the declared lower bounds and separate invites and notes test fixture methods from their stored patch instances to fix CI validation.
 
 ### Security
@@ -20,6 +24,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
+- Add cache-independent Photos album reads and typed-only correlated album creation/relation helpers; capability checks remain passive and shared or unsupported routes fail closed.
+- Retain observed private PrimarySync zone identity with account/route binding so owned zone metadata can be distinguished from foreign/shared ownership without guessing account-to-owner mappings.
+
 - Publish a supported compatibility and operational-guarantees guide, and enforce the agreed per-file combined line-and-branch coverage policy alongside the existing aggregate gate.
 - Check released public compatibility contracts and installed runtime-only, CLI, and source-distribution packages offline, including declared minimum runtime dependencies.
 - Validate standard Python 3.15 with the full offline suite and clean runtime-only and CLI package installation checks, retaining Python 3.10 support. CLI checks clear inherited Python environment overrides so checkout sources cannot hide a broken wheel.
@@ -28,6 +36,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add a Photos error hierarchy following the same convention as the other CloudKit services: `PhotosAuthError`, `PhotosRateLimited`, `PhotosApiError`, and `PhotosZoneNotFoundError`, all deriving from `PhotosServiceException` (and therefore from `PyiCloudException`), exported from `pyicloud.services.photos`. Callers can catch `PhotosZoneNotFoundError` to treat a missing Photos zone as a valid account state; accessing `api.photos` does not raise it, but root-library operations such as indexing checks, queries, zone discovery, and writes can.
 
 ### Changed
+
+- Require typed Photos album-creation acknowledgements to match the submitted record ID, record type, album type, live deletion flag, encoded name and valid change tag; unrelated or ambiguous responses now raise uncertainty instead of returning an uncorrelated album. Request payloads and public signatures are unchanged.
 
 - Include shared Reminders lists alongside private lists and route reminder queries through each shared list's CloudKit zone.
 - Preserve Reminders routes through incomplete shared discovery, exclude deleted lists from routing, skip malformed shared list records individually, and retain explicit zone metadata. CLI listings preserve list contexts and deduplicate shared reminder matches while continuing past zone-local API errors.
@@ -52,6 +62,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
+
+- Reject unexpected asset IDs in scoped Photos album-membership responses, including mixed expected/unexpected results and unpaired raw assets discarded by conversion, instead of mistaking mismatched results for absence. Matching assets without a master and query error items also raise an error instead of establishing absence or presence.
+
+- Bind correlated Photos relation eligibility to the supplied asset's originating account and service endpoint, accepting equivalent same-account service instances while refusing foreign or unknown provenance before lookup or mutation.
+
+- Refuse photo membership lookups and correlated photo additions for album folders, including top-level folders with container metadata, before any lookup or mutation dispatch.
 
 - Ignore caller-supplied `request_params` in Drive uploads without interrupting finalisation or replacing the operation-local upload token.
 - Keep Drive upload tokens local to each upload while preserving preparation and finalisation request parameters; uploads no longer add credentials to shared service parameters.

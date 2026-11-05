@@ -824,6 +824,15 @@ class PhotoLibrary(BasePhotoLibrary):
                 albums.append(album)
         return albums
 
+    def server_albums(self) -> AlbumContainer:
+        """Read albums without merging locally pending creation acknowledgements.
+
+        Unlike refresh_albums, this does not update caches or include pending local
+        albums as proof of server visibility. Use fresh observed records to verify
+        post-write identity; virtual albums still do not carry mutation revisions.
+        """
+        return self._get_albums()
+
     def create_album(
         self,
         name: str,
@@ -837,6 +846,43 @@ class PhotoLibrary(BasePhotoLibrary):
             return self._create_album_typed(client, encoded, album_type, position)
         return self._create_album_rest(encoded, album_type, position)
 
+    @property
+    def correlated_album_creation_available(self) -> bool:
+        """Report typed private creation support without probing or dispatching."""
+        return (
+            isinstance(self._client, PhotosCloudKitClient)
+            and _can_use_typed_cloudkit(self.service.session)
+            and self.scope == "private"
+            and bool(self.zone_id.get("zoneName"))
+            and not self.zone_id.get("ownerRecordName")
+        )
+
+    def create_album_correlated(self, name: str) -> PhotoAlbum | None:
+        """Create a private album only through the typed correlated-response path.
+
+        This verifies acknowledgement identity/name/revision, not independent server
+        visibility. Use server_albums for post-state proof; never blindly retry an
+        uncertain outcome. Unlike create_album this never falls back to REST.
+        """
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or len(name.encode("utf-8")) > 4096
+            or any(ord(char) < 32 or char == "\x7f" for char in name)
+        ):
+            raise ValueError(
+                "A bounded non-blank album name without controls is required"
+            )
+        client = self._client
+        if not self.correlated_album_creation_available or client is None:
+            raise PhotosServiceException(
+                "Correlated private album creation is unavailable"
+            )
+        encoded = base64.b64encode(name.encode("utf-8")).decode("utf-8")
+        return self._create_album_typed(
+            client, encoded, AlbumTypeEnum.ALBUM, _new_album_position()
+        )
+
     def _create_album_typed(
         self,
         client: PhotosCloudKitClient,
@@ -844,10 +890,11 @@ class PhotoLibrary(BasePhotoLibrary):
         album_type: AlbumTypeEnum,
         position: int,
     ) -> PhotoAlbum | None:
+        expected_id = os.urandom(16).hex().upper()
         op = CKModifyOperation(
             operationType="create",
             record=CKWriteRecord(
-                recordName=os.urandom(16).hex().upper(),
+                recordName=expected_id,
                 recordType="CPLAlbum",
                 fields={
                     "albumNameEnc": {
@@ -870,6 +917,28 @@ class PhotoLibrary(BasePhotoLibrary):
         )
         if not _check_modify_response(resp.records):
             raise PhotosServiceException("Failed to create album")
+        if (
+            len(resp.records) != 1
+            or not isinstance(resp.records[0], CKRecord)
+            or resp.records[0].recordName != expected_id
+            or resp.records[0].recordType != "CPLAlbum"
+            or resp
+            .records[0]
+            .model_dump(mode="json")["fields"]
+            .get("albumNameEnc", {})
+            .get("value")
+            != encoded
+            or resp.records[0].fields.get_value("albumType") != int(album_type.value)
+            or resp.records[0].fields.get_value("isDeleted") != 0
+            or not isinstance(resp.records[0].recordChangeTag, str)
+            or not resp.records[0].recordChangeTag.strip()
+            or resp.records[0].recordChangeTag
+            != resp.records[0].recordChangeTag.strip()
+            or resp.records[0].recordChangeTag.casefold() == "null"
+        ):
+            raise PhotosServiceException(
+                "Album creation outcome is uncertain; refresh before retrying"
+            )
         for record in resp.records:
             if isinstance(record, CKRecord):
                 album = self._convert_record_to_album(record)
@@ -1529,6 +1598,26 @@ class PhotoAlbum(BasePhotoAlbum):
         return self._record_id
 
     @property
+    def record_change_tag(self) -> str | None:
+        """Return the observed album revision, never infer a missing write tag."""
+        return self._record_change_tag
+
+    @property
+    def zone_id(self) -> dict[str, str]:
+        """Return a detached zone identity; callers cannot change mutation routing."""
+        return dict(self._zone_id)
+
+    @property
+    def parent_id(self) -> str | None:
+        """Return the observed parent link without fetching an ancestor tree."""
+        return self._parent_id
+
+    @property
+    def object_type(self) -> ObjectTypeEnum:
+        """Identify user containers separately from virtual or unsupported albums."""
+        return self._obj_type
+
+    @property
     def fullname(self) -> str:
         return self.fullname_guard(seen=set())
 
@@ -1722,6 +1811,166 @@ class PhotoAlbum(BasePhotoAlbum):
             payload = http_response.json()
             success = _check_modify_response(payload.get("records", []))
         return success
+
+    @staticmethod
+    def _service_account_binding(service: Any) -> str | None:
+        """Read an existing account identifier without probing or inferring identity."""
+        params = getattr(service, "params", None)
+        if not isinstance(params, dict):
+            return None
+        account = params.get("dsid")
+        if isinstance(account, bool):
+            return None
+        if isinstance(account, int):
+            return str(account) if account > 0 else None
+        if isinstance(account, str) and account and account == account.strip():
+            return account
+        return None
+
+    def _same_photo_account(self, photo: PhotoAsset) -> bool:
+        """Require an exact account/route binding for equivalent services."""
+        # Album and asset implementations share private provenance metadata.
+        origin = photo._service  # pylint: disable=protected-access
+        if origin is self.service:
+            return True
+        expected = self._service_account_binding(self.service)
+        observed = self._service_account_binding(origin)
+        endpoint = getattr(self.service, "service_endpoint", None)
+        return (
+            expected is not None
+            and observed == expected
+            and isinstance(endpoint, str)
+            and bool(endpoint)
+            and getattr(origin, "service_endpoint", None) == endpoint
+        )
+
+    def can_add_photo_correlated(self, photo: PhotoAsset) -> bool:
+        """Inspect typed private relation support without probing or mutating."""
+        zone = private_photo_zone(self.service, self._zone_id)
+        return (
+            isinstance(photo, PhotoAsset)
+            and self._same_photo_account(photo)
+            and not isinstance(self, PhotoAlbumFolder)
+            and self._obj_type == ObjectTypeEnum.CONTAINER
+            and self._parent_id is None
+            and self._library.scope == "private"
+            and zone is not None
+            and private_photo_zone(self.service, record_zone(photo.asset_record))
+            == zone
+            and isinstance(self._client, PhotosCloudKitClient)
+            and _can_use_typed_cloudkit(self.service.session)
+        )
+
+    def contains_photo_scoped(self, photo: PhotoAsset) -> bool:
+        """Query exact album membership only with its verified container filter.
+
+        This is a fresh observation, not an atomic snapshot with any mutation.
+        Unknown/extra filters and mismatched returned identities fail closed.
+        """
+        if (
+            not self.can_add_photo_correlated(photo)
+            or self._list_type != ListTypeEnum.CONTAINER
+            or self._extra_filters != [parent_filter(self.id)]
+        ):
+            raise PhotosServiceException(
+                "Scoped private album membership is unavailable"
+            )
+        client = cast(PhotosCloudKitClient, self._client)
+        response = client.query(
+            query=photo_lookup_query(
+                list_type=self._list_type,
+                photo_id=photo.id,
+                extra_filters=self._query_filters(
+                    offset=0, direction=DirectionEnum.ASCENDING
+                ),
+            ),
+            zone_id=CKZoneIDReq(**self._zone_id),
+            results_limit=self._photo_lookup_results_limit(),
+        )
+        self._library.current_sync_token = (
+            response.syncToken or self._library.current_sync_token
+        )
+        if any(isinstance(record, CKErrorItem) for record in response.records):
+            raise PhotosServiceException(
+                "Album membership query returned an error item"
+            )
+        identity_error = "Album membership returned a different asset identity"
+        raw_assets = [
+            record
+            for record in response.records
+            if isinstance(record, CKRecord) and record.recordType == "CPLAsset"
+        ]
+        if any(record.recordName != photo.id for record in raw_assets):
+            raise PhotosServiceException(identity_error)
+        candidates = list(self._process_photo_list_response(response.records))
+        if len(raw_assets) > len(candidates):
+            raise PhotosServiceException(
+                "Album membership returned an unconvertible asset"
+            )
+        if any(
+            not isinstance(item, PhotoAsset) or item.id != photo.id
+            for item in candidates
+        ):
+            raise PhotosServiceException(identity_error)
+        matches = [item for item in candidates if item.id == photo.id]
+        if len(matches) > 1:
+            raise PhotosServiceException(
+                "Album membership returned duplicate asset identities"
+            )
+        found = matches[0] if matches else None
+        if found is None:
+            return False
+        if not isinstance(found, PhotoAsset) or (
+            found.id,
+            found.master_id,
+            private_photo_zone(self.service, record_zone(found.asset_record)),
+        ) != (
+            photo.id,
+            photo.master_id,
+            private_photo_zone(self.service, self._zone_id),
+        ):
+            raise PhotosServiceException(identity_error)
+        return True
+
+    def add_photo_correlated(self, photo: PhotoAsset) -> bool:
+        """Add one private relation with exact typed acknowledgement correlation.
+
+        This does not prove independently observed album membership. There is no
+        REST fallback or mutation retry; ambiguous outcomes require fresh reads.
+        """
+        if not self.can_add_photo_correlated(photo) or self._client is None:
+            raise PhotosServiceException(
+                "Correlated private album relation is unavailable"
+            )
+        item_id = self._relation_item_id(photo)
+        relation_id = f"{item_id}-IN-{self._record_id}"
+        operation = CKModifyOperation(
+            operationType="create",
+            record=CKWriteRecord(
+                recordName=relation_id,
+                recordType="CPLContainerRelation",
+                fields={
+                    "itemId": {"type": "STRING", "value": item_id},
+                    "position": {"type": "INT64", "value": 1024},
+                    "containerId": {"type": "STRING", "value": self._record_id},
+                },
+            ),
+        )
+        response = self._client.modify(
+            operations=[operation], zone_id=CKZoneIDReq(**self._zone_id), atomic=True
+        )
+        if (
+            len(response.records) != 1
+            or not isinstance(response.records[0], CKRecord)
+            or response.records[0].recordName != relation_id
+            or response.records[0].recordType != "CPLContainerRelation"
+            or response.records[0].fields.get_value("itemId") != item_id
+            or response.records[0].fields.get_value("containerId") != self._record_id
+        ):
+            raise PhotosServiceException(
+                "Album relation outcome is uncertain; refresh before retrying"
+            )
+        return True
 
     def upload(self, path: str) -> PhotoAsset | None:
         """Upload a file into this album and return the created asset."""
@@ -2364,6 +2613,38 @@ class PhotoAsset:
         return f"<{type(self).__name__}: id={self.id}>"
 
 
+def private_photo_zone(
+    service: Any, zone: dict[str, Any] | None
+) -> dict[str, str] | None:
+    """Canonical private zone name after passive, observed owner validation.
+
+    Primary ownership comes only from the authenticated private zones inventory,
+    never from a guessed DSID mapping. No network request is made by this helper.
+    """
+    if (
+        not zone
+        or not isinstance(zone.get("zoneName"), str)
+        or not zone["zoneName"]
+        or zone.get("zoneType") not in {None, "REGULAR_CUSTOM_ZONE"}
+        or _is_shared_library_zone_name(zone["zoneName"])
+    ):
+        return None
+    owner = zone.get("ownerRecordName")
+    if owner is not None:
+        observed = getattr(service, "private_primary_zone", None)
+        if (
+            zone["zoneName"] != PRIMARY_ZONE["zoneName"]
+            or not isinstance(owner, str)
+            or not owner
+            or not isinstance(observed, dict)
+            or observed.get("zoneName") != zone["zoneName"]
+            or observed.get("ownerRecordName") != owner
+            or observed.get("zoneType") not in {None, "REGULAR_CUSTOM_ZONE"}
+        ):
+            return None
+    return {"zoneName": zone["zoneName"]}
+
+
 class PhotosService(BaseService):
     """Modern CloudKit-backed Photos service."""
 
@@ -2387,6 +2668,8 @@ class PhotosService(BaseService):
             f"{self.service_root}/database/1/com.apple.photos.cloud/production/shared"
         )
         self.service_endpoint = private_endpoint
+        self._private_primary_zone: dict[str, str] | None = None
+        self._private_primary_binding: tuple[Any, str] | None = None
         self._private_client = PhotosCloudKitClient(
             base_url=private_endpoint,
             session=session,
@@ -2451,6 +2734,25 @@ class PhotosService(BaseService):
         return self._private_client
 
     @property
+    def private_primary_zone(self) -> dict[str, str] | None:
+        """Passive observed private PrimarySync identity, bound to its account."""
+        if self._private_primary_binding != (
+            self.params.get("dsid"),
+            self.service_endpoint,
+        ):
+            return None
+        return (
+            dict(self._private_primary_zone)
+            if self._private_primary_zone is not None
+            else None
+        )
+
+    @property
+    def upload_root(self) -> str | None:
+        """Return the observed modern Photos upload service route, without fallback."""
+        return self._photos_upload_url
+
+    @property
     def libraries(self) -> "dict[str, BasePhotoLibrary | PhotoStreamLibrary]":
         """Return the available photo libraries, discovering them on first access."""
         # pylint: disable=import-outside-toplevel
@@ -2483,12 +2785,25 @@ class PhotosService(BaseService):
         libraries: "dict[str, BasePhotoLibrary | PhotoStreamLibrary]",
     ) -> bool:
         """Discover typed zones, returning whether the result is complete."""
+        self._private_primary_zone = None
+        self._private_primary_binding = None
         try:
             private_zones = self._private_client.zones_list()
         except PyiCloudException:  # pylint: disable=broad-exception-caught
             LOGGER.debug("Private CloudKit photos zones unavailable", exc_info=True)
             self._discover_shared_typed_zones(libraries)
             return False
+        primary = [
+            zone
+            for zone in private_zones.zones
+            if not zone.deleted and zone.zoneID.zoneName == PRIMARY_ZONE["zoneName"]
+        ]
+        if len(primary) == 1:
+            self._private_primary_zone = primary[0].zoneID.model_dump(exclude_none=True)
+            self._private_primary_binding = (
+                self.params.get("dsid"),
+                self.service_endpoint,
+            )
         for zone in private_zones.zones:
             if zone.deleted:
                 continue

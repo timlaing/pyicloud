@@ -771,9 +771,12 @@ class CKQueryResponse(CKModel):
     - continuationMarker: optional paging token (present if more results exist)
     """
 
-    records: list[CKRecord | CKTombstoneRecord | CKErrorItem] = Field(
-        default_factory=list
-    )
+    records: list[
+        Annotated[
+            CKErrorItem | CKRecord | CKTombstoneRecord,
+            Field(union_mode="left_to_right"),
+        ]
+    ] = Field(default_factory=list)
     continuationMarker: str | None = None
     # When getCurrentSyncToken=true is passed, server also returns a top-level syncToken
     # Include it for strict validation; clients can ignore if not needed.

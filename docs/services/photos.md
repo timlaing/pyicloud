@@ -297,3 +297,30 @@ except PhotosZoneNotFoundError:
 except PyiCloudException as err:
     print(f"Photos failed: {err}")
 ```
+
+## Integration metadata and correlated mutations
+
+`PhotoAlbum.record_change_tag`, `zone_id`, `parent_id` and `object_type` expose
+observed identity metadata without requests or approval. Zone mappings are detached;
+missing revisions remain unknown. `PhotoLibrary.server_albums()` reads server album
+records without merging pending local creation acknowledgements into visibility proof.
+
+`correlated_album_creation_available` is a passive capability check.
+`create_album_correlated(name)` supports typed private album creation only, without
+a REST fallback. Typed creation acknowledgements must match the submitted ID, record
+and album types, live deletion flag, encoded name and valid revision. Encoded name comparison uses the typed record's
+wire representation, supporting both STRING and decoded ENCRYPTED_BYTES fields.
+An unrelated response is uncertain, not permission to retry a possibly completed write.
+
+`can_add_photo_correlated(photo)` checks typed private relation eligibility without
+requests. `contains_photo_scoped(photo)` uses one exact container-scoped query, not a
+full-album scan. Foreign assets, assets missing their master and query error items
+raise an error instead of establishing membership. `add_photo_correlated(photo)` checks exact relation, item and container
+acknowledgement identity. Acknowledgement is not independently observed membership:
+query fresh state before asserting the final outcome; never blindly retry uncertainty.
+
+`PhotosService.upload_root` exposes the observed modern upload route without a
+fallback or mutation. `private_primary_zone` returns a detached passive snapshot of
+private PrimarySync discovery bound to its account and service route. Owned primary
+records are accepted only against that observation; foreign/shared/unverified owners
+and unsupported zone types remain refused. No owner is inferred from a DSID.

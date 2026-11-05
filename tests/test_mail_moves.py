@@ -84,6 +84,52 @@ def move_case() -> Iterator[MoveCase]:
         yield MoveCase(service, session, response, message, destination, capabilities)
 
 
+def test_move_preflight_is_read_only_and_preserves_metadata(case: MoveCase) -> None:
+    """Exact verified capability checks without submitting a mutation."""
+    before = case.message.model_dump()
+    assert (
+        case.service.check_move(case.message, case.destination) == "synthetic-account"
+    )
+    assert case.message.model_dump() == before
+    case.session.request_raw.assert_not_called()
+    queries = [call.kwargs["json"] for call in case.session.post.call_args_list]
+    assert [query["domain"] for query in queries] == ["email", "mailbox", "mailbox"]
+    assert [query["predicate"]["value"] for query in queries[1:]] == ["10", "20"]
+
+
+def test_move_rechecks_destination_after_preflight(case: MoveCase) -> None:
+    """A successful preflight does not authorize a later stale mailbox move."""
+    assert (
+        case.service.check_move(case.message, case.destination) == "synthetic-account"
+    )
+    case.capabilities["20"]["domainObjects"][0]["uidValidity"] = 9999
+    with pytest.raises(MailError):
+        case.service.move(case.message, case.destination)
+    case.session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "case_name", ["same_folder", "uid_validity", "non_selectable", "junk"]
+)
+def test_move_preflight_rejects_unsupported_context_without_mutation(
+    case: MoveCase, case_name: str
+) -> None:
+    """No guessed destination or stale namespace reaches mutation."""
+    destination = case.destination
+    if case_name == "same_folder":
+        destination = case.message.folder
+    elif case_name == "uid_validity":
+        destination = destination.model_copy(update={"uid_validity": None})
+    elif case_name == "non_selectable":
+        case.capabilities["20"]["domainObjects"][0]["flags"] = 1
+    else:
+        case.capabilities["20"]["domainObjects"][0]["name"] = "Junk"
+        destination = destination.model_copy(update={"name": "Junk"})
+    with pytest.raises((ValueError, MailError)):
+        case.service.check_move(case.message, destination)
+    case.session.request_raw.assert_not_called()
+
+
 def test_move_has_one_mailbox_only_patch(case: MoveCase) -> None:
     """Acknowledge the old ID without guessing new IDs, counters, or numeric flags."""
     before = case.message.model_dump()

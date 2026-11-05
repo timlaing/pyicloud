@@ -43,6 +43,11 @@ class DriveService(BaseService):
         self._root: DriveNode | None = None
         self._trash: DriveNode | None = None
 
+    @property
+    def document_root(self) -> str:
+        """Observed document-service route, not a caller-selected upload endpoint."""
+        return self._document_root
+
     def _get_token_from_cookie(self) -> dict[str, Any]:
         # Copy cookies to avoid "dictionary changed size during iteration"
         # when concurrent HTTP responses modify the cookie jar
