@@ -66,6 +66,7 @@ nav:
       - Compatibility and Guarantees: guides/compatibility.md
       - Authentication: guides/authentication.md
       - Command-Line Interface: guides/cli.md
+      - MCP Extension: guides/mcp.md
       - Diagnostics: guides/diagnostics.md
   - Services:
       - Account: services/account.md
