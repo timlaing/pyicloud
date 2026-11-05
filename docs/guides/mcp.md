@@ -2,7 +2,14 @@
 
 The optional local Model Context Protocol (MCP) extension is under development.
 Its current foundation exposes **local status and capabilities only**, without Apple authentication
-or account data tools. Calendar and Reminders adapters are not yet available.
+or account data tools through the launcher.
+
+This Photos slice adds explicitly configured SDK library/album/asset discovery,
+bounded filename search and separately opted-in version-bound downloads. Existing
+favorite, album, relation and upload adapters retain scoped account/route/revision
+proof and independent receipts, but remain internal until final runtime wiring.
+The launcher retains offline local status and capabilities; this slice exposes
+no write or approval tool.
 
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
