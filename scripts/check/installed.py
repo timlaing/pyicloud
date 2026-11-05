@@ -106,7 +106,7 @@ def check_mcp() -> None:
         """No Apple account or transport is created for this installed smoke."""
         server = build_server()
         tools = await server.list_tools()
-        assert [tool.name for tool in tools] == ["icloud_status"]
+        assert {tool.name for tool in tools} == {"icloud_status", "icloud_capabilities"}
         result = await server.call_tool("icloud_status", {})
         from mcp.types import CallToolResult  # pylint: disable=import-outside-toplevel
 

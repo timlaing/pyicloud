@@ -287,10 +287,13 @@ def test_node_owner_record_name_variants() -> None:
 
 
 def test_node_open_zero_size_returns_empty_response() -> None:
-    """Zero-byte files short-circuit to an empty in-memory response."""
+    """Freshly confirmed zero-byte files return an empty in-memory response."""
     drive = _drive_service()
-    node = DriveNode(drive, {"size": 0})
-    response = node.open()
+    data = {"drivewsid": "F", "type": "FILE", "size": 0}
+    node = DriveNode(drive, data)
+    with patch.object(drive, "get_node_data", return_value=dict(data)) as refresh:
+        response = node.open()
+    refresh.assert_called_once_with("F", None)
     assert response.raw is not None
     assert response.raw.read() == b""
 

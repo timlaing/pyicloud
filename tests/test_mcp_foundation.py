@@ -8,6 +8,7 @@ from mcp.types import CallToolResult
 import pytest
 
 from pyicloud.mcp.cmdline import main
+from pyicloud.mcp.context import ServerConfig
 from pyicloud.mcp.server import ServerStatus, build_server
 
 
@@ -53,7 +54,7 @@ async def test_status_tool_contract() -> None:
     """The SDK advertises and serializes the local-only structured tool."""
     server = build_server()
     tools = await server.list_tools()
-    assert [tool.name for tool in tools] == ["icloud_status"]
+    assert {tool.name for tool in tools} == {"icloud_status", "icloud_capabilities"}
     result = await server.call_tool("icloud_status", {})
     assert isinstance(result, CallToolResult)
     assert result.structured_content == ServerStatus().model_dump()
@@ -87,3 +88,16 @@ def test_missing_optional_dependency(
             output = capsys.readouterr()
             assert "pyicloud[mcp]" in output.err
             assert not output.out
+
+
+def test_partial_stack_refuses_runtime_writes() -> None:
+    """Service adapters cannot bypass the pending final operator gateway wiring."""
+    config = ServerConfig(
+        username="synthetic",
+        session_dir="unused",
+        services=("reminders",),
+        write_actions=("reminders.create",),
+        approval_dir="unused",
+    )
+    with pytest.raises(ValueError, match="final integration PR"):
+        build_server(config)
