@@ -38,6 +38,13 @@ Selected contact details accept a zero-based `offset` and a per-field `limit`
 of 1–20 (default 20). A truncated page reports `complete: false` and `next_offset`
 in its contact record; use that offset with the same selected fields to continue.
 
+This Photos slice adds explicitly configured SDK library/album/asset discovery,
+bounded filename search and separately opted-in version-bound downloads. Existing
+favorite, album, relation and upload adapters retain scoped account/route/revision
+proof and independent receipts, but remain internal until final runtime wiring.
+The launcher retains offline local status and capabilities; this slice exposes
+no write or approval tool.
+
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
 development tooling. The standalone CLI extra remains `pyicloud[cli]`.
