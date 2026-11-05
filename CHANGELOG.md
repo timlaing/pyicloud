@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Preserve CloudKit query error items even when the server includes record-shaped fields, so callers can handle errors instead of mistaking them for successful query records.
+
 - Preserve Unicode Photos album names from already-decoded encrypted byte fields instead of silently discarding non-Base64 bytes during acknowledgement decoding.
 
 - Restore minimum-runtime dependency pins to the declared lower bounds and separate invites and notes test fixture methods from their stored patch instances to fix CI validation.

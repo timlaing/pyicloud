@@ -12,6 +12,7 @@ import pytest
 from pyicloud.common.cloudkit import (
     CKErrorItem,
     CKModifyResponse,
+    CKQueryResponse,
     CKRecord,
     CKZoneListResponse,
 )
@@ -389,6 +390,18 @@ def test_scoped_membership_rejects_query_error_items(matching_records: bool) -> 
         ):
             album.contains_photo_scoped(photo)
         convert.assert_not_called()
+    client.query.assert_called_once()
+    client.modify.assert_not_called()
+
+
+def test_scoped_membership_rejects_record_shaped_query_error() -> None:
+    """Raw error records retain their error type before reaching membership checks."""
+    client, _library, album, photo = objects()
+    data = photo.asset_record.model_dump(mode="json")
+    data.update(serverErrorCode="CONFLICT", reason="Unavailable")
+    client.query.return_value = CKQueryResponse.model_validate({"records": [data]})
+    with pytest.raises(PhotosServiceException, match="query returned an error item"):
+        album.contains_photo_scoped(photo)
     client.query.assert_called_once()
     client.modify.assert_not_called()
 
