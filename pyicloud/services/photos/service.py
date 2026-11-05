@@ -1888,23 +1888,20 @@ class PhotoAlbum(BasePhotoAlbum):
         self._library.current_sync_token = (
             response.syncToken or self._library.current_sync_token
         )
+        identity_error = "Album membership returned a different asset identity"
         if any(
             isinstance(record, CKRecord)
             and record.recordType == "CPLAsset"
             and record.recordName != photo.id
             for record in response.records
         ):
-            raise PhotosServiceException(
-                "Album membership returned a different asset identity"
-            )
+            raise PhotosServiceException(identity_error)
         candidates = list(self._process_photo_list_response(response.records))
         if any(
             not isinstance(item, PhotoAsset) or item.id != photo.id
             for item in candidates
         ):
-            raise PhotosServiceException(
-                "Album membership returned a different asset identity"
-            )
+            raise PhotosServiceException(identity_error)
         matches = [item for item in candidates if item.id == photo.id]
         if len(matches) > 1:
             raise PhotosServiceException(
@@ -1922,9 +1919,7 @@ class PhotoAlbum(BasePhotoAlbum):
             photo.master_id,
             private_photo_zone(self.service, self._zone_id),
         ):
-            raise PhotosServiceException(
-                "Album membership returned a different asset identity"
-            )
+            raise PhotosServiceException(identity_error)
         return True
 
     def add_photo_correlated(self, photo: PhotoAsset) -> bool:
