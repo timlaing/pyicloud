@@ -63,6 +63,7 @@ jobs:
               per_page: 100,
             });
             for (const pr of prs) {
+              if (pr.user?.login === "dependabot[bot]") continue;
               if (pr.draft || Date.now() - Date.parse(pr.updated_at) < 60000) continue;
               let required = JSON.parse(process.env.REQUIRED_CHECKS || "[]");
               try {
@@ -74,10 +75,12 @@ jobs:
                     branch: pr.base.ref,
                   },
                 );
-                required = rules.data.flatMap((rule) =>
-                  rule.type === "required_status_checks"
-                    ? rule.parameters.required_status_checks.map((check) => check.context)
-                    : [],
+                required.push(
+                  ...rules.data.flatMap((rule) =>
+                    rule.type === "required_status_checks"
+                      ? rule.parameters.required_status_checks.map((check) => check.context)
+                      : [],
+                  ),
                 );
                 const protection = await github.rest.repos
                   .getBranchProtection({ owner, repo, branch: pr.base.ref })
@@ -169,7 +172,9 @@ jobs:
                 }
                 if (
                   [...latestRuns.values()].some(
-                    (r) => r.status !== "completed" || r.conclusion !== "success",
+                    (r) =>
+                      r.status !== "completed" ||
+                      !["success", "skipped"].includes(r.conclusion),
                   )
                 )
                   ready = false;
