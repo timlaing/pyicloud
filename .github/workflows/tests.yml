@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, feature/mcp-core-support]
+    branches: [main]
 
 concurrency:
   group: tests-${{ github.ref }}
