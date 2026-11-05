@@ -14,6 +14,7 @@ from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.drive import DriveService
 from pyicloud.services.photos.client import PhotosCloudKitClient
 from pyicloud.services.photos.constants import (
+    AlbumTypeEnum,
     DirectionEnum,
     ListTypeEnum,
     ObjectTypeEnum,
@@ -191,6 +192,10 @@ def test_typed_album_creation_requires_exact_acknowledgement(case: str) -> None:
         created = library.create_album_correlated("New")
         assert created is not None
         assert created.name == "New"
+        assert isinstance(created, PhotoAlbum)
+        assert not isinstance(created, PhotoAlbumFolder)
+        submitted = client.modify.call_args.kwargs["operations"][0].record
+        assert submitted.fields.get_value("albumType") == AlbumTypeEnum.ALBUM.value
         with patch.object(library, "_get_albums", return_value=AlbumContainer()):
             assert not library.server_albums()
     else:
@@ -246,8 +251,10 @@ def test_membership_is_one_scoped_query_without_full_album_fallback(case: str) -
     client.query.assert_called_once()
 
 
-@pytest.mark.parametrize("wrong", [False, True])
-def test_relation_acknowledgement_matches_item_and_container(wrong: bool) -> None:
+@pytest.mark.parametrize("wrong_field", [None, "itemId", "containerId"])
+def test_relation_acknowledgement_matches_item_and_container(
+    wrong_field: str | None,
+) -> None:
     """Capability reads do not dispatch; a typed relation must acknowledge exact IDs."""
     client, _library, album, photo = objects()
     assert album.can_add_photo_correlated(photo)
@@ -256,17 +263,60 @@ def test_relation_acknowledgement_matches_item_and_container(wrong: bool) -> Non
         "recordName": "P-IN-A",
         "recordType": "CPLContainerRelation",
         "fields": {
-            "itemId": {"type": "STRING", "value": "OTHER" if wrong else "P"},
-            "containerId": {"type": "STRING", "value": "A"},
+            "itemId": {
+                "type": "STRING",
+                "value": "OTHER" if wrong_field == "itemId" else "P",
+            },
+            "containerId": {
+                "type": "STRING",
+                "value": "OTHER" if wrong_field == "containerId" else "A",
+            },
         },
     })
     client.modify.return_value = CKModifyResponse(records=[record])
-    if wrong:
+    if wrong_field:
         with pytest.raises(PhotosServiceException, match="uncertain"):
             album.add_photo_correlated(photo)
     else:
         assert album.add_photo_correlated(photo)
     client.modify.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "case", ["present", "absent", "paired_foreign", "unpaired_foreign", "mixed"]
+)
+def test_scoped_membership_validates_raw_asset_identities(case: str) -> None:
+    """Foreign assets cannot disappear in conversion and become apparent absence."""
+    client, _library, album, photo = objects()
+    asset = photo.asset_record.model_dump(mode="json")
+    asset["fields"]["masterRef"] = {
+        "type": "REFERENCE",
+        "value": {"recordName": "M", "action": "NONE"},
+    }
+    if case in {"paired_foreign", "unpaired_foreign", "mixed"}:
+        asset["recordName"] = "OTHER"
+    records = [photo.master_record, CKRecord.model_validate(asset)]
+    if case == "absent":
+        records = []
+    elif case == "unpaired_foreign":
+        records = records[1:]
+    elif case == "mixed":
+        expected = {**asset, "recordName": "P"}
+        records.append(CKRecord.model_validate(expected))
+    client.query.return_value.records = records
+    client.query.return_value.syncToken = None
+    with patch.object(
+        album, "get", side_effect=AssertionError("No full-album fallback")
+    ):
+        if case in {"present", "absent"}:
+            assert album.contains_photo_scoped(photo) is (case == "present")
+        else:
+            with pytest.raises(
+                PhotosServiceException, match="different asset identity"
+            ):
+                album.contains_photo_scoped(photo)
+    client.query.assert_called_once()
+    client.modify.assert_not_called()
 
 
 def test_primary_owner_is_observed_not_guessed_and_snapshot_is_passive() -> None:

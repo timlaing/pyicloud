@@ -1888,6 +1888,15 @@ class PhotoAlbum(BasePhotoAlbum):
         self._library.current_sync_token = (
             response.syncToken or self._library.current_sync_token
         )
+        if any(
+            isinstance(record, CKRecord)
+            and record.recordType == "CPLAsset"
+            and record.recordName != photo.id
+            for record in response.records
+        ):
+            raise PhotosServiceException(
+                "Album membership returned a different asset identity"
+            )
         candidates = list(self._process_photo_list_response(response.records))
         if any(
             not isinstance(item, PhotoAsset) or item.id != photo.id
