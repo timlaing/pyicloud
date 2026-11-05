@@ -3,64 +3,348 @@ name: Dependabot Auto Merge
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_run:
+    workflows:
+      [
+        "Action references",
+        "Auto label issues",
+        "Auto labeller",
+        "Build and Publish Python Package",
+        "Check",
+        "Close Dependabot PR if HA older",
+        "Close stale issues",
+        "CodeQL Advanced",
+        "Docs",
+        "Linting",
+        "Release Drafter",
+        "SonarQube",
+        "Sync prek dependencies",
+        "Tests",
+      ]
+    types: [completed]
+  schedule:
+    - cron: "11,26,41,56 * * * *"
+  workflow_dispatch:
 
 permissions: {}
 
 jobs:
-  auto-merge:
+  classify:
+    name: Classify Dependabot update
     if: >-
+      github.event_name == 'pull_request_target' &&
       github.event.pull_request.user.login == 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
     steps:
-      # This workflow reads metadata only; never check out or execute PR code.
-      - name: Get Dependabot metadata
+      # Metadata only: never check out or execute pull-request code.
+      - name: Fetch Dependabot metadata
         id: metadata
         uses: dependabot/fetch-metadata@v3
         with:
           github-token: ${{ github.token }}
-      - name: Enable protected auto-merge for patch and minor updates
-        if: >-
-          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+      - name: Record eligible update for this commit
         uses: actions/github-script@v9
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
         with:
           script: |
             const { owner, repo } = context.repo;
             const pr = context.payload.pull_request;
-            const rules = await github.request('GET /repos/{owner}/{repo}/rules/branches/{branch}', {
-              owner, repo, branch: pr.base.ref,
-            }).catch((error) => {
-              if ([403, 404].includes(error.status)) return { data: [] };
-              throw error;
-            });
-            const protection = await github.rest.repos.getBranchProtection({
-              owner, repo, branch: pr.base.ref,
-            }).catch((error) => {
-              if ([403, 404].includes(error.status)) return { data: {} };
-              throw error;
-            });
-            const required = rules.data.flatMap((rule) =>
-              rule.type === 'required_status_checks' ? rule.parameters.required_status_checks : [],
-            );
-            const legacy = protection.data.required_status_checks;
-            if (required.length === 0 && !(legacy?.contexts?.length || legacy?.checks?.length)) {
-              core.warning('Auto-merge withheld: configure required CI checks on the base branch first.');
+            const type = process.env.UPDATE_TYPE;
+            if (
+              !pr ||
+              pr.user.login !== "dependabot[bot]" ||
+              pr.draft ||
+              pr.head.repo?.full_name !== `${owner}/${repo}` ||
+              !["version-update:semver-patch", "version-update:semver-minor"].includes(type)
+            )
               return;
-            }
-            const { data: current } = await github.rest.pulls.get({ owner, repo, pull_number: pr.number });
-            if (current.state !== 'open' || current.draft || current.head.sha !== pr.head.sha ||
-                current.user.login !== 'dependabot[bot]' || current.head.repo?.full_name !== `${owner}/${repo}`) return;
-            await github.rest.pulls.createReview({ owner, repo, pull_number: pr.number,
-              commit_id: current.head.sha, event: 'APPROVE',
+            const { data: current } = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: pr.number,
             });
-            await github.graphql(`mutation($id: ID!) {
-              enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: SQUASH}) {
-                pullRequest { number }
+            if (
+              current.state !== "open" ||
+              current.draft ||
+              current.head.sha !== pr.head.sha ||
+              current.user.login !== "dependabot[bot]" ||
+              current.head.repo?.full_name !== `${owner}/${repo}`
+            )
+              return;
+            const marker = `<!-- dependabot-automerge:v1:${current.head.sha}:${type} -->`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: pr.number,
+              per_page: 100,
+            });
+            if (
+              comments.some(
+                (c) => c.user?.login === "github-actions[bot]" && c.body?.includes(marker),
+              )
+            )
+              return;
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pr.number,
+              body: `Eligible Dependabot patch/minor update; merge waits for CI and branch requirements.\n\n${marker}`,
+            });
+  merge:
+    name: Merge Dependabot updates
+    needs: classify
+    if: >-
+      always() &&
+      (needs.classify.result == 'success' || needs.classify.result == 'skipped') &&
+      (github.event_name != 'pull_request_target' ||
+       github.event.pull_request.user.login == 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: dependabot-auto-merge-worker
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      checks: read
+      contents: write
+      pull-requests: write
+      statuses: read
+    steps:
+      - name: Approve and merge after successful checks
+        uses: actions/github-script@v9
+        env:
+          REQUIRED_CHECKS: '["test (3.10)", "test (3.11)", "test (3.12)", "test (3.13)", "test (3.14)", "Editable PR", "Run prek checks", "Analyze (actions)", "Analyze (python)", "CodeQL", "CodeRabbit", "SonarCloud Code Analysis"]'
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const ownChecks = new Set([
+              "Classify Dependabot update",
+              "Merge Dependabot updates",
+            ]);
+            const rabbitCheck = (name = "") => /^coderabbit(?:ai)?(?:\b|$)/i.test(name);
+            const configured = JSON.parse(process.env.REQUIRED_CHECKS || "[]");
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: "open",
+              per_page: 100,
+            });
+            for (const pr of prs) {
+              if (
+                pr.user.login !== "dependabot[bot]" ||
+                pr.draft ||
+                pr.head.repo?.full_name !== `${owner}/${repo}` ||
+                Date.now() - Date.parse(pr.updated_at) < 90000
+              )
+                continue;
+              const sha = pr.head.sha;
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: pr.number,
+                per_page: 100,
+              });
+              const markers = [
+                "version-update:semver-patch",
+                "version-update:semver-minor",
+              ].map((type) => `<!-- dependabot-automerge:v1:${sha}:${type} -->`);
+              if (
+                !comments.some(
+                  (c) =>
+                    c.user?.login === "github-actions[bot]" &&
+                    markers.some((m) => c.body?.includes(m)),
+                )
+              )
+                continue;
+              const required = new Set(configured);
+              try {
+                const { data: rules } = await github.request(
+                  "GET /repos/{owner}/{repo}/rules/branches/{branch}",
+                  {
+                    owner,
+                    repo,
+                    branch: pr.base.ref,
+                  },
+                );
+                for (const rule of rules) {
+                  if (rule.type === "required_status_checks") {
+                    for (const check of rule.parameters.required_status_checks)
+                      required.add(check.context);
+                  }
+                }
+              } catch (error) {
+                if (![403, 404].includes(error.status)) throw error;
+                core.warning(
+                  "Cannot read branch rules; configured checks and GitHub merge protection still apply.",
+                );
               }
-            }`, { id: current.node_id });
+              const ready = async () => {
+                const passed = new Set();
+                let latestActivity = 0;
+                const activity = (value) => {
+                  latestActivity = Math.max(latestActivity, Date.parse(value) || 0);
+                };
+                for (const ref of [
+                  ...new Set([sha, pr.merge_commit_sha].filter(Boolean)),
+                ]) {
+                  const checks = await github.paginate(github.rest.checks.listForRef, {
+                    owner,
+                    repo,
+                    ref,
+                    filter: "latest",
+                    per_page: 100,
+                  });
+                  for (const check of checks) {
+                    if (
+                      ownChecks.has(check.name) ||
+                      rabbitCheck(check.name) ||
+                      check.app?.slug === "coderabbitai"
+                    )
+                      continue;
+                    activity(check.completed_at || check.started_at);
+                    if (
+                      check.status === "completed" &&
+                      check.conclusion === "skipped" &&
+                      !required.has(check.name)
+                    )
+                      continue;
+                    if (check.status !== "completed" || check.conclusion !== "success")
+                      return false;
+                    passed.add(check.name);
+                  }
+                  const statuses = await github.paginate(
+                    github.rest.repos.listCommitStatusesForRef,
+                    { owner, repo, ref, per_page: 100 },
+                  );
+                  const latest = new Map();
+                  for (const status of statuses) {
+                    if (!rabbitCheck(status.context) && !latest.has(status.context))
+                      latest.set(status.context, status);
+                  }
+                  for (const status of latest.values()) {
+                    activity(status.updated_at);
+                    if (status.state !== "success") return false;
+                    passed.add(status.context);
+                  }
+                  const runs = await github.paginate(
+                    github.rest.actions.listWorkflowRunsForRepo,
+                    { owner, repo, head_sha: ref, per_page: 100 },
+                  );
+                  const latestRuns = new Map();
+                  for (const run of runs) {
+                    if (
+                      ["Dependabot Auto Merge", "CodeRabbit after checks"].includes(
+                        run.name,
+                      )
+                    )
+                      continue;
+                    const key = `${run.workflow_id}:${run.event}`;
+                    if (!latestRuns.has(key)) latestRuns.set(key, run);
+                  }
+                  for (const run of latestRuns.values()) {
+                    activity(run.updated_at);
+                    if (
+                      run.status !== "completed" ||
+                      !["success", "skipped"].includes(run.conclusion)
+                    )
+                      return false;
+                  }
+                }
+                return (
+                  ![...required].some(
+                    (name) =>
+                      !rabbitCheck(name) && !ownChecks.has(name) && !passed.has(name),
+                  ) && Date.now() - latestActivity >= 90000
+                );
+              };
+              if (!(await ready())) continue;
+              const currentHead = async () => {
+                const { data: current } = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                });
+                return current.state === "open" &&
+                  !current.draft &&
+                  current.head.sha === sha &&
+                  current.merge_commit_sha === pr.merge_commit_sha &&
+                  current.user.login === "dependabot[bot]" &&
+                  current.head.repo?.full_name === `${owner}/${repo}`
+                  ? current
+                  : null;
+              };
+              if (!(await currentHead()) || !(await ready())) continue;
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner,
+                repo,
+                pull_number: pr.number,
+                per_page: 100,
+              });
+              if (
+                !reviews.some(
+                  (review) =>
+                    review.user?.login === "github-actions[bot]" &&
+                    review.state === "APPROVED" &&
+                    review.commit_id === sha,
+                )
+              ) {
+                try {
+                  await github.rest.pulls.createReview({
+                    owner,
+                    repo,
+                    pull_number: pr.number,
+                    commit_id: sha,
+                    event: "APPROVE",
+                  });
+                } catch (error) {
+                  if (![403, 422].includes(error.status)) throw error;
+                  core.warning(
+                    "Actions could not approve this PR; GitHub will still enforce its approval policy.",
+                  );
+                }
+              }
+              const current = await currentHead();
+              if (!current || !(await ready())) continue;
+              try {
+                if (current.mergeable_state === "clean") {
+                  const { data: result } = await github.rest.pulls.merge({
+                    owner,
+                    repo,
+                    pull_number: pr.number,
+                    sha,
+                    merge_method: "squash",
+                  });
+                  if (!result.merged)
+                    core.warning(
+                      `GitHub withheld merge for PR ${pr.number}; branch protections were not bypassed.`,
+                    );
+                } else if (!current.auto_merge && current.mergeable !== false) {
+                  await github.graphql(
+                    `mutation($id: ID!, $oid: GitObjectID!) {
+                  enablePullRequestAutoMerge(input: {pullRequestId: $id, expectedHeadOid: $oid, mergeMethod: SQUASH}) {
+                    pullRequest { number }
+                  }
+                }`,
+                    { id: current.node_id, oid: sha },
+                  );
+                }
+              } catch (error) {
+                if (
+                  [403, 405, 409, 422].includes(error.status) ||
+                  /pull request.*(?:clean|not mergeable)/i.test(error.message)
+                ) {
+                  core.warning(
+                    `GitHub withheld merge or queueing for PR ${pr.number}; retry after requirements change.`,
+                  );
+                  continue;
+                }
+                throw error;
+              }
+            }
