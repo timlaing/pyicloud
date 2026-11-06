@@ -22,6 +22,8 @@ Configure your host to launch that executable with no arguments. Do not supply
 passwords or verification codes as host arguments or tool inputs.
 
 `icloud_status` returns structured local status and performs no Apple requests.
+`icloud_capabilities` reports the selected services, availability state and fixed
+read-only limits, also without contacting Apple.
 No listener, write tools, account discovery, or implicit authentication is enabled.
 Stdout is reserved for protocol traffic; diagnostics belong on stderr.
 
