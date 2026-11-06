@@ -1,7 +1,7 @@
 # MCP extension
 
 The optional local Model Context Protocol (MCP) extension is under development.
-Its current foundation exposes **local status only**, without Apple authentication
+Its current foundation exposes **local status and capabilities only**, without Apple authentication
 or account data tools. Calendar and Reminders adapters are not yet available.
 
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing

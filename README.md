@@ -44,7 +44,7 @@ $ pip install "pyicloud[cli]"
 
 For the optional local MCP extension, install `pyicloud[mcp]`; use `pyicloud[all]`
 for both CLI and MCP support (excluding development tools). The MCP foundation
-currently exposes offline local status only. See the
+currently exposes offline local status and capabilities only. See the
 [MCP guide](https://github.com/timlaing/pyicloud/blob/main/docs/guides/mcp.md).
 
 This installs the `icloud` command line interface alongside the Python package. To install the library on its own run pip without the `cli` extra.

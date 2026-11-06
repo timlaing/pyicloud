@@ -35,7 +35,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
 - Add cache-independent Photos album reads and typed-only correlated album creation/relation helpers; capability checks remain passive and shared or unsupported routes fail closed.
 - Retain observed private PrimarySync zone identity with account/route binding so owned zone metadata can be distinguished from foreign/shared ownership without guessing account-to-owner mappings.
-- Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, initially exposing offline local status only. No Apple account is authenticated automatically.
+- Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, exposing offline local status (`icloud_status`) and capabilities (`icloud_capabilities`) only. No Apple account is authenticated automatically.
 
 - Publish a supported compatibility and operational-guarantees guide, and enforce the agreed per-file combined line-and-branch coverage policy alongside the existing aggregate gate.
 - Check released public compatibility contracts and installed runtime-only, CLI, and source-distribution packages offline, including declared minimum runtime dependencies.
