@@ -300,10 +300,11 @@ class SessionOwner:
             china_mainland=self.config.china_mainland,
         )
         self._adapter = BoundedAdapter(self.config.timeout)
-        client.session.mount("https://", self._adapter)
-        # Replace the default plaintext adapter; retain the broad fallback too.
+        # Replace both default scheme adapters: plaintext send is always denied.
+        for scheme in ("https", "http"):
+            client.session.mount(f"{scheme}://", self._adapter)
+        # Retain the broad fallback for other http-prefixed schemes.
         client.session.mount("http", self._adapter)
-        client.session.mount("http://", self._adapter)
         return client
 
     @staticmethod
