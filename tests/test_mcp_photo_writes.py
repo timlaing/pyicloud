@@ -37,6 +37,7 @@ def setup_photos() -> tuple[PhotoWrites, MagicMock, PhotoAsset, str]:
     library = MagicMock()
     library.scope = "private"
     library.zone_id = {"zoneName": "Z"}
+    library.all = MagicMock()
     library.all.get.return_value = asset
     client.photos.libraries = {"Z": library}
     additional = AdditionalReads(ReadTools(owner_for(client)))
