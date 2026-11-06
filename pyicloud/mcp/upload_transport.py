@@ -126,8 +126,14 @@ class UploadTransport:
         options: dict[str, Any] = {"headers": headers} if headers is not None else {}
         try:
             adapter = session.get_adapter(target)
-            if not isinstance(adapter, HTTPAdapter) or adapter.max_retries.total != 0:
-                raise WriteDenied("upload_retry_policy_unavailable")
+            retries_disabled = (
+                isinstance(adapter, HTTPAdapter) and adapter.max_retries.total == 0
+            )
+        except Exception:
+            raise WriteDenied("upload_retry_policy_unavailable") from None
+        if not retries_disabled:
+            raise WriteDenied("upload_retry_policy_unavailable")
+        try:
             response = session.request_raw(
                 "POST",
                 target,

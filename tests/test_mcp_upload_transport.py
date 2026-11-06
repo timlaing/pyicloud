@@ -127,7 +127,19 @@ def test_registration_refuses_post_retry_adapter_before_dispatch() -> None:
         max_retries=Retry(total=1, allowed_methods={"POST"}, status_forcelist={503})
     )
     hosts = frozenset({"service.example.test"})
-    with pytest.raises(WriteDenied, match="upload_outcome_uncertain"):
+    with pytest.raises(WriteDenied, match="upload_retry_policy_unavailable"):
+        UploadTransport.register(
+            session, "https://service.example.test/register", hosts, {}
+        )
+    session.request_raw.assert_not_called()
+
+
+def test_registration_adapter_lookup_failure_is_pre_dispatch_denial() -> None:
+    """No registration was sent when the adapter policy could not be inspected."""
+    session = MagicMock()
+    session.get_adapter.side_effect = ValueError("private")
+    hosts = frozenset({"service.example.test"})
+    with pytest.raises(WriteDenied, match="upload_retry_policy_unavailable"):
         UploadTransport.register(
             session, "https://service.example.test/register", hosts, {}
         )
