@@ -271,6 +271,7 @@ async def test_note_and_mail_content_are_explicit_and_bounded() -> None:
         (["é", "é"], 4, ["é", "é"], True),
         (["éé", "later"], 4, ["éé"], False),
         (["éé"], 3, ["é"], False),
+        (["éé", "later"], 3, ["é"], False),
     ],
 )
 async def test_mail_body_exact_budget_completeness(

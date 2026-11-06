@@ -1,23 +1,5 @@
 # MCP extension
 
-## Internal approval lifecycle
-
-The foundation does not expose runtime writes. Its private operator channel keeps
-separate bounded preview and receipt budgets, so a full preview queue cannot
-prevent the operator from approving an existing request. Accepted receipts bind
-the exact displayed action, target, payload, digest and deadline to the live
-ledger; reconstructed or edited displays cannot authorize another operation.
-
-Published records include an OS monotonic deadline under the ledger's maximum
-600-second lifetime. At capacity, cleanup removes only validated private regular
-files whose deadline has elapsed or cannot belong to a current live lifetime.
-Live files and malformed/unknown records are preserved. A deliberate
-`DECLINE REQUEST_ID` discards its pending record; a mistyped approval phrase does
-not. Stored records without the new deadline/display-binding fields cannot be
-accepted: an operator must archive legacy records and create fresh previews
-before enabling the later runtime integration. No old receipt is reused after
-an operator migration.
-
 The optional local Model Context Protocol (MCP) extension is under development.
 Its current foundation exposes **local status only**, without Apple authentication
 or account data tools. Calendar and Reminders adapters are not yet available.
@@ -47,3 +29,21 @@ Core-only installations can use offline help/version, but serving requires the
 `mcp` extra. Python 3.10–3.15 remain the supported interpreter range. See the
 [compatibility guarantees](compatibility.md) for the distinction between offline
 validation and live Apple-service compatibility.
+
+## Internal approval lifecycle
+
+The foundation does not expose runtime writes. Its private operator channel keeps
+separate bounded preview and receipt budgets, so a full preview queue cannot
+prevent the operator from approving an existing request. Accepted receipts bind
+the exact displayed action, target, payload, digest and deadline to the live
+ledger; reconstructed or edited displays cannot authorize another operation.
+
+Published records include an OS monotonic deadline under the ledger's maximum
+600-second lifetime. At capacity, cleanup removes only validated private regular
+files whose deadline has elapsed or cannot belong to a current live lifetime.
+Live files and malformed/unknown records are preserved. A deliberate
+`DECLINE REQUEST_ID` discards its pending record; a mistyped approval phrase does
+not. Stored records without the new deadline/display-binding fields cannot be
+accepted: an operator must archive legacy records and create fresh previews
+before enabling the later runtime integration. No old receipt is reused after
+an operator migration.

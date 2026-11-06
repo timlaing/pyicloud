@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import os
@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
 from requests.exceptions import RequestException, Timeout
+from urllib3.exceptions import HTTPError as UrllibHTTPError
 from urllib3.exceptions import ReadTimeoutError
 
 from pyicloud import PyiCloudService
@@ -45,10 +46,10 @@ class ToolFailure(Exception):
     """A fixed safe error code, not an upstream exception or account payload."""
 
 
-def transport_failure(error: RequestException) -> ToolFailure:
+def transport_failure(error: RequestException | UrllibHTTPError) -> ToolFailure:
     """Requests wraps urllib3 body-read timeouts in ConnectionError."""
     wrapped = (error.__context__, error.__cause__, *error.args)
-    if isinstance(error, Timeout) or any(
+    if isinstance(error, (Timeout, ReadTimeoutError)) or any(
         isinstance(item, ReadTimeoutError) for item in wrapped
     ):
         return ToolFailure("timeout")
@@ -211,10 +212,12 @@ class BoundedAdapter(HTTPAdapter):
             }:
                 raise ToolFailure("unsupported_content_encoding")
             body = bytearray()
-            deadline = self.deadline or (time.monotonic() + self.timeout)
-            # One-byte reads prevent a slow trickle from filling a buffered chunk
-            # indefinitely. Identity encoding also avoids decompressor buffering.
-            for chunk in response.iter_content(chunk_size=1):
+            deadline = (
+                self.deadline
+                if self.deadline is not None
+                else time.monotonic() + self.timeout
+            )
+            for chunk in self._body_chunks(response, deadline):
                 if time.monotonic() >= deadline:
                     raise ToolFailure("timeout")
                 body.extend(chunk)
@@ -225,10 +228,37 @@ class BoundedAdapter(HTTPAdapter):
             response._content = bytes(body)  # pylint: disable=protected-access
             vars(response)["_content_consumed"] = True
             return response
-        except RequestException as error:
+        except (RequestException, UrllibHTTPError) as error:
             raise transport_failure(error) from error
         finally:
             response.close()
+
+    def _body_chunks(self, response: Response, deadline: float) -> Iterator[bytes]:
+        """Read bounded buffers with one underlying read per remaining deadline."""
+        if getattr(response, "_content_consumed", False) is True:
+            yield from response.iter_content(chunk_size=8192)
+            return
+        raw = response.raw
+        read = getattr(raw, "read1", None)
+        if not callable(read):
+            raise ToolFailure("unsupported_transport")
+        while True:
+            remaining = min(self.timeout, deadline - time.monotonic())
+            if remaining <= 0:
+                raise ToolFailure("timeout")
+            connection = getattr(raw, "connection", None)
+            sock = getattr(connection, "sock", None)
+            if sock is None:
+                stream = getattr(getattr(raw, "_fp", None), "fp", None)
+                sock = getattr(getattr(stream, "raw", None), "_sock", None)
+            if sock is not None:
+                sock.settimeout(remaining)
+            chunk = read(8192, decode_content=False)
+            if not isinstance(chunk, bytes):
+                raise ToolFailure("upstream_failure")
+            if not chunk:
+                return
+            yield chunk
 
 
 class SessionOwner:

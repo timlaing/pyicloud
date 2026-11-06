@@ -556,7 +556,7 @@ class DriveNode:
         if (
             fresh.get("drivewsid") != identifier
             or fresh.get("type") != "FILE"
-            or "size" not in fresh
+            or fresh.get("size") is None
         ):
             raise PyiCloudAPIResponseException("Invalid refreshed Drive file metadata")
         self.data = {**self.data, **fresh}

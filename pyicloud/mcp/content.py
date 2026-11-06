@@ -163,6 +163,8 @@ class ContentReads:
                 parts.append({"content": content})
                 remaining -= len(content.encode("utf-8"))
                 complete = complete and whole
+                if not whole:
+                    break
                 if remaining <= 0:
                     complete = complete and index == len(body.parts) - 1
                     break

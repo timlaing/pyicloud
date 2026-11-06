@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Read MCP response bodies in deadline-checked buffers instead of byte-sized iterations, stop Mail content at the first UTF-8-truncated part, and reject missing/null refreshed Drive sizes before downloading.
+
 - Preserve CloudKit query error items even when the server includes record-shaped fields, so callers can handle errors instead of mistaking them for successful query records.
 
 - Preserve Unicode Photos album names from already-decoded encrypted byte fields instead of silently discarding non-Base64 bytes during acknowledgement decoding.

@@ -4,6 +4,8 @@
 
 import asyncio
 from collections.abc import Iterator
+from http.client import HTTPResponse as StandardHTTPResponse
+import io
 from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Any
@@ -14,6 +16,7 @@ from requests import PreparedRequest, Response
 from requests.exceptions import ChunkedEncodingError, Timeout
 from requests.exceptions import ConnectionError as RequestConnectionError
 from urllib3.exceptions import ReadTimeoutError
+from urllib3.response import HTTPResponse
 
 from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.mcp.context import BoundedAdapter, ServerConfig, SessionOwner, ToolFailure
@@ -303,13 +306,19 @@ def test_response_reads_are_bounded_and_always_closed(kind: str, code: str) -> N
     response = MagicMock(spec=Response)
     response.status_code = {"rate": 429, "upstream": 503}.get(kind, 200)
     response.headers = {"Content-Encoding": "gzip"} if kind == "encoding" else {}
-    response.iter_content.return_value = iter([
-        b"x" * (4 * 1024 * 1024 + 1) if kind == "size" else b"x"
-    ])
-    times = [1, 6] if kind == "deadline" else [1, 1]
+    response.raw = SimpleNamespace(
+        read1=MagicMock(
+            side_effect=[b"x" * (4 * 1024 * 1024 + 1) if kind == "size" else b"x", b""]
+        )
+    )
+    clock = (
+        patch("pyicloud.mcp.context.time.monotonic", side_effect=[1, 6])
+        if kind == "deadline"
+        else patch("pyicloud.mcp.context.time.monotonic", return_value=1)
+    )
     with (
         patch("requests.adapters.HTTPAdapter.send", return_value=response),
-        patch("pyicloud.mcp.context.time.monotonic", side_effect=times),
+        clock,
         pytest.raises(ToolFailure, match=code),
     ):
         adapter.send(request)
@@ -361,12 +370,87 @@ def test_body_transport_errors_preserve_probe_failure_category(
     response = MagicMock(spec=Response)
     response.status_code = 200
     response.headers = {}
-    response.iter_content.side_effect = error
+    response.raw = SimpleNamespace(read1=MagicMock(side_effect=error))
     with (
         patch("requests.adapters.HTTPAdapter.send", return_value=response),
         pytest.raises(ToolFailure, match=code),
     ):
         adapter.send(request)
+    response.close.assert_called_once()
+
+
+def test_large_response_uses_bounded_buffers_not_byte_iterations() -> None:
+    """A valid MiB response takes buffer-scale reads and remains fully bounded."""
+    data = b"x" * (1024 * 1024)
+    raw = HTTPResponse(body=io.BytesIO(data), preload_content=False)
+    response = Response()
+    response.status_code = 200
+    response.raw = raw
+    adapter = BoundedAdapter(10)
+    with patch.object(raw, "read1", wraps=raw.read1) as read:
+        result = adapter._read_response(response)
+    assert result.content == data
+    assert read.call_count <= 130
+
+
+def test_buffered_chunked_response_retains_complete_payload() -> None:
+    """The standard-library chunk parser and urllib3 wrapper are exercised offline."""
+    wire = (
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+        b"4\r\ndata\r\n4\r\nmore\r\n0\r\n\r\n"
+    )
+    socket = MagicMock()
+    socket.makefile.return_value = io.BytesIO(wire)
+    message = StandardHTTPResponse(socket)
+    message.begin()
+    response = Response()
+    response.status_code = 200
+    response.raw = HTTPResponse(
+        body=message,
+        original_response=message,
+        headers={"Transfer-Encoding": "chunked"},
+        preload_content=False,
+    )
+    assert BoundedAdapter(10)._read_response(response).content == b"data" + b"more"
+
+
+def test_buffered_trickle_rechecks_deadline_and_clamps_socket_timeout() -> None:
+    """One underlying read cannot grant a fresh full timeout to the next packet."""
+    sock = MagicMock()
+    raw = SimpleNamespace(
+        connection=SimpleNamespace(sock=sock),
+        read1=MagicMock(side_effect=[b"x", b"y"]),
+        close=MagicMock(),
+    )
+    response = Response()
+    response.status_code = 200
+    response.raw = raw
+    adapter = BoundedAdapter(10)
+    adapter.deadline = 5
+    with (
+        patch("pyicloud.mcp.context.time.monotonic", side_effect=[1, 2, 6]),
+        pytest.raises(ToolFailure, match="timeout"),
+    ):
+        adapter._read_response(response)
+    raw.read1.assert_called_once_with(8192, decode_content=False)
+    sock.settimeout.assert_called_once_with(4)
+
+
+@pytest.mark.parametrize(
+    "raw,code",
+    [
+        (object(), "unsupported_transport"),
+        (SimpleNamespace(read1=lambda *_a, **_k: None), "upstream_failure"),
+    ],
+)
+def test_unknown_buffered_transport_fails_closed(raw: Any, code: str) -> None:
+    """An unsupported reader cannot fall back to unbounded or incorrect streaming."""
+    response = MagicMock(spec=Response)
+    response.status_code = 200
+    response.headers = {}
+    response.raw = raw
+    with pytest.raises(ToolFailure, match=code):
+        BoundedAdapter(10)._read_response(response)
     response.close.assert_called_once()
 
 

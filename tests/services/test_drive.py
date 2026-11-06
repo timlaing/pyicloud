@@ -171,7 +171,7 @@ def test_open_revalidates_cached_empty_file(size: int | str) -> None:
         connection.get_file.assert_called_once_with("D", zone="Z", stream=True)
 
 
-@pytest.mark.parametrize("case", ["identity", "type", "size"])
+@pytest.mark.parametrize("case", ["identity", "type", "size", "null_size"])
 def test_empty_refresh_rejects_incomplete_or_mismatched_metadata(case: str) -> None:
     """Invalid metadata cannot establish an empty file or retarget a download."""
     connection = Mock()
@@ -181,6 +181,8 @@ def test_empty_refresh_rejects_incomplete_or_mismatched_metadata(case: str) -> N
         fresh["drivewsid"] = "OTHER"
     elif case == "type":
         fresh["type"] = "FOLDER"
+    elif case == "null_size":
+        fresh["size"] = None
     else:
         del fresh["size"]
     connection.get_node_data.return_value = fresh
