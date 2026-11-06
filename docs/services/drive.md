@@ -4,6 +4,14 @@
 
 ## Read-only integration routing metadata
 
+`DriveNode.open()` refreshes cached zero-size metadata when `drivewsid` is
+available. Only a successful refresh confirming the same file and zero size
+returns an empty response without downloading. Network and HTTP refresh errors
+propagate to the caller; empty or invalid refreshed metadata raises
+`PyiCloudAPIResponseException`. Neither case falls back to cached emptiness or
+starts a content download. Legacy zero-size nodes without `drivewsid` retain
+their cached empty response.
+
 `DriveService.document_root` exposes the observed document-service endpoint without
 making a request or accepting a caller-selected URL. It is read-only and grants no
 upload authorization; integrations remain responsible for their own transport policy.

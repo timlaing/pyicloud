@@ -79,7 +79,11 @@ def test_owner_is_escaped_as_one_path_component() -> None:
 
 
 def test_empty_file_needs_no_owner_request() -> None:
-    """Empty file needs no owner request."""
+    """A refreshed empty file avoids content transfer and preserves share scope."""
     item = node(size=0)
+    item.connection.get_node_data.return_value = {**item.data, "type": "FILE"}
     assert item.open().raw.read() == b""
+    item.connection.get_node_data.assert_called_once_with(
+        item.data["drivewsid"], item.data["shareID"]
+    )
     item.connection.get_file.assert_not_called()

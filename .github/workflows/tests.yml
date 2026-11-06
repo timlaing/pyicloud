@@ -1,5 +1,7 @@
 name: Tests
 
+# cspell:words esac
+
 # yamllint disable-line rule:truthy
 on:
   push:
@@ -120,3 +122,44 @@ jobs:
           "$SMOKE_ROOT/runtime/bin/pip" check
           cd "$SMOKE_ROOT"
           "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT" --manifest "$MANIFEST"
+
+  installed-extras:
+    name: Installed extras (${{ matrix.extra }}, ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.15"]
+        extra: [core, cli, mcp, all]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build and check extension isolation
+        env:
+          EXTRA: ${{ matrix.extra }}
+        run: |
+          set -euo pipefail
+          python -m pip install build
+          python -m build
+          CHECK_SCRIPT="$PWD/scripts/check/installed.py"
+          MANIFEST="$PWD/tests/fixtures/compatibility/2026.10.1.json"
+          WHEEL=("$PWD"/dist/*.whl)
+          SMOKE_ROOT="$(mktemp -d "$RUNNER_TEMP/pyicloud-extras.XXXXXX")"
+          python -m venv "$SMOKE_ROOT/runtime"
+          FLAGS=()
+          SPEC="${WHEEL[0]}"
+          case "$EXTRA" in
+            core) ;;
+            cli) SPEC+="[cli]"; FLAGS+=(--cli) ;;
+            mcp) SPEC+="[mcp]"; FLAGS+=(--mcp) ;;
+            all) SPEC+="[all]"; FLAGS+=(--cli --mcp) ;;
+            *) exit 1 ;;
+          esac
+          "$SMOKE_ROOT/runtime/bin/pip" install "$SPEC"
+          "$SMOKE_ROOT/runtime/bin/pip" check
+          cd "$SMOKE_ROOT"
+          "$SMOKE_ROOT/runtime/bin/python" -I "$CHECK_SCRIPT" --manifest "$MANIFEST" "${FLAGS[@]}"

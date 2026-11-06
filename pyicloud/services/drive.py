@@ -101,12 +101,15 @@ class DriveService(BaseService):
         )
         self._raise_if_error(response)
         response_json = response.json()
+        validator = kwargs.pop("download_url_validator", None)
         package_token = response_json.get("package_token")
         data_token = response_json.get("data_token")
         if data_token and data_token.get("url"):
-            return self.session.get(data_token["url"], params=self.params, **kwargs)
+            url = validator(data_token["url"]) if validator else data_token["url"]
+            return self.session.get(url, params=self.params, **kwargs)
         if package_token and package_token.get("url"):
-            return self.session.get(package_token["url"], params=self.params, **kwargs)
+            url = validator(package_token["url"]) if validator else package_token["url"]
+            return self.session.get(url, params=self.params, **kwargs)
         raise KeyError("'data_token' nor 'package_token'")
 
     def get_app_data(self) -> Any:
@@ -534,8 +537,9 @@ class DriveNode:
     def open(self, **kwargs: Any) -> Response:
         """Gets the node file."""
         # iCloud returns 400 Bad Request for 0-byte files
-        if self.data["size"] == 0:
+        if self._is_empty_file():
             response = Response()
+            response.status_code = 200
             response.raw = io.BytesIO()
             return response
         owner = self.owner_record_name
@@ -544,6 +548,25 @@ class DriveNode:
         return self.connection.get_file(
             self.data["docwsid"], zone=self.data["zone"], **kwargs
         )
+
+    def _is_empty_file(self) -> bool:
+        """Verify identified zero sizes; propagate refresh errors without fallback."""
+        size = self.data.get("size")
+        if isinstance(size, bool) or size not in (0, "0"):
+            return False
+        identifier = self.data.get("drivewsid")
+        if identifier is None:
+            return True
+        fresh = self.connection.get_node_data(identifier, self.data.get("shareID"))
+        if (
+            fresh.get("drivewsid") != identifier
+            or fresh.get("type") != "FILE"
+            or fresh.get("size") is None
+        ):
+            raise PyiCloudAPIResponseException("Invalid refreshed Drive file metadata")
+        self.data = {**self.data, **fresh}
+        size = self.data["size"]
+        return not isinstance(size, bool) and size in (0, "0")
 
     def upload(self, file_object: IO[bytes], **kwargs: Any) -> None:
         """Upload a new file."""

@@ -10,6 +10,7 @@ This check intentionally uses only the standard library and installed package.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib
 from importlib.metadata import version
 from importlib.resources import files
@@ -78,6 +79,45 @@ def check_cli(manifest: dict[str, Any]) -> None:
     assert invalid.exit_code == manifest["cli"]["usage_exit"]
 
 
+def check_mcp() -> None:
+    """Verify the installed optional entry point and synthetic SDK tool contract."""
+    executable = Path(sys.executable).with_name(
+        "icloud-mcp.exe" if os.name == "nt" else "icloud-mcp"
+    )
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("PYTHON")
+    }
+    for option in ("--help", "--version"):
+        result = subprocess.run(
+            [str(executable), option],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+            env=environment,
+        )
+        assert result.stdout.strip()
+
+    from pyicloud.mcp.server import (
+        build_server,  # pylint: disable=import-outside-toplevel
+    )
+
+    async def verify_tool() -> None:
+        """No Apple account or transport is created for this installed smoke."""
+        server = build_server()
+        tools = await server.list_tools()
+        assert {tool.name for tool in tools} == {"icloud_status", "icloud_capabilities"}
+        result = await server.call_tool("icloud_status", {})
+        from mcp.types import CallToolResult  # pylint: disable=import-outside-toplevel
+
+        assert isinstance(result, CallToolResult)
+        assert result.structured_content is not None
+        assert result.structured_content["authenticated"] is False
+        assert not result.is_error
+
+    asyncio.run(verify_tool())
+
+
 def check_persistence(api: Any, manifest: dict[str, Any], cookie_dir: str) -> None:
     """Exercise recorded JSON and LWP formats using only synthetic saved state."""
     import pyicloud  # pylint: disable=import-outside-toplevel
@@ -112,6 +152,7 @@ def main() -> None:
     """Check installed imports, offline construction and the optional CLI."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", action="store_true")
+    parser.add_argument("--mcp", action="store_true")
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
     with args.manifest.open(encoding="utf-8") as handle:
@@ -170,10 +211,19 @@ def main() -> None:
             if args.cli:
                 check_cli(manifest)
             else:
-                for name in ("click", "typer", "rich"):
+                # The SDK's HTTP transport dependency uses Click; MCP-only still
+                # must not pull in the PyiCloud CLI's Typer/Rich dependencies.
+                for name in (
+                    ("typer", "rich") if args.mcp else ("click", "typer", "rich")
+                ):
                     assert importlib.util.find_spec(name) is None, name
         finally:
             api.session.close()
+
+    if args.mcp:
+        check_mcp()
+    else:
+        assert importlib.util.find_spec("mcp") is None
 
     print(f"Installed package checks passed on Python {sys.version.split()[0]}")
 

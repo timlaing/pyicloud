@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import ANY, Mock, patch
 
 import pytest
+from requests.exceptions import ConnectionError as RequestConnectionError
 
 from pyicloud import PyiCloudService
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
@@ -29,6 +30,16 @@ def test_root(pyicloud_service_working: PyiCloudService) -> None:
     assert drive.date_modified is None
     assert drive.date_last_open is None
     assert drive.dir() == ["Keynote", "Numbers", "Pages", "Preview", "pyiCloud"]
+
+
+@pytest.mark.parametrize("size", [0, "0"])
+def test_legacy_empty_node_without_drive_id_remains_readable(size: int | str) -> None:
+    """Legacy cached empty metadata needs no ID, refresh, or content transport."""
+    connection = Mock()
+    node = DriveNode(connection, {"type": "FILE", "name": "empty", "size": size})
+    assert node.open().content == b""
+    connection.get_node_data.assert_not_called()
+    connection.get_file.assert_not_called()
 
 
 def test_trash(pyicloud_service_working: PyiCloudService) -> None:
@@ -151,6 +162,67 @@ def test_file_open(pyicloud_service_working: PyiCloudService) -> None:
     assert file_test
     with file_test.open(stream=True) as response:
         assert response.raw
+
+
+@pytest.mark.parametrize("size", [0, "0", 4])
+def test_open_revalidates_cached_empty_file(size: int | str) -> None:
+    """A cached empty file can grow before open; its current size decides dispatch."""
+    connection = Mock()
+    data = {"drivewsid": "F", "docwsid": "D", "zone": "Z", "type": "FILE", "size": 0}
+    connection.get_node_data.return_value = {**data, "size": size}
+    node = DriveNode(connection, data)
+    result = node.open(stream=True)
+    connection.get_node_data.assert_called_once_with("F", None)
+    if size in (0, "0"):
+        assert result.status_code == 200
+        assert result.content == b""
+        connection.get_file.assert_not_called()
+    else:
+        assert result is connection.get_file.return_value
+        connection.get_file.assert_called_once_with("D", zone="Z", stream=True)
+
+
+@pytest.mark.parametrize("case", ["identity", "type", "size", "null_size", "empty"])
+def test_empty_refresh_rejects_incomplete_or_mismatched_metadata(case: str) -> None:
+    """Invalid metadata cannot establish an empty file or retarget a download."""
+    connection = Mock()
+    data: dict[str, Any] = {"drivewsid": "F", "type": "FILE", "size": 0}
+    fresh = dict(data)
+    if case == "identity":
+        fresh["drivewsid"] = "OTHER"
+    elif case == "type":
+        fresh["type"] = "FOLDER"
+    elif case == "null_size":
+        fresh["size"] = None
+    elif case == "empty":
+        fresh = {}
+    else:
+        del fresh["size"]
+    connection.get_node_data.return_value = fresh
+    node = DriveNode(connection, data)
+    with pytest.raises(PyiCloudAPIResponseException, match="Invalid refreshed"):
+        node.open()
+    assert node.data == data
+    connection.get_file.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RequestConnectionError("offline"), PyiCloudAPIResponseException("HTTP failure")],
+)
+def test_identified_empty_file_refresh_errors_propagate_without_download(
+    error: Exception,
+) -> None:
+    """Unverified cached emptiness never hides refresh errors or triggers a fallback."""
+    connection = Mock()
+    connection.get_node_data.side_effect = error
+    data = {"drivewsid": "F", "type": "FILE", "size": 0}
+    node = DriveNode(connection, data)
+    with pytest.raises(type(error)) as raised:
+        node.open()
+    assert raised.value is error
+    assert node.data == data
+    connection.get_file.assert_not_called()
 
 
 def test_get_node_data(pyicloud_service_working: PyiCloudService) -> None:

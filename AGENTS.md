@@ -6,6 +6,7 @@ PyiCloud: a Python library + CLI for interacting with Apple iCloud web services.
 
 - `pyicloud/` — library. Entry point `pyicloud.base.PyiCloudService` (`pyicloud/__init__.py`).
 - `pyicloud/cli/` — CLI app (click/typer/rich, an optional `[cli]` extra). `icloud` console script → `pyicloud.cmdline:main` → `pyicloud.cli.app:main`.
+- `pyicloud/mcp/` — optional `[mcp]` local stdio extension; `icloud-mcp` starts in `pyicloud.mcp.cmdline:main`. `[all]` combines user-facing CLI and MCP dependencies, not development tools. Keep optional SDK imports out of core imports and offline entry-point options.
 - `pyicloud/services/` — per-service modules (drive, photos, findmyiphone, notes, reminders, invites, ...). Notes and reminders have heavier sub-packages (`models/`, `protobuf/`, `rendering/`, `_writes.py`, `_reads.py`, `_protocol.py`).
 - `tests/` — pytest suite mirroring package layout; `tests/const/` holds HTTP-response fixtures.
 - `scripts/` — dev/tooling helpers (see below).

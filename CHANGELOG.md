@@ -8,32 +8,15 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
-### Fixed
-
-- Preserve CloudKit query error items even when the server includes record-shaped fields, so callers can handle errors instead of mistaking them for successful query records.
-
-- Preserve Unicode Photos album names from already-decoded encrypted byte fields instead of silently discarding non-Base64 bytes during acknowledgement decoding.
-
-- Restore minimum-runtime dependency pins to the declared lower bounds and separate invites and notes test fixture methods from their stored patch instances to fix CI validation.
-
 ### Security
+
+- Route plaintext MCP requests and HTTPS-to-HTTP redirects through the bounded adapter so they are rejected before plaintext dispatch.
+
+- Bind operator-visible MCP approval content to the live ledger before accepting a receipt, reject blocking special files, disable service login recovery on saved-session owners, require valid strong download entity tags and reject retry-enabled registration transports.
 
 - Redact signed URL queries, user information and numeric account IDs from session request debug logs without changing the URLs sent to Apple or public request errors.
 
 - Isolate Sonar coverage validation from pull-request Python modules, restrict the Sonar token to scan steps, and reject linked scan inputs while retaining fork pull-request analysis. Reject ambiguous fork PR matches rather than attributing analysis to the first PR sharing a commit.
-
-### Added
-
-- Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
-- Add cache-independent Photos album reads and typed-only correlated album creation/relation helpers; capability checks remain passive and shared or unsupported routes fail closed.
-- Retain observed private PrimarySync zone identity with account/route binding so owned zone metadata can be distinguished from foreign/shared ownership without guessing account-to-owner mappings.
-
-- Publish a supported compatibility and operational-guarantees guide, and enforce the agreed per-file combined line-and-branch coverage policy alongside the existing aggregate gate.
-- Check released public compatibility contracts and installed runtime-only, CLI, and source-distribution packages offline, including declared minimum runtime dependencies.
-- Validate standard Python 3.15 with the full offline suite and clean runtime-only and CLI package installation checks, retaining Python 3.10 support. CLI checks clear inherited Python environment overrides so checkout sources cannot hide a broken wheel.
-
-- Add `CloudKitZoneNotFoundError`, raised when CloudKit reports `ZONE_NOT_FOUND` instead of the generic `CloudKitApiError`, so callers can treat a missing zone (e.g. Reminders not enabled on the account) as a valid account state; it derives from `CloudKitApiError` and keeps the same message and payload, so existing handlers that catch `CloudKitApiError` and look for `ZONE_NOT_FOUND` keep working. The Reminders, Notes, and Invites services re-raise it as `RemindersZoneNotFoundError`, `NotesZoneNotFoundError`, and `InvitesZoneNotFoundError`; each derives from the service's generic API error.
-- Add a Photos error hierarchy following the same convention as the other CloudKit services: `PhotosAuthError`, `PhotosRateLimited`, `PhotosApiError`, and `PhotosZoneNotFoundError`, all deriving from `PhotosServiceException` (and therefore from `PyiCloudException`), exported from `pyicloud.services.photos`. Callers can catch `PhotosZoneNotFoundError` to treat a missing Photos zone as a valid account state; accessing `api.photos` does not raise it, but root-library operations such as indexing checks, queries, zone discovery, and writes can.
 
 ### Changed
 
@@ -45,6 +28,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Prevent older Reminders discovery iterators from overwriting newer completed snapshots and document explicit refresh requirements for cached string-ID routes.
 - Raise the cryptography, protobuf and Requests runtime floors to match their upgraded minimum-version checks, and require Fido2 2.2.1 for compatibility with cryptography 50 while retaining Python 3.10 support.
 - Raise the Photos service's own error types instead of raw CloudKit errors: Photos client methods raise `PhotosApiError` in place of `CloudKitApiError`, `PhotosRateLimited` in place of `CloudKitRateLimited`, and `PhotosAuthError` in place of `CloudKitAuthError`, each with the same message. Session-raised transport failures that previously surfaced as `PyiCloudAPIResponseException` are mapped the same way the other CloudKit services map them: a missing zone keeps `PhotosZoneNotFoundError`, 401/403 become `PhotosAuthError`, 429 becomes `PhotosRateLimited` (carrying `Retry-After` when Apple sends one), and everything else (including connection failures) becomes `PhotosApiError`. An authentication failure during upload hydration now surfaces immediately as `PhotosAuthError` instead of being retried until the hydration deadline. Existing handlers for `PhotosServiceException` or `PyiCloudException` keep catching all of these.
+- Simplify Mail Drop capability validation and centralize shared Mail error messages and MIME types without changing download behavior.
+- Redact capability-bearing Mail Drop URLs and cloud-part identifiers from serialized message metadata; select Mail Drop attachments by their 1-based position in the parts array instead of copying signed URLs into commands.
+- Use exact message-ID lookup by default for Mail CLI preview and export commands too; explicit `--limit N` retains the bounded newest-message lookup.
+- Use exact message-ID lookup by default for Mail CLI body and download commands; an explicit `--limit` retains the existing bounded newest-message lookup.
 
 ### Refactored
 
@@ -62,6 +49,20 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
+
+- Document and test fail-closed refresh behavior for identified cached empty Drive files: refresh errors propagate without returning unverified empty content or attempting a fallback download.
+
+- Keep MCP Drive and Photos searches independent of Notes availability, and safely reject oversized integer approval deadlines during publication, operator decisions and cleanup.
+
+- Coordinate private MCP mailbox operations across processes, reject unusable persisted deadlines and excessive payload nesting, reset entity tags for fresh downloads, and validate Drive token URLs before credential-bearing download requests.
+- Preserve wall-clock approval deadlines across restarts/reboots, bind displayed risk before receipt consumption, reclaim aged malformed private records safely, and avoid issuing unusable handles for unsupported Drive search types.
+- Refresh cached zero-size Drive metadata before returning an empty response, so stale sizes cannot hide file contents; this adds a metadata request for cached empty files with a Drive ID, while legacy empty nodes without an ID remain readable. Missing or null refreshed sizes are rejected before download.
+- Read MCP response bodies in deadline-checked buffers instead of byte-sized iterations, and stop Mail content at the first UTF-8-truncated part.
+- Preserve CloudKit query error items even when the server includes record-shaped fields, so callers can handle errors instead of mistaking them for successful query records.
+- Preserve Unicode Photos album names from already-decoded encrypted byte fields instead of silently discarding non-Base64 bytes during acknowledgement decoding.
+- Restore minimum-runtime dependency pins to the declared lower bounds and separate invites and notes test fixture methods from their stored patch instances to fix CI validation.
+
+- Reclaim expired MCP approval records safely, reserve independent receipt capacity at the preview limit, and preserve explicitly supplied upload deadlines, including zero.
 
 - Reject unexpected asset IDs in scoped Photos album-membership responses, including mixed expected/unexpected results and unpaired raw assets discarded by conversion, instead of mistaking mismatched results for absence. Matching assets without a master and query error items also raise an error instead of establishing absence or presence.
 
@@ -117,6 +118,17 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Added
 
+- Add shared MCP read projections, opaque handle storage, independent approval primitives, bounded staging/transports and explicit service registration infrastructure; service tools and runtime writes are supplied by dependent integration slices.
+- Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
+- Add cache-independent Photos album reads and typed-only correlated album creation/relation helpers; capability checks remain passive and shared or unsupported routes fail closed.
+- Retain observed private PrimarySync zone identity with account/route binding so owned zone metadata can be distinguished from foreign/shared ownership without guessing account-to-owner mappings.
+- Add optional `mcp` and `all` extras and the dependency-light `icloud-mcp` entry point, exposing offline local status (`icloud_status`) and capabilities (`icloud_capabilities`) only. No Apple account is authenticated automatically.
+- Publish a supported compatibility and operational-guarantees guide, and enforce the agreed per-file combined line-and-branch coverage policy alongside the existing aggregate gate.
+- Check released public compatibility contracts and installed runtime-only, CLI, and source-distribution packages offline, including declared minimum runtime dependencies.
+- Validate standard Python 3.15 with the full offline suite and clean runtime-only and CLI package installation checks, retaining Python 3.10 support. CLI checks clear inherited Python environment overrides so checkout sources cannot hide a broken wheel.
+- Add `CloudKitZoneNotFoundError`, raised when CloudKit reports `ZONE_NOT_FOUND` instead of the generic `CloudKitApiError`, so callers can treat a missing zone (e.g. Reminders not enabled on the account) as a valid account state; it derives from `CloudKitApiError` and keeps the same message and payload, so existing handlers that catch `CloudKitApiError` and look for `ZONE_NOT_FOUND` keep working. The Reminders, Notes, and Invites services re-raise it as `RemindersZoneNotFoundError`, `NotesZoneNotFoundError`, and `InvitesZoneNotFoundError`; each derives from the service's generic API error.
+- Add a Photos error hierarchy following the same convention as the other CloudKit services: `PhotosAuthError`, `PhotosRateLimited`, `PhotosApiError`, and `PhotosZoneNotFoundError`, all deriving from `PhotosServiceException` (and therefore from `PyiCloudException`), exported from `pyicloud.services.photos`. Callers can catch `PhotosZoneNotFoundError` to treat a missing Photos zone as a valid account state; accessing `api.photos` does not raise it, but root-library operations such as indexing checks, queries, zone discovery, and writes can.
+
 - Add explicitly confirmed, single-message permanent Mail deletion from the discovered Trash mailbox through `delete_permanently()` and `icloud mail delete-forever`, with fresh identity checks, exact destruction acknowledgements, target-only post-verification, and no automatic retries or mailbox purge.
 - Add explicit reply and forward draft creation through the library and CLI, retaining validated parent/reference headers across edits and sending. Forward drafts preserve account-bound ordinary source attachments without reuploading them and explicitly report previous versions Apple retains on edit, without deleting or sending those versions. Recipients and complete body content remain explicit, and moved/changed sources are refused.
 - Add explicitly confirmed sending of one saved Mail draft through `send_draft()` and `icloud mail send-draft`, with fresh identity/recipient/attachment checks, source-only acknowledgements, and no automatic retries or Undo Send delay. Submission acknowledgement does not confirm delivery.
@@ -142,13 +154,6 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add `InvitesService.create_event()` to create unpublished hosted events with a share, validate inputs before writes, and report partial creation failures with best-effort cleanup of the newly created zone (#431).
 - Add experimental `InvitesService.invite_via_link()` for creating participant-specific one-time-link invitations to hosted events, with a typed guest/link result, current share tags, and explicit uncertain-outcome errors (#433).
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
-
-### Changed
-
-- Simplify Mail Drop capability validation and centralize shared Mail error messages and MIME types without changing download behavior.
-- Redact capability-bearing Mail Drop URLs and cloud-part identifiers from serialized message metadata; select Mail Drop attachments by their 1-based position in the parts array instead of copying signed URLs into commands.
-- Use exact message-ID lookup by default for Mail CLI preview and export commands too; explicit `--limit N` retains the bounded newest-message lookup.
-- Use exact message-ID lookup by default for Mail CLI body and download commands; an explicit `--limit` retains the existing bounded newest-message lookup.
 
 ### Tests
 
