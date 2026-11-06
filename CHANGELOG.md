@@ -51,6 +51,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Fixed
 
 - Validate required account storage byte counts before caching a refresh, preserving the previous snapshot when the response is missing fields or contains invalid counts.
+- Reject sub-minute MCP Calendar event times before previewing writes, and treat a withdrawn event-detail endpoint as uncertain rather than proof of successful deletion.
 
 - Document and test fail-closed refresh behavior for identified cached empty Drive files: refresh errors propagate without returning unverified empty content or attempting a fallback download.
 

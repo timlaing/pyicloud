@@ -47,6 +47,8 @@ def event_from_payload(target: CalendarTarget, payload: dict[str, Any]) -> Event
         )
         if first.tzinfo is not None or last.tzinfo is not None:
             raise WriteDenied("invalid_payload")
+        if first.second or first.microsecond or last.second or last.microsecond:
+            raise WriteDenied("invalid_payload")
         return EventObject(
             pguid=target.calendar_id,
             guid=target.event_id,
@@ -228,7 +230,7 @@ class CalendarWrites:
                 target.calendar_id, target.event_id, as_obj=True
             )
         except PyiCloudAPIResponseException as error:
-            if str(error.code) in {"404", "410"}:
+            if str(error.code) == "404":
                 return
             raise
         raise WriteDenied("mutation_unverified")

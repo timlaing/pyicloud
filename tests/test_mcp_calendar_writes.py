@@ -136,7 +136,7 @@ async def test_changed_or_unsupported_targets_never_dispatch(case: str) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["create", "delete", "transport"])
+@pytest.mark.parametrize("case", ["create", "delete", "transport", "gone"])
 async def test_uncertain_acknowledgement_is_retired(case: str) -> None:
     """An OK envelope or ambiguous follow-up cannot authorize a blind retry."""
     writes, client, event = setup_calendar()
@@ -150,15 +150,32 @@ async def test_uncertain_acknowledgement_is_retired(case: str) -> None:
     writes.ledger.approve_from_operator(
         preview.request_id, preview.digest, high_risk=preview.risk == "high"
     )
-    if case == "transport":
+    if case in {"transport", "gone"}:
         client.calendar.get_event_detail.side_effect = [
             event,
-            PyiCloudAPIResponseException("private", 500),
+            PyiCloudAPIResponseException("private", 410 if case == "gone" else 500),
         ]
     with pytest.raises(WriteDenied, match="mutation_uncertain"):
         await writes.apply(preview.request_id)
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         await writes.apply(preview.request_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["start", "end"])
+@pytest.mark.parametrize("precision", ["01", "00.000001"])
+async def test_sub_minute_times_are_rejected_before_preview(
+    field: str, precision: str
+) -> None:
+    """Approval cannot describe precision that Calendar serialization will discard."""
+    writes, client, _event = setup_calendar()
+    data = payload()
+    data[field] = data[field][:-2] + precision
+    with pytest.raises(WriteDenied, match="invalid_payload"):
+        await writes.prepare("calendar.create_event", "C", data)
+    assert not writes.ledger._pending
+    client.calendar.add_event.assert_not_called()
+    client.calendar.remove_event.assert_not_called()
 
 
 @pytest.mark.asyncio
