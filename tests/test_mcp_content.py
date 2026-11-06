@@ -298,6 +298,8 @@ async def test_mail_body_exact_budget_completeness(
 async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
     """Downloads require discovered resources and preserve range/version state."""
     client = MagicMock()
+    get_mock = MagicMock()
+    client.session = SimpleNamespace(get=get_mock)
     tools = content_for(client)
     file = SimpleNamespace(
         name="file",
@@ -331,16 +333,17 @@ async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
         ),
     )
     photo_handle = tools.additional.remember("photo-asset", photo)
-    client.session.get.return_value = response()
+    get_mock.return_value = response()
     assert (await tools.file("photos", photo_handle, 0, 4)).complete
-    assert client.session.get.call_args.kwargs["allow_redirects"] is False
+    assert get_mock.call_args is not None
+    assert get_mock.call_args.kwargs["allow_redirects"] is False
     assert (
         await tools.file("drive", "/local/path", 0, 4)
     ).error == "expired_or_unknown_handle"
     assert (await tools.file("drive", handle, -1, 4)).error == "invalid_argument"
     assert (await tools.file("mail", handle, 0, 4)).error == "invalid_argument"
     tools._downloads = {str(index): DownloadState(None) for index in range(1000)}
-    client.session.get.return_value = response()
+    get_mock.return_value = response()
     assert (await tools.file("photos", photo_handle, 0, 4, "medium")).complete
 
 
@@ -400,6 +403,8 @@ async def test_searches_have_scan_budgets_and_body_permission() -> None:
 async def test_valid_search_and_content_wrappers_use_their_services() -> None:
     """Valid protocol calls preserve service routing and fixture content."""
     client = MagicMock()
+    get_mock = MagicMock()
+    client.session = SimpleNamespace(get=get_mock)
     tools = content_for(client)
     note = SimpleNamespace(
         id="N",
@@ -426,7 +431,7 @@ async def test_valid_search_and_content_wrappers_use_their_services() -> None:
         created=None,
         download_url=MagicMock(return_value="https://icloud-content.com/photo"),
     )
-    client.session.get.return_value = response(200, b"photo")
+    get_mock.return_value = response(200, b"photo")
     client.mail.message.return_value = SimpleNamespace(subject="Mail")
     client.mail.body.return_value = SimpleNamespace(
         content_type="text/plain", parts=[SimpleNamespace(content="Mail body")]

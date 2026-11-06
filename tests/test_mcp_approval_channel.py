@@ -144,11 +144,13 @@ def test_explicit_decline_releases_pending_record(directory: Path) -> None:
     preview = approval_preview(ledger)
     with ApprovalMailbox(str(directory)) as mailbox:
         mailbox.publish(preview)
+        source = terminal("DECLINE " + preview.request_id)
+        display = io.StringIO()
         with pytest.raises(WriteDenied, match="operator_declined"):
             mailbox.decide(
                 preview.request_id,
-                terminal("DECLINE " + preview.request_id),
-                io.StringIO(),
+                source,
+                display,
             )
     assert not (directory / (preview.request_id + ".pending.json")).exists()
 

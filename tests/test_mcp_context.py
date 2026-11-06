@@ -449,8 +449,9 @@ def test_unknown_buffered_transport_fails_closed(raw: Any, code: str) -> None:
     response.status_code = 200
     response.headers = {}
     response.raw = raw
+    adapter = BoundedAdapter(10)
     with pytest.raises(ToolFailure, match=code):
-        BoundedAdapter(10)._read_response(response)
+        adapter._read_response(response)
     response.close.assert_called_once()
 
 
