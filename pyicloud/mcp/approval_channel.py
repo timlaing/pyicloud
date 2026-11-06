@@ -10,6 +10,7 @@ from contextlib import suppress
 import json
 import math
 import os
+from os import stat as entry_stat
 import re
 import stat
 import sys
@@ -122,28 +123,66 @@ class ApprovalMailbox:
             )
         except OSError:
             raise WriteDenied("approval_record_unavailable") from None
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(encoded)
-            handle.flush()
-            os.fsync(handle.fileno())
+        created = os.fstat(fd)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except Exception:
+            self._remove_if_same(name, created)
+            raise WriteDenied("approval_record_write_failed") from None
+
+    def _private_record_details(self, name: str) -> os.stat_result | None:
+        """Inspect a descriptor-relative entry without following unsafe replacements."""
+        try:
+            details = entry_stat(name, dir_fd=self._fd, follow_symlinks=False)
+        except OSError:
+            return None
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_uid != os.geteuid()
+            or details.st_mode & 0o077
+            or details.st_nlink != 1
+        ):
+            return None
+        return details
+
+    def _remove_if_same(self, name: str, expected: os.stat_result) -> None:
+        """Never delete an entry whose device/inode changed after it was inspected."""
+        actual = self._private_record_details(name)
+        if actual is not None and (actual.st_dev, actual.st_ino) == (
+            expected.st_dev,
+            expected.st_ino,
+        ):
+            with suppress(FileNotFoundError):
+                os.unlink(name, dir_fd=self._fd)
 
     def _reclaim_expired(self) -> None:
         """Remove only validated private records with an established stale deadline."""
-        now = time.monotonic()
+        now = time.time()
         for name in os.listdir(self._fd):
             matched = re.fullmatch(
                 r"([A-Za-z0-9_-]{40,64})(\.pending\.json|\.approved\.json)", name
             )
             if matched is None:
                 continue
+            details = self._private_record_details(name)
+            if details is None:
+                continue
             try:
                 record = self._read(matched[1], matched[2])
-            except WriteDenied:
+            except WriteDenied as error:
+                if (
+                    str(error)
+                    in {"invalid_approval_record", "approval_record_too_large"}
+                    and now - details.st_mtime > 600
+                ):
+                    self._remove_if_same(name, details)
                 continue
             expires = record.get("expires_at")
             if stale_deadline(expires, now):
-                with suppress(FileNotFoundError):
-                    os.unlink(name, dir_fd=self._fd)
+                self._remove_if_same(name, details)
 
     def _read(self, request_id: str, suffix: str) -> dict[str, Any]:
         try:
@@ -186,7 +225,7 @@ class ApprovalMailbox:
                 "digest": preview.digest,
                 "payload": preview.payload,
                 "risk": preview.risk,
-                "expires_at": preview.expires_at,
+                "expires_at": preview.expires_at_wall,
             },
         )
 
@@ -195,7 +234,7 @@ class ApprovalMailbox:
         if not source.isatty():
             raise WriteDenied("operator_terminal_required")
         record = self._read(request_id, PENDING_SUFFIX)
-        if stale_deadline(record.get("expires_at"), time.monotonic()):
+        if stale_deadline(record.get("expires_at"), time.time()):
             raise WriteDenied("expired_preview")
         digest = record.get("digest")
         if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:

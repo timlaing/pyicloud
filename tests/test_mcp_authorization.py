@@ -49,7 +49,8 @@ def test_display_comparison_preserves_json_types_and_rejects_nan() -> None:
         "target": item.target,
         "digest": item.digest,
         "payload": item.payload,
-        "expires_at": item.expires_at,
+        "expires_at": item.expires_at_wall,
+        "risk": item.risk,
     }
     authority.verify_display(item.request_id, record)
     record["payload"] = {"enabled": 1}

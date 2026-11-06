@@ -32,6 +32,7 @@ class MutationPreview:
     expires_at: float
     _payload_json: str
     risk: Literal["standard", "high"] = "standard"
+    expires_at_wall: float | None = None
 
     @property
     def payload(self) -> dict[str, Any]:
@@ -141,6 +142,7 @@ class ApprovalLedger:
             now + self._ttl,
             encoded,
             risk,
+            time.time() + self._ttl,
         )
         self._pending[request_id] = PendingMutation(
             preview, account_binding, resource_binding, revision
@@ -171,7 +173,8 @@ class ApprovalLedger:
             "target": preview.target,
             "digest": preview.digest,
             "payload": preview.payload,
-            "expires_at": preview.expires_at,
+            "expires_at": preview.expires_at_wall,
+            "risk": preview.risk,
         }
         actual = {key: record.get(key) for key in expected}
         options: dict[str, Any] = {

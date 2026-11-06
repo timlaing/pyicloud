@@ -78,6 +78,21 @@ def test_shared_registry_retirement_is_kind_bound() -> None:
         tools.resolve("contact", handle)
 
 
+@pytest.mark.parametrize("kind", ["unknown", "file", "folder", "app_library"])
+def test_drive_search_only_stores_supported_resource_kinds(kind: str) -> None:
+    """Unknown Drive matches cannot acquire unusable handles or consume capacity."""
+    tools = adapters(MagicMock())
+    item = SimpleNamespace(name="Match", type=kind, date_modified=None)
+    result = tools._search_record("drive", item, "Match")
+    if kind == "unknown":
+        assert result is None
+        assert not tools._handles
+    else:
+        assert result is not None
+        expected = "drive-file" if kind == "file" else "drive-folder"
+        assert tools.resolve(expected, result["handle"]) is item
+
+
 @pytest.mark.asyncio
 async def test_contacts_search_details_are_explicit_and_minimized() -> None:
     """Name search never reveals emails, phones, photos or raw contact fields."""

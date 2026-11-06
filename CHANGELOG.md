@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Preserve wall-clock approval deadlines across restarts/reboots, bind displayed risk before receipt consumption, reclaim aged malformed private records safely, and avoid issuing unusable handles for unsupported Drive search types.
+
 - Refresh cached zero-size Drive metadata before returning an empty response, so stale sizes cannot hide file contents; this adds a metadata request for cached empty files, and missing or null refreshed sizes are rejected before download.
 
 - Read MCP response bodies in deadline-checked buffers instead of byte-sized iterations, and stop Mail content at the first UTF-8-truncated part.

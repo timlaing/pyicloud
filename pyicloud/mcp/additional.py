@@ -424,6 +424,8 @@ class AdditionalReads:
             }
             kind, resource = "photo-asset", item
         else:
+            if item.type not in {"file", "folder", "app_library"}:
+                return None
             name = text(item.name)
             record = {
                 "name": name,

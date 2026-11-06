@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 from typing import Any
 from unittest.mock import patch
 
@@ -85,14 +86,20 @@ def test_expired_mailbox_is_reclaimed_after_restart_without_losing_live_records(
 ) -> None:
     """Validated deadlines free abandoned files while live previews survive reopen."""
     ledger = ApprovalLedger(frozenset({"reminders.update"}), capacity=256, ttl=1)
-    with patch("pyicloud.mcp.approval_channel.time.monotonic", return_value=10):
+    with (
+        patch("pyicloud.mcp.approval_channel.time.time", return_value=10),
+        patch("pyicloud.mcp.approval_channel.time.monotonic", return_value=10),
+    ):
         stale = [approval_preview(ledger) for _ in range(255)]
         live_ledger = ApprovalLedger(frozenset({"reminders.update"}), ttl=90)
         live = approval_preview(live_ledger)
         with ApprovalMailbox(str(directory)) as mailbox:
             for preview in [*stale, live]:
                 mailbox.publish(preview)
-    with patch("pyicloud.mcp.approval_channel.time.monotonic", return_value=12):
+    with (
+        patch("pyicloud.mcp.approval_channel.time.time", return_value=12),
+        patch("pyicloud.mcp.approval_channel.time.monotonic", return_value=12),
+    ):
         fresh = approval_preview(ledger)
         with ApprovalMailbox(str(directory)) as reopened:
             reopened.publish(fresh)
@@ -126,6 +133,7 @@ def test_modified_display_cannot_approve_original_payload(
         )
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO support is unavailable")
 def test_fifo_record_is_rejected_without_waiting_for_writer(directory: Path) -> None:
     """Non-blocking opens reach the existing type guard without a FIFO stall."""
     request = "x" * 43
@@ -155,13 +163,97 @@ def test_explicit_decline_releases_pending_record(directory: Path) -> None:
     assert not (directory / (preview.request_id + ".pending.json")).exists()
 
 
+def test_failed_sync_removes_only_its_new_record(directory: Path) -> None:
+    """An interrupted write cannot permanently consume a preview or receipt slot."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = approval_preview(ledger)
+    with ApprovalMailbox(str(directory)) as mailbox:
+        with (
+            patch(
+                "pyicloud.mcp.approval_channel.os.fsync", side_effect=OSError("private")
+            ),
+            pytest.raises(WriteDenied, match="approval_record_write_failed"),
+        ):
+            mailbox.publish(preview)
+        assert not (directory / (preview.request_id + ".pending.json")).exists()
+        mailbox.publish(preview)
+
+
+def test_failed_write_does_not_remove_replacement_inode(directory: Path) -> None:
+    """A private file replaced after creation is never deleted by failure cleanup."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = approval_preview(ledger)
+    path = directory / (preview.request_id + ".pending.json")
+
+    def replaced(_fd: int) -> None:
+        path.rename(directory / "original")
+        path.write_text("replacement", encoding="utf-8")
+        path.chmod(0o600)
+        raise OSError("private")
+
+    with (
+        ApprovalMailbox(str(directory)) as mailbox,
+        patch("pyicloud.mcp.approval_channel.os.fsync", side_effect=replaced),
+        pytest.raises(WriteDenied, match="approval_record_write_failed"),
+    ):
+        mailbox.publish(preview)
+    assert path.read_text(encoding="utf-8") == "replacement"
+
+
+def test_aged_malformed_records_are_reclaimed_but_fresh_corruption_is_preserved(
+    directory: Path,
+) -> None:
+    """Only old private single-link regular records can be reclaimed after a crash."""
+    age = time.time() - 601
+    for index in range(256):
+        path = directory / (f"{index:043d}" + ".pending.json")
+        path.write_text("incomplete", encoding="utf-8")
+        path.chmod(0o600)
+        if index:
+            os.utime(path, (age, age))
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = approval_preview(ledger)
+    with ApprovalMailbox(str(directory)) as mailbox:
+        mailbox.publish(preview)
+    assert (directory / (f"{0:043d}" + ".pending.json")).exists()
+    assert not (directory / (f"{1:043d}" + ".pending.json")).exists()
+
+
+def test_persisted_wall_deadline_does_not_depend_on_rebooted_monotonic_epoch(
+    directory: Path,
+) -> None:
+    """Only in-memory ledger lifetime uses monotonic time; persisted time is UTC."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}), ttl=90)
+    with (
+        patch("pyicloud.mcp.authorization.time.time", return_value=1000),
+        patch("pyicloud.mcp.authorization.time.monotonic", return_value=500),
+    ):
+        preview = approval_preview(ledger)
+        with ApprovalMailbox(str(directory)) as mailbox:
+            mailbox.publish(preview)
+    with (
+        patch("pyicloud.mcp.approval_channel.time.time", return_value=1010),
+        patch("pyicloud.mcp.approval_channel.time.monotonic", return_value=1),
+        ApprovalMailbox(str(directory)) as reopened,
+    ):
+        record = reopened._read(preview.request_id, ".pending.json")
+        assert record["expires_at"] == 1090
+        reopened.decide(
+            preview.request_id,
+            terminal("APPROVE " + preview.request_id),
+            io.StringIO(),
+        )
+
+
 @pytest.fixture(name="directory")
 def sandbox_directory() -> Iterator[Path]:
     """Resolve descriptor-relative test paths to an absolute sandbox path."""
+    if os.name != "posix" or not hasattr(os, "O_NOFOLLOW"):
+        pytest.skip("Private descriptor-relative approval storage requires POSIX")
     root = Path(tempfile.gettempdir()) / "python-test-results"
     root.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(dir=root))
-    original_open, original_unlink = os.open, os.unlink
+    original_open, original_unlink, original_stat = os.open, os.unlink, os.stat
 
     def anchored_open(path: Any, *args: Any, **kwargs: Any) -> int:
         if kwargs.pop("dir_fd", None) is not None:
@@ -172,6 +264,11 @@ def sandbox_directory() -> Iterator[Path]:
         if kwargs.pop("dir_fd", None) is not None:
             path = directory / path
         original_unlink(path, **kwargs)
+
+    def anchored_stat(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+        if kwargs.pop("dir_fd", None) is not None:
+            path = directory / path
+        return original_stat(path, *args, **kwargs)
 
     try:
         with (
@@ -184,6 +281,9 @@ def sandbox_directory() -> Iterator[Path]:
                 side_effect=os.path.abspath,
             ),
             patch("pyicloud.mcp.approval_channel.os.open", side_effect=anchored_open),
+            patch(
+                "pyicloud.mcp.approval_channel.entry_stat", side_effect=anchored_stat
+            ),
             patch(
                 "pyicloud.mcp.approval_channel.os.unlink", side_effect=anchored_unlink
             ),
@@ -201,6 +301,15 @@ class SyntheticTerminal(io.StringIO):
     def isatty(self) -> bool:
         """Model an independently interactive operator terminal."""
         return True
+
+
+def test_unsupported_approval_platform_fails_closed_without_posix_fixture() -> None:
+    """The explicit unsupported-platform check must also remain runnable on Windows."""
+    with (
+        patch("pyicloud.mcp.approval_channel.os.name", "nt"),
+        pytest.raises(WriteDenied, match="operator_channel_unsupported"),
+    ):
+        ApprovalMailbox("unused")
 
 
 def terminal(value: str) -> io.StringIO:

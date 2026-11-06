@@ -136,8 +136,10 @@ def test_downgraded_operator_record_cannot_approve_high_risk(directory: Path) ->
         mailbox.decide(
             preview.request_id, terminal("APPROVE " + preview.request_id), io.StringIO()
         )
-        with pytest.raises(WriteDenied, match="high_risk_operator_approval_required"):
+        with pytest.raises(WriteDenied, match="preview_mismatch"):
             mailbox.accept(preview.request_id, ledger)
+        assert (directory / (preview.request_id + ".approved.json")).exists()
+        assert (directory / (preview.request_id + ".pending.json")).exists()
     with pytest.raises(WriteDenied, match="operator_approval_required"):
         ledger.consume(
             preview.request_id, account_binding="A", resource_binding="R", revision="V"

@@ -184,25 +184,39 @@ async def test_cancelled_or_timed_out_call_retains_lane_ownership(cancel: bool) 
 
     def blocked(_client: object) -> str:
         started.set()
-        release.wait(1)
+        release.wait()
         return "late"
 
-    task = asyncio.create_task(owner.run(blocked))
-    await asyncio.to_thread(started.wait, 1)
-    if cancel:
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-    else:
-        with pytest.raises(ToolFailure, match="timeout"):
-            await task
-    with pytest.raises(ToolFailure, match="busy"):
-        await owner.run(lambda _: None)
-    closing = asyncio.create_task(owner.close())
-    await asyncio.sleep(0)
-    client.session.close.assert_not_called()
-    release.set()
-    await closing
+    original_wait_for = asyncio.wait_for
+
+    async def wait_after_worker_start(future: Any, timeout: float) -> Any:
+        """Only begin the short timeout once the owner operation is actually active."""
+        assert await asyncio.to_thread(started.wait, 1)
+        return await original_wait_for(future, timeout)
+
+    try:
+        with patch(
+            "pyicloud.mcp.context.asyncio.wait_for", side_effect=wait_after_worker_start
+        ):
+            task = asyncio.create_task(owner.run(blocked))
+            assert await asyncio.to_thread(started.wait, 1)
+            if cancel:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            else:
+                with pytest.raises(ToolFailure, match="timeout"):
+                    await task
+            with pytest.raises(ToolFailure, match="busy"):
+                await owner.run(lambda _: None)
+            closing = asyncio.create_task(owner.close())
+            await asyncio.sleep(0)
+            client.session.close.assert_not_called()
+            release.set()
+            await closing
+    finally:
+        release.set()
+        await owner.close()
     assert owner.authenticated
     client.session.close.assert_called_once()
 
