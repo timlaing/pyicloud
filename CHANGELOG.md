@@ -18,6 +18,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Bind operator-visible MCP approval content to the live ledger before accepting a receipt, reject blocking special files, disable service login recovery on saved-session owners, require valid strong download entity tags and reject retry-enabled registration transports.
+
 - Redact signed URL queries, user information and numeric account IDs from session request debug logs without changing the URLs sent to Apple or public request errors.
 
 - Isolate Sonar coverage validation from pull-request Python modules, restrict the Sonar token to scan steps, and reject linked scan inputs while retaining fork pull-request analysis. Reject ambiguous fork PR matches rather than attributing analysis to the first PR sharing a commit.
@@ -65,6 +67,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
+
+- Reclaim expired MCP approval records safely, reserve independent receipt capacity at the preview limit, and preserve explicitly supplied upload deadlines, including zero.
 
 - Reject unexpected asset IDs in scoped Photos album-membership responses, including mixed expected/unexpected results and unpaired raw assets discarded by conversion, instead of mistaking mismatched results for absence. Matching assets without a master and query error items also raise an error instead of establishing absence or presence.
 

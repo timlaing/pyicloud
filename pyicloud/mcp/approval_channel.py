@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from contextlib import suppress
 import json
+import math
 import os
 import re
 import stat
 import sys
+import time
 from typing import Any, TextIO
 
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
@@ -19,6 +21,16 @@ from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 MAX_RECORD_BYTES = 262144
 PENDING_SUFFIX = ".pending.json"
 APPROVED_SUFFIX = ".approved.json"
+
+
+def stale_deadline(expires: Any, now: float) -> bool:
+    """Recognize elapsed deadlines or values impossible under the 600-second bound."""
+    return (
+        isinstance(expires, (int, float))
+        and not isinstance(expires, bool)
+        and math.isfinite(expires)
+        and (expires <= now or expires > now + 600)
+    )
 
 
 def approval_base_directory() -> str:
@@ -95,8 +107,12 @@ class ApprovalMailbox:
         if len(encoded) > MAX_RECORD_BYTES:
             raise WriteDenied("approval_record_too_large")
         name = self._name(request_id, suffix)
-        if len(os.listdir(self._fd)) >= 256:
-            raise WriteDenied("approval_mailbox_full")
+        records = os.listdir(self._fd)
+        opposite = APPROVED_SUFFIX if suffix == PENDING_SUFFIX else PENDING_SUFFIX
+        if sum(not item.endswith(opposite) for item in records) >= 256:
+            self._reclaim_expired()
+            if sum(not item.endswith(opposite) for item in os.listdir(self._fd)) >= 256:
+                raise WriteDenied("approval_mailbox_full")
         try:
             fd = os.open(
                 name,
@@ -111,11 +127,29 @@ class ApprovalMailbox:
             handle.flush()
             os.fsync(handle.fileno())
 
+    def _reclaim_expired(self) -> None:
+        """Remove only validated private records with an established stale deadline."""
+        now = time.monotonic()
+        for name in os.listdir(self._fd):
+            matched = re.fullmatch(
+                r"([A-Za-z0-9_-]{40,64})(\.pending\.json|\.approved\.json)", name
+            )
+            if matched is None:
+                continue
+            try:
+                record = self._read(matched[1], matched[2])
+            except WriteDenied:
+                continue
+            expires = record.get("expires_at")
+            if stale_deadline(expires, now):
+                with suppress(FileNotFoundError):
+                    os.unlink(name, dir_fd=self._fd)
+
     def _read(self, request_id: str, suffix: str) -> dict[str, Any]:
         try:
             fd = os.open(
                 self._name(request_id, suffix),
-                os.O_RDONLY | os.O_NOFOLLOW,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
                 dir_fd=self._fd,
             )
         except OSError:
@@ -152,6 +186,7 @@ class ApprovalMailbox:
                 "digest": preview.digest,
                 "payload": preview.payload,
                 "risk": preview.risk,
+                "expires_at": preview.expires_at,
             },
         )
 
@@ -160,6 +195,8 @@ class ApprovalMailbox:
         if not source.isatty():
             raise WriteDenied("operator_terminal_required")
         record = self._read(request_id, PENDING_SUFFIX)
+        if stale_deadline(record.get("expires_at"), time.monotonic()):
+            raise WriteDenied("expired_preview")
         digest = record.get("digest")
         if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
             raise WriteDenied("invalid_approval_record")
@@ -171,14 +208,20 @@ class ApprovalMailbox:
             json.dumps(record, ensure_ascii=True, sort_keys=True, indent=2) + "\n"
         )
         phrase = ("APPROVE HIGH-RISK " if risk == "high" else "APPROVE ") + request_id
-        display.write(f"Type {phrase} to authorize this exact mutation: ")
+        display.write(
+            f"Type {phrase} to authorize, or DECLINE {request_id} to discard: "
+        )
         display.flush()
-        if source.readline().strip() != phrase:
+        decision = source.readline().strip()
+        if decision != phrase:
+            if decision == "DECLINE " + request_id:
+                with suppress(FileNotFoundError):
+                    os.unlink(self._name(request_id, PENDING_SUFFIX), dir_fd=self._fd)
             raise WriteDenied("operator_declined")
         self._write(
             request_id,
             APPROVED_SUFFIX,
-            {"request_id": request_id, "digest": digest, "risk": risk},
+            record,
         )
 
     def accept(self, request_id: str, ledger: ApprovalLedger) -> None:
@@ -190,6 +233,7 @@ class ApprovalMailbox:
         risk = record.get("risk", "standard")
         if not isinstance(risk, str) or risk not in {"standard", "high"}:
             raise WriteDenied("invalid_approval_record")
+        ledger.verify_display(request_id, record)
         os.unlink(self._name(request_id, APPROVED_SUFFIX), dir_fd=self._fd)
         with suppress(FileNotFoundError):
             os.unlink(self._name(request_id, PENDING_SUFFIX), dir_fd=self._fd)

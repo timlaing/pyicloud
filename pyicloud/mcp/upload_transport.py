@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from requests import Session
+from requests.adapters import HTTPAdapter
 
 from .authorization import WriteDenied
 from .context import BoundedAdapter
@@ -90,7 +91,9 @@ class UploadTransport:
             # Disabling environment inheritance also excludes netrc credentials.
             session.trust_env = False
             adapter = BoundedAdapter(30)
-            adapter.deadline = deadline or (time.monotonic() + 30)
+            adapter.deadline = (
+                deadline if deadline is not None else time.monotonic() + 30
+            )
             adapter.requests_left = 1
             session.mount("https://", adapter)
             try:
@@ -122,6 +125,9 @@ class UploadTransport:
         target = checked_upload_url(url, hosts)
         options: dict[str, Any] = {"headers": headers} if headers is not None else {}
         try:
+            adapter = session.get_adapter(target)
+            if not isinstance(adapter, HTTPAdapter) or adapter.max_retries.total != 0:
+                raise WriteDenied("upload_retry_policy_unavailable")
             response = session.request_raw(
                 "POST",
                 target,

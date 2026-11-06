@@ -275,10 +275,22 @@ class SessionOwner:
         client.session.mount("http", self._adapter)
         return client
 
+    @staticmethod
+    def _prevent_authentication(client: Any) -> None:
+        """Refuse session recovery and direct service token-login entry points."""
+
+        def denied(*_args: Any, **_kwargs: Any) -> None:
+            raise ToolFailure("authentication_required")
+
+        for name in ("authenticate", "_authenticate", "_authenticate_with_token"):
+            if hasattr(client, name):
+                setattr(client, name, denied)
+
     def _invoke(self, operation: Callable[[Any], T]) -> T:
         try:
             if self._client is None:
                 self._client = self._factory()
+            self._prevent_authentication(self._client)
             if self._adapter is not None:
                 self._adapter.deadline = time.monotonic() + self.config.timeout
                 self._adapter.requests_left = 32

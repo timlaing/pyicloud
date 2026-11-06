@@ -162,6 +162,31 @@ class ApprovalLedger:
             )
         item.approved = True
 
+    def verify_display(self, request_id: str, record: dict[str, Any]) -> None:
+        """Bind operator-visible identity and content to the live immutable entry."""
+        preview = self._lookup(request_id).preview
+        expected = {
+            "request_id": preview.request_id,
+            "action": preview.action,
+            "target": preview.target,
+            "digest": preview.digest,
+            "payload": preview.payload,
+            "expires_at": preview.expires_at,
+        }
+        actual = {key: record.get(key) for key in expected}
+        options: dict[str, Any] = {
+            "sort_keys": True,
+            "ensure_ascii": True,
+            "allow_nan": False,
+        }
+        try:
+            actual_json = json.dumps(actual, **options)
+            expected_json = json.dumps(expected, **options)
+        except (TypeError, ValueError):
+            raise WriteDenied("preview_mismatch") from None
+        if not hmac.compare_digest(actual_json, expected_json):
+            raise WriteDenied("preview_mismatch")
+
     def consume(
         self,
         request_id: str,

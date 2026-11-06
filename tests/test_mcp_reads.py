@@ -231,6 +231,25 @@ async def test_protocol_tool_registration_and_shutdown() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["guid", "title"])
+@pytest.mark.parametrize("events", [False, True])
+async def test_calendar_nested_projection_is_rejected(field: str, events: bool) -> None:
+    """Nested backend identifiers/titles cannot leak through string coercion."""
+    client = MagicMock()
+    row = {"guid": "E", "title": "Title", "pGuid": "C", field: {"private": "OMIT_ME"}}
+    client.calendar.get_calendars.return_value = [row]
+    client.calendar.get_events.return_value = [row]
+    tools = ReadTools(owner_for(client))
+    result = (
+        await tools.events("C", "2026-01-01", "2026-01-01", 50)
+        if events
+        else await tools.calendars(50)
+    )
+    assert result.error == "upstream_failure"
+    assert "OMIT_ME" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
 async def test_partial_list_iterator_is_closed() -> None:
     """Generator closure preserves library snapshot ownership on bounded discovery."""
     closed: list[bool] = []

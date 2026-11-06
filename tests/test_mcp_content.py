@@ -169,7 +169,21 @@ def test_utf8_clip_and_url_guard() -> None:
         (
             206,
             b"data",
-            {"Content-Range": "bytes 0-3/8", "ETag": "W/weak"},
+            {"Content-Range": "bytes 0-3/8", "ETag": 'W/"weak"'},
+            0,
+            "download_requires_strong_etag",
+        ),
+        (
+            206,
+            b"data",
+            {"Content-Range": "bytes 0-3/8", "ETag": "unquoted"},
+            0,
+            "download_requires_strong_etag",
+        ),
+        (
+            206,
+            b"data",
+            {"Content-Range": "bytes 0-3/8", "ETag": '"bad\nvalue"'},
             0,
             "download_requires_strong_etag",
         ),
@@ -191,19 +205,19 @@ def test_download_version_is_bound_across_chunks() -> None:
     state = DownloadState(None)
     first = download_chunk(
         state,
-        response(206, b"data", **{"Content-Range": "bytes 0-3/8", "ETag": "v1"}),
+        response(206, b"data", **{"Content-Range": "bytes 0-3/8", "ETag": '"v1"'}),
         0,
         4,
         "file",
     )
     assert first.records[0]["next_offset"] == 4
     assert not first.complete
-    changed = response(206, b"more", **{"Content-Range": "bytes 4-7/8", "ETag": "v2"})
+    changed = response(206, b"more", **{"Content-Range": "bytes 4-7/8", "ETag": '"v2"'})
     with pytest.raises(ToolFailure, match="stale_download"):
         download_chunk(state, changed, 4, 4, "file")
     last = download_chunk(
         state,
-        response(206, b"more", **{"Content-Range": "bytes 4-7/8", "ETag": "v1"}),
+        response(206, b"more", **{"Content-Range": "bytes 4-7/8", "ETag": '"v1"'}),
         4,
         4,
         "file",
@@ -289,10 +303,10 @@ async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
         open=MagicMock(
             side_effect=[
                 response(
-                    206, b"data", **{"Content-Range": "bytes 0-3/8", "ETag": "v1"}
+                    206, b"data", **{"Content-Range": "bytes 0-3/8", "ETag": '"v1"'}
                 ),
                 response(
-                    206, b"more", **{"Content-Range": "bytes 4-7/8", "ETag": "v1"}
+                    206, b"more", **{"Content-Range": "bytes 4-7/8", "ETag": '"v1"'}
                 ),
             ]
         ),
@@ -303,7 +317,7 @@ async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
     ).error == "download_requires_strong_etag"
     assert not (await tools.file("drive", handle, 0, 4)).complete
     assert (await tools.file("drive", handle, 4, 4)).complete
-    assert file.open.call_args.kwargs["headers"]["If-Match"] == "v1"
+    assert file.open.call_args.kwargs["headers"]["If-Match"] == '"v1"'
     empty_data = {"drivewsid": "F", "name": "empty", "type": "FILE", "size": 0}
     client.drive.get_node_data.return_value = dict(empty_data)
     empty = tools.additional.remember("drive-file", DriveNode(client.drive, empty_data))

@@ -57,6 +57,13 @@ def bounded_result(
     return ReadResult(records=rows, complete=complete)
 
 
+def calendar_text(value: Any) -> str:
+    """Do not stringify nested or unknown Calendar fields into metadata output."""
+    if not isinstance(value, str):
+        raise ToolFailure("upstream_failure")
+    return value
+
+
 def calendar_time(value: Any) -> str | None:
     """Expose only a valid Apple wall-clock timestamp, never arbitrary nested data."""
     if not isinstance(value, (list, tuple)) or len(value) != 7:
@@ -137,7 +144,10 @@ class ReadTools:
         def read(client: Any) -> ReadResult:
             return bounded_result(
                 (
-                    {"id": str(row["guid"]), "title": str(row.get("title", ""))[:4096]}
+                    {
+                        "id": calendar_text(row["guid"]),
+                        "title": calendar_text(row.get("title", ""))[:4096],
+                    }
                     for row in client.calendar.get_calendars()
                 ),
                 limit,
@@ -170,9 +180,9 @@ class ReadTools:
             return bounded_result(
                 (
                     {
-                        "id": str(row["guid"]),
+                        "id": calendar_text(row["guid"]),
                         "calendar_id": calendar_id,
-                        "title": str(row.get("title", ""))[:4096],
+                        "title": calendar_text(row.get("title", ""))[:4096],
                         "start": calendar_time(row.get("startDate")),
                         "end": calendar_time(row.get("endDate")),
                     }

@@ -88,7 +88,10 @@ def download_chunk(
         if state.etag is not None and etag != state.etag:
             raise ToolFailure("stale_download")
         if not complete:
-            if not etag or etag.startswith("W/"):
+            if (
+                not isinstance(etag, str)
+                or re.fullmatch(r'"[\x21\x23-\x7e\x80-\xff]*"', etag) is None
+            ):
                 raise ToolFailure("download_requires_strong_etag")
             state.etag = etag
         return bounded_result(

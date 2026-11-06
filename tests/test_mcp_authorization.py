@@ -32,6 +32,34 @@ def test_default_denies_writes() -> None:
         preview(authority)
 
 
+def test_display_comparison_preserves_json_types_and_rejects_nan() -> None:
+    """Python equality between booleans/numbers cannot alter an exact JSON preview."""
+    authority = ledger()
+    item = authority.preview(
+        "reminders.update",
+        "target",
+        {"enabled": True},
+        account_binding="account",
+        resource_binding="route",
+        revision="v1",
+    )
+    record = {
+        "request_id": item.request_id,
+        "action": item.action,
+        "target": item.target,
+        "digest": item.digest,
+        "payload": item.payload,
+        "expires_at": item.expires_at,
+    }
+    authority.verify_display(item.request_id, record)
+    record["payload"] = {"enabled": 1}
+    with pytest.raises(WriteDenied, match="preview_mismatch"):
+        authority.verify_display(item.request_id, record)
+    record["payload"] = {"enabled": float("nan")}
+    with pytest.raises(WriteDenied, match="preview_mismatch"):
+        authority.verify_display(item.request_id, record)
+
+
 def test_exact_operator_approval_is_single_use_and_payload_is_frozen() -> None:
     """Neither a caller payload change nor replay can alter an approved operation."""
     authority = ledger()

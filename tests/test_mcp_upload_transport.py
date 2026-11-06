@@ -1,8 +1,12 @@
 """Synthetic upload transport safety; no real account, URL or byte transfer."""
 
+# cspell:words forcelist
+
 from unittest.mock import MagicMock, patch
 
 import pytest
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from pyicloud.mcp.authorization import WriteDenied
 from pyicloud.mcp.upload_transport import (
@@ -95,6 +99,7 @@ def test_transfer_has_no_shared_auth_environment_redirect_or_retry(case: str) ->
 def test_service_registration_is_one_raw_request(fail: bool) -> None:
     """Ordinary session auth recovery cannot replay a registration."""
     session = MagicMock()
+    session.get_adapter.return_value = HTTPAdapter(max_retries=0)
     response = session.request_raw.return_value
     response.status_code = 200
     response.iter_content.return_value = [b"[]"]
@@ -113,6 +118,39 @@ def test_service_registration_is_one_raw_request(fail: bool) -> None:
         assert UploadTransport.register(*args) == []
     session.request_raw.assert_called_once()
     session.post.assert_not_called()
+
+
+def test_registration_refuses_post_retry_adapter_before_dispatch() -> None:
+    """A caller's POST retry policy cannot replay a reserved or committed upload."""
+    session = MagicMock()
+    session.get_adapter.return_value = HTTPAdapter(
+        max_retries=Retry(total=1, allowed_methods={"POST"}, status_forcelist={503})
+    )
+    hosts = frozenset({"service.example.test"})
+    with pytest.raises(WriteDenied, match="upload_outcome_uncertain"):
+        UploadTransport.register(
+            session, "https://service.example.test/register", hosts, {}
+        )
+    session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize("deadline", [None, 0.0, 42.0])
+def test_explicit_transfer_deadline_is_not_replaced(deadline: float | None) -> None:
+    """Even a zero/expired caller deadline remains bound to the dispatch adapter."""
+    transport = UploadTransport(frozenset({"content.example.test"}))
+    session = MagicMock()
+    session.post.return_value.status_code = 200
+    session.post.return_value.iter_content.return_value = [b"{}"]
+    with (
+        patch("pyicloud.mcp.upload_transport.Session") as factory,
+        patch("pyicloud.mcp.upload_transport.time.monotonic", return_value=10),
+    ):
+        factory.return_value.__enter__.return_value = session
+        transport.transfer(
+            "https://content.example.test/upload", b"data", deadline=deadline
+        )
+    adapter = session.mount.call_args.args[1]
+    assert adapter.deadline == (40 if deadline is None else deadline)
 
 
 @pytest.mark.parametrize("name", ["file.txt", "../file.txt"])

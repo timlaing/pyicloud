@@ -31,6 +31,30 @@ def configuration(**kwargs: Any) -> ServerConfig:
     return ServerConfig(username="synthetic", session_dir="synthetic", **kwargs)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method", ["authenticate", "_authenticate", "_authenticate_with_token"]
+)
+async def test_saved_session_owner_blocks_service_login_after_successful_probe(
+    method: str,
+) -> None:
+    """Direct recovery cannot log in or access credentials after a valid probe."""
+    login = MagicMock()
+    client = SimpleNamespace(
+        get_auth_status=lambda: {"authenticated": True},
+        session=MagicMock(),
+        **{method: login},
+    )
+    owner = SessionOwner(configuration(), factory=lambda: client)
+    try:
+        with pytest.raises(ToolFailure, match="authentication_required"):
+            await owner.run(lambda active: getattr(active, method)())
+        login.assert_not_called()
+        assert owner.authenticated
+    finally:
+        await owner.close()
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -117,6 +141,7 @@ async def test_probe_does_not_fall_back_to_login(
     client = MagicMock()
     client.session = MagicMock()
     client.get_auth_status.return_value = status
+    original_authenticate = client.authenticate
     owner = SessionOwner(configuration(), lambda: client)
     owner._adapter = BoundedAdapter(1)
     try:
@@ -124,7 +149,7 @@ async def test_probe_does_not_fall_back_to_login(
             await owner.run(lambda _client: pytest.fail("Unauthenticated operation"))
         assert owner._adapter.deadline is None
         assert not owner.authenticated
-        client.authenticate.assert_not_called()
+        original_authenticate.assert_not_called()
     finally:
         await owner.close()
     client.session.close.assert_called_once()

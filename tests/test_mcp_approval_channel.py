@@ -3,6 +3,7 @@
 # pylint: disable=protected-access
 
 from collections.abc import Iterator
+from dataclasses import replace
 import io
 import json
 import os
@@ -17,8 +18,139 @@ from pyicloud.mcp.approval_channel import (
     ApprovalMailbox,
     approval_base_directory,
     approve_interactively,
+    stale_deadline,
 )
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
+
+
+def approval_preview(ledger: ApprovalLedger) -> Any:
+    """Build a synthetic exact standard-tier request without any real mutation."""
+    return ledger.preview(
+        "reminders.update",
+        "Synthetic",
+        {"title": "Before"},
+        account_binding="A",
+        resource_binding="R",
+        revision="V",
+    )
+
+
+@pytest.mark.parametrize(
+    "deadline,stale",
+    [
+        (None, False),
+        (True, False),
+        (float("nan"), False),
+        (float("inf"), False),
+        (0, True),
+        (9.0, True),
+        (20.0, False),
+        (611.0, True),
+    ],
+)
+def test_cleanup_requires_a_finite_established_deadline(
+    deadline: Any, stale: bool
+) -> None:
+    """Unknown or malformed metadata never authorizes deleting a record."""
+    assert stale_deadline(deadline, 10) is stale
+
+
+def test_full_pending_mailbox_still_accepts_receipt(directory: Path) -> None:
+    """A valid independent decision has its own bounded slot at preview capacity."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}), capacity=256)
+    with ApprovalMailbox(str(directory)) as mailbox:
+        previews = [approval_preview(ledger) for _ in range(256)]
+        for preview in previews:
+            mailbox.publish(preview)
+        selected = previews[0]
+        mailbox.decide(
+            selected.request_id,
+            terminal("APPROVE " + selected.request_id),
+            io.StringIO(),
+        )
+        mailbox.accept(selected.request_id, ledger)
+        assert (
+            ledger.consume(
+                selected.request_id,
+                account_binding="A",
+                resource_binding="R",
+                revision="V",
+            ).digest
+            == selected.digest
+        )
+
+
+def test_expired_mailbox_is_reclaimed_after_restart_without_losing_live_records(
+    directory: Path,
+) -> None:
+    """Validated deadlines free abandoned files while live previews survive reopen."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}), capacity=256, ttl=1)
+    with patch("pyicloud.mcp.approval_channel.time.monotonic", return_value=10):
+        stale = [approval_preview(ledger) for _ in range(255)]
+        live_ledger = ApprovalLedger(frozenset({"reminders.update"}), ttl=90)
+        live = approval_preview(live_ledger)
+        with ApprovalMailbox(str(directory)) as mailbox:
+            for preview in [*stale, live]:
+                mailbox.publish(preview)
+    with patch("pyicloud.mcp.approval_channel.time.monotonic", return_value=12):
+        fresh = approval_preview(ledger)
+        with ApprovalMailbox(str(directory)) as reopened:
+            reopened.publish(fresh)
+        assert (directory / (live.request_id + ".pending.json")).exists()
+        assert not (directory / (stale[0].request_id + ".pending.json")).exists()
+
+
+@pytest.mark.parametrize("field", ["action", "target", "payload"])
+def test_modified_display_cannot_approve_original_payload(
+    directory: Path, field: str
+) -> None:
+    """Retaining a genuine digest cannot authorize content not shown to the operator."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = approval_preview(ledger)
+    changes = {
+        "action": {"action": "reminders.delete"},
+        "target": {"target": "Other"},
+        "payload": {"_payload_json": '{"title":"Other"}'},
+    }
+    altered = replace(preview, **changes[field])
+    with ApprovalMailbox(str(directory)) as mailbox:
+        mailbox.publish(altered)
+        mailbox.decide(
+            preview.request_id, terminal("APPROVE " + preview.request_id), io.StringIO()
+        )
+        with pytest.raises(WriteDenied, match="preview_mismatch"):
+            mailbox.accept(preview.request_id, ledger)
+    with pytest.raises(WriteDenied, match="operator_approval_required"):
+        ledger.consume(
+            preview.request_id, account_binding="A", resource_binding="R", revision="V"
+        )
+
+
+def test_fifo_record_is_rejected_without_waiting_for_writer(directory: Path) -> None:
+    """Non-blocking opens reach the existing type guard without a FIFO stall."""
+    request = "x" * 43
+    os.mkfifo(directory / (request + ".pending.json"), 0o600)
+    source, display = terminal("APPROVE " + request), io.StringIO()
+    with (
+        ApprovalMailbox(str(directory)) as mailbox,
+        pytest.raises(WriteDenied, match="insecure_approval_record"),
+    ):
+        mailbox.decide(request, source, display)
+
+
+def test_explicit_decline_releases_pending_record(directory: Path) -> None:
+    """A deliberate terminal decline reclaims storage; a mistyped phrase does not."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = approval_preview(ledger)
+    with ApprovalMailbox(str(directory)) as mailbox:
+        mailbox.publish(preview)
+        with pytest.raises(WriteDenied, match="operator_declined"):
+            mailbox.decide(
+                preview.request_id,
+                terminal("DECLINE " + preview.request_id),
+                io.StringIO(),
+            )
+    assert not (directory / (preview.request_id + ".pending.json")).exists()
 
 
 @pytest.fixture(name="directory")
