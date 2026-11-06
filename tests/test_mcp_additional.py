@@ -269,9 +269,14 @@ async def test_mail_metadata_and_subject_search_never_expose_bodies_or_previews(
     })
     client.mail.folders.return_value = [folder]
     client.mail.messages.return_value = SimpleNamespace(messages=[message])
-    client.mail.search.return_value = SimpleNamespace(
-        results=[MailSearchHit(identifier="T", subject="Match", preview="OMIT_ME")]
+    search_mock = MagicMock(
+        return_value=SimpleNamespace(
+            results=[MailSearchHit(identifier="T", subject="Match", preview="OMIT_ME")]
+        )
     )
+    message_mock = MagicMock()
+    client.mail.search = search_mock
+    client.mail.message = message_mock
     tools = adapters(client)
     handle = (await tools.mail_folders(50)).records[0]["handle"]
     messages = (await tools.mail_messages(handle, 50)).records
@@ -282,11 +287,12 @@ async def test_mail_metadata_and_subject_search_never_expose_bodies_or_previews(
     ] == [{"id": "M", "subject": "Synthetic", "flags": 1}]
     result = await tools.mail_search(handle, "Match", 50)
     assert result.records == [{"thread_id": "T", "subject": "Match"}]
-    assert client.mail.search.call_args.kwargs == {"field": "subject", "limit": 50}
-    assert client.mail.search.call_args.args[0] is folder
+    assert search_mock.call_args is not None
+    assert search_mock.call_args.kwargs == {"field": "subject", "limit": 50}
+    assert search_mock.call_args.args[0] is folder
     assert (await tools.mail_search(handle, " ", 50)).error == "invalid_argument"
     assert (await tools.mail_search(handle, "x" * 257, 50)).error == "invalid_argument"
-    client.mail.message.assert_not_called()
+    message_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
