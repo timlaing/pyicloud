@@ -31,6 +31,16 @@ def test_root(pyicloud_service_working: PyiCloudService) -> None:
     assert drive.dir() == ["Keynote", "Numbers", "Pages", "Preview", "pyiCloud"]
 
 
+@pytest.mark.parametrize("size", [0, "0"])
+def test_legacy_empty_node_without_drive_id_remains_readable(size: int | str) -> None:
+    """Legacy cached empty metadata needs no ID, refresh, or content transport."""
+    connection = Mock()
+    node = DriveNode(connection, {"type": "FILE", "name": "empty", "size": size})
+    assert node.open().content == b""
+    connection.get_node_data.assert_not_called()
+    connection.get_file.assert_not_called()
+
+
 def test_trash(pyicloud_service_working: PyiCloudService) -> None:
     """Test the trash folder."""
     trash: DriveNode = pyicloud_service_working.drive.trash

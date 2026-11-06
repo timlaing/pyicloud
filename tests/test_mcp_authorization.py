@@ -32,6 +32,26 @@ def test_default_denies_writes() -> None:
         preview(authority)
 
 
+def test_excessive_payload_nesting_is_sanitized() -> None:
+    """Deep payloads must not escape the normal fixed denial contract."""
+    authority = ledger()
+    payload: dict[str, Any] = {}
+    for _ in range(2000):
+        payload = {"nested": payload}
+    with (
+        patch("pyicloud.mcp.authorization.json.dumps", side_effect=RecursionError),
+        pytest.raises(WriteDenied, match="invalid_payload"),
+    ):
+        authority.preview(
+            "reminders.update",
+            "target",
+            payload,
+            account_binding="account",
+            resource_binding="route",
+            revision="v1",
+        )
+
+
 def test_display_comparison_preserves_json_types_and_rejects_nan() -> None:
     """Python equality between booleans/numbers cannot alter an exact JSON preview."""
     authority = ledger()

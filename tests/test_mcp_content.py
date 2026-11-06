@@ -28,7 +28,44 @@ from pyicloud.mcp.context import (
 )
 from pyicloud.mcp.reads import ReadTools
 from pyicloud.mcp.server import build_server
-from pyicloud.services.drive import DriveNode
+from pyicloud.services.drive import DriveNode, DriveService
+
+
+@pytest.mark.asyncio
+async def test_fresh_download_resets_previous_entity_tag() -> None:
+    """A new offset-zero read starts a new version, unlike a resumed read."""
+    client = MagicMock()
+    tools = content_for(client)
+    open_mock = MagicMock(
+        side_effect=[
+            response(206, b"data", **{"Content-Range": "bytes 0-3/8", "ETag": '"v1"'}),
+            response(206, b"new!", **{"Content-Range": "bytes 0-3/8", "ETag": '"v2"'}),
+            response(206, b"more", **{"Content-Range": "bytes 4-7/8", "ETag": '"v2"'}),
+        ]
+    )
+    resource = SimpleNamespace(name="file", open=open_mock)
+    handle = tools.additional.remember("drive-file", resource)
+    assert (await tools.file("drive", handle, 0, 4)).error is None
+    assert (await tools.file("drive", handle, 0, 4)).error is None
+    assert "If-Match" not in open_mock.call_args.kwargs["headers"]
+    assert (await tools.file("drive", handle, 4, 4)).complete
+    assert open_mock.call_args.kwargs["headers"]["If-Match"] == '"v2"'
+
+
+@pytest.mark.parametrize("token", ["data_token", "package_token"])
+def test_drive_token_url_is_checked_before_credential_bearing_request(
+    token: str,
+) -> None:
+    """Metadata may never redirect the saved-session download onto a foreign host."""
+    drive = MagicMock(spec=DriveService)
+    drive.params = {}
+    drive._document_root = "https://docws.icloud.com"
+    drive.session.get.return_value.json.return_value = {
+        token: {"url": "https://evil.example/file"}
+    }
+    with pytest.raises(ToolFailure, match="invalid_resource_url"):
+        DriveService.get_file(drive, "file", download_url_validator=resource_url)
+    drive.session.get.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -105,7 +105,7 @@ class ApprovalLedger:
                 ensure_ascii=True,
                 allow_nan=False,
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             raise WriteDenied("invalid_payload") from None
         if len(encoded.encode("utf-8")) > 64 * 1024:
             raise WriteDenied("payload_too_large")
@@ -185,7 +185,7 @@ class ApprovalLedger:
         try:
             actual_json = json.dumps(actual, **options)
             expected_json = json.dumps(expected, **options)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             raise WriteDenied("preview_mismatch") from None
         if not hmac.compare_digest(actual_json, expected_json):
             raise WriteDenied("preview_mismatch")

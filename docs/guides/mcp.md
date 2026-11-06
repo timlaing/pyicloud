@@ -54,3 +54,10 @@ not. Stored records without the new deadline/display-binding fields cannot be
 accepted: an operator must archive legacy records and create fresh previews
 before enabling the later runtime integration. No old receipt is reused after
 an operator migration.
+
+Mailbox changes use a shared, non-blocking process lock; a competing operation
+fails with `approval_mailbox_busy` rather than retrying a mutation. The operator
+input wait does not hold this lock. After input, the mailbox rechecks the exact
+displayed record, its inode and its deadline before recording a decision.
+Missing, boolean or non-finite deadlines are invalid records, never live
+approvals; aged private invalid records follow the same bounded cleanup policy.

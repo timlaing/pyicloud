@@ -6,7 +6,8 @@ tools. This is not protection against privileged code running as the operator.
 
 from __future__ import annotations
 
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 import json
 import math
 import os
@@ -14,6 +15,7 @@ from os import stat as entry_stat
 import re
 import stat
 import sys
+from threading import RLock
 import time
 from typing import Any, TextIO
 
@@ -31,6 +33,15 @@ def stale_deadline(expires: Any, now: float) -> bool:
         and not isinstance(expires, bool)
         and math.isfinite(expires)
         and (expires <= now or expires > now + 600)
+    )
+
+
+def valid_deadline(expires: Any) -> bool:
+    """Persisted authorization requires a finite, non-boolean numeric deadline."""
+    return (
+        isinstance(expires, (int, float))
+        and not isinstance(expires, bool)
+        and math.isfinite(expires)
     )
 
 
@@ -69,6 +80,8 @@ class ApprovalMailbox:
         if os.name != "posix" or not hasattr(os, "O_NOFOLLOW"):
             raise WriteDenied("operator_channel_unsupported")
         directory = checked_approval_directory(directory)
+        self._lock_depth = 0
+        self._thread_lock = RLock()
         try:
             self._fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         except OSError:
@@ -102,6 +115,36 @@ class ApprovalMailbox:
         return request_id + suffix
 
     def _write(self, request_id: str, suffix: str, record: dict[str, Any]) -> None:
+        with self._coordinated():
+            self._write_locked(request_id, suffix, record)
+
+    @contextmanager
+    def _coordinated(self) -> Iterator[None]:
+        """Coordinate all cooperating processes on the validated directory inode."""
+        import fcntl  # pylint: disable=import-outside-toplevel
+
+        if self._fd < 0:
+            raise WriteDenied("operator_channel_closed")
+        if not self._thread_lock.acquire(blocking=False):
+            raise WriteDenied("approval_mailbox_busy")
+        if not self._lock_depth:
+            try:
+                fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                self._thread_lock.release()
+                raise WriteDenied("approval_mailbox_busy") from None
+        self._lock_depth += 1
+        try:
+            yield
+        finally:
+            self._lock_depth -= 1
+            if not self._lock_depth:
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+            self._thread_lock.release()
+
+    def _write_locked(
+        self, request_id: str, suffix: str, record: dict[str, Any]
+    ) -> None:
         encoded = json.dumps(
             record, ensure_ascii=True, sort_keys=True, allow_nan=False
         ).encode("utf-8")
@@ -150,6 +193,10 @@ class ApprovalMailbox:
 
     def _remove_if_same(self, name: str, expected: os.stat_result) -> None:
         """Never delete an entry whose device/inode changed after it was inspected."""
+        with self._coordinated():
+            self._remove_locked(name, expected)
+
+    def _remove_locked(self, name: str, expected: os.stat_result) -> None:
         actual = self._private_record_details(name)
         if actual is not None and (actual.st_dev, actual.st_ino) == (
             expected.st_dev,
@@ -160,6 +207,10 @@ class ApprovalMailbox:
 
     def _reclaim_expired(self) -> None:
         """Remove only validated private records with an established stale deadline."""
+        with self._coordinated():
+            self._reclaim_locked()
+
+    def _reclaim_locked(self) -> None:
         now = time.time()
         for name in os.listdir(self._fd):
             matched = re.fullmatch(
@@ -207,14 +258,18 @@ class ApprovalMailbox:
             raise WriteDenied("approval_record_too_large")
         try:
             record = json.loads(data)
-        except ValueError:
+        except (ValueError, RecursionError):
             raise WriteDenied("invalid_approval_record") from None
         if not isinstance(record, dict) or record.get("request_id") != request_id:
+            raise WriteDenied("invalid_approval_record")
+        if not valid_deadline(record.get("expires_at")):
             raise WriteDenied("invalid_approval_record")
         return record
 
     def publish(self, preview: MutationPreview) -> None:
         """Persist only the exact operator-visible preview, never private bindings."""
+        if not valid_deadline(preview.expires_at_wall):
+            raise WriteDenied("invalid_approval_record")
         self._write(
             preview.request_id,
             PENDING_SUFFIX,
@@ -233,7 +288,11 @@ class ApprovalMailbox:
         """Require a separate interactive terminal; no --yes or model boolean."""
         if not source.isatty():
             raise WriteDenied("operator_terminal_required")
-        record = self._read(request_id, PENDING_SUFFIX)
+        with self._coordinated():
+            record = self._read(request_id, PENDING_SUFFIX)
+            original = self._private_record_details(
+                self._name(request_id, PENDING_SUFFIX)
+            )
         if stale_deadline(record.get("expires_at"), time.time()):
             raise WriteDenied("expired_preview")
         digest = record.get("digest")
@@ -252,6 +311,25 @@ class ApprovalMailbox:
         )
         display.flush()
         decision = source.readline().strip()
+        with self._coordinated():
+            current = self._private_record_details(
+                self._name(request_id, PENDING_SUFFIX)
+            )
+            if (
+                original is None
+                or current is None
+                or (original.st_dev, original.st_ino)
+                != (current.st_dev, current.st_ino)
+                or self._read(request_id, PENDING_SUFFIX) != record
+            ):
+                raise WriteDenied("preview_mismatch")
+            if stale_deadline(record["expires_at"], time.time()):
+                raise WriteDenied("expired_preview")
+            self._finish_decision(request_id, decision, phrase, record)
+
+    def _finish_decision(
+        self, request_id: str, decision: str, phrase: str, record: dict[str, Any]
+    ) -> None:
         if decision != phrase:
             if decision == "DECLINE " + request_id:
                 with suppress(FileNotFoundError):
@@ -265,6 +343,10 @@ class ApprovalMailbox:
 
     def accept(self, request_id: str, ledger: ApprovalLedger) -> None:
         """Consume a private receipt before forwarding the exact decision."""
+        with self._coordinated():
+            self._accept_locked(request_id, ledger)
+
+    def _accept_locked(self, request_id: str, ledger: ApprovalLedger) -> None:
         record = self._read(request_id, APPROVED_SUFFIX)
         digest = record.get("digest")
         if not isinstance(digest, str):

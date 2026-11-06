@@ -11,7 +11,7 @@ from pathlib import Path
 import tempfile
 import time
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -163,6 +163,86 @@ def test_explicit_decline_releases_pending_record(directory: Path) -> None:
     assert not (directory / (preview.request_id + ".pending.json")).exists()
 
 
+@pytest.mark.parametrize(
+    "deadline", [None, True, float("nan"), float("inf"), "invalid"]
+)
+def test_unusable_deadlines_cannot_be_published_or_decided(
+    directory: Path, deadline: Any
+) -> None:
+    """Missing and nonnumeric persisted deadlines cannot create immortal approvals."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = approval_preview(ledger)
+    with ApprovalMailbox(str(directory)) as mailbox:
+        malformed = replace(preview, expires_at_wall=deadline)
+        with pytest.raises(WriteDenied, match="invalid_approval_record"):
+            mailbox.publish(malformed)
+        mailbox.publish(preview)
+        path = directory / (preview.request_id + ".pending.json")
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["expires_at"] = deadline
+        path.write_text(json.dumps(record), encoding="utf-8")
+        source, display = terminal("APPROVE " + preview.request_id), io.StringIO()
+        with pytest.raises(WriteDenied, match="invalid_approval_record"):
+            mailbox.decide(preview.request_id, source, display)
+
+
+def test_independent_mailbox_descriptor_cannot_mutate_while_locked(
+    directory: Path,
+) -> None:
+    """Separate descriptors share one non-blocking coordination boundary."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = approval_preview(ledger)
+    with (
+        ApprovalMailbox(str(directory)) as first,
+        ApprovalMailbox(str(directory)) as second,
+    ):
+        with (
+            first._coordinated(),
+            pytest.raises(WriteDenied, match="approval_mailbox_busy"),
+        ):
+            second.publish(preview)
+        second.publish(preview)
+        second.close()
+        with pytest.raises(WriteDenied, match="operator_channel_closed"):
+            second.publish(preview)
+
+
+@pytest.mark.parametrize("replace_record", [False, True])
+def test_operator_input_releases_lock_and_revalidates_record(
+    directory: Path, replace_record: bool
+) -> None:
+    """Waiting releases the lock; a changed preview cannot be accepted."""
+    ledger = ApprovalLedger(frozenset({"reminders.update"}))
+    preview = approval_preview(ledger)
+    path = directory / (preview.request_id + ".pending.json")
+    with (
+        ApprovalMailbox(str(directory)) as first,
+        ApprovalMailbox(str(directory)) as second,
+    ):
+        first.publish(preview)
+
+        def concurrent_input() -> str:
+            """Perform another mailbox action while the operator is thinking."""
+
+            second.publish(approval_preview(ledger))
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if replace_record:
+                path.rename(directory / "original")
+            else:
+                record["expires_at"] = time.time() - 1
+            path.write_text(json.dumps(record), encoding="utf-8")
+            path.chmod(0o600)
+            return str("APPROVE " + preview.request_id)
+
+        source = MagicMock()
+        source.isatty.return_value = True
+        source.readline.side_effect = concurrent_input
+        display = io.StringIO()
+        with pytest.raises(WriteDenied, match="preview_mismatch"):
+            first.decide(preview.request_id, source, display)
+        assert not (directory / (preview.request_id + ".approved.json")).exists()
+
+
 def test_failed_sync_removes_only_its_new_record(directory: Path) -> None:
     """An interrupted write cannot permanently consume a preview or receipt slot."""
     ledger = ApprovalLedger(frozenset({"reminders.update"}))
@@ -207,7 +287,12 @@ def test_aged_malformed_records_are_reclaimed_but_fresh_corruption_is_preserved(
     age = time.time() - 601
     for index in range(256):
         path = directory / (f"{index:043d}" + ".pending.json")
-        path.write_text("incomplete", encoding="utf-8")
+        content = (
+            json.dumps({"request_id": f"{index:043d}", "expires_at": None})
+            if index == 1
+            else "incomplete"
+        )
+        path.write_text(content, encoding="utf-8")
         path.chmod(0o600)
         if index:
             os.utime(path, (age, age))

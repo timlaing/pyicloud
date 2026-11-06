@@ -211,6 +211,8 @@ class ContentReads:
             ):
                 return self._empty_download(resource, offset)
             state = self._download_state(f"{service}:{handle}:{version}", resource)
+            if offset == 0:
+                state.etag = None
             if offset and state.etag is None:
                 raise ToolFailure("download_requires_strong_etag")
             headers = {"Range": f"bytes={offset}-{offset + maximum - 1}"}
@@ -256,7 +258,10 @@ class ContentReads:
         if service == "drive":
             filename = text(resource.name)
             response = resource.open(
-                stream=True, headers=headers, allow_redirects=False
+                stream=True,
+                headers=headers,
+                allow_redirects=False,
+                download_url_validator=resource_url,
             )
         else:
             filename = text(resource.filename)
