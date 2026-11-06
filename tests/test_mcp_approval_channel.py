@@ -43,6 +43,8 @@ def approval_preview(ledger: ApprovalLedger) -> Any:
         (True, False),
         (float("nan"), False),
         (float("inf"), False),
+        (10**400, False),
+        (-(10**400), False),
         (0, True),
         (9.0, True),
         (20.0, False),
@@ -164,7 +166,7 @@ def test_explicit_decline_releases_pending_record(directory: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "deadline", [None, True, float("nan"), float("inf"), "invalid"]
+    "deadline", [None, True, float("nan"), float("inf"), "invalid", 10**400, -(10**400)]
 )
 def test_unusable_deadlines_cannot_be_published_or_decided(
     directory: Path, deadline: Any
@@ -280,15 +282,17 @@ def test_failed_write_does_not_remove_replacement_inode(directory: Path) -> None
     assert path.read_text(encoding="utf-8") == "replacement"
 
 
+@pytest.mark.parametrize("deadline", [None, 10**400, -(10**400)])
 def test_aged_malformed_records_are_reclaimed_but_fresh_corruption_is_preserved(
     directory: Path,
+    deadline: Any,
 ) -> None:
     """Only old private single-link regular records can be reclaimed after a crash."""
     age = time.time() - 601
     for index in range(256):
         path = directory / (f"{index:043d}" + ".pending.json")
         content = (
-            json.dumps({"request_id": f"{index:043d}", "expires_at": None})
+            json.dumps({"request_id": f"{index:043d}", "expires_at": deadline})
             if index == 1
             else "incomplete"
         )

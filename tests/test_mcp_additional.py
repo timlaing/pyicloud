@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from mcp.types import CallToolResult
 import pytest
@@ -91,6 +91,34 @@ def test_drive_search_only_stores_supported_resource_kinds(kind: str) -> None:
         assert result is not None
         expected = "drive-file" if kind == "file" else "drive-folder"
         assert tools.resolve(expected, result["handle"]) is item
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("service", ["drive", "photos", "notes"])
+async def test_search_only_accesses_the_selected_service(service: str) -> None:
+    """An unavailable Notes property cannot interrupt Drive or Photos searches."""
+    client = MagicMock()
+    tools = adapters(client)
+    client.drive.root = SimpleNamespace(
+        type="folder", get_children=lambda **_kwargs: []
+    )
+    handle = tools.remember("photo-album", []) if service == "photos" else ""
+    notes = SimpleNamespace(iter_all=MagicMock(return_value=iter([])))
+    with patch.object(
+        type(client), "notes", new_callable=PropertyMock, create=True
+    ) as lookup:
+        if service == "notes":
+            lookup.return_value = notes
+        else:
+            lookup.side_effect = AssertionError("Unselected Notes service was accessed")
+        result = await tools.search(service, handle, "match", 10, 10)
+    assert result.error is None
+    if service == "notes":
+        lookup.assert_called_once_with()
+        notes.iter_all.assert_called_once_with()
+    else:
+        lookup.assert_not_called()
+        notes.iter_all.assert_not_called()
 
 
 @pytest.mark.asyncio

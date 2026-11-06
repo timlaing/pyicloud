@@ -48,6 +48,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Keep MCP Drive and Photos searches independent of Notes availability, and safely reject oversized integer approval deadlines during publication, operator decisions and cleanup.
+
 - Coordinate private MCP mailbox operations across processes, reject unusable persisted deadlines and excessive payload nesting, reset entity tags for fresh downloads, and validate Drive token URLs before credential-bearing download requests.
 - Preserve wall-clock approval deadlines across restarts/reboots, bind displayed risk before receipt consumption, reclaim aged malformed private records safely, and avoid issuing unusable handles for unsupported Drive search types.
 - Refresh cached zero-size Drive metadata before returning an empty response, so stale sizes cannot hide file contents; this adds a metadata request for cached empty files with a Drive ID, while legacy empty nodes without an ID remain readable. Missing or null refreshed sizes are rejected before download.

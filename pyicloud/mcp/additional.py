@@ -384,13 +384,15 @@ class AdditionalReads:
             return ReadResult(error="invalid_argument")
 
         def read(client: Any) -> ReadResult:
-            sources: dict[str, Callable[[], Iterable[Any]]] = {
-                "notes": client.notes.iter_all,
-                "photos": lambda: self._get("photo-album", handle),
-                "drive": lambda: self._drive_search_nodes(client, handle),
-            }
+            source: Iterable[Any]
+            if service == "notes":
+                source = client.notes.iter_all()
+            elif service == "photos":
+                source = self._get("photo-album", handle)
+            else:
+                source = self._drive_search_nodes(client, handle)
             records = []
-            with window(sources[service](), scan_limit) as items:
+            with window(source, scan_limit) as items:
                 for item in items:
                     record = self._search_record(service, item, query)
                     if record is not None:

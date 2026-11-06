@@ -28,21 +28,19 @@ APPROVED_SUFFIX = ".approved.json"
 
 def stale_deadline(expires: Any, now: float) -> bool:
     """Recognize elapsed deadlines or values impossible under the 600-second bound."""
-    return (
-        isinstance(expires, (int, float))
-        and not isinstance(expires, bool)
-        and math.isfinite(expires)
-        and (expires <= now or expires > now + 600)
-    )
+    return valid_deadline(expires) and (expires <= now or expires > now + 600)
 
 
 def valid_deadline(expires: Any) -> bool:
     """Persisted authorization requires a finite, non-boolean numeric deadline."""
-    return (
-        isinstance(expires, (int, float))
-        and not isinstance(expires, bool)
-        and math.isfinite(expires)
-    )
+    try:
+        return (
+            isinstance(expires, (int, float))
+            and not isinstance(expires, bool)
+            and math.isfinite(expires)
+        )
+    except OverflowError:
+        return False
 
 
 def approval_base_directory() -> str:
