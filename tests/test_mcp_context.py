@@ -12,7 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from requests import PreparedRequest, Response
+from requests import PreparedRequest, Response, Session
 from requests.exceptions import ChunkedEncodingError, Timeout
 from requests.exceptions import ConnectionError as RequestConnectionError
 from urllib3.exceptions import ReadTimeoutError
@@ -240,8 +240,54 @@ async def test_client_construction_is_lazy_and_private() -> None:
         try:
             assert await owner.run(lambda _: "safe") == "safe"
             assert factory.call_args.kwargs["authenticate"] is False
-            assert client.session.mount.call_count == 2
+            assert client.session.mount.call_count == 3
         finally:
+            await owner.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redirect", [False, True])
+async def test_real_session_rejects_http_directly_and_after_redirect(
+    redirect: bool,
+) -> None:
+    """Requests must select the bounded adapter instead of its default HTTP adapter."""
+    directory = MagicMock()
+    directory.resolve.return_value = directory
+    directory.is_dir.return_value = True
+    directory.stat.return_value = SimpleNamespace(st_mode=0o700)
+    client = MagicMock()
+    client.session = Session()
+    client.session.trust_env = False
+    owner = SessionOwner(configuration())
+    with (
+        patch("pyicloud.mcp.context.Path", return_value=directory),
+        patch("pyicloud.mcp.context.PyiCloudService", return_value=client),
+    ):
+        try:
+            owner._create_client()
+            assert (
+                client.session.get_adapter("http://example.invalid/") is owner._adapter
+            )
+            assert (
+                client.session.get_adapter("https://example.invalid/") is owner._adapter
+            )
+            response = Response()
+            response.status_code = 302
+            response.headers["Location"] = "http://example.invalid/"
+            vars(response).update(_content=b"", _content_consumed=True)
+            url = "https://example.invalid/" if redirect else "http://example.invalid/"
+            response.request = PreparedRequest()
+            response.request.prepare(method="GET", url=url)
+            with (
+                patch(
+                    "requests.adapters.HTTPAdapter.send", return_value=response
+                ) as send,
+                pytest.raises(ToolFailure, match="insecure_transport"),
+            ):
+                client.session.get(url, allow_redirects=True)
+            assert send.call_count == int(redirect)
+        finally:
+            client.session.close()
             await owner.close()
 
 

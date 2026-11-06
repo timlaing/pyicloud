@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Route plaintext MCP requests and HTTPS-to-HTTP redirects through the bounded adapter so they are rejected before plaintext dispatch.
+
 - Bind operator-visible MCP approval content to the live ledger before accepting a receipt, reject blocking special files, disable service login recovery on saved-session owners, require valid strong download entity tags and reject retry-enabled registration transports.
 
 - Redact signed URL queries, user information and numeric account IDs from session request debug logs without changing the URLs sent to Apple or public request errors.
@@ -47,6 +49,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
+
+- Document and test fail-closed refresh behavior for identified cached empty Drive files: refresh errors propagate without returning unverified empty content or attempting a fallback download.
 
 - Keep MCP Drive and Photos searches independent of Notes availability, and safely reject oversized integer approval deadlines during publication, operator decisions and cleanup.
 

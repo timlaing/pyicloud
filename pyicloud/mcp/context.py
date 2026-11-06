@@ -301,8 +301,9 @@ class SessionOwner:
         )
         self._adapter = BoundedAdapter(self.config.timeout)
         client.session.mount("https://", self._adapter)
-        # The broad prefix also intercepts plaintext requests, which send rejects.
+        # Replace the default plaintext adapter; retain the broad fallback too.
         client.session.mount("http", self._adapter)
+        client.session.mount("http://", self._adapter)
         return client
 
     @staticmethod

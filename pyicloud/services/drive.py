@@ -550,7 +550,7 @@ class DriveNode:
         )
 
     def _is_empty_file(self) -> bool:
-        """Refresh cached zero sizes before taking the no-download shortcut."""
+        """Verify identified zero sizes; propagate refresh errors without fallback."""
         size = self.data.get("size")
         if isinstance(size, bool) or size not in (0, "0"):
             return False
