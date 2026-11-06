@@ -4,7 +4,10 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from pyicloud import PyiCloudService
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.services.account import AccountService, AccountStorageUsage
 
 
@@ -167,3 +170,119 @@ def test_summary_plan(
         pyicloud_service_working.account._gateway_summary_plan_url,
         params=pyicloud_service_working.account.params,
     )
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_refresh_storage(mock_session: MagicMock, cached: bool) -> None:
+    """Explicit refresh replaces the snapshot and subsequent reads stay cached."""
+    service = AccountService(
+        "https://example.com", mock_session, False, {"dsid": "123"}
+    )
+    mock_session.post.return_value.json.return_value = {
+        "storageUsageInfo": {"usedStorageInBytes": 10, "totalStorageInBytes": 100},
+        "storageUsageByMedia": [
+            {"mediaKey": "photos", "usageInBytes": 10},
+        ],
+    }
+    if cached:
+        previous = service.storage
+        assert service.storage is previous
+        mock_session.post.assert_called_once()
+    mock_session.post.reset_mock()
+    mock_session.post.return_value.json.return_value = {
+        "storageUsageInfo": {"usedStorageInBytes": 20, "totalStorageInBytes": 200},
+        "storageUsageByMedia": [
+            {"mediaKey": "docs", "usageInBytes": 20},
+        ],
+    }
+
+    current = service.refresh_storage()
+
+    assert current.usage.used_storage_in_bytes == 20
+    assert current.usage.total_storage_in_bytes == 200
+    assert set(current.usages_by_media) == {"docs"}
+    assert service.storage is current
+    mock_session.post.assert_called_once_with(
+        "https://example.com/setup/ws/1/storageUsageInfo", params={"dsid": "123"}
+    )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["request", "json", "storage"],
+)
+def test_refresh_storage_failure(mock_session: MagicMock, failure: str) -> None:
+    """Failed refreshes propagate errors without discarding the cached snapshot."""
+    service = AccountService("https://example.com", mock_session, False, {})
+    mock_session.post.return_value.json.return_value = {
+        "storageUsageInfo": {"usedStorageInBytes": 10, "totalStorageInBytes": 100},
+    }
+    previous = service.storage
+    errors = {
+        "request": PyiCloudAPIResponseException("Storage unavailable"),
+        "json": ValueError("Invalid JSON"),
+        "storage": KeyError("mediaKey"),
+    }
+    error = errors[failure]
+    if failure == "request":
+        mock_session.post.side_effect = error
+    elif failure == "json":
+        mock_session.post.return_value.json.side_effect = error
+    else:
+        mock_session.post.return_value.json.return_value = {"storageUsageByMedia": [{}]}
+
+    with pytest.raises(type(error)):
+        service.refresh_storage()
+
+    assert service.storage is previous
+    assert previous.usage.used_storage_in_bytes == 10
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        {},
+        {"usedStorageInBytes": 10},
+        {"totalStorageInBytes": 100},
+        {"usedStorageInBytes": None, "totalStorageInBytes": 100},
+        {"usedStorageInBytes": 10, "totalStorageInBytes": "100"},
+        {"usedStorageInBytes": True, "totalStorageInBytes": 100},
+        {"usedStorageInBytes": 10, "totalStorageInBytes": -1},
+    ],
+)
+def test_malformed_refresh_preserves_cache(
+    mock_session: MagicMock, cached: bool, usage: dict[str, object] | None
+) -> None:
+    """Lazy usage fields must be valid before a refresh replaces the snapshot."""
+    service = AccountService("https://example.com", mock_session, False, {})
+    mock_session.post.return_value.json.return_value = {
+        "storageUsageInfo": {"usedStorageInBytes": 10, "totalStorageInBytes": 100}
+    }
+    previous = service.storage if cached else None
+    mock_session.post.return_value.json.return_value = (
+        {} if usage is None else {"storageUsageInfo": usage}
+    )
+    with pytest.raises((KeyError, ValueError)):
+        service.refresh_storage()
+    assert service._storage is previous
+    if previous is not None:
+        assert service.storage is previous
+        assert previous.usage.used_storage_in_bytes == 10
+
+
+def test_zero_usage_and_over_quota_refresh_are_valid(mock_session: MagicMock) -> None:
+    """Valid zero-byte and over-quota values are not rejected by cache validation."""
+    service = AccountService("https://example.com", mock_session, False, {})
+    for used, total in [(0, 0), (200, 100)]:
+        mock_session.post.return_value.json.return_value = {
+            "storageUsageInfo": {
+                "usedStorageInBytes": used,
+                "totalStorageInBytes": total,
+            }
+        }
+        current = service.refresh_storage()
+        assert current.usage.used_storage_in_bytes == used
+        assert current.usage.total_storage_in_bytes == total
+        assert service.storage is current

@@ -27,6 +27,20 @@ You can get the storage information of your iCloud account using the `account.st
 {usage: 85.12% used of 53687091200 bytes, usages_by_media: {'photos': <AccountStorageUsageForMedia: {key: photos, usage: 41785285900 bytes}>, 'backup': <AccountStorageUsageForMedia: {key: backup, usage: 27250085 bytes}>, 'docs': <AccountStorageUsageForMedia: {key: docs, usage: 3810332430 bytes}>, 'mail': <AccountStorageUsageForMedia: {key: mail, usage: 26208942 bytes}>, 'messages': <AccountStorageUsageForMedia: {key: messages, usage: 1379351 bytes}>}}
 ```
 
+The property caches its first result. For periodic monitoring, explicitly fetch a
+new snapshot with `refresh_storage()`:
+
+```python
+storage = api.account.refresh_storage()
+print(storage.usage.used_storage_in_bytes)
+```
+
+A successful refresh replaces the cached value returned by `account.storage`.
+Request and parsing errors propagate to the caller and leave the previous cache
+intact. Existing references to an older snapshot remain unchanged.
+Missing usage fields raise `KeyError`; byte counts that are not non-negative
+integers raise `ValueError`. Neither error replaces an existing cached snapshot.
+
 You even can generate a pie chart:
 
 ```python
