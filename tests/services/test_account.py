@@ -236,3 +236,53 @@ def test_refresh_storage_failure(mock_session: MagicMock, failure: str) -> None:
 
     assert service.storage is previous
     assert previous.usage.used_storage_in_bytes == 10
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        {},
+        {"usedStorageInBytes": 10},
+        {"totalStorageInBytes": 100},
+        {"usedStorageInBytes": None, "totalStorageInBytes": 100},
+        {"usedStorageInBytes": 10, "totalStorageInBytes": "100"},
+        {"usedStorageInBytes": True, "totalStorageInBytes": 100},
+        {"usedStorageInBytes": 10, "totalStorageInBytes": -1},
+    ],
+)
+def test_malformed_refresh_preserves_cache(
+    mock_session: MagicMock, cached: bool, usage: dict[str, object] | None
+) -> None:
+    """Lazy usage fields must be valid before a refresh replaces the snapshot."""
+    service = AccountService("https://example.com", mock_session, False, {})
+    mock_session.post.return_value.json.return_value = {
+        "storageUsageInfo": {"usedStorageInBytes": 10, "totalStorageInBytes": 100}
+    }
+    previous = service.storage if cached else None
+    mock_session.post.return_value.json.return_value = (
+        {} if usage is None else {"storageUsageInfo": usage}
+    )
+    with pytest.raises((KeyError, ValueError)):
+        service.refresh_storage()
+    assert service._storage is previous
+    if previous is not None:
+        assert service.storage is previous
+        assert previous.usage.used_storage_in_bytes == 10
+
+
+def test_zero_usage_and_over_quota_refresh_are_valid(mock_session: MagicMock) -> None:
+    """Valid zero-byte and over-quota values are not rejected by cache validation."""
+    service = AccountService("https://example.com", mock_session, False, {})
+    for used, total in [(0, 0), (200, 100)]:
+        mock_session.post.return_value.json.return_value = {
+            "storageUsageInfo": {
+                "usedStorageInBytes": used,
+                "totalStorageInBytes": total,
+            }
+        }
+        current = service.refresh_storage()
+        assert current.usage.used_storage_in_bytes == used
+        assert current.usage.total_storage_in_bytes == total
+        assert service.storage is current

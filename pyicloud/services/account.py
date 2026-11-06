@@ -97,6 +97,16 @@ class AccountService(BaseService):
         """
         response = self.session.post(self._acc_storage_url, params=self.params)
         storage = AccountStorage(response.json())
+        # Usage properties are lazy: require their essential fields before caching.
+        usage_bytes = (
+            storage.usage.used_storage_in_bytes,
+            storage.usage.total_storage_in_bytes,
+        )
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in usage_bytes
+        ):
+            raise ValueError("Invalid account storage usage")
         self._storage = storage
         return storage
 

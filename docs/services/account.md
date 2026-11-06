@@ -38,6 +38,8 @@ print(storage.usage.used_storage_in_bytes)
 A successful refresh replaces the cached value returned by `account.storage`.
 Request and parsing errors propagate to the caller and leave the previous cache
 intact. Existing references to an older snapshot remain unchanged.
+Missing usage fields raise `KeyError`; byte counts that are not non-negative
+integers raise `ValueError`. Neither error replaces an existing cached snapshot.
 
 You even can generate a pie chart:
 
