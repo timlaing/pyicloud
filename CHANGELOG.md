@@ -126,6 +126,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Distinguish unverified Calendar read-back from uncertain transport outcomes; both retire approval without permitting replay.
 - Bound exact deletion preview titles to 4,096 UTF-8 bytes and reject unsafe Calendar/event URL-path identifiers before authenticated reads.
 - Add explicitly selected MCP Reminders discovery/read tools and the existing guarded create/update/soft-delete adapter; runtime write-tool wiring remains in the final integration slice.
+- Preserve live Reminders approval targets while pruning retired requests, and require a matching acknowledgement-derived new change tag before reporting update or soft-delete success. Missing acknowledgements remain uncertain and non-retryable.
 
 - Add shared MCP read projections, opaque handle storage, independent approval primitives, bounded staging/transports and explicit service registration infrastructure; service tools and runtime writes are supplied by dependent integration slices.
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.

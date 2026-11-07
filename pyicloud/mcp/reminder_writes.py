@@ -157,14 +157,36 @@ class ReminderWrites:
                 resource_binding=resource,
                 revision=revision,
             )
-            if len(self._targets) >= 256:
-                del self._targets[next(iter(self._targets))]
+            self._prune_targets()
             self._targets[result.request_id] = target
             if publish is not None:
                 publish(result)
             return result
 
         return await self.reads.owner.run(prepare)
+
+    def _prune_targets(self) -> None:
+        """Discard retired entries without evicting any live ledger request."""
+        pending = self.approvals._pending  # pylint: disable=protected-access
+        self._targets = {
+            key: target for key, target in self._targets.items() if key in pending
+        }
+
+    def _consume(
+        self, request_id: str, account: str, resource: str, revision: str | None
+    ) -> MutationPreview:
+        """Preserve requests awaiting approval, retire terminal ledger denials."""
+        try:
+            return self.approvals.consume(
+                request_id,
+                account_binding=account,
+                resource_binding=resource,
+                revision=revision,
+            )
+        except WriteDenied as error:
+            if str(error) != "operator_approval_required":
+                self._targets.pop(request_id, None)
+            raise
 
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
@@ -181,12 +203,7 @@ class ReminderWrites:
             )
             if accept is not None:
                 accept(request_id)
-            approved = self.approvals.consume(
-                request_id,
-                account_binding=account,
-                resource_binding=resource,
-                revision=revision,
-            )
+            approved = self._consume(request_id, account, resource, revision)
             del self._targets[request_id]
             try:
                 return self._dispatch(client, fresh, reminder, approved)
@@ -214,6 +231,7 @@ class ReminderWrites:
             return {"id": created.id, "action": approved.action}
         if reminder is None:
             raise WriteDenied("target_unavailable")
+        previous_tag = reminder.record_change_tag
         if approved.action == REMINDERS_DELETE:
             client.reminders.delete(reminder)
         else:
@@ -224,4 +242,11 @@ class ReminderWrites:
             if "completed" in data:
                 reminder.completed = data["completed"]
             client.reminders.update(reminder)
+        # The core writer refreshes this only from a matching typed modify record.
+        if (
+            not isinstance(reminder.record_change_tag, str)
+            or not reminder.record_change_tag
+            or reminder.record_change_tag == previous_tag
+        ):
+            raise WriteDenied("mutation_uncertain")
         return {"id": reminder.id, "action": approved.action}

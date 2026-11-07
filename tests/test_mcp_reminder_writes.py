@@ -90,6 +90,12 @@ async def test_prepare_is_read_only_and_approved_dispatch_is_single_use(
     with pytest.raises(WriteDenied, match="operator_approval_required"):
         await writes.apply(item.request_id)
     writes.approvals.approve_from_operator(item.request_id, item.digest)
+
+    def acknowledged(target: Reminder) -> None:
+        target.record_change_tag = "R2"
+
+    client.reminders.update.side_effect = acknowledged
+    client.reminders.delete.side_effect = acknowledged
     result = await writes.apply(item.request_id)
     assert result["id"] == reminder.id
     if action == "create":
@@ -131,6 +137,56 @@ async def test_stale_scope_or_revision_never_dispatches(change: str) -> None:
     with pytest.raises(WriteDenied):
         await writes.apply(item.request_id)
     client.reminders.update.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["update", "delete"])
+async def test_missing_modify_acknowledgement_is_uncertain_and_single_use(
+    action: str,
+) -> None:
+    """Empty/unrelated modify responses cannot masquerade as acknowledged success."""
+    writes, client, _context, _reminder = writer()
+    data = {"title": "After"} if action == "update" else {}
+    preview = await writes.prepare("reminders." + action, "H", data, "R")
+    writes.approvals.approve_from_operator(preview.request_id, preview.digest)
+    with pytest.raises(WriteDenied, match="mutation_uncertain"):
+        await writes.apply(preview.request_id)
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writes.apply(preview.request_id)
+    assert getattr(client.reminders, action).call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retired_targets_do_not_evict_live_approvals() -> None:
+    """Repeated stale approvals leave the oldest live target available to dispatch."""
+    writes, client, _context, reminder = writer()
+    first = await writes.prepare("reminders.update", "H", {"title": "First"}, "R")
+    for _ in range(256):
+        later = await writes.prepare("reminders.update", "H", {"title": "Later"}, "R")
+        writes.approvals.approve_from_operator(later.request_id, later.digest)
+        reminder.record_change_tag = "R2"
+        with pytest.raises(WriteDenied, match="stale_preview"):
+            await writes.apply(later.request_id)
+        reminder.record_change_tag = "R1"
+    assert first.request_id in writes._targets
+    assert len(writes._targets) == 1
+    writes.approvals.approve_from_operator(first.request_id, first.digest)
+
+    def acknowledged(target: Reminder) -> None:
+        target.record_change_tag = "R3"
+
+    client.reminders.update.side_effect = acknowledged
+    assert (await writes.apply(first.request_id))["id"] == "R"
+
+
+@pytest.mark.asyncio
+async def test_prepare_prunes_targets_already_retired_from_ledger() -> None:
+    """Pruning preserves live previews while removing externally retired entries."""
+    writes, _client, _context, _reminder = writer()
+    retired = await writes.prepare("reminders.update", "H", {"title": "Before"}, "R")
+    writes.approvals._pending.pop(retired.request_id)
+    live = await writes.prepare("reminders.update", "H", {"title": "After"}, "R")
+    assert set(writes._targets) == {live.request_id}
 
 
 @pytest.mark.asyncio
