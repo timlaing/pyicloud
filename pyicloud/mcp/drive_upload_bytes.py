@@ -1,0 +1,207 @@
+"""Existing Drive reservation/multipart/commit contract using staged bytes only."""
+
+# Reuse the existing operation-local cookie-token accessor, never expose credentials.
+# pylint: disable=protected-access
+
+from __future__ import annotations
+
+import hashlib
+import mimetypes
+import time
+from typing import Any
+from urllib.parse import urlencode, urlsplit
+
+from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
+from pyicloud.services.drive import CLOUD_DOCS_ZONE
+
+from .authorization import WriteDenied
+from .upload_staging import StagedUpload
+from .upload_transport import UploadTransport, checked_upload_url
+
+
+def _success_status(status: Any) -> bool:
+    """Recognize explicit commit success without interpreting boolean codes."""
+    if status == "OK":
+        return True
+    return (
+        isinstance(status, dict)
+        and isinstance(status.get("status_code"), int)
+        and not isinstance(status.get("status_code"), bool)
+        and status["status_code"] == 0
+    )
+
+
+def _commit_matches(response: Any, document_id: str) -> bool:
+    """Require one successful result correlated with the reserved document ID."""
+    if not isinstance(response, dict) or not _success_status(response.get("status")):
+        return False
+    results = response.get("results")
+    if (
+        not isinstance(results, list)
+        or len(results) != 1
+        or not isinstance(results[0], dict)
+    ):
+        return False
+    result = results[0]
+    document = result.get("document")
+    return (
+        _success_status(result.get("status"))
+        and isinstance(document, dict)
+        and document.get("document_id") == document_id
+    )
+
+
+def _validate_stage(stage: StagedUpload, modified_ms: int) -> None:
+    """Require unchanged, unexpired bounded bytes and a strict timestamp."""
+    if (
+        not isinstance(stage, StagedUpload)
+        or not isinstance(stage.data, bytes)
+        or not 0 <= stage.size <= 4 * 1024 * 1024
+        or len(stage.data) != stage.size
+        or hashlib.sha256(stage.data).hexdigest() != stage.sha256
+        or stage.expires_at <= time.monotonic()
+        or isinstance(modified_ms, bool)
+        or not isinstance(modified_ms, int)
+        or modified_ms < 0
+    ):
+        raise WriteDenied("invalid_upload_bytes")
+
+
+def _receipt_data(response: Any, size: int) -> dict[str, Any]:
+    """Validate the exact transfer receipt before constructing commit data."""
+    receipt = response.get("singleFile") if isinstance(response, dict) else None
+    if (
+        not isinstance(receipt, dict)
+        or isinstance(receipt.get("size"), bool)
+        or receipt.get("size") != size
+        or not all(
+            isinstance(receipt.get(key), str) and receipt[key]
+            for key in ("fileChecksum", "wrappingKey", "referenceChecksum")
+        )
+    ):
+        raise WriteDenied("upload_outcome_uncertain")
+    if size and (not isinstance(receipt.get("receipt"), str) or not receipt["receipt"]):
+        raise WriteDenied("upload_outcome_uncertain")
+    data = {
+        "signature": receipt["fileChecksum"],
+        "wrapping_key": receipt["wrappingKey"],
+        "reference_signature": receipt["referenceChecksum"],
+        "size": size,
+    }
+    if receipt.get("receipt"):
+        data["receipt"] = receipt["receipt"]
+    return data
+
+
+def _reservation_target(reservation: Any) -> tuple[str, str]:
+    """Require one bounded allocation identity and a typed transfer target."""
+    if (
+        not isinstance(reservation, list)
+        or len(reservation) != 1
+        or not isinstance(reservation[0], dict)
+    ):
+        raise WriteDenied("upload_outcome_uncertain")
+    allocation, target = reservation[0].get("document_id"), reservation[0].get("url")
+    if (
+        not isinstance(allocation, str)
+        or not allocation
+        or len(allocation) > 512
+        or not isinstance(target, str)
+    ):
+        raise WriteDenied("upload_outcome_uncertain")
+    return allocation, target
+
+
+class DriveUploadBytes:
+    """One existing upload flow; acknowledged commit is not final file identity."""
+
+    def __init__(self, transport: UploadTransport, timeout: float = 30) -> None:
+        self.transport = transport
+        self.timeout = timeout
+
+    def upload(
+        self, drive: Any, folder_id: str, stage: StagedUpload, *, modified_ms: int
+    ) -> None:
+        """Snapshot upload credentials and send exact bytes with no filesystem paths."""
+        root = drive.document_root
+        if not isinstance(root, str) or not root:
+            raise WriteDenied("unsupported_upload_route")
+        parsed = urlsplit(root)
+        hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
+        checked_upload_url(root, hosts)
+        if parsed.query or not isinstance(folder_id, str) or not folder_id:
+            raise WriteDenied("unsupported_upload_route")
+        _validate_stage(stage, modified_ms)
+        params = dict(drive.params)
+        if (
+            not isinstance(stage.name, str)
+            or not stage.name
+            or stage.name in {".", ".."}
+            or len(stage.name.encode()) > 255
+            or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in stage.name)
+        ):
+            raise WriteDenied("invalid_upload_bytes")
+        credentials = drive._get_token_from_cookie()
+        if (
+            not isinstance(credentials, dict)
+            or set(credentials) != {"token"}
+            or not isinstance(credentials["token"], str)
+            or not credentials["token"]
+        ):
+            raise WriteDenied("upload_credentials_unavailable")
+        params.update(credentials)
+        deadline = time.monotonic() + self.timeout
+
+        def url(path: str) -> str:
+            return (
+                root.rstrip("/")
+                + "/ws/"
+                + CLOUD_DOCS_ZONE
+                + path
+                + "?"
+                + urlencode(params)
+            )
+
+        try:
+            reservation = self.transport.register(
+                drive.session,
+                url("/upload/web"),
+                hosts,
+                {
+                    "filename": stage.name,
+                    "type": "FILE",
+                    "content_type": mimetypes.guess_type(stage.name)[0] or "",
+                    "size": stage.size,
+                },
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+            )
+            allocation, target = _reservation_target(reservation)
+            response = self.transport.transfer(
+                target, stage.data, deadline=deadline, multipart_name=stage.name
+            )
+            data = _receipt_data(response, stage.size)
+            committed = self.transport.register(
+                drive.session,
+                url("/update/documents"),
+                hosts,
+                {
+                    "data": data,
+                    "command": "add_file",
+                    "create_short_guid": True,
+                    "document_id": allocation,
+                    "path": {"starting_document_id": folder_id, "path": stage.name},
+                    "allow_conflict": True,
+                    "file_flags": {
+                        "is_writable": True,
+                        "is_executable": False,
+                        "is_hidden": False,
+                    },
+                    "mtime": modified_ms,
+                    "btime": modified_ms,
+                },
+                headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+            )
+            if not _commit_matches(committed, allocation):
+                raise WriteDenied("upload_outcome_uncertain")
+        except Exception:
+            raise WriteDenied("upload_outcome_uncertain") from None

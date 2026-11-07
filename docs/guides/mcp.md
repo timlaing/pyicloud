@@ -15,6 +15,13 @@ prove the requested result) from `mutation_uncertain` (dispatch or read-back
 failed, including HTTP 410). Both retire the approval and prohibit replay;
 neither result proves success or that retrying the mutation is safe.
 
+This Drive slice adds explicitly configured SDK metadata, Trash discovery,
+bounded name search and separately opted-in version-bound downloads. Existing
+write/upload adapters retain exact independent receipts and uncertain/no-replay
+outcomes, but remain internal until final runtime integration. The launcher
+retains offline local status and capabilities; this slice exposes no write or
+approval tool.
+
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
 development tooling. The standalone CLI extra remains `pyicloud[cli]`.
