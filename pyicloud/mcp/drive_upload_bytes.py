@@ -133,11 +133,17 @@ class DriveUploadBytes:
             raise WriteDenied("unsupported_upload_route")
         _validate_stage(stage, modified_ms)
         params = dict(drive.params)
+        try:
+            name_size = (
+                len(stage.name.encode("utf-8")) if isinstance(stage.name, str) else 0
+            )
+        except UnicodeEncodeError:
+            raise WriteDenied("invalid_upload_bytes") from None
         if (
             not isinstance(stage.name, str)
             or not stage.name
             or stage.name in {".", ".."}
-            or len(stage.name.encode()) > 255
+            or name_size > 255
             or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in stage.name)
         ):
             raise WriteDenied("invalid_upload_bytes")
@@ -174,6 +180,7 @@ class DriveUploadBytes:
                     "size": stage.size,
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+                deadline=deadline,
             )
             allocation, target = _reservation_target(reservation)
             response = self.transport.transfer(
@@ -200,6 +207,7 @@ class DriveUploadBytes:
                     "btime": modified_ms,
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+                deadline=deadline,
             )
             if not _commit_matches(committed, allocation):
                 raise WriteDenied("upload_outcome_uncertain")

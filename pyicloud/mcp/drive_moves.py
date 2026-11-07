@@ -38,9 +38,7 @@ class DriveMoves(DriveWrites):
         ):
             raise WriteDenied("unsupported_target")
         self._collision(source, destination)
-        destination = self._validated_node(client, targets[1], destination.data)
-        if destination.type != "folder" or destination.data.get("restorePath"):
-            raise WriteDenied("unsupported_target")
+        destination = self._checked_destination(client, targets[1], destination)
         account, source_resource, source_revision = self._bindings(
             client, targets[0], source
         )
@@ -96,6 +94,15 @@ class DriveMoves(DriveWrites):
 
         return await self.additional.reads.owner.run(prepare)
 
+    def _checked_destination(
+        self, client: Any, target: DriveTarget, destination: DriveNode
+    ) -> DriveNode:
+        """Apply the same complete destination guard after every child refresh."""
+        current = self._validated_node(client, target, destination.data)
+        if current.type != "folder" or current.data.get("restorePath"):
+            raise WriteDenied("unsupported_target")
+        return current
+
     def _collision(self, source: DriveNode, destination: DriveNode) -> None:
         children = destination.get_children(force=True)
         if any(
@@ -142,6 +149,9 @@ class DriveMoves(DriveWrites):
                     for child in current_destination.get_children(force=True)
                     if child.data.get("drivewsid") == targets[0].identifier
                 ]
+                current_destination = self._checked_destination(
+                    client, targets[1], current_destination
+                )
                 if (
                     current_account != account
                     or json.loads(current_resource)[:2] != json.loads(resource)[:2]

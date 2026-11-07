@@ -37,7 +37,18 @@ class DriveDeletions(DriveWrites):
             for child in client.drive.trash.get_children(force=True)
             if child.data.get("drivewsid") == target.identifier
         ]
-        if len(members) != 1:
+        if len(members) != 1 or any(
+            members[0].data.get(field) != node.data.get(field)
+            for field in (
+                "drivewsid",
+                "etag",
+                "restorePath",
+                "name",
+                "zone",
+                "parentId",
+                "type",
+            )
+        ):
             raise WriteDenied("target_unavailable")
         account, resource, revision = self._bindings(client, target, node)
         resource = json.dumps(

@@ -67,6 +67,14 @@ outcomes, but remain internal until final runtime integration. The launcher
 retains offline local status and capabilities; this slice exposes no write or
 approval tool.
 
+Drive upload reservation and commit share one enforced deadline. Unsupported
+custom transports are refused before registration dispatch. Before upload, the
+selected destination must retire successfully after approval validation but
+before approval and staged bytes are consumed; a failed retirement preserves
+both. Rename retires its selected source before dispatch, so uncertain outcomes
+require rediscovery rather than reusing stale names. Permanent deletion compares
+Trash listing metadata with the independently fetched detail snapshot.
+
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
 development tooling. The standalone CLI extra remains `pyicloud[cli]`.

@@ -29,6 +29,7 @@ from tests.test_mcp_upload_previews import setup_upload
         "root",
         "query",
         "name",
+        "surrogate",
         "allocation",
         "receipt_token",
     ],
@@ -57,6 +58,8 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
         stage = replace(stage, expires_at=0)
     if case == "name":
         stage = replace(stage, name="../file")
+    if case == "surrogate":
+        stage = replace(stage, name="\ud800")
     if case == "credentials":
         drive._get_token_from_cookie.return_value = {}  # pylint: disable=protected-access
     transport.register.side_effect = [
@@ -108,6 +111,11 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
             assert commit.args[3]["mtime"] == commit.args[3]["btime"] == 1000
             assert commit.args[3]["allow_conflict"] is True
             assert transport.transfer.call_args.kwargs["multipart_name"] == "file.txt"
+            assert all(
+                call.kwargs["deadline"]
+                == transport.transfer.call_args.kwargs["deadline"]
+                for call in transport.register.call_args_list
+            )
         else:
             with pytest.raises(WriteDenied):
                 uploader.upload(drive, "folder-document", stage, modified_ms=1000)

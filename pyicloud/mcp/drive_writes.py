@@ -33,6 +33,7 @@ class DriveWrites:
         self.ledger = ledger
         self._targets: dict[str, DriveTarget] = {}
         self._actions: dict[str, str] = {}
+        self._sources: dict[str, tuple[str, str]] = {}
 
     def _fresh(self, client: Any, target: DriveTarget) -> DriveNode:
         data = client.drive.get_node_data(target.identifier)
@@ -64,6 +65,13 @@ class DriveWrites:
     ) -> tuple[str, str, str]:
         account = client.params.get("dsid")
         if account is None or isinstance(account, bool):
+            raise WriteDenied("account_unavailable")
+        drive_account = client.drive.params.get("dsid")
+        if (
+            drive_account is None
+            or isinstance(drive_account, bool)
+            or str(drive_account) != str(account)
+        ):
             raise WriteDenied("account_unavailable")
         route = client.drive.service_root
         if not isinstance(route, str) or not route:
@@ -128,8 +136,13 @@ class DriveWrites:
                 oldest = next(iter(self._targets))
                 del self._targets[oldest]
                 self._actions.pop(oldest, None)
+                self._sources.pop(oldest, None)
             self._targets[preview.request_id] = target
             self._actions[preview.request_id] = action
+            self._sources[preview.request_id] = (
+                "drive-file" if original.type == "file" else "drive-folder",
+                handle,
+            )
             if publish is not None:
                 publish(preview)
             return preview
@@ -183,8 +196,10 @@ class DriveWrites:
             )
             del self._targets[request_id]
             del self._actions[request_id]
+            source_kind, source_handle = self._sources.pop(request_id)
             if action == DRIVE_TRASH_FILE:
                 try:
+                    self.additional.retire(source_kind, source_handle)
                     node.move_to_trash()
                     self._verify_trash(client, target, account, resource)
                 except Exception:
@@ -194,6 +209,7 @@ class DriveWrites:
             if node.data.get("name") == name:
                 return {"action": DRIVE_RENAME, "changed": False}
             try:
+                self.additional.retire(source_kind, source_handle)
                 node.rename(name)
                 self._verify_rename(client, target, name, account, resource)
             except Exception:

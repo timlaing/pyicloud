@@ -9,12 +9,126 @@ from unittest.mock import patch
 import pytest
 
 from pyicloud.mcp.authorization import WriteDenied
+from pyicloud.mcp.context import ToolFailure
 from pyicloud.mcp.drive_acknowledged import _invalid_folder_payload
 from pyicloud.mcp.drive_upload_bytes import _commit_matches
 from pyicloud.mcp.drive_writes import DriveWrites
+from pyicloud.services.drive import DriveNode
 from tests.test_mcp_drive_acknowledged import setup_action
+from tests.test_mcp_drive_deletions import setup_delete
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_uploads import setup_adapter
+from tests.test_mcp_drive_writes import setup_writer
+
+
+@pytest.mark.asyncio
+async def test_failed_destination_retirement_preserves_stage_and_approval() -> None:
+    """Failure before dispatch requires no restaging or spent approval."""
+    writer, _client, handle, token, _data, pipeline = setup_adapter()
+    preview = await writer.prepare_upload(handle, token, 1000)
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    with (
+        patch.object(
+            writer.additional,
+            "retire",
+            side_effect=ToolFailure("expired_or_unknown_handle"),
+        ),
+        pytest.raises(WriteDenied, match="target_unavailable"),
+    ):
+        await writer.apply(preview.request_id)
+    assert writer.staging.peek(token).data
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    pipeline.upload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_drive_account_mismatch_cannot_spend_approval() -> None:
+    """A custom client cannot authorize account A while Drive dispatches as B."""
+    writer, client, handle, _data = setup_writer()
+    preview = await writer.prepare(handle, {"name": "After"})
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    client.drive.params = {"dsid": "B"}
+    with pytest.raises(WriteDenied, match="account_unavailable"):
+        await writer.apply(preview.request_id)
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    client.drive.rename_items.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_uncertain_rename_retires_the_selected_source_handle() -> None:
+    """An unverified rename cannot expose the old filename through discovery state."""
+    writer, client, handle, _data = setup_writer()
+    preview = await writer.prepare(handle, {"name": "After"})
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    client.drive.rename_items.side_effect = RuntimeError("private")
+    with pytest.raises(WriteDenied, match="mutation_uncertain"):
+        await writer.apply(preview.request_id)
+    with pytest.raises(ToolFailure):
+        writer.additional.resolve("drive-file", handle)
+    client.drive.rename_items.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_contradictory_trash_listing_cannot_authorize_deletion() -> None:
+    """Matching IDs alone cannot hide differing observed Trash revisions."""
+    writer, client, handle, data = setup_delete()
+    different = DriveNode(client.drive, {**data, "etag": "different"})
+    client.drive.trash.get_children.return_value = [different]
+    with pytest.raises(WriteDenied, match="target_unavailable"):
+        await writer.prepare_delete(handle, {})
+    client.drive.delete_forever.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("drivewsid", "OTHER"),
+        ("zone", "OTHER"),
+        ("shareID", "foreign"),
+        ("type", "FILE"),
+        ("restorePath", "old"),
+    ],
+)
+async def test_final_destination_refresh_cannot_fake_verified_move(
+    field: str, value: str
+) -> None:
+    """An expected child cannot prove a move into an invalid final destination."""
+    writer, client, handle, destination, data, folder = setup_move()
+    preview = await writer.prepare_move(handle, destination, {})
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    dispatched = False
+    destination_reads = 0
+
+    def refresh(identifier: str, *_args: object) -> dict[str, Any]:
+        nonlocal destination_reads
+        if identifier == data["drivewsid"]:
+            return dict(data)
+        observed = dict(folder)
+        if dispatched:
+            destination_reads += 1
+            if destination_reads == 3:
+                observed[field] = value
+        return observed
+
+    def move(_nodes: object, _destination: object) -> None:
+        nonlocal dispatched
+        dispatched = True
+        data.update(parentId=folder["drivewsid"], etag="v2")
+        folder.update(etag="D2", items=[dict(data)])
+
+    client.drive.get_node_data.side_effect = refresh
+    client.drive.move_nodes_to_node.side_effect = move
+    with pytest.raises(WriteDenied, match="mutation_uncertain"):
+        await writer.apply(preview.request_id)
+    assert destination_reads == 3
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writer.apply(preview.request_id)
+    client.drive.move_nodes_to_node.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -5,12 +5,13 @@
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, ToolAnnotations
 
 from ..additional import AdditionalReads
 from ..content import ContentReads
 from ..context import SessionOwner
 from ..reads import ReadResult
+from .calendar import tool_result
 
 
 def register(
@@ -47,6 +48,6 @@ def register(
         @server.tool(name="icloud_drive_download", annotations=annotations)
         async def drive_download(
             handle: str, offset: int = 0, max_bytes: int = 65536
-        ) -> ReadResult:
+        ) -> CallToolResult:
             """Return version-bound Base64 chunks for a discovered file, not paths."""
-            return await content.file("drive", handle, offset, max_bytes)
+            return tool_result(await content.file("drive", handle, offset, max_bytes))

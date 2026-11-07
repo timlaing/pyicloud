@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from pyicloud.services.drive import CLOUD_DOCS_ZONE, DriveNode
 
 from .authorization import MutationPreview, WriteDenied
+from .context import ToolFailure
 from .drive_upload_bytes import DriveUploadBytes
 from .drive_writes import DriveTarget, DriveWrites
 from .upload_staging import UploadStaging
@@ -34,6 +35,13 @@ class DriveUploads(DriveWrites):
             UploadTransport(hosts), self.additional.reads.owner.config.timeout
         )
         self._requests: dict[str, tuple[str, DriveTarget, str]] = {}
+
+    def _retire_destination(self, handle: str) -> None:
+        """A failed pre-dispatch retirement leaves staged bytes and approval intact."""
+        try:
+            self.additional.retire("drive-folder", handle)
+        except ToolFailure:
+            raise WriteDenied("target_unavailable") from None
 
     def _read(
         self, client: Any, target: DriveTarget, token: str
@@ -154,12 +162,12 @@ class DriveUploads(DriveWrites):
                 account_binding=account,
                 resource_binding=resource,
                 revision=revision,
+                before_consume=lambda: self._retire_destination(handle),
             )
             del self._requests[request_id]
             if approved.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
             stage = self.staging.take(token)
-            self.additional.retire("drive-folder", handle)
             route, root = client.drive.service_root, client.drive.document_root
             try:
                 self.pipeline.upload(
