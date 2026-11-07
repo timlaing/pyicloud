@@ -27,7 +27,10 @@ def setup_folders() -> tuple[MailFolderWrites, Any]:
 
 
 @pytest.mark.asyncio
-async def test_verified_creation_requires_receipt_and_one_new_identity() -> None:
+@pytest.mark.parametrize("message_count", [None, 2])
+async def test_verified_creation_requires_receipt_and_one_new_identity(
+    message_count: int | None,
+) -> None:
     """Acknowledgement plus fresh matching identity, never an unverified name."""
     writes, client = setup_folders()
     publish = MagicMock()
@@ -39,7 +42,8 @@ async def test_verified_creation_requires_receipt_and_one_new_identity() -> None
 
     def create(_name: str) -> MailFolder:
         result = MailFolder(identifier="N", name="New Folder", uidValidity=2)
-        client.mail.folders.return_value = [*client.mail.folders.return_value, result]
+        observed = result.model_copy(update={"message_count": message_count})
+        client.mail.folders.return_value = [*client.mail.folders.return_value, observed]
         return result
 
     client.mail.create_folder.side_effect = create
