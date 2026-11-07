@@ -176,10 +176,72 @@ def test_registration_deadline_is_enforced_or_refused_before_dispatch(
                 UploadTransport.register(
                     session, "https://service.example.test/a", hosts, {}, deadline=5
                 )
-            assert adapter.deadline == 5
+            assert adapter.deadline is None
         else:
             with pytest.raises(WriteDenied, match="upload_deadline_policy_unavailable"):
                 UploadTransport.register(
                     session, "https://service.example.test/a", hosts, {}, deadline=5
                 )
             session.request_raw.assert_not_called()
+
+
+@pytest.mark.parametrize("fail", [False, True])
+@pytest.mark.parametrize("prior", [None, 3.0, 30.0])
+def test_registration_deadline_is_temporary_on_all_exit_paths(
+    fail: bool, prior: float | None
+) -> None:
+    """A short registration deadline cannot poison subsequent verification reads."""
+    adapter = BoundedAdapter(30)
+    adapter.deadline = prior
+    session = MagicMock()
+    session.get_adapter.return_value = adapter
+
+    def request(*_args: object, **_kwargs: object) -> object:
+        assert adapter.deadline == (min(prior, 5) if prior is not None else 5)
+        if fail:
+            raise RuntimeError("private")
+        return object()
+
+    session.request_raw.side_effect = request
+    hosts = frozenset({"service.example.test"})
+    with (
+        patch("pyicloud.mcp.upload_transport.time.monotonic", return_value=1),
+        patch("pyicloud.mcp.upload_transport.bounded_upload_json", return_value={}),
+    ):
+        if fail:
+            with pytest.raises(WriteDenied, match="upload_outcome_uncertain"):
+                UploadTransport.register(
+                    session, "https://service.example.test/a", hosts, {}, deadline=5
+                )
+        else:
+            UploadTransport.register(
+                session, "https://service.example.test/a", hosts, {}, deadline=5
+            )
+    assert adapter.deadline == prior
+
+
+def test_abandoned_download_expires_without_evicting_recent_active_state() -> None:
+    """Only aged or inactive downloads can free a slot for new admission."""
+    tools = content_for(MagicMock())
+    active = DownloadState(object(), etag='"live"', active=True, touched=1000)
+    abandoned = DownloadState(object(), etag='"old"', active=True, touched=399)
+    tools._downloads = {str(index): active for index in range(1000)}
+    tools._downloads["999"] = abandoned
+    with patch("pyicloud.mcp.content.time.monotonic", return_value=1000):
+        tools._download_state("new", object())
+    assert tools._downloads["0"] is active
+    assert "999" not in tools._downloads
+
+
+def test_relation_resource_binding_is_stable_for_reordered_zone_fields() -> None:
+    """Equivalent zone dictionaries cannot change relation approval identity."""
+    writer, client, album, asset, _source, _target = setup_add()
+    target = (album.id, asset.id, asset.master_id, writer._selector(album)[1])
+    with (
+        patch.object(album, "contains_photo_scoped", return_value=False),
+        patch("pyicloud.mcp.photo_relations.record_zone") as zone,
+    ):
+        zone.return_value = {"zoneName": "Z", "extra": {"a": 1, "b": 2}}
+        first = writer._pair(client, target)[3]
+        zone.return_value = {"extra": {"b": 2, "a": 1}, "zoneName": "Z"}
+        assert writer._pair(client, target)[3] == first

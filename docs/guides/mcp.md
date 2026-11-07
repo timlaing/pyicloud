@@ -18,6 +18,9 @@ registration share the upload deadline; custom sessions without a deadline-aware
 adapter are refused. Download state for incomplete transfers is not evicted to
 admit another version: if every registry slot is active, the new read fails with
 `download_registry_full`. Completed or failed-before-start entries are inactive.
+Active transfers abandoned for more than 600 seconds since their last successful
+chunk may be reclaimed. Registration restores the session's prior deadline on
+success and failure so its temporary limit does not affect later verification.
 
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install

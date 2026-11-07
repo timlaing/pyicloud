@@ -76,6 +76,7 @@ class PhotoRelations(PhotoAlbumWrites):
                 record_zone(asset.asset_record),
             ),
             separators=(",", ":"),
+            sort_keys=True,
         )
         revision = json.dumps((album_revision, tag, present), separators=(",", ":"))
         return album, asset, account, resource, revision, present
