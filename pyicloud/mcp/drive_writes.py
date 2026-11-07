@@ -139,12 +139,16 @@ class DriveWrites:
     @staticmethod
     def _invalid_rename(payload: dict[str, Any], name: Any) -> bool:
         """Preserve the exact bounded Drive rename leaf policy."""
+        try:
+            encoded_length = len(name.encode("utf-8")) if isinstance(name, str) else 0
+        except UnicodeEncodeError:
+            return True
         return (
             set(payload) != {"name"}
             or not isinstance(name, str)
             or not name.strip()
             or name in {".", ".."}
-            or len(name.encode("utf-8")) > 255
+            or encoded_length > 255
             or any(char in name for char in ("/", "\\", "\x00", "\r", "\n"))
         )
 

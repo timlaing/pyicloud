@@ -28,6 +28,7 @@ class DriveUploads(DriveWrites):
     ) -> None:
         super().__init__(writer.additional, writer.ledger)
         self.staging = staging
+        self.additional.reads.owner.add_cleanup(staging.close)
         self.hosts = hosts
         self.pipeline = pipeline or DriveUploadBytes(
             UploadTransport(hosts), self.additional.reads.owner.config.timeout
@@ -42,6 +43,8 @@ class DriveUploads(DriveWrites):
         if not self.hosts:
             raise WriteDenied("upload_host_policy_required")
         stage = self.staging.peek(token)
+        if stage.size > 4 * 1024 * 1024:
+            raise WriteDenied("invalid_upload_bytes")
         folder = self._fresh(client, target)
         children = folder.get_children(force=True) if folder.type == "folder" else []
         folder = self._validated_node(client, target, folder.data)
@@ -70,7 +73,7 @@ class DriveUploads(DriveWrites):
         checked_upload_url(
             root, frozenset({parsed.hostname}) if parsed.hostname else frozenset()
         )
-        if parsed.query or client.drive.params.get("dsid") != account:
+        if parsed.query or str(client.drive.params.get("dsid")) != account:
             raise WriteDenied("account_unavailable")
         for host in self.hosts:
             checked_upload_url("https://" + host + "/", self.hosts)

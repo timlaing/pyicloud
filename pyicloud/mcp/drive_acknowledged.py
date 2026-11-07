@@ -20,12 +20,16 @@ DRIVE_CREATE_FOLDER = "drive.create_folder"
 
 def _invalid_folder_payload(payload: dict[str, Any], name: Any) -> bool:
     """Keep the exact bounded leaf-name policy separate from preview routing."""
+    try:
+        encoded_length = len(name.encode("utf-8")) if isinstance(name, str) else 0
+    except UnicodeEncodeError:
+        return True
     return (
         set(payload) != {"name"}
         or not isinstance(name, str)
         or not name.strip()
         or name in {".", ".."}
-        or len(name.encode()) > 255
+        or encoded_length > 255
         or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name)
     )
 
@@ -79,7 +83,7 @@ class DriveAcknowledged(DriveWrites):
         route = client.drive.service_root
         hostname = urlsplit(route).hostname
         checked_upload_url(route, frozenset({hostname}) if hostname else frozenset())
-        if urlsplit(route).query or client.drive.params.get("dsid") != account:
+        if urlsplit(route).query or str(client.drive.params.get("dsid")) != account:
             raise WriteDenied("route_unavailable")
         if action == DRIVE_CREATE_FOLDER:
             node = self._creation_destination(client, target, node, name)

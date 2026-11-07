@@ -65,7 +65,12 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
         else [
             {"document_id": "allocated", "url": "https://content.example.test/upload"}
         ],
-        {"status": "NO" if case == "commit" else "OK"},
+        {
+            "status": {"status_code": 1 if case == "commit" else 0},
+            "results": [
+                {"status": {"status_code": 0}, "document": {"document_id": "allocated"}}
+            ],
+        },
     ]
     if case == "allocation":
         transport.register.side_effect = [

@@ -38,6 +38,9 @@ class DriveMoves(DriveWrites):
         ):
             raise WriteDenied("unsupported_target")
         self._collision(source, destination)
+        destination = self._validated_node(client, targets[1], destination.data)
+        if destination.type != "folder" or destination.data.get("restorePath"):
+            raise WriteDenied("unsupported_target")
         account, source_resource, source_revision = self._bindings(
             client, targets[0], source
         )

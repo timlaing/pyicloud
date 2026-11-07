@@ -19,6 +19,38 @@ from .upload_staging import StagedUpload
 from .upload_transport import UploadTransport, checked_upload_url
 
 
+def _success_status(status: Any) -> bool:
+    """Recognize explicit commit success without interpreting boolean codes."""
+    if status == "OK":
+        return True
+    return (
+        isinstance(status, dict)
+        and isinstance(status.get("status_code"), int)
+        and not isinstance(status.get("status_code"), bool)
+        and status["status_code"] == 0
+    )
+
+
+def _commit_matches(response: Any, document_id: str) -> bool:
+    """Require one successful result correlated with the reserved document ID."""
+    if not isinstance(response, dict) or not _success_status(response.get("status")):
+        return False
+    results = response.get("results")
+    if (
+        not isinstance(results, list)
+        or len(results) != 1
+        or not isinstance(results[0], dict)
+    ):
+        return False
+    result = results[0]
+    document = result.get("document")
+    return (
+        _success_status(result.get("status"))
+        and isinstance(document, dict)
+        and document.get("document_id") == document_id
+    )
+
+
 def _validate_stage(stage: StagedUpload, modified_ms: int) -> None:
     """Require unchanged, unexpired bounded bytes and a strict timestamp."""
     if (
@@ -169,7 +201,7 @@ class DriveUploadBytes:
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
             )
-            if not isinstance(committed, dict) or committed != {"status": "OK"}:
+            if not _commit_matches(committed, allocation):
                 raise WriteDenied("upload_outcome_uncertain")
         except Exception:
             raise WriteDenied("upload_outcome_uncertain") from None
