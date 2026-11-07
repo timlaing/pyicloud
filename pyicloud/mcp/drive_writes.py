@@ -119,6 +119,7 @@ class DriveWrites:
         ):
             raise WriteDenied("unsupported_shared_write")
         target = DriveTarget(original.data["drivewsid"], original.data.get("zone"))
+        source = ("drive-file" if original.type == "file" else "drive-folder", handle)
 
         def prepare(client: Any) -> MutationPreview:
             node = self._fresh(client, target)
@@ -132,22 +133,25 @@ class DriveWrites:
                 resource_binding=resource,
                 revision=revision,
             )
-            if len(self._targets) >= 256:
-                oldest = next(iter(self._targets))
-                del self._targets[oldest]
-                self._actions.pop(oldest, None)
-                self._sources.pop(oldest, None)
-            self._targets[preview.request_id] = target
-            self._actions[preview.request_id] = action
-            self._sources[preview.request_id] = (
-                "drive-file" if original.type == "file" else "drive-folder",
-                handle,
-            )
+            self._remember_preview(preview, target, source)
             if publish is not None:
                 publish(preview)
             return preview
 
         return await self.additional.reads.owner.run(prepare)
+
+    def _remember_preview(
+        self, preview: MutationPreview, target: DriveTarget, source: tuple[str, str]
+    ) -> None:
+        """Keep bounded target, action and selected-handle metadata together."""
+        if len(self._targets) >= 256:
+            oldest = next(iter(self._targets))
+            del self._targets[oldest]
+            self._actions.pop(oldest, None)
+            self._sources.pop(oldest, None)
+        self._targets[preview.request_id] = target
+        self._actions[preview.request_id] = preview.action
+        self._sources[preview.request_id] = source
 
     @staticmethod
     def _invalid_rename(payload: dict[str, Any], name: Any) -> bool:
