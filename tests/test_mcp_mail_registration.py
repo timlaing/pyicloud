@@ -41,6 +41,9 @@ async def test_mail_registration_preserves_content_opt_in(
         if name in names:
             result = await server.call_tool(name, arguments)
             assert isinstance(result, CallToolResult)
-            assert not result.is_error
+            assert result.is_error is (name != "icloud_mail_folders")
+            assert result.structured_content is not None
+            if result.is_error:
+                assert result.structured_content["error"] is not None
     assert "icloud_write_execute" not in names
     assert len(await build_server().list_tools()) == 2

@@ -135,6 +135,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Allow idle Photos download state to be reclaimed after 600 seconds when registry capacity is reached, canonicalize relation zone bindings, and restore temporary registration deadlines before subsequent session reads.
 - Add explicitly selected MCP Mail mailbox/message metadata, bounded field-aware search and opted-in MIME content alongside existing guarded draft/folder/flag/move/send/deletion adapters; runtime write-tool wiring remains in the final integration slice.
 - Verify folder mutations by stable identity rather than volatile message counts, recheck Mail permission before draft application, tolerate queued payload-map eviction after capturing a request, and verify the saved body's single approved sender before returning a draft handle.
+- Preserve edit/send/move/permanent-delete retirement when private mappings are evicted while queued, and flag failed Mail reads as tool execution errors with structured safe error codes.
 
 - Add shared MCP read projections, opaque handle storage, independent approval primitives, bounded staging/transports and explicit service registration infrastructure; service tools and runtime writes are supplied by dependent integration slices.
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.

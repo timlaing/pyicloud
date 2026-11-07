@@ -182,7 +182,7 @@ class MailAcknowledged:
                 resource_binding=resource,
                 revision=revision,
             )
-            del self._requests[request_id]
+            self._requests.pop(request_id, None)
             self.additional.retire("mail-message", handle)
             try:
                 if action == MAIL_MOVE_MESSAGE:

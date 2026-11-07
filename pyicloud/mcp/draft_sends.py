@@ -74,7 +74,7 @@ class DraftSends:
                 resource_binding=state.resource_binding,
                 revision=state.revision,
             )
-            del self._sends[request_id]
+            self._sends.pop(request_id, None)
             if approved.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
             self.additional.retire("mail-draft", handle)

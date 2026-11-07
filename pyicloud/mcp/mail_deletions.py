@@ -113,7 +113,7 @@ class MailDeletions:
                 resource_binding=resource,
                 revision=revision,
             )
-            del self._requests[request_id]
+            self._requests.pop(request_id, None)
             if approved.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
             self.additional.retire("mail-message", handle)

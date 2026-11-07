@@ -83,7 +83,7 @@ class DraftEdits:
                 resource_binding=state.resource_binding,
                 revision=state.revision,
             )
-            del self._edits[request_id]
+            self._edits.pop(request_id, None)
             self.additional.retire("mail-draft", handle)
             payload = approved.payload
             try:
