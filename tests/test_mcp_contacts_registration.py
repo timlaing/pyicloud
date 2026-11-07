@@ -46,7 +46,8 @@ async def test_company_discovery_and_selected_details_are_pageable() -> None:
     assert listed.structured_content is not None
     row = listed.structured_content["records"][0]
     assert row["company_name"] == "Synthetic Company"
-    assert "emails" not in row and "phones" not in row
+    assert "emails" not in row
+    assert "phones" not in row
     arguments = {
         "handle": row["handle"],
         "include_emails": True,
