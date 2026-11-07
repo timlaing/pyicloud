@@ -50,12 +50,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
-- Allow MCP Calendar deletion previews for untitled events, retire expired approval targets, and signal rejected registered-tool calls as protocol errors while retaining structured error codes.
-
-- Retire MCP Calendar previews after failed publication and remove stale approval targets before repeated calls can re-read or accept them.
-
 - Validate required account storage byte counts before caching a refresh, preserving the previous snapshot when the response is missing fields or contains invalid counts.
-- Reject sub-minute MCP Calendar event times before previewing writes, and treat a withdrawn event-detail endpoint as uncertain rather than proof of successful deletion.
 
 - Document and test fail-closed refresh behavior for identified cached empty Drive files: refresh errors propagate without returning unverified empty content or attempting a fallback download.
 
@@ -126,7 +121,7 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 ### Added
 
 - Add `AccountService.refresh_storage()` to explicitly fetch current storage usage while preserving the cached `storage` property and retaining the previous snapshot if a refresh fails.
-- Add explicitly selected MCP Calendar metadata tools and the existing receipt-gated create/delete adapter; runtime write-tool wiring remains in the final integration slice.
+- Add explicitly selected MCP Calendar metadata tools and a new receipt-gated create/delete adapter; runtime write-tool wiring remains in the final integration slice. Rejected tool calls are marked as tool execution errors (`isError`) while retaining structured error codes. Creation rejects sub-minute times before preview; deletion previews support untitled events, and read-back treats HTTP 404 as confirmed absence but HTTP 410 as uncertain. Failed publication and terminal approval denials retire their preview targets; requests awaiting operator approval remain available.
 
 - Add shared MCP read projections, opaque handle storage, independent approval primitives, bounded staging/transports and explicit service registration infrastructure; service tools and runtime writes are supplied by dependent integration slices.
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.

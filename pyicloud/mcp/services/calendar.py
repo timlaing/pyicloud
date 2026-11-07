@@ -12,7 +12,7 @@ from ..reads import ReadResult, ReadTools
 
 
 def tool_result(result: ReadResult) -> CallToolResult:
-    """Keep structured safe error codes and explicitly signal protocol tool errors."""
+    """Keep structured safe error codes and explicitly flag tool execution errors."""
     data = result.model_dump(mode="json")
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(data))],
