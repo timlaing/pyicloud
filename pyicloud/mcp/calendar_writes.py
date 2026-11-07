@@ -152,7 +152,12 @@ class CalendarWrites:
                 del self._targets[next(iter(self._targets))]
             self._targets[preview.request_id] = target
             if publish is not None:
-                publish(preview)
+                try:
+                    publish(preview)
+                except Exception:
+                    self.ledger._pending.pop(preview.request_id, None)  # pylint: disable=protected-access
+                    self._targets.pop(preview.request_id, None)
+                    raise
             return preview
 
         return await self.reads.owner.run(prepare)
@@ -179,12 +184,17 @@ class CalendarWrites:
             account, resource, version = self._bindings(client, target, revision)
             if accept is not None:
                 accept(request_id)
-            approved = self.ledger.consume(
-                request_id,
-                account_binding=account,
-                resource_binding=resource,
-                revision=version,
-            )
+            try:
+                approved = self.ledger.consume(
+                    request_id,
+                    account_binding=account,
+                    resource_binding=resource,
+                    revision=version,
+                )
+            except WriteDenied as error:
+                if str(error) == "stale_preview":
+                    self._targets.pop(request_id, None)
+                raise
             del self._targets[request_id]
             try:
                 if target.action == CALENDAR_CREATE_EVENT:

@@ -50,6 +50,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Retire MCP Calendar previews after failed publication and remove stale approval targets before repeated calls can re-read or accept them.
+
 - Validate required account storage byte counts before caching a refresh, preserving the previous snapshot when the response is missing fields or contains invalid counts.
 - Reject sub-minute MCP Calendar event times before previewing writes, and treat a withdrawn event-detail endpoint as uncertain rather than proof of successful deletion.
 

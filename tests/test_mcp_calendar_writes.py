@@ -63,6 +63,7 @@ async def test_creation_uses_preview_guid_and_verifies_fetched_event() -> None:
     client.calendar.add_event.assert_not_called()
     with pytest.raises(WriteDenied, match="operator_approval_required"):
         await writes.apply(preview.request_id)
+    assert preview.request_id in writes._targets
     writes.ledger.approve_from_operator(
         preview.request_id, preview.digest, high_risk=preview.risk == "high"
     )
@@ -78,6 +79,47 @@ async def test_creation_uses_preview_guid_and_verifies_fetched_event() -> None:
     client.calendar.add_event.assert_called_once()
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         await writes.apply(preview.request_id)
+
+
+@pytest.mark.asyncio
+async def test_failed_publication_releases_preview_capacity() -> None:
+    """Unreachable previews cannot occupy the ledger or target registry."""
+    writes, client, _event = setup_calendar()
+    writes.ledger = ApprovalLedger(CALENDAR_ACTIONS, capacity=1)
+    error = WriteDenied("approval_mailbox_busy")
+    publish = MagicMock(side_effect=error)
+    for _ in range(2):
+        with pytest.raises(WriteDenied, match="approval_mailbox_busy") as raised:
+            await writes.prepare(
+                "calendar.create_event", "C", payload(), publish=publish
+            )
+        assert raised.value is error
+        assert not writes.ledger._pending
+        assert not writes._targets
+    preview = await writes.prepare("calendar.create_event", "C", payload())
+    assert preview.request_id in writes._targets
+    client.calendar.add_event.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stale_consumption_retires_target_before_replay() -> None:
+    """A retired stale approval cannot repeat fresh reads or operator acceptance."""
+    writes, client, _event = setup_calendar()
+    preview = await writes.prepare("calendar.create_event", "C", payload())
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    client.calendar.get_ctag.return_value = "C2"
+    accept = MagicMock()
+    with pytest.raises(WriteDenied, match="stale_preview"):
+        await writes.apply(preview.request_id, accept)
+    assert preview.request_id not in writes._targets
+    assert preview.request_id not in writes.ledger._pending
+    client.calendar.get_ctag.reset_mock()
+    accept.reset_mock()
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writes.apply(preview.request_id, accept)
+    client.calendar.get_ctag.assert_not_called()
+    accept.assert_not_called()
+    client.calendar.add_event.assert_not_called()
 
 
 @pytest.mark.asyncio
