@@ -45,10 +45,16 @@ async def test_fresh_download_resets_previous_entity_tag() -> None:
     )
     resource = SimpleNamespace(name="file", open=open_mock)
     handle = tools.additional.remember("drive-file", resource)
-    assert (await tools.file("drive", handle, 0, 4)).error is None
-    assert (await tools.file("drive", handle, 0, 4)).error is None
+    first = await tools.file("drive", handle, 0, 4)
+    assert first.error is None
+    second = await tools.file("drive", handle, 0, 4)
+    assert second.error is None
     assert "If-Match" not in open_mock.call_args.kwargs["headers"]
-    assert (await tools.file("drive", handle, 4, 4)).complete
+    assert (
+        await tools.file(
+            "drive", handle, 4, 4, transfer_token=second.records[0]["transfer_token"]
+        )
+    ).complete
     assert open_mock.call_args.kwargs["headers"]["If-Match"] == '"v2"'
 
 
@@ -354,9 +360,14 @@ async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
     handle = tools.additional.remember("drive-file", file)
     assert (
         await tools.file("drive", handle, 4, 4)
-    ).error == "download_requires_strong_etag"
-    assert not (await tools.file("drive", handle, 0, 4)).complete
-    assert (await tools.file("drive", handle, 4, 4)).complete
+    ).error == "download_transfer_required"
+    first = await tools.file("drive", handle, 0, 4)
+    assert not first.complete
+    assert (
+        await tools.file(
+            "drive", handle, 4, 4, transfer_token=first.records[0]["transfer_token"]
+        )
+    ).complete
     assert file.open.call_args.kwargs["headers"]["If-Match"] == '"v1"'
     empty_data = {"drivewsid": "F", "name": "empty", "type": "FILE", "size": 0}
     client.drive.get_node_data.return_value = dict(empty_data)
@@ -539,15 +550,14 @@ async def test_content_tool_registration_is_opt_in() -> None:
             continue
         result = await server.call_tool(name, args)
         assert isinstance(result, CallToolResult)
-        assert result.is_error is (
-            name
-            in {
-                "icloud_note_content",
-                "icloud_photo_download",
-                "icloud_drive_download",
-                "icloud_drive_search",
-            }
+        assert result.is_error
+        assert result.structured_content is not None
+        expected = (
+            "invalid_argument"
+            if name.endswith("_search")
+            else "expired_or_unknown_handle"
         )
+        assert result.structured_content["error"] == expected
     metadata = build_server(owner=owner_for(client, ()))
     assert not any(
         tool.name.endswith("_download") or tool.name.endswith("_content")

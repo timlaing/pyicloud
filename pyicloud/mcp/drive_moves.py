@@ -143,7 +143,9 @@ class DriveMoves(DriveWrites):
                 return {"action": DRIVE_MOVE_FILE, "changed": False}
             self._retire_source("drive-folder", destination_handle)
             try:
-                client.drive.move_nodes_to_node([source], destination)
+                client.drive.move_nodes_to_node(
+                    [source], destination, allow_redirects=False
+                )
                 (
                     moved,
                     current_destination,

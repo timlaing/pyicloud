@@ -11,6 +11,8 @@ from secrets import token_urlsafe
 import time
 from typing import Any
 
+from pyicloud.services.drive import DriveNode
+
 from .context import ToolFailure
 from .reads import ReadResult, ReadTools, bounded_result
 
@@ -178,8 +180,16 @@ class AdditionalReads:
 
         return await self.reads.execute("contacts", 1, read)
 
-    async def drive(self, folder_handle: str, query: str, limit: int) -> ReadResult:
+    async def drive(
+        self, folder_handle: str, query: str, limit: int, scan_limit: int = 500
+    ) -> ReadResult:
         """Browse one folder; filter names locally, never local paths."""
+        if (
+            isinstance(scan_limit, bool)
+            or not isinstance(scan_limit, int)
+            or not 1 <= scan_limit <= 2000
+        ):
+            return ReadResult(error="invalid_argument")
 
         def read(client: Any) -> ReadResult:
             node = (
@@ -190,7 +200,7 @@ class AdditionalReads:
             if node.type not in {"folder", "app_library"}:
                 raise ToolFailure("invalid_argument")
             records = []
-            for child in node.get_children(force=True):
+            for child in self._bounded_drive_children(node, scan_limit):
                 name, kind = text(child.name), text(child.type)
                 if query.casefold() not in name.casefold():
                     continue
@@ -476,7 +486,14 @@ class AdditionalReads:
             if folder.type not in {"folder", "app_library"}:
                 raise ToolFailure("invalid_argument")
             fetched += 1
-            for item in folder.get_children(force=True):
+            for item in self._bounded_drive_children(folder, 2000):
                 yield item
                 if item.type in {"folder", "app_library"}:
                     pending.append(item)
+
+    @staticmethod
+    def _bounded_drive_children(node: Any, maximum: int) -> Iterable[Any]:
+        """Use the library's lazy bounded producer and cap custom facade iteration."""
+        if isinstance(node, DriveNode):
+            return node.iter_children(force=True, max_children=maximum)
+        return islice(node.get_children(force=True), maximum)

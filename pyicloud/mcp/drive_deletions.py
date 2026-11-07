@@ -119,7 +119,7 @@ class DriveDeletions(DriveWrites):
                 raise WriteDenied("high_risk_operator_approval_required")
             self._retire_source("drive-trash-file", handle)
             try:
-                node.delete_forever()
+                node.delete_forever(allow_redirects=False)
                 current_account, current_resource, _revision = self._bindings(
                     client, target, node
                 )

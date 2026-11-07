@@ -46,7 +46,8 @@ async def test_elevated_delete_retires_handle_and_proves_both_absences() -> None
         await deletes.apply(preview.request_id)
     client.drive.delete_forever_from_trash.assert_not_called()
 
-    def delete(identifier: str, etag: str) -> dict[str, str]:
+    def delete(identifier: str, etag: str, *, allow_redirects: bool) -> dict[str, str]:
+        assert allow_redirects is False
         assert (identifier, etag) == (data["drivewsid"], "v1")
         with pytest.raises(ToolFailure):
             deletes.additional.resolve("drive-trash-file", handle)

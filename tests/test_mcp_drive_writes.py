@@ -52,7 +52,10 @@ async def test_rename_requires_operator_approval_and_verifies_post_read() -> Non
         await writes.apply(preview.request_id)
     writes.ledger.approve_from_operator(preview.request_id, preview.digest)
 
-    def rename(identifier: str, etag: str, name: str) -> dict[str, Any]:
+    def rename(
+        identifier: str, etag: str, name: str, *, allow_redirects: bool
+    ) -> dict[str, Any]:
+        assert allow_redirects is False
         assert (identifier, etag, name) == (data["drivewsid"], "v1", "After")
         data.update(name=name, etag="v2")
         return {"ignored": "Not proof of acknowledgement"}

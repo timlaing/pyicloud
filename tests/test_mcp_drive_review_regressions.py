@@ -257,7 +257,8 @@ async def test_final_destination_refresh_cannot_fake_verified_move(
                 observed[field] = value
         return observed
 
-    def move(_nodes: object, _destination: object) -> None:
+    def move(_nodes: object, _destination: object, *, allow_redirects: bool) -> None:
+        assert allow_redirects is False
         nonlocal dispatched
         dispatched = True
         data.update(parentId=folder["drivewsid"], etag="v2")

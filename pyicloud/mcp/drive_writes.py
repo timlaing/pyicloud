@@ -225,7 +225,7 @@ class DriveWrites:
             if action == DRIVE_TRASH_FILE:
                 self._retire_source(source_kind, source_handle)
                 try:
-                    node.move_to_trash()
+                    node.move_to_trash(allow_redirects=False)
                     self._verify_trash(client, target, account, resource)
                 except Exception:
                     raise WriteDenied("mutation_uncertain") from None
@@ -235,7 +235,7 @@ class DriveWrites:
                 return {"action": DRIVE_RENAME, "changed": False}
             self._retire_source(source_kind, source_handle)
             try:
-                node.rename(name)
+                node.rename(name, allow_redirects=False)
                 self._verify_rename(client, target, name, account, resource)
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
@@ -268,7 +268,21 @@ class DriveWrites:
         ]
         if len(matches) != 1:
             raise WriteDenied("mutation_unverified")
+        listed = self._validated_node(client, target, matches[0].data)
         verified = self._fresh(client, target)
+        if any(
+            listed.data.get(field) != verified.data.get(field)
+            for field in (
+                "drivewsid",
+                "etag",
+                "restorePath",
+                "name",
+                "zone",
+                "parentId",
+                "type",
+            )
+        ):
+            raise WriteDenied("mutation_unverified")
         current_account, current_resource, revision = self._bindings(
             client, target, verified
         )

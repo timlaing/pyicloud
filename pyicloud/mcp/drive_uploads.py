@@ -11,7 +11,7 @@ from pyicloud.services.drive import CLOUD_DOCS_ZONE, DriveNode
 
 from .authorization import MutationPreview, WriteDenied
 from .context import ToolFailure
-from .drive_upload_bytes import DriveUploadBytes
+from .drive_upload_bytes import DriveUploadBytes, snapshot_upload_credentials
 from .drive_writes import DriveTarget, DriveWrites
 from .upload_staging import StagedUpload, UploadStaging
 from .upload_transport import UploadTransport, checked_upload_url
@@ -174,6 +174,7 @@ class DriveUploads(DriveWrites):
                 raise WriteDenied("unknown_or_consumed_preview")
             self.additional.resolve("drive-folder", handle)
             folder, account, resource, revision = self._read(client, target, token)
+            credentials = snapshot_upload_credentials(client.drive)
             if accept is not None:
                 accept(request_id)
             captured: list[StagedUpload] = []
@@ -199,6 +200,7 @@ class DriveUploads(DriveWrites):
                     folder.data["docwsid"],
                     stage,
                     modified_ms=approved.payload["modified_ms"],
+                    credential_snapshot=credentials,
                 )
                 if (
                     str(client.params.get("dsid")) != account

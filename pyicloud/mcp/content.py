@@ -6,6 +6,7 @@ import base64
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import re
+from secrets import token_urlsafe
 import time
 from typing import Any
 from urllib.parse import urlsplit
@@ -24,6 +25,7 @@ class DownloadState:
     resource: Any
     etag: str | None = None
     active: bool = False
+    binding: str = ""
     touched: float = field(default_factory=time.monotonic)
 
 
@@ -195,6 +197,7 @@ class ContentReads:
         offset: int,
         maximum: int,
         version: str = "original",
+        transfer_token: str = "",
     ) -> ReadResult:
         """Read range-checked chunks without local paths or caller URLs."""
         if (
@@ -202,6 +205,8 @@ class ContentReads:
             or offset < 0
             or offset > 2**63 - 1
             or len(version) > 64
+            or not isinstance(transfer_token, str)
+            or len(transfer_token) > 64
         ):
             return ReadResult(error="invalid_argument")
 
@@ -215,10 +220,10 @@ class ContentReads:
                 and resource._is_empty_file()  # pylint: disable=protected-access
             ):
                 return self._empty_download(resource, offset)
-            state = self._download_state(f"{service}:{handle}:{version}", resource)
-            if offset == 0:
-                state.etag = None
-                state.active = False
+            binding = f"{service}:{handle}:{version}"
+            token, state = self._transfer_state(
+                binding, resource, offset, transfer_token
+            )
             if offset and state.etag is None:
                 raise ToolFailure("download_requires_strong_etag")
             headers = {"Range": f"bytes={offset}-{offset + maximum - 1}"}
@@ -227,7 +232,9 @@ class ContentReads:
             filename, response = self._open_download(
                 client, service, resource, version, headers
             )
-            return download_chunk(state, response, offset, maximum, filename)
+            result = download_chunk(state, response, offset, maximum, filename)
+            result.records[0]["transfer_token"] = token
+            return result
 
         return await self._run(service, maximum, 131072, read)
 
@@ -247,6 +254,26 @@ class ContentReads:
             ],
             1,
         )
+
+    def _transfer_state(
+        self, binding: str, resource: Any, offset: int, token: str
+    ) -> tuple[str, DownloadState]:
+        """Pin each independent transfer, not a shared handle, to its own entity tag."""
+        if offset == 0:
+            if token:
+                raise ToolFailure("invalid_download_transfer")
+            token = token_urlsafe(32)
+            if token in self._downloads:
+                raise ToolFailure("download_registry_full")
+            state = self._download_state(token, resource)
+            state.binding = binding
+            return token, state
+        if not token:
+            raise ToolFailure("download_transfer_required")
+        existing = self._downloads.get(token)
+        if existing is None or existing.binding != binding:
+            raise ToolFailure("invalid_download_transfer")
+        return token, existing
 
     def _download_state(self, key: str, resource: Any) -> DownloadState:
         """Retain the bounded original resource/version-specific download registry."""

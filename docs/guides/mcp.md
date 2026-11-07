@@ -79,6 +79,17 @@ that expires during refresh is rejected before destination retirement; restaging
 uses a new token and requires a new preview and approval. Known retirement
 failures return `target_unavailable`, not mutation uncertainty. Custom mutation
 sessions must confirm retries are disabled before approval consumption.
+Upload credentials are validated into a private snapshot before accepting or
+consuming resources; cookie lookup failures do not spend approval or bytes.
+Mutation POSTs disable redirects, and redirect responses are uncertain outcomes
+without a second dispatch. Drive browse accepts `scan_limit` (1–2,000, default 500) and constructs only that bounded child prefix, including selective queries;
+results remain explicitly incomplete rather than claiming an exhaustive search.
+
+Drive and Photos downloads return an opaque `transfer_token` with their first
+chunk. Supply that token for every nonzero-offset continuation, using the same
+handle and selected version. Starting at offset zero creates a separate transfer;
+it cannot replace another transfer's pinned entity tag. A changed remote version
+is rejected instead of combining chunks from different versions.
 
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install

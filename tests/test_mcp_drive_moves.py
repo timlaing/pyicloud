@@ -47,7 +47,10 @@ async def test_move_requires_receipt_and_verified_new_membership() -> None:
         await writes.apply(preview.request_id)
     writes.ledger.approve_from_operator(preview.request_id, preview.digest)
 
-    def move(nodes: list[DriveNode], target: DriveNode) -> None:
+    def move(
+        nodes: list[DriveNode], target: DriveNode, *, allow_redirects: bool
+    ) -> None:
+        assert allow_redirects is False
         with pytest.raises(ToolFailure):
             writes.additional.resolve("drive-folder", destination)
         assert nodes[0].data["etag"] == "v1"

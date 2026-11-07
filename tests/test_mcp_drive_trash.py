@@ -20,7 +20,8 @@ async def test_trash_exact_file_after_receipt_and_verify_membership() -> None:
         await writes.apply(preview.request_id)
     writes.ledger.approve_from_operator(preview.request_id, preview.digest)
 
-    def trash(identifier: str, etag: str) -> dict[str, Any]:
+    def trash(identifier: str, etag: str, *, allow_redirects: bool) -> dict[str, Any]:
+        assert allow_redirects is False
         assert (identifier, etag) == (data["drivewsid"], "v1")
         data.update(restorePath="Before.txt", etag="v2")
         client.drive.trash.get_children.return_value = [

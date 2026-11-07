@@ -19,6 +19,27 @@ from .upload_staging import StagedUpload
 from .upload_transport import UploadTransport, checked_upload_url
 
 
+def snapshot_upload_credentials(drive: Any) -> dict[str, str]:
+    """Validate a private operation-local token without exposing cookie errors."""
+    try:
+        credentials = drive._get_token_from_cookie()
+    except Exception:
+        raise WriteDenied("upload_credentials_unavailable") from None
+    return validated_upload_credentials(credentials)
+
+
+def validated_upload_credentials(credentials: Any) -> dict[str, str]:
+    """Copy only the observed upload-token contract, never arbitrary query fields."""
+    if (
+        not isinstance(credentials, dict)
+        or set(credentials) != {"token"}
+        or not isinstance(credentials["token"], str)
+        or not credentials["token"]
+    ):
+        raise WriteDenied("upload_credentials_unavailable")
+    return {"token": credentials["token"]}
+
+
 def _success_status(status: Any) -> bool:
     """Recognize explicit commit success without interpreting boolean codes."""
     if status == "OK":
@@ -120,7 +141,13 @@ class DriveUploadBytes:
         self.timeout = timeout
 
     def upload(
-        self, drive: Any, folder_id: str, stage: StagedUpload, *, modified_ms: int
+        self,
+        drive: Any,
+        folder_id: str,
+        stage: StagedUpload,
+        *,
+        modified_ms: int,
+        credential_snapshot: dict[str, str] | None = None,
     ) -> None:
         """Snapshot upload credentials and send exact bytes with no filesystem paths."""
         root = drive.document_root
@@ -147,14 +174,11 @@ class DriveUploadBytes:
             or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in stage.name)
         ):
             raise WriteDenied("invalid_upload_bytes")
-        credentials = drive._get_token_from_cookie()
-        if (
-            not isinstance(credentials, dict)
-            or set(credentials) != {"token"}
-            or not isinstance(credentials["token"], str)
-            or not credentials["token"]
-        ):
-            raise WriteDenied("upload_credentials_unavailable")
+        credentials = (
+            snapshot_upload_credentials(drive)
+            if credential_snapshot is None
+            else validated_upload_credentials(credential_snapshot)
+        )
         params.update(credentials)
         deadline = time.monotonic() + self.timeout
 

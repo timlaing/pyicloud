@@ -19,6 +19,7 @@ from tests.test_mcp_upload_previews import setup_upload
     "case",
     [
         "ok",
+        "snapshot",
         "empty",
         "reservation",
         "receipt",
@@ -46,6 +47,8 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
     if case == "query":
         drive.document_root += "?bad=1"
     drive._get_token_from_cookie.return_value = {"token": "synthetic"}  # pylint: disable=protected-access
+    if case == "snapshot":
+        drive._get_token_from_cookie.side_effect = ValueError("private")  # pylint: disable=protected-access
     data = b"" if case == "empty" else b"approved"
     stage = StagedUpload(
         "file.txt",
@@ -99,8 +102,16 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
         "pyicloud.mcp.drive_upload_bytes.mimetypes.guess_type",
         return_value=("text/plain", None),
     ):
-        if case in {"ok", "empty"}:
-            uploader.upload(drive, "folder-document", stage, modified_ms=1000)
+        if case in {"ok", "empty", "snapshot"}:
+            uploader.upload(
+                drive,
+                "folder-document",
+                stage,
+                modified_ms=1000,
+                credential_snapshot={"token": "synthetic"}
+                if case == "snapshot"
+                else None,
+            )
             commit = transport.register.call_args_list[1]
             assert "token=synthetic" in commit.args[1]
             assert commit.args[3]["document_id"] == "allocated"
@@ -129,6 +140,7 @@ def setup_adapter() -> tuple[DriveUploads, Any, str, str, dict[str, Any], MagicM
     writer, client, handle, token, data = setup_upload()
     data["docwsid"] = "folder-document"
     client.drive.params = dict(client.params)
+    client.drive._get_token_from_cookie.return_value = {"token": "synthetic"}  # pylint: disable=protected-access
     pipeline = MagicMock()
     return (
         DriveUploads(

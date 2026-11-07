@@ -1,5 +1,6 @@
 """Drive service."""
 
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 import io
 import logging
@@ -280,7 +281,7 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def rename_items(self, node_id: str, etag: str, name: str) -> Any:
+    def rename_items(self, node_id: str, etag: str, name: str, **kwargs: Any) -> Any:
         """Renames an iCloud Drive node"""
         request: Response = self.session.post(
             self.service_root + "/renameItems",
@@ -294,12 +295,13 @@ class DriveService(BaseService):
                     }
                 ],
             },
+            **kwargs,
         )
         self._raise_if_error(request)
         return request.json()
 
     def move_nodes_to_node(
-        self, nodes: list["DriveNode"], destination: "DriveNode"
+        self, nodes: list["DriveNode"], destination: "DriveNode", **kwargs: Any
     ) -> Any:
         """Moves iCloud Drive node(s) to the specified folder"""
         node_ids = [node.data["drivewsid"] for node in nodes]
@@ -322,11 +324,12 @@ class DriveService(BaseService):
                     for _drivewsid, _etag, _client_id in items
                 ],
             },
+            **kwargs,
         )
         self._raise_if_error(request)
         return request.json()
 
-    def move_items_to_trash(self, node_id: str, etag: str) -> Any:
+    def move_items_to_trash(self, node_id: str, etag: str, **kwargs: Any) -> Any:
         """Moves an iCloud Drive node to the trash bin"""
         # when moving a node to the trash on icloud.com, the clientID is set
         # to the node_id:
@@ -343,6 +346,7 @@ class DriveService(BaseService):
                     }
                 ],
             },
+            **kwargs,
         )
         self._raise_if_error(request)
         return request.json()
@@ -364,7 +368,7 @@ class DriveService(BaseService):
         self._raise_if_error(request)
         return request.json()
 
-    def delete_forever_from_trash(self, node_id: str, etag: str) -> Any:
+    def delete_forever_from_trash(self, node_id: str, etag: str, **kwargs: Any) -> Any:
         """Permanently deletes an iCloud Drive node from the trash bin"""
         request: Response = self.session.post(
             self.service_root + "/deleteItems",
@@ -377,6 +381,7 @@ class DriveService(BaseService):
                     }
                 ],
             },
+            **kwargs,
         )
         self._raise_if_error(request)
         return request.json()
@@ -415,6 +420,10 @@ class DriveService(BaseService):
 
     @staticmethod
     def _raise_if_error(response: Response) -> None:
+        if isinstance(response.status_code, int) and 300 <= response.status_code < 400:
+            raise PyiCloudAPIResponseException(
+                "Drive redirect not followed", response.status_code
+            )
         if not response.ok:
             api_error = PyiCloudAPIResponseException(
                 response.reason, response.status_code
@@ -485,6 +494,29 @@ class DriveNode:
                 for item_data in self.data["items"].copy()
             ]
         return self._children
+
+    def iter_children(
+        self, *, force: bool = False, max_children: int = 2000
+    ) -> Iterator["DriveNode"]:
+        """Construct a bounded fresh-child prefix without populating caches."""
+        if (
+            isinstance(max_children, bool)
+            or not isinstance(max_children, int)
+            or not 1 <= max_children <= 2000
+        ):
+            raise ValueError("Invalid child enumeration bound")
+        if force or "items" not in self.data:
+            observed = self.connection.get_node_data(
+                self.data["drivewsid"], self.data.get("shareID")
+            )
+            if "items" not in observed:
+                raise KeyError("Drive folder inventory unavailable")
+            self.data = {**self.data, **observed}
+        items = self.data.get("items")
+        if not isinstance(items, list):
+            raise ValueError("Invalid Drive folder inventory")
+        for item in items[:max_children]:
+            yield DriveNode(self.connection, item)
 
     def remove(self, child: "DriveNode") -> None:
         """Removes a child from the node."""
@@ -584,16 +616,16 @@ class DriveNode:
         """Create a new directory directory."""
         return self.connection.create_folders(self.data["drivewsid"], folder)
 
-    def rename(self, name: str) -> Any:
+    def rename(self, name: str, **kwargs: Any) -> Any:
         """Rename an iCloud Drive item."""
         return self.connection.rename_items(
-            self.data["drivewsid"], self.data["etag"], name
+            self.data["drivewsid"], self.data["etag"], name, **kwargs
         )
 
-    def move_to_trash(self) -> Any:
+    def move_to_trash(self, **kwargs: Any) -> Any:
         """Move an iCloud Drive item to the trash bin (Recently Deleted)."""
         return self.connection.move_items_to_trash(
-            self.data["drivewsid"], self.data["etag"]
+            self.data["drivewsid"], self.data["etag"], **kwargs
         )
 
     def delete(self) -> Any:
@@ -609,12 +641,12 @@ class DriveNode:
             )
         raise ValueError(f"'{self.name}' does not appear to be in the Trash.")
 
-    def delete_forever(self) -> Any:
+    def delete_forever(self, **kwargs: Any) -> Any:
         """Permanently deletes an iCloud Drive item from trash."""
         # check to ensure item is in the trash - it should have a "restorePath" property
         if self.data.get("restorePath"):
             return self.connection.delete_forever_from_trash(
-                self.data["drivewsid"], self.data["etag"]
+                self.data["drivewsid"], self.data["etag"], **kwargs
             )
         raise ValueError(
             f"'{self.name}' does not appear to be in the Trash. Please "

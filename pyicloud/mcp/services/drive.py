@@ -30,10 +30,12 @@ def register(
 
     @server.tool(name="icloud_drive_list", annotations=annotations)
     async def drive(
-        folder_handle: str = "", query: str = "", limit: int = 50
+        folder_handle: str = "", query: str = "", limit: int = 50, scan_limit: int = 500
     ) -> CallToolResult:
         """Browse a root or discovered folder without accepting local paths."""
-        return tool_result(await additional.drive(folder_handle, query, limit))
+        return tool_result(
+            await additional.drive(folder_handle, query, limit, scan_limit)
+        )
 
     @server.tool(name="icloud_drive_search", annotations=annotations)
     async def drive_search(
@@ -48,7 +50,14 @@ def register(
 
         @server.tool(name="icloud_drive_download", annotations=annotations)
         async def drive_download(
-            handle: str, offset: int = 0, max_bytes: int = 65536
+            handle: str,
+            offset: int = 0,
+            max_bytes: int = 65536,
+            transfer_token: str = "",
         ) -> CallToolResult:
             """Return version-bound Base64 chunks for a discovered file, not paths."""
-            return tool_result(await content.file("drive", handle, offset, max_bytes))
+            return tool_result(
+                await content.file(
+                    "drive", handle, offset, max_bytes, transfer_token=transfer_token
+                )
+            )
