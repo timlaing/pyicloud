@@ -22,6 +22,7 @@ class DownloadState:
 
     resource: Any
     etag: str | None = None
+    active: bool = False
 
 
 def clipped_text(value: str, maximum: int) -> tuple[str, bool]:
@@ -94,6 +95,7 @@ def download_chunk(
             ):
                 raise ToolFailure("download_requires_strong_etag")
             state.etag = etag
+        state.active = not complete
         return bounded_result(
             [
                 {
@@ -213,6 +215,7 @@ class ContentReads:
             state = self._download_state(f"{service}:{handle}:{version}", resource)
             if offset == 0:
                 state.etag = None
+                state.active = False
             if offset and state.etag is None:
                 raise ToolFailure("download_requires_strong_etag")
             headers = {"Range": f"bytes={offset}-{offset + maximum - 1}"}
@@ -246,7 +249,13 @@ class ContentReads:
         """Retain the bounded original resource/version-specific download registry."""
         if key not in self._downloads:
             if len(self._downloads) >= 1000:
-                del self._downloads[next(iter(self._downloads))]
+                inactive = next(
+                    (key for key, state in self._downloads.items() if not state.active),
+                    None,
+                )
+                if inactive is None:
+                    raise ToolFailure("download_registry_full")
+                del self._downloads[inactive]
             self._downloads[key] = DownloadState(resource)
         return self._downloads[key]
 

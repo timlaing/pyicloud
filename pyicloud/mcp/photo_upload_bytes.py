@@ -89,6 +89,7 @@ class PhotoUploadBytes:
                     PhotosCreateUploadUrlRequest(
                         zoneName=zone, assets={identifier: stage.size}
                     ).model_dump(mode="json"),
+                    deadline=deadline,
                 )
             )
             if set(reservation.uploadUrls) != {identifier}:
@@ -122,6 +123,7 @@ class PhotoUploadBytes:
                         )
                     ],
                 ).model_dump(mode="json"),
+                deadline=deadline,
             )
             if not isinstance(result, list) or len(result) != 1:
                 raise WriteDenied("upload_outcome_uncertain")

@@ -120,6 +120,7 @@ class UploadTransport:
         payload: dict[str, Any],
         *,
         headers: dict[str, str] | None = None,
+        deadline: float | None = None,
     ) -> Any:
         """One raw account-service request; no authentication recovery/replay."""
         target = checked_upload_url(url, hosts)
@@ -133,6 +134,16 @@ class UploadTransport:
             raise WriteDenied("upload_retry_policy_unavailable") from None
         if not retries_disabled:
             raise WriteDenied("upload_retry_policy_unavailable")
+        if deadline is not None:
+            if not isinstance(adapter, BoundedAdapter):
+                raise WriteDenied("upload_deadline_policy_unavailable")
+            if deadline <= time.monotonic():
+                raise WriteDenied("upload_deadline_exceeded")
+            adapter.deadline = (
+                min(adapter.deadline, deadline)
+                if adapter.deadline is not None
+                else deadline
+            )
         try:
             response = session.request_raw(
                 "POST",

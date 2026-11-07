@@ -824,14 +824,77 @@ class PhotoLibrary(BasePhotoLibrary):
                 albums.append(album)
         return albums
 
-    def server_albums(self) -> AlbumContainer:
+    def server_albums(self, *, max_records: int | None = None) -> AlbumContainer:
         """Read albums without merging locally pending creation acknowledgements.
 
         Unlike refresh_albums, this does not update caches or include pending local
         albums as proof of server visibility. Use fresh observed records to verify
         post-write identity; virtual albums still do not carry mutation revisions.
         """
-        return self._get_albums()
+        if max_records is None:
+            return self._get_albums()
+        if (
+            isinstance(max_records, bool)
+            or not isinstance(max_records, int)
+            or max_records < 1
+        ):
+            raise ValueError("Invalid album inventory bound")
+        albums = AlbumContainer()
+        for record in self._bounded_album_records(max_records):
+            album = self._convert_record_to_album(record)
+            if album is not None:
+                albums.append(album)
+        return albums
+
+    def _bounded_album_records(self, maximum: int) -> list[CKRecord]:
+        """Bound typed server inventory across pages and nested folder queries."""
+        client = self._client
+        if client is None or not _can_use_typed_cloudkit(self.service.session):
+            raise PhotosApiError("Bounded album inventory requires typed transport")
+        records: list[CKRecord] = []
+        pending: list[str | None] = [None]
+        parents: set[str | None] = set()
+        while pending:
+            parent = pending.pop(0)
+            if parent in parents:
+                raise PhotosApiError("Repeated album folder identity")
+            parents.add(parent)
+            for record in self._bounded_album_pages(
+                client, parent, maximum - len(records)
+            ):
+                records.append(record)
+                if len(records) > maximum:
+                    raise PhotosApiError("Album inventory limit exceeded")
+                if record.fields.get_value("albumType") == AlbumTypeEnum.FOLDER.value:
+                    pending.append(record.recordName)
+        return records
+
+    def _bounded_album_pages(
+        self, client: PhotosCloudKitClient, parent: str | None, remaining: int
+    ) -> Iterator[CKRecord]:
+        """Read a bounded folder inventory without accepting repeated cursors."""
+        continuation: str | None = None
+        seen: set[str] = set()
+        while True:
+            response = client.query(
+                query=album_query(parent),
+                zone_id=CKZoneIDReq(**self.zone_id),
+                results_limit=min(100, remaining + 1),
+                continuation=continuation,
+            )
+            for record in response.records:
+                if not isinstance(record, CKRecord):
+                    raise PhotosApiError("Invalid album inventory record")
+                yield record
+                remaining -= 1
+                if remaining < 0:
+                    return
+            continuation = response.continuationMarker
+            if not continuation:
+                return
+            if continuation in seen:
+                raise PhotosApiError("Repeated album inventory cursor")
+            seen.add(continuation)
 
     def create_album(
         self,
