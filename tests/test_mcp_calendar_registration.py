@@ -32,3 +32,17 @@ async def test_calendar_registration_routes_both_tools() -> None:
         assert isinstance(result, CallToolResult)
         assert not result.is_error
     assert len(await build_server().list_tools()) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [0, 201])
+async def test_rejected_limits_are_protocol_tool_errors(limit: int) -> None:
+    """Invalid limits preserve a structured code and cannot masquerade as success."""
+    client = MagicMock()
+    server = build_server(owner=owner_for(client, services=("calendar",)))
+    result = await server.call_tool("icloud_calendar_list", {"limit": limit})
+    assert isinstance(result, CallToolResult)
+    assert result.is_error
+    assert result.structured_content is not None
+    assert result.structured_content["error"] == "invalid_argument"
+    client.calendar.get_calendars.assert_not_called()

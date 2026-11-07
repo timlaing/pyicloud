@@ -4,7 +4,7 @@
 
 from datetime import datetime
 from typing import Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -122,10 +122,16 @@ async def test_stale_consumption_retires_target_before_replay() -> None:
 
 
 @pytest.mark.asyncio
-async def test_deletion_preserves_verified_etag_and_requires_absence_proof() -> None:
+@pytest.mark.parametrize("title", ["Before", ""])
+async def test_deletion_preserves_verified_etag_and_requires_absence_proof(
+    title: str,
+) -> None:
     """The public remove_event method carries the captured etag as ifMatch."""
     writes, client, event = setup_calendar()
+    event.title = title
     preview = await writes.prepare("calendar.delete_event", "C", {}, "E")
+    assert preview.target == (title or "C")
+    assert preview.payload["event_id"] == "E"
     writes.ledger.approve_from_operator(
         preview.request_id, preview.digest, high_risk=preview.risk == "high"
     )
@@ -135,6 +141,28 @@ async def test_deletion_preserves_verified_etag_and_requires_absence_proof() -> 
     ]
     assert (await writes.apply(preview.request_id))["action"] == "calendar.delete_event"
     client.calendar.remove_event.assert_called_once_with(event)
+
+
+@pytest.mark.asyncio
+async def test_expired_consumption_retires_target_before_replay() -> None:
+    """Expired requests lose their targets and cannot re-read or accept on replay."""
+    writes, client, _event = setup_calendar()
+    with patch("pyicloud.mcp.authorization.time.monotonic", return_value=10):
+        preview = await writes.prepare("calendar.create_event", "C", payload())
+    accept = MagicMock()
+    with (
+        patch("pyicloud.mcp.authorization.time.monotonic", return_value=1000),
+        pytest.raises(WriteDenied, match="expired_preview"),
+    ):
+        await writes.apply(preview.request_id, accept)
+    assert preview.request_id not in writes._targets
+    client.calendar.get_ctag.reset_mock()
+    accept.reset_mock()
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writes.apply(preview.request_id, accept)
+    client.calendar.get_ctag.assert_not_called()
+    accept.assert_not_called()
+    client.calendar.add_event.assert_not_called()
 
 
 @pytest.mark.asyncio

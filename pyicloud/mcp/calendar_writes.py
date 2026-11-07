@@ -142,7 +142,7 @@ class CalendarWrites:
             data["event_id"] = target.event_id
             preview = self.ledger.preview(
                 action,
-                event.title if event else calendar_id,
+                (event.title or calendar_id) if event else calendar_id,
                 data,
                 account_binding=account,
                 resource_binding=resource,
@@ -180,7 +180,7 @@ class CalendarWrites:
                 revision=version,
             )
         except WriteDenied as error:
-            if str(error) == "stale_preview":
+            if str(error) != "operator_approval_required":
                 self._targets.pop(request_id, None)
             raise
 

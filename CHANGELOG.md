@@ -50,6 +50,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Allow MCP Calendar deletion previews for untitled events, retire expired approval targets, and signal rejected registered-tool calls as protocol errors while retaining structured error codes.
+
 - Retire MCP Calendar previews after failed publication and remove stale approval targets before repeated calls can re-read or accept them.
 
 - Validate required account storage byte counts before caching a refresh, preserving the previous snapshot when the response is missing fields or contains invalid counts.
