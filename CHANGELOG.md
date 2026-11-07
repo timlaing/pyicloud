@@ -128,6 +128,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add explicitly selected MCP Reminders discovery/read tools and the existing guarded create/update/soft-delete adapter; runtime write-tool wiring remains in the final integration slice.
 - Preserve live Reminders approval targets while pruning retired requests, and require a matching acknowledgement-derived new change tag before reporting update or soft-delete success. Missing acknowledgements remain uncertain and non-retryable.
 - Add explicitly selected MCP Notes title listing/search and separately opted-in plaintext tools; Notes mutations remain unsupported.
+- Add explicitly selected MCP Contacts name discovery and individually selected email/phone detail tools; Contacts mutations remain unsupported.
+- Include company-only names in contact discovery and provide bounded paging for selected email/phone details, with explicit incomplete-page indicators.
 
 - Add shared MCP read projections, opaque handle storage, independent approval primitives, bounded staging/transports and explicit service registration infrastructure; service tools and runtime writes are supplied by dependent integration slices.
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
