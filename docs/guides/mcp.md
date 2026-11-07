@@ -2,7 +2,18 @@
 
 The optional local Model Context Protocol (MCP) extension is under development.
 Its current foundation exposes **local status and capabilities only**, without Apple authentication
-or account data tools. Calendar and Reminders adapters are not yet available.
+or account data tools through the launcher.
+
+This Contacts slice adds explicitly configured SDK name-search and discovered
+contact-detail tools. Email and phone fields require individual selection and
+never appear in name-search results. The launcher retains offline local status
+and capabilities until final integration adds trusted startup options. Contacts
+writes remain unsupported; this slice exposes no mutation or approval tool.
+
+Contact discovery includes person and company names, but never email/phone fields.
+Selected contact details accept a zero-based `offset` and a per-field `limit`
+of 1–20 (default 20). A truncated page reports `complete: false` and `next_offset`
+in its contact record; use that offset with the same selected fields to continue.
 
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
