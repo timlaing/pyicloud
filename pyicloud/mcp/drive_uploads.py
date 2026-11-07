@@ -170,6 +170,8 @@ class DriveUploads(DriveWrites):
         handle, target, token = selected
 
         def apply(client: Any) -> dict[str, Any]:
+            if self._requests.get(request_id) != selected:
+                raise WriteDenied("unknown_or_consumed_preview")
             self.additional.resolve("drive-folder", handle)
             folder, account, resource, revision = self._read(client, target, token)
             if accept is not None:

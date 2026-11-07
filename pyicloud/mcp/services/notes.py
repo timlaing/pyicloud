@@ -5,12 +5,13 @@
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, ToolAnnotations
 
 from ..additional import AdditionalReads
 from ..content import ContentReads
 from ..context import SessionOwner
 from ..reads import ReadResult
+from .calendar import tool_result
 
 
 def register(
@@ -38,6 +39,6 @@ def register(
     if "notes" in context.config.content_services:
 
         @server.tool(name="icloud_note_content", annotations=annotations)
-        async def note_content(handle: str, max_bytes: int = 16384) -> ReadResult:
+        async def note_content(handle: str, max_bytes: int = 16384) -> CallToolResult:
             """Read bounded untrusted plaintext without attachments or rendering."""
-            return await content.note(handle, max_bytes)
+            return tool_result(await content.note(handle, max_bytes))

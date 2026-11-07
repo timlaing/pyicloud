@@ -2,6 +2,7 @@
 
 # pylint: disable=protected-access
 
+from collections.abc import Callable
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
@@ -115,6 +116,60 @@ async def test_source_retirement_failure_is_not_mutation_uncertainty() -> None:
     ):
         await writer.apply(preview.request_id)
     client.drive.rename_items.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["create", "recover", "delete"])
+async def test_other_drive_retirement_failures_are_known_denials(kind: str) -> None:
+    """Acknowledged and permanent actions cannot leak raw retirement errors."""
+    writer: Any
+    if kind == "delete":
+        writer, client, handle, _data = setup_delete()
+        preview = await writer.prepare_delete(handle, {})
+    else:
+        writer, client, handle, _data = setup_action(kind == "recover")
+        action = "drive.recover_item" if kind == "recover" else "drive.create_folder"
+        preview = await writer.prepare_acknowledged(
+            action, handle, {} if kind == "recover" else {"name": "New"}
+        )
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=preview.risk == "high"
+    )
+    with (
+        patch.object(
+            writer.additional,
+            "retire",
+            side_effect=ToolFailure("expired_or_unknown_handle"),
+        ),
+        pytest.raises(WriteDenied, match="target_unavailable"),
+    ):
+        await writer.apply(preview.request_id)
+    client.drive.session.request_raw.assert_not_called()
+    client.drive.delete_forever.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_queued_upload_eviction_cannot_spend_bytes_or_approval() -> None:
+    """Owner-lane admission must recheck a request captured before queuing."""
+    writer, client, handle, token, _data, pipeline = setup_adapter()
+    preview = await writer.prepare_upload(handle, token, 1000)
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+
+    async def queued_run(operation: Callable[[Any], Any]) -> Any:
+        writer._requests.pop(preview.request_id)
+        return operation(client)
+
+    cast(Any, writer.additional.reads.owner).run = queued_run
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writer.apply(preview.request_id)
+    assert writer.staging.peek(token).data
+    assert writer.additional.resolve("drive-folder", handle)
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    pipeline.upload.assert_not_called()
 
 
 @pytest.mark.asyncio

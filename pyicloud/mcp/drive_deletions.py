@@ -117,7 +117,7 @@ class DriveDeletions(DriveWrites):
             del self._deletions[request_id]
             if approved.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
-            self.additional.retire("drive-trash-file", handle)
+            self._retire_source("drive-trash-file", handle)
             try:
                 node.delete_forever()
                 current_account, current_resource, _revision = self._bindings(

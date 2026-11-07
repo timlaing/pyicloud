@@ -20,6 +20,7 @@ class DriveMoves(DriveWrites):
     def __init__(self, writer: DriveWrites) -> None:
         super().__init__(writer.additional, writer.ledger)
         self._moves: dict[str, tuple[DriveTarget, DriveTarget]] = {}
+        self._destinations: dict[str, str] = {}
 
     def _pair(
         self, client: Any, targets: tuple[DriveTarget, DriveTarget]
@@ -86,8 +87,11 @@ class DriveMoves(DriveWrites):
                 revision=revision,
             )
             if len(self._moves) >= 256:
-                del self._moves[next(iter(self._moves))]
+                oldest = next(iter(self._moves))
+                del self._moves[oldest]
+                self._destinations.pop(oldest, None)
             self._moves[preview.request_id] = pair
+            self._destinations[preview.request_id] = destination_handle
             if publish is not None:
                 publish(preview)
             return preview
@@ -117,7 +121,8 @@ class DriveMoves(DriveWrites):
     ) -> dict[str, Any]:
         """Consume approval before one move and independently verify membership."""
         targets = self._moves.get(request_id)
-        if targets is None:
+        destination_handle = self._destinations.get(request_id)
+        if targets is None or destination_handle is None:
             raise WriteDenied("unknown_or_consumed_preview")
 
         def apply(client: Any) -> dict[str, Any]:
@@ -132,9 +137,11 @@ class DriveMoves(DriveWrites):
                 resource_binding=resource,
                 revision=revision,
             )
-            del self._moves[request_id]
+            self._moves.pop(request_id, None)
+            self._destinations.pop(request_id, None)
             if source.data["parentId"] == targets[1].identifier:
                 return {"action": DRIVE_MOVE_FILE, "changed": False}
+            self._retire_source("drive-folder", destination_handle)
             try:
                 client.drive.move_nodes_to_node([source], destination)
                 (

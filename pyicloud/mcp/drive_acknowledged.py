@@ -220,7 +220,7 @@ class DriveAcknowledged(DriveWrites):
                 revision=revision,
             )
             del self._requests[request_id]
-            self.additional.retire(
+            self._retire_source(
                 "drive-folder"
                 if action == DRIVE_CREATE_FOLDER
                 else "drive-trash-" + node.type,

@@ -5,12 +5,13 @@
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, ToolAnnotations
 
 from ..additional import AdditionalReads
 from ..content import ContentReads
 from ..context import SessionOwner
 from ..reads import ReadResult
+from .calendar import tool_result
 
 
 def register(
@@ -53,6 +54,8 @@ def register(
             version: str = "original",
             offset: int = 0,
             max_bytes: int = 65536,
-        ) -> ReadResult:
+        ) -> CallToolResult:
             """Download a discovered Apple asset version, never an arbitrary URL."""
-            return await content.file("photos", handle, offset, max_bytes, version)
+            return tool_result(
+                await content.file("photos", handle, offset, max_bytes, version)
+            )

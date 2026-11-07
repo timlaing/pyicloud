@@ -7,6 +7,7 @@ import pytest
 
 from pyicloud.mcp.additional import AdditionalReads
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
+from pyicloud.mcp.context import ToolFailure
 from pyicloud.mcp.drive_moves import DriveMoves
 from pyicloud.mcp.drive_writes import DriveWrites
 from pyicloud.mcp.reads import ReadTools
@@ -47,6 +48,8 @@ async def test_move_requires_receipt_and_verified_new_membership() -> None:
     writes.ledger.approve_from_operator(preview.request_id, preview.digest)
 
     def move(nodes: list[DriveNode], target: DriveNode) -> None:
+        with pytest.raises(ToolFailure):
+            writes.additional.resolve("drive-folder", destination)
         assert nodes[0].data["etag"] == "v1"
         assert target.data["etag"] == "D1"
         data.update(parentId=folder["drivewsid"], etag="v2")
