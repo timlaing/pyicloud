@@ -121,8 +121,10 @@ class MailFolderRenames(MailFolderWrites):
                     != (target.id, name, target.uid_validity)
                     or len(matches) != 1
                     or len(named) != 1
-                    or matches[0] != result
-                    or named[0] != result
+                    or (matches[0].id, matches[0].name, matches[0].uid_validity)
+                    != (result.id, result.name, result.uid_validity)
+                    or (named[0].id, named[0].name, named[0].uid_validity)
+                    != (result.id, result.name, result.uid_validity)
                 ):
                     raise WriteDenied("mutation_unverified")
             except Exception:

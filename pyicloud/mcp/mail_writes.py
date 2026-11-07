@@ -7,9 +7,11 @@ from html import escape
 import json
 from typing import Any
 
+from pyicloud.services.mail._draft_headers import parse_headers
 from pyicloud.services.mail._drafts import (
     DraftWriter,
     checked_recipients,
+    header_sender,
     recipient_addresses,
 )
 from pyicloud.services.mail._threading import checked_threading
@@ -19,6 +21,16 @@ from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 from .reads import ReadTools
 from .saved_drafts import SavedDraftContext
+
+
+def verify_draft_sender(body: MailBody, sender: MailSender) -> None:
+    """Require one saved From header matching the independently approved sender."""
+    senders = parse_headers(body.headers).get_all("From", [])
+    if (
+        len(senders) != 1
+        or header_sender(str(senders[0])).casefold() != sender.address.casefold()
+    ):
+        raise WriteDenied("mutation_unverified")
 
 
 def canonical_draft_html(text: str) -> str:
@@ -170,6 +182,8 @@ class MailWrites:
             raise WriteDenied("unknown_or_consumed_preview")
 
         def apply(client: Any) -> dict[str, Any]:
+            if "mail" not in self.reads.owner.config.services:
+                raise WriteDenied("write_disabled")
             account, resource, revision, folder, sender = self._fresh(client, data)
             if accept is not None:
                 accept(request_id)
@@ -179,7 +193,7 @@ class MailWrites:
                 resource_binding=resource,
                 revision=revision,
             )
-            del self._payloads[request_id]
+            self._payloads.pop(request_id, None)
             payload = approved.payload
             try:
                 saved = client.mail.create_draft(
@@ -215,6 +229,7 @@ class MailWrites:
                 verify_draft_body(body, saved.message.uid, payload["text"])
                 checked_recipients(body, saved)
                 checked_threading(body, None)
+                verify_draft_sender(body, sender)
                 context = SavedDraftContext(
                     saved,
                     json.dumps(

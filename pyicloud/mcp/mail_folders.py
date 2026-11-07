@@ -122,7 +122,8 @@ class MailFolderWrites:
                     or result.name != name
                     or result.id in {item.id for item in folders}
                     or len(matches) != 1
-                    or matches[0] != result
+                    or (matches[0].id, matches[0].name, matches[0].uid_validity)
+                    != (result.id, result.name, result.uid_validity)
                 ):
                     raise WriteDenied("mutation_unverified")
             except Exception:

@@ -34,7 +34,10 @@ def setup_rename() -> tuple[MailFolderRenames, Any, str, MailFolder]:
 
 
 @pytest.mark.asyncio
-async def test_exact_rename_requires_receipt_then_same_identity_proof() -> None:
+@pytest.mark.parametrize("message_count", [None, 2])
+async def test_exact_rename_requires_receipt_then_same_identity_proof(
+    message_count: int | None,
+) -> None:
     """Only a fresh matching renamed identity proves success after one dispatch."""
     writes, client, handle, original = setup_rename()
     publish = MagicMock()
@@ -47,7 +50,11 @@ async def test_exact_rename_requires_receipt_then_same_identity_proof() -> None:
     def rename(target: MailFolder, name: str) -> MailFolder:
         assert target == original
         result = original.model_copy(update={"name": name})
-        client.mail.folders.return_value = [client.mail.folders.return_value[0], result]
+        observed = result.model_copy(update={"message_count": message_count})
+        client.mail.folders.return_value = [
+            client.mail.folders.return_value[0],
+            observed,
+        ]
         return result
 
     client.mail.rename_folder.side_effect = rename

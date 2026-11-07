@@ -1,6 +1,8 @@
 """Synthetic exact-content checks, not evidence of live server transformations."""
 
-from typing import Any
+from collections.abc import Callable
+from dataclasses import replace
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -179,6 +181,61 @@ async def test_draft_requires_receipt_then_saves_once() -> None:
     )
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         await writes.apply(preview.request_id)
+
+
+@pytest.mark.asyncio
+async def test_disabled_mail_denies_before_reads_or_approval_consumption() -> None:
+    """Service removal is effective before any fresh read or draft save."""
+    writes, client, data = setup_mail()
+    preview = await writes.prepare(data)
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    owner = cast(Any, writes.reads.owner)
+    owner.config = replace(owner.config, services=("drive",))
+    client.mail.draft_folder.reset_mock()
+    with pytest.raises(WriteDenied, match="write_disabled"):
+        await writes.apply(preview.request_id)
+    client.mail.draft_folder.assert_not_called()
+    client.mail.create_draft.assert_not_called()
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+
+
+@pytest.mark.asyncio
+async def test_evicted_payload_mapping_does_not_abort_approved_apply() -> None:
+    """A queued preparation cannot cause KeyError after an application captures data."""
+    writes, client, data = setup_mail()
+    preview = await writes.prepare(data)
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+
+    async def queued_run(operation: Callable[[Any], Any]) -> Any:
+        writes._payloads.pop(preview.request_id)  # pylint: disable=protected-access
+        return operation(client)
+
+    cast(Any, writes.reads.owner).run = queued_run
+    assert (await writes.apply(preview.request_id))["id"] == "draft-101"
+    client.mail.create_draft.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers",
+    [
+        "",
+        "From: other@example.test\r\n",
+        "From: user@example.test\r\nFrom: user@example.test\r\n",
+    ],
+)
+async def test_saved_body_sender_mismatch_has_no_handle_or_replay(headers: str) -> None:
+    """Created drafts need one independently read approved From address."""
+    writes, client, data = setup_mail()
+    preview = await writes.prepare(data)
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    body = client.mail.body.return_value
+    client.mail.body.return_value = body.model_copy(update={"headers": headers})
+    with pytest.raises(WriteDenied, match="mutation_uncertain"):
+        await writes.apply(preview.request_id)
+    with pytest.raises(WriteDenied, match="unknown_or_consumed"):
+        await writes.apply(preview.request_id)
+    client.mail.create_draft.assert_called_once()
 
 
 @pytest.mark.asyncio
