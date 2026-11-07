@@ -130,6 +130,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add explicitly selected MCP Notes title listing/search and separately opted-in plaintext tools; Notes mutations remain unsupported.
 - Add explicitly selected MCP Contacts name discovery and individually selected email/phone detail tools; Contacts mutations remain unsupported.
 - Include company-only names in contact discovery and provide bounded paging for selected email/phone details, with explicit incomplete-page indicators.
+- Add explicitly selected MCP Photos library/album/asset discovery, bounded filename search and opted-in downloads alongside existing guarded album/favorite/relation/upload adapters; runtime write-tool wiring remains in the final integration slice.
+- Bound creation inventory at the typed producer across pages/folders, allow nested inventory without expanding rename eligibility, reject names that cannot be UTF-8 encoded and unusable revisions, validate discovered relation provenance before lookup, and canonicalize resource bindings. Preserve active download entity tags at capacity. Photos upload registration requires deadline-aware transport and refuses unsupported custom sessions before registration dispatch.
+- Allow idle Photos download state to be reclaimed after 600 seconds when registry capacity is reached, canonicalize relation zone bindings, and restore temporary registration deadlines before subsequent session reads.
 
 - Add shared MCP read projections, opaque handle storage, independent approval primitives, bounded staging/transports and explicit service registration infrastructure; service tools and runtime writes are supplied by dependent integration slices.
 - Expose read-only Drive document and Photos upload routes, Mail Drafts discovery and saved-draft/move/deletion preflight methods, and detached Photos album revision/zone/parent/type metadata for integrations without initiating writes.
