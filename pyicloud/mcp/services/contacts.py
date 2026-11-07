@@ -23,12 +23,18 @@ def register(
 
     @server.tool(name="icloud_contacts_list", annotations=annotations)
     async def contacts(query: str = "", limit: int = 50) -> ReadResult:
-        """Search contact names; phone and email fields are omitted from lists."""
+        """Search person/company names; phone and email fields are omitted."""
         return await additional.contacts(query, limit)
 
     @server.tool(name="icloud_contact_details", annotations=annotations)
     async def contact_details(
-        handle: str, include_emails: bool = False, include_phones: bool = False
+        handle: str,
+        include_emails: bool = False,
+        include_phones: bool = False,
+        offset: int = 0,
+        limit: int = 20,
     ) -> ReadResult:
         """Read explicitly selected email and phone fields for a discovered handle."""
-        return await additional.contact_details(handle, include_emails, include_phones)
+        return await additional.contact_details(
+            handle, include_emails, include_phones, offset, limit
+        )

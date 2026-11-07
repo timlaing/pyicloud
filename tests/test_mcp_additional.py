@@ -138,7 +138,12 @@ async def test_contacts_search_details_are_explicit_and_minimized() -> None:
     tools = adapters(client)
     result = await tools.contacts("ALICE", 1)
     assert len(result.records) == 1
-    assert set(result.records[0]) == {"handle", "first_name", "last_name"}
+    assert set(result.records[0]) == {
+        "handle",
+        "first_name",
+        "last_name",
+        "company_name",
+    }
     handle = result.records[0]["handle"]
     minimal = await tools.contact_details(handle, False, False)
     assert set(minimal.records[0]) == {"first_name", "last_name"}
