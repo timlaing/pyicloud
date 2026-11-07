@@ -294,7 +294,10 @@ async def test_uncertain_acknowledgement_is_retired(case: str) -> None:
             event,
             PyiCloudAPIResponseException("private", 410 if case == "gone" else 500),
         ]
-    with pytest.raises(WriteDenied, match="mutation_uncertain"):
+    code = (
+        "mutation_uncertain" if case in {"transport", "gone"} else "mutation_unverified"
+    )
+    with pytest.raises(WriteDenied, match=code):
         await writes.apply(preview.request_id)
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         await writes.apply(preview.request_id)

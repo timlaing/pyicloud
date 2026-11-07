@@ -263,6 +263,8 @@ class CalendarWrites:
                 else:
                     client.calendar.remove_event(event)
                     self._verify_deleted(client, target)
+            except WriteDenied:
+                raise
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
             return {
