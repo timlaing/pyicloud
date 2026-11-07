@@ -111,13 +111,15 @@ class AdditionalReads:
             records = []
             for row in rows:
                 first, last = text(row.get("firstName")), text(row.get("lastName"))
-                if query.casefold() not in f"{first} {last}".casefold():
+                company = text(row.get("companyName"))
+                if query.casefold() not in f"{first} {last} {company}".casefold():
                     continue
                 handle = self._store(
                     "contact",
                     {
                         "first_name": first,
                         "last_name": last,
+                        "company_name": company,
                         "emails": row.get("emails") or [],
                         "phones": row.get("phones") or [],
                     },
@@ -126,6 +128,7 @@ class AdditionalReads:
                     "handle": handle,
                     "first_name": first,
                     "last_name": last,
+                    "company_name": company,
                 })
                 if len(records) >= limit:
                     break
@@ -134,25 +137,44 @@ class AdditionalReads:
         return await self._run("contacts", query, limit, read)
 
     async def contact_details(
-        self, handle: str, include_emails: bool, include_phones: bool
+        self,
+        handle: str,
+        include_emails: bool,
+        include_phones: bool,
+        offset: int = 0,
+        limit: int = 20,
     ) -> ReadResult:
         """Return explicitly requested details; no photos or raw payload."""
+        if (
+            isinstance(offset, bool)
+            or not isinstance(offset, int)
+            or not 0 <= offset <= 2**31 - 1
+            or isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 20
+        ):
+            return ReadResult(error="invalid_argument")
 
         def read(_client: Any) -> ReadResult:
             contact = self._get("contact", handle)
-            record = {
+            record: dict[str, Any] = {
                 "first_name": contact["first_name"],
                 "last_name": contact["last_name"],
             }
+            complete = True
             for enabled, key in [
                 (include_emails, "emails"),
                 (include_phones, "phones"),
             ]:
                 if enabled:
                     record[key] = [
-                        text(item.get("field")) for item in contact[key][:20]
+                        text(item.get("field"))
+                        for item in contact[key][offset : offset + limit]
                     ]
-            return bounded_result([record], 1)
+                    complete = complete and offset + limit >= len(contact[key])
+            if not complete:
+                record["next_offset"] = offset + limit
+            return bounded_result([record], 1, complete=complete)
 
         return await self.reads.execute("contacts", 1, read)
 
