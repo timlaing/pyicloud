@@ -46,7 +46,11 @@ The launcher retains offline local status and capabilities; this slice exposes
 no write or approval tool.
 
 Internal Photos album creation reads at most 1,000 typed inventory records across
-pages and folders and fails closed on overflow. Nested albums may appear in
+pages and folders and fails closed on overflow. Pre-create reads reserve a
+new-record slot by limiting the existing
+inventory to 999 raw records; post-create verification retains the 1,000 bound.
+Inventory API failures become `inventory_unavailable` before approval consumption.
+Nested albums may appear in
 inventory, but rename targets remain top-level only. Upload reservation and final
 registration share the upload deadline; custom sessions without a deadline-aware
 adapter are refused. Download state for incomplete transfers is not evicted to

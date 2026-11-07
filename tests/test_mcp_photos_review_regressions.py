@@ -48,9 +48,36 @@ async def test_nested_inventory_does_not_expand_rename_eligibility() -> None:
     library.server_albums.return_value = [album]
     preview = await writer.prepare_create(handle, {"name": "Unrelated"})
     assert preview.payload == {"name": "Unrelated"}
-    library.server_albums.assert_called_once_with(max_records=1000)
+    library.server_albums.assert_called_once_with(max_records=999)
     with pytest.raises(WriteDenied, match="unsupported_target"):
         writer._selector(album)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("applying", [False, True])
+async def test_inventory_failure_is_sanitized_before_consumption(
+    applying: bool,
+) -> None:
+    """Bounded producer errors never escape as raw Photos errors or spend approval."""
+    writer, _client, library, handle = setup_create()
+    data = {"name": "New"}
+    preview = None
+    if applying:
+        preview = await writer.prepare_create(handle, data)
+        writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    library.server_albums.side_effect = PhotosApiError("private")
+    operation = (
+        writer.apply(preview.request_id)
+        if preview
+        else writer.prepare_create(handle, data)
+    )
+    with pytest.raises(WriteDenied, match="inventory_unavailable") as raised:
+        await operation
+    assert str(raised.value) == "inventory_unavailable"
+    if preview:
+        assert preview.request_id in writer.ledger._pending
+    else:
+        assert not writer.ledger._pending
 
 
 @pytest.mark.asyncio

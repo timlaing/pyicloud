@@ -75,6 +75,11 @@ async def test_create_requires_receipt_and_independent_new_identity() -> None:
             "id": "A",
         }
         create.assert_called_once_with("New")
+        assert library.server_albums.call_args.kwargs["max_records"] == 1000
+        assert all(
+            call.kwargs["max_records"] == 999
+            for call in library.server_albums.call_args_list[:-1]
+        )
         with pytest.raises(WriteDenied, match="unknown_or_consumed"):
             await writes.apply(preview.request_id)
 

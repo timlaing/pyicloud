@@ -6,6 +6,7 @@ from collections.abc import Callable
 import json
 from typing import Any
 
+from pyicloud.services.photos.exceptions import PhotosApiError
 from pyicloud.services.photos.service import (
     PhotoAlbum,
     PhotoLibrary,
@@ -25,7 +26,7 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
         self._libraries: dict[str, str] = {}
 
     def _library(
-        self, client: Any, zone: str
+        self, client: Any, zone: str, *, max_records: int = 1000
     ) -> tuple[PhotoLibrary, str, str, str, list[PhotoAlbum]]:
         account, endpoint = client.params.get("dsid"), client.photos.service_endpoint
         if (
@@ -50,8 +51,11 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
         if len(libraries) != 1 or not libraries[0].correlated_album_creation_available:
             raise WriteDenied("creation_unavailable")
         library = libraries[0]
-        observed = list(library.server_albums(max_records=1000))
-        if len(observed) > 1000:
+        try:
+            observed = list(library.server_albums(max_records=max_records))
+        except PhotosApiError:
+            raise WriteDenied("inventory_unavailable") from None
+        if len(observed) > max_records:
             raise WriteDenied("inventory_unavailable")
         albums = self._validated_albums(observed, zone)
         observed_primary = getattr(client.photos, "private_primary_zone", None)
@@ -129,7 +133,9 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
         )
 
         def prepare(client: Any) -> MutationPreview:
-            _library, account, resource, revision, albums = self._library(client, zone)
+            _library, account, resource, revision, albums = self._library(
+                client, zone, max_records=999
+            )
             if any(album.name.casefold() == name.casefold() for album in albums):
                 raise WriteDenied("destination_conflict")
             preview = self.ledger.preview(
@@ -158,7 +164,9 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
             raise WriteDenied("unknown_or_consumed_preview")
 
         def apply(client: Any) -> dict[str, Any]:
-            library, account, resource, revision, before = self._library(client, zone)
+            library, account, resource, revision, before = self._library(
+                client, zone, max_records=999
+            )
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(
