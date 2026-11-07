@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import re
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -148,7 +149,7 @@ class CalendarWrites:
             data["event_id"] = target.event_id
             preview = self.ledger.preview(
                 action,
-                (event.title or calendar_id) if event else calendar_id,
+                self._preview_target(event, calendar_id),
                 data,
                 account_binding=account,
                 resource_binding=resource,
@@ -213,12 +214,27 @@ class CalendarWrites:
             raise
 
     @staticmethod
+    def _preview_target(event: EventObject | None, calendar_id: str) -> str:
+        """Preserve exact bounded titles rather than silently truncating approval."""
+        title = event.title if event is not None else None
+        if not isinstance(title, str) or not title:
+            return calendar_id
+        if len(title.encode("utf-8")) > 4096:
+            raise WriteDenied("invalid_target")
+        return title
+
+    @staticmethod
     def _invalid_target(action: str, calendar_id: str, event_id: str | None) -> bool:
         """Retain exact calendar selector bounds and required deletion identity."""
-        return (
-            not calendar_id
-            or len(calendar_id) > 512
-            or (action == "calendar.delete_event" and not event_id)
+        identifiers: list[str | None] = [calendar_id]
+        if action == "calendar.delete_event":
+            identifiers.append(event_id)
+        return any(
+            not isinstance(identifier, str)
+            or not 1 <= len(identifier) <= 512
+            or identifier in {".", ".."}
+            or re.search(r"[/\\?#%\s\x00-\x1f\x7f]", identifier) is not None
+            for identifier in identifiers
         )
 
     async def apply(

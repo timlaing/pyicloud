@@ -214,6 +214,59 @@ async def test_deletion_preserves_verified_etag_and_requires_absence_proof(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "title,valid",
+    [("x" * 4096, True), ("x" * 4097, False), ("é" * 2048, True), ("é" * 2049, False)],
+)
+async def test_deletion_preview_title_has_exact_utf8_bound(
+    title: str, valid: bool
+) -> None:
+    """Long upstream titles cannot bypass the creation path's byte-size boundary."""
+    writes, client, event = setup_calendar()
+    event.title = title
+    if valid:
+        preview = await writes.prepare("calendar.delete_event", "C", {}, "E")
+        assert preview.target == title
+    else:
+        with pytest.raises(WriteDenied, match="invalid_target"):
+            await writes.prepare("calendar.delete_event", "C", {}, "E")
+        assert not writes.ledger._pending
+    client.calendar.remove_event.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["calendar", "event"])
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "",
+        "x" * 513,
+        "a/b",
+        "a?b",
+        "a#b",
+        "a b",
+        "a\tb",
+        "a%2fb",
+        "a\\b",
+        "..",
+        "a\x00b",
+    ],
+)
+async def test_unsafe_identifiers_are_rejected_before_reads(
+    field: str, identifier: str
+) -> None:
+    """Unquoted URL segments cannot be redirected by caller-selected identifiers."""
+    writes, client, _event = setup_calendar()
+    calendar_id = identifier if field == "calendar" else "C"
+    event_id = identifier if field == "event" else "E"
+    with pytest.raises(WriteDenied, match="invalid_target"):
+        await writes.prepare("calendar.delete_event", calendar_id, {}, event_id)
+    client.calendar.get_event_detail.assert_not_called()
+    client.calendar.get_calendars.assert_not_called()
+    client.calendar.remove_event.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_expired_consumption_retires_target_before_replay() -> None:
     """Expired requests lose their targets and cannot re-read or accept on replay."""
     writes, client, _event = setup_calendar()
