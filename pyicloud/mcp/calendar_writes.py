@@ -54,7 +54,7 @@ def event_from_payload(target: CalendarTarget, payload: dict[str, Any]) -> Event
         if payload["timezone"] != "UTC":
             try:
                 ZoneInfo(payload["timezone"])
-            except (ZoneInfoNotFoundError, ValueError):
+            except (ZoneInfoNotFoundError, ValueError, OSError):
                 raise WriteDenied("invalid_payload") from None
         return EventObject(
             pguid=target.calendar_id,

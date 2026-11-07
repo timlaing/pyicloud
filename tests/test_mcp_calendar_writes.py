@@ -59,7 +59,8 @@ def payload() -> dict[str, str]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "error", [ZoneInfoNotFoundError("private"), ValueError("private")]
+    "error",
+    [ZoneInfoNotFoundError("private"), ValueError("private"), OSError("private")],
 )
 async def test_unknown_or_malformed_timezone_has_no_preview(error: Exception) -> None:
     """Unknown and malformed zone keys cannot spend an approval on an invalid write."""
