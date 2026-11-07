@@ -5,12 +5,14 @@
 from datetime import datetime
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfoNotFoundError
 
 import pytest
 
 from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
 from pyicloud.mcp.calendar_writes import CALENDAR_ACTIONS, CalendarWrites
+from pyicloud.mcp.context import ToolFailure
 from pyicloud.mcp.reads import ReadTools
 from pyicloud.services.calendar import EventObject
 from tests.test_mcp_additional import owner_for
@@ -53,6 +55,74 @@ def payload() -> dict[str, str]:
         "end": "2026-01-01T13:00:00",
         "timezone": "UTC",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error", [ZoneInfoNotFoundError("private"), ValueError("private")]
+)
+async def test_unknown_or_malformed_timezone_has_no_preview(error: Exception) -> None:
+    """Unknown and malformed zone keys cannot spend an approval on an invalid write."""
+    writes, client, _event = setup_calendar()
+    data = {**payload(), "timezone": "Invalid/Zone"}
+    with (
+        patch("pyicloud.mcp.calendar_writes.ZoneInfo", side_effect=error),
+        pytest.raises(WriteDenied, match="invalid_payload"),
+    ):
+        await writes.prepare("calendar.create_event", "C", data)
+    assert not writes.ledger._pending
+    client.calendar.add_event.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_valid_named_timezone_is_preserved() -> None:
+    """Named zone validation does not silently rewrite the operator-visible zone."""
+    writes, _client, _event = setup_calendar()
+    data = {**payload(), "timezone": "Europe/London"}
+    with patch("pyicloud.mcp.calendar_writes.ZoneInfo") as zone:
+        preview = await writes.prepare("calendar.create_event", "C", data)
+    zone.assert_called_once_with("Europe/London")
+    assert preview.payload["timezone"] == "Europe/London"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("applying", [False, True])
+@pytest.mark.parametrize(
+    "error,code",
+    [
+        (ValueError("private"), "upstream_failure"),
+        (KeyError("private"), "upstream_failure"),
+        (IndexError("private"), "upstream_failure"),
+        (PyiCloudAPIResponseException("private", 401), "authentication_required"),
+        (PyiCloudAPIResponseException("private", 403), "authentication_required"),
+        (PyiCloudAPIResponseException("private", 429), "rate_limited"),
+        (PyiCloudAPIResponseException("private", 500), "upstream_failure"),
+        (ToolFailure("timeout"), "timeout"),
+    ],
+)
+async def test_preflight_errors_are_safe_and_do_not_consume_approval(
+    applying: bool, error: Exception, code: str
+) -> None:
+    """Read failures before dispatch return fixed codes and leave approvals unused."""
+    writes, client, _event = setup_calendar()
+    data = payload()
+    preview = None
+    if applying:
+        preview = await writes.prepare("calendar.create_event", "C", data)
+        writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    client.calendar.get_ctag.side_effect = error
+    operation = (
+        writes.prepare("calendar.create_event", "C", data)
+        if preview is None
+        else writes.apply(preview.request_id)
+    )
+    with pytest.raises(WriteDenied, match=code) as raised:
+        await operation
+    assert str(raised.value) == code
+    if preview is not None:
+        assert preview.request_id in writes.ledger._pending
+        assert preview.request_id in writes._targets
+    client.calendar.add_event.assert_not_called()
 
 
 @pytest.mark.asyncio

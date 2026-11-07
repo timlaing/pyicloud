@@ -8,11 +8,13 @@ from datetime import datetime
 import json
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.services.calendar import EventObject
 
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
+from .context import ToolFailure
 from .reads import ReadTools
 
 CALENDAR_CREATE_EVENT = "calendar.create_event"
@@ -49,6 +51,11 @@ def event_from_payload(target: CalendarTarget, payload: dict[str, Any]) -> Event
             raise WriteDenied("invalid_payload")
         if first.second or first.microsecond or last.second or last.microsecond:
             raise WriteDenied("invalid_payload")
+        if payload["timezone"] != "UTC":
+            try:
+                ZoneInfo(payload["timezone"])
+            except (ZoneInfoNotFoundError, ValueError):
+                raise WriteDenied("invalid_payload") from None
         return EventObject(
             pguid=target.calendar_id,
             guid=target.event_id,
@@ -136,8 +143,7 @@ class CalendarWrites:
             raise WriteDenied("invalid_payload")
 
         def prepare(client: Any) -> MutationPreview:
-            revision, event = self._fresh(client, target)
-            account, resource, version = self._bindings(client, target, revision)
+            event, account, resource, version = self._preflight(client, target)
             data = dict(payload)
             data["event_id"] = target.event_id
             preview = self.ledger.preview(
@@ -167,6 +173,28 @@ class CalendarWrites:
             self.ledger._pending.pop(preview.request_id, None)  # pylint: disable=protected-access
             self._targets.pop(preview.request_id, None)
             raise
+
+    def _preflight(
+        self, client: Any, target: CalendarTarget
+    ) -> tuple[EventObject | None, str, str, str]:
+        """Sanitize failures before any preview, approval consumption or mutation."""
+        try:
+            revision, event = self._fresh(client, target)
+            account, resource, version = self._bindings(client, target, revision)
+            return event, account, resource, version
+        except WriteDenied:
+            raise
+        except ToolFailure as error:
+            raise WriteDenied(str(error)) from None
+        except PyiCloudAPIResponseException as error:
+            if str(error.code) in {"401", "403"}:
+                self.reads.owner.authenticated = False
+                raise WriteDenied("authentication_required") from None
+            if str(error.code) == "429":
+                raise WriteDenied("rate_limited") from None
+            raise WriteDenied("upstream_failure") from None
+        except Exception:
+            raise WriteDenied("upstream_failure") from None
 
     def _consume(
         self, request_id: str, account: str, resource: str, version: str
@@ -202,8 +230,7 @@ class CalendarWrites:
             raise WriteDenied("unknown_or_consumed_preview")
 
         def apply(client: Any) -> dict[str, Any]:
-            revision, event = self._fresh(client, target)
-            account, resource, version = self._bindings(client, target, revision)
+            event, account, resource, version = self._preflight(client, target)
             if accept is not None:
                 accept(request_id)
             approved = self._consume(request_id, account, resource, version)
