@@ -88,11 +88,10 @@ async def test_failed_publication_releases_preview_capacity() -> None:
     writes.ledger = ApprovalLedger(CALENDAR_ACTIONS, capacity=1)
     error = WriteDenied("approval_mailbox_busy")
     publish = MagicMock(side_effect=error)
+    data = payload()
     for _ in range(2):
         with pytest.raises(WriteDenied, match="approval_mailbox_busy") as raised:
-            await writes.prepare(
-                "calendar.create_event", "C", payload(), publish=publish
-            )
+            await writes.prepare("calendar.create_event", "C", data, publish=publish)
         assert raised.value is error
         assert not writes.ledger._pending
         assert not writes._targets

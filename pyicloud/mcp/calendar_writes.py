@@ -152,15 +152,37 @@ class CalendarWrites:
                 del self._targets[next(iter(self._targets))]
             self._targets[preview.request_id] = target
             if publish is not None:
-                try:
-                    publish(preview)
-                except Exception:
-                    self.ledger._pending.pop(preview.request_id, None)  # pylint: disable=protected-access
-                    self._targets.pop(preview.request_id, None)
-                    raise
+                self._publish(preview, publish)
             return preview
 
         return await self.reads.owner.run(prepare)
+
+    def _publish(
+        self, preview: MutationPreview, publish: Callable[[MutationPreview], None]
+    ) -> None:
+        """Retire an unreachable preview without changing publication error handling."""
+        try:
+            publish(preview)
+        except Exception:
+            self.ledger._pending.pop(preview.request_id, None)  # pylint: disable=protected-access
+            self._targets.pop(preview.request_id, None)
+            raise
+
+    def _consume(
+        self, request_id: str, account: str, resource: str, version: str
+    ) -> MutationPreview:
+        """Retire stale targets but preserve requests awaiting operator approval."""
+        try:
+            return self.ledger.consume(
+                request_id,
+                account_binding=account,
+                resource_binding=resource,
+                revision=version,
+            )
+        except WriteDenied as error:
+            if str(error) == "stale_preview":
+                self._targets.pop(request_id, None)
+            raise
 
     @staticmethod
     def _invalid_target(action: str, calendar_id: str, event_id: str | None) -> bool:
@@ -184,17 +206,7 @@ class CalendarWrites:
             account, resource, version = self._bindings(client, target, revision)
             if accept is not None:
                 accept(request_id)
-            try:
-                approved = self.ledger.consume(
-                    request_id,
-                    account_binding=account,
-                    resource_binding=resource,
-                    revision=version,
-                )
-            except WriteDenied as error:
-                if str(error) == "stale_preview":
-                    self._targets.pop(request_id, None)
-                raise
+            approved = self._consume(request_id, account, resource, version)
             del self._targets[request_id]
             try:
                 if target.action == CALENDAR_CREATE_EVENT:
