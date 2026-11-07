@@ -66,7 +66,11 @@ class PhotoWrites:
         if not isinstance(asset, PhotoAsset) or self._selector(asset) != target:
             raise WriteDenied("target_unavailable")
         revision = record_change_tag(asset.asset_record)
-        if not revision:
+        if (
+            not revision
+            or revision != revision.strip()
+            or revision.casefold() == "null"
+        ):
             raise WriteDenied("revision_unavailable")
         favorite = record_field_value(asset.asset_record, "isFavorite")
         if (
@@ -90,6 +94,7 @@ class PhotoWrites:
                     else None,
                 ),
                 separators=(",", ":"),
+                sort_keys=True,
             ),
             revision,
         )

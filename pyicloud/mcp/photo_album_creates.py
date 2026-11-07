@@ -14,7 +14,7 @@ from pyicloud.services.photos.service import (
 )
 
 from .authorization import MutationPreview, WriteDenied
-from .photo_album_writes import PhotoAlbumWrites
+from .photo_album_writes import PhotoAlbumWrites, valid_album_name
 
 
 class PhotoAlbumCreates(PhotoAlbumWrites):
@@ -50,7 +50,7 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
         if len(libraries) != 1 or not libraries[0].correlated_album_creation_available:
             raise WriteDenied("creation_unavailable")
         library = libraries[0]
-        observed = list(library.server_albums())
+        observed = list(library.server_albums(max_records=1000))
         if len(observed) > 1000:
             raise WriteDenied("inventory_unavailable")
         albums = self._validated_albums(observed, zone)
@@ -62,6 +62,7 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
                 observed_primary if isinstance(observed_primary, dict) else None,
             ),
             separators=(",", ":"),
+            sort_keys=True,
         )
         revision = json.dumps(
             sorted((album.id, album.name, album.record_change_tag) for album in albums),
@@ -77,7 +78,12 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
                 continue
             if not isinstance(album, PhotoAlbum):
                 raise WriteDenied("unsupported_target")
-            identifier, actual_zone = self._selector(album)
+            actual_zone = json.dumps(
+                private_photo_zone(album.service, album.zone_id),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            identifier = album.id
             tag = album.record_change_tag
             if (
                 actual_zone != zone
@@ -106,9 +112,7 @@ class PhotoAlbumCreates(PhotoAlbumWrites):
         if (
             set(payload) != {"name"}
             or not isinstance(name, str)
-            or not name.strip()
-            or len(name.encode("utf-8")) > 4096
-            or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name)
+            or not valid_album_name(name)
         ):
             raise WriteDenied("invalid_payload")
         original = self.additional.resolve("photo-library", handle)

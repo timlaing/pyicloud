@@ -15,6 +15,28 @@ from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 PHOTOS_RENAME_ALBUM = "photos.rename_album"
 
 
+def valid_album_name(name: Any) -> bool:
+    """Validate exact UTF-8 names without allowing encoding errors to escape."""
+    if not isinstance(name, str) or not name.strip():
+        return False
+    try:
+        return len(name.encode("utf-8")) <= 4096 and not any(
+            ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name
+        )
+    except UnicodeEncodeError:
+        return False
+
+
+def valid_change_tag(tag: Any) -> bool:
+    """Only exact non-blank non-null observed revisions can authorize writes."""
+    return (
+        isinstance(tag, str)
+        and bool(tag.strip())
+        and tag == tag.strip()
+        and tag.casefold() != "null"
+    )
+
+
 class PhotoAlbumWrites:
     """Fresh private album snapshots with exact independent single-use approval."""
 
@@ -65,7 +87,7 @@ class PhotoAlbumWrites:
         if len(albums) != 1 or self._selector(albums[0]) != target:
             raise WriteDenied("target_unavailable")
         album = albums[0]
-        if not isinstance(album.record_change_tag, str) or not album.record_change_tag:
+        if not valid_change_tag(album.record_change_tag):
             raise WriteDenied("revision_unavailable")
         resource = json.dumps(
             (
@@ -79,6 +101,7 @@ class PhotoAlbumWrites:
                 else None,
             ),
             separators=(",", ":"),
+            sort_keys=True,
         )
         revision = json.dumps(
             (album.record_change_tag, album.name), separators=(",", ":")
@@ -95,13 +118,7 @@ class PhotoAlbumWrites:
         if "photos" not in self.additional.reads.owner.config.services:
             raise WriteDenied("write_disabled")
         name = payload.get("name")
-        if (
-            set(payload) != {"name"}
-            or not isinstance(name, str)
-            or not name.strip()
-            or len(name.encode("utf-8")) > 4096
-            or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name)
-        ):
+        if set(payload) != {"name"} or not valid_album_name(name):
             raise WriteDenied("invalid_payload")
         target = self._selector(self.additional.resolve("photo-album", handle))
 

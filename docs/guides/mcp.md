@@ -45,6 +45,14 @@ proof and independent receipts, but remain internal until final runtime wiring.
 The launcher retains offline local status and capabilities; this slice exposes
 no write or approval tool.
 
+Internal Photos album creation reads at most 1,000 typed inventory records across
+pages and folders and fails closed on overflow. Nested albums may appear in
+inventory, but rename targets remain top-level only. Upload reservation and final
+registration share the upload deadline; custom sessions without a deadline-aware
+adapter are refused. Download state for incomplete transfers is not evicted to
+admit another version: if every registry slot is active, the new read fails with
+`download_registry_full`. Completed or failed-before-start entries are inactive.
+
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
 development tooling. The standalone CLI extra remains `pyicloud[cli]`.

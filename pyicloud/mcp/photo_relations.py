@@ -97,6 +97,8 @@ class PhotoRelations(PhotoAlbumWrites):
         source = self.additional.resolve("photo-asset", source_handle)
         if not isinstance(source, PhotoAsset):
             raise WriteDenied("unsupported_target")
+        if not album.can_add_photo_correlated(source):
+            raise WriteDenied("relation_unavailable")
         target = (album_id, source.id, source.master_id, zone)
 
         def prepare(client: Any) -> MutationPreview:
