@@ -47,16 +47,23 @@ class MailDeletions:
         if not isinstance(current, MailMessage) or (
             current.id,
             current.uid,
-            current.folder,
+            (current.folder.id, current.folder.name, current.folder.uid_validity),
             current.mailbox,
-        ) != (source.id, source.uid, source.folder, source.mailbox):
+        ) != (
+            source.id,
+            source.uid,
+            (source.folder.id, source.folder.name, source.folder.uid_validity),
+            source.mailbox,
+        ):
             raise WriteDenied("stale_target")
         resource = json.dumps(
             (route, current.folder.id, current.folder.name, current.id, current.uid),
             separators=(",", ":"),
         )
         # Opaque flags remain uninterpreted. Metadata is not a body revision.
-        revision = hashlib.sha256(current.model_dump_json().encode()).hexdigest()
+        revision = hashlib.sha256(
+            current.model_dump_json(exclude={"folder": {"message_count"}}).encode()
+        ).hexdigest()
         return current, account, resource, revision
 
     async def prepare_delete(

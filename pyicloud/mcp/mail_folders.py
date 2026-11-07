@@ -111,7 +111,7 @@ class MailFolderWrites:
                 resource_binding=route,
                 revision=revision,
             )
-            del self._names[request_id]
+            self._names.pop(request_id, None)
             try:
                 result = client.mail.create_folder(approved.payload["name"])
                 current_account, current_route, _revision, current = self._fresh(client)

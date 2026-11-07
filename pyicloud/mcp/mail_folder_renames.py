@@ -106,7 +106,7 @@ class MailFolderRenames(MailFolderWrites):
                 resource_binding=resource,
                 revision=revision,
             )
-            del self._renames[request_id]
+            self._renames.pop(request_id, None)
             try:
                 result = client.mail.rename_folder(target, approved.payload["name"])
                 current_account, current_route, _revision, current = self._fresh(client)

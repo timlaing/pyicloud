@@ -85,9 +85,14 @@ class MailAcknowledged:
         if not isinstance(current, MailMessage) or (
             current.id,
             current.uid,
-            current.folder,
+            (current.folder.id, current.folder.name, current.folder.uid_validity),
             current.mailbox,
-        ) != (source.id, source.uid, source.folder, source.mailbox):
+        ) != (
+            source.id,
+            source.uid,
+            (source.folder.id, source.folder.name, source.folder.uid_validity),
+            source.mailbox,
+        ):
             raise WriteDenied("stale_target")
         folder = None
         if destination is not None:
@@ -107,7 +112,9 @@ class MailAcknowledged:
             sort_keys=True,
             separators=(",", ":"),
         )
-        revision = hashlib.sha256(current.model_dump_json().encode()).hexdigest()
+        revision = hashlib.sha256(
+            current.model_dump_json(exclude={"folder": {"message_count"}}).encode()
+        ).hexdigest()
         return current, folder, account, resource, revision
 
     async def prepare(
