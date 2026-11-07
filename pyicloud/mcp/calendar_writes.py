@@ -6,7 +6,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import json
-import re
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -233,7 +232,10 @@ class CalendarWrites:
             not isinstance(identifier, str)
             or not 1 <= len(identifier) <= 512
             or identifier in {".", ".."}
-            or re.search(r"[/\\?#%\s\x00-\x1f\x7f]", identifier) is not None
+            or any(
+                char in "/\\?#%" or char.isspace() or ord(char) < 32 or ord(char) == 127
+                for char in identifier
+            )
             for identifier in identifiers
         )
 
