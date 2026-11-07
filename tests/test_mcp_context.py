@@ -143,6 +143,8 @@ async def test_probe_does_not_fall_back_to_login(
     """Saved-session probes never become credential login or challenge tools."""
     client = MagicMock()
     client.session = MagicMock()
+    close_mock = MagicMock()
+    client.session.close = close_mock
     client.get_auth_status.return_value = status
     original_authenticate = client.authenticate
     owner = SessionOwner(configuration(), lambda: client)
@@ -155,7 +157,7 @@ async def test_probe_does_not_fall_back_to_login(
         original_authenticate.assert_not_called()
     finally:
         await owner.close()
-    client.session.close.assert_called_once()
+    close_mock.assert_called_once()
     await owner.close()
     with pytest.raises(ToolFailure, match="server_closed"):
         await owner.run(lambda _: None)
@@ -179,6 +181,8 @@ async def test_cancelled_or_timed_out_call_retains_lane_ownership(cancel: bool) 
     started, release = Event(), Event()
     client = MagicMock()
     client.session = MagicMock()
+    close_mock = MagicMock()
+    client.session.close = close_mock
     client.get_auth_status.return_value = {"authenticated": True}
     owner = SessionOwner(configuration(timeout=0.05, queue_limit=1), lambda: client)
 
@@ -211,14 +215,14 @@ async def test_cancelled_or_timed_out_call_retains_lane_ownership(cancel: bool) 
                 await owner.run(lambda _: None)
             closing = asyncio.create_task(owner.close())
             await asyncio.sleep(0)
-            client.session.close.assert_not_called()
+            close_mock.assert_not_called()
             release.set()
             await closing
     finally:
         release.set()
         await owner.close()
     assert owner.authenticated
-    client.session.close.assert_called_once()
+    close_mock.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -521,6 +525,8 @@ async def test_shutdown_drain_timeout_does_not_close_an_active_session() -> None
     started, release = Event(), Event()
     client = MagicMock()
     client.session = MagicMock()
+    close_mock = MagicMock()
+    client.session.close = close_mock
     client.get_auth_status.return_value = {"authenticated": True}
     owner = SessionOwner(configuration(), lambda: client)
 
@@ -537,7 +543,7 @@ async def test_shutdown_drain_timeout_does_not_close_an_active_session() -> None
         pytest.raises(ToolFailure, match="shutdown_timeout"),
     ):
         await owner.close()
-    client.session.close.assert_not_called()
+    close_mock.assert_not_called()
     release.set()
     await task
 

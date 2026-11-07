@@ -739,6 +739,7 @@ def test_set_favorite_raises_when_state_not_applied() -> None:
     """A server response that keeps the old favorite state raises."""
 
     service = MagicMock()
+    service.session = MagicMock()
     service.service_endpoint = "https://example.com"
     service.params = {"dsid": "12345"}
     service.session.post.return_value.json.return_value = {
