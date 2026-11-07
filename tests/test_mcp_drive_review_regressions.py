@@ -2,11 +2,14 @@
 
 # pylint: disable=protected-access
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from pyicloud.mcp.authorization import WriteDenied
 from pyicloud.mcp.context import ToolFailure
@@ -43,6 +46,90 @@ async def test_failed_destination_retirement_preserves_stage_and_approval() -> N
         preview.request_id, preview.digest, high_risk=True
     )
     pipeline.upload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stage_expiry_during_refresh_preserves_destination() -> None:
+    """Known expiry after refresh cannot retire a destination without dispatch."""
+    writer, _client, handle, token, _data, pipeline = setup_adapter()
+    preview = await writer.prepare_upload(handle, token, 1000)
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    original_read = writer._read
+
+    def refreshed(*args: Any) -> Any:
+        result = original_read(*args)
+        stage = writer.staging.peek(token)
+        writer.staging._stages[token] = replace(stage, expires_at=0)
+        return result
+
+    with (
+        patch.object(writer, "_read", side_effect=refreshed),
+        pytest.raises(WriteDenied, match="expired_or_unknown_upload"),
+    ):
+        await writer.apply(preview.request_id)
+    assert writer.additional.resolve("drive-folder", handle)
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    pipeline.upload.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recover", [False, True])
+@pytest.mark.parametrize("field", ["shareID", "share"])
+async def test_shared_trash_listing_is_refused_despite_private_detail(
+    recover: bool, field: str
+) -> None:
+    """The independently listed target must also satisfy private-only guards."""
+    writer: Any
+    if recover:
+        writer, client, handle, data = setup_action(True)
+        operation = writer.prepare_acknowledged("drive.recover_item", handle, {})
+    else:
+        writer, client, handle, data = setup_delete()
+        operation = writer.prepare_delete(handle, {})
+    client.drive.trash.get_children.return_value = [
+        DriveNode(client.drive, {**data, field: "foreign"})
+    ]
+    with pytest.raises(WriteDenied, match="unsupported_shared_write"):
+        await operation
+    client.drive.delete_forever.assert_not_called()
+    client.drive.session.request_raw.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_source_retirement_failure_is_not_mutation_uncertainty() -> None:
+    """A handle-retirement failure before dispatch is a fixed target denial."""
+    writer, client, handle, _data = setup_writer()
+    preview = await writer.prepare(handle, {"name": "After"})
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    with (
+        patch.object(
+            writer.additional,
+            "retire",
+            side_effect=ToolFailure("expired_or_unknown_handle"),
+        ),
+        pytest.raises(WriteDenied, match="target_unavailable"),
+    ):
+        await writer.apply(preview.request_id)
+    client.drive.rename_items.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_retry_enabled_transport_cannot_consume_or_dispatch() -> None:
+    """Custom POST retries cannot turn one operator approval into two writes."""
+    writer, client, handle, _data = setup_writer()
+    preview = await writer.prepare(handle, {"name": "After"})
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    client.drive.session.get_adapter.return_value = HTTPAdapter(
+        max_retries=Retry(total=2, read=2, allowed_methods={"POST"})
+    )
+    with pytest.raises(WriteDenied, match="mutation_retry_policy_unavailable"):
+        await writer.apply(preview.request_id)
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    client.drive.rename_items.assert_not_called()
 
 
 @pytest.mark.asyncio

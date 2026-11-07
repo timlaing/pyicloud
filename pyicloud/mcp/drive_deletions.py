@@ -51,6 +51,7 @@ class DriveDeletions(DriveWrites):
         ):
             raise WriteDenied("target_unavailable")
         account, resource, revision = self._bindings(client, target, node)
+        self._validated_node(client, target, members[0].data)
         resource = json.dumps(
             (resource, node.name, path, "TRASH_ROOT"), separators=(",", ":")
         )

@@ -539,7 +539,9 @@ async def test_content_tool_registration_is_opt_in() -> None:
             continue
         result = await server.call_tool(name, args)
         assert isinstance(result, CallToolResult)
-        assert result.is_error is (name == "icloud_drive_download")
+        assert result.is_error is (
+            name in {"icloud_drive_download", "icloud_drive_search"}
+        )
     metadata = build_server(owner=owner_for(client, ()))
     assert not any(
         tool.name.endswith("_download") or tool.name.endswith("_content")

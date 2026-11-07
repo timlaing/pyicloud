@@ -1,6 +1,7 @@
 """Drive protocol metadata cannot implicitly enable download or mutation paths."""
 
 from dataclasses import replace
+from typing import Any
 from unittest.mock import MagicMock
 
 from mcp.types import CallToolResult
@@ -37,6 +38,28 @@ async def test_drive_registration_preserves_content_opt_in(
         if name in names:
             result = await server.call_tool(name, arguments)
             assert isinstance(result, CallToolResult)
-            assert result.is_error is (name == "icloud_drive_download")
+            assert result.structured_content is not None
+            assert result.is_error is (result.structured_content["error"] is not None)
     assert "icloud_write_execute" not in names
     assert len(await build_server().list_tools()) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name,arguments",
+    [
+        ("icloud_drive_list", {"limit": 0}),
+        ("icloud_drive_trash_list", {"limit": 0}),
+        ("icloud_drive_search", {"query": ""}),
+    ],
+)
+async def test_rejected_drive_reads_are_tool_errors(
+    name: str, arguments: dict[str, Any]
+) -> None:
+    """Every metadata wrapper preserves safe error codes and sets the error flag."""
+    server = build_server(owner=owner_for(MagicMock(), services=("drive",)))
+    result = await server.call_tool(name, arguments)
+    assert isinstance(result, CallToolResult)
+    assert result.is_error
+    assert result.structured_content is not None
+    assert result.structured_content["error"] == "invalid_argument"

@@ -7,10 +7,13 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
+from requests.adapters import HTTPAdapter
+
 from pyicloud.services.drive import DriveNode
 
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
+from .context import ToolFailure
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,7 @@ class DriveWrites:
         route = client.drive.service_root
         if not isinstance(route, str) or not route:
             raise WriteDenied("route_unavailable")
+        self._require_retry_disabled(client, route)
         revision = node.data.get("etag")
         if (
             not isinstance(revision, str)
@@ -89,6 +93,23 @@ class DriveWrites:
             json.dumps((route, target.identifier, target.zone), separators=(",", ":")),
             revision,
         )
+
+    @staticmethod
+    def _require_retry_disabled(client: Any, route: str) -> None:
+        """Refuse custom transports that could dispatch one mutation more than once."""
+        try:
+            adapter = client.drive.session.get_adapter(route)
+        except Exception:
+            raise WriteDenied("mutation_retry_policy_unavailable") from None
+        if not isinstance(adapter, HTTPAdapter) or adapter.max_retries.total != 0:
+            raise WriteDenied("mutation_retry_policy_unavailable")
+
+    def _retire_source(self, kind: str, handle: str) -> None:
+        """A known pre-dispatch retirement failure is not an uncertain mutation."""
+        try:
+            self.additional.retire(kind, handle)
+        except ToolFailure:
+            raise WriteDenied("target_unavailable") from None
 
     async def prepare(
         self,
@@ -202,8 +223,8 @@ class DriveWrites:
             del self._actions[request_id]
             source_kind, source_handle = self._sources.pop(request_id)
             if action == DRIVE_TRASH_FILE:
+                self._retire_source(source_kind, source_handle)
                 try:
-                    self.additional.retire(source_kind, source_handle)
                     node.move_to_trash()
                     self._verify_trash(client, target, account, resource)
                 except Exception:
@@ -212,8 +233,8 @@ class DriveWrites:
             name = approved.payload["name"]
             if node.data.get("name") == name:
                 return {"action": DRIVE_RENAME, "changed": False}
+            self._retire_source(source_kind, source_handle)
             try:
-                self.additional.retire(source_kind, source_handle)
                 node.rename(name)
                 self._verify_rename(client, target, name, account, resource)
             except Exception:

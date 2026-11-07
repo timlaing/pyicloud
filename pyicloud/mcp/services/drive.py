@@ -10,7 +10,6 @@ from mcp.types import CallToolResult, ToolAnnotations
 from ..additional import AdditionalReads
 from ..content import ContentReads
 from ..context import SessionOwner
-from ..reads import ReadResult
 from .calendar import tool_result
 
 
@@ -25,23 +24,25 @@ def register(
     annotations = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 
     @server.tool(name="icloud_drive_trash_list", annotations=annotations)
-    async def drive_trash(query: str = "", limit: int = 50) -> ReadResult:
+    async def drive_trash(query: str = "", limit: int = 50) -> CallToolResult:
         """List bounded trash metadata, never restore paths or content."""
-        return await additional.drive_trash(query, limit)
+        return tool_result(await additional.drive_trash(query, limit))
 
     @server.tool(name="icloud_drive_list", annotations=annotations)
     async def drive(
         folder_handle: str = "", query: str = "", limit: int = 50
-    ) -> ReadResult:
+    ) -> CallToolResult:
         """Browse a root or discovered folder without accepting local paths."""
-        return await additional.drive(folder_handle, query, limit)
+        return tool_result(await additional.drive(folder_handle, query, limit))
 
     @server.tool(name="icloud_drive_search", annotations=annotations)
     async def drive_search(
         query: str, folder_handle: str = "", limit: int = 50, scan_limit: int = 500
-    ) -> ReadResult:
+    ) -> CallToolResult:
         """Search remote names across at most sixteen folders and bounded rows."""
-        return await additional.search("drive", folder_handle, query, limit, scan_limit)
+        return tool_result(
+            await additional.search("drive", folder_handle, query, limit, scan_limit)
+        )
 
     if "drive" in context.config.content_services:
 

@@ -106,9 +106,8 @@ class DriveAcknowledged(DriveWrites):
             raise WriteDenied("destination_conflict")
         return node
 
-    @staticmethod
     def _recovery_resource(
-        client: Any, target: DriveTarget, node: DriveNode, resource: str
+        self, client: Any, target: DriveTarget, node: DriveNode, resource: str
     ) -> str:
         """Bind recovery only to exactly matching observed Trash metadata."""
         path = node.data.get("restorePath")
@@ -137,6 +136,7 @@ class DriveAcknowledged(DriveWrites):
         ):
             raise WriteDenied("target_unavailable")
         # Restore to the observed server location, never an inferred local path.
+        self._validated_node(client, target, members[0].data)
         return json.dumps((resource, node.name, path), separators=(",", ":"))
 
     async def prepare_acknowledged(

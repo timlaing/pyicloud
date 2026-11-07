@@ -13,7 +13,7 @@ from .authorization import MutationPreview, WriteDenied
 from .context import ToolFailure
 from .drive_upload_bytes import DriveUploadBytes
 from .drive_writes import DriveTarget, DriveWrites
-from .upload_staging import UploadStaging
+from .upload_staging import StagedUpload, UploadStaging
 from .upload_transport import UploadTransport, checked_upload_url
 
 
@@ -42,6 +42,23 @@ class DriveUploads(DriveWrites):
             self.additional.retire("drive-folder", handle)
         except ToolFailure:
             raise WriteDenied("target_unavailable") from None
+
+    def _acquire_stage(
+        self, token: str, handle: str, captured: list[StagedUpload]
+    ) -> None:
+        """Validate expiry before retiring the destination or spending approval."""
+        captured.append(
+            self.staging.take(
+                token, before_take=lambda: self._retire_destination(handle)
+            )
+        )
+
+    def _restore_pre_dispatch_stage(
+        self, token: str, captured: list[StagedUpload]
+    ) -> None:
+        """Retain bytes only for a known policy rejection before any dispatch."""
+        for stage in captured:
+            self.staging._stages[token] = stage  # pylint: disable=protected-access
 
     def _read(
         self, client: Any, target: DriveTarget, token: str
@@ -157,17 +174,22 @@ class DriveUploads(DriveWrites):
             folder, account, resource, revision = self._read(client, target, token)
             if accept is not None:
                 accept(request_id)
+            captured: list[StagedUpload] = []
             approved = self.ledger.consume(
                 request_id,
                 account_binding=account,
                 resource_binding=resource,
                 revision=revision,
-                before_consume=lambda: self._retire_destination(handle),
+                before_consume=lambda: self._acquire_stage(token, handle, captured),
             )
             del self._requests[request_id]
             if approved.risk != "high":
+                # No dispatch occurred; retain bytes if a trusted policy is corrupted.
+                self._restore_pre_dispatch_stage(token, captured)
                 raise WriteDenied("high_risk_operator_approval_required")
-            stage = self.staging.take(token)
+            if len(captured) != 1:
+                raise WriteDenied("invalid_upload_bytes")
+            stage = captured[0]
             route, root = client.drive.service_root, client.drive.document_root
             try:
                 self.pipeline.upload(

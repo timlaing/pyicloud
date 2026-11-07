@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from requests.adapters import HTTPAdapter
 
 from pyicloud.mcp.additional import AdditionalReads
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
@@ -20,6 +21,7 @@ def setup_writer() -> tuple[DriveWrites, MagicMock, str, dict[str, Any]]:
     client = MagicMock()
     client.params = {"dsid": "A"}
     client.drive.params = dict(client.params)
+    client.drive.session.get_adapter.return_value = HTTPAdapter(max_retries=0)
     client.drive.service_root = "https://drive.example.test"
     data = {
         "drivewsid": "FILE::com.apple.CloudDocs::SYNTHETIC",

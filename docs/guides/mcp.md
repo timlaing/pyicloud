@@ -74,6 +74,11 @@ before approval and staged bytes are consumed; a failed retirement preserves
 both. Rename retires its selected source before dispatch, so uncertain outcomes
 require rediscovery rather than reusing stale names. Permanent deletion compares
 Trash listing metadata with the independently fetched detail snapshot.
+Both recovery and deletion reject shared metadata in either snapshot. A stage
+that expires during refresh is rejected before destination retirement; restaging
+uses a new token and requires a new preview and approval. Known retirement
+failures return `target_unavailable`, not mutation uncertainty. Custom mutation
+sessions must confirm retries are disabled before approval consumption.
 
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
