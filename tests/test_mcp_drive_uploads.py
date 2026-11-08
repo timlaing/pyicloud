@@ -33,6 +33,7 @@ from tests.test_mcp_upload_previews import setup_upload
         "surrogate",
         "allocation",
         "receipt_token",
+        "unapproved_host",
     ],
 )
 def test_existing_upload_contract_never_retries_or_claims_final_identity(
@@ -40,6 +41,7 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
 ) -> None:
     """Exact existing allocation/multipart/commit fields and operation-local token."""
     transport, drive = MagicMock(), MagicMock()
+    transport.hosts = frozenset({"content.example.test", "outside.example.test"})
     drive.params = {"dsid": "123"}
     drive.document_root = "https://docs.example.test"
     if case == "root":
@@ -81,6 +83,10 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
     if case == "allocation":
         transport.register.side_effect = [
             [{"document_id": None, "url": "https://content.example.test/upload"}]
+        ]
+    if case == "unapproved_host":
+        transport.register.side_effect = [
+            [{"document_id": "allocated", "url": "https://outside.example.test/upload"}]
         ]
     receipt = {
         "size": len(data),
@@ -129,7 +135,16 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
             )
         else:
             with pytest.raises(WriteDenied):
-                uploader.upload(drive, "folder-document", stage, modified_ms=1000)
+                uploader.upload(
+                    drive,
+                    "folder-document",
+                    stage,
+                    modified_ms=1000,
+                    approved_hosts=frozenset({"content.example.test"}),
+                )
+    if case == "unapproved_host":
+        transport.transfer.assert_not_called()
+        transport.register.assert_called_once()
     assert drive.params == {"dsid": "123"}
     assert transport.register.call_count <= 2
     assert transport.transfer.call_count <= 1

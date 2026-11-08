@@ -201,6 +201,7 @@ class DriveUploads(DriveWrites):
                     stage,
                     modified_ms=approved.payload["modified_ms"],
                     credential_snapshot=credentials,
+                    approved_hosts=self.hosts,
                 )
                 if (
                     str(client.params.get("dsid")) != account

@@ -10,6 +10,14 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Enforce the approval-bound Drive upload host policy before transferring staged bytes, even when an injected transport permits additional hosts.
+
+### Fixed
+
+- Reject evicted queued Drive write previews before accepting receipts, consuming approvals, retiring handles, or dispatching mutations.
+
+### Security
+
 - Route plaintext MCP requests and HTTPS-to-HTTP redirects through the bounded adapter so they are rejected before plaintext dispatch.
 
 - Bind operator-visible MCP approval content to the live ledger before accepting a receipt, reject blocking special files, disable service login recovery on saved-session owners, require valid strong download entity tags and reject retry-enabled registration transports.

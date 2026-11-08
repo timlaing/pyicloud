@@ -104,6 +104,8 @@ class DriveDeletions(DriveWrites):
         handle, target = selected
 
         def apply(client: Any) -> dict[str, Any]:
+            if self._deletions.get(request_id) != selected:
+                raise WriteDenied("unknown_or_consumed_preview")
             self.additional.resolve("drive-trash-file", handle)
             node, account, resource, revision = self._trash_file(client, target)
             if accept is not None:

@@ -202,6 +202,8 @@ class DriveAcknowledged(DriveWrites):
         action, handle, selector, pending_name = target
 
         def apply(client: Any) -> dict[str, Any]:
+            if self._requests.get(request_id) != target:
+                raise WriteDenied("unknown_or_consumed_preview")
             # Approved name is detached in the ledger; prepare registries retain
             # no caller-controlled mutable payload.
             self.additional.resolve_any(

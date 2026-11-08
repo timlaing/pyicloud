@@ -148,6 +148,7 @@ class DriveUploadBytes:
         *,
         modified_ms: int,
         credential_snapshot: dict[str, str] | None = None,
+        approved_hosts: frozenset[str] | None = None,
     ) -> None:
         """Snapshot upload credentials and send exact bytes with no filesystem paths."""
         root = drive.document_root
@@ -207,6 +208,8 @@ class DriveUploadBytes:
                 deadline=deadline,
             )
             allocation, target = _reservation_target(reservation)
+            if approved_hosts is not None:
+                checked_upload_url(target, approved_hosts)
             response = self.transport.transfer(
                 target, stage.data, deadline=deadline, multipart_name=stage.name
             )

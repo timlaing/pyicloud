@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from requests.adapters import HTTPAdapter
@@ -23,6 +23,60 @@ from tests.test_mcp_drive_deletions import setup_delete
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_uploads import setup_adapter
 from tests.test_mcp_drive_writes import setup_writer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["rename", "create", "recover", "delete", "move"])
+async def test_queued_write_eviction_preserves_approval_and_handles(kind: str) -> None:
+    """An evicted queued request fails before acceptance or resource consumption."""
+    writer: Any
+    if kind == "rename":
+        writer, client, handle, _data = setup_writer()
+        preview = await writer.prepare(handle, {"name": "After"})
+        registry = writer._targets
+        handle_kind = "drive-file"
+    elif kind == "move":
+        writer, client, handle, destination, _data, _folder = setup_move()
+        preview = await writer.prepare_move(handle, destination, {})
+        registry = writer._moves
+        handle_kind = "drive-file"
+    elif kind == "delete":
+        writer, client, handle, _data = setup_delete()
+        preview = await writer.prepare_delete(handle, {})
+        registry = writer._deletions
+        handle_kind = "drive-trash-file"
+    else:
+        writer, client, handle, _data = setup_action(kind == "recover")
+        preview = await writer.prepare_acknowledged(
+            "drive.recover_item" if kind == "recover" else "drive.create_folder",
+            handle,
+            {} if kind == "recover" else {"name": "New"},
+        )
+        registry = writer._requests
+        handle_kind = "drive-trash-file" if kind == "recover" else "drive-folder"
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=preview.risk == "high"
+    )
+    client.reset_mock()
+
+    async def queued_run(operation: Callable[[Any], Any]) -> Any:
+        registry.pop(preview.request_id)
+        return operation(client)
+
+    cast(Any, writer.additional.reads.owner).run = queued_run
+    accept = MagicMock()
+    with patch.object(writer.ledger, "consume", wraps=writer.ledger.consume) as consume:
+        with pytest.raises(WriteDenied, match="unknown_or_consumed_preview"):
+            await writer.apply(preview.request_id, accept)
+        consume.assert_not_called()
+    accept.assert_not_called()
+    assert writer.additional.resolve(handle_kind, handle)
+    if kind == "move":
+        assert writer.additional.resolve("drive-folder", destination)
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=preview.risk == "high"
+    )
+    assert not client.mock_calls
 
 
 @pytest.mark.asyncio

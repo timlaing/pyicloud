@@ -203,12 +203,19 @@ class DriveWrites:
     ) -> dict[str, Any]:
         """Retire approval before dispatch; verify the actual post-write state."""
         target = self._targets.get(request_id)
-        if target is None:
+        action = self._actions.get(request_id)
+        selected_source = self._sources.get(request_id)
+        if target is None or action is None or selected_source is None:
             raise WriteDenied("unknown_or_consumed_preview")
 
         def apply(client: Any) -> dict[str, Any]:
+            if (
+                self._targets.get(request_id) != target
+                or self._actions.get(request_id) != action
+                or self._sources.get(request_id) != selected_source
+            ):
+                raise WriteDenied("unknown_or_consumed_preview")
             node = self._fresh(client, target)
-            action = self._actions[request_id]
             self._require_action_target(action, node)
             account, resource, revision = self._bindings(client, target, node)
             if accept is not None:
