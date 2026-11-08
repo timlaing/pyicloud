@@ -134,13 +134,14 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
                 for call in transport.register.call_args_list
             )
         else:
+            approved_hosts = frozenset({"content.example.test"})
             with pytest.raises(WriteDenied):
                 uploader.upload(
                     drive,
                     "folder-document",
                     stage,
                     modified_ms=1000,
-                    approved_hosts=frozenset({"content.example.test"}),
+                    approved_hosts=approved_hosts,
                 )
     if case == "unapproved_host":
         transport.transfer.assert_not_called()

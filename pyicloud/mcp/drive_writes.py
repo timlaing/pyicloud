@@ -198,6 +198,12 @@ class DriveWrites:
         ):
             raise WriteDenied("unsupported_target")
 
+    @staticmethod
+    def _require_current_preview(current: Any, selected: Any) -> None:
+        """Reject queued selections evicted before owner-lane admission."""
+        if current != selected:
+            raise WriteDenied("unknown_or_consumed_preview")
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -209,12 +215,14 @@ class DriveWrites:
             raise WriteDenied("unknown_or_consumed_preview")
 
         def apply(client: Any) -> dict[str, Any]:
-            if (
-                self._targets.get(request_id) != target
-                or self._actions.get(request_id) != action
-                or self._sources.get(request_id) != selected_source
-            ):
-                raise WriteDenied("unknown_or_consumed_preview")
+            self._require_current_preview(
+                (
+                    self._targets.get(request_id),
+                    self._actions.get(request_id),
+                    self._sources.get(request_id),
+                ),
+                (target, action, selected_source),
+            )
             node = self._fresh(client, target)
             self._require_action_target(action, node)
             account, resource, revision = self._bindings(client, target, node)
