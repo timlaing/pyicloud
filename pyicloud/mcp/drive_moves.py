@@ -10,6 +10,7 @@ from pyicloud.services.drive import DriveNode
 
 from .authorization import MutationPreview, WriteDenied
 from .drive_writes import DriveTarget, DriveWrites
+from .one_shot import mutation_session
 
 DRIVE_MOVE_FILE = "drive.move_file"
 
@@ -21,6 +22,7 @@ class DriveMoves(DriveWrites):
         super().__init__(writer.additional, writer.ledger)
         self._moves: dict[str, tuple[DriveTarget, DriveTarget]] = {}
         self._destinations: dict[str, str] = {}
+        self._source_handles: dict[str, str] = {}
 
     def _pair(
         self, client: Any, targets: tuple[DriveTarget, DriveTarget]
@@ -90,10 +92,15 @@ class DriveMoves(DriveWrites):
                 oldest = next(iter(self._moves))
                 del self._moves[oldest]
                 self._destinations.pop(oldest, None)
+                self._source_handles.pop(oldest, None)
             self._moves[preview.request_id] = pair
             self._destinations[preview.request_id] = destination_handle
-            if publish is not None:
-                publish(preview)
+            self._source_handles[preview.request_id] = handle
+            self._publish_preview(
+                preview,
+                publish,
+                (self._moves, self._destinations, self._source_handles),
+            )
             return preview
 
         return await self.additional.reads.owner.run(prepare)
@@ -122,18 +129,21 @@ class DriveMoves(DriveWrites):
         """Consume approval before one move and independently verify membership."""
         targets = self._moves.get(request_id)
         destination_handle = self._destinations.get(request_id)
-        if targets is None or destination_handle is None:
+        source_handle = self._source_handles.get(request_id)
+        if targets is None or destination_handle is None or source_handle is None:
             raise WriteDenied("unknown_or_consumed_preview")
 
         def apply(client: Any) -> dict[str, Any]:
             if (
                 self._moves.get(request_id) != targets
                 or self._destinations.get(request_id) != destination_handle
+                or self._source_handles.get(request_id) != source_handle
             ):
                 raise WriteDenied("unknown_or_consumed_preview")
             source, destination, account, resource, revision = self._pair(
                 client, targets
             )
+            self._require_mutation_path(client, "/moveItems")
             if accept is not None:
                 accept(request_id)
             self.ledger.consume(
@@ -144,13 +154,16 @@ class DriveMoves(DriveWrites):
             )
             self._moves.pop(request_id, None)
             self._destinations.pop(request_id, None)
+            self._source_handles.pop(request_id, None)
             if source.data["parentId"] == targets[1].identifier:
                 return {"action": DRIVE_MOVE_FILE, "changed": False}
             self._retire_source("drive-folder", destination_handle)
+            self._retire_source("drive-file", source_handle)
             try:
-                client.drive.move_nodes_to_node(
-                    [source], destination, allow_redirects=False
-                )
+                with mutation_session(client.drive):
+                    client.drive.move_nodes_to_node(
+                        [source], destination, allow_redirects=False
+                    )
                 (
                     moved,
                     current_destination,

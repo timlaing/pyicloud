@@ -16,7 +16,9 @@ from pyicloud.mcp.authorization import WriteDenied
 from pyicloud.mcp.context import ToolFailure
 from pyicloud.mcp.drive_acknowledged import _invalid_folder_payload
 from pyicloud.mcp.drive_upload_bytes import _commit_matches
+from pyicloud.mcp.drive_uploads import DriveUploads
 from pyicloud.mcp.drive_writes import DriveWrites
+from pyicloud.mcp.upload_staging import UploadStaging
 from pyicloud.services.drive import DriveNode
 from tests.test_mcp_drive_acknowledged import setup_action
 from tests.test_mcp_drive_deletions import setup_delete
@@ -150,7 +152,7 @@ async def test_shared_trash_listing_is_refused_despite_private_detail(
     ]
     with pytest.raises(WriteDenied, match="unsupported_shared_write"):
         await operation
-    client.drive.delete_forever.assert_not_called()
+    client.drive.delete_forever_from_trash.assert_not_called()
     client.drive.session.request_raw.assert_not_called()
 
 
@@ -199,7 +201,7 @@ async def test_other_drive_retirement_failures_are_known_denials(kind: str) -> N
     ):
         await writer.apply(preview.request_id)
     client.drive.session.request_raw.assert_not_called()
-    client.drive.delete_forever.assert_not_called()
+    client.drive.delete_forever_from_trash.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -276,7 +278,7 @@ async def test_contradictory_trash_listing_cannot_authorize_deletion() -> None:
     client.drive.trash.get_children.return_value = [different]
     with pytest.raises(WriteDenied, match="target_unavailable"):
         await writer.prepare_delete(handle, {})
-    client.drive.delete_forever.assert_not_called()
+    client.drive.delete_forever_from_trash.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -357,13 +359,16 @@ async def test_integer_account_upload_can_prepare_without_dispatch() -> None:
 
 def test_direct_upload_adapter_registers_staging_cleanup() -> None:
     """Owner shutdown callbacks release stages even without the preview wrapper."""
-    writer, _client, _handle, token, _data, _pipeline = setup_adapter()
+    base, _client, _handle, _data = setup_writer()
+    cast(Any, base.additional.reads.owner).add_cleanup = MagicMock()
+    staging = UploadStaging()
+    writer = DriveUploads(base, staging, frozenset({"content.example.test"}))
     owner = cast(Any, writer.additional.reads.owner)
+    owner.add_cleanup.assert_called_once_with(staging.close)
     callback = owner.add_cleanup.call_args.args[0]
     assert callback == writer.staging.close
     callback()
-    with pytest.raises(WriteDenied):
-        writer.staging.peek(token)
+    assert not staging._stages
 
 
 @pytest.mark.asyncio

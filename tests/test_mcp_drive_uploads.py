@@ -34,6 +34,7 @@ from tests.test_mcp_upload_previews import setup_upload
         "allocation",
         "receipt_token",
         "unapproved_host",
+        "acquired",
     ],
 )
 def test_existing_upload_contract_never_retries_or_claims_final_identity(
@@ -59,7 +60,7 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
         time.monotonic() + 300,
         data,
     )
-    if case == "expired":
+    if case in {"expired", "acquired"}:
         stage = replace(stage, expires_at=0)
     if case == "name":
         stage = replace(stage, name="../file")
@@ -108,7 +109,7 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
         "pyicloud.mcp.drive_upload_bytes.mimetypes.guess_type",
         return_value=("text/plain", None),
     ):
-        if case in {"ok", "empty", "snapshot"}:
+        if case in {"ok", "empty", "snapshot", "acquired"}:
             uploader.upload(
                 drive,
                 "folder-document",
@@ -117,6 +118,7 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
                 credential_snapshot={"token": "synthetic"}
                 if case == "snapshot"
                 else None,
+                stage_acquired=case == "acquired",
             )
             commit = transport.register.call_args_list[1]
             assert "token=synthetic" in commit.args[1]

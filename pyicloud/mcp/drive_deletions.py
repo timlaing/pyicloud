@@ -11,6 +11,7 @@ from pyicloud.services.drive import DriveNode
 
 from .authorization import MutationPreview, WriteDenied
 from .drive_writes import DriveTarget, DriveWrites
+from .one_shot import mutation_session
 
 
 class DriveDeletions(DriveWrites):
@@ -75,6 +76,7 @@ class DriveDeletions(DriveWrites):
 
         def prepare(client: Any) -> MutationPreview:
             node, account, resource, revision = self._trash_file(client, target)
+            self._require_mutation_path(client, "/deleteItems")
             preview = self.ledger.preview(
                 "drive.delete_forever_file",
                 node.name,
@@ -88,8 +90,7 @@ class DriveDeletions(DriveWrites):
             if len(self._deletions) >= 256:
                 del self._deletions[next(iter(self._deletions))]
             self._deletions[preview.request_id] = (handle, target)
-            if publish is not None:
-                publish(preview)
+            self._publish_preview(preview, publish, (self._deletions,))
             return preview
 
         return await self.additional.reads.owner.run(prepare)
@@ -108,6 +109,7 @@ class DriveDeletions(DriveWrites):
                 raise WriteDenied("unknown_or_consumed_preview")
             self.additional.resolve("drive-trash-file", handle)
             node, account, resource, revision = self._trash_file(client, target)
+            self._require_mutation_path(client, "/deleteItems")
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(
@@ -121,7 +123,8 @@ class DriveDeletions(DriveWrites):
                 raise WriteDenied("high_risk_operator_approval_required")
             self._retire_source("drive-trash-file", handle)
             try:
-                node.delete_forever(allow_redirects=False)
+                with mutation_session(client.drive):
+                    node.delete_forever(allow_redirects=False)
                 current_account, current_resource, _revision = self._bindings(
                     client, target, node
                 )

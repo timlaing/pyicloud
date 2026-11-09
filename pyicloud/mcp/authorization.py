@@ -217,6 +217,10 @@ class ApprovalLedger:
         del self._pending[request_id]
         return item.preview
 
+    def discard(self, request_id: str) -> None:
+        """Revoke a preview that could not be published to the operator."""
+        self._pending.pop(request_id, None)
+
     def _lookup(self, request_id: str) -> PendingMutation:
         item = self._pending.get(request_id)
         if item is None:

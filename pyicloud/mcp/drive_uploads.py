@@ -11,7 +11,11 @@ from pyicloud.services.drive import CLOUD_DOCS_ZONE, DriveNode
 
 from .authorization import MutationPreview, WriteDenied
 from .context import ToolFailure
-from .drive_upload_bytes import DriveUploadBytes, snapshot_upload_credentials
+from .drive_upload_bytes import (
+    DriveUploadBytes,
+    snapshot_upload_credentials,
+    validate_upload_session,
+)
 from .drive_writes import DriveTarget, DriveWrites
 from .upload_staging import StagedUpload, UploadStaging
 from .upload_transport import UploadTransport, checked_upload_url
@@ -154,8 +158,7 @@ class DriveUploads(DriveWrites):
             if len(self._requests) >= 256:
                 del self._requests[next(iter(self._requests))]
             self._requests[preview.request_id] = (handle, target, token)
-            if publish is not None:
-                publish(preview)
+            self._publish_preview(preview, publish, (self._requests,))
             return preview
 
         return await self.additional.reads.owner.run(prepare)
@@ -175,6 +178,7 @@ class DriveUploads(DriveWrites):
             self.additional.resolve("drive-folder", handle)
             folder, account, resource, revision = self._read(client, target, token)
             credentials = snapshot_upload_credentials(client.drive)
+            validate_upload_session(client.drive, credentials)
             if accept is not None:
                 accept(request_id)
             captured: list[StagedUpload] = []
@@ -202,9 +206,11 @@ class DriveUploads(DriveWrites):
                     modified_ms=approved.payload["modified_ms"],
                     credential_snapshot=credentials,
                     approved_hosts=self.hosts,
+                    stage_acquired=True,
                 )
                 if (
                     str(client.params.get("dsid")) != account
+                    or str(client.drive.params.get("dsid")) != account
                     or client.drive.service_root != route
                     or client.drive.document_root != root
                 ):

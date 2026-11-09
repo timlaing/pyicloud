@@ -226,12 +226,20 @@ class AdditionalReads:
         elif kind == "file":
             record["handle"] = self._store("drive-file", child)
 
-    async def drive_trash(self, query: str, limit: int) -> ReadResult:
+    async def drive_trash(
+        self, query: str, limit: int, scan_limit: int = 500
+    ) -> ReadResult:
         """Bounded Recently Deleted metadata with separate opaque trash selectors."""
+        if (
+            isinstance(scan_limit, bool)
+            or not isinstance(scan_limit, int)
+            or not 1 <= scan_limit <= 2000
+        ):
+            return ReadResult(error="invalid_argument")
 
         def read(client: Any) -> ReadResult:
             records = []
-            for child in client.drive.trash.get_children(force=True):
+            for child in self._bounded_drive_children(client.drive.trash, scan_limit):
                 name, kind = text(child.name), text(child.type)
                 if (
                     kind not in {"file", "folder"}

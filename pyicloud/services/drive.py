@@ -76,6 +76,7 @@ class DriveService(BaseService):
             self.service_root + "/retrieveItemDetailsInFolders",
             params=self.params,
             json=payload,
+            allow_redirects=False,
         )
         self._raise_if_error(request)
         return cast(dict[str, Any], request.json()[0])
@@ -484,6 +485,8 @@ class DriveNode:
                 node_data = self.connection.get_node_data(
                     self.data["drivewsid"], self.data.get("shareID")
                 )
+                self._children = None
+                self.data.pop("items", None)
                 # Copy to avoid dict mutation during iteration in concurrent access
                 self.data = {**self.data, **node_data}
             if "items" not in self.data:
@@ -509,6 +512,8 @@ class DriveNode:
             observed = self.connection.get_node_data(
                 self.data["drivewsid"], self.data.get("shareID")
             )
+            self._children = None
+            self.data.pop("items", None)
             if "items" not in observed:
                 raise KeyError("Drive folder inventory unavailable")
             self.data = {**self.data, **observed}

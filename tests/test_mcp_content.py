@@ -372,7 +372,18 @@ async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
     empty_data = {"drivewsid": "F", "name": "empty", "type": "FILE", "size": 0}
     client.drive.get_node_data.return_value = dict(empty_data)
     empty = tools.additional.remember("drive-file", DriveNode(client.drive, empty_data))
-    assert (await tools.file("drive", empty, 0, 4)).records[0]["data_base64"] == ""
+    empty_result = await tools.file("drive", empty, 0, 4)
+    assert empty_result.records[0]["data_base64"] == ""
+    assert empty_result.records[0]["transfer_token"]
+    assert (
+        await tools.file(
+            "drive",
+            empty,
+            0,
+            4,
+            transfer_token=empty_result.records[0]["transfer_token"],
+        )
+    ).error == "invalid_download_transfer"
     assert (await tools.file("drive", empty, 1, 4)).error == "invalid_download_range"
     photo = SimpleNamespace(
         filename="photo",

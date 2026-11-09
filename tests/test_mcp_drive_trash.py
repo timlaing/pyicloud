@@ -23,7 +23,7 @@ async def test_trash_exact_file_after_receipt_and_verify_membership() -> None:
     def trash(identifier: str, etag: str, *, allow_redirects: bool) -> dict[str, Any]:
         assert allow_redirects is False
         assert (identifier, etag) == (data["drivewsid"], "v1")
-        data.update(restorePath="Before.txt", etag="v2")
+        data.update(restorePath="Before.txt", etag="v2", parentId="TRASH_ROOT")
         client.drive.trash.get_children.return_value = [
             DriveNode(client.drive, dict(data))
         ]
@@ -41,15 +41,22 @@ async def test_trash_exact_file_after_receipt_and_verify_membership() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["membership", "restore", "duplicate", "account"])
+@pytest.mark.parametrize(
+    "case", ["membership", "restore", "duplicate", "account", "parent"]
+)
 async def test_trash_unverified_ack_cannot_replay(case: str) -> None:
     """Missing Recently Deleted proof after dispatch is uncertain, not retryable."""
     writes, client, handle, data = setup_writer()
     writes.ledger = ApprovalLedger(frozenset({"drive.trash_file"}))
     preview = await writes.prepare(handle, {}, action="drive.trash_file")
     writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    callbacks: list[str] = []
 
-    def trash(_identifier: str, _etag: str) -> None:
+    def trash(_identifier: str, _etag: str, *, allow_redirects: bool) -> None:
+        assert allow_redirects is False
+        callbacks.append(case)
+        if case == "parent":
+            data.update(restorePath="Before.txt", etag="v2", parentId="ordinary")
         node = DriveNode(client.drive, dict(data))
         client.drive.trash.get_children.return_value = (
             []
@@ -68,6 +75,7 @@ async def test_trash_unverified_ack_cannot_replay(case: str) -> None:
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         await writes.apply(preview.request_id)
     client.drive.move_items_to_trash.assert_called_once()
+    assert callbacks == [case]
 
 
 @pytest.mark.asyncio

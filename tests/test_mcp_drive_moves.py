@@ -39,6 +39,42 @@ def setup_move() -> tuple[DriveMoves, Any, str, str, dict[str, Any], dict[str, A
 
 
 @pytest.mark.asyncio
+async def test_same_parent_move_preserves_both_selected_handles() -> None:
+    """A verified no-op retires neither source nor destination."""
+    writes, client, handle, destination, data, folder = setup_move()
+    data["parentId"] = folder["drivewsid"]
+    preview = await writes.prepare_move(handle, destination, {})
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    assert await writes.apply(preview.request_id) == {
+        "action": "drive.move_file",
+        "changed": False,
+    }
+    assert writes.additional.resolve("drive-file", handle)
+    assert writes.additional.resolve("drive-folder", destination)
+    client.drive.move_nodes_to_node.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_uncertain_move_retires_source_before_dispatch() -> None:
+    """A lost response cannot leave a stale downloadable source handle."""
+    writes, client, handle, destination, _data, _folder = setup_move()
+    preview = await writes.prepare_move(handle, destination, {})
+    writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+
+    def lost_response(*_args: Any, **_kwargs: Any) -> None:
+        with pytest.raises(ToolFailure):
+            writes.additional.resolve("drive-file", handle)
+        raise OSError("Synthetic lost response")
+
+    client.drive.move_nodes_to_node.side_effect = lost_response
+    with pytest.raises(WriteDenied, match="mutation_uncertain"):
+        await writes.apply(preview.request_id)
+    with pytest.raises(ToolFailure):
+        writes.additional.resolve("drive-file", handle)
+    client.drive.move_nodes_to_node.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_move_requires_receipt_and_verified_new_membership() -> None:
     """Both fresh revisions participate in one exact approval."""
     writes, client, handle, destination, data, folder = setup_move()
@@ -53,6 +89,8 @@ async def test_move_requires_receipt_and_verified_new_membership() -> None:
         assert allow_redirects is False
         with pytest.raises(ToolFailure):
             writes.additional.resolve("drive-folder", destination)
+        with pytest.raises(ToolFailure):
+            writes.additional.resolve("drive-file", handle)
         assert nodes[0].data["etag"] == "v1"
         assert target.data["etag"] == "D1"
         data.update(parentId=folder["drivewsid"], etag="v2")
@@ -102,8 +140,13 @@ async def test_unverified_move_is_uncertain_and_replay_denied(case: str) -> None
     writes, client, handle, destination, data, folder = setup_move()
     preview = await writes.prepare_move(handle, destination, {})
     writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    callbacks: list[str] = []
 
-    def move(_nodes: list[DriveNode], _target: DriveNode) -> None:
+    def move(
+        _nodes: list[DriveNode], _target: DriveNode, *, allow_redirects: bool
+    ) -> None:
+        assert allow_redirects is False
+        callbacks.append(case)
         if case != "parent":
             data["parentId"] = folder["drivewsid"]
         if case != "membership":
@@ -117,6 +160,7 @@ async def test_unverified_move_is_uncertain_and_replay_denied(case: str) -> None
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         await writes.apply(preview.request_id)
     client.drive.move_nodes_to_node.assert_called_once()
+    assert callbacks == [case]
 
 
 @pytest.mark.asyncio

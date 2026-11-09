@@ -106,8 +106,11 @@ async def test_unverified_permanent_delete_has_no_retry_handle(case: str) -> Non
     deletes.ledger.approve_from_operator(
         preview.request_id, preview.digest, high_risk=True
     )
+    callbacks: list[str] = []
 
-    def delete(_identifier: str, _etag: str) -> None:
+    def delete(_identifier: str, _etag: str, *, allow_redirects: bool) -> None:
+        assert allow_redirects is False
+        callbacks.append(case)
         if case == "transport":
             raise OSError("private")
         if case != "still_listed":
@@ -133,6 +136,7 @@ async def test_unverified_permanent_delete_has_no_retry_handle(case: str) -> Non
     with pytest.raises(ToolFailure):
         deletes.additional.resolve("drive-trash-file", handle)
     client.drive.delete_forever_from_trash.assert_called_once()
+    assert callbacks == [case]
 
 
 @pytest.mark.asyncio

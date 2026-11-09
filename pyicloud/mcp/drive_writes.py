@@ -7,13 +7,14 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
-from requests.adapters import HTTPAdapter
+from requests import Request
 
 from pyicloud.services.drive import DriveNode
 
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 from .context import ToolFailure
+from .one_shot import checked_adapter, mutation_session
 
 
 @dataclass(frozen=True)
@@ -97,12 +98,18 @@ class DriveWrites:
     @staticmethod
     def _require_retry_disabled(client: Any, route: str) -> None:
         """Refuse custom transports that could dispatch one mutation more than once."""
-        try:
-            adapter = client.drive.session.get_adapter(route)
-        except Exception:
-            raise WriteDenied("mutation_retry_policy_unavailable") from None
-        if not isinstance(adapter, HTTPAdapter) or adapter.max_retries.total != 0:
-            raise WriteDenied("mutation_retry_policy_unavailable")
+        checked_adapter(client.drive.session, route)
+
+    def _require_mutation_path(self, client: Any, path: str) -> None:
+        """Include query parameters in the longest-prefix adapter preflight."""
+        url = (
+            Request(
+                "POST", client.drive.service_root + path, params=client.drive.params
+            )
+            .prepare()
+            .url
+        )
+        self._require_retry_disabled(client, url or "")
 
     def _retire_source(self, kind: str, handle: str) -> None:
         """A known pre-dispatch retirement failure is not an uncertain mutation."""
@@ -146,6 +153,10 @@ class DriveWrites:
             node = self._fresh(client, target)
             self._require_action_target(action, node)
             account, resource, revision = self._bindings(client, target, node)
+            endpoint = (
+                "/moveItemsToTrash" if action == DRIVE_TRASH_FILE else "/renameItems"
+            )
+            self._require_mutation_path(client, endpoint)
             preview = self.ledger.preview(
                 action,
                 node.name,
@@ -155,11 +166,29 @@ class DriveWrites:
                 revision=revision,
             )
             self._remember_preview(preview, target, source)
-            if publish is not None:
-                publish(preview)
+            self._publish_preview(
+                preview, publish, (self._targets, self._actions, self._sources)
+            )
             return preview
 
         return await self.additional.reads.owner.run(prepare)
+
+    def _publish_preview(
+        self,
+        preview: MutationPreview,
+        publish: Callable[[MutationPreview], None] | None,
+        registries: tuple[dict[str, Any], ...] = (),
+    ) -> None:
+        """Roll back unpublished approvals and their private selector metadata."""
+        if publish is None:
+            return
+        try:
+            publish(preview)
+        except Exception:
+            self.ledger.discard(preview.request_id)
+            for registry in registries:
+                registry.pop(preview.request_id, None)
+            raise
 
     def _remember_preview(
         self, preview: MutationPreview, target: DriveTarget, source: tuple[str, str]
@@ -226,6 +255,7 @@ class DriveWrites:
             node = self._fresh(client, target)
             self._require_action_target(action, node)
             account, resource, revision = self._bindings(client, target, node)
+            self._require_mutation_endpoint(client, action)
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(
@@ -240,7 +270,8 @@ class DriveWrites:
             if action == DRIVE_TRASH_FILE:
                 self._retire_source(source_kind, source_handle)
                 try:
-                    node.move_to_trash(allow_redirects=False)
+                    with mutation_session(client.drive):
+                        node.move_to_trash(allow_redirects=False)
                     self._verify_trash(client, target, account, resource)
                 except Exception:
                     raise WriteDenied("mutation_uncertain") from None
@@ -250,7 +281,8 @@ class DriveWrites:
                 return {"action": DRIVE_RENAME, "changed": False}
             self._retire_source(source_kind, source_handle)
             try:
-                node.rename(name, allow_redirects=False)
+                with mutation_session(client.drive):
+                    node.rename(name, allow_redirects=False)
                 self._verify_rename(client, target, name, account, resource)
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
@@ -271,6 +303,11 @@ class DriveWrites:
             verified_resource,
         ) != (account, resource):
             raise WriteDenied("mutation_unverified")
+
+    def _require_mutation_endpoint(self, client: Any, action: str) -> None:
+        """Recheck longest-prefix policy on the actual mutation endpoint."""
+        endpoint = "/moveItemsToTrash" if action == DRIVE_TRASH_FILE else "/renameItems"
+        self._require_mutation_path(client, endpoint)
 
     def _verify_trash(
         self, client: Any, target: DriveTarget, account: str, resource: str
@@ -306,5 +343,6 @@ class DriveWrites:
             or not revision
             or not isinstance(verified.data.get("restorePath"), str)
             or not verified.data["restorePath"]
+            or verified.data.get("parentId") != "TRASH_ROOT"
         ):
             raise WriteDenied("mutation_unverified")

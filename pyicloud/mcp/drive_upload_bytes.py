@@ -15,8 +15,27 @@ from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.services.drive import CLOUD_DOCS_ZONE
 
 from .authorization import WriteDenied
+from .one_shot import checked_adapter
 from .upload_staging import StagedUpload
 from .upload_transport import UploadTransport, checked_upload_url
+
+
+def validate_upload_session(drive: Any, credentials: dict[str, str]) -> None:
+    """Check both exact registration endpoints before any approval is consumed."""
+    root = drive.document_root
+    if not isinstance(root, str) or not root:
+        raise WriteDenied("unsupported_upload_route")
+    parsed = urlsplit(root)
+    hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
+    checked_upload_url(root, hosts)
+    if parsed.query:
+        raise WriteDenied("unsupported_upload_route")
+    params = {**drive.params, **credentials}
+    for path in ("/upload/web", "/update/documents"):
+        url = (
+            root.rstrip("/") + "/ws/" + CLOUD_DOCS_ZONE + path + "?" + urlencode(params)
+        )
+        checked_adapter(drive.session, url, bounded=True)
 
 
 def snapshot_upload_credentials(drive: Any) -> dict[str, str]:
@@ -72,7 +91,9 @@ def _commit_matches(response: Any, document_id: str) -> bool:
     )
 
 
-def _validate_stage(stage: StagedUpload, modified_ms: int) -> None:
+def _validate_stage(
+    stage: StagedUpload, modified_ms: int, *, acquired: bool = False
+) -> None:
     """Require unchanged, unexpired bounded bytes and a strict timestamp."""
     if (
         not isinstance(stage, StagedUpload)
@@ -80,7 +101,7 @@ def _validate_stage(stage: StagedUpload, modified_ms: int) -> None:
         or not 0 <= stage.size <= 4 * 1024 * 1024
         or len(stage.data) != stage.size
         or hashlib.sha256(stage.data).hexdigest() != stage.sha256
-        or stage.expires_at <= time.monotonic()
+        or (not acquired and stage.expires_at <= time.monotonic())
         or isinstance(modified_ms, bool)
         or not isinstance(modified_ms, int)
         or modified_ms < 0
@@ -149,6 +170,7 @@ class DriveUploadBytes:
         modified_ms: int,
         credential_snapshot: dict[str, str] | None = None,
         approved_hosts: frozenset[str] | None = None,
+        stage_acquired: bool = False,
     ) -> None:
         """Snapshot upload credentials and send exact bytes with no filesystem paths."""
         root = drive.document_root
@@ -159,7 +181,9 @@ class DriveUploadBytes:
         checked_upload_url(root, hosts)
         if parsed.query or not isinstance(folder_id, str) or not folder_id:
             raise WriteDenied("unsupported_upload_route")
-        _validate_stage(stage, modified_ms)
+        # Expiry is an admission rule: take() validated it atomically before
+        # consuming approval. Acquired immutable bytes remain valid in flight.
+        _validate_stage(stage, modified_ms, acquired=stage_acquired)
         params = dict(drive.params)
         try:
             name_size = (

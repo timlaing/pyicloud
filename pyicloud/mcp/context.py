@@ -1,5 +1,7 @@
 """One serialized owner for optional, explicitly configured saved-session reads."""
 
+# cspell:words poolmanager
+
 from __future__ import annotations
 
 import asyncio
@@ -25,6 +27,7 @@ from .action_policy import (
     SUPPORTED_HIGH_RISK_ACTIONS,
     is_high_risk,
 )
+from .header_deadline import deadline_pool
 
 T = TypeVar("T")
 ServiceName = Literal[
@@ -159,6 +162,18 @@ class BoundedAdapter(HTTPAdapter):
         self.timeout = timeout
         self.deadline: float | None = None
         self.requests_left = 32
+        self.poolmanager.pool_classes_by_scheme = {
+            **self.poolmanager.pool_classes_by_scheme,
+            "https": deadline_pool(self._response_deadline),
+        }
+
+    def _response_deadline(self) -> float:
+        """Use the owner deadline for headers as well as response bodies."""
+        return (
+            self.deadline
+            if self.deadline is not None
+            else time.monotonic() + self.timeout
+        )
 
     def send(
         self,

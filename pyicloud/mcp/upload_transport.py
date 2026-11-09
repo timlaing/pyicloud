@@ -8,10 +8,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from requests import Session
-from requests.adapters import HTTPAdapter
 
 from .authorization import WriteDenied
 from .context import BoundedAdapter
+from .one_shot import checked_adapter, request_once
 
 
 def checked_upload_url(url: str, hosts: frozenset[str]) -> str:
@@ -126,14 +126,11 @@ class UploadTransport:
         target = checked_upload_url(url, hosts)
         options: dict[str, Any] = {"headers": headers} if headers is not None else {}
         try:
-            adapter = session.get_adapter(target)
-            retries_disabled = (
-                isinstance(adapter, HTTPAdapter) and adapter.max_retries.total == 0
-            )
-        except Exception:
+            adapter = checked_adapter(session, target, bounded=deadline is not None)
+        except WriteDenied as error:
+            if str(error) == "upload_deadline_policy_unavailable":
+                raise
             raise WriteDenied("upload_retry_policy_unavailable") from None
-        if not retries_disabled:
-            raise WriteDenied("upload_retry_policy_unavailable")
         previous_deadline: float | None = None
         if deadline is not None:
             if not isinstance(adapter, BoundedAdapter):
@@ -147,7 +144,8 @@ class UploadTransport:
                 else deadline
             )
         try:
-            response = session.request_raw(
+            response = request_once(
+                session,
                 "POST",
                 target,
                 json=payload,

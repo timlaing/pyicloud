@@ -6,10 +6,11 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from requests.adapters import HTTPAdapter
+from requests import Session
 
 from pyicloud.mcp.additional import AdditionalReads
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
+from pyicloud.mcp.context import BoundedAdapter
 from pyicloud.mcp.drive_writes import DriveWrites
 from pyicloud.mcp.reads import ReadTools
 from pyicloud.services.drive import DriveNode
@@ -21,7 +22,12 @@ def setup_writer() -> tuple[DriveWrites, MagicMock, str, dict[str, Any]]:
     client = MagicMock()
     client.params = {"dsid": "A"}
     client.drive.params = dict(client.params)
-    client.drive.session.get_adapter.return_value = HTTPAdapter(max_retries=0)
+    session = Session()
+    session.trust_env = False
+    client.drive.session = session
+    client.drive.session.get_adapter = MagicMock(return_value=BoundedAdapter(30))
+    client.drive.session.request_raw = MagicMock()
+    client.drive.session.post = MagicMock()
     client.drive.service_root = "https://drive.example.test"
     data = {
         "drivewsid": "FILE::com.apple.CloudDocs::SYNTHETIC",
@@ -162,8 +168,13 @@ async def test_rename_post_read_requires_bound_context_and_real_revision(
     writes, client, handle, data = setup_writer()
     preview = await writes.prepare(handle, {"name": "After"})
     writes.ledger.approve_from_operator(preview.request_id, preview.digest)
+    callbacks: list[str] = []
 
-    def rename(_identifier: str, _etag: str, name: str) -> None:
+    def rename(
+        _identifier: str, _etag: str, name: str, *, allow_redirects: bool
+    ) -> None:
+        assert allow_redirects is False
+        callbacks.append(case)
         data.update(name=name, etag="v2")
         if case == "route":
             client.drive.service_root = "https://other.test"
@@ -178,3 +189,4 @@ async def test_rename_post_read_requires_bound_context_and_real_revision(
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         await writes.apply(preview.request_id)
     client.drive.rename_items.assert_called_once()
+    assert callbacks == [case]

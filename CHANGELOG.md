@@ -12,12 +12,6 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Enforce the approval-bound Drive upload host policy before transferring staged bytes, even when an injected transport permits additional hosts.
 
-### Fixed
-
-- Reject evicted queued Drive write previews before accepting receipts, consuming approvals, retiring handles, or dispatching mutations.
-
-### Security
-
 - Route plaintext MCP requests and HTTPS-to-HTTP redirects through the bounded adapter so they are rejected before plaintext dispatch.
 
 - Bind operator-visible MCP approval content to the live ledger before accepting a receipt, reject blocking special files, disable service login recovery on saved-session owners, require valid strong download entity tags and reject retry-enabled registration transports.
@@ -57,6 +51,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
+
+- Reject evicted queued Drive write previews before accepting receipts, consuming approvals, retiring handles, or dispatching mutations.
+- Retire selected Drive move source handles before dispatch, including uncertain outcomes, while preserving handles for same-parent no-ops.
+- Roll back unpublished Drive previews and selectors, require fresh collision inventories, invalidate refreshed child caches, bound Trash scans, and return tokens for empty downloads.
+- Validate actual mutation endpoint and document-service adapter policies before consuming approvals, bypass custom-session replay and hooks during dispatch, enforce absolute response-header deadlines, and reject redirected verification reads or changed Drive accounts.
+- Treat staged-upload expiry as an admission check so an already-acquired immutable upload does not expire between approval consumption and dispatch.
 
 - Validate required account storage byte counts before caching a refresh, preserving the previous snapshot when the response is missing fields or contains invalid counts.
 

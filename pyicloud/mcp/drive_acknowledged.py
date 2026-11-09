@@ -34,9 +34,26 @@ def _invalid_folder_payload(payload: dict[str, Any], name: Any) -> bool:
     )
 
 
+def _acknowledgement_url(client: Any, action: str) -> str:
+    """Bind preflight and dispatch to the same complete mutation URL."""
+    path = (
+        "/createFolders" if action == DRIVE_CREATE_FOLDER else "/putBackItemsFromTrash"
+    )
+    return (
+        str(client.drive.service_root)
+        + path
+        + "?"
+        + urlencode(dict(client.drive.params))
+    )
+
+
 def _verify_after_route(client: Any, account: str, route: str) -> None:
     """Require the same account and Drive route after acknowledgement."""
-    if str(client.params.get("dsid")) != account or client.drive.service_root != route:
+    if (
+        str(client.params.get("dsid")) != account
+        or str(client.drive.params.get("dsid")) != account
+        or client.drive.service_root != route
+    ):
         raise WriteDenied("mutation_unverified")
 
 
@@ -186,8 +203,7 @@ class DriveAcknowledged(DriveWrites):
             if len(self._requests) >= 256:
                 del self._requests[next(iter(self._requests))]
             self._requests[preview.request_id] = (action, handle, target, name)
-            if publish is not None:
-                publish(preview)
+            self._publish_preview(preview, publish, (self._requests,))
             return preview
 
         return await self.additional.reads.owner.run(prepare)
@@ -212,6 +228,8 @@ class DriveAcknowledged(DriveWrites):
             node, account, resource, revision = self._read(
                 client, action, selector, pending_name
             )
+            mutation_url = _acknowledgement_url(client, action)
+            self._require_retry_disabled(client, mutation_url)
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(
@@ -240,7 +258,6 @@ class DriveAcknowledged(DriveWrites):
                             }
                         ],
                     }
-                    path = "/createFolders"
                 else:
                     body = {
                         "items": [
@@ -250,10 +267,9 @@ class DriveAcknowledged(DriveWrites):
                             }
                         ]
                     }
-                    path = "/putBackItemsFromTrash"
                 response = UploadTransport.register(
                     client.drive.session,
-                    route + path + "?" + urlencode(dict(client.drive.params)),
+                    mutation_url,
                     frozenset({str(urlsplit(route).hostname)}),
                     body,
                     headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}

@@ -121,7 +121,10 @@ async def test_cookie_lookup_failure_cannot_spend_upload_resources() -> None:
 
 
 @pytest.mark.parametrize("status", [307, 308])
-def test_real_session_does_not_repeat_redirected_mutation(status: int) -> None:
+@pytest.mark.parametrize("verification", [False, True])
+def test_real_session_does_not_repeat_redirected_mutation(
+    status: int, verification: bool
+) -> None:
     """An unfollowed redirect raises before Requests can issue another POST."""
     session = Session()
     session.trust_env = False
@@ -146,7 +149,10 @@ def test_real_session_does_not_repeat_redirected_mutation(status: int) -> None:
             patch("requests.adapters.HTTPAdapter.send", side_effect=redirected) as send,
             pytest.raises(PyiCloudAPIResponseException, match="redirect not followed"),
         ):
-            drive.rename_items("F", "R", "New", allow_redirects=False)
+            if verification:
+                drive.get_node_data("F")
+            else:
+                drive.rename_items("F", "R", "New", allow_redirects=False)
         send.assert_called_once()
     finally:
         session.close()

@@ -24,9 +24,11 @@ def register(
     annotations = ToolAnnotations(read_only_hint=True, open_world_hint=True)
 
     @server.tool(name="icloud_drive_trash_list", annotations=annotations)
-    async def drive_trash(query: str = "", limit: int = 50) -> CallToolResult:
+    async def drive_trash(
+        query: str = "", limit: int = 50, scan_limit: int = 500
+    ) -> CallToolResult:
         """List bounded trash metadata, never restore paths or content."""
-        return tool_result(await additional.drive_trash(query, limit))
+        return tool_result(await additional.drive_trash(query, limit, scan_limit))
 
     @server.tool(name="icloud_drive_list", annotations=annotations)
     async def drive(

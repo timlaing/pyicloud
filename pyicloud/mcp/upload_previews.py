@@ -74,8 +74,7 @@ class UploadPreviews(DriveWrites):
             )
             if preview.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
-            if publish is not None:
-                publish(preview)
+            self._publish_preview(preview, publish)
             return preview
 
         return await self.additional.reads.owner.run(prepare)

@@ -219,7 +219,12 @@ class ContentReads:
                 and isinstance(resource, DriveNode)
                 and resource._is_empty_file()  # pylint: disable=protected-access
             ):
-                return self._empty_download(resource, offset)
+                result = self._empty_download(resource, offset)
+                token, _state = self._transfer_state(
+                    f"{service}:{handle}:{version}", resource, offset, transfer_token
+                )
+                result.records[0]["transfer_token"] = token
+                return result
             binding = f"{service}:{handle}:{version}"
             token, state = self._transfer_state(
                 binding, resource, offset, transfer_token

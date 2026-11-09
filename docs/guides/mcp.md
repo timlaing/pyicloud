@@ -84,6 +84,17 @@ consuming resources; cookie lookup failures do not spend approval or bytes.
 Mutation POSTs disable redirects, and redirect responses are uncertain outcomes
 without a second dispatch. Drive browse accepts `scan_limit` (1–2,000, default 500) and constructs only that bounded child prefix, including selective queries;
 results remain explicitly incomplete rather than claiming an exhaustive search.
+Trash listing uses the same `scan_limit` bounds. Forced folder refreshes discard
+old inventories and child caches; missing inventories deny collision checks.
+Publication failures revoke the hidden preview and its selectors. Actual moves
+retire both discovered handles before dispatch; same-parent no-ops preserve them.
+
+Mutation dispatch uses the existing service payload builders with a direct,
+non-retrying adapter path, bypassing custom session replay and response hooks.
+The adapter selected for each actual endpoint is checked before consuming any
+approval. Upload registration and commit adapters must also enforce absolute
+response-header deadlines. Staged-byte expiry is checked during atomic admission;
+already-acquired immutable bytes remain valid for the admitted transfer.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same
