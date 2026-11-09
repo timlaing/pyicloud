@@ -24,6 +24,7 @@ class StyleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     STYLE_TYPE_TITLE: _ClassVar[StyleType]
     STYLE_TYPE_HEADING: _ClassVar[StyleType]
     STYLE_TYPE_SUBHEADING: _ClassVar[StyleType]
+    STYLE_TYPE_BODY: _ClassVar[StyleType]
     STYLE_TYPE_MONOSPACED: _ClassVar[StyleType]
     STYLE_TYPE_BULLET_LIST_ITEM: _ClassVar[StyleType]
     STYLE_TYPE_DASHED_LIST_ITEM: _ClassVar[StyleType]
@@ -42,6 +43,7 @@ class Alignment(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ALIGNMENT_CENTER: _ClassVar[Alignment]
     ALIGNMENT_RIGHT: _ClassVar[Alignment]
     ALIGNMENT_JUSTIFY: _ClassVar[Alignment]
+    ALIGNMENT_NATURAL: _ClassVar[Alignment]
 
 class FontWeight(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -59,6 +61,7 @@ HIGHLIGHT_BLUE: Highlight
 STYLE_TYPE_TITLE: StyleType
 STYLE_TYPE_HEADING: StyleType
 STYLE_TYPE_SUBHEADING: StyleType
+STYLE_TYPE_BODY: StyleType
 STYLE_TYPE_MONOSPACED: StyleType
 STYLE_TYPE_BULLET_LIST_ITEM: StyleType
 STYLE_TYPE_DASHED_LIST_ITEM: StyleType
@@ -71,6 +74,7 @@ ALIGNMENT_DEFAULT: Alignment
 ALIGNMENT_CENTER: Alignment
 ALIGNMENT_RIGHT: Alignment
 ALIGNMENT_JUSTIFY: Alignment
+ALIGNMENT_NATURAL: Alignment
 FONT_WEIGHT_UNKNOWN: FontWeight
 FONT_WEIGHT_BOLD: FontWeight
 FONT_WEIGHT_ITALIC: FontWeight
@@ -169,15 +173,18 @@ class Checklist(_message.Message):
     def __init__(self, uuid: bytes | None = ..., done: int | None = ...) -> None: ...
 
 class DictionaryElement(_message.Message):
-    __slots__ = ("key", "value")
+    __slots__ = ("key", "value", "timestamp")
     KEY_FIELD_NUMBER: _ClassVar[int]
     VALUE_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     key: ObjectID
     value: ObjectID
+    timestamp: IndexedTimestamp
     def __init__(
         self,
         key: _Union[ObjectID, _Mapping] | None = ...,
         value: _Union[ObjectID, _Mapping] | None = ...,
+        timestamp: _Union[IndexedTimestamp, _Mapping] | None = ...,
     ) -> None: ...
 
 class Dictionary(_message.Message):
@@ -204,10 +211,16 @@ class ObjectID(_message.Message):
     ) -> None: ...
 
 class RegisterLatest(_message.Message):
-    __slots__ = ("contents",)
+    __slots__ = ("timestamp", "contents")
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     CONTENTS_FIELD_NUMBER: _ClassVar[int]
+    timestamp: TextIdentifier
     contents: ObjectID
-    def __init__(self, contents: _Union[ObjectID, _Mapping] | None = ...) -> None: ...
+    def __init__(
+        self,
+        timestamp: _Union[TextIdentifier, _Mapping] | None = ...,
+        contents: _Union[ObjectID, _Mapping] | None = ...,
+    ) -> None: ...
 
 class MapItem(_message.Message):
     __slots__ = ("key", "value")
@@ -285,81 +298,201 @@ class AttributeRun(_message.Message):
     ) -> None: ...
 
 class NoteStoreProto(_message.Message):
-    __slots__ = ("document",)
+    __slots__ = ("serialization_version", "document")
+    SERIALIZATION_VERSION_FIELD_NUMBER: _ClassVar[int]
     DOCUMENT_FIELD_NUMBER: _ClassVar[int]
+    serialization_version: int
     document: Document
-    def __init__(self, document: _Union[Document, _Mapping] | None = ...) -> None: ...
+    def __init__(
+        self,
+        serialization_version: int | None = ...,
+        document: _Union[Document, _Mapping] | None = ...,
+    ) -> None: ...
 
 class Document(_message.Message):
-    __slots__ = ("version", "note")
+    __slots__ = ("serialization_version", "version", "note")
+    SERIALIZATION_VERSION_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     NOTE_FIELD_NUMBER: _ClassVar[int]
+    serialization_version: int
     version: int
     note: Note
     def __init__(
         self,
+        serialization_version: int | None = ...,
         version: int | None = ...,
         note: _Union[Note, _Mapping] | None = ...,
     ) -> None: ...
 
 class Note(_message.Message):
-    __slots__ = ("note_text", "attribute_run")
+    __slots__ = ("note_text", "substring", "timestamp", "attribute_run")
     NOTE_TEXT_FIELD_NUMBER: _ClassVar[int]
+    SUBSTRING_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTE_RUN_FIELD_NUMBER: _ClassVar[int]
     note_text: str
+    substring: _containers.RepeatedCompositeFieldContainer[TextSubstring]
+    timestamp: TextVectorTimestamp
     attribute_run: _containers.RepeatedCompositeFieldContainer[AttributeRun]
     def __init__(
         self,
         note_text: str | None = ...,
+        substring: _Iterable[_Union[TextSubstring, _Mapping]] | None = ...,
+        timestamp: _Union[TextVectorTimestamp, _Mapping] | None = ...,
         attribute_run: _Iterable[_Union[AttributeRun, _Mapping]] | None = ...,
     ) -> None: ...
 
+class TextIdentifier(_message.Message):
+    __slots__ = ("replica_id", "clock")
+    REPLICA_ID_FIELD_NUMBER: _ClassVar[int]
+    CLOCK_FIELD_NUMBER: _ClassVar[int]
+    replica_id: int
+    clock: int
+    def __init__(
+        self, replica_id: int | None = ..., clock: int | None = ...
+    ) -> None: ...
+
+class TextSubstring(_message.Message):
+    __slots__ = ("char_id", "length", "timestamp", "tombstone", "child")
+    CHAR_ID_FIELD_NUMBER: _ClassVar[int]
+    LENGTH_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    TOMBSTONE_FIELD_NUMBER: _ClassVar[int]
+    CHILD_FIELD_NUMBER: _ClassVar[int]
+    char_id: TextIdentifier
+    length: int
+    timestamp: TextIdentifier
+    tombstone: bool
+    child: _containers.RepeatedScalarFieldContainer[int]
+    def __init__(
+        self,
+        char_id: _Union[TextIdentifier, _Mapping] | None = ...,
+        length: int | None = ...,
+        timestamp: _Union[TextIdentifier, _Mapping] | None = ...,
+        tombstone: bool = ...,
+        child: _Iterable[int] | None = ...,
+    ) -> None: ...
+
+class TextVectorTimestamp(_message.Message):
+    __slots__ = ("clock",)
+    class Replica(_message.Message):
+        __slots__ = ("replica_uuid", "replica_clock")
+        class Clock(_message.Message):
+            __slots__ = ("clock", "subclock")
+            CLOCK_FIELD_NUMBER: _ClassVar[int]
+            SUBCLOCK_FIELD_NUMBER: _ClassVar[int]
+            clock: int
+            subclock: int
+            def __init__(
+                self, clock: int | None = ..., subclock: int | None = ...
+            ) -> None: ...
+
+        REPLICA_UUID_FIELD_NUMBER: _ClassVar[int]
+        REPLICA_CLOCK_FIELD_NUMBER: _ClassVar[int]
+        replica_uuid: bytes
+        replica_clock: _containers.RepeatedCompositeFieldContainer[
+            TextVectorTimestamp.Replica.Clock
+        ]
+        def __init__(
+            self,
+            replica_uuid: bytes | None = ...,
+            replica_clock: _Iterable[
+                _Union[TextVectorTimestamp.Replica.Clock, _Mapping]
+            ]
+            | None = ...,
+        ) -> None: ...
+
+    CLOCK_FIELD_NUMBER: _ClassVar[int]
+    clock: _containers.RepeatedCompositeFieldContainer[TextVectorTimestamp.Replica]
+    def __init__(
+        self,
+        clock: _Iterable[_Union[TextVectorTimestamp.Replica, _Mapping]] | None = ...,
+    ) -> None: ...
+
 class MergableDataProto(_message.Message):
-    __slots__ = ("mergable_data_object",)
+    __slots__ = ("serialization_version", "mergable_data_object")
+    SERIALIZATION_VERSION_FIELD_NUMBER: _ClassVar[int]
     MERGABLE_DATA_OBJECT_FIELD_NUMBER: _ClassVar[int]
+    serialization_version: int
     mergable_data_object: MergableDataObject
     def __init__(
         self,
+        serialization_version: int | None = ...,
         mergable_data_object: _Union[MergableDataObject, _Mapping] | None = ...,
     ) -> None: ...
 
 class MergableDataObject(_message.Message):
-    __slots__ = ("version", "mergeable_data_object_data")
+    __slots__ = ("serialization_version", "version", "mergeable_data_object_data")
+    SERIALIZATION_VERSION_FIELD_NUMBER: _ClassVar[int]
     VERSION_FIELD_NUMBER: _ClassVar[int]
     MERGEABLE_DATA_OBJECT_DATA_FIELD_NUMBER: _ClassVar[int]
+    serialization_version: int
     version: int
     mergeable_data_object_data: MergeableDataObjectData
     def __init__(
         self,
+        serialization_version: int | None = ...,
         version: int | None = ...,
         mergeable_data_object_data: _Union[MergeableDataObjectData, _Mapping]
         | None = ...,
     ) -> None: ...
 
+class IndexedTimestamp(_message.Message):
+    __slots__ = ("clock",)
+    class Clock(_message.Message):
+        __slots__ = ("replica_index", "clock", "subclock")
+        REPLICA_INDEX_FIELD_NUMBER: _ClassVar[int]
+        CLOCK_FIELD_NUMBER: _ClassVar[int]
+        SUBCLOCK_FIELD_NUMBER: _ClassVar[int]
+        replica_index: int
+        clock: int
+        subclock: int
+        def __init__(
+            self,
+            replica_index: int | None = ...,
+            clock: int | None = ...,
+            subclock: int | None = ...,
+        ) -> None: ...
+
+    CLOCK_FIELD_NUMBER: _ClassVar[int]
+    clock: _containers.RepeatedCompositeFieldContainer[IndexedTimestamp.Clock]
+    def __init__(
+        self,
+        clock: _Iterable[_Union[IndexedTimestamp.Clock, _Mapping]] | None = ...,
+    ) -> None: ...
+
 class MergeableDataObjectData(_message.Message):
     __slots__ = (
+        "object_timestamp",
         "mergeable_data_object_entry",
         "mergeable_data_object_key_item",
         "mergeable_data_object_type_item",
         "mergeable_data_object_uuid_item",
+        "text_timestamp",
     )
+    OBJECT_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     MERGEABLE_DATA_OBJECT_ENTRY_FIELD_NUMBER: _ClassVar[int]
     MERGEABLE_DATA_OBJECT_KEY_ITEM_FIELD_NUMBER: _ClassVar[int]
     MERGEABLE_DATA_OBJECT_TYPE_ITEM_FIELD_NUMBER: _ClassVar[int]
     MERGEABLE_DATA_OBJECT_UUID_ITEM_FIELD_NUMBER: _ClassVar[int]
+    TEXT_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    object_timestamp: IndexedTimestamp
     mergeable_data_object_entry: _containers.RepeatedCompositeFieldContainer[
         MergeableDataObjectRow
     ]
     mergeable_data_object_key_item: _containers.RepeatedScalarFieldContainer[str]
     mergeable_data_object_type_item: _containers.RepeatedScalarFieldContainer[str]
     mergeable_data_object_uuid_item: _containers.RepeatedScalarFieldContainer[bytes]
+    text_timestamp: TextVectorTimestamp
     def __init__(
         self,
+        object_timestamp: _Union[IndexedTimestamp, _Mapping] | None = ...,
         mergeable_data_object_entry: _Iterable[_Union[MergeableDataObjectRow, _Mapping]]
         | None = ...,
         mergeable_data_object_key_item: _Iterable[str] | None = ...,
         mergeable_data_object_type_item: _Iterable[str] | None = ...,
         mergeable_data_object_uuid_item: _Iterable[bytes] | None = ...,
+        text_timestamp: _Union[TextVectorTimestamp, _Mapping] | None = ...,
     ) -> None: ...
 
 class MergeableDataObjectRow(_message.Message):

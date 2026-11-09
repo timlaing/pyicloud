@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 import logging
-from typing import Any, Literal, NoReturn, TypeVar, cast
+from typing import Any, Literal, NoReturn, TypedDict, TypeVar, cast
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
@@ -41,6 +41,11 @@ from .models import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _PostOptions(TypedDict, total=False):
+    allow_redirects: bool
+
 
 _ResponseModelT = TypeVar(
     "_ResponseModelT",
@@ -185,18 +190,21 @@ class _CloudKitHTTP:
         payload: dict[str, Any],
         *,
         headers: dict[str, Any] | None = None,
+        allow_redirects: bool = True,
     ) -> dict[str, Any]:
         """Send a CloudKit POST request and return the parsed JSON response."""
         url = self.build_url(path)
         op = path.strip("/")
         display_url = self._display_url(url) if self._redact_urls else path
         LOGGER.debug("CloudKit POST %s", display_url)
+        options: _PostOptions = {} if allow_redirects else {"allow_redirects": False}
         try:
             resp = self._session.post(
                 url,
                 json=payload,
                 timeout=self._timeout,
                 headers=headers,
+                **options,
             )
         except PyiCloudAPIResponseException as exc:
             _reraise_zone_not_found(exc)
@@ -210,7 +218,7 @@ class _CloudKitHTTP:
         if code == 429 and self._handle_rate_limits:
             self._run_debug_hook(op, url, payload, resp)
             raise CloudKitRateLimited(_RATE_LIMITED, retry_after=_retry_after(resp))
-        if code >= 400:
+        if code >= (400 if allow_redirects else 300):
             self._run_debug_hook(op, url, payload, resp)
             _raise_for_http_error(code, resp)
 
@@ -574,9 +582,12 @@ class CloudKitContainerClient:
         payload: dict[str, Any],
         *,
         headers: dict[str, Any] | None = None,
+        allow_redirects: bool = True,
     ) -> dict[str, Any]:
         """POST a raw request body to an arbitrary CloudKit endpoint path."""
-        return self._http.post(path, payload, headers=headers)
+        return self._http.post(
+            path, payload, headers=headers, allow_redirects=allow_redirects
+        )
 
     def query(
         self,

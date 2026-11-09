@@ -57,6 +57,7 @@ class Note(NoteSummary):
     text: str | None
     html: str | None = None
     attachments: list[Attachment] | None
+    record_change_tag: str | None = None
 
     @computed_field
     def has_attachments(self) -> bool | None:
@@ -76,6 +77,7 @@ class NoteFolder(FrozenServiceModel):
     count: int | None  # not always available
     # Added last with a default to preserve existing folder construction.
     parent_id: str | None = None
+    record_change_tag: str | None = None
 
 
 class ChangeEvent(FrozenServiceModel):

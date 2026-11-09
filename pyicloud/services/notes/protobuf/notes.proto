@@ -39,6 +39,7 @@ enum StyleType {
   STYLE_TYPE_TITLE = 0;
   STYLE_TYPE_HEADING = 1;
   STYLE_TYPE_SUBHEADING = 2;
+  STYLE_TYPE_BODY = 3;
   STYLE_TYPE_MONOSPACED = 4;
   STYLE_TYPE_BULLET_LIST_ITEM = 100;
   STYLE_TYPE_DASHED_LIST_ITEM = 101;
@@ -57,6 +58,7 @@ enum Alignment {
   ALIGNMENT_CENTER = 1;
   ALIGNMENT_RIGHT = 2;
   ALIGNMENT_JUSTIFY = 3;
+  ALIGNMENT_NATURAL = 4;
 }
 
 // Styles a "Paragraph" (any run of characters in an AttributeRun)
@@ -83,6 +85,7 @@ message Checklist {
 message DictionaryElement {
   ObjectID key   = 1;
   ObjectID value = 2;
+  IndexedTimestamp timestamp = 3;
 }
 
 message Dictionary {
@@ -98,12 +101,13 @@ message ObjectID {
 
 // Register Latest is used to identify the most recent version
 message RegisterLatest {
+  TextIdentifier timestamp = 1;
   ObjectID contents = 2;
 }
 
 // MapEntries have a key that maps to a key-item array index and a value that points to an object.
 message MapItem {
-  int32   key   = 1;
+  optional int32 key = 1;
   ObjectID value = 2;
 }
 
@@ -140,17 +144,47 @@ message AttributeRun {
 // ===============================
 
 message NoteStoreProto {
+  optional uint32 serialization_version = 1;
   Document document = 2;
 }
 
 message Document {
-  int32 version = 2;
+  optional uint32 serialization_version = 1;
+  optional int32 version = 2;
   Note  note    = 3;
 }
 
 message Note {
-  string note_text = 2;
+  optional string note_text = 2;
+  repeated TextSubstring substring = 3;
+  TextVectorTimestamp timestamp = 4;
   repeated AttributeRun attribute_run = 5;
+}
+
+// Topotext state observed in Notes' inline TextDataEncrypted field.
+message TextIdentifier {
+  optional uint32 replica_id = 1;
+  optional uint32 clock = 2;
+}
+
+message TextSubstring {
+  TextIdentifier char_id = 1;
+  optional uint32 length = 2;
+  TextIdentifier timestamp = 3;
+  optional bool tombstone = 4;
+  repeated uint32 child = 5 [packed = false];
+}
+
+message TextVectorTimestamp {
+  message Replica {
+    message Clock {
+      optional uint32 clock = 1;
+      optional uint32 subclock = 2;
+    }
+    bytes replica_uuid = 1;
+    repeated Clock replica_clock = 2;
+  }
+  repeated Replica clock = 1;
 }
 
 // ===============================
@@ -158,19 +192,32 @@ message Note {
 // ===============================
 
 message MergableDataProto {
+  optional uint32 serialization_version = 1;
   MergableDataObject mergable_data_object = 2;
 }
 
 message MergableDataObject {
-  int32 version = 2;
+  optional uint32 serialization_version = 1;
+  optional int32 version = 2;
   MergeableDataObjectData mergeable_data_object_data = 3;
 }
 
+message IndexedTimestamp {
+  message Clock {
+    optional uint32 replica_index = 1;
+    optional uint32 clock = 2;
+    optional uint32 subclock = 3;
+  }
+  repeated Clock clock = 1;
+}
+
 message MergeableDataObjectData {
+  IndexedTimestamp object_timestamp = 1;
   repeated MergeableDataObjectRow mergeable_data_object_entry = 3;
   repeated string mergeable_data_object_key_item  = 4;
   repeated string mergeable_data_object_type_item = 5;
   repeated bytes  mergeable_data_object_uuid_item = 6;
+  TextVectorTimestamp text_timestamp = 7;
 }
 
 message MergeableDataObjectRow {
@@ -213,7 +260,7 @@ message OrderedSetOrderingArray {
 }
 
 message OrderedSetOrderingArrayAttachment {
-  int32 index = 1;
+  optional int32 index = 1;
   bytes uuid  = 2;
 }
 

@@ -195,10 +195,15 @@ exclude-protected = [
 # unreliable; instead enumerate the generated member names.
 generated-members = [
     "AttributeRun",
+    "ParagraphStyle",
     "StyleType",
+    "FontWeight",
     "Alignment",
     "WritingDirection",
     "NoteStoreProto",
+    "TextIdentifier",
+    "TextSubstring",
+    "TextVectorTimestamp",
     "MergableDataProto",
     "String",
     "Document",
