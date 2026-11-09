@@ -110,7 +110,7 @@ async def test_source_foreign_zone_is_rejected_before_fresh_lookup() -> None:
 def test_bounded_inventory_stops_before_fetching_more_pages() -> None:
     """The producer reads at most the bound plus one overflow sentinel."""
     library = MagicMock(spec=PhotoLibrary)
-    library.service = SimpleNamespace(session=object())
+    library.service = SimpleNamespace(session=SimpleNamespace(post=MagicMock()))
     library.zone_id = {"zoneName": "Z"}
     record = CKRecord.model_validate({
         "recordName": "A",

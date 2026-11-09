@@ -2,6 +2,7 @@
 
 # pylint: disable=protected-access
 
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +24,7 @@ def setup_create() -> tuple[PhotoAlbumCreates, Any, Any, str]:
     client = MagicMock()
     client.params = {"dsid": "123"}
     client.photos.params = {}
-    client.photos.session = object()
+    client.photos.session = SimpleNamespace(post=MagicMock())
     client.photos.service_endpoint = "https://example.test"
     library = cast(
         Any,

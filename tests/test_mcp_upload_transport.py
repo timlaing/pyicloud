@@ -132,6 +132,7 @@ def test_service_registration_is_one_raw_request(fail: bool) -> None:
 def test_registration_refuses_post_retry_adapter_before_dispatch() -> None:
     """A caller's POST retry policy cannot replay a reserved or committed upload."""
     session = MagicMock()
+    session.params = {}
     session.get_adapter.return_value = HTTPAdapter(
         max_retries=Retry(total=1, allowed_methods={"POST"}, status_forcelist={503})
     )
@@ -146,6 +147,7 @@ def test_registration_refuses_post_retry_adapter_before_dispatch() -> None:
 def test_registration_adapter_lookup_failure_is_pre_dispatch_denial() -> None:
     """No registration was sent when the adapter policy could not be inspected."""
     session = MagicMock()
+    session.params = {}
     session.get_adapter.side_effect = ValueError("private")
     hosts = frozenset({"service.example.test"})
     with pytest.raises(WriteDenied, match="upload_retry_policy_unavailable"):
