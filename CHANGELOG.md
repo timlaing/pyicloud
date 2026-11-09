@@ -52,6 +52,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Require bounded producers for injected Drive inventories, restore injected-owner download deadlines, and turn malformed upload roots or missing folder identifiers into safe denials.
+- Revoke evicted upload decisions, reject account/route changes after receipt acceptance, validate pinned dispatch URLs, and restore resources on proven first adapter-lookup failure.
+
 - Cap download response buffers at the requested chunk size, bind metadata and mutation endpoint adapters, and reject contradictory Drive identifier/type metadata or non-node selectors.
 - Recheck approved account/route bindings across deletion and final move verification, reject empty document-root query delimiters, and validate live handles before no-op rename approval consumption.
 

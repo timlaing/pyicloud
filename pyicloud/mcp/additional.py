@@ -543,4 +543,7 @@ class AdditionalReads:
         """Use the library's lazy bounded producer and cap custom facade iteration."""
         if isinstance(node, DriveNode):
             return node.iter_children(force=True, max_children=maximum)
-        return islice(node.get_children(force=True), maximum)
+        producer = getattr(node, "iter_children", None)
+        if not callable(producer):
+            raise ToolFailure("unsupported_drive_inventory")
+        return islice(producer(force=True, max_children=maximum), maximum)

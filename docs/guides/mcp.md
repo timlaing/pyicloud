@@ -121,6 +121,11 @@ token-discovery metadata keeps its separate bounded response policy. Metadata
 endpoint adapters are also validated and owner-budgeted. Mutation POSTs pin the
 preflight adapter, and final deletion/move evidence must stay in the approved
 account and route. Identifier prefixes must agree with file/folder types.
+Injected inventory facades must provide bounded `iter_children` production; eager
+fallbacks are rejected. Download operations restore prior injected-adapter deadlines
+on success and failure. Receipt acceptance cannot replace the bound account or
+routes, and pinned dispatch still validates its URL and session policy. Evicting an
+upload selector also revokes its ledger decision.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

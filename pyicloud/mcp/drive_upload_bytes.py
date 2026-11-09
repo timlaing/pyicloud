@@ -37,7 +37,10 @@ def validate_upload_session(
     root = drive.document_root
     if not isinstance(root, str) or not root:
         raise WriteDenied("unsupported_upload_route")
-    parsed = urlsplit(root)
+    try:
+        parsed = urlsplit(root)
+    except ValueError:
+        raise WriteDenied("unsupported_upload_route") from None
     hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
     checked_upload_url(root, hosts)
     if parsed.query or "?" in root:
@@ -215,7 +218,10 @@ class DriveUploadBytes:
         root = drive.document_root
         if not isinstance(root, str) or not root:
             raise WriteDenied("unsupported_upload_route")
-        parsed = urlsplit(root)
+        try:
+            parsed = urlsplit(root)
+        except ValueError:
+            raise WriteDenied("unsupported_upload_route") from None
         hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
         checked_upload_url(root, hosts)
         if (

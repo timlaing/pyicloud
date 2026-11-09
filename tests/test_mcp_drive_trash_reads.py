@@ -23,11 +23,13 @@ async def test_trash_metadata_has_distinct_scoped_handles_and_no_paths() -> None
         download_url="PRIVATE_URL",
     )
     folder = SimpleNamespace(name="Folder", type="folder", date_modified=None)
-    client.drive.trash.get_children.return_value = [
-        SimpleNamespace(name="Unknown", type="virtual"),
-        first,
-        folder,
-    ]
+    client.drive.trash.iter_children.side_effect = lambda **kwargs: iter(
+        [
+            SimpleNamespace(name="Unknown", type="virtual"),
+            first,
+            folder,
+        ][: kwargs["max_children"]]
+    )
     reads = AdditionalReads(ReadTools(owner_for(client)))
     result = await reads.drive_trash("", 50)
     assert result.error is None
@@ -39,17 +41,21 @@ async def test_trash_metadata_has_distinct_scoped_handles_and_no_paths() -> None
     with pytest.raises(ToolFailure):
         reads.resolve("drive-file", handle)
     assert "PRIVATE" not in result.model_dump_json()
-    client.drive.trash.get_children.assert_called_once_with(force=True)
+    client.drive.trash.iter_children.assert_called_once_with(
+        force=True, max_children=500
+    )
 
 
 @pytest.mark.asyncio
 async def test_trash_query_limit_and_service_guard() -> None:
     """Only bounded filtered metadata; no partial listing is called complete."""
     client = MagicMock()
-    client.drive.trash.get_children.return_value = [
-        SimpleNamespace(name=name, type="file", date_modified=None)
-        for name in ("Other", "Deleted1", "Deleted2")
-    ]
+    client.drive.trash.iter_children.side_effect = lambda **kwargs: iter(
+        [
+            SimpleNamespace(name=name, type="file", date_modified=None)
+            for name in ("Other", "Deleted1", "Deleted2")
+        ][: kwargs["max_children"]]
+    )
     reads = AdditionalReads(ReadTools(owner_for(client)))
     result = await reads.drive_trash("deleted", 1)
     assert result.error is None

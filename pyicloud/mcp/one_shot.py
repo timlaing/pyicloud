@@ -48,6 +48,23 @@ def checked_adapter(session: Any, url: str, *, bounded: bool = False) -> HTTPAda
     return cast(HTTPAdapter, adapter)
 
 
+def validate_dispatch_policy(session: Session, url: str) -> None:
+    """Validate pinned dispatch without consulting a second adapter selection."""
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        raise WriteDenied("insecure_mutation_route") from None
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise WriteDenied("insecure_mutation_route")
+    if not isinstance(session, Session) or session.auth is not None:
+        raise WriteDenied("mutation_session_policy_unavailable")
+
+
 def prepared_url(session: Session, url: str, params: Any = None) -> str:
     """Mirror Requests query-default precedence without invoking session hooks."""
     merge = cast(Callable[[Any, Any], Any], merge_setting)
@@ -81,6 +98,7 @@ def request_once(
     **kwargs: Any,
 ) -> Response:
     """Prepare ordinary session cookies, but bypass request/send/hooks/recovery."""
+    validate_dispatch_policy(session, url)
     kwargs.pop("allow_redirects", None)
     stream = kwargs.pop("stream", True)
     timeout = kwargs.pop("timeout", (5.0, 30.0))

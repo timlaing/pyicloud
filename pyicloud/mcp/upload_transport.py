@@ -187,6 +187,8 @@ class UploadTransport:
                 session, prepared_url(session, target, params), bounded=True
             )
         except WriteDenied as error:
+            if dispatch_state is not None and not dispatch_state.attempted:
+                raise UploadNotDispatched("upload_not_dispatched") from None
             if str(error) == "upload_deadline_policy_unavailable":
                 raise
             raise WriteDenied("upload_retry_policy_unavailable") from None

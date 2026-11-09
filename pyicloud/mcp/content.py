@@ -221,13 +221,23 @@ class ContentReads:
             return ReadResult(error="invalid_argument")
 
         def read(client: Any) -> ReadResult:
+            previous: dict[BoundedAdapter, float | None] = {}
+            try:
+                return perform(client, previous)
+            finally:
+                for adapter, deadline in previous.items():
+                    adapter.deadline = deadline
+
+        def perform(
+            client: Any, previous: dict[BoundedAdapter, float | None]
+        ) -> ReadResult:
             resource = self.additional.resolve(
                 "drive-file" if service == "drive" else "photo-asset", handle
             )
             if isinstance(resource, DriveNode) and isinstance(
                 resource.connection, DriveService
             ):
-                self._guard_download_session(resource.connection.session)
+                self._guard_download_session(resource.connection.session, previous)
             if (
                 service == "drive"
                 and isinstance(resource, DriveNode)
@@ -249,7 +259,7 @@ class ContentReads:
             if state.etag:
                 headers["If-Match"] = state.etag
             filename, response = self._open_download(
-                client, service, resource, version, headers, maximum
+                client, service, resource, version, headers, maximum, previous
             )
             result = download_chunk(state, response, offset, maximum, filename)
             result.records[0]["transfer_token"] = token
@@ -319,7 +329,9 @@ class ContentReads:
             self._downloads[key] = DownloadState(resource)
         return self._downloads[key]
 
-    def _guard_download_session(self, session: Any) -> None:
+    def _guard_download_session(
+        self, session: Any, previous: dict[BoundedAdapter, float | None] | None = None
+    ) -> None:
         """Require body-bounded HTTPS adapters before any injected SDK download."""
         if (
             not isinstance(session, Session)
@@ -341,6 +353,8 @@ class ContentReads:
             if isinstance(owner, SessionOwner):
                 owner.bind_adapter(adapter)
             else:
+                if previous is not None:
+                    previous.setdefault(adapter, adapter.deadline)
                 deadline = time.monotonic() + owner.config.timeout
                 adapter.deadline = (
                     min(adapter.deadline, deadline)
@@ -356,6 +370,7 @@ class ContentReads:
         version: str,
         headers: dict[str, str],
         maximum: int,
+        previous: dict[BoundedAdapter, float | None],
     ) -> tuple[str, Any]:
         """Use only discovered resources with the existing no-redirect range policy."""
         limits: dict[BoundedAdapter, int] = {}
@@ -363,7 +378,7 @@ class ContentReads:
         def limit(session: Any, value: str | None) -> str:
             url = resource_url(value)
             if isinstance(session, Session):
-                self._guard_download_session(session)
+                self._guard_download_session(session, previous)
                 adapter = session.get_adapter(url)
                 assert isinstance(adapter, BoundedAdapter)
                 limits.setdefault(adapter, adapter.response_limit)
@@ -375,8 +390,8 @@ class ContentReads:
                 client, service, resource, version, headers, limit
             )
         finally:
-            for adapter, previous in limits.items():
-                adapter.response_limit = previous
+            for adapter, prior_limit in limits.items():
+                adapter.response_limit = prior_limit
 
     @staticmethod
     def _open_limited_download(

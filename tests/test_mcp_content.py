@@ -433,10 +433,15 @@ async def test_searches_have_scan_budgets_and_body_permission() -> None:
         type="folder",
         name="Other",
         date_modified=None,
-        get_children=MagicMock(return_value=[file]),
+        iter_children=MagicMock(
+            side_effect=lambda **kwargs: iter([file][: kwargs["max_children"]])
+        ),
     )
     client.drive.root = SimpleNamespace(
-        type="folder", get_children=MagicMock(return_value=[child])
+        type="folder",
+        iter_children=MagicMock(
+            side_effect=lambda **kwargs: iter([child][: kwargs["max_children"]])
+        ),
     )
     assert (await tools.search("drive", "", "Match", 1, 10)).records[0][
         "name"
@@ -483,7 +488,10 @@ async def test_valid_search_and_content_wrappers_use_their_services() -> None:
         open=MagicMock(return_value=response(200, b"drive")),
     )
     client.drive.root = SimpleNamespace(
-        type="folder", get_children=MagicMock(return_value=[file])
+        type="folder",
+        iter_children=MagicMock(
+            side_effect=lambda **kwargs: iter([file][: kwargs["max_children"]])
+        ),
     )
     photo = SimpleNamespace(
         id="P",

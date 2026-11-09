@@ -110,7 +110,10 @@ class DriveUploads(DriveWrites):
         root = client.drive.document_root
         if not isinstance(root, str) or not root:
             raise WriteDenied("route_unavailable")
-        parsed = urlsplit(root)
+        try:
+            parsed = urlsplit(root)
+        except ValueError:
+            raise WriteDenied("unsupported_upload_route") from None
         checked_upload_url(
             root, frozenset({parsed.hostname}) if parsed.hostname else frozenset()
         )
@@ -148,6 +151,11 @@ class DriveUploads(DriveWrites):
         original = self.additional.resolve("drive-folder", handle)
         if not isinstance(original, DriveNode):
             raise WriteDenied("unsupported_target")
+        if (
+            not isinstance(original.data.get("drivewsid"), str)
+            or not original.data["drivewsid"]
+        ):
+            raise WriteDenied("unsupported_target")
         target = DriveTarget(original.data["drivewsid"], original.data.get("zone"))
 
         def prepare(client: Any) -> MutationPreview:
@@ -174,6 +182,7 @@ class DriveUploads(DriveWrites):
             if len(self._requests) >= 256:
                 oldest = next(iter(self._requests))
                 del self._requests[oldest]
+                self.ledger.discard(oldest)
                 self._accepted_receipts.pop(oldest, None)
             self._requests[preview.request_id] = (handle, target, token)
             self._publish_preview(
@@ -211,7 +220,9 @@ class DriveUploads(DriveWrites):
             owner_deadline = validate_upload_session(
                 client.drive, credentials, bind_adapter=self._bind_transport_adapter
             )
+            route, root = client.drive.service_root, client.drive.document_root
             receipt_accepted = self._accept_receipt(request_id, accept)
+            _verify_upload_context(client, account, route, root)
             captured: list[StagedUpload] = []
             handle_snapshot = self.additional.snapshot_drive_handles(
                 "drive-folder", handle
@@ -232,7 +243,6 @@ class DriveUploads(DriveWrites):
             if len(captured) != 1:
                 raise WriteDenied("invalid_upload_bytes")
             stage = captured[0]
-            route, root = client.drive.service_root, client.drive.document_root
             try:
                 self.pipeline.upload(
                     client.drive,

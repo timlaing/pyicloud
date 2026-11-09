@@ -39,6 +39,11 @@ class UploadPreviews(DriveWrites):
         original = self.additional.resolve("drive-folder", destination_handle)
         if not isinstance(original, DriveNode):
             raise WriteDenied("unsupported_target")
+        if (
+            not isinstance(original.data.get("drivewsid"), str)
+            or not original.data["drivewsid"]
+        ):
+            raise WriteDenied("unsupported_target")
         target = DriveTarget(original.data["drivewsid"], original.data.get("zone"))
 
         def prepare(client: Any) -> MutationPreview:
