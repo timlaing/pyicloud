@@ -234,6 +234,17 @@ class PhotoUploads:
             raise WriteDenied("mutation_unverified")
         return asset
 
+    def _accept_receipt(
+        self, request_id: str, accept: Callable[[str], None] | None
+    ) -> bool:
+        """Retain completed acceptance before any later metadata revalidation."""
+        accepted = self._accepted_receipts.get(request_id, False)
+        if accept is not None and not accepted:
+            accept(request_id)
+            self._accepted_receipts[request_id] = True
+            return True
+        return accepted
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -247,11 +258,7 @@ class PhotoUploads:
             library, account, resource, revision = self._read(client, zone, token)
             owner_deadline = self._validate_session_policy(client)
             root = client.photos.upload_root
-            accepted = self._accepted_receipts.get(request_id, False)
-            if accept is not None and not accepted:
-                accept(request_id)
-                accepted = True
-                self._accepted_receipts[request_id] = True
+            accepted = self._accept_receipt(request_id, accept)
             self._verify_after_binding(client, zone, account, resource)
             if client.photos.upload_root != root:
                 raise WriteDenied("stale_preview")

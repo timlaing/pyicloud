@@ -83,6 +83,16 @@ def _photo_parameter_snapshot(params: dict[str, Any]) -> dict[str, Any]:
     return dict(params)
 
 
+def _photo_upload_route(root: str, zone: str) -> frozenset[str]:
+    """Keep the existing private primary-zone route policy separate from dispatch."""
+    parsed = urlsplit(root)
+    hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
+    checked_upload_url(root, hosts)
+    if parsed.query or parsed.fragment or not zone or zone != "PrimarySync":
+        raise WriteDenied("unsupported_upload_route")
+    return hosts
+
+
 class PhotoUploadBytes:
     """One reservation/transfer/registration, never a mutation retry or success claim.
 
@@ -109,11 +119,7 @@ class PhotoUploadBytes:
         approved_hosts: frozenset[str] | None = None,
     ) -> PhotosPutAssetResult:
         """Use the existing typed wire contract with exact immutable staged bytes."""
-        parsed = urlsplit(root)
-        hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
-        checked_upload_url(root, hosts)
-        if parsed.query or parsed.fragment or not zone or zone != "PrimarySync":
-            raise WriteDenied("unsupported_upload_route")
+        hosts = _photo_upload_route(root, zone)
         _validate_photo_stage(stage, modified_ms, stage_acquired)
         snapshot = _photo_parameter_snapshot(params)
         identifier = str(uuid4())
