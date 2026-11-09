@@ -8,9 +8,12 @@ from itertools import islice
 from pathlib import Path
 from typing import Any
 
+from pydantic import StrictStr, TypeAdapter, ValidationError
+from rich.markup import escape
 import typer
 
 from pyicloud.base import PyiCloudService
+from pyicloud.cli.command_options import CommandOptions, with_command_options
 from pyicloud.cli.context import CLIAbort, CLIState, get_state, service_call
 from pyicloud.cli.normalize import (
     normalize_sync_cursor,
@@ -30,15 +33,22 @@ from pyicloud.cli.options import (
     store_command_options,
 )
 from pyicloud.cli.output import console_table
-from pyicloud.services.notes.exceptions import NoteLockedError, NoteNotFound
+from pyicloud.services.notes.encoding import MAX_INLINE_NOTE_BYTES
+from pyicloud.services.notes.exceptions import NoteLockedError, NoteNotFound, NotesError
+from pyicloud.services.notes.models.rich import RichNoteBody
 
-app = typer.Typer(help="Inspect, render, and export Notes.")
+app = typer.Typer(help="Inspect, render, export, and manage Notes.")
 
 NOTES = "Notes"
 
 _MAX_NOTES_TO_SHOW_HELP = "Maximum notes to show."
 _NOTE_ID_HELP = "Note id."
 _FOLDER_ID_HELP = "Folder id."
+_REVISION_HELP = "Current record_change_tag from notes get --format json."
+_FOLDER_REVISION_HELP = "Current record_change_tag from notes folders --format json."
+_TABLE_NOTE_REVISION_HELP = (
+    "Current record_change_tag from notes get-table --format json."
+)
 
 
 class PreviewAppearance(str, Enum):
@@ -343,6 +353,463 @@ def notes_get(
                 [(att.id, att.filename, att.uti, att.size) for att in note.attachments],
             )
         )
+
+
+def _read_note_body(path: Path) -> str:
+    try:
+        with path.open("rb") as stream:
+            data = stream.read(MAX_INLINE_NOTE_BYTES + 1)
+        if len(data) > MAX_INLINE_NOTE_BYTES:
+            raise CLIAbort("The note body file must not exceed 64 KiB.")
+        return data.decode("utf-8").replace("\r\n", "\n")
+    except (OSError, UnicodeDecodeError):
+        raise CLIAbort("Could not read the note body file as UTF-8.") from None
+
+
+def _note_write_body(
+    body_file: Path | None, rich_body_file: Path | None, *, required: bool
+) -> str | RichNoteBody:
+    if rich_body_file is not None:
+        if body_file is not None:
+            raise CLIAbort("Choose either --body-file or --rich-body-file, not both.")
+        try:
+            return RichNoteBody.model_validate_json(_read_note_body(rich_body_file))
+        except ValidationError:
+            raise CLIAbort(
+                "Invalid rich note body. Expected paragraphs and text runs as JSON."
+            ) from None
+    if body_file is not None:
+        return _read_note_body(body_file)
+    if required:
+        raise CLIAbort("Pass --body-file or --rich-body-file for the replacement body.")
+    return ""
+
+
+def _notes_write_call(
+    ctx: typer.Context, fn: Callable[[Any], Any]
+) -> tuple[CLIState, Any]:
+    state = get_state(ctx)
+    api = state.get_api()
+    notes = _notes_service(api)
+    try:
+        return state, _notes_call(api, lambda: fn(notes))
+    except (NotesError, ValueError) as err:
+        raise CLIAbort(str(err)) from None
+
+
+def _notes_write(ctx: typer.Context, label: str, fn: Callable[[Any], Any]) -> None:
+    state, result = _notes_write_call(ctx, fn)
+    if state.json_output:
+        state.write_json(result)
+        return
+    state.console.print(f"{label}: {result.id}", markup=False)
+
+
+@app.command("create")
+@with_command_options
+def notes_create(
+    ctx: typer.Context,
+    common: CommandOptions,
+    title: str = typer.Option(..., "--title", help="Single-line note title."),
+    folder_id: str = typer.Option(..., "--folder-id", help=_FOLDER_ID_HELP),
+    body_file: Path | None = typer.Option(
+        None, "--body-file", dir_okay=False, help="Read plain text from a UTF-8 file."
+    ),
+    rich_body_file: Path | None = typer.Option(
+        None,
+        "--rich-body-file",
+        dir_okay=False,
+        help="Read rich-text paragraphs from a UTF-8 JSON file.",
+    ),
+) -> None:
+    """Create a plain- or rich-text note in a private iCloud Notes folder."""
+    body = _note_write_body(body_file, rich_body_file, required=False)
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Created note",
+        lambda notes: notes.create_note(title, body, folder_id=folder_id),
+    )
+
+
+@app.command("update")
+@with_command_options
+def notes_update(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    title: str = typer.Option(..., "--title", help="Full replacement title."),
+    body_file: Path | None = typer.Option(
+        None, "--body-file", dir_okay=False, help="Full UTF-8 plain-text replacement."
+    ),
+    rich_body_file: Path | None = typer.Option(
+        None,
+        "--rich-body-file",
+        dir_okay=False,
+        help="Full UTF-8 rich-text JSON replacement.",
+    ),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Replace the title and body of a supported note."""
+    body = _note_write_body(body_file, rich_body_file, required=True)
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Updated note",
+        lambda notes: notes.update_note(
+            note_id, title=title, text=body, expected_change_tag=if_match
+        ),
+    )
+
+
+@app.command("set-checklist-item")
+@with_command_options
+def notes_set_checklist_item(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    item: int = typer.Option(
+        ..., "--item", min=1, help="Checklist item number in document order."
+    ),
+    checked: bool | None = typer.Option(
+        None, "--checked/--unchecked", help="Set the item's checked state."
+    ),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Check or uncheck a checklist item without replacing the note."""
+    if checked is None:
+        raise CLIAbort("Choose --checked or --unchecked.")
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Updated note",
+        lambda notes: notes.set_checklist_item(
+            note_id,
+            item=item,
+            checked=checked,
+            expected_change_tag=if_match,
+        ),
+    )
+
+
+@app.command("add-tag")
+@with_command_options
+def notes_add_tag(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    tag: str = typer.Option(..., "--tag", help="Tag text, with an optional leading #."),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Add a tag without replacing the note's existing content."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Tagged note",
+        lambda notes: notes.add_note_tag(
+            note_id, tag=tag, expected_change_tag=if_match
+        ),
+    )
+
+
+@app.command("add-table")
+@with_command_options
+def notes_add_table(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    rows_file: Path = typer.Option(
+        ..., "--rows-file", dir_okay=False, help="UTF-8 JSON array of text rows."
+    ),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Append a plain-text table without replacing existing note content."""
+    try:
+        rows = TypeAdapter(list[list[StrictStr]]).validate_json(
+            _read_note_body(rows_file)
+        )
+    except ValidationError:
+        raise CLIAbort(
+            "Expected a JSON array of rows containing only strings."
+        ) from None
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Added table to note",
+        lambda notes: notes.add_note_table(
+            note_id, rows=rows, expected_change_tag=if_match
+        ),
+    )
+
+
+@app.command("get-table")
+@with_command_options
+def notes_get_table(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    table: int = typer.Option(1, "--table", min=1, help="One-based table number."),
+) -> None:
+    """Read a plain-text table and its edit revisions."""
+    common.store(ctx)
+    state, result = _notes_write_call(
+        ctx, lambda notes: notes.get_note_table(note_id, table=table)
+    )
+    if state.json_output:
+        state.write_json(result)
+        return
+    columns = [str(index) for index in range(1, len(result.rows[0]) + 1)]
+    rows = [[escape(cell) for cell in row] for row in result.rows]
+    state.console.print(console_table("Notes table", columns, rows))
+
+
+@app.command("set-table-cell")
+@with_command_options
+def notes_set_table_cell(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    table_id: str = typer.Option(
+        ..., "--table-id", help="Table ID from notes get-table."
+    ),
+    row: int = typer.Option(..., "--row", min=1, help="One-based row number."),
+    column: int = typer.Option(..., "--column", min=1, help="One-based column number."),
+    body_file: Path = typer.Option(
+        ...,
+        "--body-file",
+        dir_okay=False,
+        help="Read the replacement cell text from a UTF-8 file.",
+    ),
+    if_match: str = typer.Option(..., "--if-match", help=_TABLE_NOTE_REVISION_HELP),
+    table_if_match: str = typer.Option(
+        ...,
+        "--table-if-match",
+        help="Current table_change_tag from notes get-table --format json.",
+    ),
+) -> None:
+    """Replace one plain-text table cell without changing the rest of the table."""
+    body = _read_note_body(body_file)
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Updated table cell in note",
+        lambda notes: notes.update_note_table_cell(
+            note_id,
+            table_id=table_id,
+            row=row,
+            column=column,
+            text=body,
+            expected_change_tag=if_match,
+            expected_table_change_tag=table_if_match,
+        ),
+    )
+
+
+@app.command("pin")
+@with_command_options
+def notes_pin(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    unpin: bool = typer.Option(False, "--unpin", help="Remove the note's pin instead."),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Pin or unpin an active private note without changing its body."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Unpinned note" if unpin else "Pinned note",
+        lambda notes: notes.set_note_pinned(
+            note_id,
+            pinned=not unpin,
+            expected_change_tag=if_match,
+        ),
+    )
+
+
+@app.command("trash")
+@with_command_options
+def notes_trash(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Move a supported note to Recently Deleted."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Trashed note",
+        lambda notes: notes.trash_note(note_id, expected_change_tag=if_match),
+    )
+
+
+@app.command("restore")
+@with_command_options
+def notes_restore(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    folder_id: str = typer.Option(..., "--folder-id", help=_FOLDER_ID_HELP),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Restore a supported note to an explicit private folder."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Restored note",
+        lambda notes: notes.restore_note(
+            note_id, folder_id=folder_id, expected_change_tag=if_match
+        ),
+    )
+
+
+@app.command("replace-text")
+@with_command_options
+def notes_replace_text(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    find_file: Path = typer.Option(
+        ..., "--find-file", dir_okay=False, help="Single-line UTF-8 text to find."
+    ),
+    replacement_file: Path = typer.Option(
+        ...,
+        "--replacement-file",
+        dir_okay=False,
+        help="Single-line UTF-8 replacement text.",
+    ),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Replace one text fragment without removing an existing image."""
+    old = _read_note_body(find_file).removesuffix("\n")
+    new = _read_note_body(replacement_file).removesuffix("\n")
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Updated note",
+        lambda notes: notes.replace_note_text(
+            note_id,
+            old=old,
+            new=new,
+            expected_change_tag=if_match,
+        ),
+    )
+
+
+@app.command("move")
+@with_command_options
+def notes_move(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    folder_id: str = typer.Option(..., "--folder-id", help=_FOLDER_ID_HELP),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Move an active private note to a different private folder."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Moved note",
+        lambda notes: notes.move_note(
+            note_id, folder_id=folder_id, expected_change_tag=if_match
+        ),
+    )
+
+
+@app.command("create-folder")
+@with_command_options
+def notes_create_folder(
+    ctx: typer.Context,
+    common: CommandOptions,
+    name: str = typer.Option(..., "--name", help="Name of the new folder."),
+    parent_id: str | None = typer.Option(
+        None, "--parent-id", help="Parent folder ID, if nested."
+    ),
+) -> None:
+    """Create a private Notes folder."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Created folder",
+        lambda notes: notes.create_folder(name, parent_id=parent_id),
+    )
+
+
+@app.command("rename-folder")
+@with_command_options
+def notes_rename_folder(
+    ctx: typer.Context,
+    common: CommandOptions,
+    folder_id: str = typer.Argument(..., help=_FOLDER_ID_HELP),
+    name: str = typer.Option(..., "--name", help="Replacement folder name."),
+    if_match: str = typer.Option(..., "--if-match", help=_FOLDER_REVISION_HELP),
+) -> None:
+    """Rename a private Notes folder."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Renamed folder",
+        lambda notes: notes.rename_folder(
+            folder_id, name, expected_change_tag=if_match
+        ),
+    )
+
+
+@app.command("move-folder")
+@with_command_options
+def notes_move_folder(
+    ctx: typer.Context,
+    common: CommandOptions,
+    folder_id: str = typer.Argument(..., help=_FOLDER_ID_HELP),
+    parent_id: str | None = typer.Option(
+        None, "--parent-id", help="Destination parent folder ID."
+    ),
+    to_root: bool = typer.Option(
+        False, "--to-root", help="Move the folder to the top level."
+    ),
+    if_match: str = typer.Option(..., "--if-match", help=_FOLDER_REVISION_HELP),
+) -> None:
+    """Move a private Notes folder to a parent folder or the top level."""
+    if (parent_id is None) == (not to_root):
+        raise CLIAbort("Choose exactly one of --parent-id and --to-root.")
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Moved folder",
+        lambda notes: notes.move_folder(
+            folder_id, parent_id=parent_id, expected_change_tag=if_match
+        ),
+    )
+
+
+@app.command("delete-folder")
+@with_command_options
+def notes_delete_folder(
+    ctx: typer.Context,
+    common: CommandOptions,
+    folder_id: str = typer.Argument(..., help=_FOLDER_ID_HELP),
+    if_match: str = typer.Option(..., "--if-match", help=_FOLDER_REVISION_HELP),
+    confirm_empty: bool = typer.Option(
+        False,
+        "--confirm-empty",
+        help="Permanently delete the folder after checking that it is empty.",
+    ),
+) -> None:
+    """Permanently delete a verified empty private Notes folder."""
+    if not confirm_empty:
+        raise CLIAbort("Pass --confirm-empty to permanently delete an empty folder.")
+    common.store(ctx)
+    state, deleted = _notes_write_call(
+        ctx,
+        lambda notes: notes.delete_folder(
+            folder_id, expected_change_tag=if_match, confirm_empty=True
+        ),
+    )
+    if state.json_output:
+        state.write_json({"id": folder_id, "deleted": deleted})
+        return
+    state.console.print(f"Deleted folder: {folder_id}", markup=False)
 
 
 @app.command("render")
