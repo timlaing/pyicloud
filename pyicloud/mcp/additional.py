@@ -11,6 +11,8 @@ from secrets import token_urlsafe
 import time
 from typing import Any
 
+from requests import Session
+
 from pyicloud.services.drive import DriveNode, DriveService
 
 from .authorization import WriteDenied
@@ -147,6 +149,12 @@ class AdditionalReads:
             if service != "drive" or not isinstance(client.drive, DriveService):
                 return operation(client)
             session = client.drive.session
+            if (
+                not isinstance(session, Session)
+                or getattr(session.get_adapter, "__func__", None)
+                is not Session.get_adapter
+            ):
+                raise ToolFailure("unsupported_drive_transport")
             url = prepared_url(
                 session,
                 client.drive.service_root + "/retrieveItemDetailsInFolders",

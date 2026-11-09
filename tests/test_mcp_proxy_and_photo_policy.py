@@ -158,3 +158,23 @@ async def test_plain_injected_drive_metadata_transport_is_denied_before_sdk(
     assert result.error == "unsupported_drive_transport"
     send.assert_not_called()
     session.close()
+
+
+@pytest.mark.asyncio
+async def test_dynamic_inventory_adapter_selection_is_denied_before_read() -> None:
+    """A mutable selector cannot replace the adapter validated for inventory reads."""
+    session = cast(Any, Session())
+    session.trust_env = False
+    session.get_adapter = MagicMock(
+        side_effect=[BoundedAdapter(30), Session().get_adapter("https://example.test")]
+    )
+    drive = DriveService(
+        "https://drive.icloud.com", "https://docs.icloud.com", session, {}
+    )
+    reads = adapters(SimpleNamespace(drive=drive))
+    with patch("requests.adapters.HTTPAdapter.send") as send:
+        result = await reads.drive("", "", 1)
+    assert result.error == "unsupported_drive_transport"
+    session.get_adapter.assert_not_called()
+    send.assert_not_called()
+    session.close()

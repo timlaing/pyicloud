@@ -54,6 +54,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Reject custom adapter-selection overrides before real Drive inventory reads so dispatch cannot bypass the validated body and deadline policy.
+
 - Reject folder reads through mismatched Drive connections, recheck recovery bindings after Trash refresh, and validate malformed/shared discovered nodes before preparation.
 - Run local transfer release on the serialized owner lane without authentication probes and mark release tools as local-state mutations rather than read-only calls.
 
