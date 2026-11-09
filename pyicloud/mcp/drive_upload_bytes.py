@@ -163,6 +163,22 @@ def _reservation_target(reservation: Any) -> tuple[str, str]:
     return allocation, target
 
 
+def _validate_upload_name(name: Any) -> None:
+    """Require the existing bounded UTF-8 leaf name before any upload dispatch."""
+    try:
+        name_size = len(name.encode("utf-8")) if isinstance(name, str) else 0
+    except UnicodeEncodeError:
+        raise WriteDenied("invalid_upload_bytes") from None
+    if (
+        not isinstance(name, str)
+        or not name
+        or name in {".", ".."}
+        or name_size > 255
+        or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in name)
+    ):
+        raise WriteDenied("invalid_upload_bytes")
+
+
 class DriveUploadBytes:
     """One existing upload flow; acknowledged commit is not final file identity."""
 
@@ -195,20 +211,7 @@ class DriveUploadBytes:
         # consuming approval. Acquired immutable bytes remain valid in flight.
         _validate_stage(stage, modified_ms, acquired=stage_acquired)
         params = dict(drive.params)
-        try:
-            name_size = (
-                len(stage.name.encode("utf-8")) if isinstance(stage.name, str) else 0
-            )
-        except UnicodeEncodeError:
-            raise WriteDenied("invalid_upload_bytes") from None
-        if (
-            not isinstance(stage.name, str)
-            or not stage.name
-            or stage.name in {".", ".."}
-            or name_size > 255
-            or any(ord(char) < 32 or char in {"/", "\\", "\x7f"} for char in stage.name)
-        ):
-            raise WriteDenied("invalid_upload_bytes")
+        _validate_upload_name(stage.name)
         credentials = (
             snapshot_upload_credentials(drive)
             if credential_snapshot is None
