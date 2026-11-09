@@ -54,6 +54,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Reject folder reads through mismatched Drive connections, recheck recovery bindings after Trash refresh, and validate malformed/shared discovered nodes before preparation.
+- Run local transfer release on the serialized owner lane without authentication probes and mark release tools as local-state mutations rather than read-only calls.
+
 - Add explicitly bound local download-transfer release tools for abandoned Drive and Photos reads, preserving other active transfers' version pins.
 - Bound complete Trash inventory inspection before file-deletion uniqueness or absence checks; oversized or incomplete inventories deny proof instead of being treated as absent.
 

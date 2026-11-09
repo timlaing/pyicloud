@@ -124,6 +124,7 @@ class DriveAcknowledged(DriveWrites):
     ) -> str:
         """Bind recovery only to exactly matching observed Trash metadata."""
         path = node.data.get("restorePath")
+        expected = self._bindings(client, target, node)
         if (
             node.data.get("parentId") != "TRASH_ROOT"
             or not isinstance(path, str)
@@ -150,6 +151,8 @@ class DriveAcknowledged(DriveWrites):
             raise WriteDenied("target_unavailable")
         # Restore to the observed server location, never an inferred local path.
         self._validated_node(client, target, members[0].data)
+        if self._bindings(client, target, node) != expected:
+            raise WriteDenied("stale_preview")
         return json.dumps((resource, node.name, path), separators=(",", ":"))
 
     async def prepare_acknowledged(
@@ -175,7 +178,7 @@ class DriveAcknowledged(DriveWrites):
             )
         if not isinstance(original, DriveNode):
             raise WriteDenied("unsupported_target")
-        target = DriveTarget(original.data["drivewsid"], original.data.get("zone"))
+        target = self._discovered_target(original)
 
         def prepare(client: Any) -> MutationPreview:
             node, account, resource, revision = self._read(client, action, target, name)

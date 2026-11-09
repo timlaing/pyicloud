@@ -60,6 +60,23 @@ class DriveWrites:
 
         return await owner.run(invoke)
 
+    @staticmethod
+    def _discovered_target(node: Any) -> DriveTarget:
+        """Reject malformed or shared discovered handles before trusting later reads."""
+        if not isinstance(node, DriveNode):
+            raise WriteDenied("unsupported_target")
+        identifier = node.data.get("drivewsid")
+        if not isinstance(identifier, str) or not identifier:
+            raise WriteDenied("unsupported_target")
+        if (
+            node.owner_record_name is not None
+            or node.data.get("shareID")
+            or node.data.get("share")
+            or identifier.split("::", 1)[0] not in {"FILE", "FOLDER"}
+        ):
+            raise WriteDenied("unsupported_shared_write")
+        return DriveTarget(identifier, node.data.get("zone"))
+
     def _fresh(self, client: Any, target: DriveTarget) -> DriveNode:
         self._require_metadata_transport(client)
         data = client.drive.get_node_data(target.identifier)
@@ -191,16 +208,7 @@ class DriveWrites:
         original = self.additional.resolve_any(
             frozenset({"drive-file", "drive-folder"}), handle
         )
-        if not isinstance(original, DriveNode):
-            raise WriteDenied("unsupported_target")
-        if (
-            original.owner_record_name is not None
-            or original.data.get("shareID")
-            or original.data.get("share")
-            or original.data["drivewsid"].split("::", 1)[0] not in {"FILE", "FOLDER"}
-        ):
-            raise WriteDenied("unsupported_shared_write")
-        target = DriveTarget(original.data["drivewsid"], original.data.get("zone"))
+        target = self._discovered_target(original)
         source = ("drive-file" if original.type == "file" else "drive-folder", handle)
 
         def prepare(client: Any) -> MutationPreview:

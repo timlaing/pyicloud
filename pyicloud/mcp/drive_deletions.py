@@ -90,7 +90,7 @@ class DriveDeletions(DriveWrites):
         original = self.additional.resolve("drive-trash-file", handle)
         if not isinstance(original, DriveNode):
             raise WriteDenied("unsupported_target")
-        target = DriveTarget(original.data["drivewsid"], original.data.get("zone"))
+        target = self._discovered_target(original)
 
         def prepare(client: Any) -> MutationPreview:
             node, account, resource, revision = self._trash_file(client, target)

@@ -150,6 +150,11 @@ iCloud or reset another transfer's entity tag. Permanent deletion rejects Trash
 inventories above 2,000 rows rather than claiming absence from a partial scan.
 The underlying Drive library's metadata reads reject redirects for ordinary callers
 as well as MCP verification requests.
+Transfer release does not probe authentication or create an account client; it uses
+the same serialized local lane even after session expiry. Release tools advertise
+`readOnlyHint: false` because they invalidate local continuation tokens, while
+`openWorldHint: false` reflects that they never mutate iCloud. Nested folder reads
+reject a mismatched connection instead of borrowing an unchecked transport.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

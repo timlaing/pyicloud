@@ -49,7 +49,15 @@ def register(
 
     if "photos" in context.config.content_services:
 
-        @server.tool(name="icloud_photo_download_release", annotations=annotations)
+        @server.tool(
+            name="icloud_photo_download_release",
+            annotations=ToolAnnotations(
+                read_only_hint=False,
+                destructive_hint=False,
+                idempotent_hint=True,
+                open_world_hint=False,
+            ),
+        )
         async def photo_download_release(
             handle: str, transfer_token: str, version: str = "original"
         ) -> CallToolResult:

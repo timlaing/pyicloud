@@ -271,7 +271,9 @@ class AdditionalReads:
             if node.type not in {"folder", "app_library"}:
                 raise ToolFailure("invalid_argument")
             records = []
-            with self._bounded_drive_children(node, scan_limit) as children:
+            with self._bounded_drive_children(
+                node, scan_limit, client.drive
+            ) as children:
                 for child in children:
                     name, kind = text(child.name), text(child.type)
                     if query.casefold() not in name.casefold():
@@ -312,7 +314,7 @@ class AdditionalReads:
         def read(client: Any) -> ReadResult:
             records = []
             with self._bounded_drive_children(
-                client.drive.trash, scan_limit
+                client.drive.trash, scan_limit, client.drive
             ) as children:
                 for child in children:
                     name, kind = text(child.name), text(child.type)
@@ -569,7 +571,7 @@ class AdditionalReads:
             if folder.type not in {"folder", "app_library"}:
                 raise ToolFailure("invalid_argument")
             fetched += 1
-            with self._bounded_drive_children(folder, 2000) as children:
+            with self._bounded_drive_children(folder, 2000, client.drive) as children:
                 for item in children:
                     yield item
                     if item.type in {"folder", "app_library"}:
@@ -578,10 +580,12 @@ class AdditionalReads:
     @staticmethod
     @contextmanager
     def _bounded_drive_children(
-        node: Any, maximum: int
+        node: Any, maximum: int, connection: Any = None
     ) -> Generator[Iterator[Any], None, None]:
         """Use the library's lazy bounded producer and cap custom facade iteration."""
         if isinstance(node, DriveNode):
+            if connection is not None and node.connection is not connection:
+                raise ToolFailure("unsupported_drive_connection")
             items = node.iter_children(force=True, max_children=maximum)
         else:
             producer = getattr(node, "iter_children", None)

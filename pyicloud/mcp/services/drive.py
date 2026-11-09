@@ -50,7 +50,15 @@ def register(
 
     if "drive" in context.config.content_services:
 
-        @server.tool(name="icloud_drive_download_release", annotations=annotations)
+        @server.tool(
+            name="icloud_drive_download_release",
+            annotations=ToolAnnotations(
+                read_only_hint=False,
+                destructive_hint=False,
+                idempotent_hint=True,
+                open_world_hint=False,
+            ),
+        )
         async def drive_download_release(
             handle: str, transfer_token: str
         ) -> CallToolResult:

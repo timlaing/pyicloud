@@ -162,7 +162,7 @@ class DriveUploads(DriveWrites):
             or not original.data["drivewsid"]
         ):
             raise WriteDenied("unsupported_target")
-        target = DriveTarget(original.data["drivewsid"], original.data.get("zone"))
+        target = self._discovered_target(original)
 
         def prepare(client: Any) -> MutationPreview:
             folder, account, resource, revision = self._read(client, target, token)

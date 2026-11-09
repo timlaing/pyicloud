@@ -388,7 +388,10 @@ class SessionOwner:
         )
 
     def _invoke(
-        self, operation: Callable[[Any], T], deadline: float | None = None
+        self,
+        operation: Callable[[Any], T],
+        deadline: float | None = None,
+        authenticate: bool = True,
     ) -> T:
         try:
             self.active_deadline = (
@@ -398,6 +401,8 @@ class SessionOwner:
             )
             if self.active_deadline <= time.monotonic():
                 raise ToolFailure("timeout")
+            if not authenticate:
+                return operation(None)
             if self._client is None:
                 self._client = self._factory()
             self._prevent_authentication(self._client)
@@ -417,7 +422,7 @@ class SessionOwner:
             self._bound_adapters.clear()
             self.active_deadline = None
 
-    async def run(self, operation: Callable[[Any], T]) -> T:
+    async def run(self, operation: Callable[[Any], T], *, local: bool = False) -> T:
         """Reject overload; shield worker ownership until actual completion."""
         if self._closed:
             raise ToolFailure("server_closed")
@@ -427,7 +432,7 @@ class SessionOwner:
             raise ToolFailure("busy")
         self._pending += 1
         deadline = time.monotonic() + self.config.timeout
-        work = self._executor.submit(self._invoke, operation, deadline)
+        work = self._executor.submit(self._invoke, operation, deadline, not local)
         future = asyncio.wrap_future(work)
 
         def completed(done: asyncio.Future[T]) -> None:
@@ -445,6 +450,10 @@ class SessionOwner:
         except asyncio.CancelledError:
             work.cancel()
             raise
+
+    async def run_local(self, operation: Callable[[], T]) -> T:
+        """Serialize local cleanup on the same bounded lane without authentication."""
+        return await self.run(lambda _client: operation(), local=True)
 
     async def close(self) -> None:
         """Drain on the same lane before closing; never close an active session."""

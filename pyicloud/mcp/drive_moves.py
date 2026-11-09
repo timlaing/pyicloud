@@ -75,10 +75,7 @@ class DriveMoves(DriveWrites):
         folder = self.additional.resolve("drive-folder", destination_handle)
         if not isinstance(original, DriveNode) or not isinstance(folder, DriveNode):
             raise WriteDenied("unsupported_target")
-        targets = tuple(
-            DriveTarget(node.data["drivewsid"], node.data.get("zone"))
-            for node in (original, folder)
-        )
+        targets = tuple(self._discovered_target(node) for node in (original, folder))
         pair = (targets[0], targets[1])
 
         def prepare(client: Any) -> MutationPreview:

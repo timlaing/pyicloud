@@ -9,7 +9,7 @@ from typing import Any
 from pyicloud.services.drive import DriveNode
 
 from .authorization import MutationPreview, WriteDenied
-from .drive_writes import DriveTarget, DriveWrites
+from .drive_writes import DriveWrites
 from .upload_staging import UploadStaging
 
 
@@ -44,7 +44,7 @@ class UploadPreviews(DriveWrites):
             or not original.data["drivewsid"]
         ):
             raise WriteDenied("unsupported_target")
-        target = DriveTarget(original.data["drivewsid"], original.data.get("zone"))
+        target = self._discovered_target(original)
 
         def prepare(client: Any) -> MutationPreview:
             staged = self.staging.peek(upload_handle)

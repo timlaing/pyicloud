@@ -345,7 +345,15 @@ class ContentReads:
             del self._downloads[token]
             return bounded_result([{"released": True}], 1)
 
-        return await self._run(service, 1, 1, release)
+        owner = self.additional.reads.owner
+        if service not in owner.config.content_services:
+            return ReadResult(error="content_disabled")
+        try:
+            if isinstance(owner, SessionOwner):
+                return await owner.run_local(lambda: release(None))
+            return await owner.run(release)
+        except ToolFailure as error:
+            return ReadResult(error=str(error))
 
     def _guard_drive_resource(
         self, resource: Any, previous: dict[BoundedAdapter, float | None]
