@@ -143,6 +143,13 @@ discovery requires a body-bounded metadata transport before the first SDK read.
 Photos preview size limits and approved transfer hosts apply independently of any
 injected pipeline policy. Accepted receipt decisions are cached before metadata
 revalidation; failed publication revokes both decision and selector state.
+Abandoned transfers can be released with `icloud_drive_download_release` or
+`icloud_photo_download_release`, supplying the original handle and transfer token
+(and Photos version). Release only retires that local token; it does not mutate
+iCloud or reset another transfer's entity tag. Permanent deletion rejects Trash
+inventories above 2,000 rows rather than claiming absence from a partial scan.
+The underlying Drive library's metadata reads reject redirects for ordinary callers
+as well as MCP verification requests.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

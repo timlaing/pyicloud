@@ -50,6 +50,15 @@ def register(
 
     if "drive" in context.config.content_services:
 
+        @server.tool(name="icloud_drive_download_release", annotations=annotations)
+        async def drive_download_release(
+            handle: str, transfer_token: str
+        ) -> CallToolResult:
+            """Release an abandoned local transfer without changing iCloud content."""
+            return tool_result(
+                await content.release_transfer("drive", handle, transfer_token)
+            )
+
         @server.tool(name="icloud_drive_download", annotations=annotations)
         async def drive_download(
             handle: str,

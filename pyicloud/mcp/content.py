@@ -326,6 +326,27 @@ class ContentReads:
             self._downloads[key] = DownloadState(resource)
         return self._downloads[key]
 
+    async def release_transfer(
+        self, service: str, handle: str, token: str, version: str = "original"
+    ) -> ReadResult:
+        """Retire the selected local transfer without touching other entity pins."""
+        if (
+            service not in {"drive", "photos"}
+            or not isinstance(token, str)
+            or not token
+            or len(token) > 64
+        ):
+            return ReadResult(error="invalid_argument")
+
+        def release(_client: Any) -> ReadResult:
+            state = self._downloads.get(token)
+            if state is None or state.binding != f"{service}:{handle}:{version}":
+                raise ToolFailure("invalid_download_transfer")
+            del self._downloads[token]
+            return bounded_result([{"released": True}], 1)
+
+        return await self._run(service, 1, 1, release)
+
     def _guard_drive_resource(
         self, resource: Any, previous: dict[BoundedAdapter, float | None]
     ) -> None:

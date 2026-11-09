@@ -22,6 +22,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
+
 - Require typed Photos album-creation acknowledgements to match the submitted record ID, record type, album type, live deletion flag, encoded name and valid change tag; unrelated or ambiguous responses now raise uncertainty instead of returning an uncorrelated album. Request payloads and public signatures are unchanged.
 
 - Include shared Reminders lists alongside private lists and route reminder queries through each shared list's CloudKit zone.
@@ -51,6 +53,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
+
+- Add explicitly bound local download-transfer release tools for abandoned Drive and Photos reads, preserving other active transfers' version pins.
+- Bound complete Trash inventory inspection before file-deletion uniqueness or absence checks; oversized or incomplete inventories deny proof instead of being treated as absent.
 
 - Preserve optional SOCKS proxy connection routing with absolute header deadlines, and require bounded transport before real Drive discovery reads.
 - Revoke unpublished Photos decisions, cache accepted receipts before revalidation, validate Photos account and stage-size policy before consumption, and enforce approved transfer hosts in the Photos pipeline.

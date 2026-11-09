@@ -21,6 +21,24 @@ class DriveDeletions(DriveWrites):
         super().__init__(writer.additional, writer.ledger)
         self._deletions: dict[str, tuple[str, DriveTarget]] = {}
 
+    def _trash_inventory(self, client: Any) -> list[DriveNode]:
+        """Require a complete bounded inventory before uniqueness or absence proof."""
+        self._require_metadata_transport(client)
+        trash = client.drive.trash
+        if isinstance(trash, DriveNode):
+            observed = client.drive.get_node_data(
+                trash.data["drivewsid"], trash.data.get("shareID")
+            )
+            items = observed.get("items")
+            if not isinstance(items, list) or len(items) > 2000:
+                raise WriteDenied("unsupported_trash_inventory")
+            refreshed = DriveNode(client.drive, observed)
+            return list(refreshed.iter_children(max_children=2000))
+        children = trash.get_children(force=True)
+        if not isinstance(children, list) or len(children) > 2000:
+            raise WriteDenied("unsupported_trash_inventory")
+        return children
+
     def _trash_file(
         self, client: Any, target: DriveTarget
     ) -> tuple[DriveNode, str, str, str]:
@@ -35,7 +53,7 @@ class DriveDeletions(DriveWrites):
             raise WriteDenied("unsupported_target")
         members = [
             child
-            for child in client.drive.trash.get_children(force=True)
+            for child in self._trash_inventory(client)
             if child.data.get("drivewsid") == target.identifier
         ]
         if len(members) != 1 or any(
@@ -141,7 +159,7 @@ class DriveDeletions(DriveWrites):
                 self._require_metadata_transport(client)
                 if any(
                     child.data.get("drivewsid") == target.identifier
-                    for child in client.drive.trash.get_children(force=True)
+                    for child in self._trash_inventory(client)
                 ):
                     raise WriteDenied("mutation_unverified")
                 self._verify_context(client, target, node, account, prior_base)

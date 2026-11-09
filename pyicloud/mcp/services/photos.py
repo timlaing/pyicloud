@@ -49,6 +49,17 @@ def register(
 
     if "photos" in context.config.content_services:
 
+        @server.tool(name="icloud_photo_download_release", annotations=annotations)
+        async def photo_download_release(
+            handle: str, transfer_token: str, version: str = "original"
+        ) -> CallToolResult:
+            """Release only this local asset-version transfer; no remote mutation."""
+            return tool_result(
+                await content.release_transfer(
+                    "photos", handle, transfer_token, version
+                )
+            )
+
         @server.tool(name="icloud_photo_download", annotations=annotations)
         async def photo_download(
             handle: str,
