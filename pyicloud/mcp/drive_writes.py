@@ -45,7 +45,7 @@ class DriveWrites:
         self._sources: dict[str, tuple[str, str]] = {}
 
     def _fresh(self, client: Any, target: DriveTarget) -> DriveNode:
-        self._require_retry_disabled(client, client.drive.service_root)
+        self._require_metadata_transport(client)
         data = client.drive.get_node_data(target.identifier)
         return self._validated_node(client, target, data)
 
@@ -54,6 +54,8 @@ class DriveWrites:
     ) -> DriveNode:
         """Recheck identity/scope even when a child refresh replaced node metadata."""
         node = DriveNode(client.drive, data)
+        if target.identifier.split("::", 1)[0].lower() != node.type:
+            raise WriteDenied("unsupported_target")
         if (
             data.get("drivewsid") != target.identifier
             or data.get("zone") != target.zone
@@ -101,7 +103,7 @@ class DriveWrites:
             revision,
         )
 
-    def _require_retry_disabled(self, client: Any, route: str) -> None:
+    def _require_retry_disabled(self, client: Any, route: str) -> BoundedAdapter:
         """Refuse custom transports that could dispatch one mutation more than once."""
         root = client.drive.service_root
         if not isinstance(root, str) or not root:
@@ -116,6 +118,7 @@ class DriveWrites:
         transport_settings(client.drive.session, route)
         assert isinstance(adapter, BoundedAdapter)
         self._bind_transport_adapter(adapter)
+        return adapter
 
     def _bind_transport_adapter(self, adapter: BoundedAdapter) -> None:
         """Bind the selected adapter itself, never repeat a dynamic selection."""
@@ -130,12 +133,16 @@ class DriveWrites:
                 else deadline
             )
 
-    def _require_mutation_path(self, client: Any, path: str) -> None:
+    def _require_mutation_path(self, client: Any, path: str) -> BoundedAdapter:
         """Include query parameters in the longest-prefix adapter preflight."""
         url = prepared_url(
             client.drive.session, client.drive.service_root + path, client.drive.params
         )
-        self._require_retry_disabled(client, url or "")
+        return self._require_retry_disabled(client, url or "")
+
+    def _require_metadata_transport(self, client: Any) -> None:
+        """Bind the actual detail/listing endpoint before any SDK metadata refresh."""
+        self._require_mutation_path(client, "/retrieveItemDetailsInFolders")
 
     def _retire_source(self, kind: str, handle: str) -> None:
         """A known pre-dispatch retirement failure is not an uncertain mutation."""
@@ -165,6 +172,8 @@ class DriveWrites:
         original = self.additional.resolve_any(
             frozenset({"drive-file", "drive-folder"}), handle
         )
+        if not isinstance(original, DriveNode):
+            raise WriteDenied("unsupported_target")
         if (
             original.owner_record_name is not None
             or original.data.get("shareID")
@@ -281,7 +290,8 @@ class DriveWrites:
             node = self._fresh(client, target)
             self._require_action_target(action, node)
             account, resource, revision = self._bindings(client, target, node)
-            self._require_mutation_endpoint(client, action)
+            adapter = self._require_mutation_endpoint(client, action)
+            self._require_live_source(*selected_source)
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(
@@ -296,7 +306,9 @@ class DriveWrites:
             if action == DRIVE_TRASH_FILE:
                 self._retire_source(source_kind, source_handle)
                 try:
-                    with mutation_session(client.drive) as dispatch_drive:
+                    with mutation_session(
+                        client.drive, adapter=adapter
+                    ) as dispatch_drive:
                         DriveNode(dispatch_drive, node.data).move_to_trash(
                             allow_redirects=False
                         )
@@ -309,7 +321,7 @@ class DriveWrites:
                 return {"action": DRIVE_RENAME, "changed": False}
             self._retire_source(source_kind, source_handle)
             try:
-                with mutation_session(client.drive) as dispatch_drive:
+                with mutation_session(client.drive, adapter=adapter) as dispatch_drive:
                     DriveNode(dispatch_drive, node.data).rename(
                         name, allow_redirects=False
                     )
@@ -334,15 +346,23 @@ class DriveWrites:
         ) != (account, resource):
             raise WriteDenied("mutation_unverified")
 
-    def _require_mutation_endpoint(self, client: Any, action: str) -> None:
+    def _require_mutation_endpoint(self, client: Any, action: str) -> BoundedAdapter:
         """Recheck longest-prefix policy on the actual mutation endpoint."""
         endpoint = "/moveItemsToTrash" if action == DRIVE_TRASH_FILE else "/renameItems"
-        self._require_mutation_path(client, endpoint)
+        return self._require_mutation_path(client, endpoint)
+
+    def _require_live_source(self, kind: str, handle: str) -> None:
+        """A no-op still requires the originally selected live handle."""
+        try:
+            self.additional.resolve(kind, handle)
+        except ToolFailure:
+            raise WriteDenied("target_unavailable") from None
 
     def _verify_trash(
         self, client: Any, target: DriveTarget, account: str, resource: str
     ) -> None:
         """Require exact Recently Deleted membership, not generic OK or absence."""
+        self._require_metadata_transport(client)
         matches = [
             item
             for item in client.drive.trash.get_children(force=True)

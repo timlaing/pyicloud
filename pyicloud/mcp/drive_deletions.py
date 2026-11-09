@@ -109,7 +109,7 @@ class DriveDeletions(DriveWrites):
                 raise WriteDenied("unknown_or_consumed_preview")
             self.additional.resolve("drive-trash-file", handle)
             node, account, resource, revision = self._trash_file(client, target)
-            self._require_mutation_path(client, "/deleteItems")
+            adapter = self._require_mutation_path(client, "/deleteItems")
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(
@@ -123,7 +123,7 @@ class DriveDeletions(DriveWrites):
                 raise WriteDenied("high_risk_operator_approval_required")
             self._retire_source("drive-trash-file", handle)
             try:
-                with mutation_session(client.drive) as dispatch_drive:
+                with mutation_session(client.drive, adapter=adapter) as dispatch_drive:
                     DriveNode(dispatch_drive, node.data).delete_forever(
                         allow_redirects=False
                     )
@@ -134,19 +134,38 @@ class DriveDeletions(DriveWrites):
                 prior_base = json.loads(resource)[0]
                 if current_account != account or current_resource != prior_base:
                     raise WriteDenied("mutation_unverified")
+                self._require_metadata_transport(client)
                 if any(
                     child.data.get("drivewsid") == target.identifier
                     for child in client.drive.trash.get_children(force=True)
                 ):
                     raise WriteDenied("mutation_unverified")
+                self._verify_context(client, target, node, account, prior_base)
                 self._absent(client, target)
+                self._verify_context(client, target, node, account, prior_base)
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
             return {"action": "drive.delete_forever_file", "deleted": True}
 
         return await self.additional.reads.owner.run(apply)
 
+    def _verify_context(
+        self,
+        client: Any,
+        target: DriveTarget,
+        node: DriveNode,
+        account: str,
+        resource: str,
+    ) -> None:
+        """Both absence reads must remain in the same approved account and route."""
+        current_account, current_resource, _revision = self._bindings(
+            client, target, node
+        )
+        if (current_account, current_resource) != (account, resource):
+            raise WriteDenied("mutation_unverified")
+
     def _absent(self, client: Any, target: DriveTarget) -> None:
+        self._require_metadata_transport(client)
         try:
             client.drive.get_node_data(target.identifier)
         except PyiCloudAPIResponseException as error:

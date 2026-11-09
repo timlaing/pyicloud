@@ -40,7 +40,7 @@ def validate_upload_session(
     parsed = urlsplit(root)
     hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
     checked_upload_url(root, hosts)
-    if parsed.query:
+    if parsed.query or "?" in root:
         raise WriteDenied("unsupported_upload_route")
     params = {**drive.params, **credentials}
     deadlines: list[float] = []
@@ -218,7 +218,12 @@ class DriveUploadBytes:
         parsed = urlsplit(root)
         hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
         checked_upload_url(root, hosts)
-        if parsed.query or not isinstance(folder_id, str) or not folder_id:
+        if (
+            parsed.query
+            or "?" in root
+            or not isinstance(folder_id, str)
+            or not folder_id
+        ):
             raise WriteDenied("unsupported_upload_route")
         # Expiry is an admission rule: take() validated it atomically before
         # consuming approval. Acquired immutable bytes remain valid in flight.

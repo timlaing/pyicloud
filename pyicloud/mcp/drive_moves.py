@@ -73,6 +73,8 @@ class DriveMoves(DriveWrites):
             raise WriteDenied("invalid_payload")
         original = self.additional.resolve("drive-file", handle)
         folder = self.additional.resolve("drive-folder", destination_handle)
+        if not isinstance(original, DriveNode) or not isinstance(folder, DriveNode):
+            raise WriteDenied("unsupported_target")
         targets = tuple(
             DriveTarget(node.data["drivewsid"], node.data.get("zone"))
             for node in (original, folder)
@@ -189,7 +191,10 @@ class DriveMoves(DriveWrites):
             source, destination, account, resource, revision = self._pair(
                 client, targets
             )
-            self._require_mutation_path(client, "/moveItems")
+            adapter = self._require_mutation_path(client, "/moveItems")
+            _destination_account, approved_destination, _destination_revision = (
+                self._bindings(client, targets[1], destination)
+            )
             if accept is not None:
                 accept(request_id)
             self.ledger.consume(
@@ -207,7 +212,7 @@ class DriveMoves(DriveWrites):
             if source.data["parentId"] == targets[1].identifier:
                 return {"action": DRIVE_MOVE_FILE, "changed": False}
             try:
-                with mutation_session(client.drive) as dispatch_drive:
+                with mutation_session(client.drive, adapter=adapter) as dispatch_drive:
                     dispatch_drive.move_nodes_to_node(
                         [source], destination, allow_redirects=False
                     )
@@ -226,7 +231,14 @@ class DriveMoves(DriveWrites):
                 current_destination = self._checked_destination(
                     client, targets[1], current_destination
                 )
-                self._bindings(client, targets[1], current_destination)
+                final_account, final_destination, _final_revision = self._bindings(
+                    client, targets[1], current_destination
+                )
+                if (final_account, final_destination) != (
+                    account,
+                    approved_destination,
+                ):
+                    raise WriteDenied("mutation_unverified")
                 self._verify_member(client, targets[0], moved, members)
                 if (
                     current_account != account

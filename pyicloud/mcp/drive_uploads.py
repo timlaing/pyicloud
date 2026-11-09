@@ -114,7 +114,11 @@ class DriveUploads(DriveWrites):
         checked_upload_url(
             root, frozenset({parsed.hostname}) if parsed.hostname else frozenset()
         )
-        if parsed.query or str(client.drive.params.get("dsid")) != account:
+        if (
+            parsed.query
+            or "?" in root
+            or str(client.drive.params.get("dsid")) != account
+        ):
             raise WriteDenied("account_unavailable")
         for host in self.hosts:
             checked_upload_url("https://" + host + "/", self.hosts)

@@ -124,27 +124,30 @@ def request_once(
 class _MutationSession:
     """Expose only the core service's POST operation through direct dispatch."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, adapter: BoundedAdapter | None = None) -> None:
         self.session = session
+        self.adapter = adapter
 
     def post(self, url: str, **kwargs: Any) -> Response:
         """Dispatch the library's unchanged POST payload exactly once."""
-        return request_once(self.session, "POST", url, **kwargs)
+        return request_once(self.session, "POST", url, adapter=self.adapter, **kwargs)
 
 
 @contextmanager
-def mutation_session(drive: Any) -> Generator[Any, None, None]:
+def mutation_session(
+    drive: Any, *, adapter: BoundedAdapter | None = None
+) -> Generator[Any, None, None]:
     """Keep existing service payload construction, replace only its dispatch path."""
     previous = drive.session
     if isinstance(drive, DriveService):
         yield DriveService(
             drive.service_root,
             drive.document_root,
-            cast(Any, _MutationSession(previous)),
+            cast(Any, _MutationSession(previous, adapter)),
             drive.params,
         )
         return
-    drive.session = _MutationSession(previous)
+    drive.session = _MutationSession(previous, adapter)
     try:
         yield drive
     finally:

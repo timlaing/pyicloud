@@ -168,6 +168,7 @@ class BoundedAdapter(HTTPAdapter):
         self.timeout = timeout
         self.deadline: float | None = None
         self.requests_left = 32
+        self.response_limit = 4 * 1024 * 1024
         self.before_dispatch: Callable[[], None] | None = None
         self.poolmanager.pool_classes_by_scheme = {
             **self.poolmanager.pool_classes_by_scheme,
@@ -256,7 +257,7 @@ class BoundedAdapter(HTTPAdapter):
                 if time.monotonic() >= deadline:
                     raise ToolFailure("timeout")
                 body.extend(chunk)
-                if len(body) > 4 * 1024 * 1024:
+                if len(body) > self.response_limit:
                     raise ToolFailure("response_too_large")
             # Requests has no public content setter. Cache the bounded body so its
             # normal Session/JSON/cookie pipeline remains intact after closure.
@@ -277,6 +278,7 @@ class BoundedAdapter(HTTPAdapter):
         read = getattr(raw, "read1", None)
         if not callable(read):
             raise ToolFailure("unsupported_transport")
+        received = 0
         while True:
             remaining = min(self.timeout, deadline - time.monotonic())
             if remaining <= 0:
@@ -288,11 +290,13 @@ class BoundedAdapter(HTTPAdapter):
                 sock = getattr(getattr(stream, "raw", None), "_sock", None)
             if sock is not None:
                 sock.settimeout(remaining)
-            chunk = read(8192, decode_content=False)
+            amount = max(1, min(8192, self.response_limit + 1 - received))
+            chunk = read(amount, decode_content=False)
             if not isinstance(chunk, bytes):
                 raise ToolFailure("upstream_failure")
             if not chunk:
                 return
+            received += len(chunk)
             yield chunk
 
 

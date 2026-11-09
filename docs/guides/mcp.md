@@ -116,6 +116,11 @@ separate reservation and commit adapters receive fresh owner budgets each time.
 Individual header reads retain shorter adapter timeouts within the owner deadline.
 Downloads stop streamed bodies at the requested chunk bound, and injected real
 Drive sessions must use body-bounded HTTPS adapters before any SDK download read.
+The final content response uses the requested chunk limit in the adapter itself;
+token-discovery metadata keeps its separate bounded response policy. Metadata
+endpoint adapters are also validated and owner-budgeted. Mutation POSTs pin the
+preflight adapter, and final deletion/move evidence must stay in the approved
+account and route. Identifier prefixes must agree with file/folder types.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

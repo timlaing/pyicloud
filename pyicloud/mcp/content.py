@@ -249,7 +249,7 @@ class ContentReads:
             if state.etag:
                 headers["If-Match"] = state.etag
             filename, response = self._open_download(
-                client, service, resource, version, headers
+                client, service, resource, version, headers, maximum
             )
             result = download_chunk(state, response, offset, maximum, filename)
             result.records[0]["transfer_token"] = token
@@ -348,22 +348,60 @@ class ContentReads:
                     else deadline
                 )
 
-    @staticmethod
     def _open_download(
-        client: Any, service: str, resource: Any, version: str, headers: dict[str, str]
+        self,
+        client: Any,
+        service: str,
+        resource: Any,
+        version: str,
+        headers: dict[str, str],
+        maximum: int,
     ) -> tuple[str, Any]:
         """Use only discovered resources with the existing no-redirect range policy."""
+        limits: dict[BoundedAdapter, int] = {}
+
+        def limit(session: Any, value: str | None) -> str:
+            url = resource_url(value)
+            if isinstance(session, Session):
+                self._guard_download_session(session)
+                adapter = session.get_adapter(url)
+                assert isinstance(adapter, BoundedAdapter)
+                limits.setdefault(adapter, adapter.response_limit)
+                adapter.response_limit = min(adapter.response_limit, maximum)
+            return url
+
+        try:
+            return self._open_limited_download(
+                client, service, resource, version, headers, limit
+            )
+        finally:
+            for adapter, previous in limits.items():
+                adapter.response_limit = previous
+
+    @staticmethod
+    def _open_limited_download(
+        client: Any,
+        service: str,
+        resource: Any,
+        version: str,
+        headers: dict[str, str],
+        limit: Callable[[Any, str | None], str],
+    ) -> tuple[str, Any]:
+        """Apply the transport cap only to content, never token-discovery metadata."""
         if service == "drive":
             filename = text(resource.name)
+            session = (
+                resource.connection.session if isinstance(resource, DriveNode) else None
+            )
             response = resource.open(
                 stream=True,
                 headers=headers,
                 allow_redirects=False,
-                download_url_validator=resource_url,
+                download_url_validator=lambda value: limit(session, value),
             )
         else:
             filename = text(resource.filename)
-            url = resource_url(resource.download_url(version))
+            url = limit(client.session, resource.download_url(version))
             response = client.session.get(
                 url, stream=True, headers=headers, allow_redirects=False
             )
