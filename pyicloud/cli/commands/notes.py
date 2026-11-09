@@ -43,6 +43,7 @@ NOTES = "Notes"
 
 _MAX_NOTES_TO_SHOW_HELP = "Maximum notes to show."
 _NOTE_ID_HELP = "Note id."
+_UPDATED_NOTE = "Updated note"
 _FOLDER_ID_HELP = "Folder id."
 _REVISION_HELP = "Current record_change_tag from notes get --format json."
 _FOLDER_REVISION_HELP = "Current record_change_tag from notes folders --format json."
@@ -455,7 +456,7 @@ def notes_update(
     common.store(ctx)
     _notes_write(
         ctx,
-        "Updated note",
+        _UPDATED_NOTE,
         lambda notes: notes.update_note(
             note_id, title=title, text=body, expected_change_tag=if_match
         ),
@@ -482,7 +483,7 @@ def notes_set_checklist_item(
     common.store(ctx)
     _notes_write(
         ctx,
-        "Updated note",
+        _UPDATED_NOTE,
         lambda notes: notes.set_checklist_item(
             note_id,
             item=item,
@@ -687,7 +688,7 @@ def notes_replace_text(
     common.store(ctx)
     _notes_write(
         ctx,
-        "Updated note",
+        _UPDATED_NOTE,
         lambda notes: notes.replace_note_text(
             note_id,
             old=old,

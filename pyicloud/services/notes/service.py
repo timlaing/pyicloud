@@ -152,6 +152,8 @@ _UNVERIFIED_PIN = "Could not verify the private note's per-user pin state"
 _PIN_FIELDS = frozenset({"IsPinned", "Folder", "Note", "LastViewedModificationDate"})
 _TABLE_ASSET_FIELDS = ("MergeableDataAsset", "EncryptedValues", "EncryptedValuesAsset")
 _UNVERIFIED_TABLE = "Could not verify the table linked to this private note"
+_UNVERIFIED_EMPTY_FOLDER = "Could not verify that the Notes folder is empty"
+_RESTORE_BEFORE_EDIT = "Restore the note before editing it"
 
 
 # ----------------------------- NotesService ----------------------------------
@@ -718,28 +720,30 @@ class NotesService(BaseService):
             tokens.add(zone.syncToken)
             for record in zone.records:
                 if isinstance(record, CKErrorItem):
-                    raise NotesError("Could not verify that the Notes folder is empty")
-                if (
-                    isinstance(record, CKRecord)
-                    and not record.deleted
-                    and not record.fields.get_value("Deleted")
+                    raise NotesError(_UNVERIFIED_EMPTY_FOLDER)
+                if isinstance(record, CKRecord) and self._is_live_child(
+                    record, folder_id
                 ):
-                    parents = [
-                        record.parent,
-                        record.fields.get_value("ParentFolder"),
-                        record.fields.get_value("Folder"),
-                    ]
-                    folders = record.fields.get_value("Folders")
-                    if isinstance(folders, list):
-                        parents.extend(folders)
-                    if any(
-                        getattr(parent, "recordName", None) == folder_id
-                        for parent in parents
-                    ):
-                        raise NotesError("The Notes folder is not empty")
+                    raise NotesError("The Notes folder is not empty")
             if zone.moreComing is False:
                 return
-        raise NotesError("Could not verify that the Notes folder is empty")
+        raise NotesError(_UNVERIFIED_EMPTY_FOLDER)
+
+    @staticmethod
+    def _is_live_child(record: CKRecord, folder_id: str) -> bool:
+        if record.deleted or record.fields.get_value("Deleted"):
+            return False
+        parents = [
+            record.parent,
+            record.fields.get_value("ParentFolder"),
+            record.fields.get_value("Folder"),
+        ]
+        folders = record.fields.get_value("Folders")
+        if isinstance(folders, list):
+            parents.extend(folders)
+        return any(
+            getattr(parent, "recordName", None) == folder_id for parent in parents
+        )
 
     def update_note(
         self,
@@ -752,7 +756,7 @@ class NotesService(BaseService):
         """Replace the title and body of a supported private note."""
         record, folder_id = self._require_write_note(note_id, expected_change_tag)
         if folder_id == _TRASH_FOLDER_ID:
-            raise NotesError("Restore the note before editing it")
+            raise NotesError(_RESTORE_BEFORE_EDIT)
         fields = self._existing_write_fields(record, folder_id)
         compressed = record.fields.get_value("TextDataEncrypted")
         if not isinstance(compressed, bytes):
@@ -781,7 +785,7 @@ class NotesService(BaseService):
         """Check or uncheck a one-based item without replacing the note body."""
         record, folder_id = self._require_write_note(note_id, expected_change_tag)
         if folder_id == _TRASH_FOLDER_ID:
-            raise NotesError("Restore the note before editing it")
+            raise NotesError(_RESTORE_BEFORE_EDIT)
         compressed = record.fields.get_value("TextDataEncrypted")
         if not isinstance(compressed, bytes):
             raise NotesError(_UNSUPPORTED_WRITE)
@@ -944,7 +948,7 @@ class NotesService(BaseService):
             note_id, expected_change_tag, existing_image=True
         )
         if folder_id == _TRASH_FOLDER_ID:
-            raise NotesError("Restore the note before editing it")
+            raise NotesError(_RESTORE_BEFORE_EDIT)
         compressed = record.fields.get_value("TextDataEncrypted")
         if not isinstance(compressed, bytes):
             raise NotesError(_UNVERIFIED_IMAGE)
@@ -1227,7 +1231,7 @@ class NotesService(BaseService):
     ) -> tuple[CKRecord, str, bytes]:
         record, folder_id = self._require_write_note(note_id, tag, existing_image=None)
         if folder_id == _TRASH_FOLDER_ID:
-            raise NotesError("Restore the note before editing it")
+            raise NotesError(_RESTORE_BEFORE_EDIT)
         compressed = record.fields.get_value("TextDataEncrypted")
         if not isinstance(compressed, bytes):
             raise NotesError(_UNSUPPORTED_WRITE)

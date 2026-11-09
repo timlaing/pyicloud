@@ -369,16 +369,7 @@ def _new_table_actor(
     slot = sum(uid < actor for uid in ids)
     replica = slot + 1
     for node in text_nodes:
-        if node.HasField("timestamp") or any(
-            run.HasField("timestamp") for run in node.attribute_run
-        ):
-            raise ValueError(_BAD_TABLE)
-        for span in node.substring:
-            for identifier in (span.char_id, span.timestamp):
-                if identifier.replica_id > len(ids):
-                    raise ValueError(_BAD_TABLE)
-                if identifier.replica_id >= replica:
-                    identifier.replica_id += 1
+        _shift_text_replicas(node, replica, len(ids))
     vector = actors.add(replica_uuid=actor)
     vector.replica_clock.add(clock=clock + length)
     vector.replica_clock.add(clock=style + 1)
@@ -387,6 +378,23 @@ def _new_table_actor(
     if actor not in data.mergeable_data_object_uuid_item:
         data.mergeable_data_object_uuid_item.append(actor)
     return replica, clock, style
+
+
+def _shift_text_replicas(node: pb.Note, replica: int, actor_count: int) -> None:
+    if node.HasField("timestamp") or any(
+        run.HasField("timestamp") for run in node.attribute_run
+    ):
+        raise ValueError(_BAD_TABLE)
+    identifiers = (
+        identifier
+        for span in node.substring
+        for identifier in (span.char_id, span.timestamp)
+    )
+    for identifier in identifiers:
+        if identifier.replica_id > actor_count:
+            raise ValueError(_BAD_TABLE)
+        if identifier.replica_id >= replica:
+            identifier.replica_id += 1
 
 
 def encode_table_cell_edit(blob: bytes, row: int, column: int, text: str) -> str | None:

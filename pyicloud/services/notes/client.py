@@ -197,6 +197,19 @@ class CloudKitNotesClient:
         """Submit one note or folder mutation without redirects or retries."""
         record_id = operation.record.recordName
         note_id = public_id or record_id
+        payload = self._build_modify_payload(operation)
+        try:
+            data = self._client.raw_post(
+                "/records/modify", payload, allow_redirects=False
+            )
+        except (OSError, PyiCloudException):
+            raise NotesWriteUncertain(note_id) from None
+        item = self._write_ack_item(data, record_id, note_id)
+        revision = self._verify_write_ack(item, operation, note_id)
+        return NoteWriteResult(id=record_id, record_change_tag=revision)
+
+    @staticmethod
+    def _build_modify_payload(operation: NotesModifyOperation) -> dict[str, Any]:
         payload = NotesModifyRequest(
             operations=[operation], zoneID=NOTES_ZONE_REQ
         ).model_dump(mode="json", exclude_none=True)
@@ -219,13 +232,10 @@ class CloudKitNotesClient:
             ):
                 if field in sent and not sent[field]:
                     sent[field] = {"value": None}
-        try:
-            data = self._client.raw_post(
-                "/records/modify", payload, allow_redirects=False
-            )
-        except (OSError, PyiCloudException):
-            raise NotesWriteUncertain(note_id) from None
+        return payload
 
+    @staticmethod
+    def _write_ack_item(data: object, record_id: str, note_id: str) -> dict[str, Any]:
         records = data.get("records") if isinstance(data, dict) else None
         if not isinstance(records, list) or len(records) != 1:
             raise NotesWriteUncertain(note_id)
@@ -237,6 +247,11 @@ class CloudKitNotesClient:
             if not isinstance(code, str) or not code.strip():
                 raise NotesWriteUncertain(note_id)
             raise NotesWriteRejected(note_id, code)
+        return item
+
+    def _verify_write_ack(
+        self, item: dict[str, Any], operation: NotesModifyOperation, note_id: str
+    ) -> str:
         try:
             record = CKRecord.model_validate(
                 item,
@@ -261,7 +276,7 @@ class CloudKitNotesClient:
         fields = item.get("fields", {})
         if not self._matches_write_values(fields, operation):
             raise NotesWriteUncertain(note_id)
-        return NoteWriteResult(id=record_id, record_change_tag=record.recordChangeTag)
+        return record.recordChangeTag
 
     @staticmethod
     def _matches_write_parent(record: CKRecord, parent: str | None) -> bool:
@@ -324,44 +339,35 @@ class CloudKitNotesClient:
     ) -> bool:
         """Verify the scalar values echoed by the Notes modify endpoint."""
         for name, expected in operation.record.fields.items():
+            actual = fields.get(name)
+            value = actual.get("value") if isinstance(actual, dict) else None
+            target = expected.value
             if operation.record.recordType == "Note_UserSpecific" and isinstance(
-                expected.value, NotesFolderReference
+                target, NotesFolderReference
             ):
-                actual = fields.get(name)
-                value = actual.get("value") if isinstance(actual, dict) else None
-                if (
-                    not isinstance(value, dict)
-                    or value.get("recordName") != expected.value.recordName
-                ):
+                if not CloudKitNotesClient._matches_user_reference(value, target):
                     return False
-                zone = value.get("zoneID")
-                if (
-                    not isinstance(zone, dict)
-                    or zone.get("zoneName") != NOTES_ZONE_NAME
-                ):
-                    return False
-                if (
-                    expected.value.zoneID.ownerRecordName
-                    and zone.get("ownerRecordName")
-                    != expected.value.zoneID.ownerRecordName
-                ):
-                    return False
-            if isinstance(expected.value, NotesPreviewReceipt):
-                actual = fields.get(name)
-                value = actual.get("value") if isinstance(actual, dict) else None
+            elif isinstance(target, NotesPreviewReceipt):
                 if not isinstance(value, dict) or any(
-                    value.get(key) != getattr(expected.value, key)
+                    value.get(key) != getattr(target, key)
                     for key in ("fileChecksum", "referenceChecksum", "size")
                 ):
                     return False
-            if isinstance(expected.value, (int, str)):
-                actual = fields.get(name)
-                if (
-                    not isinstance(actual, dict)
-                    or actual.get("value") != expected.value
-                ):
-                    return False
+            elif isinstance(target, (int, str)) and value != target:
+                return False
         return True
+
+    @staticmethod
+    def _matches_user_reference(value: object, target: NotesFolderReference) -> bool:
+        if not isinstance(value, dict) or value.get("recordName") != target.recordName:
+            return False
+        zone = value.get("zoneID")
+        owner = target.zoneID.ownerRecordName
+        return (
+            isinstance(zone, dict)
+            and zone.get("zoneName") == NOTES_ZONE_NAME
+            and (not owner or zone.get("ownerRecordName") == owner)
+        )
 
     def rereference_preview(self, locator: NotesPreviewLocator) -> NotesPreviewReceipt:
         """Request a write receipt for a specific existing Notes preview."""

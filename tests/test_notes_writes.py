@@ -265,8 +265,9 @@ def test_table_edit_rejects_unverified_graph(problem: str) -> None:
             cell.substring[1].child[0] = 1
         else:
             cell.attribute_run[0].underlined = 1
+    raw = zlib.compress(proto.SerializeToString())
     with pytest.raises(ValueError, match="table structure"):
-        encode_table_cell_edit(zlib.compress(proto.SerializeToString()), 1, 1, "New")
+        encode_table_cell_edit(raw, 1, 1, "New")
 
 
 @pytest.mark.parametrize("row,column", [(0, 1), (1, 2), (True, 1), (1.0, 1)])
@@ -295,8 +296,9 @@ def test_inline_tag_append_preserves_existing_table_and_formatting() -> None:
         InlineObject("table-1", TABLE_UTI),
         InlineObject("tag-1", TAG_UTI),
     )
+    duplicate = InlineObject("tag-1", TAG_UTI)
     with pytest.raises(ValueError, match="inline objects"):
-        append_inline_note_object(second, InlineObject("tag-1", TAG_UTI))
+        append_inline_note_object(second, duplicate)
 
 
 @pytest.mark.parametrize(
@@ -363,9 +365,8 @@ def test_add_tag_verifies_linked_writes_without_replay(
                     _ack(sent, recordType="InlineAttachment", parent=sent["parent"])
                 ]
             })
-        assert (
-            sent["recordName"] == NOTE_ID and sent["recordChangeTag"] == "old-revision"
-        )
+        assert sent["recordName"] == NOTE_ID
+        assert sent["recordChangeTag"] == "old-revision"
         blob = base64.b64decode(sent["fields"]["TextDataEncrypted"]["value"])
         child_ids.append(inline_note_objects(blob)[0].id)
         assert inline_note_objects(blob) == (InlineObject(child_ids[0], TAG_UTI),)
@@ -388,11 +389,9 @@ def test_add_tag_verifies_linked_writes_without_replay(
         result = notes.add_note_tag(
             NOTE_ID, tag="#Test-tag", expected_change_tag="old-revision"
         )
-        assert (
-            result.changed
-            and result.tag_id == child_ids[0]
-            and result.record_change_tag == "post-link-revision"
-        )
+        assert result.changed
+        assert result.tag_id == child_ids[0]
+        assert result.record_change_tag == "post-link-revision"
     elif outcome == "parent-rejected":
         with pytest.raises(NotesWriteRejected):
             notes.add_note_tag(
@@ -403,7 +402,8 @@ def test_add_tag_verifies_linked_writes_without_replay(
             notes.add_note_tag(
                 NOTE_ID, tag="#Test-tag", expected_change_tag="old-revision"
             )
-        assert exc.value.note_id == NOTE_ID and exc.value.object_id == child_ids[0]
+        assert exc.value.note_id == NOTE_ID
+        assert exc.value.object_id == child_ids[0]
         assert exc.value.note_state == (
             "uncertain"
             if outcome.startswith("parent") or outcome == "lookup-mismatch"
@@ -464,7 +464,8 @@ def test_add_tag_detects_existing_case_insensitive_tag(
         result = notes.add_note_tag(
             NOTE_ID, tag="test", expected_change_tag="old-revision"
         )
-        assert not result.changed and result.tag_id == "tag-1"
+        assert not result.changed
+        assert result.tag_id == "tag-1"
     assert session.post.call_count == 2
 
 
@@ -529,10 +530,8 @@ def test_pin_writes_only_verified_per_user_record(
         op = payload["operations"][0]
         record = op["record"]
         assert op["operationType"] == ("create" if missing else "update")
-        assert (
-            record["recordName"] == PIN_ID
-            and record["recordType"] == "Note_UserSpecific"
-        )
+        assert record["recordName"] == PIN_ID
+        assert record["recordType"] == "Note_UserSpecific"
         assert record.get("recordChangeTag") == (None if missing else "pin-old")
         assert record["fields"] == {
             "IsPinned": {"value": int(desired)},
@@ -623,12 +622,12 @@ def test_folder_create_rename_and_move(
         sent = op["record"]
         assert sent["recordType"] == "Folder"
         if creating:
-            assert op["operationType"] == "create" and "recordChangeTag" not in sent
+            assert op["operationType"] == "create"
+            assert "recordChangeTag" not in sent
             assert str(UUID(sent["recordName"])) == sent["recordName"]
         else:
-            assert (
-                op["operationType"] == "update" and sent["recordChangeTag"] == "old-tag"
-            )
+            assert op["operationType"] == "update"
+            assert sent["recordChangeTag"] == "old-tag"
             assert sent["recordName"] == USER_FOLDER
         if target is not None:
             assert sent["fields"]["ParentFolder"] == {
@@ -636,7 +635,8 @@ def test_folder_create_rename_and_move(
             }
             assert sent["parent"] == {"recordName": target}
         elif creating:
-            assert "ParentFolder" not in sent["fields"] and "parent" not in sent
+            assert "ParentFolder" not in sent["fields"]
+            assert "parent" not in sent
         else:
             assert sent["fields"]["ParentFolder"] == {"value": None}
             if kind == "move-out":
@@ -814,10 +814,9 @@ def test_image_text_edit_preserves_existing_attachment_and_character_ids() -> No
 )
 def test_image_edit_rejects_unsafe_replacements(old: str, new: str) -> None:
     """Do not replace titles, object markers, or ambiguous or invalid text."""
+    body = zlib.compress(_image_document().SerializeToString())
     with pytest.raises(ValueError):
-        replace_image_note_text(
-            zlib.compress(_image_document().SerializeToString()), old, new
-        )
+        replace_image_note_text(body, old, new)
 
 
 @pytest.mark.parametrize(
@@ -955,11 +954,9 @@ def test_notes_wire_operation_requires_expected_revision_state(
     operation: Literal["create", "update"], tag: str | None, error: str
 ) -> None:
     """The low-level payload rejects operations that bypass revision guards."""
+    record = NotesWriteRecord(recordName=NOTE_ID, fields={}, recordChangeTag=tag)
     with pytest.raises(ValidationError, match=error):
-        NotesModifyOperation(
-            operationType=operation,
-            record=NotesWriteRecord(recordName=NOTE_ID, fields={}, recordChangeTag=tag),
-        )
+        NotesModifyOperation(operationType=operation, record=record)
 
 
 def test_notes_wire_operation_disallows_force_update() -> None:
@@ -1074,13 +1071,11 @@ def test_rich_note_preserves_styles_and_utf16_offsets() -> None:
 
 def test_rich_note_cannot_encode_line_break_in_inline_run() -> None:
     """Paragraph boundaries are explicit rather than hidden in a text run."""
+    body = RichNoteBody(
+        paragraphs=(NoteParagraph(runs=(NoteTextRun(text="One\nTwo"),)),)
+    )
     with pytest.raises(ValueError, match="single line"):
-        encode_new_note(
-            "Title",
-            RichNoteBody(
-                paragraphs=(NoteParagraph(runs=(NoteTextRun(text="One\nTwo"),)),)
-            ),
-        )
+        encode_new_note("Title", body)
 
 
 def test_rich_note_encodes_checked_items_and_web_links() -> None:
@@ -1106,8 +1101,11 @@ def test_rich_note_encodes_checked_items_and_web_links() -> None:
         for r in document.attribute_run
         if r.paragraph_style.HasField("checklist")
     ][::2]
-    assert first.done == 0 and second.done == 1
-    assert len(first.uuid) == len(second.uuid) == 16 and first.uuid != second.uuid
+    assert first.done == 0
+    assert second.done == 1
+    assert len(first.uuid) == 16
+    assert len(second.uuid) == 16
+    assert first.uuid != second.uuid
     assert document.attribute_run[4].paragraph_style.indent_amount == 1
     html = render_note_fragment(document, None)
     assert html.count('type="checkbox"') == 2
@@ -1176,10 +1174,8 @@ def test_checklist_toggle_preserves_character_and_item_ids() -> None:
             assert (
                 old.paragraph_style.checklist.uuid == new.paragraph_style.checklist.uuid
             )
-            assert (
-                not old.paragraph_style.checklist.done
-                and new.paragraph_style.checklist.done
-            )
+            assert not old.paragraph_style.checklist.done
+            assert new.paragraph_style.checklist.done
         else:
             assert old == new
     assert encode_checklist_state(base64.b64decode(changed), 1, checked=True) is None
@@ -1191,8 +1187,9 @@ def test_checklist_toggle_preserves_character_and_item_ids() -> None:
 @pytest.mark.parametrize("item", [0, 3, True])
 def test_checklist_toggle_requires_valid_item(item: int) -> None:
     """Refuse nonexistent or invalid checklist item numbers."""
+    body = _two_item_checklist()
     with pytest.raises(ValueError, match="item"):
-        encode_checklist_state(_two_item_checklist(), item, checked=True)
+        encode_checklist_state(body, item, checked=True)
 
 
 @pytest.mark.parametrize("changed", [True, False])
@@ -1283,12 +1280,10 @@ def test_rich_note_does_not_overwrite_unsupported_formatting(shape: str) -> None
         run.paragraph_style.checklist.uuid = b"short"
     else:
         run.paragraph_style.indent_amount = 1
+    raw = zlib.compress(proto.SerializeToString())
+    body = RichNoteBody(paragraphs=())
     with pytest.raises(ValueError, match="attachment-free"):
-        encode_note_edit(
-            zlib.compress(proto.SerializeToString()),
-            "Title",
-            RichNoteBody(paragraphs=()),
-        )
+        encode_note_edit(raw, "Title", body)
 
 
 def test_note_edit_preserves_browser_split_ranges_and_tombstones() -> None:
@@ -1487,10 +1482,10 @@ def test_note_mutation_requires_expected_folder_state(
         "update": {"title": "New title", "text": "Body"},
         "restore": {"folder_id": FOLDER},
     }
+    mutate = getattr(notes, f"{operation}_note")
+    options = kwargs.get(operation, {})
     with pytest.raises(NotesError, match=message):
-        getattr(notes, f"{operation}_note")(
-            NOTE_ID, expected_change_tag="old-revision", **kwargs.get(operation, {})
-        )
+        mutate(NOTE_ID, expected_change_tag="old-revision", **options)
     session.post.assert_called_once()
 
 
