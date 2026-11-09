@@ -52,6 +52,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Preserve explicit account/upload query precedence, require owner-budgeted mutation transports, retain account CA/proxy settings, and keep nested header failures classified as timeouts.
+- Restore exact upload approvals, staged bytes and destination aliases only when transport admission proves no request began; retain consumed resources after any dispatch attempt. Validate the final refreshed move destination revision.
+
 - Use a scoped real Drive service clone for one-shot mutations instead of assigning its read-only session property, preserving session query defaults and response cookies.
 - Apply absolute response-header deadlines to HTTP/HTTPS proxy pools and CONNECT responses, preserve detached connection state, and carry the owner deadline through uploads.
 - Admit both move handles before retiring either, validate listed move metadata against fresh detail, retire duplicate Drive aliases, and compare displayed filename leaves for rename no-ops and verification.

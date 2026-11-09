@@ -221,6 +221,26 @@ class ApprovalLedger:
         """Revoke a preview that could not be published to the operator."""
         self._pending.pop(request_id, None)
 
+    def restore_before_dispatch(
+        self,
+        preview: MutationPreview,
+        *,
+        account_binding: str,
+        resource_binding: str,
+        revision: str | None,
+    ) -> None:
+        """Restore an exact decision only after transport proof of no dispatch."""
+        self._pending.setdefault(
+            preview.request_id,
+            PendingMutation(
+                preview,
+                account_binding,
+                resource_binding,
+                revision,
+                approved=True,
+            ),
+        )
+
     def _lookup(self, request_id: str) -> PendingMutation:
         item = self._pending.get(request_id)
         if item is None:

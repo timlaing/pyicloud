@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
+from dataclasses import dataclass
 import json
 import time
 from typing import Any
@@ -12,6 +15,21 @@ from requests import Session
 from .authorization import WriteDenied
 from .context import BoundedAdapter
 from .one_shot import checked_adapter, prepared_url, request_once
+
+
+class UploadNotDispatched(WriteDenied):
+    """The trusted transport rejected the first request before dispatch admission."""
+
+
+@dataclass
+class UploadDispatchState:
+    """Conservative in-process proof; once attempted, no resource restoration."""
+
+    attempted: bool = False
+
+    def mark(self) -> None:
+        """Mark admission immediately before entering the HTTP transport."""
+        self.attempted = True
 
 
 def checked_upload_url(url: str, hosts: frozenset[str]) -> str:
@@ -49,6 +67,41 @@ def bounded_upload_json(response: Any, maximum: int = 262144) -> Any:
         raise WriteDenied("upload_outcome_uncertain") from None
     finally:
         response.close()
+
+
+@contextmanager
+def _registration_budget(
+    adapter: BoundedAdapter,
+    deadline: float | None,
+    dispatch_state: UploadDispatchState | None,
+) -> Generator[None, None, None]:
+    """Temporarily bind the phase budget and conservative dispatch proof."""
+    previous_deadline = adapter.deadline
+    previous_admission = adapter.before_dispatch
+    if deadline is not None:
+        if deadline <= time.monotonic():
+            if dispatch_state is not None and not dispatch_state.attempted:
+                raise UploadNotDispatched("upload_not_dispatched")
+            raise WriteDenied("upload_deadline_exceeded")
+        adapter.deadline = (
+            min(adapter.deadline, deadline)
+            if adapter.deadline is not None
+            else deadline
+        )
+    if dispatch_state is not None:
+        state = dispatch_state
+
+        def admitted() -> None:
+            if previous_admission is not None:
+                previous_admission()
+            state.mark()
+
+        adapter.before_dispatch = admitted
+    try:
+        yield
+    finally:
+        adapter.before_dispatch = previous_admission
+        adapter.deadline = previous_deadline
 
 
 class UploadTransport:
@@ -121,44 +174,37 @@ class UploadTransport:
         *,
         headers: dict[str, str] | None = None,
         deadline: float | None = None,
+        params: dict[str, Any] | None = None,
+        dispatch_state: UploadDispatchState | None = None,
     ) -> Any:
         """One raw account-service request; no authentication recovery/replay."""
         target = checked_upload_url(url, hosts)
         options: dict[str, Any] = {"headers": headers} if headers is not None else {}
+        if params is not None:
+            options["params"] = params
         try:
             adapter = checked_adapter(
-                session, prepared_url(session, target), bounded=deadline is not None
+                session, prepared_url(session, target, params), bounded=True
             )
         except WriteDenied as error:
             if str(error) == "upload_deadline_policy_unavailable":
                 raise
             raise WriteDenied("upload_retry_policy_unavailable") from None
-        previous_deadline: float | None = None
-        if deadline is not None:
-            if not isinstance(adapter, BoundedAdapter):
-                raise WriteDenied("upload_deadline_policy_unavailable")
-            if deadline <= time.monotonic():
-                raise WriteDenied("upload_deadline_exceeded")
-            previous_deadline = adapter.deadline
-            adapter.deadline = (
-                min(adapter.deadline, deadline)
-                if adapter.deadline is not None
-                else deadline
-            )
-        try:
-            response = request_once(
-                session,
-                "POST",
-                target,
-                json=payload,
-                timeout=(10.0, 60.0),
-                allow_redirects=False,
-                stream=True,
-                **options,
-            )
-            return bounded_upload_json(response)
-        except Exception:
-            raise WriteDenied("upload_outcome_uncertain") from None
-        finally:
-            if deadline is not None and isinstance(adapter, BoundedAdapter):
-                adapter.deadline = previous_deadline
+        assert isinstance(adapter, BoundedAdapter)
+        with _registration_budget(adapter, deadline, dispatch_state):
+            try:
+                response = request_once(
+                    session,
+                    "POST",
+                    target,
+                    json=payload,
+                    timeout=(10.0, 60.0),
+                    allow_redirects=False,
+                    stream=True,
+                    **options,
+                )
+                return bounded_upload_json(response)
+            except Exception:
+                if dispatch_state is not None and not dispatch_state.attempted:
+                    raise UploadNotDispatched("upload_not_dispatched") from None
+                raise WriteDenied("upload_outcome_uncertain") from None

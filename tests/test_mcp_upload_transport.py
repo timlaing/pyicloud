@@ -6,11 +6,12 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
-from requests import Session
+from requests import Response, Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from pyicloud.mcp.authorization import WriteDenied
+from pyicloud.mcp.context import BoundedAdapter
 from pyicloud.mcp.upload_transport import (
     UploadTransport,
     bounded_upload_json,
@@ -102,12 +103,12 @@ def test_service_registration_is_one_raw_request(fail: bool) -> None:
     """Ordinary session auth recovery cannot replay a registration."""
     session = cast(Any, Session())
     session.trust_env = False
-    session.get_adapter = MagicMock(return_value=HTTPAdapter(max_retries=0))
+    session.get_adapter = MagicMock(return_value=BoundedAdapter(30))
     session.request_raw = MagicMock(side_effect=AssertionError("Custom replay path"))
     session.post = MagicMock()
-    response = MagicMock()
+    response = Response()
     response.status_code = 200
-    response.iter_content.return_value = [b"[]"]
+    vars(response).update(_content=b"[]", _content_consumed=True)
     args = (
         session,
         "https://service.example.test/register",

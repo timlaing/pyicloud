@@ -51,11 +51,17 @@ class ToolFailure(Exception):
 
 def transport_failure(error: RequestException | UrllibHTTPError) -> ToolFailure:
     """Requests wraps urllib3 body-read timeouts in ConnectionError."""
-    wrapped = (error.__context__, error.__cause__, *error.args)
-    if isinstance(error, (Timeout, ReadTimeoutError)) or any(
-        isinstance(item, ReadTimeoutError) for item in wrapped
-    ):
-        return ToolFailure("timeout")
+    pending: list[Any] = [error]
+    seen: set[int] = set()
+    while pending:
+        item = pending.pop()
+        if id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, (Timeout, ReadTimeoutError)):
+            return ToolFailure("timeout")
+        if isinstance(item, BaseException):
+            pending.extend((item.__context__, item.__cause__, *item.args))
     return ToolFailure("upstream_failure")
 
 
@@ -162,6 +168,7 @@ class BoundedAdapter(HTTPAdapter):
         self.timeout = timeout
         self.deadline: float | None = None
         self.requests_left = 32
+        self.before_dispatch: Callable[[], None] | None = None
         self.poolmanager.pool_classes_by_scheme = {
             **self.poolmanager.pool_classes_by_scheme,
             "https": deadline_pool(self._response_deadline),
@@ -211,6 +218,8 @@ class BoundedAdapter(HTTPAdapter):
         # Caller-controlled upstream defaults cannot remove this extension's bound.
         bounded_timeout = (min(5.0, remaining), remaining)
         request.headers["Accept-Encoding"] = "identity"
+        if self.before_dispatch is not None:
+            self.before_dispatch()
         try:
             response = super().send(
                 request,
@@ -296,6 +305,8 @@ class SessionOwner:
         self.config = config
         self._factory = factory or self._create_client
         self._client: Any = None
+        self.active_deadline: float | None = None
+        self._bound_adapters: dict[BoundedAdapter, float | None] = {}
         self._adapter: BoundedAdapter | None = None
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="icloud-mcp"
@@ -344,14 +355,36 @@ class SessionOwner:
             if hasattr(client, name):
                 setattr(client, name, denied)
 
-    def _invoke(self, operation: Callable[[Any], T]) -> T:
+    def bind_adapter(self, adapter: BoundedAdapter) -> None:
+        """Apply the lane budget to injected service adapters without renewing it."""
+        deadline = self.active_deadline
+        if deadline is None or deadline <= time.monotonic():
+            raise ToolFailure("timeout")
+        if adapter not in self._bound_adapters:
+            self._bound_adapters[adapter] = adapter.deadline
+            adapter.requests_left = 32
+        adapter.deadline = (
+            min(adapter.deadline, deadline)
+            if adapter.deadline is not None
+            else deadline
+        )
+
+    def _invoke(
+        self, operation: Callable[[Any], T], deadline: float | None = None
+    ) -> T:
         try:
+            self.active_deadline = (
+                deadline
+                if deadline is not None
+                else time.monotonic() + self.config.timeout
+            )
+            if self.active_deadline <= time.monotonic():
+                raise ToolFailure("timeout")
             if self._client is None:
                 self._client = self._factory()
             self._prevent_authentication(self._client)
             if self._adapter is not None:
-                self._adapter.deadline = time.monotonic() + self.config.timeout
-                self._adapter.requests_left = 32
+                self.bind_adapter(self._adapter)
             self.authenticated = False
             status = self._client.get_auth_status()
             if status.get("requires_2fa") or status.get("requires_2sa"):
@@ -361,8 +394,10 @@ class SessionOwner:
             self.authenticated = True
             return operation(self._client)
         finally:
-            if self._adapter is not None:
-                self._adapter.deadline = None
+            for adapter, previous in self._bound_adapters.items():
+                adapter.deadline = previous
+            self._bound_adapters.clear()
+            self.active_deadline = None
 
     async def run(self, operation: Callable[[Any], T]) -> T:
         """Reject overload; shield worker ownership until actual completion."""
@@ -373,7 +408,8 @@ class SessionOwner:
         if self._pending >= self.config.queue_limit:
             raise ToolFailure("busy")
         self._pending += 1
-        work = self._executor.submit(self._invoke, operation)
+        deadline = time.monotonic() + self.config.timeout
+        work = self._executor.submit(self._invoke, operation, deadline)
         future = asyncio.wrap_future(work)
 
         def completed(done: asyncio.Future[T]) -> None:

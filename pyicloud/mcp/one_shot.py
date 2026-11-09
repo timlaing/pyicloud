@@ -1,6 +1,6 @@
 """Direct adapter dispatch without custom session replay or response hooks."""
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -9,6 +9,7 @@ from requests import Request, Response, Session
 from requests.adapters import HTTPAdapter
 from requests.cookies import extract_cookies_to_jar
 from requests.sessions import merge_setting
+from requests.utils import prepend_scheme_if_needed, select_proxy
 
 from pyicloud.services.drive import DriveService
 
@@ -54,6 +55,23 @@ def prepared_url(session: Session, url: str, params: Any = None) -> str:
     return Request("POST", url, params=merged).prepare().url or ""
 
 
+def transport_settings(
+    session: Session, url: str, stream: Any = True
+) -> dict[str, Any]:
+    """Resolve trusted CA/proxy settings without netrc, hooks or session replay."""
+    settings = Session.merge_environment_settings(
+        session, url, {}, stream, session.verify, session.cert
+    )
+    selected = select_proxy(url, settings["proxies"])
+    normalize = cast(Callable[[str, str], str], prepend_scheme_if_needed)
+    if selected and urlsplit(normalize(selected, "http")).scheme not in {
+        "http",
+        "https",
+    }:
+        raise WriteDenied("unsupported_proxy")
+    return dict(settings)
+
+
 def request_once(session: Session, method: str, url: str, **kwargs: Any) -> Response:
     """Prepare ordinary session cookies, but bypass request/send/hooks/recovery."""
     kwargs.pop("allow_redirects", None)
@@ -66,22 +84,21 @@ def request_once(session: Session, method: str, url: str, **kwargs: Any) -> Resp
     kwargs.pop("auth", None)
     kwargs.pop("hooks", None)
     request = Request(method, url, **kwargs).prepare()
-    adapter = checked_adapter(session, request.url or url)
+    adapter = checked_adapter(session, request.url or url, bounded=True)
+    settings = transport_settings(session, request.url or url, stream)
     request.hooks = {"response": []}
     send = cast(
         Callable[..., Response],
-        BoundedAdapter.send
-        if isinstance(adapter, BoundedAdapter)
-        else HTTPAdapter.send,
+        BoundedAdapter.send,
     )
     response = send(
         adapter,
         request,
         stream=stream,
         timeout=timeout,
-        verify=session.verify,
-        cert=session.cert,
-        proxies={},
+        verify=settings["verify"],
+        cert=settings["cert"],
+        proxies=settings["proxies"],
     )
     store_cookies = cast(Callable[[Any, Any, Any], None], extract_cookies_to_jar)
     store_cookies(session.cookies, request, response.raw)
@@ -100,7 +117,7 @@ class _MutationSession:
 
 
 @contextmanager
-def mutation_session(drive: Any) -> Iterator[Any]:
+def mutation_session(drive: Any) -> Generator[Any, None, None]:
     """Keep existing service payload construction, replace only its dispatch path."""
     previous = drive.session
     if isinstance(drive, DriveService):

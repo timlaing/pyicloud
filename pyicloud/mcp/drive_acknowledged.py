@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import json
 from typing import Any
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
@@ -40,12 +40,7 @@ def _acknowledgement_url(client: Any, action: str) -> str:
     path = (
         "/createFolders" if action == DRIVE_CREATE_FOLDER else "/putBackItemsFromTrash"
     )
-    return (
-        str(client.drive.service_root)
-        + path
-        + "?"
-        + urlencode(dict(client.drive.params))
-    )
+    return str(client.drive.service_root) + path
 
 
 def _verify_after_route(client: Any, account: str, route: str) -> None:
@@ -231,7 +226,8 @@ class DriveAcknowledged(DriveWrites):
             )
             mutation_url = _acknowledgement_url(client, action)
             self._require_retry_disabled(
-                client, prepared_url(client.drive.session, mutation_url)
+                client,
+                prepared_url(client.drive.session, mutation_url, client.drive.params),
             )
             if accept is not None:
                 accept(request_id)
@@ -275,6 +271,7 @@ class DriveAcknowledged(DriveWrites):
                     mutation_url,
                     frozenset({str(urlsplit(route).hostname)}),
                     body,
+                    params=dict(client.drive.params),
                     headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
                     if action == DRIVE_CREATE_FOLDER
                     else None,

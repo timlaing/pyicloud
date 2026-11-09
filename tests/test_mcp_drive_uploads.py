@@ -124,7 +124,7 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
                 owner_deadline=owner_deadline,
             )
             commit = transport.register.call_args_list[1]
-            assert "token=synthetic" in commit.args[1]
+            assert commit.kwargs["params"] == {"dsid": "123", "token": "synthetic"}
             assert commit.args[3]["document_id"] == "allocated"
             assert commit.args[3]["path"] == {
                 "starting_document_id": "folder-document",

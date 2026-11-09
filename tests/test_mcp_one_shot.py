@@ -51,6 +51,13 @@ def test_direct_dispatch_bypasses_custom_session_replay_and_hooks(
     response.status_code = 200
     vars(response).update(_content=b"{}", _content_consumed=True)
     with patch("requests.adapters.HTTPAdapter.send", return_value=response) as send:
+        if not bounded:
+            with pytest.raises(WriteDenied, match="deadline_policy_unavailable"):
+                request_once(session, "POST", "https://example.test/write")
+            send.assert_not_called()
+            hook.assert_not_called()
+            session.close()
+            return
         result = request_once(
             session,
             "POST",
@@ -163,11 +170,13 @@ def test_query_defaults_and_response_cookies_survive_direct_dispatch() -> None:
     session = Session()
     session.trust_env = False
     session.params = {"default": "yes", "shared": "session"}
+    session.mount("https://", BoundedAdapter(30))
     headers = Message()
     headers.add_header("Set-Cookie", "synthetic=new; Path=/; Secure")
     response = Response()
     response.status_code = 200
     response.raw = MagicMock()
+    vars(response).update(_content=b"{}", _content_consumed=True)
     response.raw._original_response = SimpleNamespace(msg=headers)  # pylint: disable=protected-access
     with patch("requests.adapters.HTTPAdapter.send", return_value=response) as send:
         request_once(

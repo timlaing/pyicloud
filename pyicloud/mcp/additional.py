@@ -110,6 +110,27 @@ class AdditionalReads:
             raise ToolFailure("expired_or_unknown_handle")
         return self._get(route[0], handle)
 
+    def snapshot_drive_handles(
+        self, kind: str, handle: str
+    ) -> dict[str, tuple[str, Any, float]]:
+        """Retain only aliases affected by a known pre-dispatch transaction."""
+        selected = self._get(kind, handle)
+        return {
+            key: entry
+            for key, entry in self._handles.items()
+            if entry[0].startswith("drive-")
+            and isinstance(entry[1], DriveNode)
+            and (entry[1].data.get("drivewsid"), entry[1].data.get("zone"))
+            == (selected.data.get("drivewsid"), selected.data.get("zone"))
+        }
+
+    def restore_before_dispatch_handles(
+        self, entries: dict[str, tuple[str, Any, float]]
+    ) -> None:
+        """Restore original TTLs only after proof that dispatch never began."""
+        for handle, entry in entries.items():
+            self._handles.setdefault(handle, entry)
+
     async def _run(
         self,
         service: str,

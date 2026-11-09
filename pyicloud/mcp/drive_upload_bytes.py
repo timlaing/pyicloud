@@ -9,7 +9,7 @@ import hashlib
 import mimetypes
 import time
 from typing import Any
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlsplit
 
 from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.services.drive import CLOUD_DOCS_ZONE
@@ -17,7 +17,12 @@ from pyicloud.services.drive import CLOUD_DOCS_ZONE
 from .authorization import WriteDenied
 from .one_shot import checked_adapter, prepared_url
 from .upload_staging import StagedUpload
-from .upload_transport import UploadTransport, checked_upload_url
+from .upload_transport import (
+    UploadDispatchState,
+    UploadNotDispatched,
+    UploadTransport,
+    checked_upload_url,
+)
 
 
 def validate_upload_session(drive: Any, credentials: dict[str, str]) -> float | None:
@@ -33,11 +38,9 @@ def validate_upload_session(drive: Any, credentials: dict[str, str]) -> float | 
     params = {**drive.params, **credentials}
     deadlines: list[float] = []
     for path in ("/upload/web", "/update/documents"):
-        url = (
-            root.rstrip("/") + "/ws/" + CLOUD_DOCS_ZONE + path + "?" + urlencode(params)
-        )
+        url = root.rstrip("/") + "/ws/" + CLOUD_DOCS_ZONE + path
         adapter = checked_adapter(
-            drive.session, prepared_url(drive.session, url), bounded=True
+            drive.session, prepared_url(drive.session, url, params), bounded=True
         )
         deadline = getattr(adapter, "deadline", None)
         if deadline is not None:
@@ -223,15 +226,9 @@ class DriveUploadBytes:
             deadline = min(deadline, owner_deadline)
 
         def url(path: str) -> str:
-            return (
-                root.rstrip("/")
-                + "/ws/"
-                + CLOUD_DOCS_ZONE
-                + path
-                + "?"
-                + urlencode(params)
-            )
+            return root.rstrip("/") + "/ws/" + CLOUD_DOCS_ZONE + path
 
+        dispatch_state = UploadDispatchState()
         try:
             reservation = self.transport.register(
                 drive.session,
@@ -244,6 +241,8 @@ class DriveUploadBytes:
                     "size": stage.size,
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+                params=params,
+                dispatch_state=dispatch_state,
                 deadline=deadline,
             )
             allocation, target = _reservation_target(reservation)
@@ -273,9 +272,14 @@ class DriveUploadBytes:
                     "btime": modified_ms,
                 },
                 headers={CONTENT_TYPE: CONTENT_TYPE_TEXT},
+                params=params,
                 deadline=deadline,
             )
             if not _commit_matches(committed, allocation):
                 raise WriteDenied("upload_outcome_uncertain")
+        except UploadNotDispatched:
+            if not dispatch_state.attempted:
+                raise
+            raise WriteDenied("upload_outcome_uncertain") from None
         except Exception:
             raise WriteDenied("upload_outcome_uncertain") from None

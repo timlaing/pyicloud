@@ -224,6 +224,7 @@ class DriveMoves(DriveWrites):
                 current_destination = self._checked_destination(
                     client, targets[1], current_destination
                 )
+                self._bindings(client, targets[1], current_destination)
                 self._verify_member(client, targets[0], moved, members)
                 if (
                     current_account != account

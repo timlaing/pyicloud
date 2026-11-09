@@ -18,7 +18,18 @@ from .drive_upload_bytes import (
 )
 from .drive_writes import DriveTarget, DriveWrites
 from .upload_staging import StagedUpload, UploadStaging
-from .upload_transport import UploadTransport, checked_upload_url
+from .upload_transport import UploadNotDispatched, UploadTransport, checked_upload_url
+
+
+def _verify_upload_context(client: Any, account: str, route: str, root: str) -> None:
+    """An acknowledgement must retain both account identities and bound routes."""
+    if (
+        str(client.params.get("dsid")) != account
+        or str(client.drive.params.get("dsid")) != account
+        or client.drive.service_root != route
+        or client.drive.document_root != root
+    ):
+        raise WriteDenied("mutation_unverified")
 
 
 class DriveUploads(DriveWrites):
@@ -182,6 +193,9 @@ class DriveUploads(DriveWrites):
             if accept is not None:
                 accept(request_id)
             captured: list[StagedUpload] = []
+            handle_snapshot = self.additional.snapshot_drive_handles(
+                "drive-folder", handle
+            )
             approved = self.ledger.consume(
                 request_id,
                 account_binding=account,
@@ -209,13 +223,18 @@ class DriveUploads(DriveWrites):
                     stage_acquired=True,
                     owner_deadline=owner_deadline,
                 )
-                if (
-                    str(client.params.get("dsid")) != account
-                    or str(client.drive.params.get("dsid")) != account
-                    or client.drive.service_root != route
-                    or client.drive.document_root != root
-                ):
-                    raise WriteDenied("mutation_unverified")
+                _verify_upload_context(client, account, route, root)
+            except UploadNotDispatched:
+                self._restore_pre_dispatch_stage(token, captured)
+                self.additional.restore_before_dispatch_handles(handle_snapshot)
+                self.ledger.restore_before_dispatch(
+                    approved,
+                    account_binding=account,
+                    resource_binding=resource,
+                    revision=revision,
+                )
+                self._requests[request_id] = selected
+                raise
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
             return {

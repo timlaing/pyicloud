@@ -102,6 +102,14 @@ scoped service clone, preserve safe session query defaults and response cookies,
 and never assign the library service's read-only session property. Move-handle
 admission is atomic; Drive mutations invalidate all aliases of each affected
 identifier and zone. Rename no-ops compare the full displayed filename leaf.
+Account mutations retain session/environment proxy routing and CA bundles without
+enabling netrc or session replay; isolated upload transfers still inherit neither.
+Bound Drive parameters and upload credentials override session query defaults.
+Injected mutation adapters must be deadline-aware and use the owner's original
+queue-inclusive deadline. A proven rejection before transport admission restores
+the original upload approval, stage and destination aliases without extending any
+TTL. After any dispatch attempt, resources remain consumed and failures are
+uncertain; no mutation is automatically retried.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

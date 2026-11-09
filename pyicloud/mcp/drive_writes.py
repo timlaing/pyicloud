@@ -5,14 +5,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 import json
+import time
 from typing import Any
 
 from pyicloud.services.drive import DriveNode
 
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
-from .context import ToolFailure
-from .one_shot import checked_adapter, mutation_session, prepared_url
+from .context import BoundedAdapter, SessionOwner, ToolFailure
+from .one_shot import (
+    checked_adapter,
+    mutation_session,
+    prepared_url,
+    transport_settings,
+)
 
 
 @dataclass(frozen=True)
@@ -94,10 +100,21 @@ class DriveWrites:
             revision,
         )
 
-    @staticmethod
-    def _require_retry_disabled(client: Any, route: str) -> None:
+    def _require_retry_disabled(self, client: Any, route: str) -> None:
         """Refuse custom transports that could dispatch one mutation more than once."""
-        checked_adapter(client.drive.session, route)
+        adapter = checked_adapter(client.drive.session, route, bounded=True)
+        transport_settings(client.drive.session, route)
+        assert isinstance(adapter, BoundedAdapter)
+        owner = self.additional.reads.owner
+        if isinstance(owner, SessionOwner):
+            owner.bind_adapter(adapter)
+        else:
+            deadline = time.monotonic() + owner.config.timeout
+            adapter.deadline = (
+                min(adapter.deadline, deadline)
+                if adapter.deadline is not None
+                else deadline
+            )
 
     def _require_mutation_path(self, client: Any, path: str) -> None:
         """Include query parameters in the longest-prefix adapter preflight."""
