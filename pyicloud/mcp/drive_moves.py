@@ -182,12 +182,14 @@ class DriveMoves(DriveWrites):
             raise WriteDenied("unknown_or_consumed_preview")
 
         def apply(client: Any) -> dict[str, Any]:
-            if (
-                self._moves.get(request_id) != targets
-                or self._destinations.get(request_id) != destination_handle
-                or self._source_handles.get(request_id) != source_handle
-            ):
-                raise WriteDenied("unknown_or_consumed_preview")
+            self._require_current_preview(
+                (
+                    self._moves.get(request_id),
+                    self._destinations.get(request_id),
+                    self._source_handles.get(request_id),
+                ),
+                (targets, destination_handle, source_handle),
+            )
             source, destination, account, resource, revision = self._pair(
                 client, targets
             )
