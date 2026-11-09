@@ -205,6 +205,23 @@ class PhotoUploads:
         ]
         return min(deadlines) if deadlines else None
 
+    def _verified_asset(
+        self, client: Any, library: PhotoLibrary, result: Any, zone: str, root: str
+    ) -> PhotoAsset:
+        """Keep the existing independent indexed-asset and route proof checks."""
+        proof = PhotoWrites(self.additional, self.ledger)
+        if not result.cplAsset or not result.cplMaster:
+            raise WriteDenied("mutation_unverified")
+        asset = library.all.get(result.cplAsset)
+        if (
+            not isinstance(asset, PhotoAsset)
+            or proof._selector(asset) != (result.cplAsset, result.cplMaster, zone)
+            or not record_change_tag(asset.asset_record)
+            or client.photos.upload_root != root
+        ):
+            raise WriteDenied("mutation_unverified")
+        return asset
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -250,18 +267,7 @@ class PhotoUploads:
                     stage_acquired=True,
                     owner_deadline=owner_deadline,
                 )
-                proof = PhotoWrites(self.additional, self.ledger)
-                if not result.cplAsset or not result.cplMaster:
-                    raise WriteDenied("mutation_unverified")
-                asset = library.all.get(result.cplAsset)
-                if (
-                    not isinstance(asset, PhotoAsset)
-                    or proof._selector(asset)
-                    != (result.cplAsset, result.cplMaster, zone)  # pylint: disable=protected-access
-                    or not record_change_tag(asset.asset_record)
-                    or client.photos.upload_root != root
-                ):
-                    raise WriteDenied("mutation_unverified")
+                asset = self._verified_asset(client, library, result, zone, root)
                 # Recheck the full library/account/CloudKit route without reusing
                 # a registration cache or pretending the consumed stage still exists.
                 self._verify_after_binding(client, zone, account, resource)
