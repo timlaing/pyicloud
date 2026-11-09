@@ -11,10 +11,12 @@ import time
 from typing import Any
 from urllib.parse import urlsplit
 
-from pyicloud.services.drive import DriveNode
+from requests import Session
+
+from pyicloud.services.drive import DriveNode, DriveService
 
 from .additional import AdditionalReads, text
-from .context import ToolFailure
+from .context import BoundedAdapter, SessionOwner, ToolFailure
 from .reads import ReadResult, bounded_result
 
 
@@ -75,14 +77,22 @@ def _partial_range(response: Any, offset: int, data: bytes) -> tuple[bool, int |
     return complete, None if complete else last + 1
 
 
+def _download_bytes(response: Any, maximum: int) -> bytes:
+    """Stop streamed responses at the chunk bound; never materialize full content."""
+    data = bytearray()
+    for chunk in response.iter_content(chunk_size=min(8192, maximum + 1)):
+        if not isinstance(chunk, bytes) or len(data) + len(chunk) > maximum:
+            raise ToolFailure("content_too_large")
+        data.extend(chunk)
+    return bytes(data)
+
+
 def download_chunk(
     state: DownloadState, response: Any, offset: int, maximum: int, filename: str
 ) -> ReadResult:
     """Validate byte ranges and version identity before returning an assembly chunk."""
     try:
-        data = response.content
-        if not isinstance(data, bytes) or len(data) > maximum:
-            raise ToolFailure("content_too_large")
+        data = _download_bytes(response, maximum)
         if response.status_code == 200 and offset == 0:
             complete, next_offset = True, None
         elif response.status_code == 206:
@@ -214,6 +224,10 @@ class ContentReads:
             resource = self.additional.resolve(
                 "drive-file" if service == "drive" else "photo-asset", handle
             )
+            if isinstance(resource, DriveNode) and isinstance(
+                resource.connection, DriveService
+            ):
+                self._guard_download_session(resource.connection.session)
             if (
                 service == "drive"
                 and isinstance(resource, DriveNode)
@@ -304,6 +318,35 @@ class ContentReads:
                 del self._downloads[inactive]
             self._downloads[key] = DownloadState(resource)
         return self._downloads[key]
+
+    def _guard_download_session(self, session: Any) -> None:
+        """Require body-bounded HTTPS adapters before any injected SDK download."""
+        if (
+            not isinstance(session, Session)
+            or getattr(session.get_adapter, "__func__", None) is not Session.get_adapter
+        ):
+            raise ToolFailure("unsupported_download_transport")
+        adapters = [
+            adapter
+            for prefix, adapter in session.adapters.items()
+            if prefix.lower().startswith("https")
+        ]
+        if not adapters or any(
+            type(adapter) not in {BoundedAdapter} for adapter in adapters
+        ):
+            raise ToolFailure("unsupported_download_transport")
+        for adapter in adapters:
+            assert isinstance(adapter, BoundedAdapter)
+            owner = self.additional.reads.owner
+            if isinstance(owner, SessionOwner):
+                owner.bind_adapter(adapter)
+            else:
+                deadline = time.monotonic() + owner.config.timeout
+                adapter.deadline = (
+                    min(adapter.deadline, deadline)
+                    if adapter.deadline is not None
+                    else deadline
+                )
 
     @staticmethod
     def _open_download(

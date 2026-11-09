@@ -110,6 +110,12 @@ queue-inclusive deadline. A proven rejection before transport admission restores
 the original upload approval, stage and destination aliases without extending any
 TTL. After any dispatch attempt, resources remain consumed and failures are
 uncertain; no mutation is automatically retried.
+Retries after proven pre-dispatch rejection reuse the already accepted decision,
+not the consumed receipt file. Registration dispatch pins its marked adapter;
+separate reservation and commit adapters receive fresh owner budgets each time.
+Individual header reads retain shorter adapter timeouts within the owner deadline.
+Downloads stop streamed bodies at the requested chunk bound, and injected real
+Drive sessions must use body-bounded HTTPS adapters before any SDK download read.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

@@ -155,6 +155,7 @@ def response(status: int = 200, data: bytes = b"data", **headers: str) -> MagicM
     result = MagicMock()
     result.status_code = status
     result.content = data
+    result.iter_content.return_value = [data]
     result.headers = headers
     return result
 

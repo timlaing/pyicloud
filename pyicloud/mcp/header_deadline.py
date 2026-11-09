@@ -19,17 +19,22 @@ class HeaderDeadlineExceeded(Timeout):
 class DeadlineRaw(io.RawIOBase):
     """Recompute the remaining budget for every underlying header/body read."""
 
-    def __init__(self, raw: Any, sock: Any, deadline: float) -> None:
+    def __init__(
+        self, raw: Any, sock: Any, deadline: float, timeout: float | None = None
+    ) -> None:
         super().__init__()
         self.raw = raw
         self.sock = sock
         self.deadline = deadline
+        self.timeout = timeout
 
     def readable(self) -> bool:
         return True
 
     def readinto(self, buffer: Any) -> int | None:
         remaining = self.deadline - time.monotonic()
+        if self.timeout is not None:
+            remaining = min(remaining, self.timeout)
         if remaining <= 0:
             raise HeaderDeadlineExceeded("Response deadline exceeded")
         self.sock.settimeout(remaining)
@@ -48,9 +53,12 @@ class DeadlineRaw(io.RawIOBase):
 class DeadlineSocket:
     """Only intercept makefile; TLS I/O and socket management remain unchanged."""
 
-    def __init__(self, sock: Any, deadline: float) -> None:
+    def __init__(
+        self, sock: Any, deadline: float, timeout: float | None = None
+    ) -> None:
         self.sock = sock
         self.deadline = deadline
+        self.timeout = timeout
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.sock, name)
@@ -59,10 +67,14 @@ class DeadlineSocket:
         """Make deadline-aware buffered input over the original raw socket file."""
         del buffering
         raw = self.sock.makefile(mode, buffering=0)
-        return io.BufferedReader(DeadlineRaw(raw, self.sock, self.deadline))
+        return io.BufferedReader(
+            DeadlineRaw(raw, self.sock, self.deadline, self.timeout)
+        )
 
 
-def deadline_pool(provider: Callable[[], float]) -> type[HTTPSConnectionPool]:
+def deadline_pool(
+    provider: Callable[[], float], timeout_provider: Callable[[], float] | None = None
+) -> type[HTTPSConnectionPool]:
     """Build an adapter-local pool, never modify urllib3's global pool classes."""
 
     class DeadlineConnection(HTTPSConnection):
@@ -72,7 +84,14 @@ def deadline_pool(provider: Callable[[], float]) -> type[HTTPSConnectionPool]:
             original = self.sock
             if original is None:
                 raise HeaderDeadlineExceeded("Connection unavailable")
-            wrapped = cast(Any, DeadlineSocket(original, provider()))
+            wrapped = cast(
+                Any,
+                DeadlineSocket(
+                    original,
+                    provider(),
+                    timeout_provider() if timeout_provider is not None else None,
+                ),
+            )
             self.sock = wrapped
             try:
                 return HTTPSConnection.getresponse(self)
@@ -85,7 +104,14 @@ def deadline_pool(provider: Callable[[], float]) -> type[HTTPSConnectionPool]:
             original = self.sock
             if original is None:
                 raise HeaderDeadlineExceeded("Connection unavailable")
-            wrapped = cast(Any, DeadlineSocket(original, provider()))
+            wrapped = cast(
+                Any,
+                DeadlineSocket(
+                    original,
+                    provider(),
+                    timeout_provider() if timeout_provider is not None else None,
+                ),
+            )
             self.sock = wrapped
             try:
                 HTTPSConnection._tunnel(self)  # pylint: disable=protected-access

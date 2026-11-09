@@ -132,9 +132,11 @@ class DriveMoves(DriveWrites):
         destination_handle: str,
     ) -> None:
         """Validate both handles before retiring either or spending approval."""
-        if source.data["parentId"] == destination.identifier:
-            return
         try:
+            self.additional.resolve("drive-file", source_handle)
+            self.additional.resolve("drive-folder", destination_handle)
+            if source.data["parentId"] == destination.identifier:
+                return
             self.additional.retire_many((
                 ("drive-file", source_handle),
                 ("drive-folder", destination_handle),

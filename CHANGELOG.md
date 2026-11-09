@@ -52,6 +52,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Keep shorter adapter read timeouts within absolute header budgets, bind separate upload endpoints to the owner operation, and pin registration dispatch to its marked adapter.
+- Validate live handles for no-op moves, retain accepted receipts for proven pre-dispatch retries, reject Drive root query/fragment delimiters, and bound streamed downloads before full-body materialization.
+
 - Preserve explicit account/upload query precedence, require owner-budgeted mutation transports, retain account CA/proxy settings, and keep nested header failures classified as timeouts.
 - Restore exact upload approvals, staged bytes and destination aliases only when transport admission proves no request began; retain consumed resources after any dispatch attempt. Validate the final refreshed move destination revision.
 

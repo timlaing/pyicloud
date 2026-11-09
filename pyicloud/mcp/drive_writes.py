@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import json
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 from pyicloud.services.drive import DriveNode
 
@@ -102,9 +103,22 @@ class DriveWrites:
 
     def _require_retry_disabled(self, client: Any, route: str) -> None:
         """Refuse custom transports that could dispatch one mutation more than once."""
+        root = client.drive.service_root
+        if not isinstance(root, str) or not root:
+            raise WriteDenied("route_unavailable")
+        try:
+            parsed_root = urlsplit(root)
+        except ValueError:
+            raise WriteDenied("route_unavailable") from None
+        if parsed_root.query or parsed_root.fragment or "?" in root or "#" in root:
+            raise WriteDenied("route_unavailable")
         adapter = checked_adapter(client.drive.session, route, bounded=True)
         transport_settings(client.drive.session, route)
         assert isinstance(adapter, BoundedAdapter)
+        self._bind_transport_adapter(adapter)
+
+    def _bind_transport_adapter(self, adapter: BoundedAdapter) -> None:
+        """Bind the selected adapter itself, never repeat a dynamic selection."""
         owner = self.additional.reads.owner
         if isinstance(owner, SessionOwner):
             owner.bind_adapter(adapter)

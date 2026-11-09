@@ -201,6 +201,7 @@ class UploadTransport:
                     timeout=(10.0, 60.0),
                     allow_redirects=False,
                     stream=True,
+                    adapter=adapter,
                     **options,
                 )
                 return bounded_upload_json(response)

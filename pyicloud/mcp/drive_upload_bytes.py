@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import hashlib
 import mimetypes
 import time
@@ -15,6 +16,7 @@ from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.services.drive import CLOUD_DOCS_ZONE
 
 from .authorization import WriteDenied
+from .context import BoundedAdapter
 from .one_shot import checked_adapter, prepared_url
 from .upload_staging import StagedUpload
 from .upload_transport import (
@@ -25,7 +27,12 @@ from .upload_transport import (
 )
 
 
-def validate_upload_session(drive: Any, credentials: dict[str, str]) -> float | None:
+def validate_upload_session(
+    drive: Any,
+    credentials: dict[str, str],
+    *,
+    bind_adapter: Callable[[BoundedAdapter], None] | None = None,
+) -> float | None:
     """Check both exact registration endpoints before any approval is consumed."""
     root = drive.document_root
     if not isinstance(root, str) or not root:
@@ -42,6 +49,9 @@ def validate_upload_session(drive: Any, credentials: dict[str, str]) -> float | 
         adapter = checked_adapter(
             drive.session, prepared_url(drive.session, url, params), bounded=True
         )
+        assert isinstance(adapter, BoundedAdapter)
+        if bind_adapter is not None:
+            bind_adapter(adapter)
         deadline = getattr(adapter, "deadline", None)
         if deadline is not None:
             if deadline <= time.monotonic():

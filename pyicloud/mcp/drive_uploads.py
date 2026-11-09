@@ -50,6 +50,7 @@ class DriveUploads(DriveWrites):
             UploadTransport(hosts), self.additional.reads.owner.config.timeout
         )
         self._requests: dict[str, tuple[str, DriveTarget, str]] = {}
+        self._accepted_receipts: dict[str, bool] = {}
 
     def _retire_destination(self, handle: str) -> None:
         """A failed pre-dispatch retirement leaves staged bytes and approval intact."""
@@ -167,9 +168,13 @@ class DriveUploads(DriveWrites):
             if preview.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
             if len(self._requests) >= 256:
-                del self._requests[next(iter(self._requests))]
+                oldest = next(iter(self._requests))
+                del self._requests[oldest]
+                self._accepted_receipts.pop(oldest, None)
             self._requests[preview.request_id] = (handle, target, token)
-            self._publish_preview(preview, publish, (self._requests,))
+            self._publish_preview(
+                preview, publish, (self._requests, self._accepted_receipts)
+            )
             return preview
 
         return await self.additional.reads.owner.run(prepare)
@@ -189,9 +194,13 @@ class DriveUploads(DriveWrites):
             self.additional.resolve("drive-folder", handle)
             folder, account, resource, revision = self._read(client, target, token)
             credentials = snapshot_upload_credentials(client.drive)
-            owner_deadline = validate_upload_session(client.drive, credentials)
-            if accept is not None:
+            owner_deadline = validate_upload_session(
+                client.drive, credentials, bind_adapter=self._bind_transport_adapter
+            )
+            receipt_accepted = self._accepted_receipts.get(request_id, False)
+            if accept is not None and not receipt_accepted:
                 accept(request_id)
+                receipt_accepted = True
             captured: list[StagedUpload] = []
             handle_snapshot = self.additional.snapshot_drive_handles(
                 "drive-folder", handle
@@ -204,6 +213,7 @@ class DriveUploads(DriveWrites):
                 before_consume=lambda: self._acquire_stage(token, handle, captured),
             )
             del self._requests[request_id]
+            self._accepted_receipts.pop(request_id, None)
             if approved.risk != "high":
                 # No dispatch occurred; retain bytes if a trusted policy is corrupted.
                 self._restore_pre_dispatch_stage(token, captured)
@@ -234,6 +244,8 @@ class DriveUploads(DriveWrites):
                     revision=revision,
                 )
                 self._requests[request_id] = selected
+                if receipt_accepted:
+                    self._accepted_receipts[request_id] = True
                 raise
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None

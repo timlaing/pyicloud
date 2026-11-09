@@ -171,7 +171,7 @@ class BoundedAdapter(HTTPAdapter):
         self.before_dispatch: Callable[[], None] | None = None
         self.poolmanager.pool_classes_by_scheme = {
             **self.poolmanager.pool_classes_by_scheme,
-            "https": deadline_pool(self._response_deadline),
+            "https": deadline_pool(self._response_deadline, lambda: self.timeout),
         }
 
     def _response_deadline(self) -> float:
@@ -189,7 +189,7 @@ class BoundedAdapter(HTTPAdapter):
         manager = super().proxy_manager_for(proxy, **proxy_kwargs)
         manager.pool_classes_by_scheme = {
             **manager.pool_classes_by_scheme,
-            "https": deadline_pool(self._response_deadline),
+            "https": deadline_pool(self._response_deadline, lambda: self.timeout),
         }
         return manager
 

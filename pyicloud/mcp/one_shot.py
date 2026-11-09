@@ -72,7 +72,14 @@ def transport_settings(
     return dict(settings)
 
 
-def request_once(session: Session, method: str, url: str, **kwargs: Any) -> Response:
+def request_once(
+    session: Session,
+    method: str,
+    url: str,
+    *,
+    adapter: BoundedAdapter | None = None,
+    **kwargs: Any,
+) -> Response:
     """Prepare ordinary session cookies, but bypass request/send/hooks/recovery."""
     kwargs.pop("allow_redirects", None)
     stream = kwargs.pop("stream", True)
@@ -84,7 +91,16 @@ def request_once(session: Session, method: str, url: str, **kwargs: Any) -> Resp
     kwargs.pop("auth", None)
     kwargs.pop("hooks", None)
     request = Request(method, url, **kwargs).prepare()
-    adapter = checked_adapter(session, request.url or url, bounded=True)
+    selected_adapter = (
+        adapter
+        if adapter is not None
+        else checked_adapter(session, request.url or url, bounded=True)
+    )
+    if (
+        type(selected_adapter) not in {BoundedAdapter}
+        or selected_adapter.max_retries.total != 0
+    ):
+        raise WriteDenied("mutation_retry_policy_unavailable")
     settings = transport_settings(session, request.url or url, stream)
     request.hooks = {"response": []}
     send = cast(
@@ -92,7 +108,7 @@ def request_once(session: Session, method: str, url: str, **kwargs: Any) -> Resp
         BoundedAdapter.send,
     )
     response = send(
-        adapter,
+        selected_adapter,
         request,
         stream=stream,
         timeout=timeout,
