@@ -155,6 +155,7 @@ def test_streamed_download_stops_before_materializing_full_body() -> None:
             yield chunk
 
     cast(Any, response).iter_content = stream
+    state = DownloadState(object())
     with (
         patch.object(
             Response,
@@ -164,7 +165,7 @@ def test_streamed_download_stops_before_materializing_full_body() -> None:
         ),
         pytest.raises(ToolFailure, match="content_too_large"),
     ):
-        download_chunk(DownloadState(object()), response, 0, 4, "file")
+        download_chunk(state, response, 0, 4, "file")
     assert touched == chunks[:2]
 
 
@@ -207,6 +208,7 @@ def test_registration_uses_marked_adapter_even_if_selection_would_change() -> No
     marked, other = BoundedAdapter(30), BoundedAdapter(30)
     session.get_adapter = MagicMock(side_effect=[marked, other])
     state = UploadDispatchState()
+    hosts = frozenset({"example.test"})
     with (
         patch(
             "requests.adapters.HTTPAdapter.send",
@@ -217,7 +219,7 @@ def test_registration_uses_marked_adapter_even_if_selection_would_change() -> No
         UploadTransport.register(
             session,
             "https://example.test/register",
-            frozenset({"example.test"}),
+            hosts,
             {},
             dispatch_state=state,
         )

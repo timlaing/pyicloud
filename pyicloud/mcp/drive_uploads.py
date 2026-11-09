@@ -179,6 +179,16 @@ class DriveUploads(DriveWrites):
 
         return await self.additional.reads.owner.run(prepare)
 
+    def _accept_receipt(
+        self, request_id: str, accept: Callable[[str], None] | None
+    ) -> bool:
+        """Accept once, retaining the decision only for a proven pre-dispatch retry."""
+        accepted = self._accepted_receipts.get(request_id, False)
+        if accept is not None and not accepted:
+            accept(request_id)
+            return True
+        return accepted
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -197,10 +207,7 @@ class DriveUploads(DriveWrites):
             owner_deadline = validate_upload_session(
                 client.drive, credentials, bind_adapter=self._bind_transport_adapter
             )
-            receipt_accepted = self._accepted_receipts.get(request_id, False)
-            if accept is not None and not receipt_accepted:
-                accept(request_id)
-                receipt_accepted = True
+            receipt_accepted = self._accept_receipt(request_id, accept)
             captured: list[StagedUpload] = []
             handle_snapshot = self.additional.snapshot_drive_handles(
                 "drive-folder", handle
