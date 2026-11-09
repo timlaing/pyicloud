@@ -405,15 +405,23 @@ class ContentReads:
             if isinstance(owner, SessionOwner):
                 owner.bind_adapter(adapter)
             else:
-                if previous is not None and adapter not in previous:
-                    previous[adapter] = adapter.deadline
-                    adapter.requests_left = 32
-                deadline = time.monotonic() + owner.config.timeout
-                adapter.deadline = (
-                    min(adapter.deadline, deadline)
-                    if adapter.deadline is not None
-                    else deadline
-                )
+                self._bind_injected_read_adapter(adapter, previous)
+
+    def _bind_injected_read_adapter(
+        self,
+        adapter: BoundedAdapter,
+        previous: dict[BoundedAdapter, float | None] | None,
+    ) -> None:
+        """Keep one budget admission and original deadline for injected-owner reads."""
+        if previous is not None and adapter not in previous:
+            previous[adapter] = adapter.deadline
+            adapter.requests_left = 32
+        deadline = time.monotonic() + self.additional.reads.owner.config.timeout
+        adapter.deadline = (
+            min(adapter.deadline, deadline)
+            if adapter.deadline is not None
+            else deadline
+        )
 
     def _open_download(
         self,
