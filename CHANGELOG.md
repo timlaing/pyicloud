@@ -54,6 +54,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Retire deletion, rename and Trash selectors atomically with approval consumption, preserving pending decisions on known pre-dispatch expiry; map queued upload expiry to `target_unavailable`.
+
 - Map upload destination expiry during snapshot admission to `target_unavailable` without consuming approval or staged bytes.
 
 - Validate known metadata dispatch methods before Drive reads and reject arbitrary Photos URL callbacks, using the pure SDK asset resolver or explicit static URL metadata instead.

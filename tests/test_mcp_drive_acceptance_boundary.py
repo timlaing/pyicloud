@@ -217,6 +217,25 @@ async def test_upload_destination_expiry_during_refresh_is_known_denial() -> Non
 
 
 @pytest.mark.asyncio
+async def test_queued_upload_expiry_is_a_known_denial() -> None:
+    """Expired lane admission leaves the exact elevated decision and bytes intact."""
+    writer, _client, handle, token, _data, pipeline = setup_adapter()
+    preview = await writer.prepare_upload(handle, token, 1000)
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    kind, node, _expiry = writer.additional._handles[handle]
+    writer.additional._handles[handle] = (kind, node, 0)
+    with pytest.raises(WriteDenied, match="target_unavailable"):
+        await writer.apply(preview.request_id)
+    assert writer.staging.peek(token).data
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    pipeline.upload.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_upload_selector_eviction_also_revokes_ledger_entry() -> None:
     """An evicted exact request cannot accept approval or occupy ledger capacity."""
     writer, _client, handle, token, _data, _pipeline = setup_adapter()

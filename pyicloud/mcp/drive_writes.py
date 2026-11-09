@@ -311,6 +311,16 @@ class DriveWrites:
         if current != selected:
             raise WriteDenied("unknown_or_consumed_preview")
 
+    def _admit_source(
+        self, request_id: str, node: DriveNode, action: str, source: tuple[str, str]
+    ) -> None:
+        """Retire changed targets atomically, preserving live no-op selectors."""
+        preview = self.ledger._lookup(request_id).preview  # pylint: disable=protected-access
+        if action == DRIVE_RENAME and node.name == preview.payload["name"]:
+            self._require_live_source(*source)
+            return
+        self._retire_source(*source)
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -345,12 +355,14 @@ class DriveWrites:
                 account_binding=account,
                 resource_binding=resource,
                 revision=revision,
+                before_consume=lambda: self._admit_source(
+                    request_id, node, action, selected_source
+                ),
             )
             del self._targets[request_id]
             del self._actions[request_id]
-            source_kind, source_handle = self._sources.pop(request_id)
+            del self._sources[request_id]
             if action == DRIVE_TRASH_FILE:
-                self._retire_source(source_kind, source_handle)
                 try:
                     with mutation_session(
                         client.drive, adapter=adapter
@@ -365,7 +377,6 @@ class DriveWrites:
             name = approved.payload["name"]
             if node.name == name:
                 return {"action": DRIVE_RENAME, "changed": False}
-            self._retire_source(source_kind, source_handle)
             try:
                 with mutation_session(client.drive, adapter=adapter) as dispatch_drive:
                     DriveNode(dispatch_drive, node.data).rename(

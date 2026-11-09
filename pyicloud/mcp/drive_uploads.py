@@ -225,7 +225,7 @@ class DriveUploads(DriveWrites):
         def apply(client: Any) -> dict[str, Any]:
             if self._requests.get(request_id) != selected:
                 raise WriteDenied("unknown_or_consumed_preview")
-            self.additional.resolve("drive-folder", handle)
+            self._require_live_source("drive-folder", handle)
             folder, account, resource, revision = self._read(client, target, token)
             credentials = snapshot_upload_credentials(client.drive)
             owner_deadline = validate_upload_session(

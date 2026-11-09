@@ -120,11 +120,11 @@ class DriveDeletions(DriveWrites):
                 account_binding=account,
                 resource_binding=resource,
                 revision=revision,
+                before_consume=lambda: self._retire_source("drive-trash-file", handle),
             )
             del self._deletions[request_id]
             if approved.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
-            self._retire_source("drive-trash-file", handle)
             try:
                 with mutation_session(client.drive, adapter=adapter) as dispatch_drive:
                     acknowledgement = DriveNode(
