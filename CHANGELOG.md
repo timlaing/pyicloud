@@ -50,6 +50,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Render Notes formatting at the correct UTF-16 offsets and support zlib-compressed
+  Notes table data alongside gzip and uncompressed table data.
+
 - Validate required account storage byte counts before caching a refresh, preserving the previous snapshot when the response is missing fields or contains invalid counts.
 
 - Document and test fail-closed refresh behavior for identified cached empty Drive files: refresh errors propagate without returning unverified empty content or attempting a fallback download.
@@ -119,6 +122,19 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Keep an absent optional Mail endpoint visible in `icloud doctor` without failing the account check, and skip its unavailable probe with `--probe`; malformed advertised endpoints and missing required services still fail.
 
 ### Added
+
+- Add private plain-text iCloud Notes creation, editing, trash, and restore to
+  the Python API and CLI. Changes to existing notes require a current revision.
+- Support basic rich-text Notes creation and editing through structured Python
+  input and CLI JSON files.
+- Add targeted text replacement that preserves one existing Notes image, private
+  note moves, and private folder creation, rename, move, and empty deletion.
+- Support checked and unchecked checklist items, list indentation, and external
+  web links in rich Notes bodies.
+- Add targeted checklist toggles and private note pin and unpin commands.
+- Add revision-guarded tagging for private notes without replacing their content.
+- Add private Notes table creation, inspection, and targeted plain-text cell edits
+  with separate note and table revision guards.
 
 - Add `AccountService.refresh_storage()` to explicitly fetch current storage usage while preserving the cached `storage` property and retaining the previous snapshot if a refresh fails.
 - Add explicitly selected MCP Calendar metadata tools and a new receipt-gated create/delete adapter; runtime write-tool wiring remains in the final integration slice. Rejected tool calls are marked as tool execution errors (`isError`) while retaining structured error codes. Creation rejects sub-minute times before preview; deletion previews support untitled events, and read-back treats HTTP 404 as confirmed absence but HTTP 410 as uncertain. Failed publication and terminal approval denials retire their preview targets; requests awaiting operator approval remain available.
