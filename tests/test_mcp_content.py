@@ -453,9 +453,11 @@ async def test_searches_have_scan_budgets_and_body_permission() -> None:
         await tools.search("drive", bad, "Match", 1, 10)
     ).error == "invalid_argument"
     folder = tools.remember("mail-folder", "F")
-    client.mail.search.return_value = SimpleNamespace(results=[])
+    mail_search = MagicMock(return_value=SimpleNamespace(results=[]))
+    client.mail.search = mail_search
     await tools.mail_search(folder, "Match", 50, "body")
-    assert client.mail.search.call_args.kwargs["field"] == "body"
+    assert mail_search.call_args is not None
+    assert mail_search.call_args.kwargs["field"] == "body"
     disabled = content_for(client, ()).additional
     assert (
         await disabled.mail_search("unknown", "Match", 50, "body")
