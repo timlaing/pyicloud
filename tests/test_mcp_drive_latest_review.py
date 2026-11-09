@@ -51,7 +51,7 @@ def test_unsupported_proxy_fails_before_dispatch() -> None:
     """An unsupported proxy must not silently bypass the deadline transport."""
     adapter = BoundedAdapter(30)
     with pytest.raises(ToolFailure, match="unsupported_proxy"):
-        adapter.proxy_manager_for("socks5://proxy.example.test")
+        adapter.proxy_manager_for("ftp://proxy.example.test")
     adapter.close()
 
 

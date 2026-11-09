@@ -137,6 +137,12 @@ download request budgets reset once per operation, not on each guard call. Metad
 roots must be HTTPS before the first SDK read. Photos stages are acquired atomically
 with approval consumption, transfer deadlines inherit the owner budget, and accepted
 receipts survive a proven pre-dispatch rejection without a second mailbox read.
+Optional SOCKS routing is preserved when Requests' SOCKS support is installed;
+deadline pools retain the original proxy connection class. Real Drive inventory
+discovery requires a body-bounded metadata transport before the first SDK read.
+Photos preview size limits and approved transfer hosts apply independently of any
+injected pipeline policy. Accepted receipt decisions are cached before metadata
+revalidation; failed publication revokes both decision and selector state.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

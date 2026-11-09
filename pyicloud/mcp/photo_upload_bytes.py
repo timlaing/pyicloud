@@ -106,6 +106,7 @@ class PhotoUploadBytes:
         modified_ms: int,
         stage_acquired: bool = False,
         owner_deadline: float | None = None,
+        approved_hosts: frozenset[str] | None = None,
     ) -> PhotosPutAssetResult:
         """Use the existing typed wire contract with exact immutable staged bytes."""
         parsed = urlsplit(root)
@@ -140,6 +141,8 @@ class PhotoUploadBytes:
             )
             if set(reservation.uploadUrls) != {identifier}:
                 raise WriteDenied("upload_outcome_uncertain")
+            if approved_hosts is not None:
+                checked_upload_url(reservation.uploadUrls[identifier], approved_hosts)
             receipt = PhotosSingleFileUploadResponse.model_validate(
                 self.transport.transfer(
                     reservation.uploadUrls[identifier], stage.data, deadline=deadline

@@ -205,6 +205,7 @@ class DriveUploads(DriveWrites):
         accepted = self._accepted_receipts.get(request_id, False)
         if accept is not None and not accepted:
             accept(request_id)
+            self._accepted_receipts[request_id] = True
             return True
         return accepted
 

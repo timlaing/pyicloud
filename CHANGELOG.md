@@ -52,6 +52,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Preserve optional SOCKS proxy connection routing with absolute header deadlines, and require bounded transport before real Drive discovery reads.
+- Revoke unpublished Photos decisions, cache accepted receipts before revalidation, validate Photos account and stage-size policy before consumption, and enforce approved transfer hosts in the Photos pipeline.
+
 - Restore injected Drive operation deadlines and refresh per-operation download request budgets, while rejecting plaintext metadata routes and bare document-root fragments before SDK reads or upload admission.
 - Align Photos registration parameters with preflight, carry the owner deadline through transfer, acquire stages atomically with approval consumption, and preserve accepted receipts and approved context across pre-dispatch retries.
 

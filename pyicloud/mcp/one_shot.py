@@ -84,6 +84,10 @@ def transport_settings(
     if selected and urlsplit(normalize(selected, "http")).scheme not in {
         "http",
         "https",
+        "socks4",
+        "socks4a",
+        "socks5",
+        "socks5h",
     }:
         raise WriteDenied("unsupported_proxy")
     return dict(settings)

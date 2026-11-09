@@ -73,7 +73,9 @@ class DeadlineSocket:
 
 
 def deadline_pool(
-    provider: Callable[[], float], timeout_provider: Callable[[], float] | None = None
+    provider: Callable[[], float],
+    timeout_provider: Callable[[], float] | None = None,
+    base_pool: type[HTTPSConnectionPool] = HTTPSConnectionPool,
 ) -> type[HTTPSConnectionPool]:
     """Build an adapter-local pool, never modify urllib3's global pool classes."""
 
@@ -124,4 +126,17 @@ def deadline_pool(
 
         ConnectionCls = DeadlineConnection
 
-    return DeadlinePool
+    if base_pool is HTTPSConnectionPool:
+        return DeadlinePool
+    connection = type(
+        "DeadlineProxyConnection",
+        (base_pool.ConnectionCls,),
+        {
+            "getresponse": DeadlineConnection.getresponse,
+            "_tunnel": DeadlineConnection._tunnel,  # pylint: disable=protected-access
+        },
+    )
+    return cast(
+        type[HTTPSConnectionPool],
+        type("DeadlineProxyPool", (base_pool,), {"ConnectionCls": connection}),
+    )

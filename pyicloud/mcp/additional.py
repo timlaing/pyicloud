@@ -11,9 +11,11 @@ from secrets import token_urlsafe
 import time
 from typing import Any
 
-from pyicloud.services.drive import DriveNode
+from pyicloud.services.drive import DriveNode, DriveService
 
-from .context import ToolFailure
+from .authorization import WriteDenied
+from .context import BoundedAdapter, SessionOwner, ToolFailure
+from .one_shot import checked_adapter, prepared_url
 from .reads import ReadResult, ReadTools, bounded_result
 
 
@@ -140,7 +142,37 @@ class AdditionalReads:
     ) -> ReadResult:
         if len(query) > 256:
             return ReadResult(error="invalid_argument")
-        return await self.reads.execute(service, limit, operation)
+
+        def guarded(client: Any) -> ReadResult:
+            if service != "drive" or not isinstance(client.drive, DriveService):
+                return operation(client)
+            session = client.drive.session
+            url = prepared_url(
+                session,
+                client.drive.service_root + "/retrieveItemDetailsInFolders",
+                client.drive.params,
+            )
+            try:
+                adapter = checked_adapter(session, url, bounded=True)
+            except WriteDenied:
+                raise ToolFailure("unsupported_drive_transport") from None
+            assert isinstance(adapter, BoundedAdapter)
+            owner = self.reads.owner
+            previous = adapter.deadline
+            if isinstance(owner, SessionOwner):
+                owner.bind_adapter(adapter)
+                return operation(client)
+            adapter.requests_left = 32
+            deadline = time.monotonic() + owner.config.timeout
+            adapter.deadline = (
+                min(previous, deadline) if previous is not None else deadline
+            )
+            try:
+                return operation(client)
+            finally:
+                adapter.deadline = previous
+
+        return await self.reads.execute(service, limit, guarded)
 
     async def contacts(self, query: str, limit: int) -> ReadResult:
         """Search names; addresses/phones require a separate explicit call."""

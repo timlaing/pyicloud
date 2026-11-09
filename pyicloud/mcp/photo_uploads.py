@@ -96,6 +96,12 @@ class PhotoUploads:
         for host in self.hosts:
             checked_upload_url("https://" + host + "/", self.hosts)
         stage = self.staging.peek(token)
+        if (
+            isinstance(stage.size, bool)
+            or not isinstance(stage.size, int)
+            or not 0 < stage.size <= 4 * 1024 * 1024
+        ):
+            raise WriteDenied("invalid_upload_bytes")
         observed_primary = getattr(client.photos, "private_primary_zone", None)
         primary = observed_primary if isinstance(observed_primary, dict) else None
         resource = json.dumps(
@@ -155,7 +161,13 @@ class PhotoUploads:
                 self.ledger.discard(oldest)
             self._requests[preview.request_id] = (zone, token, modified_ms)
             if publish is not None:
-                publish(preview)
+                try:
+                    publish(preview)
+                except Exception:
+                    self.ledger.discard(preview.request_id)
+                    self._requests.pop(preview.request_id, None)
+                    self._accepted_receipts.pop(preview.request_id, None)
+                    raise
             return preview
 
         return await self._run(prepare)
@@ -239,9 +251,12 @@ class PhotoUploads:
             if accept is not None and not accepted:
                 accept(request_id)
                 accepted = True
+                self._accepted_receipts[request_id] = True
             self._verify_after_binding(client, zone, account, resource)
             if client.photos.upload_root != root:
                 raise WriteDenied("stale_preview")
+            if str(client.photos.params.get("dsid")) != account:
+                raise WriteDenied("account_unavailable")
             captured: list[StagedUpload] = []
             approved = self.ledger.consume(
                 request_id,
@@ -266,6 +281,7 @@ class PhotoUploads:
                     modified_ms=modified_ms,
                     stage_acquired=True,
                     owner_deadline=owner_deadline,
+                    approved_hosts=self.hosts,
                 )
                 asset = self._verified_asset(client, library, result, zone, root)
                 # Recheck the full library/account/CloudKit route without reusing

@@ -185,13 +185,27 @@ class BoundedAdapter(HTTPAdapter):
 
     def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:
         """Install the same absolute header budget in adapter-local proxy pools."""
-        if urlsplit(proxy).scheme not in {"http", "https"}:
+        if urlsplit(proxy).scheme not in {
+            "http",
+            "https",
+            "socks4",
+            "socks4a",
+            "socks5",
+            "socks5h",
+        }:
             raise ToolFailure("unsupported_proxy")
         manager = super().proxy_manager_for(proxy, **proxy_kwargs)
+        if getattr(manager, "pyicloud_deadline_pool", False):
+            return manager
         manager.pool_classes_by_scheme = {
             **manager.pool_classes_by_scheme,
-            "https": deadline_pool(self._response_deadline, lambda: self.timeout),
+            "https": deadline_pool(
+                self._response_deadline,
+                lambda: self.timeout,
+                manager.pool_classes_by_scheme["https"],
+            ),
         }
+        manager.pyicloud_deadline_pool = True
         return manager
 
     def send(

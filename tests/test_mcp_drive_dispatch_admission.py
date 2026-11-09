@@ -178,7 +178,7 @@ def test_unsupported_account_proxy_is_a_preflight_denial() -> None:
     """Unsupported proxy transports cannot reach approval consumption."""
     session = Session()
     session.trust_env = False
-    session.proxies = {"https": "socks5://proxy.example.test"}
+    session.proxies = {"https": "ftp://proxy.example.test"}
     with pytest.raises(WriteDenied, match="unsupported_proxy"):
         transport_settings(session, "https://example.test/write")
     session.close()
