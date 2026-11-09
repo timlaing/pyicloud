@@ -17,7 +17,7 @@ from pyicloud.services.drive import DriveNode, DriveService
 
 from .authorization import WriteDenied
 from .context import BoundedAdapter, SessionOwner, ToolFailure
-from .one_shot import checked_adapter, prepared_url
+from .one_shot import checked_adapter, prepared_url, validate_metadata_session
 from .reads import ReadResult, ReadTools, bounded_result
 
 
@@ -149,6 +149,10 @@ class AdditionalReads:
             if service != "drive" or not isinstance(client.drive, DriveService):
                 return operation(client)
             session = client.drive.session
+            try:
+                validate_metadata_session(session)
+            except WriteDenied:
+                raise ToolFailure("unsupported_drive_transport") from None
             if (
                 not isinstance(session, Session)
                 or getattr(session.get_adapter, "__func__", None)

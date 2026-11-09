@@ -30,6 +30,7 @@ async def test_injected_download_budget_resets_for_each_operation() -> None:
     tools = content_for(client)
     asset = MagicMock(filename="photo")
     asset.download_url.return_value = "https://icloud-content.com/photo"
+    asset.download_urls = {"original": "https://icloud-content.com/photo"}
     handle = tools.additional.remember("photo-asset", asset)
     response = Response()
     response.status_code = 200

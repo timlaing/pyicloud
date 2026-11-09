@@ -9,7 +9,7 @@ import time
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
-from pyicloud.services.drive import DriveNode
+from pyicloud.services.drive import DriveNode, DriveService
 
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
@@ -19,6 +19,7 @@ from .one_shot import (
     mutation_session,
     prepared_url,
     transport_settings,
+    validate_metadata_session,
 )
 
 
@@ -178,6 +179,8 @@ class DriveWrites:
 
     def _require_metadata_transport(self, client: Any) -> None:
         """Bind the actual detail/listing endpoint before any SDK metadata refresh."""
+        if isinstance(client.drive, DriveService):
+            validate_metadata_session(client.drive.session)
         self._require_mutation_path(client, "/retrieveItemDetailsInFolders")
 
     def _retire_source(self, kind: str, handle: str) -> None:
@@ -401,6 +404,25 @@ class DriveWrites:
         except ToolFailure:
             raise WriteDenied("target_unavailable") from None
 
+    def _trash_inventory(self, client: Any) -> list[DriveNode]:
+        """Admit only a complete raw Trash inventory before constructing children."""
+        self._require_metadata_transport(client)
+        trash = client.drive.trash
+        if isinstance(trash, DriveNode):
+            observed = client.drive.get_node_data(
+                trash.data["drivewsid"], trash.data.get("shareID")
+            )
+            items = observed.get("items")
+            if not isinstance(items, list) or len(items) > 2000:
+                raise WriteDenied("unsupported_trash_inventory")
+            return list(
+                DriveNode(client.drive, observed).iter_children(max_children=2000)
+            )
+        children = trash.get_children(force=True)
+        if not isinstance(children, list) or len(children) > 2000:
+            raise WriteDenied("unsupported_trash_inventory")
+        return children
+
     def _verify_trash(
         self, client: Any, target: DriveTarget, account: str, resource: str
     ) -> None:
@@ -408,7 +430,7 @@ class DriveWrites:
         self._require_metadata_transport(client)
         matches = [
             item
-            for item in client.drive.trash.get_children(force=True)
+            for item in self._trash_inventory(client)
             if item.data.get("drivewsid") == target.identifier
         ]
         if len(matches) != 1:

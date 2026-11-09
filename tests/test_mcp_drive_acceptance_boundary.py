@@ -143,6 +143,7 @@ async def test_injected_owner_download_restores_previous_adapter_deadline() -> N
     tools = content_for(client)
     resource = MagicMock(filename="photo")
     resource.download_url.return_value = "https://icloud-content.com/photo"
+    resource.download_urls = {"original": "https://icloud-content.com/photo"}
     handle = tools.additional.remember("photo-asset", resource)
     response = Response()
     response.status_code = 200

@@ -12,6 +12,7 @@ from requests.sessions import merge_setting
 from requests.utils import prepend_scheme_if_needed, select_proxy
 
 from pyicloud.services.drive import DriveService
+from pyicloud.session import PyiCloudSession
 
 from .authorization import WriteDenied
 from .context import BoundedAdapter
@@ -62,6 +63,26 @@ def validate_dispatch_policy(session: Session, url: str) -> None:
     ):
         raise WriteDenied("insecure_mutation_route")
     if not isinstance(session, Session) or session.auth is not None:
+        raise WriteDenied("mutation_session_policy_unavailable")
+
+
+def validate_metadata_session(session: Any) -> None:
+    """Accept only the known Requests/PyiCloud bounded metadata dispatch path."""
+    if not isinstance(session, Session):
+        raise WriteDenied("mutation_session_policy_unavailable")
+    for name in ("send", "get_adapter", "prepare_request", "get", "post"):
+        if getattr(getattr(session, name, None), "__func__", None) is not getattr(
+            Session, name
+        ):
+            raise WriteDenied("mutation_session_policy_unavailable")
+    request = getattr(session.request, "__func__", None)
+    if request not in {Session.request, PyiCloudSession.request}:
+        raise WriteDenied("mutation_session_policy_unavailable")
+    if (
+        request is PyiCloudSession.request
+        and getattr(getattr(session, "_request", None), "__func__", None)
+        is not PyiCloudSession._request  # pylint: disable=protected-access
+    ):
         raise WriteDenied("mutation_session_policy_unavailable")
 
 

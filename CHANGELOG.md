@@ -54,6 +54,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Validate known metadata dispatch methods before Drive reads and reject arbitrary Photos URL callbacks, using the pure SDK asset resolver or explicit static URL metadata instead.
+- Share complete bounded Trash inspection across recovery and post-write verification, and distinguish document-route failures from account mismatches.
+
 - Reject custom adapter-selection overrides before real Drive inventory reads so dispatch cannot bypass the validated body and deadline policy.
 
 - Reject folder reads through mismatched Drive connections, recheck recovery bindings after Trash refresh, and validate malformed/shared discovered nodes before preparation.

@@ -155,6 +155,11 @@ the same serialized local lane even after session expiry. Release tools advertis
 `readOnlyHint: false` because they invalidate local continuation tokens, while
 `openWorldHint: false` reflects that they never mutate iCloud. Nested folder reads
 reject a mismatched connection instead of borrowing an unchecked transport.
+Metadata transports must retain the known Requests/PyiCloud request and send
+methods as well as stable adapter selection. Photos URL resolution uses the pure
+SDK `PhotoAsset` resolver; custom facades must supply explicit static `download_urls`
+metadata rather than an arbitrary URL callback. Recovery and Trash verification
+share the same complete-inventory bound used for permanent deletion.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

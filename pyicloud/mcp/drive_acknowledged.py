@@ -133,7 +133,7 @@ class DriveAcknowledged(DriveWrites):
             raise WriteDenied("unsupported_target")
         members = [
             item
-            for item in client.drive.trash.get_children(force=True)
+            for item in self._trash_inventory(client)
             if item.data.get("drivewsid") == target.identifier
         ]
         if len(members) != 1 or any(

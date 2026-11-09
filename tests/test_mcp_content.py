@@ -388,9 +388,10 @@ async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
     assert (await tools.file("drive", empty, 1, 4)).error == "invalid_download_range"
     photo = SimpleNamespace(
         filename="photo",
-        download_url=MagicMock(
-            return_value="https://cvws.icloud-content.com/synthetic"
-        ),
+        download_urls={
+            "original": "https://cvws.icloud-content.com/synthetic",
+            "medium": "https://cvws.icloud-content.com/synthetic",
+        },
     )
     photo_handle = tools.additional.remember("photo-asset", photo)
     get_mock.return_value = response()
@@ -497,7 +498,7 @@ async def test_valid_search_and_content_wrappers_use_their_services() -> None:
         id="P",
         filename="Photo",
         created=None,
-        download_url=MagicMock(return_value="https://icloud-content.com/photo"),
+        download_urls={"original": "https://icloud-content.com/photo"},
     )
     get_mock.return_value = response(200, b"photo")
     client.mail.message.return_value = SimpleNamespace(subject="Mail")

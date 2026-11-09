@@ -14,9 +14,11 @@ from urllib.parse import urlsplit
 from requests import Session
 
 from pyicloud.services.drive import DriveNode, DriveService
+from pyicloud.services.photos.service import PhotoAsset
 
 from .additional import AdditionalReads, text
 from .context import BoundedAdapter, SessionOwner, ToolFailure
+from .one_shot import validate_metadata_session
 from .reads import ReadResult, bounded_result
 
 
@@ -384,6 +386,10 @@ class ContentReads:
             or getattr(session.get_adapter, "__func__", None) is not Session.get_adapter
         ):
             raise ToolFailure("unsupported_download_transport")
+        try:
+            validate_metadata_session(session)
+        except Exception:
+            raise ToolFailure("unsupported_download_transport") from None
         adapters = [
             adapter
             for prefix, adapter in session.adapters.items()
@@ -463,7 +469,14 @@ class ContentReads:
             )
         else:
             filename = text(resource.filename)
-            url = limit(client.session, resource.download_url(version))
+            if type(resource) in {PhotoAsset}:
+                value = PhotoAsset.download_url(resource, version)
+            else:
+                urls = getattr(resource, "download_urls", None)
+                if not isinstance(urls, dict):
+                    raise ToolFailure("unsupported_photo_url_producer")
+                value = urls.get(version)
+            url = limit(client.session, value)
             response = client.session.get(
                 url, stream=True, headers=headers, allow_redirects=False
             )
