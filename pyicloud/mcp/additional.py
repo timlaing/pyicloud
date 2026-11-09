@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from itertools import islice
@@ -87,11 +87,11 @@ class AdditionalReads:
     def retire_many(self, selectors: tuple[tuple[str, str], ...]) -> None:
         """Admit all selected handles atomically, then retire their Drive aliases."""
         resources = [self._get(kind, handle) for kind, handle in selectors]
-        identifiers = {
+        identifiers = [
             (node.data.get("drivewsid"), node.data.get("zone"))
             for node in resources
             if isinstance(node, DriveNode)
-        }
+        ]
         keys = {handle for _kind, handle in selectors}
         keys.update(
             handle
@@ -239,19 +239,20 @@ class AdditionalReads:
             if node.type not in {"folder", "app_library"}:
                 raise ToolFailure("invalid_argument")
             records = []
-            for child in self._bounded_drive_children(node, scan_limit):
-                name, kind = text(child.name), text(child.type)
-                if query.casefold() not in name.casefold():
-                    continue
-                record = {
-                    "name": name,
-                    "type": kind,
-                    "modified": timestamp(child.date_modified),
-                }
-                self._drive_record_handle(record, kind, child)
-                records.append(record)
-                if len(records) >= limit:
-                    break
+            with self._bounded_drive_children(node, scan_limit) as children:
+                for child in children:
+                    name, kind = text(child.name), text(child.type)
+                    if query.casefold() not in name.casefold():
+                        continue
+                    record = {
+                        "name": name,
+                        "type": kind,
+                        "modified": timestamp(child.date_modified),
+                    }
+                    self._drive_record_handle(record, kind, child)
+                    records.append(record)
+                    if len(records) >= limit:
+                        break
             return bounded_result(records, limit, complete=False)
 
         return await self._run("drive", query, limit, read)
@@ -278,21 +279,24 @@ class AdditionalReads:
 
         def read(client: Any) -> ReadResult:
             records = []
-            for child in self._bounded_drive_children(client.drive.trash, scan_limit):
-                name, kind = text(child.name), text(child.type)
-                if (
-                    kind not in {"file", "folder"}
-                    or query.casefold() not in name.casefold()
-                ):
-                    continue
-                records.append({
-                    "handle": self._store("drive-trash-" + kind, child),
-                    "name": name,
-                    "type": kind,
-                    "modified": timestamp(child.date_modified),
-                })
-                if len(records) >= limit:
-                    break
+            with self._bounded_drive_children(
+                client.drive.trash, scan_limit
+            ) as children:
+                for child in children:
+                    name, kind = text(child.name), text(child.type)
+                    if (
+                        kind not in {"file", "folder"}
+                        or query.casefold() not in name.casefold()
+                    ):
+                        continue
+                    records.append({
+                        "handle": self._store("drive-trash-" + kind, child),
+                        "name": name,
+                        "type": kind,
+                        "modified": timestamp(child.date_modified),
+                    })
+                    if len(records) >= limit:
+                        break
             return bounded_result(records, limit, complete=False)
 
         return await self._run("drive", query, limit, read)
@@ -533,17 +537,24 @@ class AdditionalReads:
             if folder.type not in {"folder", "app_library"}:
                 raise ToolFailure("invalid_argument")
             fetched += 1
-            for item in self._bounded_drive_children(folder, 2000):
-                yield item
-                if item.type in {"folder", "app_library"}:
-                    pending.append(item)
+            with self._bounded_drive_children(folder, 2000) as children:
+                for item in children:
+                    yield item
+                    if item.type in {"folder", "app_library"}:
+                        pending.append(item)
 
     @staticmethod
-    def _bounded_drive_children(node: Any, maximum: int) -> Iterable[Any]:
+    @contextmanager
+    def _bounded_drive_children(
+        node: Any, maximum: int
+    ) -> Generator[Iterator[Any], None, None]:
         """Use the library's lazy bounded producer and cap custom facade iteration."""
         if isinstance(node, DriveNode):
-            return node.iter_children(force=True, max_children=maximum)
-        producer = getattr(node, "iter_children", None)
-        if not callable(producer):
-            raise ToolFailure("unsupported_drive_inventory")
-        return islice(producer(force=True, max_children=maximum), maximum)
+            items = node.iter_children(force=True, max_children=maximum)
+        else:
+            producer = getattr(node, "iter_children", None)
+            if not callable(producer):
+                raise ToolFailure("unsupported_drive_inventory")
+            items = producer(force=True, max_children=maximum)
+        with window(items, maximum) as children:
+            yield children

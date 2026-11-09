@@ -262,6 +262,19 @@ class DriveWrites:
         ):
             raise WriteDenied("unsupported_target")
 
+    def _check_accepted_context(
+        self,
+        client: Any,
+        target: DriveTarget,
+        node: DriveNode,
+        account: str,
+        resource: str,
+        revision: str,
+    ) -> None:
+        """Receipt acceptance cannot replace the account, service route or target."""
+        if self._bindings(client, target, node) != (account, resource, revision):
+            raise WriteDenied("stale_preview")
+
     @staticmethod
     def _require_current_preview(current: Any, selected: Any) -> None:
         """Reject queued selections evicted before owner-lane admission."""
@@ -294,6 +307,9 @@ class DriveWrites:
             self._require_live_source(*selected_source)
             if accept is not None:
                 accept(request_id)
+            self._check_accepted_context(
+                client, target, node, account, resource, revision
+            )
             approved = self.ledger.consume(
                 request_id,
                 account_binding=account,

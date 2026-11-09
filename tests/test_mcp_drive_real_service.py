@@ -13,7 +13,7 @@ from requests import PreparedRequest, Response, Session
 from pyicloud.mcp.authorization import ApprovalLedger
 from pyicloud.mcp.context import BoundedAdapter
 from pyicloud.services.drive import CLOUD_DOCS_ZONE_ID_TRASH, DriveService
-from tests.test_mcp_drive_deletions import setup_delete
+from tests.test_mcp_drive_deletions import delete_ack, setup_delete
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_writes import setup_writer
 
@@ -87,6 +87,7 @@ async def test_real_drive_service_dispatches_approved_mutation_once(
                 data.update(parentId="TRASH_ROOT", restorePath="Before.txt", etag="v2")
             else:
                 deleted[0] = True
+                result = delete_ack(data)
         vars(response).update(
             _content=json.dumps(result).encode(), _content_consumed=True
         )
@@ -109,7 +110,7 @@ async def test_real_drive_service_dispatches_approved_mutation_once(
                 preview.request_id, preview.digest, high_risk=preview.risk == "high"
             )
             result = await writer.apply(preview.request_id)
-        assert result.get("changed", result.get("deleted")) is True
+        assert result.get("changed", result.get("acknowledged")) is True
         expected = {
             "rename": "renameItems",
             "move": "moveItems",

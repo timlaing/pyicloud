@@ -199,6 +199,19 @@ class DriveMoves(DriveWrites):
             )
             if accept is not None:
                 accept(request_id)
+            source_resource, destination_resource, _parent = json.loads(resource)
+            source_revision, destination_revision = json.loads(revision)
+            self._check_accepted_context(
+                client, targets[0], source, account, source_resource, source_revision
+            )
+            self._check_accepted_context(
+                client,
+                targets[1],
+                destination,
+                account,
+                destination_resource,
+                destination_revision,
+            )
             self.ledger.consume(
                 request_id,
                 account_binding=account,

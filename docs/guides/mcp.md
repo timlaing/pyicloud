@@ -126,6 +126,12 @@ fallbacks are rejected. Download operations restore prior injected-adapter deadl
 on success and failure. Receipt acceptance cannot replace the bound account or
 routes, and pinned dispatch still validates its URL and session policy. Evicting an
 upload selector also revokes its ledger decision.
+Inventory producers are closed on truncation and exceptions. Permanent Drive
+deletion requires an item-correlated tombstone acknowledgement and reports
+`acknowledged: true`, `final_state_verified: false`; a generic HTTP 404/410 is not
+proof that a file was permanently deleted. Context is revalidated after receipt
+acceptance before mutation dispatch. Photos uploads also validate registration
+policy before consuming resources and retain them on proven pre-dispatch rejection.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

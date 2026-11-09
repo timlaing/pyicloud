@@ -426,7 +426,7 @@ class DriveService(BaseService):
 
     @staticmethod
     def _raise_if_error(response: Response) -> None:
-        if isinstance(response.status_code, int) and 300 <= response.status_code < 400:
+        if response.status_code in {301, 302, 303, 307, 308}:
             raise PyiCloudAPIResponseException(
                 "Drive redirect not followed", response.status_code
             )
@@ -506,7 +506,7 @@ class DriveNode:
     def iter_children(
         self, *, force: bool = False, max_children: int = 2000
     ) -> Iterator["DriveNode"]:
-        """Construct a bounded fresh-child prefix without populating caches."""
+        """Refresh raw inventory; construct a bounded prefix without a child cache."""
         if (
             isinstance(max_children, bool)
             or not isinstance(max_children, int)

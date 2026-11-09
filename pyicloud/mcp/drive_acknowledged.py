@@ -225,12 +225,14 @@ class DriveAcknowledged(DriveWrites):
                 client, action, selector, pending_name
             )
             mutation_url = _acknowledgement_url(client, action)
-            self._require_retry_disabled(
+            adapter = self._require_retry_disabled(
                 client,
                 prepared_url(client.drive.session, mutation_url, client.drive.params),
             )
+            approved_route = client.drive.service_root
             if accept is not None:
                 accept(request_id)
+            _verify_after_route(client, account, approved_route)
             approved = self.ledger.consume(
                 request_id,
                 account_binding=account,
@@ -272,6 +274,7 @@ class DriveAcknowledged(DriveWrites):
                     frozenset({str(urlsplit(route).hostname)}),
                     body,
                     params=dict(client.drive.params),
+                    adapter=adapter,
                     headers={CONTENT_TYPE: CONTENT_TYPE_TEXT}
                     if action == DRIVE_CREATE_FOLDER
                     else None,

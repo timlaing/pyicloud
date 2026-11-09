@@ -11,7 +11,7 @@ import pytest
 from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.mcp.authorization import WriteDenied
 from pyicloud.mcp.context import BoundedAdapter, ToolFailure
-from tests.test_mcp_drive_deletions import setup_delete
+from tests.test_mcp_drive_deletions import delete_ack, setup_delete
 from tests.test_mcp_drive_moves import setup_move
 from tests.test_mcp_drive_uploads import setup_adapter
 from tests.test_mcp_drive_writes import setup_writer
@@ -20,13 +20,13 @@ from tests.test_mcp_drive_writes import setup_writer
 @pytest.mark.asyncio
 async def test_trash_listing_cannot_switch_context_before_absence_lookup() -> None:
     """A listing-context change denies proof before querying a foreign route."""
-    writer, client, handle, _data = setup_delete()
+    writer, client, handle, data = setup_delete()
     preview = await writer.prepare_delete(handle, {})
     writer.ledger.approve_from_operator(
         preview.request_id, preview.digest, high_risk=True
     )
 
-    def deleted(*_args: Any, **_kwargs: Any) -> None:
+    def deleted(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         def listing(**_options: Any) -> list[Any]:
             client.drive.service_root = "https://foreign.example.test"
             return []
@@ -36,6 +36,7 @@ async def test_trash_listing_cannot_switch_context_before_absence_lookup() -> No
         client.drive.get_node_data.side_effect = PyiCloudAPIResponseException(
             "Synthetic absence", 404
         )
+        return delete_ack(data)
 
     client.drive.delete_forever_from_trash.side_effect = deleted
     with pytest.raises(WriteDenied, match="mutation_uncertain"):

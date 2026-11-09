@@ -52,6 +52,10 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Compare Drive retirement identities without hashing malformed metadata and close original inventory producers on truncation or failures.
+- Pin acknowledgement registration adapters, revalidate mutation context after acceptance, preserve specific transport denials and reject only actual redirect statuses.
+- Require correlated permanent-deletion acknowledgements and report acknowledgement-only outcomes rather than claiming final deletion from generic HTTP absence. Preserve Photos upload resources on proven pre-dispatch transport rejection.
+
 - Require bounded producers for injected Drive inventories, restore injected-owner download deadlines, and turn malformed upload roots or missing folder identifiers into safe denials.
 - Revoke evicted upload decisions, reject account/route changes after receipt acceptance, validate pinned dispatch URLs, and restore resources on proven first adapter-lookup failure.
 

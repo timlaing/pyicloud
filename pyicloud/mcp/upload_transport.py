@@ -176,6 +176,7 @@ class UploadTransport:
         deadline: float | None = None,
         params: dict[str, Any] | None = None,
         dispatch_state: UploadDispatchState | None = None,
+        adapter: BoundedAdapter | None = None,
     ) -> Any:
         """One raw account-service request; no authentication recovery/replay."""
         target = checked_upload_url(url, hosts)
@@ -183,17 +184,21 @@ class UploadTransport:
         if params is not None:
             options["params"] = params
         try:
-            adapter = checked_adapter(
-                session, prepared_url(session, target, params), bounded=True
+            selected_adapter = (
+                adapter
+                if adapter is not None
+                else checked_adapter(
+                    session, prepared_url(session, target, params), bounded=True
+                )
             )
         except WriteDenied as error:
             if dispatch_state is not None and not dispatch_state.attempted:
                 raise UploadNotDispatched("upload_not_dispatched") from None
-            if str(error) == "upload_deadline_policy_unavailable":
-                raise
-            raise WriteDenied("upload_retry_policy_unavailable") from None
-        assert isinstance(adapter, BoundedAdapter)
-        with _registration_budget(adapter, deadline, dispatch_state):
+            if str(error) == "mutation_retry_policy_unavailable":
+                raise WriteDenied("upload_retry_policy_unavailable") from None
+            raise
+        assert isinstance(selected_adapter, BoundedAdapter)
+        with _registration_budget(selected_adapter, deadline, dispatch_state):
             try:
                 response = request_once(
                     session,
@@ -203,7 +208,7 @@ class UploadTransport:
                     timeout=(10.0, 60.0),
                     allow_redirects=False,
                     stream=True,
-                    adapter=adapter,
+                    adapter=selected_adapter,
                     **options,
                 )
                 return bounded_upload_json(response)

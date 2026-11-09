@@ -17,6 +17,11 @@ from pyicloud.services.drive import DriveNode
 from tests.test_mcp_drive_writes import setup_writer
 
 
+def delete_ack(data: dict[str, Any]) -> dict[str, Any]:
+    """Observed item-specific tombstone acknowledgement without final-state claims."""
+    return {"items": [{**data, "status": "OK", "isDeleted": True, "etag": "null"}]}
+
+
 def setup_delete() -> tuple[DriveDeletions, Any, str, dict[str, Any]]:
     """Use real DriveNode deletion method with mocked facade methods only."""
     writer, client, _ordinary, data = setup_writer()
@@ -55,7 +60,7 @@ async def test_elevated_delete_retires_handle_and_proves_both_absences() -> None
         client.drive.get_node_data.side_effect = PyiCloudAPIResponseException(
             "Synthetic absence", 404
         )
-        return {"ignored": "No proof"}
+        return delete_ack(data)
 
     client.drive.delete_forever_from_trash.side_effect = delete
 
@@ -64,7 +69,8 @@ async def test_elevated_delete_retires_handle_and_proves_both_absences() -> None
 
     assert await deletes.apply(preview.request_id, accept) == {
         "action": "drive.delete_forever_file",
-        "deleted": True,
+        "acknowledged": True,
+        "final_state_verified": False,
     }
     client.drive.delete_forever_from_trash.assert_called_once()
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
@@ -108,7 +114,9 @@ async def test_unverified_permanent_delete_has_no_retry_handle(case: str) -> Non
     )
     callbacks: list[str] = []
 
-    def delete(_identifier: str, _etag: str, *, allow_redirects: bool) -> None:
+    def delete(
+        _identifier: str, _etag: str, *, allow_redirects: bool
+    ) -> dict[str, Any]:
         assert allow_redirects is False
         callbacks.append(case)
         if case == "transport":
@@ -127,6 +135,7 @@ async def test_unverified_permanent_delete_has_no_retry_handle(case: str) -> Non
                 "isDeleted": True,
                 "etag": "null",
             }
+        return delete_ack(data)
 
     client.drive.delete_forever_from_trash.side_effect = delete
     with pytest.raises(WriteDenied, match="mutation_uncertain"):

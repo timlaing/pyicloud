@@ -18,11 +18,12 @@ from pyicloud.services.photos.service import (
 )
 
 from .authorization import MutationPreview, WriteDenied
+from .context import SessionOwner
 from .photo_album_creates import PhotoAlbumCreates
-from .photo_upload_bytes import PhotoUploadBytes
+from .photo_upload_bytes import PhotoUploadBytes, validate_photo_upload_session
 from .photo_writes import PhotoWrites
 from .upload_staging import UploadStaging
-from .upload_transport import UploadTransport, checked_upload_url
+from .upload_transport import UploadNotDispatched, UploadTransport, checked_upload_url
 
 
 class PhotoUploads:
@@ -170,6 +171,15 @@ class PhotoUploads:
 
         def apply(client: Any) -> dict[str, Any]:
             library, account, resource, revision = self._read(client, zone, token)
+            adapters = validate_photo_upload_session(
+                client.photos.session,
+                client.photos.upload_root,
+                dict(client.photos.params),
+            )
+            owner = self.additional.reads.owner
+            if isinstance(owner, SessionOwner):
+                for adapter in adapters:
+                    owner.bind_adapter(adapter)
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(
@@ -191,6 +201,7 @@ class PhotoUploads:
                     "PrimarySync",
                     stage,
                     modified_ms=modified_ms,
+                    stage_acquired=True,
                 )
                 proof = PhotoWrites(self.additional, self.ledger)
                 if not result.cplAsset or not result.cplMaster:
@@ -213,6 +224,16 @@ class PhotoUploads:
                     "duplicate": result.is_duplicate,
                     "verified": True,
                 }
+            except UploadNotDispatched:
+                self.staging._stages[token] = stage
+                self.ledger.restore_before_dispatch(
+                    approved,
+                    account_binding=account,
+                    resource_binding=resource,
+                    revision=revision,
+                )
+                self._requests[request_id] = target
+                raise
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
 

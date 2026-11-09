@@ -19,8 +19,39 @@ from pyicloud.services.photos.models import (
 from pyicloud.services.photos.upload import CREATE_UPLOAD_URL_PATH, PUT_ASSET_PATH
 
 from .authorization import WriteDenied
+from .context import BoundedAdapter
+from .one_shot import checked_adapter, prepared_url
 from .upload_staging import StagedUpload
-from .upload_transport import UploadTransport, checked_upload_url
+from .upload_transport import (
+    UploadDispatchState,
+    UploadNotDispatched,
+    UploadTransport,
+    checked_upload_url,
+)
+
+
+def validate_photo_upload_session(
+    session: Any, root: str, params: dict[str, Any]
+) -> list[BoundedAdapter]:
+    """Validate both exact registration adapters before spending Photos resources."""
+    try:
+        parsed = urlsplit(root)
+    except ValueError:
+        raise WriteDenied("unsupported_upload_route") from None
+    hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
+    checked_upload_url(root, hosts)
+    if "?" in root or "#" in root:
+        raise WriteDenied("unsupported_upload_route")
+    adapters = []
+    for path in (CREATE_UPLOAD_URL_PATH, PUT_ASSET_PATH):
+        adapter = checked_adapter(
+            session,
+            prepared_url(session, root.rstrip("/") + path, params),
+            bounded=True,
+        )
+        assert isinstance(adapter, BoundedAdapter)
+        adapters.append(adapter)
+    return adapters
 
 
 class PhotoUploadBytes:
@@ -44,6 +75,7 @@ class PhotoUploadBytes:
         stage: StagedUpload,
         *,
         modified_ms: int,
+        stage_acquired: bool = False,
     ) -> PhotosPutAssetResult:
         """Use the existing typed wire contract with exact immutable staged bytes."""
         parsed = urlsplit(root)
@@ -57,7 +89,7 @@ class PhotoUploadBytes:
             or not 0 < stage.size <= 4 * 1024 * 1024
             or len(stage.data) != stage.size
             or hashlib.sha256(stage.data).hexdigest() != stage.sha256
-            or stage.expires_at <= time.monotonic()
+            or (not stage_acquired and stage.expires_at <= time.monotonic())
             or not stage.name
             or stage.name in {".", ".."}
             or any(char in stage.name for char in ("/", "\\", "\x00"))
@@ -80,6 +112,7 @@ class PhotoUploadBytes:
         def url(path: str) -> str:
             return root.rstrip("/") + path + "?" + urlencode(snapshot)
 
+        dispatch_state = UploadDispatchState()
         try:
             reservation = PhotosCreateUploadUrlResponse.model_validate(
                 self.transport.register(
@@ -90,6 +123,7 @@ class PhotoUploadBytes:
                         zoneName=zone, assets={identifier: stage.size}
                     ).model_dump(mode="json"),
                     deadline=deadline,
+                    dispatch_state=dispatch_state,
                 )
             )
             if set(reservation.uploadUrls) != {identifier}:
@@ -136,6 +170,10 @@ class PhotoUploadBytes:
             ):
                 raise WriteDenied("upload_outcome_uncertain")
             return registered
+        except UploadNotDispatched:
+            if not dispatch_state.attempted:
+                raise
+            raise WriteDenied("upload_outcome_uncertain") from None
         except Exception:
             # Even a reservation/transfer failure may have allocated/stored data.
             # No implicit cleanup, re-reservation or registration replay is safe.

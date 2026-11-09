@@ -112,6 +112,9 @@ class DriveDeletions(DriveWrites):
             adapter = self._require_mutation_path(client, "/deleteItems")
             if accept is not None:
                 accept(request_id)
+            self._check_accepted_context(
+                client, target, node, account, json.loads(resource)[0], revision
+            )
             approved = self.ledger.consume(
                 request_id,
                 account_binding=account,
@@ -124,9 +127,10 @@ class DriveDeletions(DriveWrites):
             self._retire_source("drive-trash-file", handle)
             try:
                 with mutation_session(client.drive, adapter=adapter) as dispatch_drive:
-                    DriveNode(dispatch_drive, node.data).delete_forever(
-                        allow_redirects=False
-                    )
+                    acknowledgement = DriveNode(
+                        dispatch_drive, node.data
+                    ).delete_forever(allow_redirects=False)
+                self._verify_acknowledgement(acknowledgement, target, node)
                 current_account, current_resource, _revision = self._bindings(
                     client, target, node
                 )
@@ -145,9 +149,43 @@ class DriveDeletions(DriveWrites):
                 self._verify_context(client, target, node, account, prior_base)
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
-            return {"action": "drive.delete_forever_file", "deleted": True}
+            return {
+                "action": "drive.delete_forever_file",
+                "acknowledged": True,
+                "final_state_verified": False,
+            }
 
         return await self.additional.reads.owner.run(apply)
+
+    @staticmethod
+    def _verify_acknowledgement(
+        response: Any, target: DriveTarget, node: DriveNode
+    ) -> None:
+        """Correlate the deleteItems tombstone reply, not generic HTTP absence."""
+        items = response.get("items") if isinstance(response, dict) else None
+        if (
+            not isinstance(items, list)
+            or len(items) != 1
+            or not isinstance(items[0], dict)
+        ):
+            raise WriteDenied("mutation_unverified")
+        item = items[0]
+        if (
+            item.get("drivewsid"),
+            item.get("zone"),
+            item.get("type"),
+            item.get("status"),
+            item.get("isDeleted"),
+            item.get("etag"),
+        ) != (
+            target.identifier,
+            target.zone,
+            node.data["type"],
+            "OK",
+            True,
+            "null",
+        ) or item.get("isDeleted") is not True:
+            raise WriteDenied("mutation_unverified")
 
     def _verify_context(
         self,
