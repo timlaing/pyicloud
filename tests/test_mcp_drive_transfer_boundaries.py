@@ -145,14 +145,19 @@ def test_real_session_does_not_repeat_redirected_mutation(
         return result
 
     try:
-        with (
-            patch("requests.adapters.HTTPAdapter.send", side_effect=redirected) as send,
-            pytest.raises(PyiCloudAPIResponseException, match="redirect not followed"),
-        ):
+        with patch(
+            "requests.adapters.HTTPAdapter.send", side_effect=redirected
+        ) as send:
             if verification:
-                drive.get_node_data("F")
+                with pytest.raises(
+                    PyiCloudAPIResponseException, match="redirect not followed"
+                ):
+                    drive.get_node_data("F")
             else:
-                drive.rename_items("F", "R", "New", allow_redirects=False)
+                with pytest.raises(
+                    PyiCloudAPIResponseException, match="redirect not followed"
+                ):
+                    drive.rename_items("F", "R", "New", allow_redirects=False)
         send.assert_called_once()
     finally:
         session.close()

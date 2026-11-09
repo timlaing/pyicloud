@@ -98,10 +98,12 @@ def test_missing_refresh_inventory_never_reuses_old_children(lazy: bool) -> None
     )
     node.get_children()
     connection.get_node_data.return_value = {"status": "OK"}
-    with pytest.raises(KeyError):
-        if lazy:
-            list(node.iter_children(force=True))
-        else:
+    if lazy:
+        children = node.iter_children(force=True)
+        with pytest.raises(KeyError):
+            list(children)
+    else:
+        with pytest.raises(KeyError):
             node.get_children(force=True)
     assert node._children is None
     assert "items" not in node.data
