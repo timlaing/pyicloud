@@ -43,7 +43,7 @@ def validate_upload_session(
         raise WriteDenied("unsupported_upload_route") from None
     hosts = frozenset({parsed.hostname}) if parsed.hostname else frozenset()
     checked_upload_url(root, hosts)
-    if parsed.query or "?" in root:
+    if parsed.query or "?" in root or "#" in root:
         raise WriteDenied("unsupported_upload_route")
     params = {**drive.params, **credentials}
     deadlines: list[float] = []
@@ -227,6 +227,7 @@ class DriveUploadBytes:
         if (
             parsed.query
             or "?" in root
+            or "#" in root
             or not isinstance(folder_id, str)
             or not folder_id
         ):

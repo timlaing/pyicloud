@@ -93,7 +93,7 @@ class DriveDeletions(DriveWrites):
             self._publish_preview(preview, publish, (self._deletions,))
             return preview
 
-        return await self.additional.reads.owner.run(prepare)
+        return await self._run(prepare)
 
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
@@ -155,7 +155,7 @@ class DriveDeletions(DriveWrites):
                 "final_state_verified": False,
             }
 
-        return await self.additional.reads.owner.run(apply)
+        return await self._run(apply)
 
     @staticmethod
     def _verify_acknowledgement(

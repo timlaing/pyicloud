@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import json
 import time
-from typing import Any
+from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
 from pyicloud.services.drive import DriveNode
@@ -32,6 +32,7 @@ class DriveTarget:
 
 DRIVE_RENAME = "drive.rename"
 DRIVE_TRASH_FILE = "drive.trash_file"
+T = TypeVar("T")
 
 
 class DriveWrites:
@@ -43,6 +44,21 @@ class DriveWrites:
         self._targets: dict[str, DriveTarget] = {}
         self._actions: dict[str, str] = {}
         self._sources: dict[str, tuple[str, str]] = {}
+        self._injected_adapters: dict[BoundedAdapter, float | None] = {}
+
+    async def _run(self, operation: Callable[[Any], T]) -> T:
+        """Restore injected-owner transport budgets after a serialized operation."""
+        owner = self.additional.reads.owner
+
+        def invoke(client: Any) -> T:
+            try:
+                return operation(client)
+            finally:
+                for adapter, previous in self._injected_adapters.items():
+                    adapter.deadline = previous
+                self._injected_adapters.clear()
+
+        return await owner.run(invoke)
 
     def _fresh(self, client: Any, target: DriveTarget) -> DriveNode:
         self._require_metadata_transport(client)
@@ -126,6 +142,9 @@ class DriveWrites:
         if isinstance(owner, SessionOwner):
             owner.bind_adapter(adapter)
         else:
+            if adapter not in self._injected_adapters:
+                self._injected_adapters[adapter] = adapter.deadline
+                adapter.requests_left = 32
             deadline = time.monotonic() + owner.config.timeout
             adapter.deadline = (
                 min(adapter.deadline, deadline)
@@ -206,7 +225,7 @@ class DriveWrites:
             )
             return preview
 
-        return await self.additional.reads.owner.run(prepare)
+        return await self._run(prepare)
 
     def _publish_preview(
         self,
@@ -346,7 +365,7 @@ class DriveWrites:
                 raise WriteDenied("mutation_uncertain") from None
             return {"action": DRIVE_RENAME, "changed": True}
 
-        return await self.additional.reads.owner.run(apply)
+        return await self._run(apply)
 
     def _verify_rename(
         self, client: Any, target: DriveTarget, name: str, account: str, resource: str

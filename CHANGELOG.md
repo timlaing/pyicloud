@@ -52,6 +52,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Restore injected Drive operation deadlines and refresh per-operation download request budgets, while rejecting plaintext metadata routes and bare document-root fragments before SDK reads or upload admission.
+- Align Photos registration parameters with preflight, carry the owner deadline through transfer, acquire stages atomically with approval consumption, and preserve accepted receipts and approved context across pre-dispatch retries.
+
 - Compare Drive retirement identities without hashing malformed metadata and close original inventory producers on truncation or failures.
 - Pin acknowledgement registration adapters, revalidate mutation context after acceptance, preserve specific transport denials and reject only actual redirect statuses.
 - Require correlated permanent-deletion acknowledgements and report acknowledgement-only outcomes rather than claiming final deletion from generic HTTP absence. Preserve Photos upload resources on proven pre-dispatch transport rejection.

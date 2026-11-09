@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import time
 from typing import Any
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from pyicloud.services.photos.models import (
@@ -105,6 +105,7 @@ class PhotoUploadBytes:
         *,
         modified_ms: int,
         stage_acquired: bool = False,
+        owner_deadline: float | None = None,
     ) -> PhotosPutAssetResult:
         """Use the existing typed wire contract with exact immutable staged bytes."""
         parsed = urlsplit(root)
@@ -116,9 +117,11 @@ class PhotoUploadBytes:
         snapshot = _photo_parameter_snapshot(params)
         identifier = str(uuid4())
         deadline = time.monotonic() + self.timeout
+        if owner_deadline is not None:
+            deadline = min(deadline, owner_deadline)
 
         def url(path: str) -> str:
-            return root.rstrip("/") + path + "?" + urlencode(snapshot)
+            return root.rstrip("/") + path
 
         dispatch_state = UploadDispatchState()
         try:
@@ -131,6 +134,7 @@ class PhotoUploadBytes:
                         zoneName=zone, assets={identifier: stage.size}
                     ).model_dump(mode="json"),
                     deadline=deadline,
+                    params=snapshot,
                     dispatch_state=dispatch_state,
                 )
             )
@@ -166,6 +170,7 @@ class PhotoUploadBytes:
                     ],
                 ).model_dump(mode="json"),
                 deadline=deadline,
+                params=snapshot,
             )
             if not isinstance(result, list) or len(result) != 1:
                 raise WriteDenied("upload_outcome_uncertain")

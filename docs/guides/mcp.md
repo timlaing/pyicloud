@@ -132,6 +132,11 @@ deletion requires an item-correlated tombstone acknowledgement and reports
 proof that a file was permanently deleted. Context is revalidated after receipt
 acceptance before mutation dispatch. Photos uploads also validate registration
 policy before consuming resources and retain them on proven pre-dispatch rejection.
+Injected Drive operations restore prior adapter deadlines at operation completion;
+download request budgets reset once per operation, not on each guard call. Metadata
+roots must be HTTPS before the first SDK read. Photos stages are acquired atomically
+with approval consumption, transfer deadlines inherit the owner budget, and accepted
+receipts survive a proven pre-dispatch rejection without a second mailbox read.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

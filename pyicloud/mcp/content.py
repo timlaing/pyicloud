@@ -333,6 +333,17 @@ class ContentReads:
         if isinstance(resource, DriveNode) and isinstance(
             resource.connection, DriveService
         ):
+            for root in (
+                resource.connection.service_root,
+                resource.connection.document_root,
+            ):
+                parsed = urlsplit(root)
+                if (
+                    parsed.scheme != "https"
+                    or parsed.username is not None
+                    or parsed.password is not None
+                ):
+                    raise ToolFailure("invalid_resource_url")
             self._guard_download_session(resource.connection.session, previous)
 
     def _guard_download_session(
@@ -359,8 +370,9 @@ class ContentReads:
             if isinstance(owner, SessionOwner):
                 owner.bind_adapter(adapter)
             else:
-                if previous is not None:
-                    previous.setdefault(adapter, adapter.deadline)
+                if previous is not None and adapter not in previous:
+                    previous[adapter] = adapter.deadline
+                    adapter.requests_left = 32
                 deadline = time.monotonic() + owner.config.timeout
                 adapter.deadline = (
                     min(adapter.deadline, deadline)

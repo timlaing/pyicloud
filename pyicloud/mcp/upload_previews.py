@@ -82,7 +82,7 @@ class UploadPreviews(DriveWrites):
             self._publish_preview(preview, publish)
             return preview
 
-        return await self.additional.reads.owner.run(prepare)
+        return await self._run(prepare)
 
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None

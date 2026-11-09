@@ -125,6 +125,7 @@ class DriveUploads(DriveWrites):
         if (
             parsed.query
             or "?" in root
+            or "#" in root
             or str(client.drive.params.get("dsid")) != account
         ):
             raise WriteDenied("account_unavailable")
@@ -195,7 +196,7 @@ class DriveUploads(DriveWrites):
             )
             return preview
 
-        return await self.additional.reads.owner.run(prepare)
+        return await self._run(prepare)
 
     def _accept_receipt(
         self, request_id: str, accept: Callable[[str], None] | None
@@ -281,4 +282,4 @@ class DriveUploads(DriveWrites):
                 "final_state_verified": False,
             }
 
-        return await self.additional.reads.owner.run(apply)
+        return await self._run(apply)

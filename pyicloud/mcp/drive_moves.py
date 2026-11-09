@@ -106,7 +106,7 @@ class DriveMoves(DriveWrites):
             )
             return preview
 
-        return await self.additional.reads.owner.run(prepare)
+        return await self._run(prepare)
 
     def _checked_destination(
         self, client: Any, target: DriveTarget, destination: DriveNode
@@ -268,4 +268,4 @@ class DriveMoves(DriveWrites):
                 raise WriteDenied("mutation_uncertain") from None
             return {"action": DRIVE_MOVE_FILE, "changed": True}
 
-        return await self.additional.reads.owner.run(apply)
+        return await self._run(apply)
