@@ -75,6 +75,14 @@ def _validate_photo_stage(
         raise WriteDenied("invalid_upload_bytes")
 
 
+def _photo_parameter_snapshot(params: dict[str, Any]) -> dict[str, Any]:
+    """Copy the existing parameters only after validating the account identifier."""
+    account = params.get("dsid")
+    if not isinstance(account, str) or not account.isascii() or not account.isdecimal():
+        raise WriteDenied("account_unavailable")
+    return dict(params)
+
+
 class PhotoUploadBytes:
     """One reservation/transfer/registration, never a mutation retry or success claim.
 
@@ -105,14 +113,7 @@ class PhotoUploadBytes:
         if parsed.query or parsed.fragment or not zone or zone != "PrimarySync":
             raise WriteDenied("unsupported_upload_route")
         _validate_photo_stage(stage, modified_ms, stage_acquired)
-        account = params.get("dsid")
-        if (
-            not isinstance(account, str)
-            or not account.isascii()
-            or not account.isdecimal()
-        ):
-            raise WriteDenied("account_unavailable")
-        snapshot = dict(params)
+        snapshot = _photo_parameter_snapshot(params)
         identifier = str(uuid4())
         deadline = time.monotonic() + self.timeout
 
