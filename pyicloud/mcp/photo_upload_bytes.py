@@ -54,6 +54,27 @@ def validate_photo_upload_session(
     return adapters
 
 
+def _validate_photo_stage(
+    stage: StagedUpload, modified_ms: int, stage_acquired: bool
+) -> None:
+    """Require the existing immutable byte/leaf/time contract before dispatch."""
+    if (
+        not isinstance(stage, StagedUpload)
+        or not isinstance(stage.data, bytes)
+        or not 0 < stage.size <= 4 * 1024 * 1024
+        or len(stage.data) != stage.size
+        or hashlib.sha256(stage.data).hexdigest() != stage.sha256
+        or (not stage_acquired and stage.expires_at <= time.monotonic())
+        or not stage.name
+        or stage.name in {".", ".."}
+        or any(char in stage.name for char in ("/", "\\", "\x00"))
+        or isinstance(modified_ms, bool)
+        or not isinstance(modified_ms, int)
+        or modified_ms < 0
+    ):
+        raise WriteDenied("invalid_upload_bytes")
+
+
 class PhotoUploadBytes:
     """One reservation/transfer/registration, never a mutation retry or success claim.
 
@@ -83,21 +104,7 @@ class PhotoUploadBytes:
         checked_upload_url(root, hosts)
         if parsed.query or parsed.fragment or not zone or zone != "PrimarySync":
             raise WriteDenied("unsupported_upload_route")
-        if (
-            not isinstance(stage, StagedUpload)
-            or not isinstance(stage.data, bytes)
-            or not 0 < stage.size <= 4 * 1024 * 1024
-            or len(stage.data) != stage.size
-            or hashlib.sha256(stage.data).hexdigest() != stage.sha256
-            or (not stage_acquired and stage.expires_at <= time.monotonic())
-            or not stage.name
-            or stage.name in {".", ".."}
-            or any(char in stage.name for char in ("/", "\\", "\x00"))
-            or isinstance(modified_ms, bool)
-            or not isinstance(modified_ms, int)
-            or modified_ms < 0
-        ):
-            raise WriteDenied("invalid_upload_bytes")
+        _validate_photo_stage(stage, modified_ms, stage_acquired)
         account = params.get("dsid")
         if (
             not isinstance(account, str)

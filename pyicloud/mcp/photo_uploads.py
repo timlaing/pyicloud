@@ -160,6 +160,16 @@ class PhotoUploads:
         ):
             raise WriteDenied("mutation_unverified")
 
+    def _validate_session_policy(self, client: Any) -> None:
+        """Check and bind both registration transports before resource consumption."""
+        adapters = validate_photo_upload_session(
+            client.photos.session, client.photos.upload_root, dict(client.photos.params)
+        )
+        owner = self.additional.reads.owner
+        if isinstance(owner, SessionOwner):
+            for adapter in adapters:
+                owner.bind_adapter(adapter)
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -171,15 +181,7 @@ class PhotoUploads:
 
         def apply(client: Any) -> dict[str, Any]:
             library, account, resource, revision = self._read(client, zone, token)
-            adapters = validate_photo_upload_session(
-                client.photos.session,
-                client.photos.upload_root,
-                dict(client.photos.params),
-            )
-            owner = self.additional.reads.owner
-            if isinstance(owner, SessionOwner):
-                for adapter in adapters:
-                    owner.bind_adapter(adapter)
+            self._validate_session_policy(client)
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(
