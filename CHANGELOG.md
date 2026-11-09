@@ -54,6 +54,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Map upload destination expiry during snapshot admission to `target_unavailable` without consuming approval or staged bytes.
+
 - Validate known metadata dispatch methods before Drive reads and reject arbitrary Photos URL callbacks, using the pure SDK asset resolver or explicit static URL metadata instead.
 - Share complete bounded Trash inspection across recovery and post-write verification, and distinguish document-route failures from account mismatches.
 

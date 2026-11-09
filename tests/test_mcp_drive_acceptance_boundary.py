@@ -189,6 +189,34 @@ def test_download_request_options_and_cleanup_are_already_preserved() -> None:
 
 
 @pytest.mark.asyncio
+async def test_upload_destination_expiry_during_refresh_is_known_denial() -> None:
+    """Expiry at snapshot admission cannot spend approval or staged bytes."""
+    writer, _client, handle, token, _data, pipeline = setup_adapter()
+    preview = await writer.prepare_upload(handle, token, 1000)
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    original = writer._read
+
+    def refreshed(*args: Any) -> Any:
+        result = original(*args)
+        kind, node, _expiry = writer.additional._handles[handle]
+        writer.additional._handles[handle] = (kind, node, 0)
+        return result
+
+    with (
+        patch.object(writer, "_read", side_effect=refreshed),
+        pytest.raises(WriteDenied, match="target_unavailable"),
+    ):
+        await writer.apply(preview.request_id)
+    assert writer.staging.peek(token).data
+    writer.ledger.approve_from_operator(
+        preview.request_id, preview.digest, high_risk=True
+    )
+    pipeline.upload.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_upload_selector_eviction_also_revokes_ledger_entry() -> None:
     """An evicted exact request cannot accept approval or occupy ledger capacity."""
     writer, _client, handle, token, _data, _pipeline = setup_adapter()

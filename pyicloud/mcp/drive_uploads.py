@@ -69,6 +69,13 @@ class DriveUploads(DriveWrites):
         except ToolFailure:
             raise WriteDenied("target_unavailable") from None
 
+    def _snapshot_destination(self, handle: str) -> dict[str, tuple[str, Any, float]]:
+        """Known expiry after refresh preserves resources and returns a safe denial."""
+        try:
+            return self.additional.snapshot_drive_handles("drive-folder", handle)
+        except ToolFailure:
+            raise WriteDenied("target_unavailable") from None
+
     def _acquire_stage(
         self, token: str, handle: str, captured: list[StagedUpload]
     ) -> None:
@@ -228,9 +235,7 @@ class DriveUploads(DriveWrites):
             receipt_accepted = self._accept_receipt(request_id, accept)
             _verify_upload_context(client, account, route, root)
             captured: list[StagedUpload] = []
-            handle_snapshot = self.additional.snapshot_drive_handles(
-                "drive-folder", handle
-            )
+            handle_snapshot = self._snapshot_destination(handle)
             approved = self.ledger.consume(
                 request_id,
                 account_binding=account,
