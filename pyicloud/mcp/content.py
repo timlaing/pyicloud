@@ -234,10 +234,7 @@ class ContentReads:
             resource = self.additional.resolve(
                 "drive-file" if service == "drive" else "photo-asset", handle
             )
-            if isinstance(resource, DriveNode) and isinstance(
-                resource.connection, DriveService
-            ):
-                self._guard_download_session(resource.connection.session, previous)
+            self._guard_drive_resource(resource, previous)
             if (
                 service == "drive"
                 and isinstance(resource, DriveNode)
@@ -328,6 +325,15 @@ class ContentReads:
                 del self._downloads[inactive]
             self._downloads[key] = DownloadState(resource)
         return self._downloads[key]
+
+    def _guard_drive_resource(
+        self, resource: Any, previous: dict[BoundedAdapter, float | None]
+    ) -> None:
+        """Apply real-library transport policy before any Drive content refresh."""
+        if isinstance(resource, DriveNode) and isinstance(
+            resource.connection, DriveService
+        ):
+            self._guard_download_session(resource.connection.session, previous)
 
     def _guard_download_session(
         self, session: Any, previous: dict[BoundedAdapter, float | None] | None = None

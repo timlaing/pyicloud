@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import json
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from pyicloud.services.drive import CLOUD_DOCS_ZONE, DriveNode
 
@@ -19,6 +19,16 @@ from .drive_upload_bytes import (
 from .drive_writes import DriveTarget, DriveWrites
 from .upload_staging import StagedUpload, UploadStaging
 from .upload_transport import UploadNotDispatched, UploadTransport, checked_upload_url
+
+
+def _parsed_document_root(root: Any) -> SplitResult:
+    """Preserve safe route denials for missing or malformed document roots."""
+    if not isinstance(root, str) or not root:
+        raise WriteDenied("route_unavailable")
+    try:
+        return urlsplit(root)
+    except ValueError:
+        raise WriteDenied("unsupported_upload_route") from None
 
 
 def _verify_upload_context(client: Any, account: str, route: str, root: str) -> None:
@@ -108,12 +118,7 @@ class DriveUploads(DriveWrites):
         if observed.query:
             raise WriteDenied("unsupported_upload_route")
         root = client.drive.document_root
-        if not isinstance(root, str) or not root:
-            raise WriteDenied("route_unavailable")
-        try:
-            parsed = urlsplit(root)
-        except ValueError:
-            raise WriteDenied("unsupported_upload_route") from None
+        parsed = _parsed_document_root(root)
         checked_upload_url(
             root, frozenset({parsed.hostname}) if parsed.hostname else frozenset()
         )
