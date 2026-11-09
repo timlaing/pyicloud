@@ -13,6 +13,7 @@ from pyicloud.services.drive import DriveNode
 
 from .authorization import MutationPreview, WriteDenied
 from .drive_writes import DriveTarget, DriveWrites
+from .one_shot import prepared_url
 from .upload_transport import UploadTransport, checked_upload_url
 
 DRIVE_CREATE_FOLDER = "drive.create_folder"
@@ -229,7 +230,9 @@ class DriveAcknowledged(DriveWrites):
                 client, action, selector, pending_name
             )
             mutation_url = _acknowledgement_url(client, action)
-            self._require_retry_disabled(client, mutation_url)
+            self._require_retry_disabled(
+                client, prepared_url(client.drive.session, mutation_url)
+            )
             if accept is not None:
                 accept(request_id)
             approved = self.ledger.consume(

@@ -100,6 +100,11 @@ class DriveService(BaseService):
         response: Response = self.session.get(
             self._document_root + path,
             params=file_params,
+            **(
+                {"allow_redirects": kwargs["allow_redirects"]}
+                if "allow_redirects" in kwargs
+                else {}
+            ),
         )
         self._raise_if_error(response)
         response_json = response.json()

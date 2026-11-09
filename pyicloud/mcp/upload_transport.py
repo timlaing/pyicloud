@@ -11,7 +11,7 @@ from requests import Session
 
 from .authorization import WriteDenied
 from .context import BoundedAdapter
-from .one_shot import checked_adapter, request_once
+from .one_shot import checked_adapter, prepared_url, request_once
 
 
 def checked_upload_url(url: str, hosts: frozenset[str]) -> str:
@@ -126,7 +126,9 @@ class UploadTransport:
         target = checked_upload_url(url, hosts)
         options: dict[str, Any] = {"headers": headers} if headers is not None else {}
         try:
-            adapter = checked_adapter(session, target, bounded=deadline is not None)
+            adapter = checked_adapter(
+                session, prepared_url(session, target), bounded=deadline is not None
+            )
         except WriteDenied as error:
             if str(error) == "upload_deadline_policy_unavailable":
                 raise

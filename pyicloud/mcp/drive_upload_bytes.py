@@ -15,12 +15,12 @@ from pyicloud.const import CONTENT_TYPE, CONTENT_TYPE_TEXT
 from pyicloud.services.drive import CLOUD_DOCS_ZONE
 
 from .authorization import WriteDenied
-from .one_shot import checked_adapter
+from .one_shot import checked_adapter, prepared_url
 from .upload_staging import StagedUpload
 from .upload_transport import UploadTransport, checked_upload_url
 
 
-def validate_upload_session(drive: Any, credentials: dict[str, str]) -> None:
+def validate_upload_session(drive: Any, credentials: dict[str, str]) -> float | None:
     """Check both exact registration endpoints before any approval is consumed."""
     root = drive.document_root
     if not isinstance(root, str) or not root:
@@ -31,11 +31,20 @@ def validate_upload_session(drive: Any, credentials: dict[str, str]) -> None:
     if parsed.query:
         raise WriteDenied("unsupported_upload_route")
     params = {**drive.params, **credentials}
+    deadlines: list[float] = []
     for path in ("/upload/web", "/update/documents"):
         url = (
             root.rstrip("/") + "/ws/" + CLOUD_DOCS_ZONE + path + "?" + urlencode(params)
         )
-        checked_adapter(drive.session, url, bounded=True)
+        adapter = checked_adapter(
+            drive.session, prepared_url(drive.session, url), bounded=True
+        )
+        deadline = getattr(adapter, "deadline", None)
+        if deadline is not None:
+            if deadline <= time.monotonic():
+                raise WriteDenied("upload_deadline_exceeded")
+            deadlines.append(deadline)
+    return min(deadlines) if deadlines else None
 
 
 def snapshot_upload_credentials(drive: Any) -> dict[str, str]:
@@ -171,6 +180,7 @@ class DriveUploadBytes:
         credential_snapshot: dict[str, str] | None = None,
         approved_hosts: frozenset[str] | None = None,
         stage_acquired: bool = False,
+        owner_deadline: float | None = None,
     ) -> None:
         """Snapshot upload credentials and send exact bytes with no filesystem paths."""
         root = drive.document_root
@@ -206,6 +216,8 @@ class DriveUploadBytes:
         )
         params.update(credentials)
         deadline = time.monotonic() + self.timeout
+        if owner_deadline is not None:
+            deadline = min(deadline, owner_deadline)
 
         def url(path: str) -> str:
             return (

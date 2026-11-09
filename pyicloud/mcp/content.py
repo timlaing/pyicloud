@@ -267,9 +267,7 @@ class ContentReads:
         if offset == 0:
             if token:
                 raise ToolFailure("invalid_download_transfer")
-            token = token_urlsafe(32)
-            if token in self._downloads:
-                raise ToolFailure("download_registry_full")
+            token = self._new_transfer_token()
             state = self._download_state(token, resource)
             state.binding = binding
             return token, state
@@ -279,6 +277,14 @@ class ContentReads:
         if existing is None or existing.binding != binding:
             raise ToolFailure("invalid_download_transfer")
         return token, existing
+
+    def _new_transfer_token(self) -> str:
+        """Retry only random-token collisions, never remote transfer operations."""
+        for _attempt in range(4):
+            token = token_urlsafe(32)
+            if token not in self._downloads:
+                return token
+        raise ToolFailure("download_token_unavailable")
 
     def _download_state(self, key: str, resource: Any) -> DownloadState:
         """Retain the bounded original resource/version-specific download registry."""

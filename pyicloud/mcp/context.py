@@ -175,6 +175,17 @@ class BoundedAdapter(HTTPAdapter):
             else time.monotonic() + self.timeout
         )
 
+    def proxy_manager_for(self, proxy: str, **proxy_kwargs: Any) -> Any:
+        """Install the same absolute header budget in adapter-local proxy pools."""
+        if urlsplit(proxy).scheme not in {"http", "https"}:
+            raise ToolFailure("unsupported_proxy")
+        manager = super().proxy_manager_for(proxy, **proxy_kwargs)
+        manager.pool_classes_by_scheme = {
+            **manager.pool_classes_by_scheme,
+            "https": deadline_pool(self._response_deadline),
+        }
+        return manager
+
     def send(
         self,
         request: PreparedRequest,

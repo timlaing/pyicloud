@@ -64,6 +64,7 @@ async def test_rename_requires_operator_approval_and_verifies_post_read() -> Non
         assert allow_redirects is False
         assert (identifier, etag, name) == (data["drivewsid"], "v1", "After")
         data.update(name=name, etag="v2")
+        data.pop("extension", None)
         return {"ignored": "Not proof of acknowledgement"}
 
     client.drive.rename_items.side_effect = rename
@@ -78,7 +79,7 @@ async def test_rename_requires_operator_approval_and_verifies_post_read() -> Non
 async def test_noop_rename_still_consumes_approval() -> None:
     """Already-correct names do not cause unnecessary network mutations."""
     writes, client, handle, _data = setup_writer()
-    preview = await writes.prepare(handle, {"name": "Before"})
+    preview = await writes.prepare(handle, {"name": "Before.txt"})
     writes.ledger.approve_from_operator(preview.request_id, preview.digest)
     assert (await writes.apply(preview.request_id))["changed"] is False
     client.drive.rename_items.assert_not_called()
@@ -176,6 +177,7 @@ async def test_rename_post_read_requires_bound_context_and_real_revision(
         assert allow_redirects is False
         callbacks.append(case)
         data.update(name=name, etag="v2")
+        data.pop("extension", None)
         if case == "route":
             client.drive.service_root = "https://other.test"
         elif case == "account":

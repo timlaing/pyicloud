@@ -7,14 +7,12 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
-from requests import Request
-
 from pyicloud.services.drive import DriveNode
 
 from .additional import AdditionalReads
 from .authorization import ApprovalLedger, MutationPreview, WriteDenied
 from .context import ToolFailure
-from .one_shot import checked_adapter, mutation_session
+from .one_shot import checked_adapter, mutation_session, prepared_url
 
 
 @dataclass(frozen=True)
@@ -40,6 +38,7 @@ class DriveWrites:
         self._sources: dict[str, tuple[str, str]] = {}
 
     def _fresh(self, client: Any, target: DriveTarget) -> DriveNode:
+        self._require_retry_disabled(client, client.drive.service_root)
         data = client.drive.get_node_data(target.identifier)
         return self._validated_node(client, target, data)
 
@@ -102,12 +101,8 @@ class DriveWrites:
 
     def _require_mutation_path(self, client: Any, path: str) -> None:
         """Include query parameters in the longest-prefix adapter preflight."""
-        url = (
-            Request(
-                "POST", client.drive.service_root + path, params=client.drive.params
-            )
-            .prepare()
-            .url
+        url = prepared_url(
+            client.drive.session, client.drive.service_root + path, client.drive.params
         )
         self._require_retry_disabled(client, url or "")
 
@@ -270,19 +265,23 @@ class DriveWrites:
             if action == DRIVE_TRASH_FILE:
                 self._retire_source(source_kind, source_handle)
                 try:
-                    with mutation_session(client.drive):
-                        node.move_to_trash(allow_redirects=False)
+                    with mutation_session(client.drive) as dispatch_drive:
+                        DriveNode(dispatch_drive, node.data).move_to_trash(
+                            allow_redirects=False
+                        )
                     self._verify_trash(client, target, account, resource)
                 except Exception:
                     raise WriteDenied("mutation_uncertain") from None
                 return {"action": action, "changed": True}
             name = approved.payload["name"]
-            if node.data.get("name") == name:
+            if node.name == name:
                 return {"action": DRIVE_RENAME, "changed": False}
             self._retire_source(source_kind, source_handle)
             try:
-                with mutation_session(client.drive):
-                    node.rename(name, allow_redirects=False)
+                with mutation_session(client.drive) as dispatch_drive:
+                    DriveNode(dispatch_drive, node.data).rename(
+                        name, allow_redirects=False
+                    )
                 self._verify_rename(client, target, name, account, resource)
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
@@ -298,7 +297,7 @@ class DriveWrites:
         verified_account, verified_resource, _revision = self._bindings(
             client, target, verified
         )
-        if verified.data.get("name") != name or (
+        if verified.name != name or (
             verified_account,
             verified_resource,
         ) != (account, resource):

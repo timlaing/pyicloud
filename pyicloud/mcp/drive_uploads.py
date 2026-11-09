@@ -178,7 +178,7 @@ class DriveUploads(DriveWrites):
             self.additional.resolve("drive-folder", handle)
             folder, account, resource, revision = self._read(client, target, token)
             credentials = snapshot_upload_credentials(client.drive)
-            validate_upload_session(client.drive, credentials)
+            owner_deadline = validate_upload_session(client.drive, credentials)
             if accept is not None:
                 accept(request_id)
             captured: list[StagedUpload] = []
@@ -207,6 +207,7 @@ class DriveUploads(DriveWrites):
                     credential_snapshot=credentials,
                     approved_hosts=self.hosts,
                     stage_acquired=True,
+                    owner_deadline=owner_deadline,
                 )
                 if (
                     str(client.params.get("dsid")) != account

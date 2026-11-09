@@ -35,6 +35,7 @@ from tests.test_mcp_upload_previews import setup_upload
         "receipt_token",
         "unapproved_host",
         "acquired",
+        "owner_deadline",
     ],
 )
 def test_existing_upload_contract_never_retries_or_claims_final_identity(
@@ -105,11 +106,12 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
     if case == "transport":
         transport.transfer.side_effect = OSError("private")
     uploader = DriveUploadBytes(transport)
+    owner_deadline = time.monotonic() + 1 if case == "owner_deadline" else None
     with patch(
         "pyicloud.mcp.drive_upload_bytes.mimetypes.guess_type",
         return_value=("text/plain", None),
     ):
-        if case in {"ok", "empty", "snapshot", "acquired"}:
+        if case in {"ok", "empty", "snapshot", "acquired", "owner_deadline"}:
             uploader.upload(
                 drive,
                 "folder-document",
@@ -119,6 +121,7 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
                 if case == "snapshot"
                 else None,
                 stage_acquired=case == "acquired",
+                owner_deadline=owner_deadline,
             )
             commit = transport.register.call_args_list[1]
             assert "token=synthetic" in commit.args[1]
@@ -130,6 +133,8 @@ def test_existing_upload_contract_never_retries_or_claims_final_identity(
             assert commit.args[3]["mtime"] == commit.args[3]["btime"] == 1000
             assert commit.args[3]["allow_conflict"] is True
             assert transport.transfer.call_args.kwargs["multipart_name"] == "file.txt"
+            if owner_deadline is not None:
+                assert transport.transfer.call_args.kwargs["deadline"] == owner_deadline
             assert all(
                 call.kwargs["deadline"]
                 == transport.transfer.call_args.kwargs["deadline"]

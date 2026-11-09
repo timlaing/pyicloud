@@ -52,6 +52,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Use a scoped real Drive service clone for one-shot mutations instead of assigning its read-only session property, preserving session query defaults and response cookies.
+- Apply absolute response-header deadlines to HTTP/HTTPS proxy pools and CONNECT responses, preserve detached connection state, and carry the owner deadline through uploads.
+- Admit both move handles before retiring either, validate listed move metadata against fresh detail, retire duplicate Drive aliases, and compare displayed filename leaves for rename no-ops and verification.
+- Reject plaintext Drive routes before metadata reads or previews, disable redirects during download token discovery, and retry random download-token collisions within a fixed local bound.
+
 - Reject evicted queued Drive write previews before accepting receipts, consuming approvals, retiring handles, or dispatching mutations.
 - Retire selected Drive move source handles before dispatch, including uncertain outcomes, while preserving handles for same-parent no-ops.
 - Roll back unpublished Drive previews and selectors, require fresh collision inventories, invalidate refreshed child caches, bound Trash scans, and return tokens for empty downloads.

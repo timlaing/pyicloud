@@ -1,16 +1,26 @@
 """Offline direct dispatch, exact endpoint policy and pre-consumption admission."""
 
+from email.message import Message
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from requests import Response, Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.mcp.authorization import WriteDenied
 from pyicloud.mcp.context import BoundedAdapter
-from pyicloud.mcp.one_shot import checked_adapter, mutation_session, request_once
+from pyicloud.mcp.one_shot import (
+    checked_adapter,
+    mutation_session,
+    prepared_url,
+    request_once,
+)
+from pyicloud.services.drive import DriveService
 from tests.test_mcp_drive_uploads import setup_adapter
 from tests.test_mcp_drive_writes import setup_writer
 
@@ -146,3 +156,67 @@ async def test_upload_endpoint_policy_failure_preserves_all_resources(
         preview.request_id, preview.digest, high_risk=True
     )
     pipeline.upload.assert_not_called()
+
+
+def test_query_defaults_and_response_cookies_survive_direct_dispatch() -> None:
+    """Direct dispatch preserves safe session state without replay or hook calls."""
+    session = Session()
+    session.trust_env = False
+    session.params = {"default": "yes", "shared": "session"}
+    headers = Message()
+    headers.add_header("Set-Cookie", "synthetic=new; Path=/; Secure")
+    response = Response()
+    response.status_code = 200
+    response.raw = MagicMock()
+    response.raw._original_response = SimpleNamespace(msg=headers)  # pylint: disable=protected-access
+    with patch("requests.adapters.HTTPAdapter.send", return_value=response) as send:
+        request_once(
+            session, "POST", "https://example.test/write", params={"shared": "drive"}
+        )
+        request = send.call_args.args[-1]
+        assert parse_qs(urlsplit(request.url).query) == {
+            "default": ["yes"],
+            "shared": ["drive"],
+        }
+        assert request.url == prepared_url(
+            session, "https://example.test/write", {"shared": "drive"}
+        )
+        assert session.cookies.get("synthetic") == "new"
+        request_once(session, "POST", "https://example.test/commit")
+        assert "synthetic=new" in send.call_args.args[-1].headers["Cookie"]
+    session.close()
+
+
+def test_download_token_discovery_rejects_redirect_before_followup() -> None:
+    """The initial by-ID read receives the download's no-redirect policy too."""
+    session = cast(Any, Session())
+    session.trust_env = False
+    response = Response()
+    response.status_code = 302
+    session.get = MagicMock(return_value=response)
+    drive = DriveService(
+        "https://drive.example.test", "https://docs.example.test", session, {}
+    )
+    with pytest.raises(PyiCloudAPIResponseException, match="redirect not followed"):
+        drive.get_file("F", allow_redirects=False)
+    session.get.assert_called_once()
+    assert session.get.call_args.kwargs["allow_redirects"] is False
+    session.close()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.test/write",
+        "https://[bad",
+        "https:///missing",
+        "https://user:password@example.test/write",
+    ],
+)
+def test_invalid_mutation_routes_are_known_denials(url: str) -> None:
+    """Plaintext, malformed and credential-bearing routes fail before dispatch."""
+    session = Session()
+    session.trust_env = False
+    with pytest.raises(WriteDenied, match="insecure_mutation_route"):
+        checked_adapter(session, url)
+    session.close()

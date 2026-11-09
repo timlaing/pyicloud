@@ -72,11 +72,26 @@ def deadline_pool(provider: Callable[[], float]) -> type[HTTPSConnectionPool]:
             original = self.sock
             if original is None:
                 raise HeaderDeadlineExceeded("Connection unavailable")
-            self.sock = cast(Any, DeadlineSocket(original, provider()))
+            wrapped = cast(Any, DeadlineSocket(original, provider()))
+            self.sock = wrapped
             try:
                 return HTTPSConnection.getresponse(self)
             finally:
-                self.sock = original
+                if self.sock is wrapped:
+                    self.sock = original
+
+        def _tunnel(self) -> None:
+            """Bound CONNECT response headers before TLS to the origin starts."""
+            original = self.sock
+            if original is None:
+                raise HeaderDeadlineExceeded("Connection unavailable")
+            wrapped = cast(Any, DeadlineSocket(original, provider()))
+            self.sock = wrapped
+            try:
+                HTTPSConnection._tunnel(self)  # pylint: disable=protected-access
+            finally:
+                if self.sock is wrapped:
+                    self.sock = original
 
     class DeadlinePool(HTTPSConnectionPool):
         """Adapter-local HTTPS pool using the header-aware connection class."""

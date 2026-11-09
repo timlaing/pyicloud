@@ -9,6 +9,7 @@ from typing import Any
 from pyicloud.services.drive import DriveNode
 
 from .authorization import MutationPreview, WriteDenied
+from .context import ToolFailure
 from .drive_writes import DriveTarget, DriveWrites
 from .one_shot import mutation_session
 
@@ -123,6 +124,49 @@ class DriveMoves(DriveWrites):
         ):
             raise WriteDenied("destination_conflict")
 
+    def _retire_move_handles(
+        self,
+        source: DriveNode,
+        destination: DriveTarget,
+        source_handle: str,
+        destination_handle: str,
+    ) -> None:
+        """Validate both handles before retiring either or spending approval."""
+        if source.data["parentId"] == destination.identifier:
+            return
+        try:
+            self.additional.retire_many((
+                ("drive-file", source_handle),
+                ("drive-folder", destination_handle),
+            ))
+        except ToolFailure:
+            raise WriteDenied("target_unavailable") from None
+
+    def _verify_member(
+        self,
+        client: Any,
+        target: DriveTarget,
+        moved: DriveNode,
+        members: list[DriveNode],
+    ) -> None:
+        """Require one private listed child consistent with the refreshed source."""
+        if len(members) != 1:
+            raise WriteDenied("mutation_unverified")
+        listed = self._validated_node(client, target, members[0].data)
+        fields = (
+            "drivewsid",
+            "zone",
+            "etag",
+            "parentId",
+            "name",
+            "extension",
+            "type",
+            "restorePath",
+            "docwsid",
+        )
+        if any(listed.data.get(field) != moved.data.get(field) for field in fields):
+            raise WriteDenied("mutation_unverified")
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -151,17 +195,18 @@ class DriveMoves(DriveWrites):
                 account_binding=account,
                 resource_binding=resource,
                 revision=revision,
+                before_consume=lambda: self._retire_move_handles(
+                    source, targets[1], source_handle, destination_handle
+                ),
             )
             self._moves.pop(request_id, None)
             self._destinations.pop(request_id, None)
             self._source_handles.pop(request_id, None)
             if source.data["parentId"] == targets[1].identifier:
                 return {"action": DRIVE_MOVE_FILE, "changed": False}
-            self._retire_source("drive-folder", destination_handle)
-            self._retire_source("drive-file", source_handle)
             try:
-                with mutation_session(client.drive):
-                    client.drive.move_nodes_to_node(
+                with mutation_session(client.drive) as dispatch_drive:
+                    dispatch_drive.move_nodes_to_node(
                         [source], destination, allow_redirects=False
                     )
                 (
@@ -179,6 +224,7 @@ class DriveMoves(DriveWrites):
                 current_destination = self._checked_destination(
                     client, targets[1], current_destination
                 )
+                self._verify_member(client, targets[0], moved, members)
                 if (
                     current_account != account
                     or json.loads(current_resource)[:2] != json.loads(resource)[:2]

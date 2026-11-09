@@ -95,6 +95,13 @@ The adapter selected for each actual endpoint is checked before consuming any
 approval. Upload registration and commit adapters must also enforce absolute
 response-header deadlines. Staged-byte expiry is checked during atomic admission;
 already-acquired immutable bytes remain valid for the admitted transfer.
+HTTP/HTTPS proxy response headers, including CONNECT, use the same absolute budget;
+unsupported proxy transports are rejected. Upload phases inherit the earlier owner
+deadline instead of renewing it after metadata refresh. One-shot writes use a
+scoped service clone, preserve safe session query defaults and response cookies,
+and never assign the library service's read-only session property. Move-handle
+admission is atomic; Drive mutations invalidate all aliases of each affected
+identifier and zone. Rename no-ops compare the full displayed filename leaf.
 
 Drive and Photos downloads return an opaque `transfer_token` with their first
 chunk. Supply that token for every nonzero-offset continuation, using the same

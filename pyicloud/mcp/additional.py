@@ -82,8 +82,26 @@ class AdditionalReads:
 
     def retire(self, kind: str, handle: str) -> None:
         """Retire only an exact live scoped selector before a version-changing write."""
-        self._get(kind, handle)
-        del self._handles[handle]
+        self.retire_many(((kind, handle),))
+
+    def retire_many(self, selectors: tuple[tuple[str, str], ...]) -> None:
+        """Admit all selected handles atomically, then retire their Drive aliases."""
+        resources = [self._get(kind, handle) for kind, handle in selectors]
+        identifiers = {
+            (node.data.get("drivewsid"), node.data.get("zone"))
+            for node in resources
+            if isinstance(node, DriveNode)
+        }
+        keys = {handle for _kind, handle in selectors}
+        keys.update(
+            handle
+            for handle, (kind, node, _expires) in self._handles.items()
+            if kind.startswith("drive-")
+            and isinstance(node, DriveNode)
+            and (node.data.get("drivewsid"), node.data.get("zone")) in identifiers
+        )
+        for key in keys:
+            self._handles.pop(key, None)
 
     def resolve_any(self, kinds: frozenset[str], handle: str) -> Any:
         """Resolve only a permitted discovered kind, never an arbitrary identifier."""

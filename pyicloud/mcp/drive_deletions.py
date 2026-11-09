@@ -123,8 +123,10 @@ class DriveDeletions(DriveWrites):
                 raise WriteDenied("high_risk_operator_approval_required")
             self._retire_source("drive-trash-file", handle)
             try:
-                with mutation_session(client.drive):
-                    node.delete_forever(allow_redirects=False)
+                with mutation_session(client.drive) as dispatch_drive:
+                    DriveNode(dispatch_drive, node.data).delete_forever(
+                        allow_redirects=False
+                    )
                 current_account, current_resource, _revision = self._bindings(
                     client, target, node
                 )
