@@ -3,9 +3,11 @@
 # pylint: disable=protected-access
 
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from requests import Session
 from requests.adapters import HTTPAdapter
 
 from pyicloud.common.cloudkit import CKRecord
@@ -108,7 +110,7 @@ async def test_source_foreign_zone_is_rejected_before_fresh_lookup() -> None:
 def test_bounded_inventory_stops_before_fetching_more_pages() -> None:
     """The producer reads at most the bound plus one overflow sentinel."""
     library = MagicMock(spec=PhotoLibrary)
-    library.service = SimpleNamespace(session=object())
+    library.service = SimpleNamespace(session=SimpleNamespace(post=MagicMock()))
     library.zone_id = {"zoneName": "Z"}
     record = CKRecord.model_validate({
         "recordName": "A",
@@ -190,15 +192,22 @@ def test_registration_deadline_is_enforced_or_refused_before_dispatch(
     supported: bool,
 ) -> None:
     """Custom sessions cannot dispatch registration without deadline-aware transport."""
-    session = MagicMock()
+    session = cast(Any, Session())
+    session.trust_env = False
+    session.request_raw = MagicMock()
     adapter = BoundedAdapter(30) if supported else HTTPAdapter(max_retries=0)
-    session.get_adapter.return_value = adapter
+    session.get_adapter = MagicMock(return_value=adapter)
     hosts = frozenset({"service.example.test"})
     with patch("pyicloud.mcp.upload_transport.time.monotonic", return_value=1):
         if supported:
             assert isinstance(adapter, BoundedAdapter)
-            with patch(
-                "pyicloud.mcp.upload_transport.bounded_upload_json", return_value={}
+            with (
+                patch(
+                    "pyicloud.mcp.upload_transport.bounded_upload_json", return_value={}
+                ),
+                patch(
+                    "pyicloud.mcp.upload_transport.request_once", return_value=object()
+                ),
             ):
                 UploadTransport.register(
                     session, "https://service.example.test/a", hosts, {}, deadline=5
@@ -220,8 +229,9 @@ def test_registration_deadline_is_temporary_on_all_exit_paths(
     """A short registration deadline cannot poison subsequent verification reads."""
     adapter = BoundedAdapter(30)
     adapter.deadline = prior
-    session = MagicMock()
-    session.get_adapter.return_value = adapter
+    session = cast(Any, Session())
+    session.trust_env = False
+    session.get_adapter = MagicMock(return_value=adapter)
 
     def request(*_args: object, **_kwargs: object) -> object:
         assert adapter.deadline == (min(prior, 5) if prior is not None else 5)
@@ -229,11 +239,11 @@ def test_registration_deadline_is_temporary_on_all_exit_paths(
             raise RuntimeError("private")
         return object()
 
-    session.request_raw.side_effect = request
     hosts = frozenset({"service.example.test"})
     with (
         patch("pyicloud.mcp.upload_transport.time.monotonic", return_value=1),
         patch("pyicloud.mcp.upload_transport.bounded_upload_json", return_value={}),
+        patch("pyicloud.mcp.upload_transport.request_once", side_effect=request),
     ):
         if fail:
             with pytest.raises(WriteDenied, match="upload_outcome_uncertain"):
