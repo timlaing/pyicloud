@@ -261,6 +261,7 @@ class DriveWrites:
         """Keep bounded target, action and selected-handle metadata together."""
         if len(self._targets) >= 256:
             oldest = next(iter(self._targets))
+            self.ledger.discard(oldest)
             del self._targets[oldest]
             self._actions.pop(oldest, None)
             self._sources.pop(oldest, None)

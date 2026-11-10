@@ -90,6 +90,7 @@ class DriveMoves(DriveWrites):
             )
             if len(self._moves) >= 256:
                 oldest = next(iter(self._moves))
+                self.ledger.discard(oldest)
                 del self._moves[oldest]
                 self._destinations.pop(oldest, None)
                 self._source_handles.pop(oldest, None)

@@ -200,7 +200,9 @@ class DriveAcknowledged(DriveWrites):
                 revision=revision,
             )
             if len(self._requests) >= 256:
-                del self._requests[next(iter(self._requests))]
+                oldest = next(iter(self._requests))
+                self.ledger.discard(oldest)
+                del self._requests[oldest]
             self._requests[preview.request_id] = (action, handle, target, name)
             self._publish_preview(preview, publish, (self._requests,))
             return preview

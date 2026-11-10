@@ -88,7 +88,9 @@ class DriveDeletions(DriveWrites):
             if preview.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
             if len(self._deletions) >= 256:
-                del self._deletions[next(iter(self._deletions))]
+                oldest = next(iter(self._deletions))
+                self.ledger.discard(oldest)
+                del self._deletions[oldest]
             self._deletions[preview.request_id] = (handle, target)
             self._publish_preview(preview, publish, (self._deletions,))
             return preview

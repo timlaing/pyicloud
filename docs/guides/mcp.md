@@ -153,6 +153,7 @@ as well as MCP verification requests.
 Transfer release does not probe authentication or create an account client; it uses
 the same serialized local lane even after session expiry. Release tools advertise
 `readOnlyHint: false` because they invalidate local continuation tokens, while
+`destructiveHint: true` describes that local invalidation and
 `openWorldHint: false` reflects that they never mutate iCloud. Nested folder reads
 reject a mismatched connection instead of borrowing an unchecked transport.
 Metadata transports must retain the known Requests/PyiCloud request and send

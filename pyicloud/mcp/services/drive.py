@@ -54,7 +54,7 @@ def register(
             name="icloud_drive_download_release",
             annotations=ToolAnnotations(
                 read_only_hint=False,
-                destructive_hint=False,
+                destructive_hint=True,
                 idempotent_hint=True,
                 open_world_hint=False,
             ),

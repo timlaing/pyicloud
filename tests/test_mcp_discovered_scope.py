@@ -147,4 +147,5 @@ async def test_release_annotations_require_local_state_change_approval() -> None
         annotations = tools[name].annotations
         assert annotations is not None
         assert annotations.read_only_hint is False
+        assert annotations.destructive_hint is True
         assert annotations.open_world_hint is False
