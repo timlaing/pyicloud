@@ -6,11 +6,6 @@ name: Close stale issues
 
 # yamllint disable-line rule:truthy
 on:
-  schedule:
-    # Run once per day at 01:30 UTC
-    - cron: "30 1 * * *"
-
-  # Allow maintainers to test/run the workflow manually
   workflow_dispatch:
 
 # Only what actions/stale actually uses. issues: write lets the action label
