@@ -238,6 +238,7 @@ def test_get_node_data(pyicloud_service_working: PyiCloudService) -> None:
             drive.service_root + "/retrieveItemDetailsInFolders",
             params=drive.params,
             json=[{"drivewsid": "test_id", "partialData": False}],
+            allow_redirects=False,
         )
 
 

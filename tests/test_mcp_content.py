@@ -45,10 +45,16 @@ async def test_fresh_download_resets_previous_entity_tag() -> None:
     )
     resource = SimpleNamespace(name="file", open=open_mock)
     handle = tools.additional.remember("drive-file", resource)
-    assert (await tools.file("drive", handle, 0, 4)).error is None
-    assert (await tools.file("drive", handle, 0, 4)).error is None
+    first = await tools.file("drive", handle, 0, 4)
+    assert first.error is None
+    second = await tools.file("drive", handle, 0, 4)
+    assert second.error is None
     assert "If-Match" not in open_mock.call_args.kwargs["headers"]
-    assert (await tools.file("drive", handle, 4, 4)).complete
+    assert (
+        await tools.file(
+            "drive", handle, 4, 4, transfer_token=second.records[0]["transfer_token"]
+        )
+    ).complete
     assert open_mock.call_args.kwargs["headers"]["If-Match"] == '"v2"'
 
 
@@ -149,6 +155,7 @@ def response(status: int = 200, data: bytes = b"data", **headers: str) -> MagicM
     result = MagicMock()
     result.status_code = status
     result.content = data
+    result.iter_content.return_value = [data]
     result.headers = headers
     return result
 
@@ -354,20 +361,37 @@ async def test_drive_and_photo_downloads_never_accept_paths_or_urls() -> None:
     handle = tools.additional.remember("drive-file", file)
     assert (
         await tools.file("drive", handle, 4, 4)
-    ).error == "download_requires_strong_etag"
-    assert not (await tools.file("drive", handle, 0, 4)).complete
-    assert (await tools.file("drive", handle, 4, 4)).complete
+    ).error == "download_transfer_required"
+    first = await tools.file("drive", handle, 0, 4)
+    assert not first.complete
+    assert (
+        await tools.file(
+            "drive", handle, 4, 4, transfer_token=first.records[0]["transfer_token"]
+        )
+    ).complete
     assert file.open.call_args.kwargs["headers"]["If-Match"] == '"v1"'
     empty_data = {"drivewsid": "F", "name": "empty", "type": "FILE", "size": 0}
     client.drive.get_node_data.return_value = dict(empty_data)
     empty = tools.additional.remember("drive-file", DriveNode(client.drive, empty_data))
-    assert (await tools.file("drive", empty, 0, 4)).records[0]["data_base64"] == ""
+    empty_result = await tools.file("drive", empty, 0, 4)
+    assert empty_result.records[0]["data_base64"] == ""
+    assert empty_result.records[0]["transfer_token"]
+    assert (
+        await tools.file(
+            "drive",
+            empty,
+            0,
+            4,
+            transfer_token=empty_result.records[0]["transfer_token"],
+        )
+    ).error == "invalid_download_transfer"
     assert (await tools.file("drive", empty, 1, 4)).error == "invalid_download_range"
     photo = SimpleNamespace(
         filename="photo",
-        download_url=MagicMock(
-            return_value="https://cvws.icloud-content.com/synthetic"
-        ),
+        download_urls={
+            "original": "https://cvws.icloud-content.com/synthetic",
+            "medium": "https://cvws.icloud-content.com/synthetic",
+        },
     )
     photo_handle = tools.additional.remember("photo-asset", photo)
     get_mock.return_value = response()
@@ -410,10 +434,15 @@ async def test_searches_have_scan_budgets_and_body_permission() -> None:
         type="folder",
         name="Other",
         date_modified=None,
-        get_children=MagicMock(return_value=[file]),
+        iter_children=MagicMock(
+            side_effect=lambda **kwargs: iter([file][: kwargs["max_children"]])
+        ),
     )
     client.drive.root = SimpleNamespace(
-        type="folder", get_children=MagicMock(return_value=[child])
+        type="folder",
+        iter_children=MagicMock(
+            side_effect=lambda **kwargs: iter([child][: kwargs["max_children"]])
+        ),
     )
     assert (await tools.search("drive", "", "Match", 1, 10)).records[0][
         "name"
@@ -424,9 +453,11 @@ async def test_searches_have_scan_budgets_and_body_permission() -> None:
         await tools.search("drive", bad, "Match", 1, 10)
     ).error == "invalid_argument"
     folder = tools.remember("mail-folder", "F")
-    client.mail.search.return_value = SimpleNamespace(results=[])
+    mail_search = MagicMock(return_value=SimpleNamespace(results=[]))
+    client.mail.search = mail_search
     await tools.mail_search(folder, "Match", 50, "body")
-    assert client.mail.search.call_args.kwargs["field"] == "body"
+    assert mail_search.call_args is not None
+    assert mail_search.call_args.kwargs["field"] == "body"
     disabled = content_for(client, ()).additional
     assert (
         await disabled.mail_search("unknown", "Match", 50, "body")
@@ -460,13 +491,16 @@ async def test_valid_search_and_content_wrappers_use_their_services() -> None:
         open=MagicMock(return_value=response(200, b"drive")),
     )
     client.drive.root = SimpleNamespace(
-        type="folder", get_children=MagicMock(return_value=[file])
+        type="folder",
+        iter_children=MagicMock(
+            side_effect=lambda **kwargs: iter([file][: kwargs["max_children"]])
+        ),
     )
     photo = SimpleNamespace(
         id="P",
         filename="Photo",
         created=None,
-        download_url=MagicMock(return_value="https://icloud-content.com/photo"),
+        download_urls={"original": "https://icloud-content.com/photo"},
     )
     get_mock.return_value = response(200, b"photo")
     client.mail.message.return_value = SimpleNamespace(subject="Mail")
@@ -539,7 +573,14 @@ async def test_content_tool_registration_is_opt_in() -> None:
             continue
         result = await server.call_tool(name, args)
         assert isinstance(result, CallToolResult)
-        assert result.is_error is (name == "icloud_mail_content")
+        assert result.is_error
+        assert result.structured_content is not None
+        expected = (
+            "invalid_argument"
+            if name.endswith("_search")
+            else "expired_or_unknown_handle"
+        )
+        assert result.structured_content["error"] == expected
     metadata = build_server(owner=owner_for(client, ()))
     assert not any(
         tool.name.endswith("_download") or tool.name.endswith("_content")

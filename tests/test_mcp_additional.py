@@ -100,7 +100,7 @@ async def test_search_only_accesses_the_selected_service(service: str) -> None:
     client = MagicMock()
     tools = adapters(client)
     client.drive.root = SimpleNamespace(
-        type="folder", get_children=lambda **_kwargs: []
+        type="folder", iter_children=lambda **_kwargs: iter([])
     )
     handle = tools.remember("photo-album", []) if service == "photos" else ""
     notes = SimpleNamespace(iter_all=MagicMock(return_value=iter([])))
@@ -205,10 +205,15 @@ async def test_drive_browses_discovered_folders_without_local_paths_or_downloads
         name="Shared",
         type="folder",
         date_modified=datetime(2026, 1, 1),
-        get_children=MagicMock(return_value=[file]),
+        iter_children=MagicMock(
+            side_effect=lambda **kwargs: iter([file][: kwargs["max_children"]])
+        ),
     )
     client.drive.root = SimpleNamespace(
-        type="folder", get_children=MagicMock(return_value=[folder, file])
+        type="folder",
+        iter_children=MagicMock(
+            side_effect=lambda **kwargs: iter([folder, file][: kwargs["max_children"]])
+        ),
     )
     tools = adapters(client)
     result = await tools.drive("", "SHARED", 1)
@@ -219,7 +224,7 @@ async def test_drive_browses_discovered_folders_without_local_paths_or_downloads
         for row in nested.records
     ] == [{"name": "File.txt", "type": "file", "modified": None}]
     assert all(row["handle"] for row in nested.records)
-    folder.get_children.assert_called_once_with(force=True)
+    folder.iter_children.assert_called_once_with(force=True, max_children=500)
     client.drive.get_file.assert_not_called()
     bad = tools._store("drive-folder", SimpleNamespace(type="file"))
     assert (await tools.drive(bad, "", 50)).error == "invalid_argument"

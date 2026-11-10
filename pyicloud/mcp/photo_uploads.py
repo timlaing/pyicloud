@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import json
-from typing import Any
+import time
+from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
 from pyicloud.services.photos.mappers import record_change_tag
@@ -18,11 +19,14 @@ from pyicloud.services.photos.service import (
 )
 
 from .authorization import MutationPreview, WriteDenied
+from .context import BoundedAdapter, SessionOwner
 from .photo_album_creates import PhotoAlbumCreates
-from .photo_upload_bytes import PhotoUploadBytes
+from .photo_upload_bytes import PhotoUploadBytes, validate_photo_upload_session
 from .photo_writes import PhotoWrites
-from .upload_staging import UploadStaging
-from .upload_transport import UploadTransport, checked_upload_url
+from .upload_staging import StagedUpload, UploadStaging
+from .upload_transport import UploadNotDispatched, UploadTransport, checked_upload_url
+
+T = TypeVar("T")
 
 
 class PhotoUploads:
@@ -44,7 +48,22 @@ class PhotoUploads:
             UploadTransport(hosts), self.additional.reads.owner.config.timeout
         )
         self._requests: dict[str, tuple[str, str, int]] = {}
+        self._accepted_receipts: dict[str, bool] = {}
+        self._injected_adapters: dict[BoundedAdapter, float | None] = {}
         self.additional.reads.owner.add_cleanup(staging.close)
+
+    async def _run(self, operation: Callable[[Any], T]) -> T:
+        """Restore injected Photos adapter deadlines after the complete operation."""
+
+        def invoke(client: Any) -> T:
+            try:
+                return operation(client)
+            finally:
+                for adapter, previous in self._injected_adapters.items():
+                    adapter.deadline = previous
+                self._injected_adapters.clear()
+
+        return await self.additional.reads.owner.run(invoke)
 
     def _read(
         self, client: Any, zone: str, token: str
@@ -77,6 +96,12 @@ class PhotoUploads:
         for host in self.hosts:
             checked_upload_url("https://" + host + "/", self.hosts)
         stage = self.staging.peek(token)
+        if (
+            isinstance(stage.size, bool)
+            or not isinstance(stage.size, int)
+            or not 0 < stage.size <= 4 * 1024 * 1024
+        ):
+            raise WriteDenied("invalid_upload_bytes")
         observed_primary = getattr(client.photos, "private_primary_zone", None)
         primary = observed_primary if isinstance(observed_primary, dict) else None
         resource = json.dumps(
@@ -130,13 +155,22 @@ class PhotoUploads:
             if preview.risk != "high":
                 raise WriteDenied("high_risk_operator_approval_required")
             if len(self._requests) >= 256:
-                del self._requests[next(iter(self._requests))]
+                oldest = next(iter(self._requests))
+                del self._requests[oldest]
+                self._accepted_receipts.pop(oldest, None)
+                self.ledger.discard(oldest)
             self._requests[preview.request_id] = (zone, token, modified_ms)
             if publish is not None:
-                publish(preview)
+                try:
+                    publish(preview)
+                except Exception:
+                    self.ledger.discard(preview.request_id)
+                    self._requests.pop(preview.request_id, None)
+                    self._accepted_receipts.pop(preview.request_id, None)
+                    raise
             return preview
 
-        return await self.additional.reads.owner.run(prepare)
+        return await self._run(prepare)
 
     def _verify_after_binding(
         self, client: Any, zone: str, account: str, resource: str
@@ -159,6 +193,58 @@ class PhotoUploads:
         ):
             raise WriteDenied("mutation_unverified")
 
+    def _validate_session_policy(self, client: Any) -> float | None:
+        """Check and bind both registration transports before resource consumption."""
+        adapters = validate_photo_upload_session(
+            client.photos.session, client.photos.upload_root, dict(client.photos.params)
+        )
+        owner = self.additional.reads.owner
+        for adapter in adapters:
+            if isinstance(owner, SessionOwner):
+                owner.bind_adapter(adapter)
+            else:
+                if adapter not in self._injected_adapters:
+                    self._injected_adapters[adapter] = adapter.deadline
+                    adapter.requests_left = 32
+                deadline = time.monotonic() + owner.config.timeout
+                adapter.deadline = (
+                    min(adapter.deadline, deadline)
+                    if adapter.deadline is not None
+                    else deadline
+                )
+        deadlines = [
+            adapter.deadline for adapter in adapters if adapter.deadline is not None
+        ]
+        return min(deadlines) if deadlines else None
+
+    def _verified_asset(
+        self, client: Any, library: PhotoLibrary, result: Any, zone: str, root: str
+    ) -> PhotoAsset:
+        """Keep the existing independent indexed-asset and route proof checks."""
+        proof = PhotoWrites(self.additional, self.ledger)
+        if not result.cplAsset or not result.cplMaster:
+            raise WriteDenied("mutation_unverified")
+        asset = library.all.get(result.cplAsset)
+        if (
+            not isinstance(asset, PhotoAsset)
+            or proof._selector(asset) != (result.cplAsset, result.cplMaster, zone)
+            or not record_change_tag(asset.asset_record)
+            or client.photos.upload_root != root
+        ):
+            raise WriteDenied("mutation_unverified")
+        return asset
+
+    def _accept_receipt(
+        self, request_id: str, accept: Callable[[str], None] | None
+    ) -> bool:
+        """Retain completed acceptance before any later metadata revalidation."""
+        accepted = self._accepted_receipts.get(request_id, False)
+        if accept is not None and not accepted:
+            accept(request_id)
+            self._accepted_receipts[request_id] = True
+            return True
+        return accepted
+
     async def apply(
         self, request_id: str, accept: Callable[[str], None] | None = None
     ) -> dict[str, Any]:
@@ -170,19 +256,28 @@ class PhotoUploads:
 
         def apply(client: Any) -> dict[str, Any]:
             library, account, resource, revision = self._read(client, zone, token)
-            if accept is not None:
-                accept(request_id)
+            owner_deadline = self._validate_session_policy(client)
+            root = client.photos.upload_root
+            accepted = self._accept_receipt(request_id, accept)
+            self._verify_after_binding(client, zone, account, resource)
+            if client.photos.upload_root != root:
+                raise WriteDenied("stale_preview")
+            if str(client.photos.params.get("dsid")) != account:
+                raise WriteDenied("account_unavailable")
+            captured: list[StagedUpload] = []
             approved = self.ledger.consume(
                 request_id,
                 account_binding=account,
                 resource_binding=resource,
                 revision=revision,
+                before_consume=lambda: captured.append(self.staging.take(token)),
             )
             del self._requests[request_id]
+            self._accepted_receipts.pop(request_id, None)
             if approved.risk != "high":
+                self.staging._stages[token] = captured[0]
                 raise WriteDenied("high_risk_operator_approval_required")
-            stage = self.staging.take(token)
-            root = client.photos.upload_root
+            stage = captured[0]
             try:
                 result = self.pipeline.upload(
                     client.photos.session,
@@ -191,19 +286,11 @@ class PhotoUploads:
                     "PrimarySync",
                     stage,
                     modified_ms=modified_ms,
+                    stage_acquired=True,
+                    owner_deadline=owner_deadline,
+                    approved_hosts=self.hosts,
                 )
-                proof = PhotoWrites(self.additional, self.ledger)
-                if not result.cplAsset or not result.cplMaster:
-                    raise WriteDenied("mutation_unverified")
-                asset = library.all.get(result.cplAsset)
-                if (
-                    not isinstance(asset, PhotoAsset)
-                    or proof._selector(asset)
-                    != (result.cplAsset, result.cplMaster, zone)  # pylint: disable=protected-access
-                    or not record_change_tag(asset.asset_record)
-                    or client.photos.upload_root != root
-                ):
-                    raise WriteDenied("mutation_unverified")
+                asset = self._verified_asset(client, library, result, zone, root)
                 # Recheck the full library/account/CloudKit route without reusing
                 # a registration cache or pretending the consumed stage still exists.
                 self._verify_after_binding(client, zone, account, resource)
@@ -213,7 +300,19 @@ class PhotoUploads:
                     "duplicate": result.is_duplicate,
                     "verified": True,
                 }
+            except UploadNotDispatched:
+                self.staging._stages[token] = stage
+                self.ledger.restore_before_dispatch(
+                    approved,
+                    account_binding=account,
+                    resource_binding=resource,
+                    revision=revision,
+                )
+                self._requests[request_id] = target
+                if accepted:
+                    self._accepted_receipts[request_id] = True
+                raise
             except Exception:
                 raise WriteDenied("mutation_uncertain") from None
 
-        return await self.additional.reads.owner.run(apply)
+        return await self._run(apply)

@@ -143,7 +143,12 @@ def test_approved_preview_cannot_cross_accounts_routes_or_revisions(
         }[binding]
     ] = "changed"
     with pytest.raises(WriteDenied, match="stale_preview"):
-        authority.consume(item.request_id, **state)
+        authority.consume(
+            item.request_id,
+            account_binding=state["account_binding"],
+            resource_binding=state["resource_binding"],
+            revision=state["revision"],
+        )
     with pytest.raises(WriteDenied, match="unknown_or_consumed"):
         authority.approve_from_operator(item.request_id, item.digest)
 
