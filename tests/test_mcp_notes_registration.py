@@ -32,6 +32,6 @@ async def test_notes_registration_preserves_content_opt_in(
         if name in names:
             result = await server.call_tool(name, arguments)
             assert isinstance(result, CallToolResult)
-            assert not result.is_error
+            assert result.is_error is (name == "icloud_note_content")
     assert "icloud_write_execute" not in names
     assert len(await build_server().list_tools()) == 2

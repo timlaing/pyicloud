@@ -9,10 +9,12 @@ from typing import Any, cast
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
+from requests import Session
 
 from pyicloud.common.cloudkit import CKRecord, CKZoneListResponse
 from pyicloud.mcp.additional import AdditionalReads
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
+from pyicloud.mcp.context import BoundedAdapter
 from pyicloud.mcp.photo_album_creates import PhotoAlbumCreates
 from pyicloud.mcp.photo_album_writes import PhotoAlbumWrites
 from pyicloud.mcp.photo_uploads import PhotoUploads
@@ -33,11 +35,19 @@ from tests.test_mcp_additional import owner_for
 from tests.test_photos_album_identity import make_album
 
 
+def bounded_session() -> Session:
+    """A real bounded session without environment inheritance or live requests."""
+    session = Session()
+    session.trust_env = False
+    session.mount("https://", BoundedAdapter(30))
+    return session
+
+
 def observed_service() -> tuple[PhotosService, PhotoLibrary, dict[str, Any]]:
     """Capture identity through the real private zones discovery with synthetic HTTP."""
     service = PhotosService(
         "https://photos.example.test",
-        cast(PyiCloudSession, object()),
+        cast(PyiCloudSession, bounded_session()),
         {"dsid": "123"},
         None,
         None,

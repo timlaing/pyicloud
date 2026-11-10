@@ -458,4 +458,4 @@ def test_probes_are_skipped_when_the_key_is_already_known_bad() -> None:
         assert by_service[service].elapsed_ms == 0
     # A service whose key is fine is still probed.
     assert by_service["calendar"].status is ProbeStatus.OK
-    api.photos.assert_not_called()
+    MagicMock.assert_not_called(api.photos)

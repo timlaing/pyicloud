@@ -6,6 +6,7 @@ must be wired through a separately trusted local channel, never an MCP boolean.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import hashlib
 import hmac
@@ -197,20 +198,48 @@ class ApprovalLedger:
         account_binding: str,
         resource_binding: str,
         revision: str | None,
+        before_consume: Callable[[], None] | None = None,
     ) -> MutationPreview:
         """Consume before mutation dispatch so ambiguous failures cannot be retried."""
         item = self._lookup(request_id)
         if not item.approved:
             raise WriteDenied("operator_approval_required")
         # Even a stale approved request is retired; it needs a new preview/decision.
-        del self._pending[request_id]
         if (item.account_binding, item.resource_binding, item.revision) != (
             account_binding,
             resource_binding,
             revision,
         ):
+            del self._pending[request_id]
             raise WriteDenied("stale_preview")
+        if before_consume is not None:
+            before_consume()
+        del self._pending[request_id]
         return item.preview
+
+    def discard(self, request_id: str) -> None:
+        """Revoke a preview that could not be published to the operator."""
+        self._pending.pop(request_id, None)
+
+    def restore_before_dispatch(
+        self,
+        preview: MutationPreview,
+        *,
+        account_binding: str,
+        resource_binding: str,
+        revision: str | None,
+    ) -> None:
+        """Restore an exact decision only after transport proof of no dispatch."""
+        self._pending.setdefault(
+            preview.request_id,
+            PendingMutation(
+                preview,
+                account_binding,
+                resource_binding,
+                revision,
+                approved=True,
+            ),
+        )
 
     def _lookup(self, request_id: str) -> PendingMutation:
         item = self._pending.get(request_id)

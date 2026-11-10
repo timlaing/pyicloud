@@ -39,6 +39,7 @@ async def test_photos_registration_preserves_content_opt_in(
         if name in names:
             result = await server.call_tool(name, arguments)
             assert isinstance(result, CallToolResult)
-            assert not result.is_error
+            assert result.structured_content is not None
+            assert result.is_error is (result.structured_content["error"] is not None)
     assert "icloud_write_execute" not in names
     assert len(await build_server().list_tools()) == 2

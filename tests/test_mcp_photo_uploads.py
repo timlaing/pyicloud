@@ -7,9 +7,11 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from requests import Session
 
 from pyicloud.common.cloudkit import CKRecord
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
+from pyicloud.mcp.context import BoundedAdapter
 from pyicloud.mcp.photo_uploads import PhotoUploads
 from pyicloud.mcp.upload_staging import UploadStaging
 from pyicloud.services.photos.models import PhotosPutAssetResult
@@ -23,6 +25,9 @@ def setup_upload() -> tuple[PhotoUploads, Any, Any, str, str, MagicMock]:
     library.zone_id = {"zoneName": "PrimarySync"}
     client.photos.params = {"dsid": "123"}
     client.photos.upload_root = "https://upload.example.test"
+    client.photos.session = Session()
+    client.photos.session.trust_env = False
+    client.photos.session.mount("https://", BoundedAdapter(30))
     writer.ledger = ApprovalLedger(
         frozenset({"photos.upload_file"}),
         high_risk_actions=frozenset({"photos.upload_file"}),
