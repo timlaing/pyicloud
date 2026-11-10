@@ -168,6 +168,13 @@ handle and selected version. Starting at offset zero creates a separate transfer
 it cannot replace another transfer's pinned entity tag. A changed remote version
 is rejected instead of combining chunks from different versions.
 
+This Mail slice adds explicitly configured SDK mailbox/message metadata and
+field-aware searches. Body/all search and untrusted MIME reads require an
+additional content opt-in. Existing guarded draft/folder/flag/move/send/deletion
+adapters remain internal until final runtime wiring. The launcher retains
+offline local status and capabilities; this slice exposes no write or approval
+tool.
+
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
 development tooling. The standalone CLI extra remains `pyicloud[cli]`.
