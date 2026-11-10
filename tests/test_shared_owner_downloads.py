@@ -56,6 +56,7 @@ def test_ordinary_or_unresolved_nodes_keep_the_existing_request(changes: Any) ->
 def test_owner_is_escaped_as_one_path_component() -> None:
     """Owner is escaped as one path component."""
     response = MagicMock(spec=Response)
+    response.status_code = 200
     response.json.return_value = {
         "data_token": {"url": "https://example.invalid/content"}
     }

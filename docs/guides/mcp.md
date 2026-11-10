@@ -60,6 +60,114 @@ Active transfers abandoned for more than 600 seconds since their last successful
 chunk may be reclaimed. Registration restores the session's prior deadline on
 success and failure so its temporary limit does not affect later verification.
 
+This Drive slice adds explicitly configured SDK metadata, Trash discovery,
+bounded name search and separately opted-in version-bound downloads. Existing
+write/upload adapters retain exact independent receipts and uncertain/no-replay
+outcomes, but remain internal until final runtime integration. The launcher
+retains offline local status and capabilities; this slice exposes no write or
+approval tool.
+
+Drive upload reservation and commit share one enforced deadline. Unsupported
+custom transports are refused before registration dispatch. Before upload, the
+selected destination must retire successfully after approval validation but
+before approval and staged bytes are consumed; a failed retirement preserves
+both. Rename retires its selected source before dispatch, so uncertain outcomes
+require rediscovery rather than reusing stale names. Permanent deletion compares
+Trash listing metadata with the independently fetched detail snapshot.
+Both recovery and deletion reject shared metadata in either snapshot. A stage
+that expires during refresh is rejected before destination retirement; restaging
+uses a new token and requires a new preview and approval. Known retirement
+failures return `target_unavailable`, not mutation uncertainty. Custom mutation
+sessions must confirm retries are disabled before approval consumption.
+Upload credentials are validated into a private snapshot before accepting or
+consuming resources; cookie lookup failures do not spend approval or bytes.
+Mutation POSTs disable redirects, and redirect responses are uncertain outcomes
+without a second dispatch. Drive browse accepts `scan_limit` (1–2,000, default 500) and constructs only that bounded child prefix, including selective queries;
+results remain explicitly incomplete rather than claiming an exhaustive search.
+Trash listing uses the same `scan_limit` bounds. Forced folder refreshes discard
+old inventories and child caches; missing inventories deny collision checks.
+Publication failures revoke the hidden preview and its selectors. Actual moves
+retire both discovered handles before dispatch; same-parent no-ops preserve them.
+
+Mutation dispatch uses the existing service payload builders with a direct,
+non-retrying adapter path, bypassing custom session replay and response hooks.
+The adapter selected for each actual endpoint is checked before consuming any
+approval. Upload registration and commit adapters must also enforce absolute
+response-header deadlines. Staged-byte expiry is checked during atomic admission;
+already-acquired immutable bytes remain valid for the admitted transfer.
+HTTP/HTTPS proxy response headers, including CONNECT, use the same absolute budget;
+unsupported proxy transports are rejected. Upload phases inherit the earlier owner
+deadline instead of renewing it after metadata refresh. One-shot writes use a
+scoped service clone, preserve safe session query defaults and response cookies,
+and never assign the library service's read-only session property. Move-handle
+admission is atomic; Drive mutations invalidate all aliases of each affected
+identifier and zone. Rename no-ops compare the full displayed filename leaf.
+Account mutations retain session/environment proxy routing and CA bundles without
+enabling netrc or session replay; isolated upload transfers still inherit neither.
+Bound Drive parameters and upload credentials override session query defaults.
+Injected mutation adapters must be deadline-aware and use the owner's original
+queue-inclusive deadline. A proven rejection before transport admission restores
+the original upload approval, stage and destination aliases without extending any
+TTL. After any dispatch attempt, resources remain consumed and failures are
+uncertain; no mutation is automatically retried.
+Retries after proven pre-dispatch rejection reuse the already accepted decision,
+not the consumed receipt file. Registration dispatch pins its marked adapter;
+separate reservation and commit adapters receive fresh owner budgets each time.
+Individual header reads retain shorter adapter timeouts within the owner deadline.
+Downloads stop streamed bodies at the requested chunk bound, and injected real
+Drive sessions must use body-bounded HTTPS adapters before any SDK download read.
+The final content response uses the requested chunk limit in the adapter itself;
+token-discovery metadata keeps its separate bounded response policy. Metadata
+endpoint adapters are also validated and owner-budgeted. Mutation POSTs pin the
+preflight adapter, and final deletion/move evidence must stay in the approved
+account and route. Identifier prefixes must agree with file/folder types.
+Injected inventory facades must provide bounded `iter_children` production; eager
+fallbacks are rejected. Download operations restore prior injected-adapter deadlines
+on success and failure. Receipt acceptance cannot replace the bound account or
+routes, and pinned dispatch still validates its URL and session policy. Evicting an
+upload selector also revokes its ledger decision.
+Inventory producers are closed on truncation and exceptions. Permanent Drive
+deletion requires an item-correlated tombstone acknowledgement and reports
+`acknowledged: true`, `final_state_verified: false`; a generic HTTP 404/410 is not
+proof that a file was permanently deleted. Context is revalidated after receipt
+acceptance before mutation dispatch. Photos uploads also validate registration
+policy before consuming resources and retain them on proven pre-dispatch rejection.
+Injected Drive operations restore prior adapter deadlines at operation completion;
+download request budgets reset once per operation, not on each guard call. Metadata
+roots must be HTTPS before the first SDK read. Photos stages are acquired atomically
+with approval consumption, transfer deadlines inherit the owner budget, and accepted
+receipts survive a proven pre-dispatch rejection without a second mailbox read.
+Optional SOCKS routing is preserved when Requests' SOCKS support is installed;
+deadline pools retain the original proxy connection class. Real Drive inventory
+discovery requires a body-bounded metadata transport before the first SDK read.
+Photos preview size limits and approved transfer hosts apply independently of any
+injected pipeline policy. Accepted receipt decisions are cached before metadata
+revalidation; failed publication revokes both decision and selector state.
+Abandoned transfers can be released with `icloud_drive_download_release` or
+`icloud_photo_download_release`, supplying the original handle and transfer token
+(and Photos version). Release only retires that local token; it does not mutate
+iCloud or reset another transfer's entity tag. Permanent deletion rejects Trash
+inventories above 2,000 rows rather than claiming absence from a partial scan.
+The underlying Drive library's metadata reads reject redirects for ordinary callers
+as well as MCP verification requests.
+Transfer release does not probe authentication or create an account client; it uses
+the same serialized local lane even after session expiry. Release tools advertise
+`readOnlyHint: false` because they invalidate local continuation tokens, while
+`destructiveHint: true` describes that local invalidation and
+`openWorldHint: false` reflects that they never mutate iCloud. Nested folder reads
+reject a mismatched connection instead of borrowing an unchecked transport.
+Metadata transports must retain the known Requests/PyiCloud request and send
+methods as well as stable adapter selection. Photos URL resolution uses the pure
+SDK `PhotoAsset` resolver; custom facades must supply explicit static `download_urls`
+metadata rather than an arbitrary URL callback. Recovery and Trash verification
+share the same complete-inventory bound used for permanent deletion.
+
+Drive and Photos downloads return an opaque `transfer_token` with their first
+chunk. Supply that token for every nonzero-offset continuation, using the same
+handle and selected version. Starting at offset zero creates a separate transfer;
+it cannot replace another transfer's pinned entity tag. A changed remote version
+is rejected instead of combining chunks from different versions.
+
 This Mail slice adds explicitly configured SDK mailbox/message metadata and
 field-aware searches. Body/all search and untrusted MIME reads require an
 additional content opt-in. Existing guarded draft/folder/flag/move/send/deletion

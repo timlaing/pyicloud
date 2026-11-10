@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from dataclasses import dataclass, field
 import hashlib
 import re
@@ -164,11 +165,15 @@ class UploadStaging:
         self._stages[token] = sealed
         return sealed
 
-    def take(self, token: str) -> StagedUpload:
+    def take(
+        self, token: str, *, before_take: Callable[[], None] | None = None
+    ) -> StagedUpload:
         """Consume sealed bytes once before a future separately approved upload."""
         stage = self._get(token)
         if not isinstance(stage, StagedUpload):
             raise WriteDenied("upload_not_sealed")
+        if before_take is not None:
+            before_take()
         del self._stages[token]
         return stage
 
