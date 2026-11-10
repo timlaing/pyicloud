@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from itertools import islice
@@ -11,7 +11,13 @@ from secrets import token_urlsafe
 import time
 from typing import Any
 
-from .context import ToolFailure
+from requests import Session
+
+from pyicloud.services.drive import DriveNode, DriveService
+
+from .authorization import WriteDenied
+from .context import BoundedAdapter, SessionOwner, ToolFailure
+from .one_shot import checked_adapter, prepared_url, validate_metadata_session
 from .reads import ReadResult, ReadTools, bounded_result
 
 
@@ -80,8 +86,26 @@ class AdditionalReads:
 
     def retire(self, kind: str, handle: str) -> None:
         """Retire only an exact live scoped selector before a version-changing write."""
-        self._get(kind, handle)
-        del self._handles[handle]
+        self.retire_many(((kind, handle),))
+
+    def retire_many(self, selectors: tuple[tuple[str, str], ...]) -> None:
+        """Admit all selected handles atomically, then retire their Drive aliases."""
+        resources = [self._get(kind, handle) for kind, handle in selectors]
+        identifiers = [
+            (node.data.get("drivewsid"), node.data.get("zone"))
+            for node in resources
+            if isinstance(node, DriveNode)
+        ]
+        keys = {handle for _kind, handle in selectors}
+        keys.update(
+            handle
+            for handle, (kind, node, _expires) in self._handles.items()
+            if kind.startswith("drive-")
+            and isinstance(node, DriveNode)
+            and (node.data.get("drivewsid"), node.data.get("zone")) in identifiers
+        )
+        for key in keys:
+            self._handles.pop(key, None)
 
     def resolve_any(self, kinds: frozenset[str], handle: str) -> Any:
         """Resolve only a permitted discovered kind, never an arbitrary identifier."""
@@ -89,6 +113,27 @@ class AdditionalReads:
         if route is None or route[0] not in kinds:
             raise ToolFailure("expired_or_unknown_handle")
         return self._get(route[0], handle)
+
+    def snapshot_drive_handles(
+        self, kind: str, handle: str
+    ) -> dict[str, tuple[str, Any, float]]:
+        """Retain only aliases affected by a known pre-dispatch transaction."""
+        selected = self._get(kind, handle)
+        return {
+            key: entry
+            for key, entry in self._handles.items()
+            if entry[0].startswith("drive-")
+            and isinstance(entry[1], DriveNode)
+            and (entry[1].data.get("drivewsid"), entry[1].data.get("zone"))
+            == (selected.data.get("drivewsid"), selected.data.get("zone"))
+        }
+
+    def restore_before_dispatch_handles(
+        self, entries: dict[str, tuple[str, Any, float]]
+    ) -> None:
+        """Restore original TTLs only after proof that dispatch never began."""
+        for handle, entry in entries.items():
+            self._handles.setdefault(handle, entry)
 
     async def _run(
         self,
@@ -99,7 +144,47 @@ class AdditionalReads:
     ) -> ReadResult:
         if len(query) > 256:
             return ReadResult(error="invalid_argument")
-        return await self.reads.execute(service, limit, operation)
+
+        def guarded(client: Any) -> ReadResult:
+            if service != "drive" or not isinstance(client.drive, DriveService):
+                return operation(client)
+            session = client.drive.session
+            try:
+                validate_metadata_session(session)
+            except WriteDenied:
+                raise ToolFailure("unsupported_drive_transport") from None
+            if (
+                not isinstance(session, Session)
+                or getattr(session.get_adapter, "__func__", None)
+                is not Session.get_adapter
+            ):
+                raise ToolFailure("unsupported_drive_transport")
+            url = prepared_url(
+                session,
+                client.drive.service_root + "/retrieveItemDetailsInFolders",
+                client.drive.params,
+            )
+            try:
+                adapter = checked_adapter(session, url, bounded=True)
+            except WriteDenied:
+                raise ToolFailure("unsupported_drive_transport") from None
+            assert isinstance(adapter, BoundedAdapter)
+            owner = self.reads.owner
+            previous = adapter.deadline
+            if isinstance(owner, SessionOwner):
+                owner.bind_adapter(adapter)
+                return operation(client)
+            adapter.requests_left = 32
+            deadline = time.monotonic() + owner.config.timeout
+            adapter.deadline = (
+                min(previous, deadline) if previous is not None else deadline
+            )
+            try:
+                return operation(client)
+            finally:
+                adapter.deadline = previous
+
+        return await self.reads.execute(service, limit, guarded)
 
     async def contacts(self, query: str, limit: int) -> ReadResult:
         """Search names; addresses/phones require a separate explicit call."""
@@ -178,8 +263,16 @@ class AdditionalReads:
 
         return await self.reads.execute("contacts", 1, read)
 
-    async def drive(self, folder_handle: str, query: str, limit: int) -> ReadResult:
+    async def drive(
+        self, folder_handle: str, query: str, limit: int, scan_limit: int = 500
+    ) -> ReadResult:
         """Browse one folder; filter names locally, never local paths."""
+        if (
+            isinstance(scan_limit, bool)
+            or not isinstance(scan_limit, int)
+            or not 1 <= scan_limit <= 2000
+        ):
+            return ReadResult(error="invalid_argument")
 
         def read(client: Any) -> ReadResult:
             node = (
@@ -190,19 +283,22 @@ class AdditionalReads:
             if node.type not in {"folder", "app_library"}:
                 raise ToolFailure("invalid_argument")
             records = []
-            for child in node.get_children(force=True):
-                name, kind = text(child.name), text(child.type)
-                if query.casefold() not in name.casefold():
-                    continue
-                record = {
-                    "name": name,
-                    "type": kind,
-                    "modified": timestamp(child.date_modified),
-                }
-                self._drive_record_handle(record, kind, child)
-                records.append(record)
-                if len(records) >= limit:
-                    break
+            with self._bounded_drive_children(
+                node, scan_limit, client.drive
+            ) as children:
+                for child in children:
+                    name, kind = text(child.name), text(child.type)
+                    if query.casefold() not in name.casefold():
+                        continue
+                    record = {
+                        "name": name,
+                        "type": kind,
+                        "modified": timestamp(child.date_modified),
+                    }
+                    self._drive_record_handle(record, kind, child)
+                    records.append(record)
+                    if len(records) >= limit:
+                        break
             return bounded_result(records, limit, complete=False)
 
         return await self._run("drive", query, limit, read)
@@ -216,26 +312,37 @@ class AdditionalReads:
         elif kind == "file":
             record["handle"] = self._store("drive-file", child)
 
-    async def drive_trash(self, query: str, limit: int) -> ReadResult:
+    async def drive_trash(
+        self, query: str, limit: int, scan_limit: int = 500
+    ) -> ReadResult:
         """Bounded Recently Deleted metadata with separate opaque trash selectors."""
+        if (
+            isinstance(scan_limit, bool)
+            or not isinstance(scan_limit, int)
+            or not 1 <= scan_limit <= 2000
+        ):
+            return ReadResult(error="invalid_argument")
 
         def read(client: Any) -> ReadResult:
             records = []
-            for child in client.drive.trash.get_children(force=True):
-                name, kind = text(child.name), text(child.type)
-                if (
-                    kind not in {"file", "folder"}
-                    or query.casefold() not in name.casefold()
-                ):
-                    continue
-                records.append({
-                    "handle": self._store("drive-trash-" + kind, child),
-                    "name": name,
-                    "type": kind,
-                    "modified": timestamp(child.date_modified),
-                })
-                if len(records) >= limit:
-                    break
+            with self._bounded_drive_children(
+                client.drive.trash, scan_limit, client.drive
+            ) as children:
+                for child in children:
+                    name, kind = text(child.name), text(child.type)
+                    if (
+                        kind not in {"file", "folder"}
+                        or query.casefold() not in name.casefold()
+                    ):
+                        continue
+                    records.append({
+                        "handle": self._store("drive-trash-" + kind, child),
+                        "name": name,
+                        "type": kind,
+                        "modified": timestamp(child.date_modified),
+                    })
+                    if len(records) >= limit:
+                        break
             return bounded_result(records, limit, complete=False)
 
         return await self._run("drive", query, limit, read)
@@ -476,7 +583,26 @@ class AdditionalReads:
             if folder.type not in {"folder", "app_library"}:
                 raise ToolFailure("invalid_argument")
             fetched += 1
-            for item in folder.get_children(force=True):
-                yield item
-                if item.type in {"folder", "app_library"}:
-                    pending.append(item)
+            with self._bounded_drive_children(folder, 2000, client.drive) as children:
+                for item in children:
+                    yield item
+                    if item.type in {"folder", "app_library"}:
+                        pending.append(item)
+
+    @staticmethod
+    @contextmanager
+    def _bounded_drive_children(
+        node: Any, maximum: int, connection: Any = None
+    ) -> Generator[Iterator[Any], None, None]:
+        """Use the library's lazy bounded producer and cap custom facade iteration."""
+        if isinstance(node, DriveNode):
+            if connection is not None and node.connection is not connection:
+                raise ToolFailure("unsupported_drive_connection")
+            items = node.iter_children(force=True, max_children=maximum)
+        else:
+            producer = getattr(node, "iter_children", None)
+            if not callable(producer):
+                raise ToolFailure("unsupported_drive_inventory")
+            items = producer(force=True, max_children=maximum)
+        with window(items, maximum) as children:
+            yield children

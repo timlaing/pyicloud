@@ -348,14 +348,18 @@ class CloudKitNotesClient:
                 if not CloudKitNotesClient._matches_user_reference(value, target):
                     return False
             elif isinstance(target, NotesPreviewReceipt):
-                if not isinstance(value, dict) or any(
-                    value.get(key) != getattr(target, key)
-                    for key in ("fileChecksum", "referenceChecksum", "size")
-                ):
+                if not CloudKitNotesClient._matches_preview_receipt(value, target):
                     return False
             elif isinstance(target, (int, str)) and value != target:
                 return False
         return True
+
+    @staticmethod
+    def _matches_preview_receipt(value: object, target: NotesPreviewReceipt) -> bool:
+        return isinstance(value, dict) and all(
+            value.get(key) == getattr(target, key)
+            for key in ("fileChecksum", "referenceChecksum", "size")
+        )
 
     @staticmethod
     def _matches_user_reference(value: object, target: NotesFolderReference) -> bool:

@@ -10,6 +10,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Enforce the approval-bound Drive upload host policy before transferring staged bytes, even when an injected transport permits additional hosts.
+
 - Route plaintext MCP requests and HTTPS-to-HTTP redirects through the bounded adapter so they are rejected before plaintext dispatch.
 
 - Bind operator-visible MCP approval content to the live ledger before accepting a receipt, reject blocking special files, disable service login recovery on saved-session owners, require valid strong download entity tags and reject retry-enabled registration transports.
@@ -19,6 +21,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Isolate Sonar coverage validation from pull-request Python modules, restrict the Sonar token to scan steps, and reject linked scan inputs while retaining fork pull-request analysis. Reject ambiguous fork PR matches rather than attributing analysis to the first PR sharing a commit.
 
 ### Changed
+
+- Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
 
 - Require typed Photos album-creation acknowledgements to match the submitted record ID, record type, album type, live deletion flag, encoded name and valid change tag; unrelated or ambiguous responses now raise uncertainty instead of returning an uncorrelated album. Request payloads and public signatures are unchanged.
 
@@ -52,6 +56,58 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Render Notes formatting at the correct UTF-16 offsets and support zlib-compressed
   Notes table data alongside gzip and uncompressed table data.
+
+- Revoke pending decisions when Drive rename/Trash, move, create/recover or deletion selectors are evicted; mark transfer release as destructive to its local continuation state.
+
+- Preserve create/recover approvals when source selectors expire during refresh by retiring them atomically before approval consumption.
+
+- Retire deletion, rename and Trash selectors atomically with approval consumption, preserving pending decisions on known pre-dispatch expiry; map queued upload expiry to `target_unavailable`.
+
+- Map upload destination expiry during snapshot admission to `target_unavailable` without consuming approval or staged bytes.
+
+- Validate known metadata dispatch methods before Drive reads and reject arbitrary Photos URL callbacks, using the pure SDK asset resolver or explicit static URL metadata instead.
+- Share complete bounded Trash inspection across recovery and post-write verification, and distinguish document-route failures from account mismatches.
+
+- Reject custom adapter-selection overrides before real Drive inventory reads so dispatch cannot bypass the validated body and deadline policy.
+
+- Reject folder reads through mismatched Drive connections, recheck recovery bindings after Trash refresh, and validate malformed/shared discovered nodes before preparation.
+- Run local transfer release on the serialized owner lane without authentication probes and mark release tools as local-state mutations rather than read-only calls.
+
+- Add explicitly bound local download-transfer release tools for abandoned Drive and Photos reads, preserving other active transfers' version pins.
+- Bound complete Trash inventory inspection before file-deletion uniqueness or absence checks; oversized or incomplete inventories deny proof instead of being treated as absent.
+
+- Preserve optional SOCKS proxy connection routing with absolute header deadlines, and require bounded transport before real Drive discovery reads.
+- Revoke unpublished Photos decisions, cache accepted receipts before revalidation, validate Photos account and stage-size policy before consumption, and enforce approved transfer hosts in the Photos pipeline.
+
+- Restore injected Drive operation deadlines and refresh per-operation download request budgets, while rejecting plaintext metadata routes and bare document-root fragments before SDK reads or upload admission.
+- Align Photos registration parameters with preflight, carry the owner deadline through transfer, acquire stages atomically with approval consumption, and preserve accepted receipts and approved context across pre-dispatch retries.
+
+- Compare Drive retirement identities without hashing malformed metadata and close original inventory producers on truncation or failures.
+- Pin acknowledgement registration adapters, revalidate mutation context after acceptance, preserve specific transport denials and reject only actual redirect statuses.
+- Require correlated permanent-deletion acknowledgements and report acknowledgement-only outcomes rather than claiming final deletion from generic HTTP absence. Preserve Photos upload resources on proven pre-dispatch transport rejection.
+
+- Require bounded producers for injected Drive inventories, restore injected-owner download deadlines, and turn malformed upload roots or missing folder identifiers into safe denials.
+- Revoke evicted upload decisions, reject account/route changes after receipt acceptance, validate pinned dispatch URLs, and restore resources on proven first adapter-lookup failure.
+
+- Cap download response buffers at the requested chunk size, bind metadata and mutation endpoint adapters, and reject contradictory Drive identifier/type metadata or non-node selectors.
+- Recheck approved account/route bindings across deletion and final move verification, reject empty document-root query delimiters, and validate live handles before no-op rename approval consumption.
+
+- Keep shorter adapter read timeouts within absolute header budgets, bind separate upload endpoints to the owner operation, and pin registration dispatch to its marked adapter.
+- Validate live handles for no-op moves, retain accepted receipts for proven pre-dispatch retries, reject Drive root query/fragment delimiters, and bound streamed downloads before full-body materialization.
+
+- Preserve explicit account/upload query precedence, require owner-budgeted mutation transports, retain account CA/proxy settings, and keep nested header failures classified as timeouts.
+- Restore exact upload approvals, staged bytes and destination aliases only when transport admission proves no request began; retain consumed resources after any dispatch attempt. Validate the final refreshed move destination revision.
+
+- Use a scoped real Drive service clone for one-shot mutations instead of assigning its read-only session property, preserving session query defaults and response cookies.
+- Apply absolute response-header deadlines to HTTP/HTTPS proxy pools and CONNECT responses, preserve detached connection state, and carry the owner deadline through uploads.
+- Admit both move handles before retiring either, validate listed move metadata against fresh detail, retire duplicate Drive aliases, and compare displayed filename leaves for rename no-ops and verification.
+- Reject plaintext Drive routes before metadata reads or previews, disable redirects during download token discovery, and retry random download-token collisions within a fixed local bound.
+
+- Reject evicted queued Drive write previews before accepting receipts, consuming approvals, retiring handles, or dispatching mutations.
+- Retire selected Drive move source handles before dispatch, including uncertain outcomes, while preserving handles for same-parent no-ops.
+- Roll back unpublished Drive previews and selectors, require fresh collision inventories, invalidate refreshed child caches, bound Trash scans, and return tokens for empty downloads.
+- Validate actual mutation endpoint and document-service adapter policies before consuming approvals, bypass custom-session replay and hooks during dispatch, enforce absolute response-header deadlines, and reject redirected verification reads or changed Drive accounts.
+- Treat staged-upload expiry as an admission check so an already-acquired immutable upload does not expire between approval consumption and dispatch.
 
 - Validate required account storage byte counts before caching a refresh, preserving the previous snapshot when the response is missing fields or contains invalid counts.
 
@@ -149,6 +205,12 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add explicitly selected MCP Photos library/album/asset discovery, bounded filename search and opted-in downloads alongside existing guarded album/favorite/relation/upload adapters; runtime write-tool wiring remains in the final integration slice.
 - Bound creation inventory at the typed producer across pages/folders, allow nested inventory without expanding rename eligibility, reject names that cannot be UTF-8 encoded and unusable revisions, validate discovered relation provenance before lookup, and canonicalize resource bindings. Preserve active download entity tags at capacity. Photos upload registration requires deadline-aware transport and refuses unsupported custom sessions before registration dispatch.
 - Allow idle Photos download state to be reclaimed after 600 seconds when registry capacity is reached, canonicalize relation zone bindings, and restore temporary registration deadlines before subsequent session reads.
+- Add explicitly selected MCP Drive discovery/search/download registration and existing guarded rename/move/trash/permanent-delete/recovery/create/upload adapters; runtime write-tool wiring remains in the final integration slice.
+- Normalize numeric Drive account IDs, clean staging on owner shutdown, enforce the 4 MiB upload limit before approval, reject invalid UTF-8 names, revalidate move destinations after refresh, and require successful upload commit statuses correlated with the reserved document ID.
+- Compare Trash detail/listing metadata before permanent deletion, revalidate the final move destination, bind approvals to the Drive service account, retire rename source handles, and enforce the shared deadline for upload reservation/commit. Failed pre-dispatch destination retirement preserves staged bytes and approval; rejected downloads are flagged as tool execution errors.
+- Require private-only Trash listing metadata for recovery/deletion, preserve destinations when staged bytes expire during refresh, distinguish pre-dispatch retirement failures, reject retry-enabled mutation transports before approval consumption, and flag all rejected Drive reads as tool execution errors.
+- Map recovery/deletion retirement failures to known target denials, retire selected move destinations before dispatch, reject evicted upload requests before spending resources, and mark rejected Note/Photo content reads as tool execution errors.
+- Validate private upload credential snapshots before consumption, disable mutation redirects, cross-check post-Trash snapshots, bound browse child construction and scans, and isolate resumable download versions with per-transfer tokens. Notes and Photos metadata failures now carry tool-error flags.
 - Add explicitly selected MCP Mail mailbox/message metadata, bounded field-aware search and opted-in MIME content alongside existing guarded draft/folder/flag/move/send/deletion adapters; runtime write-tool wiring remains in the final integration slice.
 - Verify folder mutations by stable identity rather than volatile message counts, recheck Mail permission before draft application, tolerate queued payload-map eviction after capturing a request, and verify the saved body's single approved sender before returning a draft handle.
 - Preserve edit/send/move/permanent-delete retirement when private mappings are evicted while queued, and flag failed Mail reads as tool execution errors with structured safe error codes.

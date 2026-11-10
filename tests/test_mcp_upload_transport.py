@@ -2,13 +2,16 @@
 
 # cspell:words forcelist
 
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
+from requests import Response, Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from pyicloud.mcp.authorization import WriteDenied
+from pyicloud.mcp.context import BoundedAdapter
 from pyicloud.mcp.upload_transport import (
     UploadTransport,
     bounded_upload_json,
@@ -98,31 +101,39 @@ def test_transfer_has_no_shared_auth_environment_redirect_or_retry(case: str) ->
 @pytest.mark.parametrize("fail", [False, True])
 def test_service_registration_is_one_raw_request(fail: bool) -> None:
     """Ordinary session auth recovery cannot replay a registration."""
-    session = MagicMock()
-    session.get_adapter.return_value = HTTPAdapter(max_retries=0)
-    response = session.request_raw.return_value
+    session = cast(Any, Session())
+    session.trust_env = False
+    session.get_adapter = MagicMock(return_value=BoundedAdapter(30))
+    session.request_raw = MagicMock(side_effect=AssertionError("Custom replay path"))
+    session.post = MagicMock()
+    response = Response()
     response.status_code = 200
-    response.iter_content.return_value = [b"[]"]
-    if fail:
-        session.request_raw.side_effect = OSError("private")
+    vars(response).update(_content=b"[]", _content_consumed=True)
     args = (
         session,
         "https://service.example.test/register",
         frozenset({"service.example.test"}),
         {"exact": True},
     )
-    if fail:
-        with pytest.raises(WriteDenied):
-            UploadTransport.register(*args)
-    else:
-        assert UploadTransport.register(*args) == []
-    session.request_raw.assert_called_once()
+    with patch(
+        "requests.adapters.HTTPAdapter.send",
+        side_effect=OSError("private") if fail else None,
+        return_value=response,
+    ) as send:
+        if fail:
+            with pytest.raises(WriteDenied):
+                UploadTransport.register(*args)
+        else:
+            assert UploadTransport.register(*args) == []
+        send.assert_called_once()
+    session.request_raw.assert_not_called()
     session.post.assert_not_called()
 
 
 def test_registration_refuses_post_retry_adapter_before_dispatch() -> None:
     """A caller's POST retry policy cannot replay a reserved or committed upload."""
     session = MagicMock()
+    session.params = {}
     session.get_adapter.return_value = HTTPAdapter(
         max_retries=Retry(total=1, allowed_methods={"POST"}, status_forcelist={503})
     )
@@ -137,6 +148,7 @@ def test_registration_refuses_post_retry_adapter_before_dispatch() -> None:
 def test_registration_adapter_lookup_failure_is_pre_dispatch_denial() -> None:
     """No registration was sent when the adapter policy could not be inspected."""
     session = MagicMock()
+    session.params = {}
     session.get_adapter.side_effect = ValueError("private")
     hosts = frozenset({"service.example.test"})
     with pytest.raises(WriteDenied, match="upload_retry_policy_unavailable"):

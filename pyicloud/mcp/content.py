@@ -6,14 +6,19 @@ import base64
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import re
+from secrets import token_urlsafe
 import time
 from typing import Any
 from urllib.parse import urlsplit
 
-from pyicloud.services.drive import DriveNode
+from requests import Session
+
+from pyicloud.services.drive import DriveNode, DriveService
+from pyicloud.services.photos.service import PhotoAsset
 
 from .additional import AdditionalReads, text
-from .context import ToolFailure
+from .context import BoundedAdapter, SessionOwner, ToolFailure
+from .one_shot import validate_metadata_session
 from .reads import ReadResult, bounded_result
 
 
@@ -24,6 +29,7 @@ class DownloadState:
     resource: Any
     etag: str | None = None
     active: bool = False
+    binding: str = ""
     touched: float = field(default_factory=time.monotonic)
 
 
@@ -73,14 +79,22 @@ def _partial_range(response: Any, offset: int, data: bytes) -> tuple[bool, int |
     return complete, None if complete else last + 1
 
 
+def _download_bytes(response: Any, maximum: int) -> bytes:
+    """Stop streamed responses at the chunk bound; never materialize full content."""
+    data = bytearray()
+    for chunk in response.iter_content(chunk_size=min(8192, maximum + 1)):
+        if not isinstance(chunk, bytes) or len(data) + len(chunk) > maximum:
+            raise ToolFailure("content_too_large")
+        data.extend(chunk)
+    return bytes(data)
+
+
 def download_chunk(
     state: DownloadState, response: Any, offset: int, maximum: int, filename: str
 ) -> ReadResult:
     """Validate byte ranges and version identity before returning an assembly chunk."""
     try:
-        data = response.content
-        if not isinstance(data, bytes) or len(data) > maximum:
-            raise ToolFailure("content_too_large")
+        data = _download_bytes(response, maximum)
         if response.status_code == 200 and offset == 0:
             complete, next_offset = True, None
         elif response.status_code == 206:
@@ -195,6 +209,7 @@ class ContentReads:
         offset: int,
         maximum: int,
         version: str = "original",
+        transfer_token: str = "",
     ) -> ReadResult:
         """Read range-checked chunks without local paths or caller URLs."""
         if (
@@ -202,32 +217,52 @@ class ContentReads:
             or offset < 0
             or offset > 2**63 - 1
             or len(version) > 64
+            or not isinstance(transfer_token, str)
+            or len(transfer_token) > 64
         ):
             return ReadResult(error="invalid_argument")
 
         def read(client: Any) -> ReadResult:
+            previous: dict[BoundedAdapter, float | None] = {}
+            try:
+                return perform(client, previous)
+            finally:
+                for adapter, deadline in previous.items():
+                    adapter.deadline = deadline
+
+        def perform(
+            client: Any, previous: dict[BoundedAdapter, float | None]
+        ) -> ReadResult:
             resource = self.additional.resolve(
                 "drive-file" if service == "drive" else "photo-asset", handle
             )
+            self._guard_drive_resource(resource, previous)
             if (
                 service == "drive"
                 and isinstance(resource, DriveNode)
                 and resource._is_empty_file()  # pylint: disable=protected-access
             ):
-                return self._empty_download(resource, offset)
-            state = self._download_state(f"{service}:{handle}:{version}", resource)
-            if offset == 0:
-                state.etag = None
-                state.active = False
+                result = self._empty_download(resource, offset)
+                token, _state = self._transfer_state(
+                    f"{service}:{handle}:{version}", resource, offset, transfer_token
+                )
+                result.records[0]["transfer_token"] = token
+                return result
+            binding = f"{service}:{handle}:{version}"
+            token, state = self._transfer_state(
+                binding, resource, offset, transfer_token
+            )
             if offset and state.etag is None:
                 raise ToolFailure("download_requires_strong_etag")
             headers = {"Range": f"bytes={offset}-{offset + maximum - 1}"}
             if state.etag:
                 headers["If-Match"] = state.etag
             filename, response = self._open_download(
-                client, service, resource, version, headers
+                client, service, resource, version, headers, maximum, previous
             )
-            return download_chunk(state, response, offset, maximum, filename)
+            result = download_chunk(state, response, offset, maximum, filename)
+            result.records[0]["transfer_token"] = token
+            return result
 
         return await self._run(service, maximum, 131072, read)
 
@@ -248,6 +283,32 @@ class ContentReads:
             1,
         )
 
+    def _transfer_state(
+        self, binding: str, resource: Any, offset: int, token: str
+    ) -> tuple[str, DownloadState]:
+        """Pin each independent transfer, not a shared handle, to its own entity tag."""
+        if offset == 0:
+            if token:
+                raise ToolFailure("invalid_download_transfer")
+            token = self._new_transfer_token()
+            state = self._download_state(token, resource)
+            state.binding = binding
+            return token, state
+        if not token:
+            raise ToolFailure("download_transfer_required")
+        existing = self._downloads.get(token)
+        if existing is None or existing.binding != binding:
+            raise ToolFailure("invalid_download_transfer")
+        return token, existing
+
+    def _new_transfer_token(self) -> str:
+        """Retry only random-token collisions, never remote transfer operations."""
+        for _attempt in range(4):
+            token = token_urlsafe(32)
+            if token not in self._downloads:
+                return token
+        raise ToolFailure("download_token_unavailable")
+
     def _download_state(self, key: str, resource: Any) -> DownloadState:
         """Retain the bounded original resource/version-specific download registry."""
         if key not in self._downloads:
@@ -267,22 +328,163 @@ class ContentReads:
             self._downloads[key] = DownloadState(resource)
         return self._downloads[key]
 
-    @staticmethod
+    async def release_transfer(
+        self, service: str, handle: str, token: str, version: str = "original"
+    ) -> ReadResult:
+        """Retire the selected local transfer without touching other entity pins."""
+        if (
+            service not in {"drive", "photos"}
+            or not isinstance(token, str)
+            or not token
+            or len(token) > 64
+        ):
+            return ReadResult(error="invalid_argument")
+
+        def release(_client: Any) -> ReadResult:
+            state = self._downloads.get(token)
+            if state is None or state.binding != f"{service}:{handle}:{version}":
+                raise ToolFailure("invalid_download_transfer")
+            del self._downloads[token]
+            return bounded_result([{"released": True}], 1)
+
+        owner = self.additional.reads.owner
+        if service not in owner.config.content_services:
+            return ReadResult(error="content_disabled")
+        try:
+            if isinstance(owner, SessionOwner):
+                return await owner.run_local(lambda: release(None))
+            return await owner.run(release)
+        except ToolFailure as error:
+            return ReadResult(error=str(error))
+
+    def _guard_drive_resource(
+        self, resource: Any, previous: dict[BoundedAdapter, float | None]
+    ) -> None:
+        """Apply real-library transport policy before any Drive content refresh."""
+        if isinstance(resource, DriveNode) and isinstance(
+            resource.connection, DriveService
+        ):
+            for root in (
+                resource.connection.service_root,
+                resource.connection.document_root,
+            ):
+                parsed = urlsplit(root)
+                if (
+                    parsed.scheme != "https"
+                    or parsed.username is not None
+                    or parsed.password is not None
+                ):
+                    raise ToolFailure("invalid_resource_url")
+            self._guard_download_session(resource.connection.session, previous)
+
+    def _guard_download_session(
+        self, session: Any, previous: dict[BoundedAdapter, float | None] | None = None
+    ) -> None:
+        """Require body-bounded HTTPS adapters before any injected SDK download."""
+        if (
+            not isinstance(session, Session)
+            or getattr(session.get_adapter, "__func__", None) is not Session.get_adapter
+        ):
+            raise ToolFailure("unsupported_download_transport")
+        try:
+            validate_metadata_session(session)
+        except Exception:
+            raise ToolFailure("unsupported_download_transport") from None
+        adapters = [
+            adapter
+            for prefix, adapter in session.adapters.items()
+            if prefix.lower().startswith("https")
+        ]
+        if not adapters or any(
+            type(adapter) not in {BoundedAdapter} for adapter in adapters
+        ):
+            raise ToolFailure("unsupported_download_transport")
+        for adapter in adapters:
+            assert isinstance(adapter, BoundedAdapter)
+            owner = self.additional.reads.owner
+            if isinstance(owner, SessionOwner):
+                owner.bind_adapter(adapter)
+            else:
+                self._bind_injected_read_adapter(adapter, previous)
+
+    def _bind_injected_read_adapter(
+        self,
+        adapter: BoundedAdapter,
+        previous: dict[BoundedAdapter, float | None] | None,
+    ) -> None:
+        """Keep one budget admission and original deadline for injected-owner reads."""
+        if previous is not None and adapter not in previous:
+            previous[adapter] = adapter.deadline
+            adapter.requests_left = 32
+        deadline = time.monotonic() + self.additional.reads.owner.config.timeout
+        adapter.deadline = (
+            min(adapter.deadline, deadline)
+            if adapter.deadline is not None
+            else deadline
+        )
+
     def _open_download(
-        client: Any, service: str, resource: Any, version: str, headers: dict[str, str]
+        self,
+        client: Any,
+        service: str,
+        resource: Any,
+        version: str,
+        headers: dict[str, str],
+        maximum: int,
+        previous: dict[BoundedAdapter, float | None],
     ) -> tuple[str, Any]:
         """Use only discovered resources with the existing no-redirect range policy."""
+        limits: dict[BoundedAdapter, int] = {}
+
+        def limit(session: Any, value: str | None) -> str:
+            url = resource_url(value)
+            if isinstance(session, Session):
+                self._guard_download_session(session, previous)
+                adapter = session.get_adapter(url)
+                assert isinstance(adapter, BoundedAdapter)
+                limits.setdefault(adapter, adapter.response_limit)
+                adapter.response_limit = min(adapter.response_limit, maximum)
+            return url
+
+        try:
+            return self._open_limited_download(
+                client, service, resource, version, headers, limit
+            )
+        finally:
+            for adapter, prior_limit in limits.items():
+                adapter.response_limit = prior_limit
+
+    @staticmethod
+    def _open_limited_download(
+        client: Any,
+        service: str,
+        resource: Any,
+        version: str,
+        headers: dict[str, str],
+        limit: Callable[[Any, str | None], str],
+    ) -> tuple[str, Any]:
+        """Apply the transport cap only to content, never token-discovery metadata."""
         if service == "drive":
             filename = text(resource.name)
+            session = (
+                resource.connection.session if isinstance(resource, DriveNode) else None
+            )
             response = resource.open(
                 stream=True,
                 headers=headers,
                 allow_redirects=False,
-                download_url_validator=resource_url,
+                download_url_validator=lambda value: limit(session, value),
             )
         else:
             filename = text(resource.filename)
-            url = resource_url(resource.download_url(version))
+            if type(resource) in {PhotoAsset}:
+                value = PhotoAsset.download_url(resource, version)
+            else:
+                urls = getattr(resource, "download_urls", None)
+                if not isinstance(urls, dict):
+                    raise ToolFailure("unsupported_photo_url_producer")
+                value = urls.get(version)
+            url = limit(client.session, value)
             response = client.session.get(
                 url, stream=True, headers=headers, allow_redirects=False
             )

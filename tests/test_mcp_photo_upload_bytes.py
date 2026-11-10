@@ -39,7 +39,16 @@ def setup_upload() -> tuple[PhotoUploadBytes, MagicMock, StagedUpload]:
 
 @pytest.mark.parametrize(
     "case",
-    ["ok", "reservation", "receipt", "results", "identity", "status", "transport"],
+    [
+        "ok",
+        "reservation",
+        "receipt",
+        "results",
+        "identity",
+        "status",
+        "transport",
+        "hosts",
+    ],
 )
 def test_exact_path_free_flow_and_no_retry(case: str) -> None:
     """Exact wire sizes/names/receipts, with ambiguity never resubmitted."""
@@ -88,8 +97,13 @@ def test_exact_path_free_flow_and_no_retry(case: str) -> None:
             )
             assert final["localTimeZoneId"] == "UTC"
         else:
+            approved_hosts = (
+                frozenset({"allowed.example.test"}) if case == "hosts" else None
+            )
             with pytest.raises(WriteDenied, match="upload_outcome_uncertain"):
-                uploader.upload(*args, modified_ms=1)
+                uploader.upload(*args, modified_ms=1, approved_hosts=approved_hosts)
+    if case == "hosts":
+        transport.transfer.assert_not_called()
     assert transport.register.call_count <= 2
     assert transport.transfer.call_count <= 1
 
