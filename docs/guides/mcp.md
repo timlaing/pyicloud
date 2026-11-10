@@ -60,6 +60,13 @@ Active transfers abandoned for more than 600 seconds since their last successful
 chunk may be reclaimed. Registration restores the session's prior deadline on
 success and failure so its temporary limit does not affect later verification.
 
+This Mail slice adds explicitly configured SDK mailbox/message metadata and
+field-aware searches. Body/all search and untrusted MIME reads require an
+additional content opt-in. Existing guarded draft/folder/flag/move/send/deletion
+adapters remain internal until final runtime wiring. The launcher retains
+offline local status and capabilities; this slice exposes no write or approval
+tool.
+
 Install it with `pip install "pyicloud[mcp]"`, or install both user-facing
 extensions with `pip install "pyicloud[all]"`. The `all` extra does not install
 development tooling. The standalone CLI extra remains `pyicloud[cli]`.
