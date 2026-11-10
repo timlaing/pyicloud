@@ -22,6 +22,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Raise the minimum supported `pydantic` version to `2.14.3` and its required `typing-extensions` minimum to `4.16.0`, keeping runtime requirements and minimum-installation constraints aligned.
+
 - Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
 
 - Require typed Photos album-creation acknowledgements to match the submitted record ID, record type, album type, live deletion flag, encoded name and valid change tag; unrelated or ambiguous responses now raise uncertainty instead of returning an uncorrelated album. Request payloads and public signatures are unchanged.
