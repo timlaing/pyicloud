@@ -8,8 +8,38 @@ from unittest.mock import patch
 import pytest
 
 from pyicloud.mcp.authorization import ApprovalLedger, WriteDenied
+from tests.test_mcp_drive_acknowledged import setup_action
 from tests.test_mcp_drive_deletions import setup_delete
 from tests.test_mcp_drive_writes import setup_writer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recover", [False, True])
+async def test_acknowledged_refresh_expiry_preserves_approval(recover: bool) -> None:
+    """Create/recover expiry leaves the exact decision and selector request pending."""
+    writer, _client, handle, _data = setup_action(recover)
+    action = "drive.recover_item" if recover else "drive.create_folder"
+    preview = await writer.prepare_acknowledged(
+        action, handle, {} if recover else {"name": "New"}
+    )
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    original = writer._read
+
+    def refresh(*args: Any) -> Any:
+        result = original(*args)
+        kind, node, _expiry = writer.additional._handles[handle]
+        writer.additional._handles[handle] = (kind, node, 0)
+        return result
+
+    with (
+        patch.object(writer, "_read", side_effect=refresh),
+        patch("pyicloud.mcp.drive_acknowledged.UploadTransport.register") as dispatch,
+        pytest.raises(WriteDenied, match="target_unavailable"),
+    ):
+        await writer.apply(preview.request_id)
+    writer.ledger.approve_from_operator(preview.request_id, preview.digest)
+    assert preview.request_id in writer._requests
+    dispatch.assert_not_called()
 
 
 @pytest.mark.asyncio

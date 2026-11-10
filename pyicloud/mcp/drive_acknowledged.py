@@ -241,14 +241,14 @@ class DriveAcknowledged(DriveWrites):
                 account_binding=account,
                 resource_binding=resource,
                 revision=revision,
+                before_consume=lambda: self._retire_source(
+                    "drive-folder"
+                    if action == DRIVE_CREATE_FOLDER
+                    else "drive-trash-" + node.type,
+                    handle,
+                ),
             )
             del self._requests[request_id]
-            self._retire_source(
-                "drive-folder"
-                if action == DRIVE_CREATE_FOLDER
-                else "drive-trash-" + node.type,
-                handle,
-            )
             try:
                 route = client.drive.service_root
                 if action == DRIVE_CREATE_FOLDER:
