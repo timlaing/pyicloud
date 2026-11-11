@@ -5,11 +5,14 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import suppress
 import logging
-from typing import Any, Literal, NoReturn, TypeVar, cast
+from typing import Any, Literal, NoReturn, TypedDict, TypeVar, cast
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
-from requests import Response
+from requests import PreparedRequest, Request, Response, Session
+from requests.adapters import HTTPAdapter
+from requests.cookies import extract_cookies_to_jar
+from requests.exceptions import RequestException
 
 from pyicloud.const import ERROR_ZONE_NOT_FOUND
 from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
@@ -41,6 +44,11 @@ from .models import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _PostOptions(TypedDict, total=False):
+    allow_redirects: bool
+
 
 _ResponseModelT = TypeVar(
     "_ResponseModelT",
@@ -185,19 +193,26 @@ class _CloudKitHTTP:
         payload: dict[str, Any],
         *,
         headers: dict[str, Any] | None = None,
+        allow_redirects: bool = True,
+        require_no_retry: bool = False,
     ) -> dict[str, Any]:
         """Send a CloudKit POST request and return the parsed JSON response."""
         url = self.build_url(path)
         op = path.strip("/")
         display_url = self._display_url(url) if self._redact_urls else path
         LOGGER.debug("CloudKit POST %s", display_url)
+        options: _PostOptions = {} if allow_redirects else {"allow_redirects": False}
         try:
-            resp = self._session.post(
-                url,
-                json=payload,
-                timeout=self._timeout,
-                headers=headers,
-            )
+            if require_no_retry:
+                request, settings = self._prepare_mutation_request(
+                    url, payload, headers
+                )
+                adapter = self._verify_one_shot_adapter(request.url or url)
+                resp = self._send_mutation_once(adapter, request, settings)
+            else:
+                resp = self._session.post(
+                    url, json=payload, timeout=self._timeout, headers=headers, **options
+                )
         except PyiCloudAPIResponseException as exc:
             _reraise_zone_not_found(exc)
         code = getattr(resp, "status_code", 0)
@@ -210,7 +225,7 @@ class _CloudKitHTTP:
         if code == 429 and self._handle_rate_limits:
             self._run_debug_hook(op, url, payload, resp)
             raise CloudKitRateLimited(_RATE_LIMITED, retry_after=_retry_after(resp))
-        if code >= 400:
+        if code >= (400 if allow_redirects else 300):
             self._run_debug_hook(op, url, payload, resp)
             _raise_for_http_error(code, resp)
 
@@ -280,6 +295,55 @@ class _CloudKitHTTP:
                 "Invalid asset upload response",
                 payload=getattr(resp, "text", None),
             ) from exc
+
+    def _prepare_mutation_request(
+        self, url: str, payload: dict[str, Any], headers: dict[str, Any] | None
+    ) -> tuple[PreparedRequest, dict[str, Any]]:
+        """Preserve request settings without invoking custom session dispatch."""
+        if not isinstance(self._session, Session):
+            raise CloudKitApiError("Cannot verify CloudKit mutation session policy")
+        request = Session.prepare_request(
+            self._session, Request("POST", url, json=payload, headers=headers)
+        )
+        request.hooks = {"response": []}
+        settings = Session.merge_environment_settings(
+            self._session, request.url or url, {}, False, None, None
+        )
+        return request, dict(settings)
+
+    def _send_mutation_once(
+        self, adapter: HTTPAdapter, request: PreparedRequest, settings: dict[str, Any]
+    ) -> Response:
+        """Send the pinned adapter once, without session replay or response hooks."""
+        response = HTTPAdapter.send(adapter, request, timeout=self._timeout, **settings)
+        try:
+            store_cookies = cast(
+                Callable[[Any, Any, Any], None], extract_cookies_to_jar
+            )
+            store_cookies(self._session.cookies, request, response.raw)
+            # Retain refreshed cookies even if buffering the body fails.
+            _ = response.content
+            if isinstance(self._session, PyiCloudSession):
+                PyiCloudSession._update_session_data(self._session, response)  # pylint: disable=protected-access
+                PyiCloudSession._save_session_data(self._session)  # pylint: disable=protected-access
+            return response
+        finally:
+            response.close()
+
+    def _verify_one_shot_adapter(self, url: str) -> HTTPAdapter:
+        """Reject unverified or retrying adapters before sending a mutation."""
+        try:
+            adapter = self._session.get_adapter(url)
+        except RequestException:
+            raise CloudKitApiError(
+                "Cannot verify CloudKit mutation retry policy"
+            ) from None
+        if (
+            type(adapter) not in {HTTPAdapter}
+            or cast(HTTPAdapter, adapter).max_retries.total != 0
+        ):
+            raise CloudKitApiError("Cannot verify CloudKit mutation retry policy")
+        return cast(HTTPAdapter, adapter)
 
     def get_bytes(self, url: str) -> bytes:
         """Fetch an asset URL and return its contents as bytes."""
@@ -574,9 +638,17 @@ class CloudKitContainerClient:
         payload: dict[str, Any],
         *,
         headers: dict[str, Any] | None = None,
+        allow_redirects: bool = True,
+        require_no_retry: bool = False,
     ) -> dict[str, Any]:
         """POST a raw request body to an arbitrary CloudKit endpoint path."""
-        return self._http.post(path, payload, headers=headers)
+        return self._http.post(
+            path,
+            payload,
+            headers=headers,
+            allow_redirects=allow_redirects,
+            require_no_retry=require_no_retry,
+        )
 
     def query(
         self,

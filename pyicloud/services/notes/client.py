@@ -24,12 +24,14 @@ from pyicloud.common.cloudkit import (
     CKQueryFilterBy,
     CKQueryObject,
     CKQueryResponse,
+    CKRecord,
     CKZoneChangesZone,
     CKZoneChangesZoneReq,
     CKZoneID,
     CKZoneIDReq,
     CloudKitExtraMode,
 )
+from pyicloud.common.cloudkit.base import resolve_cloudkit_validation_extra
 from pyicloud.common.cloudkit.client import (
     CloudKitApiError,
     CloudKitAuthError,
@@ -38,15 +40,26 @@ from pyicloud.common.cloudkit.client import (
     CloudKitZoneNotFoundError,
     redact_cloudkit_url,
 )
+from pyicloud.exceptions import PyiCloudException
 from pyicloud.session import PyiCloudSession
 
-from ._constants import NOTES_ZONE_REQ
+from ._constants import NOTES_ZONE_NAME, NOTES_ZONE_REQ
 from .exceptions import (
     NotesApiError,
     NotesAuthError,
     NotesError,
     NotesRateLimited,
+    NotesWriteRejected,
+    NotesWriteUncertain,
     NotesZoneNotFoundError,
+)
+from .models.write import (
+    NotesFolderReference,
+    NotesModifyOperation,
+    NotesModifyRequest,
+    NotesPreviewLocator,
+    NotesPreviewReceipt,
+    NoteWriteResult,
 )
 
 __all__ = [
@@ -71,6 +84,7 @@ class CloudKitNotesClient:
     Methods map 1:1 to CloudKit endpoints:
       - /records/query
       - /records/lookup
+      - /records/modify
       - /changes/zone
     """
 
@@ -176,6 +190,219 @@ class CloudKitNotesClient:
             if self._log_cloudkit_validation("records.lookup", exc):
                 LOGGER.error("Lookup response validation failed.")
             self._raise_notes_error(exc)
+
+    def modify_note(
+        self, operation: NotesModifyOperation, *, public_id: str | None = None
+    ) -> NoteWriteResult:
+        """Submit one note or folder mutation without redirects or retries."""
+        record_id = operation.record.recordName
+        note_id = public_id or record_id
+        payload = self._build_modify_payload(operation)
+        try:
+            data = self._client.raw_post(
+                "/records/modify", payload, allow_redirects=False, require_no_retry=True
+            )
+        except (OSError, PyiCloudException):
+            raise NotesWriteUncertain(note_id) from None
+        item = self._write_ack_item(data, record_id, note_id)
+        revision = self._verify_write_ack(item, operation, note_id)
+        return NoteWriteResult(id=record_id, record_change_tag=revision)
+
+    @staticmethod
+    def _build_modify_payload(operation: NotesModifyOperation) -> dict[str, Any]:
+        """Serialize a mutation and restore explicit nulls that clear fields."""
+        payload = NotesModifyRequest(
+            operations=[operation], zoneID=NOTES_ZONE_REQ
+        ).model_dump(mode="json", exclude_none=True)
+        if operation.record.recordType == "Folder":
+            sent = payload["operations"][0]["record"]
+            parent_field = operation.record.fields.get("ParentFolder")
+            if parent_field is not None and parent_field.value is None:
+                sent["fields"]["ParentFolder"] = {"value": None}
+            if (
+                operation.record.parent is not None
+                and operation.record.parent.recordName is None
+            ):
+                sent["parent"] = {"recordName": None}
+        if operation.record.recordType == "Attachment":
+            sent = payload["operations"][0]["record"]["fields"]
+            for field in (
+                "MergeableDataAsset",
+                "EncryptedValues",
+                "EncryptedValuesAsset",
+            ):
+                if field in sent and not sent[field]:
+                    sent[field] = {"value": None}
+        return payload
+
+    @staticmethod
+    def _write_ack_item(data: object, record_id: str, note_id: str) -> dict[str, Any]:
+        """Select the exact acknowledged record or report rejection or uncertainty."""
+        records = data.get("records") if isinstance(data, dict) else None
+        if not isinstance(records, list) or len(records) != 1:
+            raise NotesWriteUncertain(note_id)
+        item = records[0]
+        if not isinstance(item, dict) or item.get("recordName") != record_id:
+            raise NotesWriteUncertain(note_id)
+        if "serverErrorCode" in item:
+            code = item["serverErrorCode"]
+            if not isinstance(code, str) or not code.strip():
+                raise NotesWriteUncertain(note_id)
+            raise NotesWriteRejected(note_id, code)
+        return item
+
+    def _verify_write_ack(
+        self, item: dict[str, Any], operation: NotesModifyOperation, note_id: str
+    ) -> str:
+        """Return the new revision only if the response matches the mutation."""
+        try:
+            record = CKRecord.model_validate(
+                item,
+                extra=resolve_cloudkit_validation_extra(self._validation_extra),
+            )
+        except ValidationError:
+            raise NotesWriteUncertain(note_id) from None
+        if (
+            record.recordType != operation.record.recordType
+            or record.deleted
+            or record.recordChangeTag is None
+            or not record.recordChangeTag.strip()
+            or record.recordChangeTag == operation.record.recordChangeTag
+            or (record.zoneID is not None and record.zoneID.zoneName != NOTES_ZONE_NAME)
+        ):
+            raise NotesWriteUncertain(note_id)
+        parent = operation.record.parent
+        if not self._matches_write_parent(
+            record, parent.recordName if parent is not None else None
+        ):
+            raise NotesWriteUncertain(note_id)
+        fields = item.get("fields", {})
+        if not self._matches_write_values(fields, operation):
+            raise NotesWriteUncertain(note_id)
+        return record.recordChangeTag
+
+    @staticmethod
+    def _matches_write_parent(record: CKRecord, parent: str | None) -> bool:
+        """Verify the parent references relevant to this record type."""
+        if record.recordType == "Folder":
+            return (
+                getattr(record.fields.get_value("ParentFolder"), "recordName", None)
+                == parent
+                and getattr(record.parent, "recordName", None) == parent
+            )
+        if record.recordType in {"InlineAttachment", "Attachment"}:
+            return (
+                parent is not None
+                and getattr(record.parent, "recordName", None) == parent
+                and getattr(record.fields.get_value("Note"), "recordName", None)
+                == parent
+            )
+        if parent is None:
+            return True
+        folder = record.fields.get_value("Folder")
+        folders = record.fields.get_value("Folders")
+        return (
+            getattr(folder, "recordName", None) == parent
+            and isinstance(folders, list)
+            and [getattr(ref, "recordName", None) for ref in folders] == [parent]
+            and (record.parent is None or record.parent.recordName == parent)
+        )
+
+    def delete_empty_folder(self, folder_id: str) -> bool:
+        """Submit the observed irreversible deletion; caller verifies emptiness."""
+        payload = {
+            "operations": [
+                {"operationType": "forceDelete", "record": {"recordName": folder_id}}
+            ],
+            "zoneID": NOTES_ZONE_REQ.model_dump(mode="json", exclude_none=True),
+        }
+        try:
+            data = self._client.raw_post(
+                "/records/modify", payload, allow_redirects=False, require_no_retry=True
+            )
+        except (OSError, PyiCloudException):
+            raise NotesWriteUncertain(folder_id) from None
+        records = data.get("records") if isinstance(data, dict) else None
+        if (
+            not isinstance(records, list)
+            or len(records) != 1
+            or not isinstance(records[0], dict)
+            or records[0].get("recordName") != folder_id
+        ):
+            raise NotesWriteUncertain(folder_id)
+        record = records[0]
+        code = record.get("serverErrorCode")
+        if isinstance(code, str) and code.strip():
+            raise NotesWriteRejected(folder_id, code)
+        if "serverErrorCode" in record or record.get("deleted") is not True:
+            raise NotesWriteUncertain(folder_id)
+        return True
+
+    @staticmethod
+    def _matches_write_values(
+        fields: dict[str, Any], operation: NotesModifyOperation
+    ) -> bool:
+        """Verify the scalar values echoed by the Notes modify endpoint."""
+        for name, expected in operation.record.fields.items():
+            actual = fields.get(name)
+            value = actual.get("value") if isinstance(actual, dict) else None
+            target = expected.value
+            if operation.record.recordType == "Note_UserSpecific" and isinstance(
+                target, NotesFolderReference
+            ):
+                if not CloudKitNotesClient._matches_user_reference(value, target):
+                    return False
+            elif isinstance(target, NotesPreviewReceipt):
+                if not CloudKitNotesClient._matches_preview_receipt(value, target):
+                    return False
+            elif isinstance(target, (int, str)) and value != target:
+                return False
+        return True
+
+    @staticmethod
+    def _matches_preview_receipt(value: object, target: NotesPreviewReceipt) -> bool:
+        """Check that the response acknowledges the exact preview asset."""
+        return isinstance(value, dict) and all(
+            value.get(key) == getattr(target, key)
+            for key in ("fileChecksum", "referenceChecksum", "size")
+        )
+
+    @staticmethod
+    def _matches_user_reference(value: object, target: NotesFolderReference) -> bool:
+        """Match the note or folder reference on a per-user record."""
+        if not isinstance(value, dict) or value.get("recordName") != target.recordName:
+            return False
+        zone = value.get("zoneID")
+        owner = target.zoneID.ownerRecordName
+        return (
+            isinstance(zone, dict)
+            and zone.get("zoneName") == NOTES_ZONE_NAME
+            and (not owner or zone.get("ownerRecordName") == owner)
+        )
+
+    def rereference_preview(self, locator: NotesPreviewLocator) -> NotesPreviewReceipt:
+        """Request a write receipt for a specific existing Notes preview."""
+        error = "Could not verify the existing Notes preview; no note write submitted"
+        payload = {
+            "assets": [locator.model_dump(mode="json")],
+            "zoneID": NOTES_ZONE_REQ.model_dump(mode="json", exclude_none=True),
+        }
+        try:
+            data = self._client.raw_post(
+                "/assets/rereference", payload, allow_redirects=False
+            )
+            assets = data.get("assets") if isinstance(data, dict) else None
+            if not isinstance(assets, list) or len(assets) != 1:
+                raise NotesError(error)
+            receipt = NotesPreviewReceipt.model_validate(assets[0])
+        except (OSError, PyiCloudException, ValidationError):
+            raise NotesError(error) from None
+        if any(
+            getattr(receipt, key) != value
+            for key, value in locator.model_dump().items()
+        ):
+            raise NotesError(error)
+        return receipt
 
     # ----- Changes (paged generator) -----
 
@@ -302,7 +529,9 @@ class CloudKitNotesClient:
     def _dump_http_debug(
         op: str, url: str, payload: dict[str, Any], resp: Response
     ) -> None:
-        if not os.getenv("PYICLOUD_NOTES_DEBUG"):
+        if op in {"records/modify", "assets/rereference"} or not os.getenv(
+            "PYICLOUD_NOTES_DEBUG"
+        ):
             return
         ts = __import__("time").strftime("%Y%m%d-%H%M%S")
         safe_op = op.replace("/", ".")
