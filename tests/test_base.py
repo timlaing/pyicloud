@@ -1076,6 +1076,214 @@ def test_get_mfa_auth_options_json_fallback_survives_pending_hsa2_challenge(
     assert "fsaChallenge" not in auth_options
 
 
+def _no_trusted_device_html_response() -> MagicMock:
+    """HTML auth shell for an HSA2 account without trusted devices or phones."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {
+          "direct": {
+            "authInitialRoute": "auth/verify/phone/securitycode",
+            "hasTrustedDevices": false,
+            "twoSV": {
+              "authFactors": ["robocall", "sms"],
+              "sourceAppId": 1159
+            }
+          }
+        }
+      </script>
+    </html>
+    """
+    return html_response
+
+
+def _sms_json_phone_number(phone_id: int) -> dict[str, Any]:
+    """Return a fake trusted phone entry in Apple's JSON auth-options shape."""
+
+    return {
+        "id": phone_id,
+        "nonFTEU": False,
+        "pushMode": "sms",
+        "obfuscatedNumber": "********12",
+        "numberWithDialCode": "+00 ********12",
+    }
+
+
+@pytest.mark.parametrize(
+    "json_options",
+    [
+        pytest.param(
+            {
+                "mode": "sms",
+                "authenticationType": "hsa2",
+                "trustedPhoneNumber": _sms_json_phone_number(1),
+                "trustedPhoneNumbers": [_sms_json_phone_number(1)],
+                "securityCode": {"length": 6, "tooManyCodesSent": False},
+            },
+            id="top-level",
+        ),
+        pytest.param(
+            {
+                "phoneNumberVerification": {
+                    "trustedPhoneNumbers": [_sms_json_phone_number(1)],
+                },
+            },
+            id="phone-number-verification",
+        ),
+    ],
+)
+def test_request_2fa_code_sms_from_json_when_html_has_no_phone(
+    pyicloud_service: PyiCloudService,
+    json_options: dict[str, Any],
+) -> None:
+    """Accounts without trusted devices take SMS options from the JSON probe."""
+
+    json_response = MagicMock()
+    json_response.json.return_value = json_options
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [_no_trusted_device_html_response(), json_response]
+    mock_session.headers = {"User-Agent": "test-agent"}
+    mock_session.data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    pyicloud_service._auth_data = pyicloud_service._get_mfa_auth_options()
+
+    assert mock_session.get.call_count == 2
+    assert pyicloud_service._auth_data["authInitialRoute"] == (
+        "auth/verify/phone/securitycode"
+    )
+    assert pyicloud_service._auth_data["hasTrustedDevices"] is False
+    assert "securityCode" not in pyicloud_service._auth_data
+    assert pyicloud_service._trusted_phone_number() == (
+        pyicloud.base.TrustedPhoneNumber(device_id=1, non_fteu=False, push_mode="sms")
+    )
+    assert pyicloud_service.two_factor_delivery_method == "sms"
+
+    assert pyicloud_service.request_2fa_code() is True
+
+    args = mock_session.put.call_args.args
+    kwargs = mock_session.put.call_args.kwargs
+    assert args[0] == f"{pyicloud_service._auth_endpoint}/verify/phone"
+    assert kwargs["json"] == {
+        "phoneNumber": {"id": 1, "nonFTEU": False},
+        "mode": "sms",
+    }
+    assert pyicloud_service.two_factor_delivery_method == "sms"
+
+
+def test_get_mfa_auth_options_json_phone_does_not_override_html_phone(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Phone data from the HTML shell wins over the JSON probe's SMS options."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {
+          "direct": {
+            "authInitialRoute": "auth/bridge/step",
+            "hasTrustedDevices": true,
+            "twoSV": {
+              "authFactors": ["web_piggybacking", "sms"],
+              "bridgeInitiateData": {
+                "webSocketUrl": "websocket.push.apple.com",
+                "phoneNumberVerification": {
+                  "trustedPhoneNumber": {
+                    "id": 3,
+                    "nonFTEU": false,
+                    "pushMode": "sms"
+                  }
+                }
+              }
+            }
+          }
+        }
+      </script>
+    </html>
+    """
+    json_response = MagicMock()
+    json_response.json.return_value = {
+        "mode": "voice",
+        "trustedPhoneNumber": _sms_json_phone_number(1),
+        "trustedPhoneNumbers": [_sms_json_phone_number(1)],
+        "phoneNumberVerification": {
+            "trustedPhoneNumber": _sms_json_phone_number(1),
+        },
+    }
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+
+    pyicloud_service._auth_data = pyicloud_service._get_mfa_auth_options()
+
+    assert mock_session.get.call_count == 2
+    assert pyicloud_service._auth_data["trustedPhoneNumber"]["id"] == 3
+    assert (
+        pyicloud_service._auth_data["phoneNumberVerification"]["trustedPhoneNumber"][
+            "id"
+        ]
+        == 3
+    )
+    assert "trustedPhoneNumbers" not in pyicloud_service._auth_data
+    assert "mode" not in pyicloud_service._auth_data
+    assert pyicloud_service._trusted_phone_number() == (
+        pyicloud.base.TrustedPhoneNumber(device_id=3, non_fteu=False, push_mode="sms")
+    )
+    assert pyicloud_service.two_factor_delivery_method == "trusted_device"
+
+
+def test_get_mfa_auth_options_skips_json_probe_for_complete_security_key(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """Complete WebAuthn options in the first response need no JSON probe."""
+
+    response = MagicMock()
+    response.json.return_value = {
+        "keyNames": ["Security Key"],
+        "fsaChallenge": {
+            "challenge": "challenge",
+            "keyHandles": ["credential"],
+            "rpId": "apple.com",
+        },
+    }
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.return_value = response
+
+    pyicloud_service._auth_data = pyicloud_service._get_mfa_auth_options()
+
+    assert mock_session.get.call_count == 1
+    assert "trustedPhoneNumber" not in pyicloud_service._auth_data
+    assert pyicloud_service.two_factor_delivery_method == "security_key"
+
+
+def test_get_mfa_auth_options_ignores_non_object_json_probe(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """A JSON probe that is not an object leaves the HTML options untouched."""
+
+    json_response = MagicMock()
+    json_response.json.return_value = [_sms_json_phone_number(1)]
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [_no_trusted_device_html_response(), json_response]
+
+    pyicloud_service._auth_data = pyicloud_service._get_mfa_auth_options()
+
+    assert mock_session.get.call_count == 2
+    assert "trustedPhoneNumber" not in pyicloud_service._auth_data
+    assert "mode" not in pyicloud_service._auth_data
+    assert pyicloud_service.two_factor_delivery_method == "unknown"
+
+
 def test_get_mfa_auth_options_parses_nested_json_boot_context(
     pyicloud_service: PyiCloudService,
 ) -> None:

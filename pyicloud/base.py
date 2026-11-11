@@ -968,12 +968,19 @@ class PyiCloudService:
         self._clear_trusted_device_bridge_state()
         self._set_two_factor_delivery_state("unknown")
 
-        self._augment_webauthn_options(auth_options)
+        self._augment_auth_options_from_json(auth_options)
 
         return auth_options
 
-    def _augment_webauthn_options(self, auth_options: dict[str, Any]) -> None:
-        """Probe JSON endpoint for WebAuthn options if missing."""
+    def _augment_auth_options_from_json(self, auth_options: dict[str, Any]) -> None:
+        """Probe the JSON endpoint for options the HTML shell omitted.
+
+        The probe is skipped when complete WebAuthn options are already present,
+        since security-key challenges never use SMS delivery. Otherwise the JSON
+        response supplies the WebAuthn options and, when the HTML exposed no
+        usable trusted phone number (accounts without trusted devices), the SMS
+        options. Phone data from the HTML is never overwritten.
+        """
         fsa_challenge = auth_options.get("fsaChallenge")
         if (
             isinstance(fsa_challenge, dict)
@@ -998,10 +1005,26 @@ class PyiCloudService:
         ):
             return
 
-        if isinstance(json_response, dict):
-            for webauthn_key in ("fsaChallenge", "keyNames"):
-                if webauthn_key in json_response:
-                    auth_options[webauthn_key] = json_response[webauthn_key]
+        if not isinstance(json_response, dict):
+            return
+
+        for webauthn_key in ("fsaChallenge", "keyNames"):
+            if webauthn_key in json_response:
+                auth_options[webauthn_key] = json_response[webauthn_key]
+
+        if self._best_trusted_phone_number(auth_options) is not None:
+            return
+
+        for sms_key in (
+            "trustedPhoneNumber",
+            "trustedPhoneNumbers",
+            "phoneNumberVerification",
+            "mode",
+        ):
+            if auth_options.get(sms_key) is None:
+                sms_value = json_response.get(sms_key)
+                if sms_value is not None:
+                    auth_options[sms_key] = sms_value
 
     def _set_two_factor_delivery_state(
         self, method: str, notice: str | None = None
@@ -1108,22 +1131,26 @@ class PyiCloudService:
             f"{self._auth_endpoint}/verify/security/key", json=data, headers=headers
         )
 
-    def _phone_number_verification(self) -> PhoneNumberVerification:
-        """Return Apple's nested phone verification payload when present."""
-
-        phone_verification = self._auth_data.get("phoneNumberVerification")
-        return PhoneNumberVerification.from_mapping(phone_verification)
-
     def _trusted_phone_number(self) -> TrustedPhoneNumber | None:
         """Return the best available trusted phone number description."""
 
+        return self._best_trusted_phone_number(self._auth_data)
+
+    @staticmethod
+    def _best_trusted_phone_number(
+        auth_options: Mapping[str, Any],
+    ) -> TrustedPhoneNumber | None:
+        """Return the best trusted phone number described by auth options."""
+
         trusted_phone_number = TrustedPhoneNumber.from_mapping(
-            self._auth_data.get("trustedPhoneNumber")
+            auth_options.get("trustedPhoneNumber")
         )
         if trusted_phone_number is not None:
             return trusted_phone_number
 
-        return self._phone_number_verification().best_trusted_phone_number()
+        return PhoneNumberVerification.from_mapping(
+            auth_options.get("phoneNumberVerification")
+        ).best_trusted_phone_number()
 
     def _two_factor_mode(self) -> str | None:
         """Return the current 2FA delivery mode reported by Apple."""

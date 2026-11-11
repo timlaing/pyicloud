@@ -64,6 +64,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Render Notes formatting at the correct UTF-16 offsets and support zlib-compressed
   Notes table data alongside gzip and uncompressed table data.
 
+- Read SMS 2FA options (`trustedPhoneNumber`, `trustedPhoneNumbers`, `phoneNumberVerification`, `mode`) from Apple's JSON auth response when the HTML auth shell carries no trusted phone number, as on HSA2 accounts without trusted devices. `two_factor_delivery_method` now reports `"sms"` and `request_2fa_code()` sends the code instead of the route staying `"unknown"`. Phone data from the HTML is never overwritten (#521).
+
 - Revoke pending decisions when Drive rename/Trash, move, create/recover or deletion selectors are evicted; mark transfer release as destructive to its local continuation state.
 
 - Preserve create/recover approvals when source selectors expire during refresh by retiring them atomically before approval consumption.
