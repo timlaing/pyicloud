@@ -204,6 +204,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add revision-guarded tagging for private notes without replacing their content.
 - Add private Notes table creation, inspection, and targeted plain-text cell edits
   with separate note and table revision guards.
+- Add revision-guarded Notes table row and column insertion and deletion, with
+  explicit confirmation for deleting populated cells.
 
 - Add `AccountService.refresh_storage()` to explicitly fetch current storage usage while preserving the cached `storage` property and retaining the previous snapshot if a refresh fails.
 - Add explicitly selected MCP Calendar metadata tools and a new receipt-gated create/delete adapter; runtime write-tool wiring remains in the final integration slice. Rejected tool calls are marked as tool execution errors (`isError`) while retaining structured error codes. Creation rejects sub-minute times before preview; deletion previews support untitled events, and read-back treats HTTP 404 as confirmed absence but HTTP 410 as uncertain. Failed publication and terminal approval denials retire their preview targets; requests awaiting operator approval remain available.

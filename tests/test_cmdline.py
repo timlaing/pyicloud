@@ -4362,6 +4362,55 @@ def test_notes_table_write_cli(operation: str) -> None:
         assert json.loads(result.stdout)["table_id"] == "table-id"
 
 
+def test_notes_resize_table_cli() -> None:
+    """Pass the selected axis and both revision guards to the service."""
+    api = FakeAPI()
+    with patch.object(
+        api.notes,
+        "resize_note_table",
+        create=True,
+        return_value=NoteTableWriteResult(
+            id="note-id",
+            record_change_tag="note-new",
+            table_id="table-id",
+            table_change_tag="table-new",
+            changed=True,
+        ),
+    ) as resize:
+        result = _invoke(
+            api,
+            "notes",
+            "resize-table",
+            "note-id",
+            "--table-id",
+            "table-id",
+            "--axis",
+            "column",
+            "--action",
+            "delete",
+            "--index",
+            "2",
+            "--if-match",
+            "note-old",
+            "--table-if-match",
+            "table-old",
+            "--confirm-nonempty",
+            output_format="json",
+        )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["table_change_tag"] == "table-new"
+    resize.assert_called_once_with(
+        "note-id",
+        table_id="table-id",
+        axis="column",
+        action="delete",
+        index=2,
+        expected_change_tag="note-old",
+        expected_table_change_tag="table-old",
+        confirm_nonempty=True,
+    )
+
+
 def test_notes_add_tag_cli() -> None:
     """Add a tag using the exact note revision and return its linked ID."""
     api = FakeAPI()

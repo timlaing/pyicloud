@@ -53,6 +53,7 @@ from pyicloud.services.notes.rendering.renderer import render_note_fragment
 from pyicloud.services.notes.table_encoding import (
     encode_new_table,
     encode_table_cell_edit,
+    encode_table_resize,
     table_cells,
 )
 from pyicloud.session import PyiCloudSession
@@ -68,6 +69,249 @@ USER_PARENT = "d2518af9-7da6-4ea8-b3d9-c8c27f146ad3"
 PIN_OWNER = "_" + "a" * 32
 PIN_ZONE = {**ZONE, "ownerRecordName": PIN_OWNER, "zoneType": "REGULAR_CUSTOM_ZONE"}
 PIN_ID = f"Note_UserSpecific::{PIN_OWNER}/Private::Notes::{PIN_OWNER}::{NOTE_ID}"
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ["saved", "stale", "parent-uncertain", "table-uncertain", "table-rejected"],
+)
+def test_resize_note_table_uses_parent_first(
+    notes: NotesService, session: MagicMock, outcome: str
+) -> None:
+    """Check both revisions, preserve parent bytes, and report partial outcomes."""
+    table_id = "synthetic-table"
+    current = _existing_note()
+    body = append_inline_note_object(
+        base64.b64decode(current["fields"]["TextDataEncrypted"]["value"]),
+        InlineObject(table_id, TABLE_UTI),
+    )
+    current["fields"]["TextDataEncrypted"]["value"] = body
+    table: dict[str, Any] = {
+        "recordName": table_id,
+        "recordType": "Attachment",
+        "recordChangeTag": "table-old",
+        "parent": {"recordName": NOTE_ID},
+        "fields": {
+            "Note": {"type": "REFERENCE", "value": {"recordName": NOTE_ID}},
+            "UTIEncrypted": {
+                "type": "ENCRYPTED_BYTES",
+                "value": base64.b64encode(TABLE_UTI.encode()).decode(),
+            },
+            "MergeableDataEncrypted": {
+                "type": "ENCRYPTED_BYTES",
+                "value": encode_new_table([["A", "B"], ["C", "D"]]),
+            },
+        },
+    }
+    writes = []
+
+    def post(url: str, **kwargs: Any) -> MagicMock:
+        payload = kwargs["json"]
+        if url.split("?")[0].endswith("/records/lookup"):
+            (ref,) = payload["records"]
+            return _response({
+                "records": [current if ref["recordName"] == NOTE_ID else table]
+            })
+        (operation,) = payload["operations"]
+        assert operation["operationType"] == "update"
+        assert kwargs["allow_redirects"] is False
+        sent = operation["record"]
+        writes.append(sent["recordName"])
+        if sent["recordName"] == NOTE_ID:
+            assert sent["recordChangeTag"] == "old-revision"
+            assert sent["fields"]["TextDataEncrypted"]["value"] == body
+            if outcome == "parent-uncertain":
+                return _response({"records": []})
+            ack = _ack(sent, parent=sent["parent"], recordChangeTag="note-new")
+        else:
+            assert writes == [NOTE_ID, table_id]
+            assert sent["recordChangeTag"] == "table-old"
+            fields = {
+                name: value
+                for name, value in sent["fields"].items()
+                if value["value"] is not None
+            }
+            assert table_cells(
+                base64.b64decode(fields["MergeableDataEncrypted"]["value"])
+            ) == (("A", "B"), ("", ""), ("C", "D"))
+            if outcome == "table-uncertain":
+                return _response({"records": []})
+            if outcome == "table-rejected":
+                return _response({
+                    "records": [{"recordName": table_id, "serverErrorCode": "CONFLICT"}]
+                })
+            ack = _ack(
+                {**sent, "fields": fields},
+                recordType="Attachment",
+                parent=sent["parent"],
+                recordChangeTag="table-new",
+            )
+            ack["fields"]["Note"] = table["fields"]["Note"]
+        return _response({"records": [ack]})
+
+    session.post.side_effect = post
+
+    def resize() -> NoteTableWriteResult:
+        return notes.resize_note_table(
+            NOTE_ID,
+            table_id=table_id,
+            axis="row",
+            action="insert",
+            index=2,
+            expected_change_tag="old-revision",
+            expected_table_change_tag="stale" if outcome == "stale" else "table-old",
+        )
+
+    if outcome == "stale":
+        with pytest.raises(NoteRevisionConflict, match="table revision"):
+            resize()
+        assert not writes
+    elif outcome == "saved":
+        result = resize()
+        assert result.record_change_tag == "note-new"
+        assert result.table_change_tag == "table-new"
+        assert writes == [NOTE_ID, table_id]
+    else:
+        with pytest.raises(NotesLinkedWriteIncomplete) as caught:
+            resize()
+        if outcome == "parent-uncertain":
+            assert (caught.value.note_state, caught.value.object_state) == (
+                "uncertain",
+                "not_submitted",
+            )
+            assert writes == [NOTE_ID]
+        else:
+            assert (caught.value.note_state, caught.value.object_state) == (
+                "confirmed",
+                outcome.split("-")[1],
+            )
+            assert writes == [NOTE_ID, table_id]
+
+
+def test_table_resize_sequence_preserves_remaining_cells() -> None:
+    """Follow the four browser operations and preserve independent cell edits."""
+    raw = base64.b64decode(encode_new_table([["A", "B"], ["C", "D"]]))
+    before = _table_cell_identity(raw)
+    raw = base64.b64decode(
+        encode_table_resize(raw, axis="row", action="insert", index=2)
+    )
+    assert table_cells(raw) == (("A", "B"), ("", ""), ("C", "D"))
+    assert _table_cell_identity(raw) == before
+    raw = base64.b64decode(
+        encode_table_resize(raw, axis="column", action="insert", index=2)
+    )
+    assert table_cells(raw) == (("A", "", "B"), ("", "", ""), ("C", "", "D"))
+    assert _table_cell_identity(raw) == before
+    with pytest.raises(ValueError, match="non-empty"):
+        encode_table_resize(raw, axis="row", action="delete", index=3)
+    raw = base64.b64decode(
+        encode_table_resize(
+            raw, axis="row", action="delete", index=3, confirm_nonempty=True
+        )
+    )
+    assert _table_cell_identity(raw) == {"A": before["A"], "B": before["B"]}
+    raw = base64.b64decode(
+        encode_table_resize(
+            raw, axis="column", action="delete", index=3, confirm_nonempty=True
+        )
+    )
+    assert table_cells(raw) == (("A", ""), ("", ""))
+    after = _table_cell_identity(raw)
+    assert after["A"] == before["A"]
+    data = notes_pb2.MergableDataProto.FromString(
+        zlib.decompress(raw)
+    ).mergable_data_object.mergeable_data_object_data
+    for entry in data.mergeable_data_object_entry:
+        if entry.HasField("ordered_set"):
+            axis = entry.ordered_set
+            assert len(axis.ordering.contents.element) == 3
+            assert len(axis.elements.element) == 2
+            assert (
+                sum(span.tombstone for span in axis.ordering.array.contents.substring)
+                == 1
+            )
+    edited = encode_table_cell_edit(raw, 2, 2, "Still editable")
+    assert edited is not None
+    assert table_cells(base64.b64decode(edited)) == (("A", ""), ("", "Still editable"))
+
+
+def _table_cell_identity(raw: bytes) -> dict[str, tuple[bytes, bytes, bytes, int]]:
+    """Resolve cell and character identities independent of registry offsets."""
+    data = notes_pb2.MergableDataProto.FromString(
+        zlib.decompress(raw)
+    ).mergable_data_object.mergeable_data_object_data
+    entries = data.mergeable_data_object_entry
+    columns = entries[entries[0].custom_map.map_entry[-1].value.object_index].dictionary
+    ids = data.mergeable_data_object_uuid_item
+    text_actors = data.text_timestamp.clock
+
+    def uid(ref: notes_pb2.ObjectID) -> bytes:
+        slot = (
+            entries[ref.object_index]
+            .custom_map.map_entry[0]
+            .value.unsigned_integer_value
+        )
+        return bytes(ids[slot])
+
+    result = {}
+    for column in columns.element:
+        for row in entries[column.value.object_index].dictionary.element:
+            cell = entries[row.value.object_index].note
+            if cell.note_text:
+                char = cell.substring[1].char_id
+                result[cell.note_text] = (
+                    uid(row.key),
+                    uid(column.key),
+                    text_actors[char.replica_id - 1].replica_uuid,
+                    char.clock,
+                )
+    return result
+
+
+@pytest.mark.parametrize("problem", ["markers", "object-clock", "entry"])
+def test_table_resize_rejects_unsupported_graph(problem: str) -> None:
+    """Reject shapes we cannot rewrite without changing unknown references."""
+    raw = base64.b64decode(encode_new_table([["A"], ["B"]]))
+    proto = notes_pb2.MergableDataProto.FromString(zlib.decompress(raw))
+    data = proto.mergable_data_object.mergeable_data_object_data
+    if problem == "markers":
+        data.mergeable_data_object_entry[
+            3
+        ].ordered_set.ordering.array.contents.note_text = "xx"
+    elif problem == "object-clock":
+        data.object_timestamp.clock[0].replica_index = 1
+    else:
+        data.mergeable_data_object_entry.add().list.SetInParent()
+    with pytest.raises(ValueError, match="table structure"):
+        encode_table_resize(
+            zlib.compress(proto.SerializeToString()),
+            axis="row",
+            action="insert",
+            index=1,
+        )
+
+
+@pytest.mark.parametrize("index", [0, 4, True])
+def test_table_resize_rejects_invalid_position(index: int) -> None:
+    """Reject indexes outside the active axis and boolean positions."""
+    raw = base64.b64decode(encode_new_table([["A"], ["B"]]))
+    with pytest.raises(ValueError, match="does not exist"):
+        encode_table_resize(raw, axis="row", action="insert", index=index)
+
+
+def test_table_resize_append_and_delete_empty_column() -> None:
+    """Append at count + 1, delete an empty column, and retain a minimum size."""
+    raw = base64.b64decode(encode_new_table([["A"]]))
+    with pytest.raises(ValueError, match="1 to 32"):
+        encode_table_resize(raw, axis="row", action="delete", index=1)
+    expanded = base64.b64decode(
+        encode_table_resize(raw, axis="column", action="insert", index=2)
+    )
+    assert table_cells(expanded) == (("A", ""),)
+    reduced = base64.b64decode(
+        encode_table_resize(expanded, axis="column", action="delete", index=2)
+    )
+    assert table_cells(reduced) == (("A",),)
 
 
 @pytest.mark.parametrize(
