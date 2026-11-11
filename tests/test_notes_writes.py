@@ -1,9 +1,13 @@
 """Offline tests for Notes mutation payloads and acknowledgment handling."""
 
+# Payload fixtures inspect the isolated transport to replace its network dispatch.
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import base64
 from collections.abc import Iterator
+import json
 from typing import Any, Literal
 from unittest.mock import MagicMock, patch
 from uuid import UUID
@@ -11,10 +15,11 @@ import zlib
 
 from pydantic import ValidationError
 import pytest
-from requests import Response
+from requests import PreparedRequest, Request, Response
 from requests.adapters import HTTPAdapter
 from requests.exceptions import InvalidSchema
 
+from pyicloud.common.cloudkit.client import _CloudKitHTTP
 from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.services.notes import (
     NoteParagraph,
@@ -1602,6 +1607,38 @@ def _ack(sent: dict[str, Any], **changes: Any) -> dict[str, Any]:
         "fields": fields,
         **changes,
     }
+
+
+@pytest.fixture(autouse=True)
+def _mock_mutation_dispatch() -> Iterator[None]:
+    """Keep payload tests offline; real one-shot dispatch has separate regressions."""
+
+    def prepare(_http: Any, url: str, payload: Any, headers: Any) -> Any:
+        return Request("POST", url, json=payload, headers=headers).prepare(), {}
+
+    def send(
+        http: Any, _adapter: HTTPAdapter, request: PreparedRequest, _settings: Any
+    ) -> Any:
+        return http._session.post(
+            request.url,
+            json=json.loads(request.body or b"{}"),
+            timeout=http._timeout,
+            headers=dict(request.headers),
+            allow_redirects=False,
+        )
+
+    with (
+        patch.object(
+            _CloudKitHTTP,
+            "_prepare_mutation_request",
+            autospec=True,
+            side_effect=prepare,
+        ),
+        patch.object(
+            _CloudKitHTTP, "_send_mutation_once", autospec=True, side_effect=send
+        ),
+    ):
+        yield
 
 
 @pytest.fixture(name="session")
