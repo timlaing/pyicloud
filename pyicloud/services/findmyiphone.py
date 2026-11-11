@@ -120,7 +120,9 @@ class FindMyiPhoneServiceManager(BaseService):
 
             _LOGGER.debug("Re-authenticating session")
             self._server_ctx = None
-            self.session.service.authenticate(force_refresh=True)
+            # Reuse a valid saved session; authenticate falls back to a full
+            # login itself when the cached token is missing or invalid.
+            self.session.service.authenticate()
             self._refresh_client_with_reauth(locate=locate, retry=True)
             return
 

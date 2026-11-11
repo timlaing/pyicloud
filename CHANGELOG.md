@@ -57,6 +57,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Reuse valid persisted sessions when Find My requires reauthentication, falling back to a full login only when the saved session cannot be reused (#523).
+
 - Dispatch Notes mutations through one pinned non-retrying adapter, bypassing session retry overrides and response hooks while retaining session request settings and response cookies.
 
 - Render Notes formatting at the correct UTF-16 offsets and support zlib-compressed

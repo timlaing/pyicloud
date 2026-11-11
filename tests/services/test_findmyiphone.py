@@ -10,7 +10,10 @@ import pytest
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import (
+    PyiCloudAPIResponseException,
     PyiCloudAuthRequiredException,
+    PyiCloudConnectionException,
+    PyiCloudFailedLoginException,
     PyiCloudNoDevicesException,
     PyiCloudServiceUnavailable,
 )
@@ -578,7 +581,7 @@ def test_refresh_client_with_reauth_auth_required(
         patch.object(manager, "_with_family", False),
     ):
         manager._refresh_client_with_reauth(locate=True)
-        mock_authenticate.assert_called_once_with(force_refresh=True)
+        mock_authenticate.assert_called_once_with()
         assert mock_refresh.call_count == 2
         mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
 
@@ -607,9 +610,89 @@ def test_refresh_client_with_reauth_failed(
     ):
         with pytest.raises(PyiCloudAuthRequiredException):
             manager._refresh_client_with_reauth(locate=True)
-        mock_authenticate.assert_called_once_with(force_refresh=True)
+        mock_authenticate.assert_called_once_with()
         assert mock_refresh.call_count == 2
         mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
+
+
+@pytest.mark.parametrize("token_state", ["valid", "rejected", "missing"])
+def test_refresh_client_with_reauth_saved_session(
+    pyicloud_service_working: PyiCloudService, token_state: str
+) -> None:
+    """Recovery validates saved tokens before falling back to a full login."""
+    service = pyicloud_service_working
+    manager = service.devices
+    manager._server_ctx = {"stale": True}
+    if token_state == "missing":
+        service.session.data.pop("session_token")
+
+    with (
+        patch.object(
+            manager,
+            "_refresh_client",
+            side_effect=[PyiCloudAuthRequiredException("", MagicMock()), None],
+        ) as mock_refresh,
+        patch.object(
+            service,
+            "_validate_token",
+            return_value={**service.data, "hsaTrustedBrowser": True},
+            side_effect=(
+                PyiCloudAPIResponseException("Invalid token", 401)
+                if token_state == "rejected"
+                else None
+            ),
+        ) as mock_validate,
+        patch.object(service, "_authenticate") as mock_login,
+        patch.object(service, "_update_state"),
+        patch.object(manager, "_initialize_devices") as mock_initialize,
+        patch.object(manager, "_start_monitor_thread") as mock_monitor,
+    ):
+        manager._refresh_client_with_reauth(locate=True)
+
+    assert manager._server_ctx is None
+    assert mock_validate.call_count == (token_state != "missing")
+    if token_state == "valid":
+        mock_login.assert_not_called()
+    else:
+        mock_login.assert_called_once_with(pause_2fa=False)
+    assert mock_refresh.call_args_list == [call(locate=True), call(locate=True)]
+    mock_initialize.assert_called_once_with(locate=True)
+    mock_monitor.assert_called_once_with()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        PyiCloudAuthRequiredException("", MagicMock()),
+        PyiCloudFailedLoginException("Login rejected"),
+        PyiCloudConnectionException("Unavailable"),
+    ],
+)
+def test_refresh_client_with_reauth_authentication_failed(
+    pyicloud_service_working: PyiCloudService, error: Exception
+) -> None:
+    """Failed recovery propagates without another login or refresh attempt."""
+    manager = pyicloud_service_working.devices
+    with (
+        patch.object(
+            manager,
+            "_refresh_client",
+            side_effect=PyiCloudAuthRequiredException("", MagicMock()),
+        ) as mock_refresh,
+        patch.object(
+            manager.session.service, "authenticate", side_effect=error
+        ) as mock_authenticate,
+        patch.object(manager, "_initialize_devices") as mock_initialize,
+        patch.object(manager, "_start_monitor_thread") as mock_monitor,
+        pytest.raises(type(error)) as exc_info,
+    ):
+        manager._refresh_client_with_reauth(locate=False)
+
+    assert exc_info.value is error
+    mock_authenticate.assert_called_once_with()
+    mock_refresh.assert_called_once_with(locate=False)
+    mock_initialize.assert_not_called()
+    mock_monitor.assert_not_called()
 
 
 def test_refresh_client_with_reauth_with_locate(
