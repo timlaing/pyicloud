@@ -200,7 +200,7 @@ class CloudKitNotesClient:
         payload = self._build_modify_payload(operation)
         try:
             data = self._client.raw_post(
-                "/records/modify", payload, allow_redirects=False
+                "/records/modify", payload, allow_redirects=False, require_no_retry=True
             )
         except (OSError, PyiCloudException):
             raise NotesWriteUncertain(note_id) from None
@@ -210,6 +210,7 @@ class CloudKitNotesClient:
 
     @staticmethod
     def _build_modify_payload(operation: NotesModifyOperation) -> dict[str, Any]:
+        """Serialize a mutation and restore explicit nulls that clear fields."""
         payload = NotesModifyRequest(
             operations=[operation], zoneID=NOTES_ZONE_REQ
         ).model_dump(mode="json", exclude_none=True)
@@ -236,6 +237,7 @@ class CloudKitNotesClient:
 
     @staticmethod
     def _write_ack_item(data: object, record_id: str, note_id: str) -> dict[str, Any]:
+        """Select the exact acknowledged record or report rejection or uncertainty."""
         records = data.get("records") if isinstance(data, dict) else None
         if not isinstance(records, list) or len(records) != 1:
             raise NotesWriteUncertain(note_id)
@@ -252,6 +254,7 @@ class CloudKitNotesClient:
     def _verify_write_ack(
         self, item: dict[str, Any], operation: NotesModifyOperation, note_id: str
     ) -> str:
+        """Return the new revision only if the response matches the mutation."""
         try:
             record = CKRecord.model_validate(
                 item,
@@ -280,6 +283,7 @@ class CloudKitNotesClient:
 
     @staticmethod
     def _matches_write_parent(record: CKRecord, parent: str | None) -> bool:
+        """Verify the parent references relevant to this record type."""
         if record.recordType == "Folder":
             return (
                 getattr(record.fields.get_value("ParentFolder"), "recordName", None)
@@ -301,6 +305,7 @@ class CloudKitNotesClient:
             getattr(folder, "recordName", None) == parent
             and isinstance(folders, list)
             and [getattr(ref, "recordName", None) for ref in folders] == [parent]
+            and (record.parent is None or record.parent.recordName == parent)
         )
 
     def delete_empty_folder(self, folder_id: str) -> bool:
@@ -313,7 +318,7 @@ class CloudKitNotesClient:
         }
         try:
             data = self._client.raw_post(
-                "/records/modify", payload, allow_redirects=False
+                "/records/modify", payload, allow_redirects=False, require_no_retry=True
             )
         except (OSError, PyiCloudException):
             raise NotesWriteUncertain(folder_id) from None
@@ -356,6 +361,7 @@ class CloudKitNotesClient:
 
     @staticmethod
     def _matches_preview_receipt(value: object, target: NotesPreviewReceipt) -> bool:
+        """Check that the response acknowledges the exact preview asset."""
         return isinstance(value, dict) and all(
             value.get(key) == getattr(target, key)
             for key in ("fileChecksum", "referenceChecksum", "size")
@@ -363,6 +369,7 @@ class CloudKitNotesClient:
 
     @staticmethod
     def _matches_user_reference(value: object, target: NotesFolderReference) -> bool:
+        """Match the note or folder reference on a per-user record."""
         if not isinstance(value, dict) or value.get("recordName") != target.recordName:
             return False
         zone = value.get("zoneID")

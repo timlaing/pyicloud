@@ -10,6 +10,8 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from pydantic import ValidationError
 from requests import Response
+from requests.adapters import HTTPAdapter
+from requests.exceptions import RequestException
 
 from pyicloud.const import ERROR_ZONE_NOT_FOUND
 from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloudException
@@ -191,9 +193,12 @@ class _CloudKitHTTP:
         *,
         headers: dict[str, Any] | None = None,
         allow_redirects: bool = True,
+        require_no_retry: bool = False,
     ) -> dict[str, Any]:
         """Send a CloudKit POST request and return the parsed JSON response."""
         url = self.build_url(path)
+        if require_no_retry:
+            self._verify_one_shot_adapter(url)
         op = path.strip("/")
         display_url = self._display_url(url) if self._redact_urls else path
         LOGGER.debug("CloudKit POST %s", display_url)
@@ -288,6 +293,20 @@ class _CloudKitHTTP:
                 "Invalid asset upload response",
                 payload=getattr(resp, "text", None),
             ) from exc
+
+    def _verify_one_shot_adapter(self, url: str) -> None:
+        """Reject unverified or retrying adapters before sending a mutation."""
+        try:
+            adapter = self._session.get_adapter(url)
+        except RequestException:
+            raise CloudKitApiError(
+                "Cannot verify CloudKit mutation retry policy"
+            ) from None
+        if (
+            type(adapter) not in {HTTPAdapter}
+            or cast(HTTPAdapter, adapter).max_retries.total != 0
+        ):
+            raise CloudKitApiError("Cannot verify CloudKit mutation retry policy")
 
     def get_bytes(self, url: str) -> bytes:
         """Fetch an asset URL and return its contents as bytes."""
@@ -583,10 +602,15 @@ class CloudKitContainerClient:
         *,
         headers: dict[str, Any] | None = None,
         allow_redirects: bool = True,
+        require_no_retry: bool = False,
     ) -> dict[str, Any]:
         """POST a raw request body to an arbitrary CloudKit endpoint path."""
         return self._http.post(
-            path, payload, headers=headers, allow_redirects=allow_redirects
+            path,
+            payload,
+            headers=headers,
+            allow_redirects=allow_redirects,
+            require_no_retry=require_no_retry,
         )
 
     def query(

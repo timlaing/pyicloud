@@ -357,6 +357,7 @@ def _new_table_actor(
     clocks: list[tuple[int, int]],
     length: int,
 ) -> tuple[int, int, int]:
+    """Allocate a fresh text replica and advance the table's vector clock."""
     clock = max(value[0] for value in clocks)
     style = max(value[1] for value in clocks)
     if clock + length >= _END or style >= _END:
@@ -381,6 +382,7 @@ def _new_table_actor(
 
 
 def _shift_text_replicas(node: pb.Note, replica: int, actor_count: int) -> None:
+    """Preserve existing references when a replica slot is inserted."""
     if node.HasField("timestamp") or any(
         run.HasField("timestamp") for run in node.attribute_run
     ):

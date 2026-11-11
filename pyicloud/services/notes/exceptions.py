@@ -63,6 +63,7 @@ class NotesWriteRejected(NotesError):
     """CloudKit explicitly rejected a particular note mutation."""
 
     def __init__(self, note_id: str, error_code: str) -> None:
+        """Retain the rejected note identity and server error code."""
         super().__init__(f"iCloud rejected the write for note {note_id}")
         self.note_id = note_id
         self.error_code = error_code
@@ -76,6 +77,7 @@ class NotesWriteUncertain(NotesError):
     """A write may have taken effect without a verifiable acknowledgment."""
 
     def __init__(self, note_id: str) -> None:
+        """Identify the note the caller should reconcile before retrying."""
         super().__init__(
             f"Write outcome is unknown for note {note_id}. "
             "Check the note before retrying."
@@ -95,6 +97,7 @@ class NotesLinkedWriteIncomplete(NotesError):
         object_state: Literal["confirmed", "uncertain", "not_submitted", "rejected"],
         error_code: str | None = None,
     ) -> None:
+        """Record each submission outcome independently for reconciliation."""
         super().__init__(
             f"Linked write incomplete for note {note_id} (record {object_id}). "
             f"Note: {note_state}; linked record: {object_state}. Check before retrying."

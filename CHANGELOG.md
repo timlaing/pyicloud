@@ -10,6 +10,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Verify source-folder privacy before existing Notes writes and reject mutation
+  adapters that can retry a request.
+
 - Enforce the approval-bound Drive upload host policy before transferring staged bytes, even when an injected transport permits additional hosts.
 
 - Route plaintext MCP requests and HTTPS-to-HTTP redirects through the bounded adapter so they are rejected before plaintext dispatch.

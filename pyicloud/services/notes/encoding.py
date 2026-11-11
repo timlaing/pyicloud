@@ -220,6 +220,8 @@ def encode_new_note(title: str, text: str | RichNoteBody) -> EncodedNote:
     replica_clock = note.timestamp.clock.add(replica_uuid=uuid4().bytes)
     replica_clock.replica_clock.add(clock=length)
     replica_clock.replica_clock.add(clock=1)
+    if proto.ByteSize() > _MAX_DOCUMENT_BYTES:
+        raise ValueError("The Notes document exceeds the inline size limit")
     return _encode_fields(title, snippet_text, proto)
 
 

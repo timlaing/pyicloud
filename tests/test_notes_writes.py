@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterator
 from typing import Any, Literal
 from unittest.mock import MagicMock, patch
 from uuid import UUID
@@ -11,7 +12,10 @@ import zlib
 from pydantic import ValidationError
 import pytest
 from requests import Response
+from requests.adapters import HTTPAdapter
+from requests.exceptions import InvalidSchema
 
+from pyicloud.exceptions import PyiCloudAPIResponseException
 from pyicloud.services.notes import (
     NoteParagraph,
     NoteRevisionConflict,
@@ -61,7 +65,17 @@ PIN_ZONE = {**ZONE, "ownerRecordName": PIN_OWNER, "zoneType": "REGULAR_CUSTOM_ZO
 PIN_ID = f"Note_UserSpecific::{PIN_OWNER}/Private::Notes::{PIN_OWNER}::{NOTE_ID}"
 
 
-@pytest.mark.parametrize("touch", ["saved", "changed-parent", "rejected", "uncertain"])
+@pytest.mark.parametrize(
+    "touch",
+    [
+        "saved",
+        "changed-parent",
+        "rejected",
+        "uncertain",
+        "table-uncertain",
+        "lookup-error",
+    ],
+)
 def test_note_table_create_and_edit(
     notes: NotesService, session: MagicMock, touch: str
 ) -> None:
@@ -74,6 +88,8 @@ def test_note_table_create_and_edit(
     def post(url: str, **kwargs: Any) -> MagicMock:
         payload = kwargs["json"]
         if url.split("?")[0].endswith("/records/lookup"):
+            if touch == "lookup-error" and operations[-1:] == ["update"]:
+                raise PyiCloudAPIResponseException("lookup failed")
             (ref,) = payload["records"]
             target = current if ref["recordName"] == NOTE_ID else table
             if (
@@ -135,6 +151,8 @@ def test_note_table_create_and_edit(
                 )
             else:
                 assert sent["recordChangeTag"] == table["recordChangeTag"]
+                if touch == "table-uncertain":
+                    return _response({"records": []})
                 ack["fields"] = {**table["fields"], **ack["fields"]}
             table.update(ack)
         return _response({"records": [ack]})
@@ -179,13 +197,17 @@ def test_note_table_create_and_edit(
     if touch != "saved":
         with pytest.raises(NotesLinkedWriteIncomplete) as caught:
             edit("New")
-        assert caught.value.object_state == "confirmed"
+        assert caught.value.object_state == (
+            "uncertain" if touch == "table-uncertain" else "confirmed"
+        )
         assert caught.value.note_state == (
-            "not_submitted" if touch == "changed-parent" else touch
+            "not_submitted"
+            if touch in {"changed-parent", "table-uncertain", "lookup-error"}
+            else touch
         )
         assert operations == (
             ["note", "create", "update"]
-            if touch == "changed-parent"
+            if touch in {"changed-parent", "table-uncertain", "lookup-error"}
             else ["note", "create", "update", "note"]
         )
         return
@@ -306,6 +328,7 @@ def test_inline_tag_append_preserves_existing_table_and_formatting() -> None:
     [
         "saved",
         "lookup-mismatch",
+        "lookup-error",
         "child-uncertain",
         "parent-uncertain",
         "parent-rejected",
@@ -323,6 +346,8 @@ def test_add_tag_verifies_linked_writes_without_replay(
 
     def post(url: str, **kwargs: Any) -> MagicMock:
         if url.split("?")[0].endswith("/records/lookup"):
+            if saved and outcome == "lookup-error":
+                raise PyiCloudAPIResponseException("lookup failed")
             return _response({
                 "records": saved
                 if saved and outcome != "lookup-mismatch"
@@ -406,7 +431,8 @@ def test_add_tag_verifies_linked_writes_without_replay(
         assert exc.value.object_id == child_ids[0]
         assert exc.value.note_state == (
             "uncertain"
-            if outcome.startswith("parent") or outcome == "lookup-mismatch"
+            if outcome.startswith("parent")
+            or outcome in {"lookup-mismatch", "lookup-error"}
             else "confirmed"
         )
         assert (
@@ -416,13 +442,14 @@ def test_add_tag_verifies_linked_writes_without_replay(
                 "child-uncertain": "uncertain",
                 "child-rejected": "rejected",
                 "lookup-mismatch": "confirmed",
+                "lookup-error": "confirmed",
             }[outcome]
         )
     assert session.post.call_count == (
         2
         if outcome.startswith("parent")
         else 4
-        if outcome in {"saved", "lookup-mismatch"}
+        if outcome in {"saved", "lookup-mismatch", "lookup-error"}
         else 3
     )
 
@@ -1579,12 +1606,90 @@ def _ack(sent: dict[str, Any], **changes: Any) -> dict[str, Any]:
 
 @pytest.fixture(name="session")
 def _session() -> MagicMock:
-    return MagicMock(spec=PyiCloudSession)
+    session = MagicMock(spec=PyiCloudSession)
+    session.get_adapter.return_value = HTTPAdapter()
+    return session
 
 
 @pytest.fixture(name="notes")
-def _notes(session: MagicMock) -> NotesService:
-    return NotesService("https://example.test", session, {})
+def _notes(session: MagicMock) -> Iterator[NotesService]:
+    notes = NotesService("https://example.test", session, {})
+    # Payload tests isolate source ancestry, covered separately with real lookups.
+    with patch.object(notes, "_verify_note_source_folder"):
+        yield notes
+
+
+@pytest.mark.parametrize(
+    "case", ["private", "shared-source", "shared-ancestor", "missing", "trash"]
+)
+def test_existing_note_checks_source_privacy(session: MagicMock, case: str) -> None:
+    """Verify source ancestry before writing, even for notes without a share flag."""
+    notes = NotesService("https://example.test", session, {})
+    source = TRASH if case == "trash" else FOLDER
+    folder = _folder_record(recordName=source)
+    ancestor = _folder_record(recordName="ancestor")
+    if case == "shared-source":
+        folder["share"] = {"recordName": "share"}
+    if case == "shared-ancestor":
+        folder["parent"] = {"recordName": "ancestor"}
+        folder["fields"] = {
+            "ParentFolder": {"type": "REFERENCE", "value": {"recordName": "ancestor"}}
+        }
+        ancestor["share"] = {"recordName": "share"}
+    replies = {
+        NOTE_ID: [_existing_note(source)],
+        source: [] if case == "missing" else [folder],
+        "ancestor": [ancestor],
+    }
+    writes = []
+
+    def post(url: str, **kwargs: Any) -> MagicMock:
+        payload = kwargs["json"]
+        if url.split("?")[0].endswith("/records/lookup"):
+            return _response({"records": replies[payload["records"][0]["recordName"]]})
+        sent = payload["operations"][0]["record"]
+        writes.append(sent)
+        return _response({"records": [_ack(sent)]})
+
+    session.post.side_effect = post
+    if case == "trash":
+        replies[FOLDER] = [_folder_record()]
+        notes.restore_note(
+            NOTE_ID, folder_id=FOLDER, expected_change_tag="old-revision"
+        )
+        assert len(writes) == 1
+    elif case == "private":
+        notes.trash_note(NOTE_ID, expected_change_tag="old-revision")
+        assert len(writes) == 1
+    else:
+        with pytest.raises(NotesError, match="folder is not available"):
+            notes.trash_note(NOTE_ID, expected_change_tag="old-revision")
+        assert not writes
+
+
+@pytest.mark.parametrize("policy", ["retry", "unavailable"])
+def test_note_mutation_rejects_unverified_transport(
+    notes: NotesService, session: MagicMock, policy: str
+) -> None:
+    """An adapter that might retry is rejected before the POST is sent."""
+    session.post.return_value = _response({"records": [_folder_record()]})
+    if policy == "retry":
+        session.get_adapter.return_value = HTTPAdapter(max_retries=2)
+    else:
+        session.get_adapter.side_effect = InvalidSchema
+    with pytest.raises(NotesWriteUncertain):
+        notes.create_note("Title", folder_id=FOLDER)
+    assert session.post.call_count == 1
+
+
+def test_new_note_rejects_oversized_rich_document() -> None:
+    """Link metadata is bounded even when the visible text is small."""
+    link = "https://example.test/" + "a" * 3900
+    body = RichNoteBody(
+        paragraphs=(NoteParagraph(runs=(NoteTextRun(text="a", link=link),) * 600),)
+    )
+    with pytest.raises(ValueError, match="inline size limit"):
+        encode_new_note("Title", body)
 
 
 def test_create_note_matches_captured_write_shape(
@@ -1720,6 +1825,7 @@ def test_unverified_folder_cannot_receive_note(
         "wrong-type",
         "wrong-zone",
         "wrong-folder",
+        "wrong-parent",
         "wrong-body",
         "no-revision",
         "malformed",
@@ -1753,6 +1859,8 @@ def test_create_does_not_retry_or_claim_unverified_success(
             record["zoneID"] = {"zoneName": "Other"}
         elif kind == "wrong-folder":
             record["fields"] = {}
+        elif kind == "wrong-parent":
+            record["parent"] = {"recordName": DESTINATION}
         elif kind == "wrong-body":
             record["fields"]["TextDataEncrypted"]["value"] = "YQ=="
         elif kind == "no-revision":

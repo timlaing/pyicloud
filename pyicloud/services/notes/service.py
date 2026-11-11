@@ -54,6 +54,7 @@ from pyicloud.common.cloudkit.models import (
     CKReferenceListField,
     CKWriteParent,
 )
+from pyicloud.exceptions import PyiCloudException
 from pyicloud.services.base import BaseService
 from pyicloud.services.notes.decoding import BodyDecoder
 from pyicloud.session import PyiCloudSession
@@ -537,8 +538,11 @@ class NotesService(BaseService):
         )
         return self._raw.modify_note(operation)
 
-    def _require_write_folder(self, folder_id: str) -> CKRecord:
-        if not folder_id.strip() or folder_id == _TRASH_FOLDER_ID:
+    def _require_write_folder(
+        self, folder_id: str, *, allow_trash: bool = False
+    ) -> CKRecord:
+        """Look up the exact active private folder required for a write."""
+        if not folder_id.strip() or (folder_id == _TRASH_FOLDER_ID and not allow_trash):
             raise ValueError(
                 "Select a private destination folder outside Recently Deleted"
             )
@@ -659,6 +663,7 @@ class NotesService(BaseService):
     def _verify_private_folder_chain(
         self, ancestor: str | None, *, excluded: str | None = None
     ) -> None:
+        """Check each ancestor for sharing and reject cyclic folder chains."""
         visited = {excluded} if excluded is not None else set()
         while ancestor is not None:
             if ancestor in visited or len(visited) >= 64:
@@ -701,6 +706,7 @@ class NotesService(BaseService):
         return result
 
     def _verify_empty_folder(self, folder_id: str) -> None:
+        """Require a complete zone scan without any live children."""
         tokens: set[str] = set()
         for zone in self._raw.changes(
             zone_req=CKZoneChangesZoneReq(
@@ -731,6 +737,7 @@ class NotesService(BaseService):
 
     @staticmethod
     def _is_live_child(record: CKRecord, folder_id: str) -> bool:
+        """Check all supported parent references on a non-deleted record."""
         if record.deleted or record.fields.get_value("Deleted"):
             return False
         parents = [
@@ -827,6 +834,7 @@ class NotesService(BaseService):
         owner = folder.zoneID.ownerRecordName
         if not owner or not re.fullmatch(r"_[0-9a-fA-F]{32}", owner) or "::" in note_id:
             raise NotesError(_UNVERIFIED_PIN)
+        self._verify_note_source_folder(folder.recordName)
         pin_id = (
             f"Note_UserSpecific::{owner}/Private::{NOTES_ZONE_NAME}::{owner}::{note_id}"
         )
@@ -1125,19 +1133,22 @@ class NotesService(BaseService):
                 table_change_tag=revision,
                 changed=False,
             )
-        saved = self._raw.modify_note(
-            NotesModifyOperation(
-                operationType="update",
-                record=NotesObjectWriteRecord(
-                    recordName=table_id,
-                    recordType="Attachment",
-                    parent=CKWriteParent(recordName=note_id),
-                    fields=self._table_body_fields(encoded),
-                    recordChangeTag=table.recordChangeTag,
-                ),
+        operation = NotesModifyOperation(
+            operationType="update",
+            record=NotesObjectWriteRecord(
+                recordName=table_id,
+                recordType="Attachment",
+                parent=CKWriteParent(recordName=note_id),
+                fields=self._table_body_fields(encoded),
+                recordChangeTag=table.recordChangeTag,
             ),
-            public_id=note_id,
         )
+        try:
+            saved = self._raw.modify_note(operation, public_id=note_id)
+        except NotesWriteUncertain:
+            raise NotesLinkedWriteIncomplete(
+                note_id, table_id, note_state="not_submitted", object_state="uncertain"
+            ) from None
         note = self._touch_table_parent(note_id, folder_id, compressed, table_id)
         return NoteTableWriteResult(
             id=note_id,
@@ -1150,6 +1161,7 @@ class NotesService(BaseService):
     def _touch_table_parent(
         self, note_id: str, folder_id: str, compressed: bytes, table_id: str
     ) -> NoteWriteResult:
+        """Advance the note timestamp after a confirmed table mutation."""
         try:
             current = self._lookup_note_record(note_id, require_single=True)
             if (
@@ -1164,11 +1176,12 @@ class NotesService(BaseService):
                 or current.fields.get_value("TextDataAsset") is not None
             ):
                 raise NotesError(_UNVERIFIED_TABLE)
+            self._verify_note_source_folder(folder_id)
             fields = self._linked_parent_fields(current, folder_id, compressed)
             fields["ModificationDate"] = NotesWriteField(
                 value=time.time_ns() // 1_000_000
             )
-        except (NotesError, OSError, ValueError):
+        except (PyiCloudException, OSError, ValueError):
             raise NotesLinkedWriteIncomplete(
                 note_id, table_id, note_state="not_submitted", object_state="confirmed"
             ) from None
@@ -1190,6 +1203,7 @@ class NotesService(BaseService):
     def _lookup_note_table(
         self, note_id: str, table_id: str
     ) -> tuple[CKRecord, bytes, str]:
+        """Read the exact private table linked to the note."""
         records = self._raw.lookup([table_id]).records
         if len(records) != 1 or not isinstance(records[0], CKRecord):
             raise NotesError(_UNVERIFIED_TABLE)
@@ -1216,6 +1230,7 @@ class NotesService(BaseService):
         return record, raw, record.recordChangeTag
 
     def _table_body_fields(self, encoded: str) -> dict[str, NotesWriteField]:
+        """Build the inline table fields without external asset references."""
         return {
             **{field: NotesWriteField() for field in _TABLE_ASSET_FIELDS},
             "UTIEncrypted": NotesWriteField(value=self._b64_text(TABLE_UTI)),
@@ -1270,6 +1285,7 @@ class NotesService(BaseService):
         fields: dict[str, NotesWriteField],
         child: NotesObjectWriteRecord,
     ) -> tuple[NoteWriteResult, NoteWriteResult]:
+        """Write the parent link, then create and verify the linked record."""
         try:
             self._submit_note_update(record, folder_id, fields)
         except NotesWriteUncertain:
@@ -1296,6 +1312,12 @@ class NotesService(BaseService):
                 if isinstance(exc, NotesWriteRejected)
                 else None,
             ) from None
+        failure = NotesLinkedWriteIncomplete(
+            record.recordName,
+            child.recordName,
+            note_state="uncertain",
+            object_state="confirmed",
+        )
         try:
             current = self._lookup_note_record(record.recordName, require_single=True)
             body = current.fields.get_value("TextDataEncrypted")
@@ -1314,14 +1336,9 @@ class NotesService(BaseService):
                 return NoteWriteResult(
                     id=current.recordName, record_change_tag=current.recordChangeTag
                 ), linked
-        except (OSError, NotesError):
-            pass
-        raise NotesLinkedWriteIncomplete(
-            record.recordName,
-            child.recordName,
-            note_state="uncertain",
-            object_state="confirmed",
-        ) from None
+        except (OSError, PyiCloudException):
+            raise failure from None
+        raise failure
 
     def _linked_parent_fields(
         self, record: CKRecord, folder_id: str, compressed: bytes
@@ -1399,6 +1416,7 @@ class NotesService(BaseService):
 
     @staticmethod
     def _is_private_record(record: CKRecord) -> bool:
+        """Reject records outside Notes or with explicit sharing metadata."""
         return (
             (record.zoneID is None or record.zoneID.zoneName == NOTES_ZONE_NAME)
             and record.share is None
@@ -1410,6 +1428,7 @@ class NotesService(BaseService):
     def _require_write_note(
         self, note_id: str, tag: str, *, existing_image: bool | None = False
     ) -> tuple[CKRecord, str]:
+        """Verify the note revision, supported data shape, and folder privacy."""
         if not note_id.strip() or not tag.strip():
             raise ValueError("A note ID and its current revision are required")
         record = self._lookup_note_record(note_id, require_single=True)
@@ -1445,7 +1464,18 @@ class NotesService(BaseService):
             )
         ):
             raise NotesError(_UNSUPPORTED_WRITE)
+        self._verify_note_source_folder(folder.recordName)
         return record, folder.recordName
+
+    def _verify_note_source_folder(self, folder_id: str) -> None:
+        """Verify privacy of the source, including the special Trash folder."""
+        if folder_id == _TRASH_FOLDER_ID:
+            trash = self._require_write_folder(folder_id, allow_trash=True)
+            self._verify_private_folder_chain(
+                self._folder_parent(trash), excluded=folder_id
+            )
+            return
+        self._verify_private_folder_chain(folder_id)
 
     @staticmethod
     def _date_millis(date: datetime) -> int:
