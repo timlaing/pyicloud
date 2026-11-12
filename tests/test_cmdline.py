@@ -4411,12 +4411,13 @@ def test_notes_resize_table_cli() -> None:
     )
 
 
-def test_notes_add_tag_cli() -> None:
-    """Add a tag using the exact note revision and return its linked ID."""
+@pytest.mark.parametrize("action", ["add", "remove"])
+def test_notes_tag_cli(action: str) -> None:
+    """Change a tag using the exact note revision and return its linked ID."""
     api = FakeAPI()
     with patch.object(
         api.notes,
-        "add_note_tag",
+        f"{action}_note_tag",
         create=True,
         return_value=NoteTagResult(
             id="synthetic-id",
@@ -4428,7 +4429,7 @@ def test_notes_add_tag_cli() -> None:
         result = _invoke(
             api,
             "notes",
-            "add-tag",
+            f"{action}-tag",
             "synthetic-id",
             "--if-match",
             "old-tag",
@@ -4441,6 +4442,40 @@ def test_notes_add_tag_cli() -> None:
         )
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["tag_id"] == "tag-id"
+
+
+@pytest.mark.parametrize("command", ["delete-forever", "remove-table"])
+@pytest.mark.parametrize("confirm", [False, True])
+def test_notes_destructive_commands_require_confirmation(
+    command: str, confirm: bool
+) -> None:
+    """Require opt-in before handing an irreversible action to the service."""
+    api = FakeAPI()
+    args = [command, "note-id", "--if-match", "note-old"]
+    kwargs: dict[str, Any] = {}
+    method = "delete_note_forever"
+    if command == "remove-table":
+        method = "remove_note_table"
+        args.extend(["--table-id", "table-id", "--table-if-match", "table-old"])
+        kwargs.update(table_id="table-id", expected_table_change_tag="table-old")
+    if confirm:
+        args.append("--confirm")
+    with patch.object(
+        api.notes,
+        method,
+        create=True,
+        return_value=NoteWriteResult(id="note-id", record_change_tag="note-new"),
+    ) as write:
+        result = _invoke(api, "notes", *args, output_format="json")
+    if confirm:
+        assert result.exit_code == 0, result.output
+        write.assert_called_once_with(
+            "note-id", expected_change_tag="note-old", confirm=True, **kwargs
+        )
+    else:
+        assert result.exit_code != 0
+        assert "--confirm" in str(result.exception)
+        write.assert_not_called()
 
 
 @pytest.mark.parametrize(

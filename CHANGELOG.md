@@ -19,6 +19,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Support opt-in local reads of private iCloud Notes locked with a custom
   Notes password, including a hidden CLI prompt.
 
+### Added
+
+- Add private Notes tag removal, whole-table removal, and confirmed permanent
+  deletion of individual notes from Recently Deleted.
+
 ### Security
 
 - Require certifi 2026.10.18 or newer to remove root certificates associated
@@ -42,6 +47,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Raise the minimum supported `pydantic` version to `2.14.3`, keeping runtime requirements and minimum-installation constraints aligned.
 
 - Raise the minimum supported `typing-extensions` version to `4.16.0`, keeping runtime requirements and minimum-installation constraints aligned.
+
+- Allow targeted Notes text replacement without an image and across formatting
+  runs, preserving formatting outside the selection.
 
 - Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
 

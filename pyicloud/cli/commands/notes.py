@@ -547,6 +547,54 @@ def notes_add_tag(
     )
 
 
+@app.command("remove-tag")
+@with_command_options
+def notes_remove_tag(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    tag: str = typer.Option(..., "--tag"),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+) -> None:
+    """Remove one tag from this note without deleting the global hashtag."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Removed tag",
+        lambda notes: notes.remove_note_tag(
+            note_id, tag=tag, expected_change_tag=if_match
+        ),
+    )
+
+
+@app.command("remove-table")
+@with_command_options
+def notes_remove_table(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    table_id: str = typer.Option(..., "--table-id"),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+    table_if_match: str = typer.Option(..., "--table-if-match"),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Remove one whole table and its contents from this note."""
+    if not confirm:
+        raise CLIAbort("Use --confirm to remove the whole table.")
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        _UPDATED_NOTE,
+        lambda notes: notes.remove_note_table(
+            note_id,
+            table_id=table_id,
+            expected_change_tag=if_match,
+            expected_table_change_tag=table_if_match,
+            confirm=confirm,
+        ),
+    )
+
+
 @app.command("add-table")
 @with_command_options
 def notes_add_table(
@@ -724,6 +772,28 @@ def notes_trash(
     )
 
 
+@app.command("delete-forever")
+@with_command_options
+def notes_delete_forever(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
+    confirm: bool = typer.Option(False, "--confirm"),
+) -> None:
+    """Permanently delete one private note from Recently Deleted."""
+    if not confirm:
+        raise CLIAbort("Use --confirm to permanently delete this note.")
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Permanently deleted note",
+        lambda notes: notes.delete_note_forever(
+            note_id, expected_change_tag=if_match, confirm=confirm
+        ),
+    )
+
+
 @app.command("restore")
 @with_command_options
 def notes_restore(
@@ -761,7 +831,7 @@ def notes_replace_text(
     ),
     if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
 ) -> None:
-    """Replace one text fragment without removing an existing image."""
+    """Replace one text fragment without replacing the whole note."""
     old = _read_note_body(find_file).removesuffix("\n")
     new = _read_note_body(replacement_file).removesuffix("\n")
     common.store(ctx)
