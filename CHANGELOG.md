@@ -25,6 +25,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Raise the minimum supported `typing-extensions` version to `4.16.0`, keeping runtime requirements and minimum-installation constraints aligned.
+
 - Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
 
 - Require typed Photos album-creation acknowledgements to match the submitted record ID, record type, album type, live deletion flag, encoded name and valid change tag; unrelated or ambiguous responses now raise uncertainty instead of returning an uncorrelated album. Request payloads and public signatures are unchanged.
@@ -263,6 +265,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add `InvitesService.publish(event, published=True)` to publish or unpublish a hosted event, updating EventDetails and its share atomically with the required encryption marker (#432).
 
 ### Tests
+
+- Bind explicit session mocks in Photos tests to avoid Pylint `no-member` errors on dynamically inferred mock attributes.
 
 - Add synthetic ordinary Mail draft-upload, attachment-reference, and attachment-remapping fixtures with strict offline protocol validation. These do not enable attachment uploads or sending by themselves.
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.

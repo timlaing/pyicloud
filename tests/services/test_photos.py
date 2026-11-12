@@ -1981,10 +1981,11 @@ def test_shared_library_all_photos_feed_uses_captured_fixture(
     shared_zone = load_fixture("photos_shared_library_private_zones_response.json")[
         "zones"
     ][0]["zoneID"]
-    service = MagicMock()
+    session = MagicMock()
+    service = MagicMock(session=session)
     service.service_endpoint = "https://example.com/endpoint"
     service.params = {"dsid": "12345"}
-    service.session.post.side_effect = [
+    session.post.side_effect = [
         MagicMock(
             json=MagicMock(
                 return_value={"records": [{"fields": {"state": {"value": "FINISHED"}}}]}
@@ -2022,7 +2023,7 @@ def test_shared_library_all_photos_feed_uses_captured_fixture(
     assert len(photos) == 1
     assert photos[0].id == "ASSET_RECORD_ID_111"
     assert photos[0].filename == "shared_library_photo.jpg"
-    posted = _last_posted_json(service.session.post)
+    posted = _last_posted_json(session.post)
     assert (
         posted["query"]["recordType"]
         == load_fixture("photos_shared_library_all_photos_query_core.json")[
@@ -2050,10 +2051,11 @@ def test_shared_library_all_photos_skips_album_record_fetch(
     shared_zone = load_fixture("photos_shared_library_private_zones_response.json")[
         "zones"
     ][0]["zoneID"]
-    service = MagicMock()
+    session = MagicMock()
+    service = MagicMock(session=session)
     service.service_endpoint = "https://example.com/endpoint"
     service.params = {"dsid": "12345"}
-    service.session.post.return_value = MagicMock(
+    session.post.return_value = MagicMock(
         json=MagicMock(
             return_value={"records": [{"fields": {"state": {"value": "FINISHED"}}}]}
         )
@@ -2088,10 +2090,11 @@ def test_shared_library_favorites_feed_uses_captured_fixture(
     shared_zone = load_fixture("photos_shared_library_private_zones_response.json")[
         "zones"
     ][0]["zoneID"]
-    service = MagicMock()
+    session = MagicMock()
+    service = MagicMock(session=session)
     service.service_endpoint = "https://example.com/endpoint"
     service.params = {"dsid": "12345"}
-    service.session.post.side_effect = [
+    session.post.side_effect = [
         MagicMock(
             json=MagicMock(
                 return_value={"records": [{"fields": {"state": {"value": "FINISHED"}}}]}
@@ -2120,7 +2123,7 @@ def test_shared_library_favorites_feed_uses_captured_fixture(
     assert len(photos) == 1
     assert photos[0].id == "ASSET_RECORD_ID_110"
     assert photos[0].filename == "shared_favorite_photo.jpg"
-    posted = _last_posted_json(service.session.post)
+    posted = _last_posted_json(session.post)
     assert (
         posted["query"]["recordType"]
         == load_fixture("photos_shared_library_favorites_query_core.json")["recordType"]
@@ -2489,8 +2492,9 @@ def test_legacy_photos_service_libraries_propagate_upload_url() -> None:
 def test_legacy_photo_library_upload_file_without_upload_url_returns_none() -> None:
     """Legacy upload_file should fail fast when a library has no upload endpoint."""
 
-    mock_service = MagicMock()
-    mock_service.session.post.return_value.json.return_value = {
+    session = MagicMock()
+    mock_service = MagicMock(session=session)
+    session.post.return_value.json.return_value = {
         "records": [
             {
                 "fields": {
@@ -3844,14 +3848,15 @@ def test_photo_asset_properties_and_methods() -> None:
         "zoneID": {"zoneName": "PrimarySync"},
     }
 
-    mock_service = MagicMock()
+    session = MagicMock()
+    mock_service = MagicMock(session=session)
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
-    mock_service.session.get.return_value = MagicMock(
+    session.get.return_value = MagicMock(
         json=MagicMock(return_value={}),
         raw=MagicMock(read=MagicMock(return_value=b"response")),
     )
-    mock_service.session.post.return_value = MagicMock(
+    session.post.return_value = MagicMock(
         json=MagicMock(return_value={}), status_code=200
     )
 
@@ -3952,10 +3957,11 @@ def test_photo_asset_delete_success_raw_request_payload() -> None:
         "recordChangeTag": "asset-tag",
         "zoneID": {"zoneName": "PrimarySync"},
     }
-    mock_service = MagicMock()
+    session = MagicMock()
+    mock_service = MagicMock(session=session)
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
-    mock_service.session.post.return_value = MagicMock(
+    session.post.return_value = MagicMock(
         json=MagicMock(return_value={}),
         status_code=200,
     )
@@ -3965,7 +3971,7 @@ def test_photo_asset_delete_success_raw_request_payload() -> None:
     )
 
     assert asset.delete() is True
-    mock_service.session.post.assert_called_once_with(
+    session.post.assert_called_once_with(
         "https://example.com/records/modify?dsid=12345",
         json={
             "atomic": True,
@@ -4020,10 +4026,11 @@ def test_photo_asset_delete_matches_browser_request_fixture() -> None:
         ],
         "fields": {},
     }
-    mock_service = MagicMock()
+    session = MagicMock()
+    mock_service = MagicMock(session=session)
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
-    mock_service.session.post.return_value = MagicMock(
+    session.post.return_value = MagicMock(
         json=MagicMock(
             return_value=load_fixture(
                 "photos_browser_mutations", "photo_delete_response.json"
@@ -4037,7 +4044,7 @@ def test_photo_asset_delete_matches_browser_request_fixture() -> None:
     )
 
     assert asset.delete() is True
-    assert _last_posted_json(mock_service.session.post) == load_fixture(
+    assert _last_posted_json(session.post) == load_fixture(
         "photos_browser_mutations", "photo_delete_request.json"
     )
     assert (
@@ -4074,10 +4081,11 @@ def test_legacy_photo_asset_delete_returns_false_for_error_payload() -> None:
         "recordChangeTag": "asset-tag",
         "zoneID": {"zoneName": "PrimarySync"},
     }
-    mock_service = MagicMock()
+    session = MagicMock()
+    mock_service = MagicMock(session=session)
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
-    mock_service.session.post.return_value = MagicMock(
+    session.post.return_value = MagicMock(
         json=MagicMock(
             return_value={
                 "records": [
@@ -4244,10 +4252,11 @@ def test_photo_asset_unfavorite_matches_shared_library_browser_fixture() -> None
     asset_record = load_fixture("photos_shared_library_favorites_response.json")[
         "records"
     ][0]
-    mock_service = MagicMock()
+    session = MagicMock()
+    mock_service = MagicMock(session=session)
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
-    mock_service.session.post.return_value = MagicMock(
+    session.post.return_value = MagicMock(
         json=MagicMock(
             return_value=load_fixture("photos_shared_library_unfavorite_response.json")
         ),
@@ -4257,7 +4266,7 @@ def test_photo_asset_unfavorite_matches_shared_library_browser_fixture() -> None
     asset = PhotoAsset(mock_service, master_record, asset_record)
 
     assert asset.unfavorite() is True
-    assert _last_posted_json(mock_service.session.post) == (
+    assert _last_posted_json(session.post) == (
         load_fixture("photos_shared_library_unfavorite_request.json")
     )
     assert record_field_value(asset._asset_record, "isFavorite") == 0
@@ -4283,10 +4292,11 @@ def test_photo_asset_favorite_uses_symmetric_shared_library_payload() -> None:
     asset_record = load_fixture("photos_shared_library_favorites_response.json")[
         "records"
     ][0]
-    mock_service = MagicMock()
+    session = MagicMock()
+    mock_service = MagicMock(session=session)
     mock_service.service_endpoint = "https://example.com"
     mock_service.params = {"dsid": "12345"}
-    mock_service.session.post.return_value = MagicMock(
+    session.post.return_value = MagicMock(
         json=MagicMock(return_value=favorite_response),
         status_code=200,
     )
@@ -4294,7 +4304,7 @@ def test_photo_asset_favorite_uses_symmetric_shared_library_payload() -> None:
     asset = PhotoAsset(mock_service, master_record, asset_record)
 
     assert asset.favorite() is True
-    assert _last_posted_json(mock_service.session.post) == expected_request
+    assert _last_posted_json(session.post) == expected_request
     assert record_field_value(asset._asset_record, "isFavorite") == 1
     assert record_change_tag(asset._asset_record) == "RECORD_CHANGE_TAG_310"
 
@@ -4920,8 +4930,9 @@ def test_create_album_success(mock_photos_service: MagicMock) -> None:
 def test_create_album_browser_fixture_matches_core_request_fields() -> None:
     """Browser album-create fixtures should match the core raw payload shape."""
 
-    mock_photos_service = MagicMock()
-    mock_photos_service.session.post.side_effect = [
+    session = MagicMock()
+    mock_photos_service = MagicMock(session=session)
+    session.post.side_effect = [
         MagicMock(
             json=MagicMock(
                 return_value={
@@ -4950,7 +4961,7 @@ def test_create_album_browser_fixture_matches_core_request_fields() -> None:
     album = library.create_album("ALBUM_NAME_ENC_001")
 
     assert album is not None
-    posted = _last_posted_json(mock_photos_service.session.post)
+    posted = _last_posted_json(session.post)
     request_record = posted["operations"][0]["record"]
     browser_record = load_fixture(
         "photos_browser_mutations", "album_create_request.json"
