@@ -277,10 +277,25 @@ icloud notes set-table-cell NOTE_ID --table-id TABLE_ID --row 2 --column 2 \
   --if-match NOTE_REVISION --table-if-match TABLE_REVISION --body-file ./cell.txt
 ```
 
-The Python equivalents are `add_note_table`, `get_note_table`, and
-`update_note_table_cell`. These commands work on supported private notes and
-plain-text cells; row and column insertion, removal, and cell formatting are
-not supported. Table creation and edits each involve two records. If a write
+Use `resize-table` to insert a blank row or column before `--index` (or append
+at the current size plus one). To delete a row or column at that index, use
+`--action delete`. Deleting populated cells requires `--confirm-nonempty`.
+Refresh both revisions after each change.
+Resizing also refuses tables whose object-replica clock cannot be joined (for
+example, some browser-edited or multi-session tables), reporting "Could not
+verify the Notes table structure or text history"; re-read the note and table
+and, if the structure remains unsupported, re-create the table rather than
+retrying blindly.
+
+```bash
+icloud notes resize-table NOTE_ID --table-id TABLE_ID --axis row --action insert \
+  --index 2 --if-match NOTE_REVISION --table-if-match TABLE_REVISION
+```
+
+The Python equivalents are `add_note_table`, `get_note_table`,
+`update_note_table_cell`, and `resize_note_table`. These commands work on
+supported private notes. Cell formatting is not supported by the writer.
+Table creation and edits each involve two records. If a write
 reports a partial or uncertain result, read the note and table again before
 deciding how to proceed. Do not automatically repeat the command.
 

@@ -46,6 +46,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Refactored
 
+- Extract Notes table marker-span editing and resize-position validation helpers
+  without changing table histories or write safeguards.
+
 - Separate private Mail query and pagination validation helpers from the unchanged facade, preserving lazy requests, mailbox checks and whole-page error handling.
 - Consolidate Photos query construction and raw request serialization behind unchanged library and album facades, retaining zone ownership and paging payloads.
 - Separate private authentication header and verification-response helpers from the unchanged core facade, retaining session ownership and request ordering.
@@ -60,6 +63,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Remove `pyicloud.services.photos_legacy` module; photos are now accessed solely through the `pyicloud.services.photos` package.
 
 ### Fixed
+
+- Resolve Notes table UUID registry names when inserting rows or columns, so
+  readable tables with reordered key or type registries can also be resized.
 
 - Reuse valid persisted sessions when Find My requires reauthentication, falling back to a full login when the saved session cannot be reused or Find My still rejects it, with bounded refresh retries (#523).
 
@@ -204,6 +210,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Add revision-guarded tagging for private notes without replacing their content.
 - Add private Notes table creation, inspection, and targeted plain-text cell edits
   with separate note and table revision guards.
+- Add revision-guarded Notes table row and column insertion and deletion, with
+  explicit confirmation for deleting populated cells.
 
 - Add `AccountService.refresh_storage()` to explicitly fetch current storage usage while preserving the cached `storage` property and retaining the previous snapshot if a refresh fails.
 - Add explicitly selected MCP Calendar metadata tools and a new receipt-gated create/delete adapter; runtime write-tool wiring remains in the final integration slice. Rejected tool calls are marked as tool execution errors (`isError`) while retaining structured error codes. Creation rejects sub-minute times before preview; deletion previews support untitled events, and read-back treats HTTP 404 as confirmed absence but HTTP 410 as uncertain. Failed publication and terminal approval denials retire their preview targets; requests awaiting operator approval remain available.
@@ -268,6 +276,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Cover Notes table insertion after deletion on both axes, retained marker
+  tombstones and cell identities, and fail-closed resize guards.
+
 - Bind explicit session mocks in Photos tests to avoid Pylint `no-member` errors on dynamically inferred mock attributes.
 
 - Add synthetic ordinary Mail draft-upload, attachment-reference, and attachment-remapping fixtures with strict offline protocol validation. These do not enable attachment uploads or sending by themselves.
@@ -275,6 +286,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Harden a private Mail date-search pagination candidate with offline cases for timestamp ties, saturated boundary buckets, concurrent changes, identity failures, and request budgets. This does not add public search pagination or infer boundary completeness from short responses.
 
 ### Documentation
+
+- Explain that Notes table resizing can reject unsupported object-replica clocks
+  and requires re-reading or re-creating the table rather than blind retries.
 
 - Clarify the separate ordinary-attachment and Mail Drop download paths and capability redaction in serialized metadata.
 - Document the observed iCloud Mail HTTP protocol research and capture limitations.

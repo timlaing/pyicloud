@@ -52,6 +52,23 @@ _TABLE_NOTE_REVISION_HELP = (
 )
 
 
+_TABLE_REVISION_HELP = "Current table_change_tag from notes get-table --format json."
+
+
+class TableAxis(str, Enum):
+    """Axis selected for a Notes table resize."""
+
+    ROW = "row"
+    COLUMN = "column"
+
+
+class TableResizeAction(str, Enum):
+    """Supported structural Notes table edits."""
+
+    INSERT = "insert"
+    DELETE = "delete"
+
+
 class PreviewAppearance(str, Enum):
     """Supported Notes preview appearances."""
 
@@ -585,7 +602,7 @@ def notes_set_table_cell(
     table_if_match: str = typer.Option(
         ...,
         "--table-if-match",
-        help="Current table_change_tag from notes get-table --format json.",
+        help=_TABLE_REVISION_HELP,
     ),
 ) -> None:
     """Replace one plain-text table cell without changing the rest of the table."""
@@ -602,6 +619,51 @@ def notes_set_table_cell(
             text=body,
             expected_change_tag=if_match,
             expected_table_change_tag=table_if_match,
+        ),
+    )
+
+
+@app.command("resize-table")
+@with_command_options
+def notes_resize_table(
+    ctx: typer.Context,
+    common: CommandOptions,
+    note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
+    table_id: str = typer.Option(
+        ..., "--table-id", help="Table ID from notes get-table."
+    ),
+    axis: TableAxis = typer.Option(..., "--axis", help="Resize a row or column."),
+    action: TableResizeAction = typer.Option(
+        ..., "--action", help="Insert or delete an axis member."
+    ),
+    index: int = typer.Option(
+        ...,
+        "--index",
+        min=1,
+        help="One-based position. Insert before this position or delete it.",
+    ),
+    if_match: str = typer.Option(..., "--if-match", help=_TABLE_NOTE_REVISION_HELP),
+    table_if_match: str = typer.Option(
+        ..., "--table-if-match", help=_TABLE_REVISION_HELP
+    ),
+    confirm_nonempty: bool = typer.Option(
+        False, "--confirm-nonempty", help="Allow deletion of cells containing text."
+    ),
+) -> None:
+    """Insert or delete one row or column in a private Notes table."""
+    common.store(ctx)
+    _notes_write(
+        ctx,
+        "Resized table in note",
+        lambda notes: notes.resize_note_table(
+            note_id,
+            table_id=table_id,
+            axis=axis.value,
+            action=action.value,
+            index=index,
+            expected_change_tag=if_match,
+            expected_table_change_tag=table_if_match,
+            confirm_nonempty=confirm_nonempty,
         ),
     )
 

@@ -110,7 +110,14 @@ from .models.write import (
 from .rendering.exporter import NoteExporter, build_datasource, decode_and_parse_note
 from .rendering.options import ExportConfig
 from .rendering.renderer import NoteRenderer
-from .table_encoding import encode_new_table, encode_table_cell_edit, table_cells
+from .table_encoding import (
+    TableAxis,
+    TableResizeAction,
+    encode_new_table,
+    encode_table_cell_edit,
+    encode_table_resize,
+    table_cells,
+)
 
 __all__ = ["NoteLockedError", "NoteNotFound"]
 
@@ -1117,34 +1124,22 @@ class NotesService(BaseService):
         _, folder_id, compressed = self._require_linked_note(
             note_id, expected_change_tag
         )
-        if InlineObject(table_id, TABLE_UTI) not in inline_note_objects(compressed):
-            raise NotesError(_UNVERIFIED_TABLE)
-        table, raw, revision = self._lookup_note_table(note_id, table_id)
-        if revision != expected_table_change_tag:
-            raise NoteRevisionConflict(
-                "The table revision changed; fetch the table again"
-            )
+        raw = self._require_table_revision(
+            note_id, table_id, compressed, expected_table_change_tag
+        )
         encoded = encode_table_cell_edit(raw, row, column, text)
         if encoded is None:
             return NoteTableWriteResult(
                 id=note_id,
                 record_change_tag=expected_change_tag,
                 table_id=table_id,
-                table_change_tag=revision,
+                table_change_tag=expected_table_change_tag,
                 changed=False,
             )
-        operation = NotesModifyOperation(
-            operationType="update",
-            record=NotesObjectWriteRecord(
-                recordName=table_id,
-                recordType="Attachment",
-                parent=CKWriteParent(recordName=note_id),
-                fields=self._table_body_fields(encoded),
-                recordChangeTag=table.recordChangeTag,
-            ),
-        )
         try:
-            saved = self._raw.modify_note(operation, public_id=note_id)
+            saved = self._submit_table_update(
+                note_id, table_id, encoded, expected_table_change_tag
+            )
         except NotesWriteUncertain:
             raise NotesLinkedWriteIncomplete(
                 note_id, table_id, note_state="not_submitted", object_state="uncertain"
@@ -1156,6 +1151,95 @@ class NotesService(BaseService):
             table_id=table_id,
             table_change_tag=saved.record_change_tag,
             changed=True,
+        )
+
+    def resize_note_table(
+        self,
+        note_id: str,
+        *,
+        table_id: str,
+        axis: TableAxis,
+        action: TableResizeAction,
+        index: int,
+        expected_change_tag: str,
+        expected_table_change_tag: str,
+        confirm_nonempty: bool = False,
+    ) -> NoteTableWriteResult:
+        """Insert before a one-based row or column, or delete it with confirmation."""
+        record, folder_id, compressed = self._require_linked_note(
+            note_id, expected_change_tag
+        )
+        raw = self._require_table_revision(
+            note_id, table_id, compressed, expected_table_change_tag
+        )
+        encoded = encode_table_resize(
+            raw,
+            axis=axis,
+            action=action,
+            index=index,
+            confirm_nonempty=confirm_nonempty,
+        )
+        fields = self._linked_parent_fields(record, folder_id, compressed)
+        fields["ModificationDate"] = NotesWriteField(value=time.time_ns() // 1_000_000)
+        try:
+            note = self._submit_note_update(record, folder_id, fields)
+        except NotesWriteUncertain:
+            raise NotesLinkedWriteIncomplete(
+                note_id, table_id, note_state="uncertain", object_state="not_submitted"
+            ) from None
+        try:
+            saved = self._submit_table_update(
+                note_id, table_id, encoded, expected_table_change_tag
+            )
+        except (NotesWriteRejected, NotesWriteUncertain) as exc:
+            raise NotesLinkedWriteIncomplete(
+                note_id,
+                table_id,
+                note_state="confirmed",
+                object_state="rejected"
+                if isinstance(exc, NotesWriteRejected)
+                else "uncertain",
+                error_code=exc.error_code
+                if isinstance(exc, NotesWriteRejected)
+                else None,
+            ) from None
+        return NoteTableWriteResult(
+            id=note_id,
+            record_change_tag=note.record_change_tag,
+            table_id=table_id,
+            table_change_tag=saved.record_change_tag,
+            changed=True,
+        )
+
+    def _require_table_revision(
+        self, note_id: str, table_id: str, compressed: bytes, revision: str
+    ) -> bytes:
+        """Read the current body only if the note links to this table revision."""
+        if InlineObject(table_id, TABLE_UTI) not in inline_note_objects(compressed):
+            raise NotesError(_UNVERIFIED_TABLE)
+        _, raw, current = self._lookup_note_table(note_id, table_id)
+        if current != revision:
+            raise NoteRevisionConflict(
+                "The table revision changed; fetch the table again"
+            )
+        return raw
+
+    def _submit_table_update(
+        self, note_id: str, table_id: str, encoded: str, revision: str
+    ) -> NoteWriteResult:
+        """Submit the revision-guarded update through the Notes mutation client."""
+        return self._raw.modify_note(
+            NotesModifyOperation(
+                operationType="update",
+                record=NotesObjectWriteRecord(
+                    recordName=table_id,
+                    recordType="Attachment",
+                    parent=CKWriteParent(recordName=note_id),
+                    fields=self._table_body_fields(encoded),
+                    recordChangeTag=revision,
+                ),
+            ),
+            public_id=note_id,
         )
 
     def _touch_table_parent(

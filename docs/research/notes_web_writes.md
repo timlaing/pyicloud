@@ -57,3 +57,45 @@ credentials, or note content.
 - Both table captures parse without unknown protobuf fields. Explicit zero map
   keys and axis indices, and explicitly empty cell text, use presence tracking
   to preserve their wire representation.
+
+## Table row and column resizing
+
+A disposable private note on iCloud.com provided a separate save for each of
+the following operations. All table payloads round-tripped byte-for-byte
+through the existing protobuf schema. The table reader and HTML renderer
+recognized the resulting dimensions without changes to either reader.
+
+| Operation                        | Grid after save     | Cells added | Cells removed | Retained cells byte-identical |
+| -------------------------------- | ------------------- | ----------- | ------------- | ----------------------------- |
+| Insert a row in the middle       | 3 rows by 2 columns | 2           | 0             | 4 of 4                        |
+| Insert a column in the middle    | 3 rows by 3 columns | 3           | 0             | 6 of 6                        |
+| Delete the last populated row    | 2 rows by 3 columns | 0           | 3             | 6 of 6                        |
+| Delete the last populated column | 2 rows by 2 columns | 0           | 2             | 4 of 4                        |
+
+- Each resize saved the parent note first, then updated the same table
+  `Attachment`. The parent's `TextDataEncrypted` bytes stayed unchanged while
+  its modification time and revision advanced. Each request used the previous
+  acknowledged revision of its own record. The table update echoed the new
+  mergeable data in its acknowledgment. Do not assume the cell-edit path's
+  table-first order applies to resizing.
+- Insertion adds two UUIDs: one for the axis member's position and one for its
+  logical identity. It inserts a live marker in the axis text history, adds
+  the ordered-set links, and creates empty cell Notes on the new axis. The
+  surviving cells retain their row and column UUIDs and serialized payloads.
+- Deletion removes the active axis member, its cell dictionary references, and
+  the removed cell Notes. The ordering-to-logical UUID mapping remains, and
+  the old marker is retained as a tombstone with an updated style timestamp.
+  Treat active array attachments as the visible order; the ordering dictionary
+  can contain deleted members.
+- Numeric entry offsets and UUID registry offsets shift across saves. Match
+  identities by UUID, not by array offset. Object timestamps index the shared
+  UUID registry; text timestamps have a separate vector. The browser also
+  extends the object replica clock during these saves. Its active replica UUID
+  remains stable in this session; these captures do not establish how a new
+  independent writer should join that clock.
+
+For a writer, verify the complete graph and both revisions before dispatch,
+preserve retained cell payloads and history, and require explicit confirmation
+for populated-axis removal. Report a confirmed parent update followed by a
+failed table update as a partial result, without replaying either request.
+Build regression cases from synthetic data, not captured payloads.
