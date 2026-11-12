@@ -42,6 +42,8 @@ def test_album_identity_accessors_are_detached_and_read_only(
 ) -> None:
     """Missing revisions stay unknown; returned zones cannot redirect mutations."""
     library = MagicMock()
+    session = MagicMock()
+    library.service.session = session
     library.service.params = {}
     album = PhotoAlbum(
         library,
@@ -64,5 +66,5 @@ def test_album_identity_accessors_are_detached_and_read_only(
         cast(Any, album).record_change_tag = "UNAPPROVED"
     with pytest.raises(AttributeError):
         cast(Any, album).zone_id = {"zoneName": "UNAPPROVED"}
-    library.service.session.get.assert_not_called()
-    library.service.session.post.assert_not_called()
+    session.get.assert_not_called()
+    session.post.assert_not_called()

@@ -211,7 +211,7 @@ jobs:
                   owner,
                   repo,
                   issue_number: pr.number,
-                  body: `@coderabbitai review\n\n${rabbitMarker}`,
+                  body: `@coderabbit review\n\n${rabbitMarker}`,
                 });
               }
             }

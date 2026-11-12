@@ -5,6 +5,8 @@
 from collections.abc import Callable
 import gzip
 import unittest
+from unittest.mock import patch
+import zlib
 
 from pyicloud.services.notes.protobuf import notes_pb2 as pb
 from pyicloud.services.notes.rendering.table_builder import (
@@ -453,6 +455,29 @@ class TestRenderTableFromMergeable(unittest.TestCase):
         assert html is not None
         self.assertIn("<table>", html)
         self.assertIn("<p>x</p>", html)
+
+    def test_renders_zlib_and_uncompressed_tables(self) -> None:
+        """Support the zlib envelope used by Notes on the web and raw protobuf."""
+        raw = _valid_table_proto().SerializeToString()
+        for payload in (raw, zlib.compress(raw)):
+            with self.subTest(payload_size=len(payload)):
+                html = render_table_from_mergeable(payload, _noop_render)
+                assert html is not None
+                self.assertIn("<td><p>x</p></td>", html)
+
+    def test_rejects_incomplete_trailing_and_oversized_payloads(self) -> None:
+        """Decompression must consume exactly one bounded payload."""
+        payload = zlib.compress(_valid_table_proto().SerializeToString())
+        self.assertIsNone(render_table_from_mergeable(payload[:-1], _noop_render))
+        self.assertIsNone(render_table_from_mergeable(payload + b"extra", _noop_render))
+        with patch(
+            "pyicloud.services.notes.rendering.table_builder._MAX_TABLE_PAYLOAD_BYTES",
+            len(payload),
+        ):
+            self.assertIsNone(render_table_from_mergeable(payload, _noop_render))
+            self.assertIsNone(
+                render_table_from_mergeable(payload + b"extra", _noop_render)
+            )
 
     def test_skips_entry_without_custom_map(self) -> None:
         """A leading entry without custom_map is skipped."""

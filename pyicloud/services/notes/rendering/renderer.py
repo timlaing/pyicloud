@@ -339,14 +339,11 @@ def _merge_runs(runs: Iterable[pb.AttributeRun]) -> list[MergedRun]:
 
 
 def _slice_for_run(s: str, start: int, length_units: int) -> tuple[str, int]:
-    end_guess = start + length_units
-    while True:
-        chunk = s[start:end_guess]
-        astrals = sum(1 for ch in chunk if ord(ch) > 0xFFFF)
-        new_end = start + length_units + astrals
-        if new_end == end_guess:
-            return chunk, end_guess
-        end_guess = new_end
+    end = start
+    while length_units > 0 and end < len(s):
+        length_units -= 2 if ord(s[end]) > 0xFFFF else 1
+        end += 1
+    return s[start:end], end
 
 
 def _should_close_paragraph(mr: MergedRun, next_mr: MergedRun | None) -> bool:
