@@ -589,17 +589,15 @@ def test_refresh_client_with_reauth_auth_required(
 def test_refresh_client_with_reauth_failed(
     pyicloud_service_working: PyiCloudService,
 ) -> None:
-    """Test refresh_client_with_reauth handles PyiCloudAuthRequiredException and
-    reauthenticates.
-    """
+    """Repeated rejection stops after session reuse and one forced login."""
     manager: FindMyiPhoneServiceManager = pyicloud_service_working.devices
 
-    # Patch _refresh_client to raise PyiCloudAuthRequiredException first, then succeed
     with (
         patch.object(
             manager,
             "_refresh_client",
             side_effect=[
+                PyiCloudAuthRequiredException("", MagicMock()),
                 PyiCloudAuthRequiredException("", MagicMock()),
                 PyiCloudAuthRequiredException("", MagicMock()),
             ],
@@ -610,9 +608,54 @@ def test_refresh_client_with_reauth_failed(
     ):
         with pytest.raises(PyiCloudAuthRequiredException):
             manager._refresh_client_with_reauth(locate=True)
-        mock_authenticate.assert_called_once_with()
-        assert mock_refresh.call_count == 2
-        mock_refresh.assert_has_calls([call(locate=True), call(locate=True)])
+        assert mock_authenticate.call_args_list == [call(), call(force_refresh=True)]
+        assert mock_refresh.call_args_list == [call(locate=True)] * 3
+
+
+@pytest.mark.parametrize("locate", [False, True])
+def test_refresh_client_with_reauth_find_my_rejects_valid_token(
+    pyicloud_service_working: PyiCloudService, locate: bool
+) -> None:
+    """A token accepted by validation but rejected by Find My forces one login."""
+    service = pyicloud_service_working
+    manager = service.devices
+    manager._server_ctx = {"stale": True}
+    events = MagicMock()
+    with (
+        patch.object(
+            manager,
+            "_refresh_client",
+            side_effect=[
+                PyiCloudAuthRequiredException("", MagicMock()),
+                PyiCloudAuthRequiredException("", MagicMock()),
+                None,
+            ],
+        ) as mock_refresh,
+        patch.object(
+            service,
+            "_validate_token",
+            return_value={**service.data, "hsaTrustedBrowser": True},
+        ) as mock_validate,
+        patch.object(service, "_authenticate") as mock_login,
+        patch.object(service, "_update_state"),
+        patch.object(manager, "_initialize_devices") as mock_initialize,
+        patch.object(manager, "_start_monitor_thread") as mock_monitor,
+    ):
+        events.attach_mock(mock_refresh, "refresh")
+        events.attach_mock(mock_validate, "validate")
+        events.attach_mock(mock_login, "login")
+        manager._refresh_client_with_reauth(locate=locate)
+
+    assert events.mock_calls == [
+        call.refresh(locate=locate),
+        call.validate(),
+        call.refresh(locate=locate),
+        call.login(pause_2fa=False),
+        call.refresh(locate=locate),
+    ]
+    assert manager._server_ctx is None
+    mock_initialize.assert_called_once_with(locate=locate)
+    mock_monitor.assert_called_once_with()
 
 
 @pytest.mark.parametrize("token_state", ["valid", "rejected", "missing"])
@@ -668,8 +711,9 @@ def test_refresh_client_with_reauth_saved_session(
         PyiCloudConnectionException("Unavailable"),
     ],
 )
+@pytest.mark.parametrize("forced_login", [False, True])
 def test_refresh_client_with_reauth_authentication_failed(
-    pyicloud_service_working: PyiCloudService, error: Exception
+    pyicloud_service_working: PyiCloudService, error: Exception, forced_login: bool
 ) -> None:
     """Failed recovery propagates without another login or refresh attempt."""
     manager = pyicloud_service_working.devices
@@ -680,7 +724,9 @@ def test_refresh_client_with_reauth_authentication_failed(
             side_effect=PyiCloudAuthRequiredException("", MagicMock()),
         ) as mock_refresh,
         patch.object(
-            manager.session.service, "authenticate", side_effect=error
+            manager.session.service,
+            "authenticate",
+            side_effect=[None, error] if forced_login else error,
         ) as mock_authenticate,
         patch.object(manager, "_initialize_devices") as mock_initialize,
         patch.object(manager, "_start_monitor_thread") as mock_monitor,
@@ -689,9 +735,53 @@ def test_refresh_client_with_reauth_authentication_failed(
         manager._refresh_client_with_reauth(locate=False)
 
     assert exc_info.value is error
-    mock_authenticate.assert_called_once_with()
-    mock_refresh.assert_called_once_with(locate=False)
+    assert mock_authenticate.call_args_list == (
+        [call(), call(force_refresh=True)] if forced_login else [call()]
+    )
+    assert mock_refresh.call_args_list == [call(locate=False)] * (
+        2 if forced_login else 1
+    )
     mock_initialize.assert_not_called()
+    mock_monitor.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("failed_step", "error"),
+    [
+        ("refresh", PyiCloudConnectionException("Unavailable")),
+        ("refresh", PyiCloudAPIResponseException("Server error", 500)),
+        ("initialize", PyiCloudAuthRequiredException("", MagicMock())),
+    ],
+)
+def test_refresh_client_with_reauth_does_not_force_login_for_other_failures(
+    pyicloud_service_working: PyiCloudService, failed_step: str, error: Exception
+) -> None:
+    """Only an authentication rejection from the refresh triggers forced login."""
+    manager = pyicloud_service_working.devices
+    with (
+        patch.object(
+            manager,
+            "_refresh_client",
+            side_effect=[
+                PyiCloudAuthRequiredException("", MagicMock()),
+                error if failed_step == "refresh" else None,
+            ],
+        ) as mock_refresh,
+        patch.object(manager.session.service, "authenticate") as mock_authenticate,
+        patch.object(
+            manager,
+            "_initialize_devices",
+            side_effect=error if failed_step == "initialize" else None,
+        ) as mock_initialize,
+        patch.object(manager, "_start_monitor_thread") as mock_monitor,
+        pytest.raises(type(error)) as exc_info,
+    ):
+        manager._refresh_client_with_reauth(locate=False)
+
+    assert exc_info.value is error
+    mock_authenticate.assert_called_once_with()
+    assert mock_refresh.call_args_list == [call(locate=False)] * 2
+    assert mock_initialize.call_count == (failed_step == "initialize")
     mock_monitor.assert_not_called()
 
 

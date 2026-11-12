@@ -123,8 +123,16 @@ class FindMyiPhoneServiceManager(BaseService):
             # Reuse a valid saved session; authenticate falls back to a full
             # login itself when the cached token is missing or invalid.
             self.session.service.authenticate()
-            self._refresh_client_with_reauth(locate=locate, retry=True)
-            return
+            try:
+                self._refresh_client(locate=locate)
+            except PyiCloudAuthRequiredException:
+                # A token can validate but still be rejected by Find My.
+                # Allow one forced login, then propagate any further rejection.
+                _LOGGER.debug("Find My rejected session; forcing full login")
+                self._server_ctx = None
+                self.session.service.authenticate(force_refresh=True)
+                self._refresh_client_with_reauth(locate=locate, retry=True)
+                return
 
         # Initialize devices (including family devices if enabled)
         self._initialize_devices(locate=locate)
