@@ -821,13 +821,13 @@ def notes_replace_text(
     common: CommandOptions,
     note_id: str = typer.Argument(..., help=_NOTE_ID_HELP),
     find_file: Path = typer.Option(
-        ..., "--find-file", dir_okay=False, help="Single-line UTF-8 text to find."
+        ..., "--find-file", dir_okay=False, help="UTF-8 text to find; may span lines."
     ),
     replacement_file: Path = typer.Option(
         ...,
         "--replacement-file",
         dir_okay=False,
-        help="Single-line UTF-8 replacement text.",
+        help="UTF-8 replacement text; may span lines.",
     ),
     if_match: str = typer.Option(..., "--if-match", help=_REVISION_HELP),
 ) -> None:

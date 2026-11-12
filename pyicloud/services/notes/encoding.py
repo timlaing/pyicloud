@@ -631,6 +631,76 @@ def _copy_span(
     return copy
 
 
+def _multiline_runs(
+    note: notes_pb2.Note, index: int, end_index: int, replacement: str
+) -> None:
+    """Splice body paragraphs without merging structured or linked paragraphs."""
+    text = note.note_text
+    first = text.rfind("\n", 0, index) + 1
+    last = text.find("\n", end_index)
+    if index == text.find("\n") + 1 and text[index] == "\n":
+        raise ValueError("Multiline replacement must not change the title separator")
+    if last == -1:
+        raise ValueError(
+            "Multiline replacement must preserve the final paragraph break"
+        )
+    start, stop, paragraph_start, paragraph_stop = (
+        _utf16_length(text[:position])
+        for position in (index, end_index, first, last + 1)
+    )
+    runs: list[notes_pb2.AttributeRun] = []
+    offset = 0
+    for run in note.attribute_run:
+        end = offset + run.length
+        if offset < paragraph_stop and paragraph_start < end:
+            _require_multiline_body_run(run)
+        if end <= start or stop <= offset:
+            runs.append(run)
+        else:
+            if offset < start:
+                runs.append(_resize_attribute_run(run, start - offset))
+            if offset <= start < end:
+                runs.extend(_replacement_paragraph_runs(run, replacement))
+            if stop < end:
+                runs.append(_resize_attribute_run(run, end - stop))
+        offset = end
+    del note.attribute_run[:]
+    note.attribute_run.extend(runs)
+
+
+def _require_multiline_body_run(run: notes_pb2.AttributeRun) -> None:
+    style = run.paragraph_style
+    if not _is_rich_run(run) or (
+        run.HasField("paragraph_style")
+        and style.style_type != notes_pb2.StyleType.STYLE_TYPE_BODY
+    ):
+        raise ValueError(
+            "Multiline edits require ordinary body paragraphs without linked objects"
+        )
+
+
+def _resize_attribute_run(
+    run: notes_pb2.AttributeRun, length: int
+) -> notes_pb2.AttributeRun:
+    result = notes_pb2.AttributeRun()
+    result.CopyFrom(run)
+    result.length = length
+    return result
+
+
+def _replacement_paragraph_runs(
+    run: notes_pb2.AttributeRun, replacement: str
+) -> Iterator[notes_pb2.AttributeRun]:
+    for index, line in enumerate(replacement.split("\n")):
+        if index:
+            newline = notes_pb2.AttributeRun(length=1)
+            if run.HasField("paragraph_style"):
+                newline.paragraph_style.CopyFrom(run.paragraph_style)
+            yield newline
+        if line:
+            yield _resize_attribute_run(run, _utf16_length(line))
+
+
 def _split_visible_range(
     note: notes_pb2.Note, start: int, stop: int
 ) -> Iterator[tuple[notes_pb2.TextSubstring, bool]]:
@@ -749,8 +819,9 @@ def replace_inline_note_text(
 ) -> EncodedTextReplacement:
     """Replace one unambiguous inline match, preserving unrelated runs."""
     for text in (old, new):
-        if not text or text.splitlines() != [text]:
-            raise ValueError("Provide non-empty single-line text for the replacement")
+        single = text.replace("\n", " ")
+        if not text or single.splitlines() != [single]:
+            raise ValueError("Provide non-empty text to find and replace")
         _validate_text(text)
     if old == new:
         raise ValueError("The replacement text must differ from the original")
@@ -766,7 +837,10 @@ def replace_inline_note_text(
     start = _utf16_length(note.note_text[:index])
     stop = start + _utf16_length(old)
     length = _utf16_length(new)
-    _replace_run_lengths(note, start, stop, length)
+    if "\n" in old or "\n" in new:
+        _multiline_runs(note, index, index + len(old), new)
+    else:
+        _replace_run_lengths(note, start, stop, length)
     _splice_history(note, start, stop, length)
     note.note_text = note.note_text[:index] + new + note.note_text[index + len(old) :]
     if (
