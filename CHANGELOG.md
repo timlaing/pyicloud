@@ -46,6 +46,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Refactored
 
+- Extract Notes table marker-span editing and resize-position validation helpers
+  without changing table histories or write safeguards.
+
 - Separate private Mail query and pagination validation helpers from the unchanged facade, preserving lazy requests, mailbox checks and whole-page error handling.
 - Consolidate Photos query construction and raw request serialization behind unchanged library and album facades, retaining zone ownership and paging payloads.
 - Separate private authentication header and verification-response helpers from the unchanged core facade, retaining session ownership and request ordering.
@@ -270,6 +273,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Cover Notes table insertion after deletion on both axes, retained marker
+  tombstones and cell identities, and fail-closed resize guards.
+
 - Bind explicit session mocks in Photos tests to avoid Pylint `no-member` errors on dynamically inferred mock attributes.
 
 - Add synthetic ordinary Mail draft-upload, attachment-reference, and attachment-remapping fixtures with strict offline protocol validation. These do not enable attachment uploads or sending by themselves.
@@ -277,6 +283,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Harden a private Mail date-search pagination candidate with offline cases for timestamp ties, saturated boundary buckets, concurrent changes, identity failures, and request budgets. This does not add public search pagination or infer boundary completeness from short responses.
 
 ### Documentation
+
+- Explain that Notes table resizing can reject unsupported object-replica clocks
+  and requires re-reading or re-creating the table rather than blind retries.
 
 - Clarify the separate ordinary-attachment and Mail Drop download paths and capability redaction in serialized metadata.
 - Document the observed iCloud Mail HTTP protocol research and capture limitations.

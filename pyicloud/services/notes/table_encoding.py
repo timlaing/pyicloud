@@ -556,6 +556,40 @@ def _join_object_clock(data: pb.MergeableDataObjectData) -> tuple[int, int]:
     return slot, value
 
 
+def _edit_marker_span(
+    span: pb.TextSubstring,
+    position: int,
+    *,
+    insertion: pb.TextSubstring | None,
+    stamp: pb.TextIdentifier,
+) -> list[pb.TextSubstring]:
+    """Split an active marker span around one insertion or tombstone."""
+    result: list[pb.TextSubstring] = []
+    if position:
+        prefix = pb.TextSubstring()
+        prefix.CopyFrom(span)
+        prefix.length = position
+        result.append(prefix)
+    suffix = pb.TextSubstring()
+    suffix.CopyFrom(span)
+    suffix.char_id.clock += position
+    suffix.length -= position
+    if insertion is not None:
+        result.append(insertion)
+    else:
+        removed = pb.TextSubstring()
+        removed.CopyFrom(suffix)
+        removed.length = 1
+        removed.tombstone = True
+        removed.timestamp.CopyFrom(stamp)
+        result.append(removed)
+        suffix.length -= 1
+        suffix.char_id.clock += 1
+    if suffix.length:
+        result.append(suffix)
+    return result
+
+
 def _edit_axis_markers(
     markers: pb.Note,
     history: list[pb.TextSubstring],
@@ -573,28 +607,9 @@ def _edit_axis_markers(
             if not applied and not span.tombstone:
                 remaining -= span.length
             continue
-        if remaining:
-            prefix = pb.TextSubstring()
-            prefix.CopyFrom(span)
-            prefix.length = remaining
-            result.append(prefix)
-        suffix = pb.TextSubstring()
-        suffix.CopyFrom(span)
-        suffix.char_id.clock += remaining
-        suffix.length -= remaining
-        if insertion is not None:
-            result.append(insertion)
-        else:
-            removed = pb.TextSubstring()
-            removed.CopyFrom(suffix)
-            removed.length = 1
-            removed.tombstone = True
-            removed.timestamp.CopyFrom(stamp)
-            result.append(removed)
-            suffix.length -= 1
-            suffix.char_id.clock += 1
-        if suffix.length:
-            result.append(suffix)
+        result.extend(
+            _edit_marker_span(span, remaining, insertion=insertion, stamp=stamp)
+        )
         applied = True
     if not applied:
         if insertion is None or remaining:
@@ -712,6 +727,19 @@ def _checked_axis(graph: _TableGraph, index: int) -> tuple[pb.OrderedSet, list[i
     return axis, [order[item.uuid] for item in axis.ordering.array.attachment]
 
 
+def _resize_position(count: int, index: int, *, insert: bool) -> int:
+    """Validate a one-based edit and the supported axis-size bounds."""
+    if (
+        not isinstance(index, int)
+        or isinstance(index, bool)
+        or not 1 <= index <= count + int(insert)
+    ):
+        raise ValueError("Notes table row or column does not exist")
+    if (insert and count == MAX_TABLE_AXIS) or (not insert and count == 1):
+        raise ValueError("A Notes table must retain 1 to 32 rows and columns")
+    return index - 1
+
+
 def encode_table_resize(
     blob: bytes,
     *,
@@ -729,15 +757,7 @@ def encode_table_resize(
     grid = graph.grid()
     count = len(grid) if axis == "row" else len(grid[0])
     insert = action == "insert"
-    if (
-        not isinstance(index, int)
-        or isinstance(index, bool)
-        or not 1 <= index <= count + int(insert)
-    ):
-        raise ValueError("Notes table row or column does not exist")
-    if (insert and count == MAX_TABLE_AXIS) or (not insert and count == 1):
-        raise ValueError("A Notes table must retain 1 to 32 rows and columns")
-    position = index - 1
+    position = _resize_position(count, index, insert=insert)
     if not insert:
         affected = grid[position] if axis == "row" else [row[position] for row in grid]
         if confirm_nonempty is not True and any(cell.note_text for cell in affected):

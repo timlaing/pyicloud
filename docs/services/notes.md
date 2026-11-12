@@ -281,6 +281,11 @@ Use `resize-table` to insert a blank row or column before `--index` (or append
 at the current size plus one). To delete a row or column at that index, use
 `--action delete`. Deleting populated cells requires `--confirm-nonempty`.
 Refresh both revisions after each change.
+Resizing also refuses tables whose object-replica clock cannot be joined (for
+example, some browser-edited or multi-session tables), reporting "Could not
+verify the Notes table structure or text history"; re-read the note and table
+and, if the structure remains unsupported, re-create the table rather than
+retrying blindly.
 
 ```bash
 icloud notes resize-table NOTE_ID --table-id TABLE_ID --axis row --action insert \
