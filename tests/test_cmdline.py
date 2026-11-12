@@ -50,6 +50,14 @@ from pyicloud.services.notes.models import (
     NoteFolder,
     NoteSummary,
 )
+from pyicloud.services.notes.models.rich import RichNoteBody
+from pyicloud.services.notes.models.write import (
+    NotePinResult,
+    NoteTable,
+    NoteTableWriteResult,
+    NoteTagResult,
+    NoteWriteResult,
+)
 from pyicloud.services.notes.service import NoteLockedError, NoteNotFound
 from pyicloud.services.photos import (
     PhotoSyncOptions,
@@ -4055,6 +4063,407 @@ def test_notes_search_uses_recents_first_and_fallback() -> None:
     assert [row["id"] for row in payload] == ["Note/MEETING", "Note/FOLLOWUP"]
     assert fake_api.notes.recent_requests[-1] == 500
     assert fake_api.notes.iter_all_requests == [None]
+
+
+@pytest.mark.parametrize("output_format", ["json", "text"])
+def test_notes_create(output_format: str) -> None:
+    """Read the body from a file and show only the write acknowledgment."""
+    fake_api = FakeAPI()
+    body_path = _unique_session_dir("note-body") / "body.txt"
+    body_path.write_bytes(b"First line\r\nSecond line\r\n")
+    with patch.object(
+        fake_api.notes,
+        "create_note",
+        create=True,
+        return_value=NoteWriteResult(id="synthetic-id", record_change_tag="tag"),
+    ) as create_note:
+        result = _invoke(
+            fake_api,
+            "notes",
+            "create",
+            "--title",
+            "Example",
+            "--folder-id",
+            "Folder/synthetic",
+            "--body-file",
+            str(body_path),
+            output_format=output_format,
+        )
+    assert result.exit_code == 0, result.output
+    create_note.assert_called_once_with(
+        "Example", "First line\nSecond line\n", folder_id="Folder/synthetic"
+    )
+    assert "First line" not in result.output
+    if output_format == "json":
+        assert json.loads(result.stdout) == {
+            "id": "synthetic-id",
+            "record_change_tag": "tag",
+        }
+    else:
+        assert "Created note: synthetic-id" in result.stdout
+
+
+@pytest.mark.parametrize("data", [None, b"\xff", b"a" * (64 * 1024 + 1)])
+def test_notes_create_rejects_unreadable_body(data: bytes | None) -> None:
+    """Reject missing, invalid UTF-8, and oversize files before a mutation."""
+    fake_api = FakeAPI()
+    body_path = _unique_session_dir("invalid-note-body") / "body.txt"
+    if data is not None:
+        body_path.write_bytes(data)
+    with patch.object(fake_api.notes, "create_note", create=True) as create_note:
+        result = _invoke(
+            fake_api,
+            "notes",
+            "create",
+            "--title",
+            "Example",
+            "--folder-id",
+            "Folder/synthetic",
+            "--body-file",
+            str(body_path),
+        )
+    assert result.exit_code != 0
+    assert "note body file" in str(result.exception)
+    create_note.assert_not_called()
+
+
+@pytest.mark.parametrize("command", ["create", "update"])
+def test_notes_rich_body_file(command: str) -> None:
+    """Pass validated structured rich text to the service, not raw JSON."""
+    api = FakeAPI()
+    path = _unique_session_dir("rich-note") / "body.json"
+    payload = {
+        "paragraphs": [
+            {"style": "heading", "runs": [{"text": "Heading", "bold": True}]}
+        ]
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    args = ["--title", "Title", "--rich-body-file", str(path)]
+    if command == "create":
+        args += ["--folder-id", "Folder/synthetic"]
+    else:
+        args = ["synthetic-id", "--if-match", "old-tag", *args]
+    with patch.object(
+        api.notes,
+        f"{command}_note",
+        create=True,
+        return_value=NoteWriteResult(id="synthetic-id", record_change_tag="new-tag"),
+    ) as write:
+        result = _invoke(api, "notes", command, *args, output_format="json")
+        body = RichNoteBody.model_validate(payload)
+        if command == "create":
+            write.assert_called_once_with("Title", body, folder_id="Folder/synthetic")
+        else:
+            write.assert_called_once_with(
+                "synthetic-id", title="Title", text=body, expected_change_tag="old-tag"
+            )
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize("case", ["conflict", "invalid-json", "missing"])
+def test_notes_rejects_invalid_rich_body_options(case: str) -> None:
+    """Invalid body selection or formatting never reaches a write method."""
+    api = FakeAPI()
+    path = _unique_session_dir("invalid-rich-note") / "body.json"
+    path.write_text('{"private-sample": true}', encoding="utf-8")
+    args = ["synthetic-id", "--title", "Title", "--if-match", "old-tag"]
+    if case != "missing":
+        args += ["--rich-body-file", str(path)]
+    if case == "conflict":
+        args += ["--body-file", str(path)]
+    with patch.object(api.notes, "update_note", create=True) as write:
+        result = _invoke(api, "notes", "update", *args)
+        write.assert_not_called()
+    assert result.exit_code != 0
+    assert "private-sample" not in str(result.exception)
+    assert "rich" in str(result.exception)
+
+
+@pytest.mark.parametrize("command", ["update", "trash", "restore", "move"])
+def test_notes_mutation_cli_requires_revision(command: str) -> None:
+    """Pass the caller's current revision and explicit destination through unchanged."""
+    fake_api = FakeAPI()
+    command_args: list[str] = []
+    expected: dict[str, str] = {}
+    if command == "update":
+        body = _unique_session_dir("update-note-body") / "body.txt"
+        body.write_text("Updated body", encoding="utf-8")
+        command_args = ["--title", "Updated title", "--body-file", str(body)]
+        expected = {"title": "Updated title", "text": "Updated body"}
+    elif command in {"restore", "move"}:
+        command_args = ["--folder-id", "Folder/synthetic"]
+        expected = {"folder_id": "Folder/synthetic"}
+    with patch.object(
+        fake_api.notes,
+        f"{command}_note",
+        create=True,
+        return_value=NoteWriteResult(id="synthetic-id", record_change_tag="new-tag"),
+    ) as mutate:
+        missing = _invoke(fake_api, "notes", command, "synthetic-id", *command_args)
+        assert missing.exit_code != 0
+        mutate.assert_not_called()
+        result = _invoke(
+            fake_api,
+            "notes",
+            command,
+            "synthetic-id",
+            *command_args,
+            "--if-match",
+            "old-tag",
+            output_format="json",
+        )
+        mutate.assert_called_once_with(
+            "synthetic-id", expected_change_tag="old-tag", **expected
+        )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["record_change_tag"] == "new-tag"
+
+
+@pytest.mark.parametrize("checked", [True, False, None])
+def test_notes_set_checklist_item_cli(checked: bool | None) -> None:
+    """Require an explicit choice of checked state and the note revision."""
+    api = FakeAPI()
+    args = ["synthetic-id", "--item", "2", "--if-match", "old-tag"]
+    if checked is not None:
+        args.append("--checked" if checked else "--unchecked")
+    with patch.object(
+        api.notes,
+        "set_checklist_item",
+        create=True,
+        return_value=NoteWriteResult(id="synthetic-id", record_change_tag="new-tag"),
+    ) as method:
+        result = _invoke(
+            api, "notes", "set-checklist-item", *args, output_format="json"
+        )
+        if checked is None:
+            method.assert_not_called()
+            assert result.exit_code != 0
+            assert "Choose --checked or --unchecked" in str(result.exception)
+        else:
+            method.assert_called_once_with(
+                "synthetic-id", item=2, checked=checked, expected_change_tag="old-tag"
+            )
+            assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize("pinned", [True, False])
+def test_notes_pin_cli(pinned: bool) -> None:
+    """Pin and unpin pass the same private note and revision to the service."""
+    api = FakeAPI()
+    args = ["synthetic-id", "--if-match", "old-tag"]
+    if not pinned:
+        args.append("--unpin")
+    with patch.object(
+        api.notes,
+        "set_note_pinned",
+        create=True,
+        return_value=NotePinResult(id="synthetic-id", pinned=pinned, changed=True),
+    ) as method:
+        result = _invoke(api, "notes", "pin", *args, output_format="json")
+        method.assert_called_once_with(
+            "synthetic-id", pinned=pinned, expected_change_tag="old-tag"
+        )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["pinned"] is pinned
+
+
+@pytest.mark.parametrize("mode", ["json", "text"])
+def test_notes_get_table_cli(mode: str) -> None:
+    """Show rows and expose both revisions in JSON."""
+    api = FakeAPI()
+    with patch.object(
+        api.notes,
+        "get_note_table",
+        create=True,
+        return_value=NoteTable(
+            id="note-id",
+            record_change_tag="note-tag",
+            table_id="table-id",
+            table_change_tag="table-tag",
+            rows=(("Cell A", "Cell B"),),
+        ),
+    ) as read:
+        result = _invoke(
+            api, "notes", "get-table", "note-id", "--table", "2", output_format=mode
+        )
+    read.assert_called_once_with("note-id", table=2)
+    assert result.exit_code == 0, result.output
+    if mode == "json":
+        payload = json.loads(result.stdout)
+        assert payload["rows"] == [["Cell A", "Cell B"]]
+        assert (payload["record_change_tag"], payload["table_change_tag"]) == (
+            "note-tag",
+            "table-tag",
+        )
+    else:
+        assert "Cell A" in result.stdout
+
+
+@pytest.mark.parametrize("operation", ["add-table", "set-table-cell", "invalid"])
+def test_notes_table_write_cli(operation: str) -> None:
+    """Forward table inputs, reject non-string JSON cells, and retain edit guards."""
+    api = FakeAPI()
+    path = _unique_session_dir("table-input") / "input.txt"
+    if operation == "set-table-cell":
+        path.write_text("", encoding="utf-8")
+        method = "update_note_table_cell"
+        args = [
+            operation,
+            "note-id",
+            "--table-id",
+            "table-id",
+            "--row",
+            "2",
+            "--column",
+            "3",
+            "--body-file",
+            str(path),
+            "--table-if-match",
+            "table-old",
+        ]
+        kwargs = {
+            "table_id": "table-id",
+            "row": 2,
+            "column": 3,
+            "text": "",
+            "expected_table_change_tag": "table-old",
+        }
+    else:
+        path.write_text(
+            "[[1]]" if operation == "invalid" else '[["cell"]]', encoding="utf-8"
+        )
+        method = "add_note_table"
+        args = ["add-table", "note-id", "--rows-file", str(path)]
+        kwargs = {"rows": [["cell"]]}
+    with patch.object(
+        api.notes,
+        method,
+        create=True,
+        return_value=NoteTableWriteResult(
+            id="note-id",
+            record_change_tag="note-tag",
+            table_id="table-id",
+            table_change_tag="table-tag",
+            changed=True,
+        ),
+    ) as write:
+        result = _invoke(
+            api, "notes", *args, "--if-match", "note-old", output_format="json"
+        )
+    if operation == "invalid":
+        assert result.exit_code != 0
+        assert "only strings" in str(result.exception)
+        write.assert_not_called()
+    else:
+        assert result.exit_code == 0, result.output
+        write.assert_called_once_with(
+            "note-id", expected_change_tag="note-old", **kwargs
+        )
+        assert json.loads(result.stdout)["table_id"] == "table-id"
+
+
+def test_notes_add_tag_cli() -> None:
+    """Add a tag using the exact note revision and return its linked ID."""
+    api = FakeAPI()
+    with patch.object(
+        api.notes,
+        "add_note_tag",
+        create=True,
+        return_value=NoteTagResult(
+            id="synthetic-id",
+            record_change_tag="new-tag",
+            tag_id="tag-id",
+            changed=True,
+        ),
+    ) as method:
+        result = _invoke(
+            api,
+            "notes",
+            "add-tag",
+            "synthetic-id",
+            "--if-match",
+            "old-tag",
+            "--tag",
+            "#Test",
+            output_format="json",
+        )
+        method.assert_called_once_with(
+            "synthetic-id", tag="#Test", expected_change_tag="old-tag"
+        )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["tag_id"] == "tag-id"
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["create-folder", "rename-folder", "move-folder", "delete-folder", "replace-text"],
+)
+def test_notes_new_write_commands(command: str) -> None:
+    """CLI passes exact IDs, guards, and selected content to the Notes service."""
+    api = FakeAPI()
+    identity, revision = "synthetic-id", "old-tag"
+    args = [identity, "--if-match", revision]
+    expected_args: tuple[str, ...] = (identity,)
+    kwargs: dict[str, Any] = {"expected_change_tag": revision}
+    payload: Any = NoteWriteResult(id=identity, record_change_tag="new-tag")
+    if command == "create-folder":
+        args = ["--name", "Example", "--parent-id", "parent-id"]
+        expected_args, kwargs = ("Example",), {"parent_id": "parent-id"}
+    elif command == "rename-folder":
+        args += ["--name", "New name"]
+        expected_args += ("New name",)
+    elif command == "move-folder":
+        args += ["--to-root"]
+        kwargs["parent_id"] = None
+    elif command == "delete-folder":
+        args += ["--confirm-empty"]
+        kwargs["confirm_empty"] = True
+        payload = True
+    else:
+        folder = _unique_session_dir("notes-replace")
+        old, new = folder / "old.txt", folder / "new.txt"
+        old.write_text("old text\n", encoding="utf-8")
+        new.write_text("new text\n", encoding="utf-8")
+        args += ["--find-file", str(old), "--replacement-file", str(new)]
+        kwargs.update(old="old text", new="new text")
+    method = (
+        "replace_note_text" if command == "replace-text" else command.replace("-", "_")
+    )
+    with patch.object(api.notes, method, create=True, return_value=payload) as fn:
+        result = _invoke(api, "notes", command, *args, output_format="json")
+        fn.assert_called_once_with(*expected_args, **kwargs)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == (
+        {"id": identity, "deleted": True}
+        if command == "delete-folder"
+        else {"id": identity, "record_change_tag": "new-tag"}
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "args", "message"),
+    [
+        ("move-folder", [], "Choose exactly one"),
+        (
+            "move-folder",
+            ["--to-root", "--parent-id", "parent-id"],
+            "Choose exactly one",
+        ),
+        ("delete-folder", [], "Pass --confirm-empty"),
+    ],
+)
+def test_notes_folder_cli_rejects_ambiguous_or_unconfirmed_writes(
+    command: str, args: list[str], message: str
+) -> None:
+    """Unsafe folder commands fail without invoking a mutation."""
+    api = FakeAPI()
+    with patch.object(api.notes, command.replace("-", "_"), create=True) as fn:
+        result = _invoke(
+            api, "notes", command, "synthetic-id", "--if-match", "tag", *args
+        )
+        fn.assert_not_called()
+    assert result.exit_code != 0
+    assert message in str(result.exception)
 
 
 def test_notes_commands_report_errors() -> None:

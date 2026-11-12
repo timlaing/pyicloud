@@ -1,7 +1,7 @@
 """
 Table reconstruction for Apple Notes MergeableData payloads (CloudKit/iCloud path).
 
-Given a gzipped MergeableData payload for a table attachment, reconstructs the
+Given a MergeableData payload for a table attachment, reconstructs the
 row/column ordering and renders a plain HTML <table> with cell contents. Cell
 contents are themselves Notes; callers provide a callback to render a pb.Note
 into HTML using the existing renderer.
@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-import gzip
+import zlib
 
 from tinyhtml import h, raw
 
@@ -52,6 +52,7 @@ TABLE_SPEC = TableSpec(
 
 MAX_TABLE_AXIS_ITEMS = 512
 MAX_TABLE_CELLS = 50_000
+_MAX_TABLE_PAYLOAD_BYTES = 32 * 1024 * 1024
 
 
 @dataclass(slots=True)
@@ -219,12 +220,19 @@ ALLOWED_TABLE_TYPES = {
 def render_table_from_mergeable(  # noqa: S3776
     gz_bytes: bytes, render_note_cb: Callable[[pb.Note], str]
 ) -> str | None:
-    """Parse gzipped MergeableData and render as HTML table, or None if invalid."""
-    if not gz_bytes:
+    """Render raw, gzip, or zlib MergeableData as HTML, or return None if invalid."""
+    if not 0 < len(gz_bytes) <= _MAX_TABLE_PAYLOAD_BYTES:
         return None
     try:
-        payload = gzip.decompress(gz_bytes)
-    except Exception:
+        stream = zlib.decompressobj(wbits=47)  # gzip or zlib
+        payload = stream.decompress(gz_bytes, _MAX_TABLE_PAYLOAD_BYTES + 1)
+        if (
+            not stream.eof
+            or stream.unused_data
+            or len(payload) > _MAX_TABLE_PAYLOAD_BYTES
+        ):
+            return None
+    except zlib.error:
         payload = gz_bytes
     try:
         m = pb.MergableDataProto()

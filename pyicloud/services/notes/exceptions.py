@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pyicloud.exceptions import PyiCloudException
 
 
@@ -55,3 +57,53 @@ class NoteNotFound(NotesError):
 
 class NoteLockedError(NotesError):
     """Raised when a note is password protected and cannot be accessed."""
+
+
+class NotesWriteRejected(NotesError):
+    """CloudKit explicitly rejected a particular note mutation."""
+
+    def __init__(self, note_id: str, error_code: str) -> None:
+        """Retain the rejected note identity and server error code."""
+        super().__init__(f"iCloud rejected the write for note {note_id}")
+        self.note_id = note_id
+        self.error_code = error_code
+
+
+class NoteRevisionConflict(NotesError):
+    """A note no longer has the revision the caller intended to change."""
+
+
+class NotesWriteUncertain(NotesError):
+    """A write may have taken effect without a verifiable acknowledgment."""
+
+    def __init__(self, note_id: str) -> None:
+        """Identify the note the caller should reconcile before retrying."""
+        super().__init__(
+            f"Write outcome is unknown for note {note_id}. "
+            "Check the note before retrying."
+        )
+        self.note_id = note_id
+
+
+class NotesLinkedWriteIncomplete(NotesError):
+    """A linked record or its parent update could not be fully verified."""
+
+    def __init__(
+        self,
+        note_id: str,
+        object_id: str,
+        *,
+        note_state: Literal["confirmed", "uncertain", "not_submitted", "rejected"],
+        object_state: Literal["confirmed", "uncertain", "not_submitted", "rejected"],
+        error_code: str | None = None,
+    ) -> None:
+        """Record each submission outcome independently for reconciliation."""
+        super().__init__(
+            f"Linked write incomplete for note {note_id} (record {object_id}). "
+            f"Note: {note_state}; linked record: {object_state}. Check before retrying."
+        )
+        self.note_id = note_id
+        self.object_id = object_id
+        self.note_state = note_state
+        self.object_state = object_state
+        self.error_code = error_code

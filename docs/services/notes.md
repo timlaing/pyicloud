@@ -126,10 +126,101 @@ Notes caveats:
 - `api.notes.raw` is available for advanced/debug workflows, but it is not the
   primary Notes API surface.
 
+## Write Notes
+
+Pick a private destination folder from `notes.folders()` and pass its ID explicitly:
+
+```python
+result = api.notes.create_note("Example", "First line", folder_id=folder_id)
+print(result.id, result.record_change_tag)
+```
+
+Creation supports a single-line title and inline text, up to 64 KiB
+including the title and line breaks. To edit, trash, or restore a supported note, pass the current
+revision from `notes.get()` or the previous write result:
+
+```python
+edited = api.notes.update_note(
+    result.id,
+    title="Example",
+    text="Second line",
+    expected_change_tag=result.record_change_tag,
+)
+trashed = api.notes.trash_note(edited.id, expected_change_tag=edited.record_change_tag)
+restored = api.notes.restore_note(
+    trashed.id,
+    folder_id=folder_id,
+    expected_change_tag=trashed.record_change_tag,
+)
+```
+
+Edits replace both the title and body. Trash moves the note to Recently Deleted;
+restore requires an explicit destination. Permanently deleting notes or writing
+shared or locked notes is not supported. Full body replacement does not support
+notes with attachments; see the targeted image-preserving edit below. If `NotesWriteUncertain`
+is raised, look up its `note_id` before retrying: Apple may already have applied
+the write. If the revision has changed, fetch the current note and review the
+changes before submitting another write.
+
+Pass a `RichNoteBody` instead of a string to create or replace a formatted
+body. Supported paragraph styles are `body`, `heading`, `subheading`, `bullet`,
+`dash`, `numbered`, and `checklist`. List items can specify `indent`, and checklist
+items can set `checked=True`. Each run supports `bold`, `italic`, `underline`,
+`strikethrough`, and an external HTTP(S) `link`. For example:
+
+```python
+from pyicloud.services.notes import NoteParagraph, NoteTextRun, RichNoteBody
+
+body = RichNoteBody(
+    paragraphs=(
+        NoteParagraph(style="heading", runs=(NoteTextRun(text="Summary"),)),
+        NoteParagraph(runs=(NoteTextRun(text="Important", bold=True),)),
+        NoteParagraph(
+            style="checklist",
+            checked=True,
+            runs=(NoteTextRun(text="Read the reference", link="https://example.com"),),
+        ),
+    )
+)
+result = api.notes.create_note("Example", body, folder_id=folder_id)
+```
+
+A plain-text update refuses to replace a formatted note. Use a rich body to
+explicitly replace the formatting of a supported note. Unsupported formatting
+or attachments still block a replacement rather than being silently discarded.
+
+Use `set_checklist_item(note_id, item=1, checked=True, expected_change_tag=...)`
+to check or uncheck an item without replacing the note. Items are numbered
+from one in document order. Use `set_note_pinned(note_id, pinned=True,
+expected_change_tag=...)` to change your own pin state without rewriting the
+note or advancing its content revision.
+
+Use `add_note_tag(note_id, tag="example", expected_change_tag=...)` to append an
+ASCII tag without replacing the note. Tags are matched case-insensitively on
+that note. If a linked write raises `NotesLinkedWriteIncomplete`, inspect both
+the note and the linked record before retrying; either record may already have
+been written.
+
+For a supported private note with one existing JPEG or PNG image, use
+`replace_note_text(note_id, old=..., new=..., expected_change_tag=...)` to
+replace one unique, single-line fragment inside a single formatting run.
+This leaves the title, other formatting, and original image in place. It does
+not add or remove attachments. `move_note(note_id, folder_id=..., expected_change_tag=...)`
+moves an active private note, including a supported note with one existing image,
+without changing its text or modified time.
+
+Use `create_folder`, `rename_folder`, `move_folder`, and `delete_folder` for
+private folders. Read `record_change_tag` from `notes.folders()` before changing
+an existing folder. Pass `parent_id=None` to move a folder to the top level.
+Folder deletion is irreversible. The client verifies that the folder is empty
+before submitting the deletion, but Apple does not check emptiness atomically
+with deletion. Do not add or move items into the folder concurrently.
+
 ## Notes CLI
 
 The official Typer CLI exposes `icloud notes ...` for recent-note inspection,
-folder browsing, title-based search, HTML rendering, and note-id-based export.
+folder browsing, title-based search, HTML rendering, note-id-based export,
+and private note writes.
 
 _List recent notes, folders, or one folder’s notes:_
 
@@ -138,6 +229,69 @@ icloud notes recent --username you@example.com
 icloud notes folders --username you@example.com
 icloud notes list --username you@example.com --folder-id FOLDER_ID
 icloud notes list --username you@example.com --all --since PREVIOUS_CURSOR
+```
+
+_Create a plain-text note using a folder ID from `icloud notes folders`:_
+
+```bash
+icloud notes create --username you@example.com --folder-id FOLDER_ID \
+  --title "Example" --body-file ./body.txt --format json
+```
+
+Omit `--body-file` to create a title-only note. The file must be UTF-8.
+
+For rich text, pass `--rich-body-file ./body.json` instead of `--body-file`
+to `notes create` or `notes update`. The UTF-8 JSON file uses the same
+paragraph and run structure as the Python API:
+
+```json
+{ "paragraphs": [{ "style": "heading", "runs": [{ "text": "Summary" }] }] }
+```
+
+For existing notes, use the `record_change_tag` from `icloud notes get NOTE_ID
+--format json` or the latest write result as `--if-match`. Use the new revision
+after each successful write:
+
+```bash
+icloud notes update NOTE_ID --if-match REVISION --title "Example" --body-file ./body.txt
+icloud notes trash NOTE_ID --if-match UPDATED_REVISION
+icloud notes restore NOTE_ID --if-match TRASHED_REVISION --folder-id FOLDER_ID
+icloud notes move NOTE_ID --if-match REVISION --folder-id DESTINATION_ID
+icloud notes set-checklist-item NOTE_ID --if-match REVISION --item 1 --checked
+icloud notes pin NOTE_ID --if-match REVISION
+icloud notes pin NOTE_ID --if-match REVISION --unpin
+icloud notes add-tag NOTE_ID --if-match REVISION --tag example
+icloud notes replace-text NOTE_ID --if-match REVISION \
+  --find-file ./old.txt --replacement-file ./new.txt
+```
+
+To append a table without replacing existing note content, pass a UTF-8 JSON
+file containing equal-length rows, such as `[["Item", "Status"], ["Example", ""]]`.
+Use `get-table` to read the grid, table ID, and both current revisions. Table,
+row, and column numbers start at 1. An empty UTF-8 file clears a cell.
+
+```bash
+icloud notes add-table NOTE_ID --if-match NOTE_REVISION --rows-file ./rows.json
+icloud notes get-table NOTE_ID --table 1 --format json
+icloud notes set-table-cell NOTE_ID --table-id TABLE_ID --row 2 --column 2 \
+  --if-match NOTE_REVISION --table-if-match TABLE_REVISION --body-file ./cell.txt
+```
+
+The Python equivalents are `add_note_table`, `get_note_table`, and
+`update_note_table_cell`. These commands work on supported private notes and
+plain-text cells; row and column insertion, removal, and cell formatting are
+not supported. Table creation and edits each involve two records. If a write
+reports a partial or uncertain result, read the note and table again before
+deciding how to proceed. Do not automatically repeat the command.
+
+Get the folder revision with `icloud notes folders --format json`, then use:
+
+```bash
+icloud notes create-folder --name "Example"
+icloud notes rename-folder FOLDER_ID --name "New name" --if-match REVISION
+icloud notes move-folder FOLDER_ID --parent-id PARENT_ID --if-match REVISION
+icloud notes move-folder FOLDER_ID --to-root --if-match REVISION
+icloud notes delete-folder FOLDER_ID --if-match REVISION --confirm-empty
 ```
 
 _Search notes by title:_

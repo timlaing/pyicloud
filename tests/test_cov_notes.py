@@ -544,12 +544,12 @@ class RendererHelperCoverageTest(unittest.TestCase):
         self.assertIsNone(_safe_anchor_href("mailto:"))
 
     def test_slice_for_run_with_astral_chars(self) -> None:
-        """Astral characters extend the slice to real character boundaries."""
+        """Count astral characters as two UTF-16 units, not two Python indices."""
         text = "a\U0001f600bcd"
         chunk, end = _slice_for_run(text, 0, 3)
-        # length_units are UTF-16 code units; the astral char counts twice.
-        self.assertEqual(end, 4)
-        self.assertEqual(chunk, text[:4])
+        self.assertEqual(end, 2)
+        self.assertEqual(chunk, text[:2])
+        self.assertEqual(_slice_for_run(text, end, 3), ("bcd", 5))
 
     def test_css_font_stack_generic_fallbacks(self) -> None:
         """Unknown font names map to generic families by keyword."""

@@ -416,7 +416,7 @@ class EventObject:
                     pGuid=self.guid,
                     role=InviteeDefaults.ROLE,
                     isOrganizer=False,
-                    email=email_guid.split(":")[-1],
+                    email=email_guid.rsplit(":", maxsplit=1)[-1],
                     inviteeStatus=InviteeDefaults.STATUS,
                     commonName="",
                     isMe=False,
