@@ -1133,6 +1133,13 @@ def _sms_json_phone_number(phone_id: int) -> dict[str, Any]:
             },
             id="phone-number-verification",
         ),
+        pytest.param(
+            {
+                "mode": "sms",
+                "trustedPhoneNumbers": [_sms_json_phone_number(1)],
+            },
+            id="top-level-list-only",
+        ),
     ],
 )
 def test_request_2fa_code_sms_from_json_when_html_has_no_phone(
@@ -1175,6 +1182,58 @@ def test_request_2fa_code_sms_from_json_when_html_has_no_phone(
         "mode": "sms",
     }
     assert pyicloud_service.two_factor_delivery_method == "sms"
+
+
+def test_get_mfa_auth_options_json_phone_used_when_html_wrapper_unusable(
+    pyicloud_service: PyiCloudService,
+) -> None:
+    """JSON phone data fills in when the HTML wrapper carries no usable phone."""
+
+    html_response = MagicMock()
+    html_response.json.side_effect = ValueError("not json")
+    html_response.text = """
+    <html>
+      <script type="application/json" class="boot_args">
+        {
+          "direct": {
+            "authInitialRoute": "auth/verify/phone/securitycode",
+            "hasTrustedDevices": false,
+            "twoSV": {
+              "authFactors": ["sms"],
+              "sourceAppId": 1159,
+              "bridgeInitiateData": {
+                "phoneNumberVerification": {"placeholder": true}
+              }
+            }
+          }
+        }
+      </script>
+    </html>
+    """
+    json_response = MagicMock()
+    json_response.json.return_value = {
+        "mode": "sms",
+        "phoneNumberVerification": {
+            "trustedPhoneNumbers": [_sms_json_phone_number(1)],
+        },
+    }
+    mock_session = MagicMock()
+    pyicloud_service._session = mock_session
+    mock_session.get.side_effect = [html_response, json_response]
+    mock_session.headers = {"User-Agent": "test-agent"}
+    mock_session.data = {
+        "scnt": "test_scnt",
+        "session_id": "test_session_id",
+    }
+
+    pyicloud_service._auth_data = pyicloud_service._get_mfa_auth_options()
+
+    assert mock_session.get.call_count == 2
+    assert pyicloud_service._trusted_phone_number() == (
+        pyicloud.base.TrustedPhoneNumber(device_id=1, non_fteu=False, push_mode="sms")
+    )
+    assert pyicloud_service.two_factor_delivery_method == "sms"
+    assert pyicloud_service.request_2fa_code() is True
 
 
 def test_get_mfa_auth_options_json_phone_does_not_override_html_phone(

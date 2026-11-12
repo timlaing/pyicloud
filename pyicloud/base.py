@@ -1015,16 +1015,21 @@ class PyiCloudService:
         if self._best_trusted_phone_number(auth_options) is not None:
             return
 
+        # The guard above confirms the HTML shell exposed no usable phone, so
+        # JSON phone data can fill the gap without displacing a working number.
         for sms_key in (
             "trustedPhoneNumber",
             "trustedPhoneNumbers",
             "phoneNumberVerification",
-            "mode",
         ):
-            if auth_options.get(sms_key) is None:
-                sms_value = json_response.get(sms_key)
-                if sms_value is not None:
-                    auth_options[sms_key] = sms_value
+            sms_value = json_response.get(sms_key)
+            if sms_value is not None:
+                auth_options[sms_key] = sms_value
+
+        if auth_options.get("mode") is None:
+            json_mode = json_response.get("mode")
+            if json_mode is not None:
+                auth_options["mode"] = json_mode
 
     def _set_two_factor_delivery_state(
         self, method: str, notice: str | None = None
@@ -1148,9 +1153,19 @@ class PyiCloudService:
         if trusted_phone_number is not None:
             return trusted_phone_number
 
-        return PhoneNumberVerification.from_mapping(
+        verification_number = PhoneNumberVerification.from_mapping(
             auth_options.get("phoneNumberVerification")
         ).best_trusted_phone_number()
+        if verification_number is not None:
+            return verification_number
+
+        trusted_phone_numbers = auth_options.get("trustedPhoneNumbers")
+        if isinstance(trusted_phone_numbers, list):
+            for entry in trusted_phone_numbers:
+                phone_number = TrustedPhoneNumber.from_mapping(entry)
+                if phone_number is not None:
+                    return phone_number
+        return None
 
     def _two_factor_mode(self) -> str | None:
         """Return the current 2FA delivery mode reported by Apple."""
