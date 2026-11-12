@@ -91,7 +91,7 @@ repos:
         language: python
         additional_dependencies:
           # BEGIN GENERATED REQUIREMENTS
-          - certifi>=2026.4.22
+          - certifi>=2026.10.18
           - cryptography>=50.0.0
           - fido2>=2.2.1
           - keyring>=25.7.0
@@ -132,7 +132,7 @@ repos:
         language: python
         additional_dependencies:
           # BEGIN GENERATED REQUIREMENTS
-          - certifi>=2026.4.22
+          - certifi>=2026.10.18
           - cryptography>=50.0.0
           - fido2>=2.2.1
           - keyring>=25.7.0
@@ -170,7 +170,7 @@ repos:
         pass_filenames: false
         additional_dependencies:
           # BEGIN GENERATED REQUIREMENTS
-          - certifi>=2026.4.22
+          - certifi>=2026.10.18
           - cryptography>=50.0.0
           - fido2>=2.2.1
           - keyring>=25.7.0

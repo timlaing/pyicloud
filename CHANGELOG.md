@@ -10,6 +10,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Security
 
+- Require certifi 2026.10.18 or newer to remove root certificates associated
+  with compromised intermediate CA keys from the bundled TLS trust store.
+
 - Verify source-folder privacy before existing Notes writes and reject mutation
   adapters that can retry a request.
 
