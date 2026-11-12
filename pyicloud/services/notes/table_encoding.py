@@ -85,13 +85,18 @@ def _append_dict(
 
 
 def _create_uuid_row(data: pb.MergeableDataObjectData, uid: bytes) -> int:
+    try:
+        type_index = list(data.mergeable_data_object_type_item).index(_TYPES[2])
+        key_index = list(data.mergeable_data_object_key_item).index("UUIDIndex")
+    except ValueError:
+        raise ValueError(_BAD_TABLE) from None
     slot = len(data.mergeable_data_object_uuid_item)
     data.mergeable_data_object_uuid_item.append(uid)
     entries = data.mergeable_data_object_entry
     row_index = len(entries)
     mapping = entries.add().custom_map
-    mapping.type = 2
-    mapping.map_entry.add(key=4).value.unsigned_integer_value = slot
+    mapping.type = type_index
+    mapping.map_entry.add(key=key_index).value.unsigned_integer_value = slot
     return row_index
 
 

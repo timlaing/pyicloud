@@ -64,6 +64,9 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Fixed
 
+- Resolve Notes table UUID registry names when inserting rows or columns, so
+  readable tables with reordered key or type registries can also be resized.
+
 - Reuse valid persisted sessions when Find My requires reauthentication, falling back to a full login when the saved session cannot be reused or Find My still rejects it, with bounded refresh retries (#523).
 
 - Dispatch Notes mutations through one pinned non-retrying adapter, bypassing session retry overrides and response hooks while retaining session request settings and response cookies.

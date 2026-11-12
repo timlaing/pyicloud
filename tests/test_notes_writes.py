@@ -309,6 +309,72 @@ def test_table_resize_insert_after_delete(
     )
 
 
+@pytest.mark.parametrize("axis", ["row", "column"])
+@pytest.mark.parametrize("registry", ["keys", "types", "both"])
+def test_table_resize_preserves_reordered_registries(
+    axis: Literal["row", "column"], registry: str
+) -> None:
+    """Resolve new UUID maps by registry names rather than canonical offsets."""
+    raw = base64.b64decode(encode_new_table([["A", "B"], ["C", "D"]]))
+    before = _table_cell_identity(raw)
+    proto = notes_pb2.MergableDataProto.FromString(zlib.decompress(raw))
+    data = proto.mergable_data_object.mergeable_data_object_data
+    old_keys = list(data.mergeable_data_object_key_item)
+    old_types = list(data.mergeable_data_object_type_item)
+    keys = old_keys[1:] + old_keys[:1] if registry != "types" else old_keys
+    types = old_types[1:] + old_types[:1] if registry != "keys" else old_types
+    data.mergeable_data_object_key_item[:] = keys
+    data.mergeable_data_object_type_item[:] = types
+    for entry in data.mergeable_data_object_entry:
+        if entry.HasField("custom_map"):
+            mapping = entry.custom_map
+            mapping.type = types.index(old_types[mapping.type])
+            for item in mapping.map_entry:
+                item.key = keys.index(old_keys[item.key])
+    raw = zlib.compress(proto.SerializeToString())
+    assert table_cells(raw) == (("A", "B"), ("C", "D"))
+    raw = base64.b64decode(
+        encode_table_resize(raw, axis=axis, action="insert", index=2)
+    )
+    expected = (
+        (("A", "B"), ("", ""), ("C", "D"))
+        if axis == "row"
+        else (("A", "", "B"), ("C", "", "D"))
+    )
+    assert table_cells(raw) == expected
+    assert _table_cell_identity(raw) == before
+    proto = notes_pb2.MergableDataProto.FromString(zlib.decompress(raw))
+    resized = proto.mergable_data_object.mergeable_data_object_data
+    assert list(resized.mergeable_data_object_key_item) == keys
+    assert list(resized.mergeable_data_object_type_item) == types
+    for entry in resized.mergeable_data_object_entry:
+        if entry.HasField("custom_map") and entry.custom_map.type == types.index(
+            "com.apple.CRDT.NSUUID"
+        ):
+            assert entry.custom_map.map_entry[0].key == keys.index("UUIDIndex")
+    reduced = base64.b64decode(
+        encode_table_resize(raw, axis=axis, action="delete", index=2)
+    )
+    assert table_cells(reduced) == (("A", "B"), ("C", "D"))
+    assert _table_cell_identity(reduced) == before
+
+
+@pytest.mark.parametrize("registry", ["keys", "types"])
+def test_table_uuid_creation_rejects_missing_registry_name(registry: str) -> None:
+    """Missing UUID names fail before appending an identity or graph entry."""
+    raw = base64.b64decode(encode_new_table([["A"]]))
+    proto = notes_pb2.MergableDataProto.FromString(zlib.decompress(raw))
+    data = proto.mergable_data_object.mergeable_data_object_data
+    if registry == "keys":
+        data.mergeable_data_object_key_item[4] = "unsupported"
+    else:
+        data.mergeable_data_object_type_item[2] = "unsupported"
+    before = data.SerializeToString()
+    with pytest.raises(ValueError, match="table structure"):
+        table_encoding._create_uuid_row(data, b"N" * 16)
+    assert data.SerializeToString() == before
+
+
 def _table_cell_identity(raw: bytes) -> dict[str, tuple[bytes, bytes, bytes, int]]:
     """Resolve cell and character identities independent of registry offsets."""
     data = notes_pb2.MergableDataProto.FromString(
