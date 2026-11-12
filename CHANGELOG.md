@@ -264,6 +264,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Tests
 
+- Bind explicit session mocks in Photos tests to avoid Pylint `no-member` errors on dynamically inferred mock attributes.
+
 - Add synthetic ordinary Mail draft-upload, attachment-reference, and attachment-remapping fixtures with strict offline protocol validation. These do not enable attachment uploads or sending by themselves.
 - Add offline Mail attachment regression coverage for interrupted and invalidly encoded streams, zero-byte downloads, opaque remote filenames, and MIME-type mismatches through the real service and CLI file writer.
 - Harden a private Mail date-search pagination candidate with offline cases for timestamp ties, saturated boundary buckets, concurrent changes, identity failures, and request budgets. This does not add public search pagination or infer boundary completeness from short responses.
