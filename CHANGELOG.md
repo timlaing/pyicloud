@@ -25,6 +25,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ### Changed
 
+- Raise the minimum supported `pydantic` version to `2.14.3`, keeping runtime requirements and minimum-installation constraints aligned.
+
 - Raise the minimum supported `typing-extensions` version to `4.16.0`, keeping runtime requirements and minimum-installation constraints aligned.
 
 - Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
