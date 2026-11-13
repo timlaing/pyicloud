@@ -125,6 +125,8 @@ Notes caveats:
 - The returned note still has `is_locked=True`: reading it does not change
   its lock. Device-passcode locks, locked attachment access, and locked writes
   are not supported.
+- `render_note(note_id, password=...)` renders a supported locked note as HTML
+  in memory, without resolving attachments. Locked export is not supported.
 - `get()`, `render_note()`, and `export_note()` raise `NoteNotFound` when the
   note ID does not exist.
 - `api.notes.raw` is available for advanced/debug workflows, but it is not the
@@ -355,6 +357,9 @@ custom Notes password is entered at a hidden terminal prompt, not on the
 command line. Do not combine this with `--with-attachments`. The command
 prints the decrypted note, so avoid redirecting the output to an insecure
 file or using it in a recorded terminal.
+
+Use `icloud notes render NOTE_ID --unlock` to print its rendered HTML instead.
+It uses the same hidden prompt and does not download attachments or create files.
 
 `icloud notes export` stays explicit by note id. Title filters are intentionally
 handled by `icloud notes search` rather than by bulk export flags.
