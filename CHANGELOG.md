@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog].
 
 Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
+## [Unreleased]
+
+### Changed
+
+- Support targeted multiline replacement in ordinary private Notes body
+  paragraphs while preserving formatting and linked objects outside the edit.
+
 ## [2026.11.2] - 2026-11-13
 
 ### Added
@@ -68,9 +75,6 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Raise the minimum supported `pydantic` version to `2.14.3`, keeping runtime requirements and minimum-installation constraints aligned.
 
 - Raise the minimum supported `typing-extensions` version to `4.16.0`, keeping runtime requirements and minimum-installation constraints aligned.
-
-- Support targeted multiline replacement in ordinary private Notes body
-  paragraphs while preserving formatting and linked objects outside the edit.
 
 - Drive library metadata reads (`DriveService.get_node_data`) reject HTTP redirects for all callers, including ordinary library reads, rather than following a different service route.
 
