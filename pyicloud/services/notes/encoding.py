@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from itertools import pairwise
 from uuid import uuid4
@@ -54,7 +54,7 @@ class EncodedTextReplacement:
 
     body: str = field(repr=False)
     snippet: str = field(repr=False)
-    attachment_id: str
+    attachment_id: str | None
 
 
 @dataclass(frozen=True)
@@ -567,17 +567,58 @@ def existing_image_id(compressed: bytes) -> str:
     ).id
 
 
-def _matching_run(
-    note: notes_pb2.Note, start: int, stop: int
-) -> notes_pb2.AttributeRun:
+def remove_inline_note_object(compressed: bytes, obj: InlineObject) -> EncodedNote:
+    """Tombstone one inline tag or table marker without rewriting other runs."""
+    proto = _load_document(compressed, _INLINE_OBJECT_ERROR)
+    note = proto.document.note
+    if obj.uti not in {TAG_UTI, TABLE_UTI} or obj not in _inline_objects(note):
+        raise ValueError(_INLINE_OBJECT_ERROR)
+    start = 0
+    for index, run in enumerate(note.attribute_run):
+        if run.attachment_info.attachment_identifier == obj.id:
+            stop = start + 1
+            if run.length > 1:
+                # Hashtag runs can include a paragraph newline after the marker.
+                run.length -= 1
+                run.ClearField("attachment_info")
+            else:
+                del note.attribute_run[index]
+            break
+        start += run.length
+    else:
+        raise ValueError(_INLINE_OBJECT_ERROR)
+    text = note.note_text.encode("utf-16-le")
+    title, _, body = (
+        (text[: 2 * start] + text[2 * stop :]).decode("utf-16-le").partition("\n")
+    )
+    if "\n" not in note.note_text or start <= _utf16_length(title):
+        raise ValueError(_INLINE_OBJECT_ERROR)
+    _splice_history(note, start, stop, 0)
+    note.note_text = f"{title}\n{body}"
+    if proto.ByteSize() > _MAX_DOCUMENT_BYTES:
+        raise ValueError(_INLINE_OBJECT_ERROR)
+    return _encode_fields(title, body.replace("\ufffc", " "), proto)
+
+
+def _replace_run_lengths(
+    note: notes_pb2.Note, start: int, stop: int, length: int
+) -> None:
+    runs: list[notes_pb2.AttributeRun] = []
     offset = 0
-    runs: Iterable[notes_pb2.AttributeRun] = note.attribute_run
-    for run in runs:
+    for run in note.attribute_run:
         end = offset + run.length
-        if offset <= start and stop <= end and not run.HasField("attachment_info"):
-            return run
+        overlap = max(0, min(stop, end) - max(start, offset))
+        if overlap and run.HasField("attachment_info"):
+            raise ValueError("Find text must not include a linked object")
+        updated = run.length - overlap + (length if offset <= start < end else 0)
+        if updated:
+            copy = notes_pb2.AttributeRun()
+            copy.CopyFrom(run)
+            copy.length = updated
+            runs.append(copy)
         offset = end
-    raise ValueError("Find text contained entirely within one formatting run")
+    del note.attribute_run[:]
+    note.attribute_run.extend(runs)
 
 
 def _copy_span(
@@ -631,7 +672,7 @@ def _splice_history(note: notes_pb2.Note, start: int, stop: int, length: int) ->
     inserted = False
     for span, selected in _split_visible_range(note, start, stop):
         if selected:
-            if not inserted:
+            if length and not inserted:
                 rewritten.append(
                     notes_pb2.TextSubstring(
                         char_id=notes_pb2.TextIdentifier(
@@ -703,10 +744,10 @@ def encode_checklist_state(
     return base64.b64encode(zlib.compress(proto.SerializeToString())).decode("ascii")
 
 
-def replace_image_note_text(
+def replace_inline_note_text(
     compressed: bytes, old: str, new: str
 ) -> EncodedTextReplacement:
-    """Replace one unambiguous inline match without touching the image run."""
+    """Replace one unambiguous inline match, preserving unrelated runs."""
     for text in (old, new):
         if not text or text.splitlines() != [text]:
             raise ValueError("Provide non-empty single-line text for the replacement")
@@ -715,7 +756,9 @@ def replace_image_note_text(
         raise ValueError("The replacement text must differ from the original")
     proto = _load_document(compressed, _UNSUPPORTED_ATTACHMENT_EDIT)
     note = proto.document.note
-    attachment = _image_run(note)
+    images = [obj.id for obj in _inline_objects(note) if obj.uti in _IMAGE_TYPES]
+    if len(images) > 1:
+        raise ValueError(_UNSUPPORTED_ATTACHMENT_EDIT)
     body_offset = note.note_text.find("\n") + 1
     index = note.note_text.find(old, body_offset)
     if not body_offset or index == -1 or note.note_text.find(old, index + 1) != -1:
@@ -723,7 +766,7 @@ def replace_image_note_text(
     start = _utf16_length(note.note_text[:index])
     stop = start + _utf16_length(old)
     length = _utf16_length(new)
-    _matching_run(note, start, stop).length += length - (stop - start)
+    _replace_run_lengths(note, start, stop, length)
     _splice_history(note, start, stop, length)
     note.note_text = note.note_text[:index] + new + note.note_text[index + len(old) :]
     if (
@@ -733,4 +776,6 @@ def replace_image_note_text(
         raise ValueError(_UNSUPPORTED_ATTACHMENT_EDIT)
     body = note.note_text[body_offset:].replace("\ufffc", " ")
     encoded = _encode_fields(note.note_text[: body_offset - 1], body, proto)
-    return EncodedTextReplacement(encoded.body, encoded.snippet, attachment.id)
+    return EncodedTextReplacement(
+        encoded.body, encoded.snippet, images[0] if images else None
+    )

@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog].
 
 Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
+## [Unreleased]
+
+### Added
+
+- Add private Notes tag removal, whole-table removal, and confirmed permanent
+  deletion of individual notes from Recently Deleted.
+
+### Changed
+
+- Allow targeted Notes text replacement without an image and across formatting
+  runs, preserving formatting outside the selection.
+
+### Fixed
+
+- Preserve paragraph breaks when removing a Notes tag whose formatting run
+  includes its trailing newline.
+
+### Refactored
+
+- Centralize Notes tag validation errors without changing their public messages.
+
 ## [2026.11.1] - 2026-11-12
 
 ### Fixed

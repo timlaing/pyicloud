@@ -73,7 +73,8 @@ from .encoding import (
     encode_note_edit,
     existing_image_id,
     inline_note_objects,
-    replace_image_note_text,
+    remove_inline_note_object,
+    replace_inline_note_text,
 )
 from .exceptions import (
     NoteLockedError,
@@ -158,6 +159,7 @@ _UNVERIFIED_IMAGE = (
     "Could not verify the note's existing image preview; no note write submitted"
 )
 _UNVERIFIED_PIN = "Could not verify the private note's per-user pin state"
+_UNVERIFIED_TAGS = "Could not verify existing Notes tags"
 _PIN_FIELDS = frozenset({"IsPinned", "Folder", "Note", "LastViewedModificationDate"})
 _TABLE_ASSET_FIELDS = ("MergeableDataAsset", "EncryptedValues", "EncryptedValuesAsset")
 _UNVERIFIED_TABLE = "Could not verify the table linked to this private note"
@@ -828,6 +830,24 @@ class NotesService(BaseService):
             raise NotesError("The note is already in Recently Deleted")
         return self._relocate_note(record, _TRASH_FOLDER_ID)
 
+    def delete_note_forever(
+        self, note_id: str, *, expected_change_tag: str, confirm: bool = False
+    ) -> NoteWriteResult:
+        """Permanently delete one supported private note from Recently Deleted."""
+        if confirm is not True:
+            raise ValueError("Confirm permanent deletion explicitly")
+        record, folder_id = self._require_write_note(note_id, expected_change_tag)
+        if folder_id != _TRASH_FOLDER_ID:
+            raise NotesError(
+                "Only notes in Recently Deleted can be permanently deleted"
+            )
+        compressed = record.fields.get_value("TextDataEncrypted")
+        if not isinstance(compressed, bytes) or inline_note_objects(compressed):
+            raise NotesError(_UNSUPPORTED_WRITE)
+        fields = self._existing_write_fields(record, folder_id)
+        fields["Deleted"] = NotesWriteField(value=1)
+        return self._submit_note_update(record, folder_id, fields)
+
     def set_checklist_item(
         self, note_id: str, *, item: int, checked: bool, expected_change_tag: str
     ) -> NoteWriteResult:
@@ -993,24 +1013,28 @@ class NotesService(BaseService):
     def replace_note_text(
         self, note_id: str, *, old: str, new: str, expected_change_tag: str
     ) -> NoteWriteResult:
-        """Replace one text fragment while retaining the note's existing image."""
+        """Replace one text fragment while retaining supported linked objects."""
         record, folder_id = self._require_write_note(
-            note_id, expected_change_tag, existing_image=True
+            note_id, expected_change_tag, existing_image=None
         )
         if folder_id == _TRASH_FOLDER_ID:
             raise NotesError(_RESTORE_BEFORE_EDIT)
         compressed = record.fields.get_value("TextDataEncrypted")
         if not isinstance(compressed, bytes):
             raise NotesError(_UNVERIFIED_IMAGE)
-        encoded = replace_image_note_text(compressed, old, new)
-        fields = self._preserved_write_fields(record, folder_id)
+        encoded = replace_inline_note_text(compressed, old, new)
+        fields = self._linked_parent_fields(record, folder_id, compressed)
+        if (
+            encoded.attachment_id is not None
+            and "FirstAttachmentThumbnail" not in fields
+        ):
+            fields["FirstAttachmentThumbnail"] = NotesWriteField(
+                value=self._image_preview_receipt(record, encoded.attachment_id)
+            )
         fields.update(
             SnippetEncrypted=NotesWriteField(value=encoded.snippet),
             TextDataEncrypted=NotesWriteField(value=encoded.body),
             ModificationDate=NotesWriteField(value=time.time_ns() // 1_000_000),
-            FirstAttachmentThumbnail=NotesWriteField(
-                value=self._image_preview_receipt(record, encoded.attachment_id)
-            ),
         )
         return self._submit_note_update(record, folder_id, fields)
 
@@ -1018,11 +1042,7 @@ class NotesService(BaseService):
         self, note_id: str, *, tag: str, expected_change_tag: str
     ) -> NoteTagResult:
         """Append a tag to an existing private note, preserving its other content."""
-        label = tag.removeprefix("#")
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", label):
-            raise ValueError(
-                "Use 1 to 64 ASCII letters, digits, hyphens, or underscores for a tag"
-            )
+        label = self._tag_label(tag)
         record, folder_id, compressed = self._require_linked_note(
             note_id, expected_change_tag
         )
@@ -1073,6 +1093,155 @@ class NotesService(BaseService):
             tag_id=tag_id,
             changed=True,
         )
+
+    @staticmethod
+    def _tag_label(tag: str) -> str:
+        label = tag.removeprefix("#")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", label):
+            raise ValueError(
+                "Use 1 to 64 ASCII letters, digits, hyphens, or underscores for a tag"
+            )
+        return label
+
+    def remove_note_tag(
+        self, note_id: str, *, tag: str, expected_change_tag: str
+    ) -> NoteTagResult:
+        """Remove one tag from this note, leaving the global hashtag alone."""
+        token = self._tag_label(tag).upper().encode("ascii")
+        record, folder_id, compressed = self._require_linked_note(
+            note_id, expected_change_tag
+        )
+        tag_ids = [
+            obj.id for obj in inline_note_objects(compressed) if obj.uti == TAG_UTI
+        ]
+        matches = [
+            child
+            for child in self._lookup_note_tags(note_id, tag_ids)
+            if child.fields.get_value("TokenContentIdentifierEncrypted") == token
+        ]
+        if len(matches) != 1:
+            raise NotesError("Expected exactly one matching tag on the note")
+        child = self._tag_removal_record(note_id, matches[0])
+        return self._submit_tag_removal(record, folder_id, compressed, child)
+
+    def _tag_removal_record(
+        self, note_id: str, record: CKRecord
+    ) -> NotesObjectWriteRecord:
+        fields = {
+            "Deleted": NotesWriteField(value=1),
+            "Note": NotesWriteField(
+                value=NotesFolderReference(recordName=note_id, zoneID=NOTES_ZONE_REQ)
+            ),
+        }
+        for name in (
+            "AltTextEncrypted",
+            "TokenContentIdentifierEncrypted",
+            "UTIEncrypted",
+        ):
+            value = record.fields.get_value(name)
+            if not isinstance(value, bytes):
+                raise NotesError(_UNVERIFIED_TAGS)
+            fields[name] = NotesWriteField(
+                value=base64.b64encode(value).decode("ascii")
+            )
+        created = record.fields.get_value("CreationDate")
+        version = record.fields.get_value("MinimumSupportedNotesVersion")
+        if (
+            not record.recordChangeTag
+            or not isinstance(created, datetime)
+            or not isinstance(version, int)
+            or isinstance(version, bool)
+        ):
+            raise NotesError(_UNVERIFIED_TAGS)
+        fields["CreationDate"] = NotesWriteField(value=self._date_millis(created))
+        fields["MinimumSupportedNotesVersion"] = NotesWriteField(value=version)
+        return NotesObjectWriteRecord(
+            recordName=record.recordName,
+            recordChangeTag=record.recordChangeTag,
+            recordType="InlineAttachment",
+            parent=CKWriteParent(recordName=note_id),
+            fields=fields,
+        )
+
+    def _submit_tag_removal(
+        self,
+        record: CKRecord,
+        folder_id: str,
+        compressed: bytes,
+        child: NotesObjectWriteRecord,
+    ) -> NoteTagResult:
+        note_id = record.recordName
+        try:
+            saved = self._submit_inline_object_removal(
+                record, folder_id, compressed, InlineObject(child.recordName, TAG_UTI)
+            )
+        except NotesWriteUncertain:
+            raise NotesLinkedWriteIncomplete(
+                note_id,
+                child.recordName,
+                note_state="uncertain",
+                object_state="not_submitted",
+            ) from None
+        try:
+            self._raw.modify_note(
+                NotesModifyOperation(operationType="update", record=child),
+                public_id=note_id,
+            )
+        except (NotesWriteRejected, NotesWriteUncertain) as exc:
+            raise NotesLinkedWriteIncomplete(
+                note_id,
+                child.recordName,
+                note_state="confirmed",
+                object_state="rejected"
+                if isinstance(exc, NotesWriteRejected)
+                else "uncertain",
+                error_code=exc.error_code
+                if isinstance(exc, NotesWriteRejected)
+                else None,
+            ) from None
+        return NoteTagResult(
+            id=saved.id,
+            record_change_tag=saved.record_change_tag,
+            tag_id=child.recordName,
+            changed=True,
+        )
+
+    def remove_note_table(
+        self,
+        note_id: str,
+        *,
+        table_id: str,
+        expected_change_tag: str,
+        expected_table_change_tag: str,
+        confirm: bool = False,
+    ) -> NoteWriteResult:
+        """Remove one table from the note without deleting its CloudKit record."""
+        if confirm is not True:
+            raise ValueError("Confirm whole-table removal explicitly")
+        record, folder_id, compressed = self._require_linked_note(
+            note_id, expected_change_tag
+        )
+        obj = InlineObject(table_id, TABLE_UTI)
+        if obj not in inline_note_objects(compressed):
+            raise NotesError(_UNVERIFIED_TABLE)
+        _, _, revision = self._lookup_note_table(note_id, table_id)
+        if revision != expected_table_change_tag:
+            raise NoteRevisionConflict(
+                "The table revision changed; fetch the table again"
+            )
+        return self._submit_inline_object_removal(record, folder_id, compressed, obj)
+
+    def _submit_inline_object_removal(
+        self, record: CKRecord, folder_id: str, compressed: bytes, obj: InlineObject
+    ) -> NoteWriteResult:
+        encoded = remove_inline_note_object(compressed, obj)
+        fields = self._linked_parent_fields(record, folder_id, compressed)
+        fields.update(
+            TextDataEncrypted=NotesWriteField(value=encoded.body),
+            SnippetEncrypted=NotesWriteField(value=encoded.snippet),
+            ModificationDate=NotesWriteField(value=time.time_ns() // 1_000_000),
+        )
+        return self._submit_note_update(record, folder_id, fields)
 
     def add_note_table(
         self, note_id: str, *, rows: Sequence[Sequence[str]], expected_change_tag: str
@@ -1379,7 +1548,7 @@ class NotesService(BaseService):
         if len(tags) != len(tag_ids) or {tag.recordName for tag in tags} != set(
             tag_ids
         ):
-            raise NotesError("Could not verify existing Notes tags")
+            raise NotesError(_UNVERIFIED_TAGS)
         for tag in tags:
             if (
                 tag.recordType != "InlineAttachment"
@@ -1394,7 +1563,7 @@ class NotesService(BaseService):
                     tag.fields.get_value("TokenContentIdentifierEncrypted"), bytes
                 )
             ):
-                raise NotesError("Could not verify existing Notes tags")
+                raise NotesError(_UNVERIFIED_TAGS)
         return tags
 
     def _submit_linked_note_create(

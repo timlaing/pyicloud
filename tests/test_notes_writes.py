@@ -29,7 +29,9 @@ from pyicloud.services.notes import (
     NotesWriteRejected,
     NotesWriteUncertain,
     NoteTableWriteResult,
+    NoteTagResult,
     NoteTextRun,
+    NoteWriteResult,
     RichNoteBody,
     table_encoding,
 )
@@ -43,7 +45,8 @@ from pyicloud.services.notes.encoding import (
     encode_new_note,
     encode_note_edit,
     inline_note_objects,
-    replace_image_note_text,
+    remove_inline_note_object,
+    replace_inline_note_text,
     validate_plain_document,
     validate_rich_document,
 )
@@ -1305,7 +1308,7 @@ def _image_document() -> notes_pb2.NoteStoreProto:
 def test_image_text_edit_preserves_existing_attachment_and_character_ids() -> None:
     """Only the target fragment is replaced; the styled run and image survive."""
     original = _image_document()
-    result = replace_image_note_text(
+    result = replace_inline_note_text(
         zlib.compress(original.SerializeToString()), "old", "new \U0001f600"
     )
     edited = notes_pb2.NoteStoreProto.FromString(
@@ -1325,6 +1328,41 @@ def test_image_text_edit_preserves_existing_attachment_and_character_ids() -> No
     )
 
 
+def test_targeted_text_edit_preserves_surrounding_runs_and_linked_objects() -> None:
+    """Replace across runs using the first style and preserve an unrelated tag."""
+    rich = RichNoteBody(
+        paragraphs=(
+            NoteParagraph(
+                runs=(
+                    NoteTextRun(text="Keep old", bold=True),
+                    NoteTextRun(text=" text", italic=True),
+                    NoteTextRun(text=" after", underline=True),
+                )
+            ),
+        )
+    )
+    obj = InlineObject("untouched-tag", TAG_UTI)
+    before = append_inline_note_object(
+        base64.b64decode(encode_new_note("Title", rich).body), obj
+    )
+    replaced = replace_inline_note_text(base64.b64decode(before), "old text", "new")
+    compressed = base64.b64decode(replaced.body)
+    assert replaced.attachment_id is None
+    assert inline_note_objects(compressed) == (obj,)
+    note = notes_pb2.NoteStoreProto.FromString(
+        zlib.decompress(compressed)
+    ).document.note
+    assert "Keep new after" in note.note_text
+    assert sum(span.length for span in note.substring if span.tombstone) == len(
+        "old text"
+    )
+    assert any(
+        run.length == len("Keep new")
+        and run.font_weight == notes_pb2.FontWeight.FONT_WEIGHT_BOLD
+        for run in note.attribute_run
+    )
+
+
 @pytest.mark.parametrize(
     "old,new",
     [("Title", "New"), ("\ufffc", "New"), ("old", "old"), ("old", "a\nb"), ("", "New")],
@@ -1333,7 +1371,7 @@ def test_image_edit_rejects_unsafe_replacements(old: str, new: str) -> None:
     """Do not replace titles, object markers, or ambiguous or invalid text."""
     body = zlib.compress(_image_document().SerializeToString())
     with pytest.raises(ValueError):
-        replace_image_note_text(body, old, new)
+        replace_inline_note_text(body, old, new)
 
 
 @pytest.mark.parametrize(
@@ -2058,6 +2096,230 @@ def test_trash_folder_note_is_read_as_deleted(
     assert result.is_deleted is True
     assert result.folder_id == TRASH
     assert result.record_change_tag == "old-revision"
+
+
+@pytest.mark.parametrize(
+    "case", ["saved", "no-confirm", "active", "stale", "wrong-ack"]
+)
+def test_permanent_note_delete(
+    notes: NotesService, session: MagicMock, case: str
+) -> None:
+    """Only a confirmed, revision-guarded Trash note can be marked deleted."""
+    current = _existing_note(FOLDER if case == "active" else TRASH)
+    writes = []
+
+    def post(url: str, **kwargs: Any) -> MagicMock:
+        payload = kwargs["json"]
+        if url.split("?")[0].endswith("/records/lookup"):
+            return _response({"records": [current]})
+        (op,) = payload["operations"]
+        sent = op["record"]
+        writes.append(sent)
+        assert op["operationType"] == "update"
+        assert sent["recordChangeTag"] == "old-revision"
+        assert sent["fields"]["Deleted"] == {"value": 1}
+        assert (
+            sent["fields"]["TextDataEncrypted"]["value"]
+            == current["fields"]["TextDataEncrypted"]["value"]
+        )
+        ack = _ack(sent)
+        ack["fields"]["Deleted"] = {"type": "INT64", "value": int(case != "wrong-ack")}
+        return _response({"records": [ack]})
+
+    session.post.side_effect = post
+    error = {
+        "no-confirm": ValueError,
+        "active": NotesError,
+        "stale": NoteRevisionConflict,
+        "wrong-ack": NotesWriteUncertain,
+    }.get(case)
+    kwargs = {"expected_change_tag": "stale" if case == "stale" else "old-revision"}
+    if error is not None:
+        with pytest.raises(error):
+            notes.delete_note_forever(NOTE_ID, confirm=case != "no-confirm", **kwargs)
+    else:
+        assert notes.delete_note_forever(NOTE_ID, confirm=True, **kwargs).id == NOTE_ID
+    assert len(writes) == int(case in {"saved", "wrong-ack"})
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "tag",
+        "tag-missing",
+        "tag-bad-fields",
+        "tag-parent-uncertain",
+        "tag-child-uncertain",
+        "tag-child-rejected",
+        "table",
+        "table-no-confirm",
+        "table-unlinked",
+        "table-stale",
+    ],
+)
+def test_remove_note_objects(
+    notes: NotesService, session: MagicMock, case: str
+) -> None:
+    """Unlink one object without changing surviving links or deleting shared tags."""
+    is_tag = case.startswith("tag")
+    target = InlineObject("target", TAG_UTI if is_tag else TABLE_UTI)
+    keep = InlineObject("keep", TAG_UTI)
+    current = _existing_note()
+    body = base64.b64decode(current["fields"]["TextDataEncrypted"]["value"])
+    for obj in (target, keep):
+        body = base64.b64decode(append_inline_note_object(body, obj))
+    current["fields"]["TextDataEncrypted"]["value"] = base64.b64encode(body).decode()
+
+    def child(obj: InlineObject, token: bytes) -> dict[str, Any]:
+        fields: dict[str, Any] = {
+            "Note": {"type": "REFERENCE", "value": {"recordName": NOTE_ID}},
+            "CreationDate": {"type": "TIMESTAMP", "value": 1_700_000_000_123},
+            "MinimumSupportedNotesVersion": {"type": "INT64", "value": 7},
+        }
+        for key, value in {
+            "UTIEncrypted": obj.uti.encode(),
+            "TokenContentIdentifierEncrypted": token,
+            "AltTextEncrypted": b"#Test",
+        }.items():
+            fields[key] = {
+                "type": "ENCRYPTED_BYTES",
+                "value": base64.b64encode(value).decode(),
+            }
+        if obj.uti == TABLE_UTI:
+            fields["MergeableDataEncrypted"] = {
+                "type": "ENCRYPTED_BYTES",
+                "value": encode_new_table([["Cell"]]),
+            }
+        if case == "tag-bad-fields":
+            del fields["AltTextEncrypted"]
+        return {
+            "recordName": obj.id,
+            "recordChangeTag": "child-old",
+            "recordType": "InlineAttachment" if obj.uti == TAG_UTI else "Attachment",
+            "parent": {"recordName": NOTE_ID},
+            "fields": fields,
+        }
+
+    records = {
+        NOTE_ID: current,
+        target.id: child(target, b"TEST"),
+        keep.id: child(keep, b"KEEP"),
+    }
+    writes = []
+
+    def post(url: str, **kwargs: Any) -> MagicMock:
+        payload = kwargs["json"]
+        if url.split("?")[0].endswith("/records/lookup"):
+            return _response({
+                "records": [records[ref["recordName"]] for ref in payload["records"]]
+            })
+        (op,) = payload["operations"]
+        sent = op["record"]
+        writes.append(sent["recordName"])
+        assert op["operationType"] == "update"
+        ack = _ack(sent, recordType=sent["recordType"], parent=sent["parent"])
+        if sent["recordName"] == NOTE_ID:
+            encoded = base64.b64decode(sent["fields"]["TextDataEncrypted"]["value"])
+            assert inline_note_objects(encoded) == (keep,)
+            assert (
+                "First line"
+                in notes_pb2.NoteStoreProto.FromString(
+                    zlib.decompress(encoded)
+                ).document.note.note_text
+            )
+            if case == "tag-parent-uncertain":
+                return _response({"records": []})
+        else:
+            assert sent["recordChangeTag"] == "child-old"
+            assert sent["fields"]["Deleted"] == {"value": 1}
+            if case == "tag-child-uncertain":
+                return _response({"records": []})
+            if case == "tag-child-rejected":
+                return _response({
+                    "records": [
+                        {"recordName": target.id, "serverErrorCode": "CONFLICT"}
+                    ]
+                })
+        return _response({"records": [ack]})
+
+    session.post.side_effect = post
+
+    def remove() -> NoteTagResult | NoteWriteResult:
+        if is_tag:
+            return notes.remove_note_tag(
+                NOTE_ID,
+                tag="missing" if case == "tag-missing" else "#test",
+                expected_change_tag="old-revision",
+            )
+        return notes.remove_note_table(
+            NOTE_ID,
+            table_id="unlinked" if case == "table-unlinked" else target.id,
+            expected_change_tag="old-revision",
+            expected_table_change_tag="stale" if case == "table-stale" else "child-old",
+            confirm=case != "table-no-confirm",
+        )
+
+    if case in {"tag", "table"}:
+        assert remove().id == NOTE_ID
+    elif "uncertain" in case or case == "tag-child-rejected":
+        with pytest.raises(NotesLinkedWriteIncomplete):
+            remove()
+    else:
+        with pytest.raises((NotesError, ValueError)):
+            remove()
+    if case in {"tag", "tag-child-uncertain", "tag-child-rejected"}:
+        assert writes == [NOTE_ID, target.id]
+    elif case in {"table", "tag-parent-uncertain"}:
+        assert writes == [NOTE_ID]
+    else:
+        assert not writes
+
+
+@pytest.mark.parametrize("include_newline", [False, True])
+def test_remove_tag_preserves_paragraph_break(include_newline: bool) -> None:
+    """Remove only the marker even when its run includes the paragraph newline."""
+    before = "Before \U0001f600"
+    encoded = encode_new_note("Title", f"{before}X\nAfter")
+    proto = notes_pb2.NoteStoreProto.FromString(
+        zlib.decompress(base64.b64decode(encoded.body))
+    )
+    note = proto.document.note
+    note.note_text = note.note_text.replace("X", "\ufffc")
+    prefix = notes_pb2.AttributeRun()
+    prefix.CopyFrom(note.attribute_run[2])
+    prefix.length = len(before.encode("utf-16-le")) // 2
+    marker = notes_pb2.AttributeRun()
+    marker.CopyFrom(note.attribute_run[2])
+    marker.length = 1 + int(include_newline)
+    marker.attachment_info.attachment_identifier = "target-tag"
+    marker.attachment_info.type_uti = TAG_UTI
+    note.attribute_run[2].CopyFrom(marker)
+    note.attribute_run.insert(2, prefix)
+    if not include_newline:
+        newline = notes_pb2.AttributeRun()
+        newline.CopyFrom(prefix)
+        newline.length = 1
+        note.attribute_run.insert(4, newline)
+    keep = InlineObject("keep-tag", TAG_UTI)
+    compressed = base64.b64decode(
+        append_inline_note_object(zlib.compress(proto.SerializeToString()), keep)
+    )
+    original = notes_pb2.NoteStoreProto.FromString(zlib.decompress(compressed))
+    result = remove_inline_note_object(compressed, InlineObject("target-tag", TAG_UTI))
+    removed = base64.b64decode(result.body)
+    assert inline_note_objects(removed) == (keep,)
+    edited = notes_pb2.NoteStoreProto.FromString(zlib.decompress(removed)).document.note
+    assert edited.note_text == original.document.note.note_text.replace("\ufffc", "", 1)
+    assert f"{before}\nAfter" in edited.note_text
+    assert sum(span.length for span in edited.substring if span.tombstone) == 1
+    tail_start = 4 if include_newline else 5
+    assert edited.attribute_run[4:] == original.document.note.attribute_run[tail_start:]
+    if include_newline:
+        expected = notes_pb2.AttributeRun()
+        expected.CopyFrom(marker)
+        expected.length = 1
+        expected.ClearField("attachment_info")
+        assert edited.attribute_run[3] == expected
 
 
 def _response(payload: Any, *, status: int = 200) -> MagicMock:

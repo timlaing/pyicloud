@@ -159,8 +159,10 @@ restored = api.notes.restore_note(
 ```
 
 Edits replace both the title and body. Trash moves the note to Recently Deleted;
-restore requires an explicit destination. Permanently deleting notes or writing
-shared or locked notes is not supported. Full body replacement does not support
+restore requires an explicit destination. To irreversibly remove one supported
+private note without attachments from Recently Deleted, call
+`delete_note_forever(note_id, expected_change_tag=..., confirm=True)`.
+Writing shared or locked notes is not supported. Full body replacement does not support
 notes with attachments; see the targeted image-preserving edit below. If `NotesWriteUncertain`
 is raised, look up its `note_id` before retrying: Apple may already have applied
 the write. If the revision has changed, fetch the current note and review the
@@ -200,15 +202,17 @@ expected_change_tag=...)` to change your own pin state without rewriting the
 note or advancing its content revision.
 
 Use `add_note_tag(note_id, tag="example", expected_change_tag=...)` to append an
-ASCII tag without replacing the note. Tags are matched case-insensitively on
-that note. If a linked write raises `NotesLinkedWriteIncomplete`, inspect both
+ASCII tag without replacing the note. Use `remove_note_tag` to remove one tag
+from that note without deleting the global hashtag. Tags are matched
+case-insensitively. If a linked write raises `NotesLinkedWriteIncomplete`, inspect both
 the note and the linked record before retrying; either record may already have
 been written.
 
-For a supported private note with one existing JPEG or PNG image, use
+For a supported private note, use
 `replace_note_text(note_id, old=..., new=..., expected_change_tag=...)` to
-replace one unique, single-line fragment inside a single formatting run.
-This leaves the title, other formatting, and original image in place. It does
+replace one unique, single-line fragment. Replacement text inherits the
+formatting at the start of the match. This leaves the title, formatting outside
+the match, and supported linked objects (including at most one JPEG or PNG) in place. It does
 not add or remove attachments. `move_note(note_id, folder_id=..., expected_change_tag=...)`
 moves an active private note, including a supported note with one existing image,
 without changing its text or modified time.
@@ -260,11 +264,13 @@ after each successful write:
 icloud notes update NOTE_ID --if-match REVISION --title "Example" --body-file ./body.txt
 icloud notes trash NOTE_ID --if-match UPDATED_REVISION
 icloud notes restore NOTE_ID --if-match TRASHED_REVISION --folder-id FOLDER_ID
+icloud notes delete-forever NOTE_ID --if-match TRASHED_REVISION --confirm
 icloud notes move NOTE_ID --if-match REVISION --folder-id DESTINATION_ID
 icloud notes set-checklist-item NOTE_ID --if-match REVISION --item 1 --checked
 icloud notes pin NOTE_ID --if-match REVISION
 icloud notes pin NOTE_ID --if-match REVISION --unpin
 icloud notes add-tag NOTE_ID --if-match REVISION --tag example
+icloud notes remove-tag NOTE_ID --if-match REVISION --tag example
 icloud notes replace-text NOTE_ID --if-match REVISION \
   --find-file ./old.txt --replacement-file ./new.txt
 ```
@@ -294,6 +300,15 @@ retrying blindly.
 ```bash
 icloud notes resize-table NOTE_ID --table-id TABLE_ID --axis row --action insert \
   --index 2 --if-match NOTE_REVISION --table-if-match TABLE_REVISION
+```
+
+To remove a whole table and its contents from the note, use `remove_note_table`
+or the following command. This unlinks the table; it does not delete the separate
+table record.
+
+```bash
+icloud notes remove-table NOTE_ID --table-id TABLE_ID --if-match NOTE_REVISION \
+  --table-if-match TABLE_REVISION --confirm
 ```
 
 The Python equivalents are `add_note_table`, `get_note_table`,
