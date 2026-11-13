@@ -94,8 +94,9 @@ def test_reject_invalid_locked_archive(key: str, value: object) -> None:
     """Do not traverse missing, invalid, or unexpected archive references."""
     archive = _archive()
     archive[key] = value
+    data = _plist(archive)
     with pytest.raises(ValueError, match="Unsupported custom-password"):
-        parse_locked_note_envelope(_plist(archive))
+        parse_locked_note_envelope(data)
 
 
 @pytest.mark.parametrize(
@@ -125,8 +126,9 @@ def test_reject_invalid_locked_components(index: int, value: object) -> None:
     """Refuse malformed cipher metadata and unreasonable derivation parameters."""
     archive = _archive()
     archive["$objects"][index] = value
+    data = _plist(archive)
     with pytest.raises(ValueError, match="Unsupported custom-password"):
-        parse_locked_note_envelope(_plist(archive))
+        parse_locked_note_envelope(data)
 
 
 def _encrypted_archive(plaintext: bytes = b"synthetic note body") -> dict[str, Any]:
@@ -166,10 +168,11 @@ def test_locked_note_authentication_failure(part: str) -> None:
         framed = bytearray(objects[5])
         framed[{"ciphertext": 0, "nonce": -48, "tag": -1}[part]] ^= 1
         objects[5] = bytes(framed)
+    data = _plist(archive)
     with pytest.raises(
         ValueError, match="^Could not authenticate the locked Notes body$"
     ):
-        decrypt_locked_note_body(_plist(archive), password)
+        decrypt_locked_note_body(data, password)
 
 
 @pytest.mark.parametrize(
@@ -249,8 +252,10 @@ def test_read_locked_note(
         return
     if case in {"zlib", "gzip", "raw"}:
         note = service.get("locked-note", password=password)
-        assert note.is_locked and note.record_change_tag == "revision"
-        assert note.text and "Synthetic text" in note.text
+        assert note.is_locked
+        assert note.record_change_tag == "revision"
+        assert note.text is not None
+        assert "Synthetic text" in note.text
         assert note.attachments is None
     else:
         with pytest.raises(NoteLockedError) as caught:
