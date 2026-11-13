@@ -4515,6 +4515,39 @@ def test_notes_folder_cli_rejects_ambiguous_or_unconfirmed_writes(
     assert message in str(result.exception)
 
 
+@pytest.mark.parametrize("case", ["interactive", "no-terminal", "attachments"])
+def test_notes_unlock_prompt(case: str) -> None:
+    """Prompt only on a terminal and keep the prompt out of JSON output."""
+    api = FakeAPI()
+    note = api.notes.notes["Note/DAILY"].model_copy(update={"is_locked": True})
+    args = ["notes", "get", note.id, "--unlock"]
+    if case == "attachments":
+        args.append("--with-attachments")
+    module = "pyicloud.cli.commands.notes"
+    with (
+        patch(
+            f"{module}.sys",
+            SimpleNamespace(
+                stdin=SimpleNamespace(isatty=lambda: case != "no-terminal")
+            ),
+        ),
+        patch(f"{module}.typer.prompt", return_value="synthetic password") as prompt,
+        patch.object(api.notes, "get", return_value=note) as get,
+    ):
+        result = _invoke(api, *args, output_format="json")
+    if case == "interactive":
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["is_locked"] is True
+        assert "synthetic password" not in result.output
+        prompt.assert_called_once_with("Notes password", hide_input=True, err=True)
+        get.assert_called_once_with(note.id, password="synthetic password")
+    else:
+        assert result.exit_code != 0
+        assert "--unlock" in str(result.exception)
+        prompt.assert_not_called()
+        get.assert_not_called()
+
+
 def test_notes_commands_report_errors() -> None:
     """Notes commands should surface clean selection and note-specific errors."""
 

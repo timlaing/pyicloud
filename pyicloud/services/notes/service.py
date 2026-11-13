@@ -60,6 +60,7 @@ from pyicloud.services.notes.decoding import BodyDecoder
 from pyicloud.session import PyiCloudSession
 
 from ._constants import NOTES_ZONE, NOTES_ZONE_NAME, NOTES_ZONE_REQ
+from ._locked_note import decrypt_locked_note_body
 from .client import CloudKitNotesClient
 from .domain import AttachmentId, NoteBody
 from .encoding import (
@@ -431,14 +432,21 @@ class NotesService(BaseService):
                     )
                     return
 
-    def get(self, note_id: str, *, with_attachments: bool = False) -> Note:
+    def get(
+        self,
+        note_id: str,
+        *,
+        with_attachments: bool = False,
+        password: str | None = None,
+    ) -> Note:
         """
         Return a single note with decoded text and optional attachment metadata.
 
         Args:
             note_id: The CloudKit note record identifier.
             with_attachments: When ``True``, resolve ``Attachment`` metadata and
-                include it on the returned ``Note``.
+                include it on the returned ``Note``. Not supported for locked notes.
+            password: Optional custom Notes password for local, read-only decryption.
 
         Raises:
             NoteNotFound: If the note does not exist.
@@ -462,13 +470,11 @@ class NotesService(BaseService):
         )
 
         summary = self._summary_from_record(target)
-        if summary.is_locked:
-            LOGGER.warning("Note is locked and cannot be read: %s", note_id)
-            raise NoteLockedError(
-                f"Note '{summary.title or note_id}' is locked and cannot be read."
-            )
-
-        note_body = self._decode_note_body(target)
+        note_body = (
+            self._read_locked_body(target, summary, password, with_attachments)
+            if summary.is_locked
+            else self._decode_note_body(target)
+        )
         # Minimal breadcrumbs for body decode outcome
         try:
             if note_body and note_body.text:
@@ -511,6 +517,35 @@ class NotesService(BaseService):
             attachments=attachments,
             record_change_tag=target.recordChangeTag,
         )
+
+    def _read_locked_body(
+        self,
+        record: CKRecord,
+        summary: NoteSummary,
+        password: str | None,
+        with_attachments: bool,
+    ) -> NoteBody:
+        if password is None:
+            LOGGER.warning("Note is locked and cannot be read: %s", summary.id)
+            raise NoteLockedError(
+                f"Note '{summary.title or summary.id}' is locked and cannot be read."
+            )
+        if with_attachments:
+            raise NoteLockedError(
+                "Attachments are not supported for locked Notes reads."
+            )
+        raw = record.fields.get_value("TextDataEncrypted")
+        error = "Could not read this custom-password locked note."
+        if not isinstance(raw, bytes) or not self._is_private_record(record):
+            raise NoteLockedError(error)
+        try:
+            plaintext = decrypt_locked_note_body(raw, password)
+        except ValueError:
+            raise NoteLockedError(error) from None
+        body = BodyDecoder().decode(plaintext, max_document_bytes=2 * 1024 * 1024)
+        if body is None or not body.text:
+            raise NoteLockedError(error)
+        return body
 
     def create_note(
         self, title: str, text: str | RichNoteBody = "", *, folder_id: str

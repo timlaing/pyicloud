@@ -6,6 +6,7 @@ from collections.abc import Callable
 from enum import Enum
 from itertools import islice
 from pathlib import Path
+import sys
 from typing import Any
 
 from pydantic import StrictStr, TypeAdapter, ValidationError
@@ -327,6 +328,9 @@ def notes_get(
         "--with-attachments",
         help="Include attachment metadata.",
     ),
+    unlock: bool = typer.Option(
+        False, "--unlock", help="Prompt for the custom Notes password."
+    ),
     username: UsernameOption = None,
     session_dir: SessionDirOption = None,
     http_proxy: HttpProxyOption = None,
@@ -337,6 +341,10 @@ def notes_get(
 ) -> None:
     """Get one note."""
 
+    if unlock and with_attachments:
+        raise CLIAbort("--unlock cannot be combined with --with-attachments.")
+    if unlock and not sys.stdin.isatty():
+        raise CLIAbort("--unlock requires an interactive terminal.")
     store_command_options(
         ctx,
         username=username,
@@ -350,9 +358,18 @@ def notes_get(
     state = get_state(ctx)
     api = state.get_api()
     notes = _notes_service(api)
-    note = _notes_call(
-        api, lambda: notes.get(note_id, with_attachments=with_attachments)
-    )
+    if unlock:
+        note = _notes_call(
+            api,
+            lambda: notes.get(
+                note_id,
+                password=typer.prompt("Notes password", hide_input=True, err=True),
+            ),
+        )
+    else:
+        note = _notes_call(
+            api, lambda: notes.get(note_id, with_attachments=with_attachments)
+        )
     if state.json_output:
         state.write_json(note)
         return

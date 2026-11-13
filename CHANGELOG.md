@@ -14,6 +14,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [2026.11.0] - 2026-11-12
 
+### Added
+
+- Support opt-in local reads of private iCloud Notes locked with a custom
+  Notes password, including a hidden CLI prompt.
+
 ### Security
 
 - Require certifi 2026.10.18 or newer to remove root certificates associated
