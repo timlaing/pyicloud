@@ -13,13 +13,25 @@ from cryptography.hazmat.primitives.keywrap import aes_key_wrap
 import pytest
 
 from pyicloud.common.cloudkit import CKLookupResponse
+from pyicloud.common.cloudkit.client import CloudKitContainerClient
 from pyicloud.services.notes import NotesService
 from pyicloud.services.notes._locked_note import (
     decrypt_locked_note_body,
     parse_locked_note_envelope,
+    rewrite_locked_note_body,
 )
-from pyicloud.services.notes.encoding import encode_new_note
-from pyicloud.services.notes.exceptions import NoteLockedError
+from pyicloud.services.notes.encoding import (
+    TAG_UTI,
+    InlineObject,
+    append_inline_note_object,
+    encode_new_note,
+)
+from pyicloud.services.notes.exceptions import (
+    NoteLockedError,
+    NoteRevisionConflict,
+    NotesError,
+    NotesWriteUncertain,
+)
 
 
 def _plist(value: dict[str, Any] | list[Any]) -> bytes:
@@ -255,3 +267,195 @@ def test_read_locked_note(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
     lookup.assert_called_once()
     assert lookup.call_args.kwargs["record_names"] == ["locked-note"]
     assert "password" not in lookup.call_args.kwargs
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "saved",
+        "stale",
+        "wrong-password",
+        "missing-field",
+        "extra-field",
+        "missing-date",
+        "missing-integer",
+        "missing-zone",
+        "trash",
+        "linked",
+        "wrong-ack",
+    ],
+)
+def test_locked_note_edit(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Send a guarded encrypted update without plaintext or an unprotected record."""
+    encoded = encode_new_note("Synthetic title", "Old body")
+    body = encoded.body
+    if case == "linked":
+        body = append_inline_note_object(
+            base64.b64decode(body), InlineObject("tag", TAG_UTI)
+        )
+    archive = _encrypted_archive(base64.b64decode(body))
+    zone = {
+        "zoneName": "Notes",
+        "zoneType": "REGULAR_CUSTOM_ZONE",
+        "ownerRecordName": "synthetic-owner",
+    }
+    folder_id = "TrashFolder-CloudKit" if case == "trash" else "folder"
+    folder: dict[str, Any] = {
+        "recordName": folder_id,
+        "zoneID": zone,
+        "action": "VALIDATE",
+    }
+    if case == "missing-zone":
+        del folder["zoneID"]
+    fields: dict[str, Any] = {
+        name: {"type": "BYTES", "value": base64.b64encode(b"synthetic").decode()}
+        for name in (
+            "TitleEncrypted",
+            "PasswordHint",
+            "CryptoInitializationVector",
+            "CryptoSalt",
+            "CryptoTag",
+            "CryptoWrappedKey",
+            "ReplicaIDToNotesVersionDataEncrypted",
+            "ReplicaIDToUserIDEncrypted",
+        )
+    }
+    for name in (
+        "TitleEncrypted",
+        "PasswordHint",
+        "ReplicaIDToNotesVersionDataEncrypted",
+        "ReplicaIDToUserIDEncrypted",
+    ):
+        fields[name]["type"] = "ENCRYPTED_BYTES"
+    for name in ("CreationDate", "FoldersModificationDate", "ModificationDate"):
+        fields[name] = {"type": "TIMESTAMP", "value": 1700000000000}
+    for name in (
+        "AttachmentViewType",
+        "CryptoIterationCount",
+        "Deleted",
+        "MinimumSupportedNotesVersion",
+        "PaperStyleType",
+    ):
+        fields[name] = {"type": "INT64", "value": 0}
+    fields.update(
+        Folder={"type": "REFERENCE", "value": folder},
+        Folders={"type": "REFERENCE_LIST", "value": [folder]},
+        TextDataEncrypted={
+            "type": "ENCRYPTED_BYTES",
+            "value": base64.b64encode(_plist(archive)).decode(),
+        },
+    )
+    if case == "missing-field":
+        del fields["CryptoSalt"]
+    if case == "missing-date":
+        del fields["CreationDate"]
+    if case == "missing-integer":
+        del fields["CryptoIterationCount"]
+    if case == "extra-field":
+        fields["SnippetEncrypted"] = fields["TitleEncrypted"]
+    response = CKLookupResponse.model_validate({
+        "records": [
+            {
+                "recordName": "locked-note",
+                "recordType": "PasswordProtectedNote",
+                "recordChangeTag": "revision",
+                "fields": fields,
+                "zoneID": zone,
+                "parent": {"recordName": folder_id},
+            }
+        ]
+    })
+    service = NotesService("https://example.test", MagicMock(), {})
+    monkeypatch.setattr(service.raw, "lookup", MagicMock(return_value=response))
+    check_folder = MagicMock()
+    monkeypatch.setattr(service, "_verify_note_source_folder", check_folder)
+
+    def acknowledge(
+        _path: str, payload: dict[str, Any], **options: Any
+    ) -> dict[str, Any]:
+        assert options == {"allow_redirects": False, "require_no_retry": True}
+        sent = payload["operations"][0]["record"]
+        result = response.records[0].model_dump(mode="python", exclude_none=True)
+        result["recordChangeTag"] = "new-revision"
+        result["fields"] = {
+            name: {**fields[name], "value": wrapper["value"]}
+            for name, wrapper in sent["fields"].items()
+        }
+        if case == "wrong-ack":
+            result["recordType"] = "Note"
+        return {"records": [result]}
+
+    submit = MagicMock(side_effect=acknowledge)
+    monkeypatch.setattr(CloudKitContainerClient, "raw_post", submit)
+    kwargs = {
+        "old": "Old",
+        "new": "New",
+        "password": "wrong" if case == "wrong-password" else "synthetic passphrase",
+        "expected_change_tag": "stale" if case == "stale" else "revision",
+    }
+    if case not in {"saved", "wrong-ack"}:
+        error = {
+            "stale": NoteRevisionConflict,
+            "wrong-password": NoteLockedError,
+            "missing-field": NoteLockedError,
+            "extra-field": NotesError,
+            "missing-date": NoteLockedError,
+            "missing-integer": NoteLockedError,
+            "missing-zone": NoteLockedError,
+            "trash": NotesError,
+            "linked": NoteLockedError,
+        }[case]
+        with pytest.raises(error):
+            service.replace_locked_note_text("locked-note", **kwargs)
+        submit.assert_not_called()
+        return
+    if case == "wrong-ack":
+        with pytest.raises(NotesWriteUncertain):
+            service.replace_locked_note_text("locked-note", **kwargs)
+    else:
+        result = service.replace_locked_note_text("locked-note", **kwargs)
+        assert result.record_change_tag == "new-revision"
+    check_folder.assert_called_once_with("folder")
+    submit.assert_called_once()
+    path, payload = submit.call_args.args
+    assert path == "/records/modify"
+    (sent,) = payload["operations"]
+    assert sent["operationType"] == "update"
+    assert sent["record"]["recordType"] == "PasswordProtectedNote"
+    assert sent["record"]["recordChangeTag"] == "revision"
+    assert sent["record"]["createShortGUID"] is True
+    sent_fields = sent["record"]["fields"]
+    assert set(sent_fields) == set(fields)
+    assert sent_fields["Folder"]["value"] == folder
+    rewritten = base64.b64decode(sent_fields["TextDataEncrypted"]["value"])
+    assert b"New body" not in rewritten
+    parsed = parse_locked_note_envelope(rewritten)
+    original = parse_locked_note_envelope(_plist(archive))
+    assert (
+        parsed.metadata == original.metadata
+        and parsed.wrapped_key == original.wrapped_key
+    )
+    assert parsed.encrypted_data[-48:-16] != original.encrypted_data[-48:-16]
+    decrypted = decrypt_locked_note_body(rewritten, "synthetic passphrase")
+    assert b"New body" in zlib.decompress(decrypted)
+
+
+@pytest.mark.parametrize("case", ["nonce-reuse", "oversized"])
+def test_rewrite_locked_note_rejects_unsafe_result(
+    case: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Refuse nonce reuse and archives that would exceed the reader's limit."""
+    archive = _plist(_encrypted_archive())
+    if case == "nonce-reuse":
+        monkeypatch.setattr(
+            "pyicloud.services.notes._locked_note.urandom",
+            lambda size: bytes(range(32, 32 + size)),
+        )
+    with pytest.raises(
+        ValueError, match="fresh Notes nonce|Unsupported custom-password"
+    ):
+        rewrite_locked_note_body(
+            archive,
+            "synthetic passphrase",
+            lambda body: bytes(1024 * 1024) if case == "oversized" else body,
+        )

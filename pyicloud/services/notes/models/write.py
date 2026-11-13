@@ -98,7 +98,7 @@ class NotesWriteRecord(CKModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     recordName: str
-    recordType: Literal["Note"] = "Note"
+    recordType: Literal["Note", "PasswordProtectedNote"] = "Note"
     fields: dict[str, NotesWriteField] = Field(repr=False)
     parent: CKWriteParent | None = None
     createShortGUID: bool | None = None
@@ -166,6 +166,11 @@ class NotesModifyOperation(CKModel):
     @model_validator(mode="after")
     def _validate_revision(self) -> NotesModifyOperation:
         tag = self.record.recordChangeTag
+        if (
+            self.record.recordType == "PasswordProtectedNote"
+            and self.operationType != "update"
+        ):
+            raise ValueError("Protected Notes records can only be updated")
         if self.operationType == "update" and (tag is None or not tag.strip()):
             raise ValueError("A Notes update requires a record change tag")
         if self.operationType == "create" and tag is not None:

@@ -8,6 +8,11 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 ## [Unreleased]
 
+### Added
+
+- Add revision-checked, single-line text replacement for supported private
+  Notes protected with a custom Notes password, without removing the lock.
+
 ### Security
 
 - Run weekly Python and GitHub Actions CodeQL analysis independently of pull-request validation.

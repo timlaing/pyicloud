@@ -123,7 +123,7 @@ Notes caveats:
   custom Notes password. Without it, or if authentication fails, `get()`
   raises `NoteLockedError`. The password is used locally and is not sent to Apple.
 - The returned note still has `is_locked=True`: reading it does not change
-  its lock. Device-passcode locks, locked attachment access, and locked writes
+  its lock. Device-passcode locks and locked attachment access
   are not supported.
 - `get()`, `render_note()`, and `export_note()` raise `NoteNotFound` when the
   note ID does not exist.
@@ -162,7 +162,13 @@ Edits replace both the title and body. Trash moves the note to Recently Deleted;
 restore requires an explicit destination. To irreversibly remove one supported
 private note without attachments from Recently Deleted, call
 `delete_note_forever(note_id, expected_change_tag=..., confirm=True)`.
-Writing shared or locked notes is not supported. Full body replacement does not support
+Writing shared notes is not supported. For supported private notes locked with a
+custom Notes password, the Python API can replace one unique, single-line body
+fragment using `replace_locked_note_text(note_id, old=..., new=..., password=...,
+expected_change_tag=...)`. The password stays local, and only the authenticated,
+re-encrypted body is sent. Locked notes with attachments or other linked objects
+are not supported by this method. Other locked writes remain unsupported.
+Full body replacement does not support
 notes with attachments; see the targeted image-preserving edit below. If `NotesWriteUncertain`
 is raised, look up its `note_id` before retrying: Apple may already have applied
 the write. If the revision has changed, fetch the current note and review the
