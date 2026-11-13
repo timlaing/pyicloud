@@ -210,8 +210,11 @@ been written.
 
 For a supported private note, use
 `replace_note_text(note_id, old=..., new=..., expected_change_tag=...)` to
-replace one unique, single-line fragment. Replacement text inherits the
-formatting at the start of the match. This leaves the title, formatting outside
+replace one unique fragment, which may span ordinary body paragraphs.
+Replacement text inherits the inline formatting at the start of the match.
+Multiline edits must preserve the title separator and final paragraph break
+and cannot touch paragraphs containing headings, list items, checklists, or
+linked objects. This leaves the title, formatting outside
 the match, and supported linked objects (including at most one JPEG or PNG) in place. It does
 not add or remove attachments. `move_note(note_id, folder_id=..., expected_change_tag=...)`
 moves an active private note, including a supported note with one existing image,
@@ -274,6 +277,10 @@ icloud notes remove-tag NOTE_ID --if-match REVISION --tag example
 icloud notes replace-text NOTE_ID --if-match REVISION \
   --find-file ./old.txt --replacement-file ./new.txt
 ```
+
+For `replace-text`, both UTF-8 files can contain multiple lines. The CLI ignores
+one final newline in each file; internal newlines are part of the exact match
+or replacement.
 
 To append a table without replacing existing note content, pass a UTF-8 JSON
 file containing equal-length rows, such as `[["Item", "Status"], ["Example", ""]]`.

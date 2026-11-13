@@ -4506,10 +4506,10 @@ def test_notes_new_write_commands(command: str) -> None:
     else:
         folder = _unique_session_dir("notes-replace")
         old, new = folder / "old.txt", folder / "new.txt"
-        old.write_text("old text\n", encoding="utf-8")
-        new.write_text("new text\n", encoding="utf-8")
+        old.write_text("old text\nsecond line\n", encoding="utf-8")
+        new.write_text("new text\nupdated line\n", encoding="utf-8")
         args += ["--find-file", str(old), "--replacement-file", str(new)]
-        kwargs.update(old="old text", new="new text")
+        kwargs.update(old="old text\nsecond line", new="new text\nupdated line")
     method = (
         "replace_note_text" if command == "replace-text" else command.replace("-", "_")
     )
