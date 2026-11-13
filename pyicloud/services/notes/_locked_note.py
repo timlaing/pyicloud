@@ -36,7 +36,7 @@ def _read_plist(data: bytes, limit: int) -> dict[str, Any]:
         raise ValueError(_INVALID)
     try:
         parsed = plistlib.loads(data)
-    except (plistlib.InvalidFileException, OverflowError, RecursionError, ValueError):
+    except (OverflowError, RecursionError, ValueError):
         raise ValueError(_INVALID) from None
     if not isinstance(parsed, dict):
         raise ValueError(_INVALID)
