@@ -47,6 +47,8 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Support opt-in local reads of private iCloud Notes locked with a custom
   Notes password, including a hidden CLI prompt.
+- Render supported custom-password locked Notes as HTML without fetching
+  attachments or writing an export file.
 
 - Add private Notes tag removal, whole-table removal, and confirmed permanent
   deletion of individual notes from Recently Deleted.

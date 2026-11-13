@@ -99,6 +99,15 @@ def _notes_call(api: PyiCloudService, fn: Callable[[], Any]) -> Any:
         raise CLIAbort(str(err)) from err
 
 
+def _require_unlock_terminal(unlock: bool) -> None:
+    if unlock and not sys.stdin.isatty():
+        raise CLIAbort("--unlock requires an interactive terminal.")
+
+
+def _prompt_notes_password() -> str:
+    return str(typer.prompt("Notes password", hide_input=True, err=True))
+
+
 def _print_note_rows(state: CLIState, title: str, rows: list[Any]) -> None:
     """Render note summary rows in text mode."""
 
@@ -343,8 +352,7 @@ def notes_get(
 
     if unlock and with_attachments:
         raise CLIAbort("--unlock cannot be combined with --with-attachments.")
-    if unlock and not sys.stdin.isatty():
-        raise CLIAbort("--unlock requires an interactive terminal.")
+    _require_unlock_terminal(unlock)
     store_command_options(
         ctx,
         username=username,
@@ -363,7 +371,7 @@ def notes_get(
             api,
             lambda: notes.get(
                 note_id,
-                password=typer.prompt("Notes password", hide_input=True, err=True),
+                password=_prompt_notes_password(),
             ),
         )
     else:
@@ -966,6 +974,9 @@ def notes_delete_folder(
 def notes_render(
     ctx: typer.Context,
     note_id: str = typer.Argument(..., help="Note id."),
+    unlock: bool = typer.Option(
+        False, "--unlock", help="Prompt for the custom Notes password."
+    ),
     preview_appearance: PreviewAppearance = typer.Option(
         PreviewAppearance.LIGHT,
         "--preview-appearance",
@@ -987,6 +998,7 @@ def notes_render(
 ) -> None:
     """Render a note to HTML."""
 
+    _require_unlock_terminal(unlock)
     store_command_options(
         ctx,
         username=username,
@@ -1000,18 +1012,25 @@ def notes_render(
     state = get_state(ctx)
     api = state.get_api()
     notes = _notes_service(api)
+    config = {
+        "preview_appearance": preview_appearance.value,
+        "pdf_object_height": pdf_height,
+    }
     html = _notes_call(
         api,
         lambda: notes.render_note(
             note_id,
-            preview_appearance=preview_appearance.value,
-            pdf_object_height=pdf_height,
+            **config,
+            **({"password": _prompt_notes_password()} if unlock else {}),
         ),
     )
     if state.json_output:
         state.write_json({"note_id": note_id, "html": html})
         return
-    state.console.print(html, soft_wrap=True)
+    if unlock:
+        typer.echo(html)
+    else:
+        state.console.print(html, soft_wrap=True)
 
 
 @app.command("export")
