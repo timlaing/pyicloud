@@ -123,8 +123,13 @@ Notes caveats:
   custom Notes password. Without it, or if authentication fails, `get()`
   raises `NoteLockedError`. The password is used locally and is not sent to Apple.
 - The returned note still has `is_locked=True`: reading it does not change
-  its lock. Device-passcode locks, locked attachment access, and locked writes
-  are not supported.
+  its lock. Device-passcode locks and locked writes are not supported.
+- For supported locked JPEG and PNG attachments, use
+  `locked_attachment_ids(note_id, password=...)`, then
+  `download_locked_attachment(note_id, attachment_id, password=...)`.
+  These Python methods do not change the note or write files. Downloads are
+  authenticated before any plaintext is returned and capped at 16 MiB of
+  encrypted data. Locked attachments are not included in `get()`.
 - `get()`, `render_note()`, and `export_note()` raise `NoteNotFound` when the
   note ID does not exist.
 - `api.notes.raw` is available for advanced/debug workflows, but it is not the

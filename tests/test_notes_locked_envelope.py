@@ -15,11 +15,100 @@ import pytest
 from pyicloud.common.cloudkit import CKLookupResponse
 from pyicloud.services.notes import NotesService
 from pyicloud.services.notes._locked_note import (
+    MAX_LOCKED_ASSET_BYTES,
+    decrypt_locked_note_asset,
     decrypt_locked_note_body,
     parse_locked_note_envelope,
 )
 from pyicloud.services.notes.encoding import encode_new_note
-from pyicloud.services.notes.exceptions import NoteLockedError
+from pyicloud.services.notes.exceptions import NoteLockedError, NotesError
+from pyicloud.services.notes.protobuf import notes_pb2
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "jpeg",
+        "png",
+        "unlinked",
+        "wrong-owner",
+        "wrong-media",
+        "bad-image",
+        "bad-archive",
+    ],
+)
+def test_download_locked_attachment(case: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only download a verified note-owned asset and authenticate its contents."""
+    uti = "public.png" if case == "png" else "public.jpeg"
+    image = b"\x89PNG\r\n\x1a\n" if case == "png" else b"\xff\xd8\xff"
+    raw = base64.b64decode(encode_new_note("Test", "Image").body)
+    doc = notes_pb2.NoteStoreProto.FromString(zlib.decompress(raw))
+    ref = doc.document.note.attribute_run.add(length=1).attachment_info
+    ref.attachment_identifier = "image"
+    ref.type_uti = uti
+    doc.document.note.note_text += "\ufffc"
+    archive = _plist(_encrypted_archive(zlib.compress(doc.SerializeToString())))
+    asset = _plist(
+        _encrypted_archive(image if case != "bad-image" else b"not an image")
+    )
+    payloads = [
+        {
+            "recordName": "note",
+            "recordType": "PasswordProtectedNote",
+            "fields": {
+                "TextDataEncrypted": {
+                    "type": "ENCRYPTED_BYTES",
+                    "value": base64.b64encode(archive).decode(),
+                },
+            },
+        },
+        {
+            "recordName": "image",
+            "recordType": "Attachment",
+            "parent": {
+                "recordName": "other" if case == "wrong-owner" else "note",
+            },
+            "fields": {
+                "UTI": {"type": "STRING", "value": uti},
+                "Note": {"type": "REFERENCE", "value": {"recordName": "note"}},
+                "Media": {"type": "REFERENCE", "value": {"recordName": "media"}},
+            },
+        },
+        {
+            "recordName": "media",
+            "recordType": "Media",
+            "parent": {
+                "recordName": "other" if case == "wrong-media" else "note",
+            },
+            "fields": {
+                "Asset": {"type": "ASSETID", "value": {"size": len(asset)}},
+            },
+        },
+    ]
+    service = NotesService("https://example.test", MagicMock(), {})
+    lookup = MagicMock(
+        side_effect=[
+            CKLookupResponse.model_validate({"records": [record]})
+            for record in payloads
+        ]
+    )
+    download = MagicMock(return_value=b"invalid" if case == "bad-archive" else asset)
+    monkeypatch.setattr(service.raw, "lookup", lookup)
+    monkeypatch.setattr(
+        "pyicloud.services.notes.service.download_locked_asset", download
+    )
+    args = ("note", "unlinked" if case == "unlinked" else "image")
+    if case in {"jpeg", "png"}:
+        assert (
+            service.download_locked_attachment(*args, password="synthetic passphrase")
+            == image
+        )
+    else:
+        with pytest.raises(NotesError, match="locked Notes attachment"):
+            service.download_locked_attachment(*args, password="synthetic passphrase")
+    assert download.call_count == int(
+        case in {"jpeg", "png", "bad-image", "bad-archive"}
+    )
 
 
 def _plist(value: dict[str, Any] | list[Any]) -> bytes:
@@ -141,6 +230,34 @@ def _encrypted_archive(plaintext: bytes = b"synthetic note body") -> dict[str, A
     ciphertext_and_tag = AESGCM(key).encrypt(nonce, plaintext, objects[3])
     objects[5] = ciphertext_and_tag[:-16] + nonce + ciphertext_and_tag[-16:]
     return archive
+
+
+def test_locked_asset_has_separate_size_budget() -> None:
+    """Allow an asset larger than a note body without raising the body limit."""
+    image = b"synthetic image bytes" * 60000
+    archive = _plist(_encrypted_archive(image))
+    with pytest.raises(ValueError, match="Unsupported custom-password"):
+        parse_locked_note_envelope(archive)
+    assert decrypt_locked_note_asset(archive, "synthetic passphrase") == image
+
+
+@pytest.mark.parametrize("case", ["oversized", "wrong-password", "tampered"])
+def test_locked_asset_rejects_invalid_input(case: str) -> None:
+    """Never release image bytes when the archive cannot be authenticated."""
+    archive = _encrypted_archive(b"synthetic image bytes")
+    if case == "tampered":
+        framed = archive["$objects"][5]
+        archive["$objects"][5] = framed[:-1] + bytes([framed[-1] ^ 1])
+    data = (
+        b"bplist00" + bytes(MAX_LOCKED_ASSET_BYTES)
+        if case == "oversized"
+        else _plist(archive)
+    )
+    password = "wrong password" if case == "wrong-password" else "synthetic passphrase"
+    with pytest.raises(
+        ValueError, match="Unsupported custom-password|Could not authenticate"
+    ):
+        decrypt_locked_note_asset(data, password)
 
 
 def test_decrypt_locked_note_body() -> None:
