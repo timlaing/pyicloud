@@ -6,9 +6,12 @@ The format is based on [Keep a Changelog].
 
 Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semver.org/). Starting with the next release after `2.7.0`, versions will follow [CalVer](https://calver.org/) format (`YYYY.M.PATCH`).
 
-## [Unreleased]
+## [2026.11.2] - 2026-11-13
 
 ### Added
+
+- Support opt-in local reads of private iCloud Notes locked with a custom
+  Notes password, including a hidden CLI prompt.
 
 - Add private Notes tag removal, whole-table removal, and confirmed permanent
   deletion of individual notes from Recently Deleted.
@@ -27,6 +30,13 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 
 - Centralize Notes tag validation errors without changing their public messages.
 
+- Simplify locked Notes envelope error handling without changing supported
+  formats or error messages.
+
+### Tests
+
+- Clarify locked Notes authentication and read assertions.
+
 ## [2026.11.1] - 2026-11-12
 
 ### Fixed
@@ -34,11 +44,6 @@ Releases from `2.0.0b6` up to `2.7.0` follow [Semantic Versioning](https://semve
 - Allow Pydantic 2.14.2 to preserve compatibility with Home Assistant's pinned dependency.
 
 ## [2026.11.0] - 2026-11-12
-
-### Added
-
-- Support opt-in local reads of private iCloud Notes locked with a custom
-  Notes password, including a hidden CLI prompt.
 
 ### Security
 
